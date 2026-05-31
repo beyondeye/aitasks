@@ -14,6 +14,8 @@ source "${SCRIPT_DIR}/lib/terminal_compat.sh"
 source "${SCRIPT_DIR}/lib/archive_utils.sh"
 # shellcheck source=yaml_utils.sh
 source "${SCRIPT_DIR}/lib/yaml_utils.sh"
+# shellcheck source=python_resolve.sh
+source "${SCRIPT_DIR}/lib/python_resolve.sh"
 
 # --- Default directory variables (override before sourcing if needed) ---
 TASK_DIR="${TASK_DIR:-aitasks}"
@@ -365,9 +367,24 @@ get_user_email() {
 
 # Read the last-used labels list from userconfig.yaml (per-user).
 # Output: CSV string (e.g. "ui,backend"), empty when field or file is absent.
+# Delegates to the yaml-aware userconfig_persist.py so both flow- and
+# block-style values are read correctly; falls back to a flow-only grep read
+# when no Python interpreter is available (read-only, never corrupts).
 get_last_used_labels() {
     local config="${TASK_DIR:-aitasks}/metadata/userconfig.yaml"
     [[ -f "$config" ]] || return 0
+
+    local py out
+    py="$(resolve_python 2>/dev/null || true)"
+    if [[ -n "$py" ]]; then
+        if out="$(TASK_DIR="${TASK_DIR:-aitasks}" "$py" \
+            "${SCRIPT_DIR}/lib/userconfig_persist.py" get-labels 2>/dev/null)"; then
+            printf '%s' "$out"
+            return 0
+        fi
+    fi
+
+    # Fallback (no Python): flow-style single-line read only.
     local line
     line=$(grep '^last_used_labels:' "$config" 2>/dev/null) || true
     [[ -z "$line" ]] && return 0
@@ -379,15 +396,34 @@ get_last_used_labels() {
 
 # Write the last-used labels list to userconfig.yaml (per-user).
 # Input: CSV string (e.g. "ui,backend") — empty is valid and writes "[]".
-# Creates the file with the standard header if it does not exist.
-# Replaces the field in-place when present, otherwise appends it.
+# Delegates to the yaml-aware userconfig_persist.py, which round-trips the whole
+# file safely so it can never orphan a prior block-style value into invalid
+# YAML. Falls back to a block-safe bash writer when no Python is available.
 set_last_used_labels() {
     local csv="${1:-}"
     local config="${TASK_DIR:-aitasks}/metadata/userconfig.yaml"
-    local dir
-    dir="$(dirname "$config")"
-    mkdir -p "$dir"
+    mkdir -p "$(dirname "$config")"
 
+    local py
+    py="$(resolve_python 2>/dev/null || true)"
+    if [[ -n "$py" ]]; then
+        if TASK_DIR="${TASK_DIR:-aitasks}" "$py" \
+            "${SCRIPT_DIR}/lib/userconfig_persist.py" set-labels "$csv" 2>/dev/null; then
+            return 0
+        fi
+    fi
+
+    _set_last_used_labels_fallback "$csv" "$config"
+}
+
+# Block-safe bash writer, used only when no Python interpreter is available.
+# Writes flow style ([a, b]) and, when replacing an existing value, also removes
+# any block-style continuation lines ("- item") that followed the header — so a
+# value previously written in block style cannot orphan list items into invalid
+# YAML. Deletion stops at the first non-list line, so a following block such as
+# "shortcuts:" is never touched.
+_set_last_used_labels_fallback() {
+    local csv="$1" config="$2"
     local yaml_list
     if [[ -z "$csv" ]]; then
         yaml_list="[]"
@@ -404,7 +440,14 @@ set_last_used_labels() {
     fi
 
     if grep -q '^last_used_labels:' "$config" 2>/dev/null; then
-        sed_inplace "s|^last_used_labels:.*\$|last_used_labels: ${yaml_list}|" "$config"
+        local tmp
+        tmp="$(mktemp)"
+        awk -v repl="last_used_labels: ${yaml_list}" '
+            drop && /^[[:space:]]*-[[:space:]]/ { next }
+            drop { drop=0 }
+            /^last_used_labels:/ { print repl; drop=1; next }
+            { print }
+        ' "$config" > "$tmp" && mv "$tmp" "$config"
     else
         echo "last_used_labels: $yaml_list" >> "$config"
     fi

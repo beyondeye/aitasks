@@ -3,64 +3,17 @@
 Reads/writes the `shortcuts:` section of `aitasks/metadata/userconfig.yaml`,
 preserving sibling top-level keys (`email`, `last_used_labels`, ...).
 
-Writes are atomic (`os.replace` of a temp file in the same directory).
-YAML comments are not preserved — no existing helper in this framework
-preserves them either (`config_utils.save_yaml_config` uses PyYAML safe_dump),
-so vendoring `ruamel.yaml` just for shortcuts would be out of proportion.
+The low-level whole-file round-trip (`_load_full` / `_atomic_dump`) lives in
+`userconfig_persist`, the single persistence module for userconfig.yaml, so the
+shortcut writer and the bash `last_used_labels` writer can never disagree on the
+file's representation. Writes are atomic; YAML comments are not preserved.
 """
 
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
-
-import yaml
-
 import keybinding_registry
 
-
-_USERCONFIG_HEADER = "# Local user configuration (gitignored, not shared)\n"
-
-
-def _userconfig_path() -> Path:
-    return Path("aitasks/metadata/userconfig.yaml")
-
-
-def _load_full() -> dict:
-    path = _userconfig_path()
-    if not path.is_file():
-        return {}
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    return data if isinstance(data, dict) else {}
-
-
-def _atomic_dump(data: dict) -> None:
-    path = _userconfig_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=str(path.parent), prefix=".userconfig.", suffix=".yaml.tmp"
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            # Emit a leading comment so freshly-created files match the
-            # convention established by the task-workflow Step 4 userconfig
-            # writer. Existing files keep whatever header they had — yaml
-            # round-trip strips comments, and we deliberately don't try to
-            # preserve them.
-            if not path.is_file():
-                f.write(_USERCONFIG_HEADER)
-            yaml.safe_dump(
-                data, f, default_flow_style=False, sort_keys=False, allow_unicode=True
-            )
-        os.replace(tmp_name, path)
-    except Exception:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+from userconfig_persist import _atomic_dump, _load_full
 
 
 def save_override(scope: str, action_id: str, key: str) -> None:
