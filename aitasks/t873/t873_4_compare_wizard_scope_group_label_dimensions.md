@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t873_3]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [brainstorming, ait_brainstorm, ui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 13:14
-updated_at: 2026-05-31 13:14
+updated_at: 2026-05-31 17:43
 ---
 
 Fix defects #4 and #5 of parent t873: the compare wizard's dimension list is too long to be usable and shows cryptic keys with no meaning.

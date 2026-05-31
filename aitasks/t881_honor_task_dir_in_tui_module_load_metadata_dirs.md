@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [tui, python]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-31 16:48
-updated_at: 2026-05-31 17:16
+updated_at: 2026-05-31 17:33
 boardidx: 40
 ---
 
