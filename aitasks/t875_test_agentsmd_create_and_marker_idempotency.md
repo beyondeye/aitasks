@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [testing, agents_md, ait_setup]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 12:54
-updated_at: 2026-05-31 12:54
+updated_at: 2026-05-31 16:37
 ---
 
 Add AGENTS.md-specific coverage to `tests/test_agent_instructions.sh`. The suite
