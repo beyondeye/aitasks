@@ -159,10 +159,12 @@ tooling that resolves the path lives in follow-up tasks.
 
 ## What is NOT in scope (planned for follow-ups)
 
-- Parser/tooling for `aitasks#835_3` notation (currently authoring-only).
 - Cross-project parent linkage (`--project X --parent Y`).
 - Auto-clone from `git_remote` on `NOT_FOUND`.
-- `ait projects remove` / `ait projects prune` verbs.
-- TUI switcher integration to surface registered-but-inactive projects
-  (t826_2).
-- User-facing website workflow documentation (t826_3).
+
+## See also
+
+- User-facing workflow guide:
+  `website/content/docs/workflows/multi_project.md` — the registry,
+  `ait projects`, cross-repo task creation, and notation, written for end
+  users.
