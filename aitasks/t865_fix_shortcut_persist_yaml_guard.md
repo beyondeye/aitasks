@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 10:27
-updated_at: 2026-05-31 10:27
+updated_at: 2026-05-31 10:58
 ---
 
 ## Origin
