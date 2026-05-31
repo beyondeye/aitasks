@@ -6,8 +6,9 @@ issue_type: chore
 status: Implementing
 labels: [codexcli]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-31 10:38
-updated_at: 2026-05-31 10:45
+updated_at: 2026-05-31 11:13
 ---
 
 Follow-up to t862 (Codex caveats docs update).

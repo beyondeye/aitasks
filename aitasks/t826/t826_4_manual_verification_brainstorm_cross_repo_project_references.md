@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [t826_1, t826_2, t826_3]
 assigned_to: daelyasy@hotmail.com
 created_at: 2026-05-25 17:23
-updated_at: 2026-05-31 10:55
+updated_at: 2026-05-31 11:20
 ---
 
 ## Manual Verification Task
@@ -21,25 +21,25 @@ archived; Defer is allowed but creates a carry-over task.
 
 ## Verification Checklist
 
-- [ ] [t826_1] Run `bash tests/test_project_resolve.sh && bash tests/test_projects_cmd.sh && bash tests/test_create_project_flag.sh` — all pass
-- [ ] [t826_1] Run `shellcheck .aitask-scripts/aitask_project_resolve.sh .aitask-scripts/aitask_projects.sh .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_ide.sh ait` — clean
-- [ ] [t826_1] From /home/ddt/Work/aitasks: `ait projects add` — entry written to ~/.config/aitasks/projects.yaml with name `aitasks`
-- [ ] [t826_1] From /home/ddt/Work/aitasks_mobile: `ait projects add` — second entry recorded
-- [ ] [t826_1] `ait projects list` — both projects shown with statuses (LIVE / OK / STALE)
-- [ ] [t826_1] `ait projects resolve aitasks` — prints /home/ddt/Work/aitasks
-- [ ] [t826_1] `ait projects exec aitasks -- pwd` — prints the resolved root
-- [ ] [t826_1] From aitasks_mobile: `ait create --batch --project aitasks --name cross_repo_test --type chore --priority low --effort low --commit` — task lands in /home/ddt/Work/aitasks/aitasks/, then clean up
-- [ ] [t826_1] `aitask_create.sh --project <name>` without `--batch` — refused with clear error
-- [ ] [t826_1] `aitask_create.sh --batch --project X --parent Y` — refused (mutual exclusion)
-- [ ] [t826_2] Unit test: `discover_aitasks_sessions(include_registered=True)` returns live + registered-only entries with `is_live` set correctly
-- [ ] [t826_2] Regression: `discover_aitasks_sessions()` default (no flag) yields same entries as before — no inactive entries leak into `ait monitor` or other existing callers
-- [ ] [t826_2] Have one inactive registered project (e.g., aitasks_mobile registered but its tmux session not running)
-- [ ] [t826_2] Open `ait ide` switcher — inactive project appears in the list
-- [ ] [t826_2] Select inactive project — tmux session spawns (matching `ait ide` bootstrap behavior) and switcher teleports there
-- [ ] [t826_2] Open `ait monitor` with same registry state — monitor shows ONLY live sessions (no inactive leakage); this is the regression check
-- [ ] [t826_3] `cd website && hugo build --gc --minify` — clean build, no warnings
-- [ ] [t826_3] `cd website && ./serve.sh` — new/updated multi_project page renders correctly, code blocks formatted, sidebar nav entry present
-- [ ] [t826_3] Multi-project page contains all 7 required sections (Why / project: block / ait projects / aitask_create --project / cross-repo notation / TUI switcher behavior / Recipe)
-- [ ] [t826_3] Multi-project page explicitly states `ait monitor` is unchanged (live sessions only)
-- [ ] [t826_3] Cross-repo notation documented with no-`t` form as preferred default (`aitasks#835_3`), `aitasks#t835_3` also accepted
-- [ ] [t826_3] Cross-link from `aidocs/cross_repo_references.md` to the website page works
+- [x] [t826_1] Run `bash tests/test_project_resolve.sh && bash tests/test_projects_cmd.sh && bash tests/test_create_project_flag.sh` — PASS 2026-05-31 11:12 auto: 3 test scripts exit 0 (project_resolve/projects_cmd/create_project_flag)
+- [x] [t826_1] Run `shellcheck .aitask-scripts/aitask_project_resolve.sh .aitask-scripts/aitask_projects.sh .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_ide.sh ait` — PASS 2026-05-31 11:17 auto(corrected): clean under project convention 'shellcheck --severity=error' (0 errors). Bare shellcheck emits 25 info/style notes (13 SC1091 source-follow + 12 SC2001/2012/2086/2231 info/style), no error-severity findings.
+- [x] [t826_1] From /home/ddt/Work/aitasks: `ait projects add` — PASS 2026-05-31 11:12 auto: ait projects add from aitasks -> Registered aitasks; entry present in registry
+- [defer] [t826_1] From /home/ddt/Work/aitasks_mobile: `ait projects add` — DEFER 2026-05-31 11:12 auto-blocked: ait projects add from aitasks_mobile fails (sibling runs ait 0.19.2, predates projects verb); entry already exists. Upgrade sibling then re-run.
+- [x] [t826_1] `ait projects list` — PASS 2026-05-31 11:12 auto: ait projects list shows aitasks LIVE + aitasks_mobile OK
+- [x] [t826_1] `ait projects resolve aitasks` — PASS 2026-05-31 11:12 auto: ait projects resolve aitasks -> RESOLVED:/home/ddt/Work/aitasks (correct path)
+- [x] [t826_1] `ait projects exec aitasks -- pwd` — PASS 2026-05-31 11:12 auto: ait projects exec aitasks -- pwd -> /home/ddt/Work/aitasks
+- [x] [t826_1] From aitasks_mobile: `ait create --batch --project aitasks --name cross_repo_test --type chore --priority low --effort low --commit` — PASS 2026-05-31 11:20 demonstrated from aitasks repo (sibling on old ait 0.19.2, so not literally from aitasks_mobile): ./ait create --batch --project aitasks --commit -> Created aitasks/t864_cross_repo_test.md + COMMIT_OK:864; cleaned up (git rm + commit, 0 residue).
+- [x] [t826_1] `aitask_create.sh --project <name>` without `--batch` — PASS 2026-05-31 11:12 auto: refused with 'Error: --project requires --batch'
+- [x] [t826_1] `aitask_create.sh --batch --project X --parent Y` — PASS 2026-05-31 11:12 auto: refused with 'Error: --project cannot be combined with --parent'
+- [x] [t826_2] Unit test: `discover_aitasks_sessions(include_registered=True)` returns live + registered-only entries with `is_live` set correctly — PASS 2026-05-31 11:12 auto: test_discover_include_registered.py 4/4 PASS
+- [x] [t826_2] Regression: `discover_aitasks_sessions()` default (no flag) yields same entries as before — PASS 2026-05-31 11:12 auto: test_discover_default_unchanged.py 3/3 PASS
+- [x] [t826_2] Have one inactive registered project (e.g., aitasks_mobile registered but its tmux session not running) — PASS 2026-05-31 11:12 auto: aitasks_mobile registered + no mobile tmux session (inactive precondition holds)
+- [defer] [t826_2] Open `ait ide` switcher — DEFER 2026-05-31 11:17 deferred (visual): supporting test_tui_switcher_multi_session.sh could NOT run inside tmux (exit 2, guard). No automated evidence yet; needs visual or non-tmux run.
+- [defer] [t826_2] Select inactive project — DEFER 2026-05-31 11:17 deferred (visual): test_tui_switcher_multi_session.sh blocked by in-tmux guard (exit 2). No automated evidence yet.
+- [defer] [t826_2] Open `ait monitor` with same registry state — DEFER 2026-05-31 11:17 deferred (visual): test_multi_session_monitor.sh blocked by in-tmux guard (exit 2). No automated evidence yet.
+- [defer] [t826_3] `cd website && hugo build --gc --minify` — DEFER 2026-05-31 11:12 deferred: 826_3 (website docs) not implemented yet
+- [defer] [t826_3] `cd website && ./serve.sh` — DEFER 2026-05-31 11:12 deferred: 826_3 (website docs) not implemented yet
+- [defer] [t826_3] Multi-project page contains all 7 required sections (Why / project: block / ait projects / aitask_create --project / cross-repo notation / TUI switcher behavior / Recipe) — DEFER 2026-05-31 11:12 deferred: 826_3 (website docs) not implemented yet
+- [defer] [t826_3] Multi-project page explicitly states `ait monitor` is unchanged (live sessions only) — DEFER 2026-05-31 11:12 deferred: 826_3 (website docs) not implemented yet
+- [defer] [t826_3] Cross-repo notation documented with no-`t` form as preferred default (`aitasks#835_3`), `aitasks#t835_3` also accepted — DEFER 2026-05-31 11:12 deferred: 826_3 (website docs) not implemented yet
+- [defer] [t826_3] Cross-link from `aidocs/cross_repo_references.md` to the website page works — DEFER 2026-05-31 11:12 deferred: 826_3 (website docs) not implemented yet

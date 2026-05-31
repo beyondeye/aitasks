@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [memories, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 11:21
-updated_at: 2026-05-31 11:21
+updated_at: 2026-05-31 11:23
 ---
 
 Audit the active Claude Code memory store for this project and consolidate
