@@ -317,13 +317,21 @@ Otherwise, use `AskUserQuestion`:
 - Header: "Proceed"
 - Options:
   - "Start implementation" (description: "Begin implementing the approved plan")
-  - "Revise plan" (description: "Re-enter plan mode to make changes")
+  - "Revise plan" (description: "Show the full plan, re-enter plan mode, and request specific changes")
   - "Approve and stop here" (description: "Approve the plan, release the lock, revert task to Ready, and end the workflow — pick it up later in a fresh context")
   - "Abort task" (description: "Stop and revert task status")
 
 If "Start implementation": Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `plan_file`, and `active_profile` from context. If the procedure returns ("Continue anyway"), proceed to Step 7. If it ends the workflow ("Stop and re-verify plan" or "Abort task"), stop.
 
-If "Revise plan": Return to the beginning of Step 6.
+If "Revise plan":
+
+1. Re-enter plan mode with `EnterPlanMode`.
+2. **Show the current plan in full.** Read the saved plan file (`aiplans/<plan_file>`) and present its complete content to the user. Do NOT condense it to "main points" or ask which section to change via a fixed multiple-choice list — the user needs the actual plan visible to decide what to revise.
+3. **Find out what to change.** If the user already named a specific modification (in their message or via the `AskUserQuestion` "Other" free-text option), apply it directly. Otherwise, ask the user what they would like to change and accept a free-text answer.
+4. Edit the plan in plan mode to incorporate the requested changes.
+5. `ExitPlanMode`, then re-run **Save Plan to External File** to persist the revised plan, and return to **this Checkpoint** to re-present the approval prompt with the revised plan shown. Repeat the revise loop until the user selects "Start implementation" or "Approve and stop here".
+
+Do NOT return to the beginning of Step 6 — that re-triggers the 6.0 existing-plan preference check and, on profiles with `plan_preference: use_current`, skips plan mode entirely and bounces straight back here without ever showing or revising the plan.
 
 If "Approve and stop here":
 
