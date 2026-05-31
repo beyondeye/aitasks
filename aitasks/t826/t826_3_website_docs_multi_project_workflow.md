@@ -3,12 +3,12 @@ priority: medium
 effort: low
 depends: [t826_2]
 issue_type: documentation
-status: Implementing
+status: Ready
 labels: [website, docs, cross_repo]
-assigned_to: dario-e@beyond-eye.com
+assigned_to: ''
 implemented_with: claudecode/opus4_7_1m
 created_at: 2026-05-25 17:18
-updated_at: 2026-05-27 14:08
+updated_at: 2026-05-31 10:21
 ---
 
 ## Context
@@ -23,6 +23,9 @@ for it.
 
 Depends on t826_1 and t826_2 — documentation should reflect the actually
 shipped surface, not a forecasted design.
+
+IMPORTANT UPDATE: Since we introduced this task we have implemented many additional features for cross-repo support (task 832), need to reevaluate the scope 
+of this documentation task. and need to create an additional followup-task to document the additional features introduced in 832
 
 ## Key Files to Modify or Create
 
