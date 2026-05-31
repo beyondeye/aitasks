@@ -19,3 +19,11 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t886
+
+## Verification Checklist
+
+- [ ] Open `ait board` on a task carrying >=2 cross-repo refs; focus the card and press `#` — picker shows >=2 refs plus a Cancel button
+- [ ] Inside the picker, press Tab repeatedly — focus cycles ref -> ref -> Cancel -> ref within the popup and never jumps out to the board search box
+- [ ] Press Enter on a focused non-first ref — it opens that cross-repo task
+- [ ] Press Escape inside the picker — the picker closes (Escape-dismiss still works)
+- [ ] On the base board (no modal open), press Tab — focus still moves to the search box (base behavior preserved)
