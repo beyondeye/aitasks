@@ -1,20 +1,24 @@
 # Codex CLI Interactive Skill Prerequisites
 
-These prerequisites apply to all interactive Codex CLI skills. Check them
-BEFORE reading or executing the source Claude Code skill.
+These notes apply to interactive Codex CLI skills that use
+`request_user_input` for prompts (task confirmation, plan approval, commit and
+merge review).
 
-## Plan Mode Required
+## Interactive prompts work in default mode
 
-This skill uses `request_user_input` for interactive prompts. This function
-**only works in plan mode** (Suggest mode). In other modes, all user prompts
-are silently skipped, causing the skill to make wrong decisions or skip
-critical steps.
+`ait setup` enables the `default_mode_request_user_input` feature in the
+generated `.codex/config.toml`, so `request_user_input` is available in
+Codex's **default mode** — you do not need to be in plan/Suggest mode for
+prompts to surface. In default mode the model is steered to prefer assumptions
+and ask only when a decision is unavoidable, so treat the framework's
+load-bearing checkpoints (plan approval, commit review, merge approval) as
+prompts that must not be skipped.
 
-**Check:** If you are NOT running in plan mode, STOP immediately and
-display this message to the user:
+## Plan-mode launches are handled by the wrapper
 
-> This skill requires **plan mode** to work correctly.
-> Please switch to plan mode and re-run the skill.
-> Without plan mode, interactive prompts are silently skipped.
-
-Do NOT proceed with the skill workflow until plan mode is confirmed.
+You do not need to switch modes yourself. When the planning skills
+(`aitask-pick`, `aitask-explore`) are launched through `ait codeagent invoke`
+or `ait skillrun`, the wrapper starts Codex in plan mode automatically (it
+types `/plan` into the composer) — plan mode reliably surfaces those skills'
+commit/merge approval prompts and suits their planning phase. The analysis
+skills (`aitask-qa`, `aitask-explain`) are launched directly in default mode.

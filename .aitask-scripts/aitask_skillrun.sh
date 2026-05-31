@@ -31,6 +31,8 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=.aitask-scripts/lib/agent_string.sh
 source "$SCRIPT_DIR/lib/agent_string.sh"
+# shellcheck source=.aitask-scripts/lib/codex_plan_policy.sh
+source "$SCRIPT_DIR/lib/codex_plan_policy.sh"
 
 cd "$REPO_ROOT"
 
@@ -231,11 +233,18 @@ case "$PARSED_AGENT" in
         CMD=("$binary" "$model_flag" "$cli_id" --prompt "/${full_skill} ${forwarded}")
         ;;
     codex)
-        # Codex doesn't accept slash commands directly; drive via pexpect helper.
-        # Codex prompt syntax uses '$' prefix (mirroring aitask_codeagent.sh).
-        PYTHON="$(require_ait_python)"
+        # Codex doesn't accept slash commands directly; the prompt uses the '$'
+        # skill-invocation prefix (mirroring aitask_codeagent.sh).
         codex_prompt="\$${full_skill} ${forwarded}"
-        CMD=("$PYTHON" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$codex_prompt" "--" "$binary" "$model_flag" "$cli_id")
+        # Planning skills go through the /plan PTY helper; analysis skills
+        # (qa, explain) launch directly in Codex default mode. See
+        # lib/codex_plan_policy.sh (shared with aitask_codeagent.sh).
+        if codex_skill_forces_plan_mode "$skill"; then
+            PYTHON="$(require_ait_python)"
+            CMD=("$PYTHON" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$codex_prompt" "--" "$binary" "$model_flag" "$cli_id")
+        else
+            CMD=("$binary" "$model_flag" "$cli_id" "$codex_prompt")
+        fi
         ;;
 esac
 

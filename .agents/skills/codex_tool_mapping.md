@@ -4,7 +4,7 @@ When the source skill references Claude Code tools, use these Codex CLI equivale
 
 | Claude Code Tool | Codex CLI Equivalent | Notes |
 |---|---|---|
-| `AskUserQuestion` | `functions.request_user_input` | Max 3 questions per call, max 3 options per question. Only works in Suggest mode. |
+| `AskUserQuestion` | `functions.request_user_input` | Max 3 questions per call, max 3 options per question. Available in default mode via the `default_mode_request_user_input` feature (`ait setup` enables it), as well as plan/Suggest mode. In default mode the model prefers assumptions, so reserve prompts for genuinely unavoidable decisions. |
 | `Bash(command)` | `functions.exec_command(command)` | Direct equivalent |
 | `Read(file)` | `functions.exec_command("cat <file>")` | Use cat for file reading |
 | `Write(file, content)` | `functions.apply_patch(...)` | Use Add File patch for new files |
@@ -30,8 +30,11 @@ skill presents 4 options:
 2. Or split into two sequential prompts
 3. Or drop the least essential option
 
-`request_user_input` only works in **Suggest mode**. If running in a mode
-where user input is not available, use execution profiles or reasonable defaults.
+`request_user_input` is available in **default mode** (via the
+`default_mode_request_user_input` feature that `ait setup` enables) as well as
+plan/Suggest mode. In default mode the model is steered toward assumptions, so
+issue prompts only for decisions that genuinely cannot be defaulted. If user
+input is unavailable, fall back to execution profiles or reasonable defaults.
 
 ### Plan Mode
 

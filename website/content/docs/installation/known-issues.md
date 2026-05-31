@@ -22,7 +22,7 @@ Use stronger reasoning/model settings when you need reliable workflow compliance
 
 `ait setup` enables the `default_mode_request_user_input` feature in the generated Codex config (`.codex/config.toml`), so `request_user_input` is available in Codex's default mode. Interactive workflow checkpoints — task confirmation, plan approval, and commit review — work throughout the `aitask-*` workflow, including post-implementation finalization (commit, archive).
 
-> `ait codeagent invoke` still launches interactive Codex skill operations (`pick`, `explain`, `qa`, `explore`) through plan mode; whether that remains necessary is under review.
+> `ait codeagent invoke` launches the planning skills (`pick`, `explore`) through plan mode — it reliably surfaces their commit and merge approval prompts and suits the planning phase. The analysis skills (`qa`, `explain`) run in Codex's default mode.
 
 #### Model self-identification is unreliable
 

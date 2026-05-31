@@ -16,6 +16,8 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck source=lib/agent_string.sh
 source "$SCRIPT_DIR/lib/agent_string.sh"
+# shellcheck source=lib/codex_plan_policy.sh
+source "$SCRIPT_DIR/lib/codex_plan_policy.sh"
 
 # --- Constants ---
 # DEFAULT_AGENT_STRING, METADATA_DIR, SUPPORTED_AGENTS, PARSED_AGENT, PARSED_MODEL,
@@ -431,28 +433,27 @@ build_invoke_command() {
             ;;
         codex)
             case "$operation" in
-                pick)
-                    local prompt
-                    prompt=$(build_skill_prompt "\$aitask-pick" "${args[@]}")
-                    CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
-                    ;;
-                explain)
-                    local prompt
-                    prompt=$(build_skill_prompt "\$aitask-explain" "${args[@]}")
-                    CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
-                    ;;
-                qa)
-                    local prompt
-                    prompt=$(build_skill_prompt "\$aitask-qa" "${args[@]}")
-                    CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
-                    ;;
-                explore)
-                    local prompt
-                    prompt=$(build_skill_prompt "\$aitask-explore")
-                    CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
-                    ;;
                 batch-review|raw)
                     CMD+=("${args[@]}")
+                    ;;
+                *)
+                    # Skill launches: build the $aitask-* composer prompt, then
+                    # branch on the plan-mode policy. Planning skills (pick,
+                    # explore) go through the /plan PTY helper; analysis skills
+                    # (qa, explain) launch directly in Codex's default mode.
+                    # See lib/codex_plan_policy.sh.
+                    local prompt
+                    case "$operation" in
+                        pick)    prompt=$(build_skill_prompt "\$aitask-pick" "${args[@]}") ;;
+                        explain) prompt=$(build_skill_prompt "\$aitask-explain" "${args[@]}") ;;
+                        qa)      prompt=$(build_skill_prompt "\$aitask-qa" "${args[@]}") ;;
+                        explore) prompt=$(build_skill_prompt "\$aitask-explore") ;;
+                    esac
+                    if codex_skill_forces_plan_mode "$operation"; then
+                        CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
+                    else
+                        CMD=("$binary" "$model_flag" "$cli_id" "$prompt")
+                    fi
                     ;;
             esac
             ;;

@@ -89,6 +89,7 @@ setup_test_env() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$tmpdir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$tmpdir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/agent_string.sh" "$tmpdir/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/codex_plan_policy.sh" "$tmpdir/.aitask-scripts/lib/"
     chmod +x "$tmpdir/.aitask-scripts/aitask_codeagent.sh"
     chmod +x "$tmpdir/.aitask-scripts/aitask_codex_plan_invoke.py"
 
@@ -222,21 +223,25 @@ assert_contains "codex pick dry-run contains task number" "42" "$output"
 assert_contains "codex pick dry-run contains codex binary" "codex" "$output"
 assert_contains "codex pick dry-run contains codex model" "gpt-5.4" "$output"
 
-# Test 11c: Codex explain/qa/explore also use plan-mode helper
-echo "--- Test 11c: Codex other skill dry-runs use plan helper ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke explain src/main.py 2>&1)
-assert_contains "codex explain dry-run uses helper" "aitask_codex_plan_invoke" "$output"
-assert_contains "codex explain dry-run contains aitask-explain" "aitask-explain" "$output"
-assert_contains "codex explain dry-run contains path" "src/main.py" "$output"
-
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke qa 42 2>&1)
-assert_contains "codex qa dry-run uses helper" "aitask_codex_plan_invoke" "$output"
-assert_contains "codex qa dry-run contains aitask-qa" "aitask-qa" "$output"
-assert_contains "codex qa dry-run contains task number" "42" "$output"
-
+# Test 11c: Codex explore (a planning skill) also uses the plan-mode helper
+echo "--- Test 11c: Codex explore dry-run uses plan helper ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke explore 2>&1)
 assert_contains "codex explore dry-run uses helper" "aitask_codex_plan_invoke" "$output"
 assert_contains "codex explore dry-run contains aitask-explore" "aitask-explore" "$output"
+
+# Test 11c2: Codex analysis skills (qa, explain) launch directly in default mode
+echo "--- Test 11c2: Codex qa/explain dry-runs bypass the plan helper ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke explain src/main.py 2>&1)
+assert_not_contains "codex explain bypasses plan helper" "aitask_codex_plan_invoke" "$output"
+assert_contains "codex explain dry-run contains aitask-explain" "aitask-explain" "$output"
+assert_contains "codex explain dry-run contains path" "src/main.py" "$output"
+assert_contains "codex explain dry-run contains codex binary" "codex" "$output"
+
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke qa 42 2>&1)
+assert_not_contains "codex qa bypasses plan helper" "aitask_codex_plan_invoke" "$output"
+assert_contains "codex qa dry-run contains aitask-qa" "aitask-qa" "$output"
+assert_contains "codex qa dry-run contains task number" "42" "$output"
+assert_contains "codex qa dry-run contains codex binary" "codex" "$output"
 
 # Test 11d: Codex passthrough operations do not use plan-mode helper
 echo "--- Test 11d: Codex passthrough dry-runs stay direct ---"
