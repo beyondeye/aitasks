@@ -303,12 +303,13 @@ grep -c 'email:' aitasks/metadata/userconfig.yaml      # still 1 after an import
 ```
 
 ## Notes for sibling task t848_6 (docs)
-Document the export contract precisely: a "Shortcuts" category in the settings
-export emits a derived top-level `shortcuts` member (the `shortcuts:` subtree
-only) into the `.aitcfg.json` bundle; import **deep-merges** it into
-`userconfig.yaml`, never overwriting `email`/`last_used_labels`. The `ExportScreen`
-gained an additive `preset_categories` arg and `ImportScreen` surfaces a
-`shortcuts` selection entry — both back-compatible (default args / conditional).
+Document the export contract precisely: a "Shortcuts" category in the **general**
+settings Export (`e`) / Import (`i`) flow emits a derived top-level `shortcuts`
+member (the `shortcuts:` subtree only) into the `.aitcfg.json` bundle; import
+**deep-merges** it into `userconfig.yaml`, never overwriting
+`email`/`last_used_labels`. There is no separate shortcuts-only export/import
+action — it is one checkbox category in the existing Export/Import screens, and
+`ImportScreen` surfaces a `shortcuts` selection entry when the bundle carries one.
 
 ## Notes for sibling task t848_9 (eager sub-scope registration + `?`-as-shared)
 This task introduces `lib/shortcut_scopes.py` (`KNOWN_BINDING_SOURCES` +
@@ -322,6 +323,130 @@ this shared manifest — flag this in the Final Implementation Notes so the t848
 task description can be adjusted. Once `?` is registered under `shared` (t848_9),
 it will appear once under `shared` in the Settings tab automatically (the
 shared-action de-dup in `register_app_bindings` already handles it).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-31 — UX fixes on the Shortcuts tab)
+- **Requested by user:** Three UX issues: (1) redundant scrollbars — the tab had
+  an outer `VerticalScroll` plus the scrollable `DataTable`; (2) the tab did not
+  follow the settings nav convention (↑/↓ between options incl. the tab title;
+  ←/→ switches tabs when the title is focused) — ↓ from the tab title didn't land
+  on the first table row and ↑ at the top didn't return to the tab title;
+  (3) buttons should sit at the bottom and have keyboard shortcuts.
+- **Changes made:**
+  1. The Shortcuts tab content is now a non-scrolling `Vertical(id="shortcuts_content")`
+     (was `VerticalScroll`); the `DataTable` is `height: 1fr` and scrolls itself.
+     Removed the redundant outer scrollbar.
+  2. `_nav_vertical` now treats a focused `DataTable` as the "options" list: ↑/↓
+     move the row cursor internally and **hand off at the boundaries** — ↑ at row 0
+     focuses the tab title (`Tabs`), ↓ past the last row moves to the buttons.
+     Removed the `on_key` early-return guard that previously let the DataTable
+     swallow arrows. Entering the tab (via `s` / ↓ from the title) focuses the
+     table at row 0.
+  3. Buttons moved to the **bottom** (mounted after the table). Each gained a
+     footer-visible, shortcut-tab-contextual key: **d** Reset scope, **x** Export
+     shortcuts, **o** Import shortcuts, **l** Lint. Gated to the Shortcuts tab via
+     a new `SettingsApp.check_action` (hidden from the footer / inert on other
+     tabs). Button labels show the key; the hint line lists them.
+- **Files affected:** `.aitask-scripts/settings/settings_app.py`,
+  `tests/test_settings_shortcuts_tab.py` (added `NavigationTests`: arrow nav
+  title↔table, `check_action` gating, `l`→lint, `d`→reset-confirm).
+
+### Change Request 2 (2026-05-31 — button keys: off-footer + inline-rendered labels)
+- **Requested by user:** The `d/x/o/l` keys showed in the footer on every tab
+  while also having dedicated buttons on the Shortcuts tab — redundant. Keep
+  only the buttons (no footer entries), and render each button's label with the
+  existing `(X)`-style helper (e.g. `E(x)port shortcuts`), not a trailing `(x)`.
+- **Changes made:**
+  1. The four `sc_*` `Binding`s are now `show=False` — the keys still work
+     (gated to the Shortcuts tab by `check_action`) but never appear in the
+     footer. (`check_action`-based hiding alone was insufficient in this Textual
+     version; `show=False` is authoritative.)
+  2. Button labels now use `shortcut_labels.render_label(text, key)`:
+     `(D) Reset scope`, `E(X)port shortcuts`, `Imp(O)rt shortcuts`,
+     `(L)int coherence`. Hint line reworded to point at the buttons + their
+     parenthesized keys.
+- **Files affected:** `.aitask-scripts/settings/settings_app.py`,
+  `tests/test_settings_shortcuts_tab.py` (added
+  `test_buttons_render_shortcut_key_in_label`, asserting the rendered labels and
+  `show=False`).
+
+### Change Request 3 (2026-05-31 — drop redundant Export/Import shortcut buttons)
+- **Requested by user:** The tab's dedicated "Export shortcuts" / "Import
+  shortcuts" buttons are redundant — the general Export (`e`) / Import (`i`)
+  already include the "Shortcuts" bundle category. (User also asked why the
+  `(X)` label letter is uppercased: that is the pre-existing t848_2 `(X)plore`
+  convention in `shortcut_labels.render_label`, shared by every TUI's button
+  labels — left unchanged here; any change is a cross-cutting follow-up.)
+- **Changes made:**
+  - Removed the `btn_sc_export` / `btn_sc_import` buttons, the `x`/`o`
+    (`sc_export`/`sc_import`) bindings, `action_sc_export`/`action_sc_import`,
+    their `on_button_pressed` branches, and the `_SHORTCUT_TAB_ACTIONS` entries.
+    The tab now has only **Reset scope (d)** and **Lint coherence (l)** buttons.
+  - Reverted the `ExportScreen` `preset_categories` constructor arg (now unused)
+    — `ExportScreen` is back to its original no-arg form. The "Shortcuts"
+    `EXPORT_CATEGORIES` entry + `_handle_export` sentinel handling + the
+    `ImportScreen` shortcuts entry all remain (the general e/i flow).
+- **Files affected:** `.aitask-scripts/settings/settings_app.py`,
+  `tests/test_settings_shortcuts_tab.py` (replaced the preset test with
+  `test_general_export_screen_has_shortcuts_category`; trimmed the button-label
+  test to the two remaining buttons).
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **NEW `.aitask-scripts/lib/shortcut_scopes.py`** — `KNOWN_BINDING_SOURCES`
+    (declared list of TUI *module files*) + `register_all_known_bindings()`: a
+    fail-soft, run-once sweep that imports each module by file path
+    (`spec_from_file_location`, mirroring the coverage test's recipe) and
+    introspects its classes for `_shortcuts_scope`+`BINDINGS`, registering them
+    **without instantiating** any App/Screen. Module import also covers
+    class-body/module-level registrations (`brainstorm.dag`, `shared`).
+  - `keybinding_registry.iter_all_bindings()` — complete cross-TUI binding list.
+  - `config_utils.export_all_configs(include_shortcuts=…)` adds only the
+    `shortcuts:` subtree as a top-level bundle member; `import_all_configs`
+    deep-merges it into `userconfig.yaml`, preserving `email`/`last_used_labels`.
+  - `settings_app.py` — Shortcuts tab (`s`): single `DataTable` of every TUI's
+    bindings (sweep runs once in `_populate_shortcuts_tab`, then row-clear/refill
+    on repaint), Enter→`ShortcutEditorModal`, bottom buttons **(D) Reset scope**
+    / **(L)int coherence** (keys `show=False`, gated by `check_action`,
+    labels via `render_label`), arrow-nav integrated with the tab-title↔table
+    convention, "Shortcuts" export category (sentinel→`include_shortcuts`),
+    `ImportScreen` shortcuts entry, and the pre-existing `_populate_tmux_tab()`
+    omission in `_handle_import`/`action_reload_configs` fixed.
+  - `aidocs/tui_conventions.md` — "New TUIs / dialogs must register in the
+    global shortcut manifest" rule + drift-guard reference.
+  - Tests: `test_shortcut_scopes.py` (source-scan drift guard),
+    `test_config_utils_shortcuts.py` (6), `test_settings_shortcuts_tab.py` (15).
+- **Deviations from plan:** (1) `_populate_shortcuts_tab` builds chrome once and
+  clears/refills rows instead of re-mounting (a fixed-id DataTable races the
+  deferred `remove_children`). (2) The sweep runs once per app (guard flag) — it
+  re-executes module bodies, and `_DEFAULTS` persists for the process. (3)
+  `KNOWN_BINDING_SOURCES` lists module files (not per-class entries) + class
+  introspection, so in-module dialogs are auto-covered. (4) The dedicated tab
+  Export/Import buttons + `ExportScreen.preset_categories` were dropped (CR3) —
+  the general `e`/`i` flow's "Shortcuts" category covers it.
+- **Issues encountered:** `aitask_board` needs `.aitask-scripts/board` on
+  `sys.path` (`task_yaml` sibling) — the sweep adds each manifest module's dir
+  (no basename collisions across TUI dirs). Heavy multi-tab repopulate makes
+  `pilot.pause()` time out in tests (not a runtime bug — the merge is
+  synchronous; tests assert the file directly).
+- **Key decisions:** global manifest lives in its own `lib/` module (registry
+  must not import TUIs → circular); drift guard scans source so a new
+  scope/module fails CI until added; button mnemonics rendered with the existing
+  `(X)plore` helper (uppercase letter is that shared t848_2 convention, left
+  unchanged).
+- **Upstream defects identified:** None. (The `_handle_import` missing
+  `_populate_tmux_tab()` repaint was a pre-existing omission in the same file,
+  fixed inline here — not a separate follow-up.)
+- **Notes for sibling tasks:**
+  - **t848_6 (docs):** see "Notes for sibling task t848_6" above — shortcuts
+    export/import is the general Export(`e`)/Import(`i`) flow's "Shortcuts"
+    category; import deep-merges, never clobbering `email`/`last_used_labels`.
+  - **t848_9 (eager sub-scope + `?`-as-shared):** reuse
+    `lib/shortcut_scopes.py` (`KNOWN_BINDING_SOURCES` + sweep) instead of a
+    parallel per-App mechanism; once `?` registers under `shared`, it appears
+    once under `shared` in this tab automatically. t848_9's "not a dependency of
+    t848_5" framing is superseded by this shared manifest.
 
 ## Post-implementation (workflow)
 Step 8 user review (non-skippable) → Step 8b/8c follow-ups → Step 9 child
