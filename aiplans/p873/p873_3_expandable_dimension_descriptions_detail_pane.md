@@ -133,3 +133,48 @@ shortcuts, not a per-row inner-widget key.
 Follow task-workflow Step 8 (review/commit) and Step 9 (archival/merge).
 Record the chosen inline-auto-height approach (fallback not taken) and any
 upstream defect in the plan's Final Implementation Notes.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the verified plan exactly. In
+  `DimensionRow` (`.aitask-scripts/brainstorm/brainstorm_app.py`): added an
+  `expanded` bool (default `False`); added a `space` branch to `on_key` that
+  flips `expanded`, sets `self.styles.height` to `"auto"`/`1`, and calls
+  `self.refresh(layout=True)`; added a `▸`/`▾` caret prefix to `render()`
+  (full value unchanged — height alone gates visibility). In
+  `_render_node_detail_widgets`, added a dim hint `Static`
+  (`space: expand/collapse · enter: jump to proposal`) right under the
+  `Dimensions:` header. New light Pilot test
+  `tests/test_brainstorm_dimension_row_expand.py` (2 cases) asserts `space`
+  grows/shrinks the row's `size.height` (1 → multi-line → 1) and that `enter`
+  still posts `DimensionRow.Activated` without toggling.
+- **Deviations from plan:** None of substance. The inline auto-height approach
+  was confirmed viable during the verify pass (containers are `height: auto`,
+  `Static` wraps at `width: 1fr`), so the plan's `ModalScreen` fallback
+  (original step 5) was **not** taken. The test asserts the behavioural
+  `size.height` rather than poking `styles.height` Scalar internals — more
+  robust and version-independent.
+- **Issues encountered:** Full suite = 909 tests, 1 failure:
+  `test_desync_state.test_changelog_warns_for_data_desync_and_ignores_bad_helper_output`.
+  Pre-existing and unrelated — the test's fake-repo fixture is missing
+  `.aitask-scripts/lib/python_resolve.sh` (sourced transitively by
+  `task_utils.sh`), identical to the failure recorded in the t873_2 archived
+  plan. Not touched by this task (which only edits `brainstorm_app.py` + adds a
+  test). All brainstorm tests pass.
+- **Key decisions:** Kept the lightweight per-row `on_key` style instead of
+  `register_app_bindings`/`_shortcuts_scope` — consistent with the row's
+  existing Enter handler; `space` is a per-row inner-widget key, not an
+  App/screen operation, so the global shortcut-manifest machinery does not
+  apply. Discoverability is surfaced via the pane's own hint line, per
+  `aidocs/tui_conventions.md:172` (inner-pane widgets hint in header text;
+  the footer rule at `:266` targets screen-level ops). `refresh(layout=True)`
+  is required so the parent container reflows when a row grows/shrinks.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** `DimensionRow` now owns per-row `expanded`
+  state and a `space` key; any sibling adding a new per-row key must avoid
+  `space`/`enter`. The detail pane's Dimensions section now emits a hint
+  `Static` (`classes="meta_field"`) immediately after the `Dimensions:` header
+  in `_render_node_detail_widgets` — keep it adjacent to the header if the
+  surrounding rendering is refactored. The `test_brainstorm_dimension_row_expand.py`
+  `_HostApp` pattern (mount one `DimensionRow`, focus, `pilot.press`) is a
+  reusable harness for exercising the row in isolation.
