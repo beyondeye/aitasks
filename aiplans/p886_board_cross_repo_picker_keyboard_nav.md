@@ -140,3 +140,29 @@ fires when a modal is pushed.
   required.
 - Step 9 (Post-Implementation): commit on current branch, no worktree
   (profile `fast`), then archive via `aitask_archive.sh 886`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added one guard clause in `KanbanApp.check_action`
+  (`.aitask-scripts/board/aitask_board.py`, just after the existing `nav_*`
+  guard): `if action == "focus_search" and len(self.screen_stack) > 1: return
+  False`. Added a new Pilot-based regression test
+  `tests/test_board_picker_tab_nav.py` (2 tests).
+- **Deviations from plan:** None. Implemented exactly the recommended
+  "gate only `focus_search`" approach; did **not** gate `focus_board` (the
+  task text suggested both) because Escape already works via the modal-aware
+  `action_focus_board`, and gating it would re-route Escape across ~20 modals
+  with no benefit — rationale captured in the plan's "Why NOT also gate
+  `focus_board`" section.
+- **Issues encountered:** `pytest` is not installed in `~/.aitask/venv`; ran
+  the test via `python3 -m unittest` (the runner `tests/run_all_python_tests.sh`
+  has this exact fallback). Textual 8.2.7. Both new tests verified to FAIL
+  with the fix removed (focus stays stuck on the picker's first item — the
+  reported symptom) and PASS with it; existing `tests/test_board_view_filter.py`
+  (9 tests) still green.
+- **Key decisions:** Used the documented "blanket" `check_action` remedy from
+  `aidocs/tui_conventions.md` ("Priority bindings + `App.query_one` gotcha")
+  rather than per-modal bindings, so the fix covers every current/future
+  pushed modal, not just the cross-repo picker.
+- **Upstream defects identified:** None.
+
