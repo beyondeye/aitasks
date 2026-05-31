@@ -69,10 +69,11 @@ items are deferred to the interactive loop.
 - Output (trimmed): exit_resolve=0 exit_projects=0 exit_create=0.
 - Verdict: pass.
 
-### Item 2 — pass
-- Action: `shellcheck` (and `shellcheck -x`) on the five targets.
-- Output (trimmed): bare run exit 1 with 25 warnings, **all SC1091** ("not following sourced file"); `shellcheck -x` exit 0, zero warnings.
-- Verdict: pass — scripts are lint-clean; SC1091 are informational source-follow notes, not defects.
+### Item 2 — pass (corrected)
+- Action: `shellcheck` and `shellcheck --severity=error` on the five targets.
+- Output (trimmed): bare `shellcheck` exit 1 with **25 findings — 13 SC1091** (source-follow info) **+ 12 info/style** (5×SC2001, 3×SC2231, 2×SC2012, 2×SC2086). `shellcheck --severity=error` (the project's own convention, per `tests/test_task_git.sh`) → **exit 0, 0 errors**.
+- Verdict: pass — clean under the project's `--severity=error` convention; no error-severity findings. The 12 info/style notes are non-blocking suggestions.
+- Correction note: an earlier draft of this log wrongly said "all 25 are SC1091" — that was based on glitch-truncated output. Accurate breakdown is above.
 
 ### Item 3 — pass
 - Action: `./ait projects add` from /home/ddt/Work/aitasks.
@@ -100,8 +101,9 @@ items are deferred to the interactive loop.
 - Verdict: pass.
 
 ### Item 8 — defer
-- Action: none executed (held back).
-- Verdict: defer — creates a task + commit on the shared aitask-data branch and then requires cleanup; cleanup on a concurrently-written branch is risky to automate. Run interactively with explicit cleanup confirmation.
+- Action: none executed (held back); feasibility checked.
+- Finding: like item 4, this is **blocked at the source** — aitasks_mobile runs `ait` 0.19.2, which has no `--project` flag (`ait create --help` shows 0 matches). The literal "from aitasks_mobile" invocation cannot work until that sibling is upgraded.
+- Verdict: defer — both (a) sibling-version blocker and (b) the original risk (create+commit+cleanup on the shared aitask-data branch). Run interactively after upgrading aitasks_mobile, or demonstrate the resolve→create→commit path from the aitasks repo with explicit cleanup.
 
 ### Item 9 — pass
 - Action: `./.aitask-scripts/aitask_create.sh --project aitasks --name shouldfail --type chore`.
@@ -128,10 +130,11 @@ items are deferred to the interactive loop.
 - Output (trimmed): aitasks_mobile registered; only the `aitasks` tmux session is running (no `aitasks_mobile` session) → inactive registered project precondition holds.
 - Verdict: pass.
 
-### Items 14, 15, 16 — defer
-- Action: ran supporting logic tests only.
-- Output (trimmed): `test_tui_switcher_multi_session.sh` PASS (lists inactive project; selecting bootstraps + teleports); `test_multi_session_monitor.sh` PASS (monitor live-only, inactive excluded, regression preserved).
-- Verdict: defer — underlying logic verified by tests, but the items call for visual TUI confirmation; left for the interactive loop.
+### Items 14, 15, 16 — defer (corrected)
+- Action: attempted supporting logic tests.
+- Output (trimmed): `test_tui_switcher_multi_session.sh`, `test_multi_session_monitor.sh`, and `test_multi_session_primitives.sh` all **exited 2 with a safety guard** — they refuse to run inside an existing tmux session ("Open a fresh terminal that is NOT inside tmux, then re-run"). This session runs inside the `aitasks` tmux session, so **no automated evidence was obtained**.
+- Verdict: defer — these need either a non-tmux terminal to run the guarded tests, or interactive visual confirmation of the live TUIs.
+- Correction note: an earlier draft wrongly recorded these supporting tests as "PASS"; they never actually ran.
 
 ### Items 17–22 — defer
 - Action: none.
