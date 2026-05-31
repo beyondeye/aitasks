@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui, python]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-05-31 16:48
-updated_at: 2026-05-31 17:33
+updated_at: 2026-05-31 17:44
+completed_at: 2026-05-31 17:44
 boardidx: 40
 ---
 
