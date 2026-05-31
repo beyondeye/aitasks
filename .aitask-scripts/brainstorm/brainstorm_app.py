@@ -1742,13 +1742,18 @@ class DimensionRow(Static):
         self.value = value
         self.dim_key = dim_key
         self.section_count = section_count
+        # When collapsed (default) the row is clipped to a single line by the
+        # ``height: 1`` CSS; ``space`` toggles it to ``height: auto`` so the
+        # full (often paragraph-length) value wraps and becomes readable.
+        self.expanded = False
 
     def render(self) -> str:
         if self.section_count == 0:
             badge = "[dim][0 §][/]"
         else:
             badge = f"[bold cyan][{self.section_count} §][/]"
-        return f"  {badge} [bold]{self.suffix}:[/] {self.value}"
+        caret = "[dim]▾[/]" if self.expanded else "[dim]▸[/]"
+        return f"  {caret} {badge} [bold]{self.suffix}:[/] {self.value}"
 
     def on_click(self) -> None:
         self.focus()
@@ -1757,6 +1762,13 @@ class DimensionRow(Static):
     def on_key(self, event) -> None:
         if event.key == "enter":
             self.post_message(self.Activated(self.dim_key))
+            event.stop()
+        elif event.key == "space":
+            # Toggle full-text expansion in place. The value is always present
+            # in render(); only the row height gates how much is visible.
+            self.expanded = not self.expanded
+            self.styles.height = "auto" if self.expanded else 1
+            self.refresh(layout=True)
             event.stop()
 
 
@@ -5042,6 +5054,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
             widgets.append(Static(""))
             widgets.append(Static("[bold $accent]Dimensions:[/]"))
+            widgets.append(Static(
+                "[dim]space: expand/collapse · enter: jump to proposal[/]",
+                classes="meta_field"))
             for _prefix, label, entries in grouped:
                 widgets.append(Static(
                     f"[bold $accent]{label}[/]", classes="dim_subheader"))
