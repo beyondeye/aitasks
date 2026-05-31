@@ -94,3 +94,34 @@ shellcheck tests/test_agent_instructions.sh   # if shellcheck is run on tests
 Working on the current branch (profile `fast`), so no worktree/branch merge.
 After review+commit: run `./.aitask-scripts/aitask_archive.sh 875`, then
 `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a `--- update_agentsmd() ---` section to
+  `tests/test_agent_instructions.sh` with four cases (T18 create-if-missing,
+  T19 Layer-1-only, T20 marker idempotency, T21 preserve-surrounding-text),
+  exactly as planned. Also updated the file header comment (line 3–4) to list
+  `update_agentsmd()` among the tested functions. No production-code changes.
+- **Deviations from plan:** One minor refinement to the T19 Layer-1-only
+  assertion. The plan suggested asserting absence of `` Identify as `codex/ ``,
+  which would require escaping a backtick inside a double-quoted bash argument.
+  Used the equivalent backtick-free substring `codex/<model_name>` instead
+  (still a codex-Layer-2-only token absent from the shared seed), plus the
+  `Invoke skills with` and `## Agent Identification` checks. Same coverage,
+  cleaner shell quoting.
+- **Issues encountered:** During Step 6 plan externalization the helper
+  returned `MULTIPLE_CANDIDATES` (three recent internal plan files in the
+  recency window). Resolved by re-running with the explicit `--internal`
+  path known from the plan-mode system message — no user prompt needed.
+- **Key decisions:** Mirrored the existing in-file patterns (CLAUDE.md tests
+  T10–T12 for the higher-level function; T4/T5/T15 for idempotency and
+  preserve-surrounding). Reused the existing `setup_tmpdir`/`cleanup_tmpdir`
+  and `assert_*` helpers — no new test infrastructure. The key insight encoded
+  in a section comment: `setup_tmpdir` seeds a codex Layer-2 seed on disk, so
+  the Layer-1-only assertion is meaningful (it proves the codex content does
+  not leak into AGENTS.md).
+- **Verification results:** `bash tests/test_agent_instructions.sh` → PASS
+  81/81, "All tests passed!". `shellcheck tests/test_agent_instructions.sh`
+  reports only a pre-existing SC1091 info on line 14 (the `source` line); no
+  new findings from the additions.
+- **Upstream defects identified:** None
