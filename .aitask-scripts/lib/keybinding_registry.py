@@ -202,6 +202,22 @@ def iter_scope_bindings(prefix: str) -> list[tuple[str, str, str, str]]:
     return sorted(out, key=lambda row: (row[0], row[1]))
 
 
+def iter_all_bindings() -> list[tuple[str, str, str, str]]:
+    """Return every recorded ``(scope, action_id, default_key, label)`` row.
+
+    Unlike :func:`iter_scope_bindings`, this is not prefix-filtered — it
+    surfaces the complete cross-TUI binding set for the Settings → Shortcuts
+    tab. Sorted by ``(scope, action_id)`` for a stable table order.
+    """
+    return sorted(
+        (
+            (scope, action_id, default_key, label)
+            for (scope, action_id), (default_key, label) in _DEFAULTS.items()
+        ),
+        key=lambda row: (row[0], row[1]),
+    )
+
+
 def _reset_for_tests() -> None:
     """Clear all module state. Test-only — do not call from production code."""
     global _OVERRIDES_CACHE

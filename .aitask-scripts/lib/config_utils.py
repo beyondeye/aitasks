@@ -197,6 +197,7 @@ def export_all_configs(
     output_path: str | Path,
     metadata_dir: str | Path,
     patterns: list[str] | None = None,
+    include_shortcuts: bool = False,
 ) -> dict:
     """Bundle all config JSON files from metadata_dir into a single export file.
 
@@ -206,6 +207,10 @@ def export_all_configs(
         patterns: Glob patterns to match config files. Defaults to
                   *_config.json, *_config.local.json, models_*.json,
                   models_*.local.json.
+        include_shortcuts: When True, extract the ``shortcuts:`` subtree from
+                  ``userconfig.yaml`` (and ONLY that subtree — never the whole
+                  per-user file, so ``email``/``last_used_labels`` never leak)
+                  and add it as a top-level ``shortcuts`` member of the bundle.
 
     Returns:
         The export dict that was written.
@@ -237,6 +242,13 @@ def export_all_configs(
         },
         "files": files,
     }
+
+    if include_shortcuts:
+        userconfig = load_yaml_config(meta_path / "userconfig.yaml")
+        shortcuts = userconfig.get("shortcuts")
+        if isinstance(shortcuts, dict) and shortcuts:
+            bundle["shortcuts"] = shortcuts
+            bundle["_export_meta"]["file_count"] += 1
 
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -312,7 +324,9 @@ def import_all_configs(
                         If None, import all files in the bundle.
 
     Returns:
-        List of filenames that were written.
+        List of filenames that were written. Includes the literal
+        ``"shortcuts"`` when a shortcuts subtree was merged into
+        ``userconfig.yaml``.
 
     Raises:
         FileNotFoundError: If input_path does not exist.
@@ -352,5 +366,32 @@ def import_all_configs(
             json.dump(data, f, indent=2, ensure_ascii=False)
             f.write("\n")
         written.append(name)
+
+    # Shortcuts are a distinct top-level bundle member (not a file under
+    # `files`): deep-merge the subtree into userconfig.yaml, preserving every
+    # other local top-level key (email/last_used_labels/...). Merged when
+    # present and either no selection was given or "shortcuts" was selected.
+    shortcuts = bundle.get("shortcuts")
+    if (
+        isinstance(shortcuts, dict)
+        and shortcuts
+        and (selected_files is None or "shortcuts" in selected_files)
+    ):
+        userconfig_path = meta_path / "userconfig.yaml"
+        userconfig = load_yaml_config(userconfig_path)
+        existing = userconfig.get("shortcuts")
+        if not isinstance(existing, dict):
+            existing = {}
+        for scope, actions in shortcuts.items():
+            if not isinstance(actions, dict):
+                continue
+            scope_map = existing.get(scope)
+            if not isinstance(scope_map, dict):
+                scope_map = {}
+            scope_map.update(actions)
+            existing[scope] = scope_map
+        userconfig["shortcuts"] = existing
+        save_yaml_config(userconfig_path, userconfig)
+        written.append("shortcuts")
 
     return written

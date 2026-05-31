@@ -23,6 +23,12 @@ from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from agent_launch_utils import detect_git_tuis  # noqa: E402
 
+import keybinding_registry  # noqa: E402
+import shortcut_persist  # noqa: E402
+import shortcut_scopes  # noqa: E402
+from shortcut_editor_modal import ShortcutEditorModal  # noqa: E402
+from shortcut_labels import render_label  # noqa: E402
+
 from agent_model_picker import (  # noqa: E402
     AgentModelPickerScreen,
     FuzzySelect,
@@ -52,11 +58,12 @@ from launch_modes import DEFAULT_LAUNCH_MODE, normalize_launch_mode  # noqa: E40
 from textual import on  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
-from textual.containers import Container, Horizontal, VerticalScroll  # noqa: E402
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll  # noqa: E402
 from textual.message import Message  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
 from textual.widgets import (  # noqa: E402
     Button,
+    DataTable,
     Footer,
     Header,
     Input,
@@ -134,11 +141,18 @@ CONFIG_FILE_DESCRIPTIONS: dict[str, str] = {
     "models_opencode.json": "OpenCode model list and verification scores",
 }
 
-# Export subset categories: label -> patterns
+# Export subset categories: label -> patterns. The "Shortcuts" category uses a
+# sentinel pattern ("__shortcuts__") that `_handle_export` detects and converts
+# into `include_shortcuts=True` (shortcuts are not a metadata *file*, they are a
+# subtree of userconfig.yaml — see config_utils.export_all_configs).
 EXPORT_CATEGORIES: dict[str, list[str]] = {
     "Agent defaults": ["*_config.json", "*_config.local.json"],
     "Model configs": ["models_*.json", "models_*.local.json"],
+    "Shortcuts": ["__shortcuts__"],
 }
+
+# Sentinel pattern marking the shortcuts export category (not a glob).
+_SHORTCUTS_EXPORT_SENTINEL = "__shortcuts__"
 
 
 # Tab shortcut keys -> TabPane IDs
@@ -148,6 +162,7 @@ _TAB_SHORTCUTS = {
     "c": "tab_project",
     "m": "tab_models",
     "p": "tab_profiles",
+    "s": "tab_shortcuts",
     "t": "tab_tmux",
 }
 
@@ -676,6 +691,20 @@ class ImportScreen(ModalScreen):
             ))
             container.mount(Label(f"[dim]    {desc} {status}[/dim]"))
 
+        # Shortcuts are a distinct top-level bundle member (merged into
+        # userconfig.yaml), not a file under `files`. Surface it as its own
+        # selectable entry so the unified Import screen can include/exclude it.
+        shortcuts = bundle.get("shortcuts")
+        if isinstance(shortcuts, dict) and shortcuts:
+            container.mount(CycleField(
+                "shortcuts", ["yes", "no"], "yes", "shortcuts",
+                id="cf_imp_shortcuts",
+            ))
+            container.mount(Label(
+                "[dim]    Customized keybindings — merged into userconfig.yaml "
+                "(email/labels preserved)[/dim]"
+            ))
+
     @on(Button.Pressed, "#btn_import_ok")
     def do_import(self):
         if not self._bundle:
@@ -690,6 +719,14 @@ class ImportScreen(ModalScreen):
                     selected.append(name)
             except Exception:
                 selected.append(name)
+        shortcuts = self._bundle.get("shortcuts")
+        if isinstance(shortcuts, dict) and shortcuts:
+            try:
+                cf = self.query_one("#cf_imp_shortcuts", CycleField)
+                if cf.current_value == "yes":
+                    selected.append("shortcuts")
+            except Exception:
+                selected.append("shortcuts")
         self.dismiss({
             "path": self._bundle_path,
             "overwrite": overwrite,
@@ -1030,6 +1067,89 @@ class SaveProfileConfirmScreen(ModalScreen):
         self.dismiss(None)
 
 
+class ResetShortcutsConfirmScreen(ModalScreen):
+    """Confirm clearing all shortcut overrides for a scope. Mirrors
+    SaveProfileConfirmScreen — reuses the app-level #edit_dialog CSS."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, scope: str):
+        super().__init__()
+        self.scope = scope
+
+    def compose(self) -> ComposeResult:
+        with Container(id="edit_dialog"):
+            yield Label(
+                f"Reset all [bold]{self.scope}[/bold] shortcuts to defaults?",
+                id="edit_title",
+            )
+            yield Label(
+                "[dim]Clears your custom keys for this scope. "
+                "Applies after the affected TUI is restarted.[/dim]",
+                classes="section-hint",
+            )
+            with Horizontal(id="edit_buttons"):
+                yield Button("Reset", variant="error", id="btn_sc_reset_ok")
+                yield Button("Cancel", variant="default", id="btn_sc_reset_cancel")
+
+    @on(Button.Pressed, "#btn_sc_reset_ok")
+    def do_reset(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_sc_reset_cancel")
+    def do_cancel(self):
+        self.dismiss(False)
+
+    def action_cancel(self):
+        self.dismiss(False)
+
+
+class LintResultsScreen(ModalScreen):
+    """Read-only list of shortcut coherence warnings. Self-contained CSS
+    because it needs a scrollable list layout not present in the app CSS."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    DEFAULT_CSS = """
+    LintResultsScreen { align: center middle; }
+    LintResultsScreen #lint_dialog {
+        width: 70%;
+        height: auto;
+        max-height: 70%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    LintResultsScreen #lint_list {
+        height: auto;
+        max-height: 18;
+        padding: 0 1;
+    }
+    LintResultsScreen #lint_buttons { padding: 1 0 0 0; height: auto; }
+    LintResultsScreen #lint_buttons Button { margin: 0 1; }
+    """
+
+    def __init__(self, warnings: list[str]):
+        super().__init__()
+        self._warnings = warnings
+
+    def compose(self) -> ComposeResult:
+        with Container(id="lint_dialog"):
+            yield Label("Shortcut coherence warnings", id="edit_title")
+            with VerticalScroll(id="lint_list"):
+                for w in self._warnings:
+                    yield Label(f"• {w}")
+            with Horizontal(id="lint_buttons"):
+                yield Button("Close", variant="primary", id="btn_lint_close")
+
+    @on(Button.Pressed, "#btn_lint_close")
+    def do_close(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
@@ -1105,6 +1225,11 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     /* Operation descriptions */
     .op-desc { padding: 0 0 0 5; height: 1; }
 
+    /* Shortcuts tab: table fills, buttons sit at the bottom; the table scrolls
+       itself so the outer container must not add a second scrollbar. */
+    #shortcuts_content { height: 1fr; }
+    #shortcuts_table { height: 1fr; }
+
     /* Verify build multi-line editor */
     #edit_textarea { height: 10; min-height: 5; max-height: 15; }
 
@@ -1128,7 +1253,27 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("e", "export_configs", "Export"),
         Binding("i", "import_configs", "Import"),
         Binding("r", "reload_configs", "Reload"),
+        # Shortcuts-tab actions — gated to that tab by check_action (so they only
+        # fire there). show=False: these belong to the tab's on-screen buttons
+        # (whose labels carry the key via render_label), not the global footer.
+        # (Export/import of shortcuts is handled by the general e/i actions —
+        # the bundle's "Shortcuts" category — so the tab has no dedicated
+        # export/import buttons.)
+        Binding("d", "sc_reset", "Reset scope", show=False),
+        Binding("l", "sc_lint", "Lint", show=False),
     ]
+
+    _SHORTCUT_TAB_ACTIONS = frozenset({"sc_reset", "sc_lint"})
+
+    def check_action(self, action: str, parameters):
+        """Show/enable the sc_* bindings only on the Shortcuts tab."""
+        if action in self._SHORTCUT_TAB_ACTIONS:
+            try:
+                if self.query_one(TabbedContent).active != "tab_shortcuts":
+                    return None  # hide from footer on other tabs
+            except Exception:
+                return None
+        return True
 
     def __init__(self):
         super().__init__()
@@ -1143,10 +1288,11 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._repop_counter: int = 0  # ensures unique widget IDs across repopulations
         self._tmux_tab_rc: int = 0  # counter snapshot for tmux tab widgets
         self._profiles_tab_rc: int = 0  # counter snapshot for profiles tab widgets
+        self._shortcuts_swept: bool = False  # global scope sweep runs once
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with TabbedContent("Agent Defaults", "Board", "Project Config", "Tmux", "Models", "Profiles"):
+        with TabbedContent("Agent Defaults", "Board", "Project Config", "Tmux", "Models", "Profiles", "Shortcuts"):
             with TabPane("Agent Defaults", id="tab_agent"):
                 yield VerticalScroll(id="agent_content")
             with TabPane("Board", id="tab_board"):
@@ -1159,6 +1305,10 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 yield VerticalScroll(id="models_content")
             with TabPane("Profiles", id="tab_profiles"):
                 yield VerticalScroll(id="profiles_content")
+            with TabPane("Shortcuts", id="tab_shortcuts"):
+                # Non-scrolling: the inner DataTable scrolls itself, so an outer
+                # VerticalScroll would produce a redundant second scrollbar.
+                yield Vertical(id="shortcuts_content")
         yield Footer()
 
     def on_mount(self):
@@ -1168,6 +1318,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._populate_tmux_tab()
         self._populate_models_tab()
         self._populate_profiles_tab()
+        self._populate_shortcuts_tab()
 
     # -------------------------------------------------------------------
     # Navigation helpers
@@ -1189,6 +1340,17 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if not focusable:
             return
         focused = self.focused
+        # A focused DataTable navigates its own rows until a boundary, then
+        # hands off to the surrounding focus chain (tab title above / buttons
+        # below), matching the up/down "move between options" convention.
+        if isinstance(focused, DataTable) and focused in focusable:
+            if direction == "down" and focused.cursor_row < focused.row_count - 1:
+                focused.move_cursor(row=focused.cursor_row + 1)
+                return
+            if direction == "up" and focused.cursor_row > 0:
+                focused.move_cursor(row=focused.cursor_row - 1)
+                return
+            # At a boundary: fall through to inter-widget navigation below.
         if focused in focusable:
             idx = focusable.index(focused)
             if direction == "up" and idx > 0:
@@ -1254,7 +1416,9 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             event.stop()
             return
 
-        # Up/Down navigation within active tab
+        # Up/Down navigation within active tab. _nav_vertical moves the focused
+        # DataTable's row cursor internally and hands off to the tab title / next
+        # widget at the table's boundaries (keeps the settings nav convention).
         if event.key in ("up", "down"):
             self._nav_vertical(event.key)
             event.prevent_default()
@@ -2502,6 +2666,10 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 NewProfileScreen(existing),
                 callback=self._handle_new_profile,
             )
+        elif btn_id == "btn_sc_reset":
+            self.action_sc_reset()
+        elif btn_id == "btn_sc_lint":
+            self.action_sc_lint()
 
     def _save_profile(self, filename: str):
         base = dict(self.config_mgr.profiles.get(filename, {}))
@@ -2690,6 +2858,121 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     # -------------------------------------------------------------------
     # Actions: Export, Import, Reload
     # -------------------------------------------------------------------
+    # -------------------------------------------------------------------
+    # Shortcuts tab
+    # -------------------------------------------------------------------
+    def _populate_shortcuts_tab(self):
+        # Register every TUI's bindings (this is a settings-only process, so
+        # other Apps are never instantiated to register themselves). The sweep
+        # re-executes module bodies, so run it once — _DEFAULTS persists for the
+        # process lifetime. Fail-soft.
+        if not self._shortcuts_swept:
+            try:
+                shortcut_scopes.register_all_known_bindings()
+            except Exception:
+                pass
+            self._shortcuts_swept = True
+
+        container = self.query_one("#shortcuts_content", Vertical)
+
+        # Build the static chrome once; on repopulate just refresh the table
+        # rows. (Re-mounting a fixed-id DataTable races remove_children, which is
+        # deferred — clearing rows in place avoids the DuplicateIds error.)
+        # Layout order: header, hint, table (fills), buttons (pinned to bottom).
+        try:
+            table = self.query_one("#shortcuts_table", DataTable)
+        except Exception:
+            container.remove_children()
+            container.mount(Label("Customizable Shortcuts", classes="section-header"))
+            container.mount(Label(
+                "[dim]Keybindings for every aitasks TUI. ↑↓ select a row, "
+                "Enter edits it; the buttons below (and their parenthesized "
+                "shortcut keys) reset the selected row's scope or lint cross-TUI "
+                "coherence. Export/import shortcuts via the general Export (e) / "
+                "Import (i) — they include the Shortcuts category.\n"
+                "Changes are saved to userconfig.yaml and apply after the "
+                "affected TUI is restarted.[/dim]",
+                classes="section-hint",
+            ))
+            table = DataTable(
+                id="shortcuts_table", cursor_type="row", zebra_stripes=True,
+            )
+            container.mount(table)
+            table.add_columns(
+                "Scope", "Action", "Current", "Default", "Label", "Origin",
+            )
+            container.mount(Horizontal(
+                Button(render_label("Reset scope", "d"), id="btn_sc_reset"),
+                Button(render_label("Lint coherence", "l"), id="btn_sc_lint"),
+                classes="tab-buttons",
+            ))
+
+        table.clear()  # keeps columns
+        overrides = keybinding_registry.load_user_overrides()
+        for scope, action_id, default_key, label in keybinding_registry.iter_all_bindings():
+            current = keybinding_registry.resolve_key(scope, action_id) or default_key
+            origin = "user" if action_id in overrides.get(scope, {}) else "default"
+            table.add_row(
+                scope, action_id, current, default_key, label, origin,
+                key=f"{scope}\x00{action_id}",
+            )
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.data_table.id != "shortcuts_table":
+            return
+        try:
+            row = event.data_table.get_row(event.row_key)
+            scope = str(row[0])
+        except Exception:
+            return
+        self.push_screen(
+            ShortcutEditorModal(scope=scope),
+            callback=self._handle_shortcut_edit,
+        )
+
+    def _handle_shortcut_edit(self, _result):
+        keybinding_registry.refresh_all()
+        self._populate_shortcuts_tab()
+
+    def _reset_selected_shortcut_scope(self):
+        try:
+            table = self.query_one("#shortcuts_table", DataTable)
+            row = table.get_row_at(table.cursor_row)
+            scope = str(row[0])
+        except Exception:
+            self.notify("Select a shortcut row first", severity="warning")
+            return
+        self.push_screen(
+            ResetShortcutsConfirmScreen(scope),
+            callback=lambda confirmed, s=scope: self._handle_reset_scope(
+                bool(confirmed), s,
+            ),
+        )
+
+    def _handle_reset_scope(self, confirmed: bool, scope: str):
+        if not confirmed:
+            return
+        shortcut_persist.reset_scope(scope)
+        keybinding_registry.refresh_all()
+        self._populate_shortcuts_tab()
+        self.notify(
+            f"Reset '{scope}' shortcuts to defaults — "
+            "restart the affected TUI to apply."
+        )
+
+    def _lint_shortcuts(self):
+        warnings = keybinding_registry.coherence_lint()
+        if not warnings:
+            self.notify("No coherence issues")
+            return
+        self.push_screen(LintResultsScreen(warnings))
+
+    def action_sc_reset(self):
+        self._reset_selected_shortcut_scope()
+
+    def action_sc_lint(self):
+        self._lint_shortcuts()
+
     def action_export_configs(self):
         self.push_screen(ExportScreen(), callback=self._handle_export)
 
@@ -2698,14 +2981,24 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         try:
             directory = result.get("directory", ".")
-            patterns = result.get("patterns") or None
+            raw_patterns = result.get("patterns") or []
+            include_shortcuts = _SHORTCUTS_EXPORT_SENTINEL in raw_patterns
+            file_patterns = [
+                p for p in raw_patterns if p != _SHORTCUTS_EXPORT_SENTINEL
+            ]
+            # Nothing selected at all → None (export-all default). A selection
+            # that resolves to only shortcuts → [] (shortcuts-only bundle).
+            patterns = None if not raw_patterns else file_patterns
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             out_path = os.path.join(
                 directory, f"aitasks_config_export_{timestamp}{EXPORT_EXTENSION}",
             )
-            bundle = export_all_configs(out_path, str(METADATA_DIR), patterns=patterns)
+            bundle = export_all_configs(
+                out_path, str(METADATA_DIR),
+                patterns=patterns, include_shortcuts=include_shortcuts,
+            )
             count = bundle.get("_export_meta", {}).get("file_count", 0)
-            self.notify(f"Exported {count} files to {out_path}")
+            self.notify(f"Exported {count} item(s) to {out_path}")
         except Exception as exc:
             self.notify(f"Export failed: {exc}", severity="error")
 
@@ -2725,9 +3018,12 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._populate_agent_tab()
             self._populate_board_tab()
             self._populate_project_tab()
+            self._populate_tmux_tab()
             self._populate_models_tab()
             self._populate_profiles_tab()
-            self.notify(f"Imported {len(written)} files")
+            keybinding_registry.refresh_all()
+            self._populate_shortcuts_tab()
+            self.notify(f"Imported {len(written)} item(s)")
         except Exception as exc:
             self.notify(f"Import failed: {exc}", severity="error")
 
@@ -2736,8 +3032,11 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._populate_agent_tab()
         self._populate_board_tab()
         self._populate_project_tab()
+        self._populate_tmux_tab()
         self._populate_models_tab()
         self._populate_profiles_tab()
+        keybinding_registry.refresh_all()
+        self._populate_shortcuts_tab()
         self.notify("Configs reloaded from disk")
 
 
