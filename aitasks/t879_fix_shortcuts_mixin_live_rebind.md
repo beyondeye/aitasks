@@ -7,6 +7,7 @@ status: Ready
 labels: [custom_shortcuts]
 created_at: 2026-05-31 16:28
 updated_at: 2026-05-31 16:28
+boardidx: 70
 ---
 
 ## Origin
