@@ -1,10 +1,52 @@
 # Changelog
 
-## Unreleased
+## v0.22.0
+
+### Features
+
+- **Cross-repo task dependencies** (t832): Tasks can now depend on tasks in *other* aitasks projects via new `xdeps`/`xdeprepo` frontmatter, with cross-repo blocking logic, a parallel cross-repo planning procedure, `ait board` picker support, interactive cross-repo task creation, cross-repo `explain-context`, and cross-project `aitasks#835_3` notation. Linked projects are referenced by logical name, not directory path.
+- **Customizable keyboard shortcuts** (t848): Per-user keyboard-shortcut overrides now work across all TUIs, with an in-TUI shortcut editor modal, a Shortcuts tab in the settings TUI, and case-aware mnemonic label rendering.
+- **Autonomous manual-verification mode** (t843, t845): Manual-verification tasks can run their checks autonomously — choose an impromptu or pre-built strategy, configurable per profile and from the settings TUI.
+- **Claude Opus 4.8** (t853): Added Opus 4.8 to the model registry and promoted it to the default agent model.
+- **Codex request-user-input flag** (t861): Added a Codex feature flag that enables request-for-user-input behavior.
+
+### Bug Fixes
+
+- **Compare-wizard improvements** (t873): Fixed glob dimension link expansion and badge counts, section scroll-to-position accuracy, added expandable dimension descriptions in the detail pane, and scoped/grouped/labeled the wizard's dimensions.
+- **TUI task-directory handling** (t877, t881): The keybinding registry, user-config path, and TUI module/metadata loading now honor a non-default task directory.
+- **YAML config guards** (t863, t864, t865): Hardened YAML loading/writing in the keybinding registry, user-config writer, and shortcut persistence against parse failures and style collisions.
+- **Brainstorm nested sections** (t878): Fixed nested-section parsing and navigation in the brainstorm TUI.
+- **TUI switcher overlay shortcuts** (t876): The TUI switcher overlay's shortcuts are now properly registered.
+- **Board cross-repo picker navigation** (t886): Fixed keyboard navigation in the board's cross-repo reference picker.
+- **add-model default target** (t852): Fixed the target of the default-agent-string update in `aitask-add-model`.
+- **Stale Gemini note in CLAUDE.md** (t839): Removed an outdated Gemini reference from the Codex root note.
+- **Test-fixture fixes** (t883, t890): Repaired the desync test fixture's Python resolution and the PR-contributor fixture's cross-repo re-exec scaffold.
+
+### Improvements
+
+- **Board task filtering** (t850): Reworked board filtering into an independent base-filter plus git and type toggles, with broader locked/free visibility rules.
+- **Re-verification prompt** (t885): When a task plan is already verified, you're now asked whether to re-verify.
+- **Eager subscope registration & mnemonic labels** (t848_9, t848_10): Shortcut subscopes register eagerly and labels render case-aware mnemonics.
+- **Terminology cleanups** (t849, t859): Renamed "impromptu" → "autonomous" and the `manual_verification_auto_mode` profile key to clearer names across skills and docs.
+
+### Documentation
+
+- **Multi-project & cross-repo workflow docs** (t826_3, t832_12): New website pages covering the multi-project registry workflow and cross-project dependencies/planning.
+- **Manual-verification & shortcuts docs** (t846, t848_6): Documented autonomous manual-verification mode and the customizable-shortcuts layer.
+- **Codex limitations & model-default refs** (t862, t854): Refreshed Codex limitations docs and updated stale model-default references.
+- **Memory-to-aidocs audit** (t869): Promoted durable authoring conventions from Claude memories into `aidocs/`.
+
+### Tests
+
+- **AGENTS.md idempotency** (t875): Added tests for `AGENTS.md` creation and marker idempotency.
+
+### Maintenance
+
+- **Codex profile/prompt cleanups** (t860, t866, t870): Removed redundant default-profile prompt-suppression keys, relaxed forced Codex plan mode for analysis skills, and deleted orphaned Codex interactive prerequisites.
 
 ### Removals
 
-- **Remove Gemini CLI Support** (t812): Removed `geminicli` from the framework: agent identity layer, skill rendering and templating, setup/install/release pipeline, and all current-state documentation. Google is sunsetting Gemini CLI in favor of Antigravity CLI (agy); see t813 and t814 for the agy migration path. Existing CHANGELOG / blog references to Gemini CLI are preserved as historical record.
+- **Remove Gemini CLI Support** (t812): Removed `geminicli` from the framework: agent identity layer, skill rendering and templating, setup/install/release pipeline, and all current-state documentation. Google is sunsetting Gemini CLI in favor of Antigravity CLI (agy); see t813 and t814 for the agy migration path. Existing CHANGELOG / blog references to Gemini CLI are preserved as historical record. `aidocs/adding_a_new_codeagent.md` was expanded into a reusable add-an-agent checklist along the way.
 
 ## v0.21.1
 
