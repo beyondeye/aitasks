@@ -88,3 +88,29 @@ PYTHONPATH=.aitask-scripts/lib python -c "import keybinding_registry as k; print
 No skill `.md.j2` / closure edits, so no goldens to regenerate. `keybinding_registry.py`
 is a Python module (not in `./ait`'s source chain), so the test-scaffold lib
 list is unaffected.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. (1) Added `import sys`
+  to `keybinding_registry.py` top-level imports. (2) Wrapped the
+  `yaml.safe_load(f)` read in `load_user_overrides()` in
+  `try/except yaml.YAMLError`; on parse failure it writes a one-line warning
+  (`keybinding_registry: ignoring malformed <path>: <exc>`) to stderr, caches
+  `_OVERRIDES_CACHE = {}`, and returns it — mirroring the existing missing-file
+  fallback. (3) Added Case 7 to `tests/test_keybinding_registry.sh`: a
+  malformed userconfig (dangling block-sequence item after a mapping key) is
+  loaded with stderr captured via `contextlib.redirect_stderr`; asserts the
+  result is `{}` and the warning contains `malformed`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. All verification passed first time:
+  `test_keybinding_registry.sh` 7/7, `test_shortcut_editor_modal.py` 14/14,
+  `test_shortcuts_registry_coverage.sh` PASS, and an isolated import
+  smoke-test with a deliberately malformed userconfig confirmed the warning
+  fires and `{}` is returned instead of a crash.
+- **Key decisions:** Cached `{}` on parse failure (not just returned it) so a
+  corrupt file does not re-parse / re-warn on every subsequent call, matching
+  the missing-file path. Left `config_utils.load_yaml_config` untouched — it
+  deliberately raises on invalid YAML because project-scoped config corruption
+  should be a hard error; only the gitignored per-user override file degrades
+  gracefully.
+- **Upstream defects identified:** None.
