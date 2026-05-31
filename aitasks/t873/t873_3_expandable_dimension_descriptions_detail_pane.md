@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: [t873_2]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [brainstorming, ait_brainstorm, ui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 13:13
-updated_at: 2026-05-31 13:13
+updated_at: 2026-05-31 17:17
 ---
 
 Fix defect #3 of parent t873: long dimension descriptions are truncated in the node detail pane with no way to read the full text.
