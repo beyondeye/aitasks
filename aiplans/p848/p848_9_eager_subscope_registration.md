@@ -186,11 +186,123 @@ bash tests/test_shortcuts_registry_coverage.sh
 bash tests/test_keybinding_registry.sh
 python3 -c "import ast; [ast.parse(open(f).read()) for f in ['.aitask-scripts/lib/shortcut_scopes.py','.aitask-scripts/lib/shortcuts_mixin.py','.aitask-scripts/lib/keybinding_registry.py']]; print('PARSE_OK')"
 # Manual (defer aggregate checks to the t848_7 manual-verification sibling):
-#   ait board    → ?  (before opening any task) → board.detail / board.agent_cmd rows present
+#   ait board    → ?  (before opening any task) → board.detail + shared.agent_cmd rows present
+#   ait codebrowser → ? → shared.agent_cmd row present (reused dialog, now shared)
 #   ait monitor  → ?  → open_shortcuts_editor listed once under `shared` (like `j`), NOT under monitor
 ```
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-31 — rescope agent_cmd from board to shared)
+- **Requested by user:** Reviewing the change, the user noticed `agent_cmd` was
+  treated as a board dialog (`board.agent_cmd`), which is wrong — the
+  `AgentCommandScreen` dialog is reused across several TUIs (board, codebrowser,
+  monitor, syncer), not just board. With the filtered eager sweep, pressing `?`
+  in codebrowser/monitor/syncer would never surface its bindings.
+- **Changes made:** Rescoped the reused dialog from `board.agent_cmd` to
+  `shared.agent_cmd` (a shared sub-scope, like `shared.stale_entry`), so it
+  appears in **every** TUI's `?` editor.
+  - `lib/agent_command_screen.py`: `_shortcuts_scope = "shared.agent_cmd"` (+ a
+    comment explaining the cross-TUI reuse). CSS ids `#agent_cmd_*` are
+    unrelated widget ids — left unchanged.
+  - `lib/shortcut_scopes.py`: moved the `agent_command_screen` manifest entry
+    into the shared-dialogs group with scopes `("shared.agent_cmd",)`.
+  - `tests/test_shortcut_scopes.py`: the board sweep test now asserts
+    `shared.agent_cmd` as a shared sub-scope (not under board); the codebrowser
+    sweep test asserts `shared.agent_cmd` is present too (proving the cross-TUI
+    surface).
+  - `lib/shortcuts_mixin.py` comment + `aidocs/tui_conventions.md` example
+    updated to drop `board.agent_cmd` and cite `shared.agent_cmd`.
+- **Files affected:** `.aitask-scripts/lib/agent_command_screen.py`,
+  `.aitask-scripts/lib/shortcut_scopes.py`,
+  `.aitask-scripts/lib/shortcuts_mixin.py`, `tests/test_shortcut_scopes.py`,
+  `aidocs/tui_conventions.md`.
+- **Note:** This mis-scope originated in t848_3 (it assigned `board.agent_cmd`
+  assuming a board-only command flow). The custom-shortcuts feature is not yet
+  released, so no user overrides exist under the old scope key — no migration
+  needed.
 
 ## Step 9 — Post-implementation
 Standard child-task archival (`./.aitask-scripts/aitask_archive.sh 848_9`).
 t848_9 depends on t848_4 (done); it is not a dependency of the remaining
 pending siblings (t848_6/_7/_8/_10).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `lib/shortcut_scopes.py` — enriched `KNOWN_BINDING_SOURCES` entries to
+    `(module_name, rel_path, scopes_tuple)` (the trailing comments became data);
+    factored the per-module load+introspect body into `_load_and_register`;
+    added `register_scope_bindings(scope)` (filtered counterpart to
+    `register_all_known_bindings`) that loads only the manifest modules whose
+    scopes match `scope`/`scope.*`/`shared`/`shared.*`, plus a `_scope_relevant`
+    helper mirroring `iter_scope_bindings`'s filter.
+  - `lib/shortcuts_mixin.py` — added module-level `register_shared_bindings()`
+    (registers `?`/`open_shortcuts_editor` under `shared` at import, mirroring
+    `tui_switcher.py`'s `j`); `action_open_shortcuts_editor` now calls
+    `shortcut_scopes.register_scope_bindings(self._shortcuts_scope)` once per
+    instance (guard flag `_subscopes_registered`, fail-soft) before pushing the
+    editor, so the active TUI's modal sub-scopes + shared dialogs are listed up
+    front.
+  - `lib/keybinding_registry.py` — fixed the dead `SHARED_ACTION_IDS` entry
+    (`shortcuts_editor` → the real action id `open_shortcuts_editor`).
+  - `lib/agent_command_screen.py` — **rescoped** the reused dialog from
+    `board.agent_cmd` to `shared.agent_cmd` (Post-Review CR1).
+  - Tests: `tests/test_shortcut_scopes.py` (+`ScopeFilteredSweepTests`: board &
+    codebrowser filtered sweeps, asserting eager sub-scopes + cross-TUI
+    `shared.agent_cmd` with no App instantiated); `tests/test_shortcut_editor_modal.py`
+    (+2 shared-`?` tests; made the 2 Pilot tests robust to the new shared rows);
+    `tests/test_shortcuts_registry_coverage.sh` (re-trigger shared `?` post-reset
+    + assert `open_shortcuts_editor` lives only under `shared`).
+  - `aidocs/tui_conventions.md` — documented the filtered `?`-editor sweep and
+    the `?`-as-shared registration; updated the manifest entry format.
+  - **Verification:** all green — `test_shortcut_scopes.py` 4/4,
+    `test_shortcut_editor_modal.py` 17/17, `test_settings_shortcuts_tab.py`
+    15/15, `test_shortcuts_registry_coverage.sh` PASS,
+    `test_keybinding_registry.sh` 9/9, `test_userconfig_writer_collision.sh`
+    13/13, AST parse + shellcheck clean.
+
+- **Deviations from plan:**
+  - **Approach #2 (per-App `_shortcut_subscopes`) was NOT used** — per t848_5's
+    Final Notes, the eager registration reuses the global manifest via a
+    *filtered* `register_scope_bindings(scope)` instead.
+  - Eager-registration assertions live in `tests/test_shortcut_scopes.py` (the
+    manifest test), not the App-construction-based
+    `test_shortcuts_registry_coverage.sh` the original task step 4 named —
+    because the mechanism is now manifest-driven, not per-App construction.
+  - **Post-Review CR1:** rescoped `agent_cmd` to `shared.agent_cmd` (see
+    Post-Review Changes) after the user flagged it as a cross-TUI dialog.
+
+- **Issues encountered:** Pressing `?` eagerly loads the `shared` modules (the
+  filter always includes `shared`/`shared.*`), so the editor table gains shared
+  rows (`j` switcher, stale-entry, agent-cmd). The two pre-existing Pilot tests
+  hardcoded "no shared scope" and a fixed row index — updated to assert on the
+  testscope rows and to locate the target row dynamically. This is correct
+  runtime behavior, not a regression.
+
+- **Key decisions:**
+  - `register_scope_bindings` always includes shared sources so reused dialogs
+    (`shared.agent_cmd`, `shared.stale_entry`) and the `j` switcher surface in
+    every TUI's editor.
+  - `register_shared_bindings()` runs at `shortcuts_mixin` import (before any
+    App `__init__`), so the t848_4 shared-action de-dup fires for `?` exactly as
+    it does for `j`.
+  - The eager call re-`exec_module`s the running TUI's own module (fresh module
+    object, no instantiation) — the same proven mechanism as the Settings sweep;
+    a per-instance guard makes it a one-time cost.
+
+- **Upstream defects identified:** None. (The `board.agent_cmd` mis-scope was
+  within the t848 custom-shortcuts feature surface — introduced by t848_3 — and
+  is fixed inline here, not an unrelated pre-existing defect.)
+
+- **Notes for sibling tasks:**
+  - **Reused/cross-TUI modal dialogs must use a `shared.<name>` scope**, not a
+    host-TUI scope. `shared.agent_cmd` and `shared.stale_entry` are the
+    precedents; the filtered `?` sweep + the Settings tab surface `shared.*` in
+    every TUI.
+  - `?` (`open_shortcuts_editor`) is now a `shared` binding (like `j`): a rebind
+    under `shared` applies in every TUI; the editor lists it once under `shared`.
+  - To eagerly register a single TUI's scopes, call
+    `shortcut_scopes.register_scope_bindings(scope)`; for the whole cross-TUI
+    set (Settings tab), `register_all_known_bindings()`. Both share
+    `_load_and_register` and the enriched `KNOWN_BINDING_SOURCES` manifest.
