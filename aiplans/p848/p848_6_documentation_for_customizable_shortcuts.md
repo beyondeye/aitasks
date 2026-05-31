@@ -197,6 +197,54 @@ heading id in `serve.sh` (Goldmark anchorizes `### Shortcuts (s)` → `shortcuts
 t848_7 (manual verification) is the only remaining sibling — its checklist covers
 the rendered-page / working-link checks above. No code/behavior changes here.
 
+## Final Implementation Notes
+
+- **Actual work done:** Documented the customizable-shortcuts layer across 9
+  website pages (the "Files" header said "(10)" — an off-by-one; the enumerated
+  list and the actual edits are 9 files):
+  - `tuis/_index.md` — new `## Customizing keyboard shortcuts` section (the `?`
+    editor keys, the `{{< relref … #shortcuts-s >}}` cross-link to Settings, the
+    `userconfig.yaml` `shortcuts:` example using real action_ids
+    `board.pick` / `monitor.refresh`, mnemonic-label behavior, and the
+    `shared`-action coherence/lint note).
+  - `settings/_index.md` — new `### Shortcuts (s)` subsection (table columns,
+    Enter→editor, **(D) Reset scope** / **(L)int coherence** buttons,
+    export/import as a category of the general `e`/`i` flow → `.aitcfg.json`
+    deep-merge), a `**s**` Navigating-table row, and the stale "five tabs" intro
+    softened to "tabs".
+  - 7 per-TUI `_index.md` (board, monitor, minimonitor, codebrowser, stats,
+    syncer, applink) — identical `> **Customizable keys:** …` blockquote callout
+    placed after each page's intro, before its first `##`.
+- **Deviations from plan:** None of substance — the plan was the verified one, so
+  it matched reality. The only nuance: the plan's "(10)" file count was an
+  off-by-one (9 files actually changed). The Tmux (`t`) tab was left undocumented
+  as planned (out of scope; see below).
+- **Issues encountered:** Initial `grep` verification looked for quoted attrs
+  (`id="shortcuts-s"`) but `--minify` emits unquoted attrs (`id=shortcuts-s`);
+  re-grepping confirmed the anchor and the rendered link
+  `href=/docs/tuis/settings/#shortcuts-s` are correct. No content issues.
+- **Key decisions:** Followed the site's established conventions discovered
+  during verification — `> **Note:**`-style blockquotes for callouts and
+  `{{< relref "…#anchor" >}}` for internal links — rather than the original
+  plan's Docsy `{{% alert %}}` / `{{< ref >}}` (neither is used anywhere on this
+  site). Used `### Shortcuts (s)` (matching the sibling tab headings) so the
+  Goldmark auto-anchor is `shortcuts-s`, the target every per-TUI callout links
+  to. The brainstorm callout / `?`→`H` note were dropped: there is no brainstorm
+  docs page (only a one-line "pending" mention in `tuis/_index.md`).
+- **Upstream defects identified:** None. (The undocumented Settings → Tmux tab is
+  a pre-existing *documentation* gap, not a code defect, and is unrelated to
+  shortcuts — recorded below as a candidate doc follow-up, not an upstream code
+  defect.)
+- **Notes for sibling tasks:**
+  - **t848_7 (manual verification):** the rendered-page checklist should confirm
+    `/docs/tuis/` shows the "Customizing keyboard shortcuts" section, the
+    `/docs/tuis/settings/` page shows the `### Shortcuts (s)` subsection with a
+    working `#shortcuts-s` anchor, and each per-TUI page shows the callout whose
+    link lands on that anchor. `hugo build --gc --minify` already passes clean.
+  - **Out-of-scope doc follow-up (not for t848):** `settings/_index.md` still does
+    not document the Tmux (`t`) tab — a pre-existing gap surfaced while updating
+    the tab list. Worth a standalone documentation task.
+
 ## Step 9 — Post-implementation
 
 Standard child-task archival (`./.aitask-scripts/aitask_archive.sh 848_6`). On the
