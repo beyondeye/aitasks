@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: test
-status: Implementing
+status: Done
 labels: [testing, agents_md, ait_setup]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-05-31 12:54
-updated_at: 2026-05-31 16:59
+updated_at: 2026-05-31 17:14
+completed_at: 2026-05-31 17:14
 boardidx: 60
 ---
 
