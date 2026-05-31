@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [codexcli]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-31 11:29
-updated_at: 2026-05-31 13:03
+updated_at: 2026-05-31 13:50
+completed_at: 2026-05-31 13:50
 ---
 
 ## Origin
