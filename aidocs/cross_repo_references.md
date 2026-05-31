@@ -168,3 +168,7 @@ tooling that resolves the path lives in follow-up tasks.
   `website/content/docs/workflows/multi_project.md` — the registry,
   `ait projects`, cross-repo task creation, and notation, written for end
   users.
+- User-facing workflow guide:
+  `website/content/docs/workflows/cross_project_dependencies.md` — cross-repo
+  dependencies (`xdeps`/`xdeprepo`), `--project` data retrieval and mutation,
+  board surfacing, and paired cross-repo planning, written for end users.

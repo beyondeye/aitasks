@@ -28,7 +28,8 @@ Running multiple tasks side by side, front-loading planning work, and farming ou
 - [Parallel Development](parallel-development/) — Working on multiple tasks simultaneously with concurrency safety.
 - [Crash Recovery](crash-recovery/) — Resume a task whose prior agent died mid-implementation, with a survey of leftover work before deciding to reclaim or drop.
 - [Parallel Planning](parallel-planning/) — Front-load complex task design work while other implementations run in parallel.
-- [Multi-Project](multi_project/) — Coordinate work across sibling aitasks projects with the project registry and cross-repo task creation.
+- [Multi-Project](multi_project/) — Coordinate work across linked projects with the project registry and cross-repo task creation.
+- [Cross-Project Dependencies](cross_project_dependencies/) — Block, read, update, and plan tasks across linked projects with cross-repo dependencies and the `--project` flag.
 - [Claude Code Web](claude-web/) — Running tasks on Claude Code Web with sandboxed branch access.
 
 ## Review & Quality

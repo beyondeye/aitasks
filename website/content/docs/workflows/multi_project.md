@@ -2,7 +2,7 @@
 title: "Multi-Project Workflow"
 linkTitle: "Multi-Project"
 weight: 48
-description: "Coordinate work across sibling aitasks projects with the project registry, ait projects, and cross-repo task creation"
+description: "Coordinate work across linked projects with the project registry, ait projects, and cross-repo task creation"
 depth: [advanced]
 ---
 
@@ -125,16 +125,18 @@ backend:src/protocol.rs   # a file inside the `backend` project
 
 Writing references this way keeps them unambiguous and machine-resolvable, instead of a disk path that only works on one machine.
 
+Once names resolve, see [Cross-Project Dependencies]({{< relref "/docs/workflows/cross_project_dependencies" >}}) to block tasks on another project's work, read and update its tasks with `--project`, surface cross-repo links on the board, and plan a change that spans two repos.
+
 ## Switching between projects
 
 The `ait` TUI's project switcher lists registered projects even when their tmux session is not currently running. Selecting an inactive project spawns its tmux session and teleports you into it. A project whose path has gone stale is shown dimmed with a `(stale)` marker; selecting it offers to prune the entry or repoint it to the project's new location.
 
 `ait monitor` is intentionally **unchanged** — its multi-project view stays scoped to live tmux sessions only. Registered-but-inactive projects appear in the switcher, not in the monitor.
 
-## Recipe: register a sister project and spawn a task in it
+## Recipe: register a linked project and spawn a task in it
 
 ```bash
-# 1. Make sure the sister project declares its identity
+# 1. Make sure the linked project declares its identity
 #    (aitasks/metadata/project_config.yaml → project.name: backend)
 
 # 2. Register it from its own directory
@@ -145,7 +147,7 @@ ait projects add
 ait projects list
 ait projects resolve backend        # → RESOLVED:/home/you/work/backend
 
-# 4. File a coordination task in the sister project
+# 4. File a coordination task in the linked project
 ait create --batch --project backend \
     --name add_pagination_endpoint --type feature --priority medium \
     --desc "Add the paginated list endpoint the new frontend screen needs" \

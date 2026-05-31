@@ -41,3 +41,5 @@ After the planning session, you have:
 - A parent task that tracks overall progress and auto-archives when all children complete
 
 The children can then be implemented one at a time or [in parallel using worktrees](../parallel-development/).
+
+When the work spans two registered projects, [Cross-Project Dependencies]({{< relref "/docs/workflows/cross_project_dependencies#planning-paired-work-across-two-repos" >}}) extends this decomposition into a paired plan — one parent per repo, joined by cross-repo dependency edges.
