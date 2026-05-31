@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t832_8]
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [verification, manual]
 verifies: [t832_1, t832_2, t832_3, t832_4, t832_5, t832_6, t832_7, t832_8]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 18:39
-updated_at: 2026-05-31 17:48
+updated_at: 2026-05-31 18:45
+completed_at: 2026-05-31 18:45
 ---
 
 ## Manual Verification Task
