@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [brainstorming, ait_brainstorm, ui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 13:12
-updated_at: 2026-05-31 13:12
+updated_at: 2026-05-31 13:51
 ---
 
 Fix the foundational dimension↔proposal linking defect (defect #1 of parent t873): glob/prefix dimension tags never resolve, and the `[N §]` badge counts the literal glob string instead of real keys. Also clean up the agent templates that emit unexpandable globs and invented tag keys.
