@@ -142,9 +142,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.22.0: Tasks that span multiple repos, Make every shortcut your own, and Manual verification that runs itself](blog/v0220-tasks-that-span-multiple-repos-make-every-shortcut-your-own-manual-verific/)** -- May 31, 2026
 - **[v0.21.1: Choose-sibling picker in monitor, Brainstorm retry-apply actually retries, and Release-post YAML hardening](blog/v0211-choose-sibling-picker-in-monitor-brainstorm-retry-apply-actually-retries-r/)** -- May 27, 2026
 - **[v0.21.0: Profile-aware skill templating, Brainstorm: auto-apply,  DAG navigation,  and operation detail, and Cross-repo project registry](blog/v0210-profile-aware-skill-templating-brainstorm-auto-apply-dag-navigation-and-op/)** -- May 27, 2026
-- **[v0.20.3: Linux install pages unified, Curl-first install,  with native packages as the alternative, and A page on updating model lists](blog/v0203-linux-install-pages-unified-curl-first-install-with-native-packages-as-the/)** -- May 13, 2026
 
 [All releases &rarr;](blog/)
 
