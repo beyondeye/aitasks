@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [codexcli]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-05-31 08:16
-updated_at: 2026-05-31 10:35
+updated_at: 2026-05-31 10:43
+completed_at: 2026-05-31 10:43
 ---
 
 we have just added codex configuration to ait setup to allow workflow user questions also outside plan mode. see
