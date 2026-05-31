@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [custom_shortcuts]
-children_to_implement: [t848_6, t848_7]
+children_to_implement: [t848_7]
 created_at: 2026-05-27 15:00
-updated_at: 2026-05-31 17:35
+updated_at: 2026-05-31 19:20
 boardidx: 30
 ---
 
