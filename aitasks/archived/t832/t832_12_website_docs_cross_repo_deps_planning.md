@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t826_3]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-05-31 22:10
-updated_at: 2026-05-31 22:46
+updated_at: 2026-05-31 23:07
+completed_at: 2026-05-31 23:07
 ---
 
 ## Context
