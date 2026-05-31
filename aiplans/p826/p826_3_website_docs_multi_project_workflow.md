@@ -1,66 +1,184 @@
 ---
 Task: t826_3_website_docs_multi_project_workflow.md
 Parent Task: aitasks/t826_brainstorm_cross_repo_project_references.md
-Sibling Tasks: aitasks/t826/t826_1_registry_resolver_projects_cmd_and_create_flag.md, aitasks/t826/t826_2_tui_switcher_show_inactive_projects.md
-Archived Sibling Plans: aiplans/archived/p826/p826_1_*.md, aiplans/archived/p826/p826_2_*.md (both required reading — the website page documents the actually-shipped surface from both)
+Sibling Tasks: aitasks/archived/t826/t826_1_*.md, aitasks/archived/t826/t826_2_*.md, aitasks/archived/t826/t826_7_*.md, aitasks/archived/t826/t826_8_*.md, aitasks/archived/t826/t826_9_*.md, aitasks/archived/t826/t826_10_*.md
+Archived Sibling Plans: aiplans/archived/p826/p826_1_*.md, p826_2_*.md, p826_7_*.md, p826_8_*.md, p826_9_*.md, p826_10_*.md
 Worktree: (profile 'fast' — works on current branch, no worktree)
 Branch: (profile 'fast' — current branch)
 Base branch: main
+plan_verified:
+  - claudecode/opus4_8 @ 2026-05-31 21:57
 ---
 
 # Plan: Website docs — multi-project workflow page (t826_3)
 
 ## Context
 
-Third (currently-final) sibling under t826. After t826_1 ships the registry
-+ `ait projects` + `aitask_create.sh --project` and t826_2 ships TUI
-switcher inactive-project visibility, the user-facing Hugo/Docsy website
-needs a workflow page covering multi-project work end-to-end.
+t826_3 is the (originally) final step of t826: a user-facing Hugo/Docsy page
+documenting cross-repo / multi-project work. The task was written against only
+the t826_1 + t826_2 surface. Since then the cross-repo surface grew
+substantially, so per the task's **IMPORTANT UPDATE** the scope was
+re-evaluated against everything shipped.
 
-Depends on t826_1 and t826_2 archived — documentation should reflect the
-shipped surface, not a forecasted design.
+**Re-evaluation outcome (verify pass).** The shipped cross-repo surface splits
+into two families:
 
-## Plan
+- **t826 family — registry / projects layer (this page's scope).** Per-project
+  identity, the per-user registry, the `ait projects` subcommand — now **8
+  verbs** (list/add/resolve/exec **+ remove/update/prune/doctor** from
+  t826_7/8/9), `aitask_create.sh --project`, cross-repo notation as a *writing
+  convention*, and TUI-switcher inactive/stale-project behavior (t826_2,
+  t826_10). `ait monitor` unchanged.
+- **t832 family — cross-repo deps / planning / data layer (deferred to a
+  follow-up).** `xdeps`/`xdeprepo` dependencies, the notation parser +
+  `ait board` cross-repo display/navigation, `--project` on read-side helpers,
+  `aitask_update.sh --project`, interactive `ait create` cross-repo, and the
+  parallel cross-repo planning procedure.
 
-The full audit, content outline, and verification steps are inlined into the
-task description at
-`aitasks/t826/t826_3_website_docs_multi_project_workflow.md`.
+**Decisions (confirmed with user):**
+1. This page documents the **full 8-verb** registry/projects surface (not just
+   the original 4 core verbs).
+2. A **child of t832 (t832_12)** documentation task is created to cover the
+   t832-family features.
 
-Before drafting, read both archived sibling plans
-(`aiplans/archived/p826/p826_1_*.md` and `aiplans/archived/p826/p826_2_*.md`)
-plus the implementation commits — the page must match the actually shipped
-behavior including any deviations recorded in those plans' Final
-Implementation Notes.
+**Scan for forgotten cross-repo work (per task request):** the cross-repo task
+family is t826_* (registry layer, all Done except this), t832_* (deps/planning,
+mostly Done; t832_6 retrospective + t832_11 explore-dispatch still Ready), plus
+t857 (manual-verify t832_10), t858 (aitask-create skill cross-repo), t872 /
+t887 (manual-verify carry-overs), t886 (board picker keyboard-nav bug). All are
+already tracked — the only *documentation* gap is t832's user-facing surface,
+which t832_12 (created here) closes.
 
-## Key writing constraints
+Doc-writing rules:
+- CLAUDE.md "Documentation Writing": **current state only** — no "previously
+  we…", no migration notes, no version history.
+- **Generic example project names only.** Every example in the page uses
+  generic placeholder project names (e.g. `frontend` / `backend` /
+  `shared-lib`), never the author's actual sibling repos (`aitasks` /
+  `aitasks_mobile`). "aitasks project" as the generic framework term is fine;
+  concrete *example* project names must be made up.
 
-| Constraint | Value |
-|---|---|
-| Page location | `website/content/docs/workflows/multi_project.md` (create if absent; update if a multi-project page already exists) |
-| Sidebar wiring | Verify the new page appears in the workflows section nav |
-| Cross-link from authoring docs | Append a link to the new website page in `aidocs/cross_repo_references.md` |
-| Cross-repo notation default | Preferred `aitasks#835_3` (no `t`); accepted `aitasks#t835_3` (with `t`). State the no-`t` form as the recommended default |
-| `ait monitor` mention | Explicitly note that monitor is **unchanged** — its multi-project view stays scoped to live tmux sessions |
-| Doc-writing rule | Per CLAUDE.md "Documentation Writing": current state only — no "previously we…" prose, no migration notes, no version history |
-| Build verification | `cd website && hugo build --gc --minify` clean; `./serve.sh` visually inspect |
+## Files to change
 
-## Required sections (in order)
+### 1. New page: `website/content/docs/workflows/multi_project.md`
 
-1. Why — cross-repo coordination pain, persistent registry
-2. Per-project identity (`project:` block in `project_config.yaml`)
-3. `ait projects` subcommand reference (`list` / `add` / `resolve` / `exec`)
-4. Cross-repo task creation walkthrough (`aitask_create.sh --project`)
-5. Cross-repo notation in plans / commits (`aitasks#835_3` preferred)
-6. TUI switcher inactive-project behavior (with explicit "monitor unchanged" note)
-7. Recipe: "How to register a sister project and spawn a task there"
+Frontmatter (mirror `manual-verification.md` conventions; weight 48 slots it in
+the "Parallel" group between `parallel-planning` (45) and `claude-web` (50)):
 
-## Out of scope
+```yaml
+---
+title: "Multi-Project Workflow"
+linkTitle: "Multi-Project"
+weight: 48
+description: "Coordinate work across sibling aitasks projects with the project registry, ait projects, and cross-repo task creation"
+depth: [advanced]
+---
+```
 
-- Documentation of future-sibling features (cross-project parent linkage, notation parser, `ait projects remove`, auto-clone)
-- Non-English locale translations
-- Website design / nav structural changes
+Section outline (plain markdown, ``` ```bash ``` code fences, standard tables,
+relative links — no Docsy alert shortcodes, matching neighbors):
+
+1. **Why** — `../aitasks/` path brittleness (other machines, cloud agents,
+   re-clones); logical names resolved at call time.
+2. **Per-project identity** — `project:` block in
+   `aitasks/metadata/project_config.yaml` (`name`, `git_remote`; name defaults
+   to directory basename). Schema table + example.
+3. **The project registry** — `~/.config/aitasks/projects.yaml` schema (name /
+   path / git_remote / last_opened) shown with generic example entries (e.g.
+   `frontend`, `backend`), gitignored, managed by `ait projects add`,
+   `AITASKS_PROJECTS_INDEX` override. Resolution order (live tmux scan →
+   per-user index → `AITASKS_PROJECT_<name>` env var) and the
+   `RESOLVED:` / `NOT_FOUND:` / `STALE:` status vocabulary (LIVE/OK/STALE).
+4. **`ait projects` subcommand reference** — table of **all 8 verbs** with
+   signatures + a usage example each:
+   - Core: `list`, `add [<path>]`, `resolve <name>`, `exec <name> -- <cmd>`
+   - Management: `remove <name> [--force]`, `update <name> <new_path>`,
+     `prune [--dry-run] [--yes]`, `doctor [--clone]`
+   Source of truth for wording = the help block in
+   `.aitask-scripts/aitask_projects.sh` (lines 44–96) — quote signatures
+   faithfully, condensed for users.
+5. **Cross-repo task creation** — `ait create --batch --project <name>`
+   walkthrough (requires `--batch`; cannot combine with `--parent`). Generic
+   example: from one project (e.g. `frontend`), create a sister task in another
+   (e.g. `backend`) with no `cd`.
+6. **Cross-repo notation in plans / commits** — preferred `backend#835_3`
+   (no `t`), accepted `backend#t835_3`; file notation `backend:path/to/file`
+   (generic example names). Present as the canonical writing convention (the
+   deeper tooling — board
+   navigation, dependency parsing — is the t832_12 follow-up's scope; do **not**
+   forward-reference that page until it exists).
+7. **TUI switcher: inactive & stale projects** — registered-but-inactive
+   projects appear in the switcher even with no live tmux session; selecting one
+   spawns its tmux session and teleports. Stale entries render dimmed with a
+   `(stale)` suffix and offer prune / repoint via a modal. **Explicit note:
+   `ait monitor` is unchanged — its multi-project view stays scoped to live
+   tmux sessions.**
+8. **Recipe** — "Register a sister project and spawn a task there":
+   copy-pasteable `ait projects add` → `ait projects list` →
+   `ait create --batch --project <name> …` sequence.
+
+### 2. Nav wiring: `website/content/docs/workflows/_index.md`
+
+Sidebar is auto-discovered from `weight`, so no menu file edit is needed. But
+`_index.md` carries a **manual** human-readable link list grouped into Tasks /
+Parallel / Review & Quality / Git. Add one bullet under **## Parallel**:
+
+```markdown
+- [Multi-Project](multi_project/) — Coordinate work across sibling aitasks projects with the project registry and cross-repo task creation.
+```
+
+### 3. Cross-link + staleness fix: `aidocs/cross_repo_references.md`
+
+- **Append the required cross-link** to the new website page (the task
+  mandates this). Add a short "See also" pointer to
+  `website/content/docs/workflows/multi_project.md`.
+- **Correctness fix (co-located):** the "What is NOT in scope (planned for
+  follow-ups)" list (lines 160–168) names several items that have since
+  shipped — notation parser (`cross_repo_notation.py`), `ait projects remove` /
+  `prune`, TUI switcher t826_2, website docs t826_3. Trim those to keep only
+  genuinely-pending items (cross-project parent linkage, auto-clone). Keep this
+  edit tight — it is the cross-link's immediate neighbor and leaving false
+  "not-in-scope" claims would misinform future authors.
+
+### 4. Follow-up task (created during implementation, not in plan mode): t832_12
+
+`issue_type: documentation`, child of t832, `depends: [t826_3]`, priority
+medium / effort medium. Created via:
+
+```bash
+./.aitask-scripts/aitask_create.sh --batch --parent 832 \
+  --name website_docs_cross_repo_deps_planning --type documentation \
+  --priority medium --effort medium --depends t826_3 \
+  --desc-file <tmpfile> --commit
+```
+
+The `--desc` documents the **t832-family** surface for a future page (working
+name `website/content/docs/workflows/cross_project_dependencies.md`):
+`xdeps`/`xdeprepo` dependencies (frontmatter, blocking — only `Done` satisfies,
+UNREACHABLE handling) · notation parser + `ait board` cross-repo display &
+navigation · `--project` on read-side helpers (`ait ls --project`,
+`ait explain --project`) + file notation `repo:path` · `ait update --project`
+(cross-repo mutation guardrails) · interactive `ait create` cross-repo flow ·
+parallel cross-repo planning (two parents per repo, `xdeps` edges; cross-link
+the existing `parallel-planning.md`). It should cross-link back to
+`multi_project.md` and `aidocs/cross_repo_references.md`.
+
+## Verification
+
+- `cd website && hugo build --gc --minify` — clean build, no warnings
+  (run `npm install` first if deps are missing).
+- `cd website && ./serve.sh` — visually inspect `multi_project.md`: renders,
+  code blocks formatted, sidebar entry present under Parallel, the 8-verb table
+  reads correctly.
+- Confirm the new page appears in the workflows sidebar and the `_index.md`
+  Parallel-group link resolves.
+- Confirm the `aidocs/cross_repo_references.md` "See also" link points at the
+  new page and the trimmed "not-in-scope" list is accurate.
+- Confirm `t832_12` was created and added to t832's `children_to_implement`.
 
 ## Step 9 reference
 
-After implementation and review, follow the shared workflow's Step 9. No
-worktree to clean (profile `fast` works on the current branch).
+After implementation and review (Step 8), follow the shared workflow's Step 9
+(child-task archival of t826_3 to `aitasks/archived/t826/` and
+`aiplans/archived/p826/`). Profile `fast` works on the current branch — no
+worktree/branch to clean. `verify_build` (if configured) runs at archival.
