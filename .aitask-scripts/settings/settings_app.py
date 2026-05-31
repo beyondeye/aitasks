@@ -46,6 +46,7 @@ from config_utils import (  # noqa: E402
     load_layered_config,
     load_yaml_config,
     local_path_for,
+    metadata_dir,
     save_local_config,
     save_project_config,
     save_yaml_config,
@@ -76,7 +77,7 @@ from textual.widgets import (  # noqa: E402
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-METADATA_DIR = Path("aitasks") / "metadata"
+METADATA_DIR = metadata_dir()
 CODEAGENT_CONFIG = METADATA_DIR / "codeagent_config.json"
 BOARD_CONFIG = METADATA_DIR / "board_config.json"
 PROJECT_CONFIG = METADATA_DIR / "project_config.yaml"

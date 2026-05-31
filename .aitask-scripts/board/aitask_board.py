@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for
+from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for, task_dir
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
 from sync_action_runner import (
@@ -53,7 +53,7 @@ from task_yaml import (
 
 # --- Configuration & Constants ---
 
-TASKS_DIR = Path("aitasks")
+TASKS_DIR = task_dir()
 METADATA_FILE = TASKS_DIR / "metadata" / "board_config.json"
 _PROJECT_KEYS = {"columns", "column_order"}
 _USER_KEYS = {"settings"}

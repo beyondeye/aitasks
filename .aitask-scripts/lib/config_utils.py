@@ -33,6 +33,23 @@ DEFAULT_EXPORT_PATTERNS = [
 ]
 
 
+def task_dir() -> Path:
+    """Base task directory, honoring the ``TASK_DIR`` env override.
+
+    Defaults to ``aitasks`` (relative to cwd) when ``TASK_DIR`` is unset, which
+    matches the framework default and the path TUIs use after chdir-ing to the
+    repo root. Tests and non-default layouts set ``TASK_DIR`` so module-load
+    constants resolve against the right tree. Mirrors
+    ``userconfig_persist._userconfig_path()``.
+    """
+    return Path(os.environ.get("TASK_DIR", "aitasks"))
+
+
+def metadata_dir() -> Path:
+    """The ``<task_dir>/metadata`` directory, honoring ``TASK_DIR``."""
+    return task_dir() / "metadata"
+
+
 def local_path_for(project_path: str | Path) -> Path:
     """Derive the .local.json path from a project config path.
 

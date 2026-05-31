@@ -30,10 +30,10 @@ _LIB_DIR = str(Path(__file__).resolve().parent)
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from config_utils import _load_json  # noqa: E402
+from config_utils import _load_json, metadata_dir  # noqa: E402
 
 
-METADATA_DIR = Path("aitasks") / "metadata"
+METADATA_DIR = metadata_dir()
 MODEL_FILES = {
     "claudecode": METADATA_DIR / "models_claudecode.json",
     "codex": METADATA_DIR / "models_codex.json",
