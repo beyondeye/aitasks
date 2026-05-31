@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui, custom_shortcuts, crash_recovery]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 09:08
-updated_at: 2026-05-31 09:08
+updated_at: 2026-05-31 10:14
 ---
 
 ## Origin
