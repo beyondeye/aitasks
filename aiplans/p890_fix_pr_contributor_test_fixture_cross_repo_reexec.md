@@ -48,3 +48,10 @@ Add the `cp` only to `test_pr_contributor_metadata.sh`'s own cp block (the task'
 
 ## Step 9 (Post-Implementation)
 Single-task fix on the current branch. After commit + review approval, archive via `./.aitask-scripts/aitask_archive.sh 890` and `./ait git push`.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned. (1) Added `cp "$PROJECT_DIR/.aitask-scripts/lib/cross_repo_reexec.sh" "$repo_dir/.aitask-scripts/lib/"` (with an explanatory comment) to `setup_fake_aitask_repo()` in `tests/lib/test_scaffold.sh`, after the `yaml_utils.sh` copy. (2) Updated the CLAUDE.md Shell Conventions "Current baseline" note to `aitask_path.sh`, `terminal_compat.sh`, `python_resolve.sh`, `yaml_utils.sh`, `cross_repo_reexec.sh`.
+- **Deviations from plan:** None.
+- **Issues encountered:** During plan externalization, `aitask_plan_externalize.sh` returned `MULTIPLE_CANDIDATES` (several recent internal plans in `~/.claude/plans/`); re-ran with `--internal <known path>` to disambiguate. No other issues.
+- **Key decisions:** Chose the scaffold-baseline fix over the narrower test-local `cp` (task's primary suggestion). Rationale: `cross_repo_reexec.sh` is a startup-chain system lib sourced unconditionally by `aitask_ls.sh`, `aitask_query_files.sh`, and `aitask_find_by_file.sh`; its only dependency (`terminal_compat.sh`) is already in the baseline, so the baseline addition is safe and closes the same latent gap for all scaffolded tests while preventing future drift — consistent with CLAUDE.md's Shell Conventions mandate. The test's own cp block was left unchanged (it inherits the lib via the baseline).
+- **Upstream defects identified:** None. The failure was self-contained fixture drift (the subject of this task), not seeded by a separate pre-existing bug in another script. The one adjacent inaccuracy noticed — the CLAUDE.md baseline note omitting the already-present `yaml_utils.sh` — was corrected within this task's Change 2.
