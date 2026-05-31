@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t873_1]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [brainstorming, ait_brainstorm, ui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 13:13
-updated_at: 2026-05-31 13:13
+updated_at: 2026-05-31 15:21
 ---
 
 Fix defect #2 of parent t873: proposal-section navigation lands off-target. When a dimension row's proposal jump resolves, `SectionViewer` scrolls to a crude proportional estimate over raw source line numbers, so on long proposals it drifts and misses the intended section.
