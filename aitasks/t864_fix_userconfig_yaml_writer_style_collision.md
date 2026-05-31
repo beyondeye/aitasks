@@ -93,10 +93,26 @@ editing of a multi-line YAML value. Options (pick during planning):
   removing any following `- item` continuation lines) instead of `sed`-ing a
   single line; and make `get_last_used_labels()` read block style too.
 
-Add a regression test that: (a) writes block-style `last_used_labels`, (b)
-runs `set_last_used_labels`, (c) asserts the file still parses as valid YAML
-and the labels round-trip. Also cover a shortcut-save (Python) followed by an
-`ait create` (bash) on the same file.
+## Acceptance criteria
+
+The fix MUST land with a new regression test (no fix without a test). The
+test must reproduce the writer collision and assert it can no longer corrupt
+the file:
+
+- **Block-then-bash:** write a block-style `last_used_labels` to
+  `userconfig.yaml`, run `set_last_used_labels`, then assert the file still
+  parses as valid YAML and the labels round-trip (read back equals what was
+  written).
+- **Python-then-bash end-to-end:** simulate a shortcut-save (the Python
+  `shortcut_persist` writer) followed by an `ait create` (the bash
+  `set_last_used_labels` writer) on the same file, and assert the file
+  remains valid YAML afterward.
+- `get_last_used_labels()` correctly reads labels regardless of whether the
+  file is flow style or block style.
+- The test fails against the current (unfixed) code and passes after the fix.
+
+Place the test under `tests/` following the existing self-contained bash test
+convention (`assert_eq`/`assert_contains`, PASS/FAIL summary).
 
 ## Notes
 
