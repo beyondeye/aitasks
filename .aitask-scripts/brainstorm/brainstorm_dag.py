@@ -113,6 +113,12 @@ def _write_graph_state(session_path: Path, data: dict) -> None:
     write_yaml(str(session_path / GRAPH_STATE_FILE), data)
 
 
+def get_active_dimensions(session_path: Path) -> list[str]:
+    """Return the session's active dimension keys (or [] if none)."""
+    gs = _read_graph_state(session_path)
+    return [str(d) for d in (gs.get("active_dimensions") or [])]
+
+
 def get_head(session_path: Path) -> str | None:
     """Read br_graph_state.yaml and return current HEAD node ID (or None)."""
     gs = _read_graph_state(session_path)

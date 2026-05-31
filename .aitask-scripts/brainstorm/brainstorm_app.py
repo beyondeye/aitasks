@@ -44,6 +44,7 @@ from rich.text import Text
 from diffviewer.diff_display import word_diff_texts, TAG_STYLES
 
 from brainstorm.brainstorm_dag import (
+    get_active_dimensions,
     get_dimension_fields,
     get_head,
     list_nodes,
@@ -168,6 +169,16 @@ def _sections_intersection(node_sections: dict[str, list[str]]) -> list[str]:
 
 def _parse_section_label(label: str) -> str:
     """Extract a section name from a checkbox label (may include '[dims]' suffix)."""
+    return label.split(" ", 1)[0]
+
+
+def _parse_dimension_label(label: str) -> str:
+    """Recover the raw dimension key from a 'key — value' checkbox label.
+
+    Safe because dimension keys never contain spaces and the label separator is
+    ``" — "``, so the key is always the first space-delimited token (even after
+    the descriptive value is truncated).
+    """
     return label.split(" ", 1)[0]
 
 
@@ -1640,6 +1651,34 @@ class FuzzyCheckList(Container):
         chain[new_idx].scroll_visible()
         return True
 
+    def set_grouped_items(self, groups) -> None:
+        """Replace rows with grouped, subheadered items.
+
+        ``groups``: list of ``(subheader_text, [(label, checked), ...])``.
+        Re-mounts the inner ``.fcl_list`` scroll with a non-focusable ``Static``
+        subheader per group followed by its ``Checkbox`` rows, and resyncs
+        ``self._items`` so the fuzzy filter stays correct. Safe to call
+        repeatedly (e.g. on node-selection change), mirroring
+        ``_refresh_compare_sections``'s remount. Subheaders are ``Static`` (not
+        ``Checkbox``), so ``_navigate`` skips them and the filter leaves them
+        visible.
+        """
+        try:
+            listview = self.query_one(".fcl_list", VerticalScroll)
+        except Exception:
+            return
+        listview.remove_children()
+        items: list[str] = []
+        for subheader, rows in groups:
+            listview.mount(Static(
+                f"[bold $accent]{subheader}[/]", classes="fcl_subheader"))
+            for label, checked in rows:
+                listview.mount(Checkbox(
+                    label, value=checked,
+                    classes=f"{self._item_class} fcl_item"))
+                items.append(label)
+        self._items = items
+
 
 # ---------------------------------------------------------------------------
 # Dashboard Widgets
@@ -2457,6 +2496,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     }
 
     .dim_subheader {
+        padding: 0 1;
+        margin-top: 1;
+    }
+
+    .fcl_subheader {
         padding: 0 1;
         margin-top: 1;
     }
@@ -5683,13 +5727,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             placeholder="Type to filter nodes\u2026", id="cmp_nodes"))
 
         container.mount(Label("[bold]Dimensions[/]"))
-        all_dims = self._get_all_dimension_keys()
-        if all_dims:
-            container.mount(FuzzyCheckList(
-                all_dims, item_class="chk_dim", default_checked=True,
-                placeholder="Type to filter dimensions\u2026", id="cmp_dims"))
-        else:
-            container.mount(Label("[dim]No dimensions found[/]"))
+        # Mounted empty; _refresh_compare_dimensions populates it scoped to the
+        # checked nodes (grouped, descriptive, active-default) once nodes are
+        # selected. Keeping the FuzzyCheckList present preserves its filter
+        # Input + the cmp_dims Tab-nav group even before any node is checked.
+        container.mount(FuzzyCheckList(
+            [], item_class="chk_dim",
+            placeholder="Type to filter dimensions\u2026", id="cmp_dims"))
 
         container.mount(Label("[bold]Target Sections (optional)[/]", id="cmp_sections_label"))
         container.mount(Container(id="cmp_sections_box"))
@@ -5697,7 +5741,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
 
         self._cmp_section_checks = {}
+        self._cmp_dim_checks = {}
         self.call_after_refresh(self._refresh_compare_sections)
+        self.call_after_refresh(self._refresh_compare_dimensions)
         self.call_after_refresh(lambda: self._focus_fcl_filter("cmp_nodes"))
 
     def _refresh_compare_sections(self) -> None:
@@ -5732,6 +5778,50 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         for name in inter:
             value = self._cmp_section_checks.get(name, False)
             box.mount(Checkbox(name, value=value, classes="chk_section"))
+
+    def _refresh_compare_dimensions(self) -> None:
+        """(Re)mount compare dimension checkboxes scoped to the checked nodes.
+
+        Mirrors ``_refresh_compare_sections``: preserves prior toggles across
+        node-selection changes, scopes the dimension list to the union of the
+        checked nodes' dimensions (grouped by prefix under subheaders),
+        default-checks the session's ``active_dimensions`` (falling back to
+        all-checked when none), and labels each row ``"<full_key> — <value>"``
+        so the dimension's meaning is visible.
+        """
+        try:
+            fcl = self.query_one("#cmp_dims", FuzzyCheckList)
+        except Exception:
+            return
+
+        # Preserve current toggles across node-selection changes.
+        for cb in fcl.query("Checkbox.chk_dim"):
+            self._cmp_dim_checks[_parse_dimension_label(str(cb.label))] = bool(cb.value)
+
+        checked_nodes = [
+            str(cb.label) for cb in self.query("Checkbox.chk_node") if cb.value
+        ]
+        if not checked_nodes:
+            fcl.set_grouped_items([])
+            return
+
+        grouped = self._dimension_entries_for_nodes(checked_nodes)
+        active = set(get_active_dimensions(self.session_path))
+        groups: list[tuple[str, list[tuple[str, bool]]]] = []
+        for _prefix, label, entries in grouped:
+            rows: list[tuple[str, bool]] = []
+            for _suffix, value, full_key in entries:
+                v = str(value)
+                trunc = v if len(v) <= 60 else v[:57] + "…"
+                if full_key in self._cmp_dim_checks:
+                    checked = self._cmp_dim_checks[full_key]
+                elif active:
+                    checked = full_key in active
+                else:
+                    checked = True  # fallback = old default_checked=True
+                rows.append((f"{full_key} — {trunc}", checked))
+            groups.append((label, rows))
+        fcl.set_grouped_items(groups)
 
     def _config_synthesize(self, container: VerticalScroll) -> None:
         """Synthesize config: multi-node checkboxes + merge rules."""
@@ -5778,17 +5868,25 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         container.mount(Label(f"[bold]{labels.get(self._wizard_op, self._wizard_op)}[/]"))
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
 
-    def _get_all_dimension_keys(self) -> list[str]:
-        """Get all dimension keys from all nodes (preserving order)."""
-        all_dims: list[str] = []
-        seen: set[str] = set()
-        for nid in list_nodes(self.session_path):
-            data = read_node(self.session_path, nid)
-            for k in extract_dimensions(data):
-                if k not in seen:
-                    all_dims.append(k)
-                    seen.add(k)
-        return all_dims
+    def _dimension_entries_for_nodes(self, node_ids):
+        """Union of the given nodes' dimensions, grouped by prefix.
+
+        Returns ``group_dimensions_by_prefix`` output:
+        ``[(prefix, label, [(suffix, value, full_key)])]``. **Union, not
+        intersection** — a dimension present on only one selected node is still
+        a valid comparison axis, and intersection risks an empty list when
+        nodes carry divergent dimension sets. Scoped to the *selected* nodes,
+        it still shrinks far below the whole-graph key set.
+        """
+        merged: dict[str, str] = {}
+        for nid in node_ids:
+            try:
+                data = read_node(self.session_path, nid)
+            except Exception:
+                continue
+            for k, v in extract_dimensions(data).items():
+                merged.setdefault(k, str(v))
+        return group_dimensions_by_prefix(merged)
 
     def _node_sections(self, node_id: str) -> list:
         """Return the list of ContentSection for a node (plan preferred, else proposal)."""
@@ -5853,7 +5951,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 return False
             config["nodes"] = [str(lbl) for lbl in selected]
             dim_cbs = container.query("Checkbox.chk_dim")
-            config["dimensions"] = [str(cb.label) for cb in dim_cbs if cb.value]
+            config["dimensions"] = [
+                _parse_dimension_label(str(cb.label))
+                for cb in dim_cbs if cb.value
+            ]
             try:
                 box = self.query_one("#cmp_sections_box", Container)
                 sec_cbs = box.query("Checkbox.chk_section")
@@ -6000,10 +6101,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     @on(Checkbox.Changed, ".chk_node")
     def _on_cmp_node_changed(self, event: Checkbox.Changed) -> None:
-        """Re-render compare section checkboxes when node selection changes."""
+        """Re-render compare section + dimension checkboxes on node-selection change."""
         if self._wizard_op != "compare":
             return
         self._refresh_compare_sections()
+        self._refresh_compare_dimensions()
 
     @on(Button.Pressed, ".btn_actions_launch")
     def _on_actions_launch(self) -> None:

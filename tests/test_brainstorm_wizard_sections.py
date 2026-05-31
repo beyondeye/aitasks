@@ -21,9 +21,11 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
 from brainstorm.brainstorm_app import (  # noqa: E402
+    _parse_dimension_label,
     _parse_section_label,
     _sections_intersection,
 )
+from brainstorm.brainstorm_dag import get_active_dimensions  # noqa: E402
 
 
 class SectionsIntersectionTests(unittest.TestCase):
@@ -190,6 +192,143 @@ Redis cache in front.
     def test_has_sections_false_when_node_missing(self):
         app = self._make_app()
         self.assertFalse(app._node_has_sections("nonexistent"))
+
+
+class ParseDimensionLabelTests(unittest.TestCase):
+    """Round-trip a descriptive `key — value` label back to the raw key (t873_4)."""
+
+    def test_bare_key_returned_as_is(self):
+        self.assertEqual(_parse_dimension_label("component_auth"), "component_auth")
+
+    def test_strips_descriptive_value(self):
+        self.assertEqual(
+            _parse_dimension_label("component_auth — JWT-based authentication"),
+            "component_auth",
+        )
+
+    def test_value_containing_separator_still_recovers_key(self):
+        # The value itself may contain ' — '; only the first token is the key.
+        self.assertEqual(
+            _parse_dimension_label("requirements_perf — fast — really fast"),
+            "requirements_perf",
+        )
+
+    def test_truncated_value_still_recovers_key(self):
+        self.assertEqual(
+            _parse_dimension_label("tradeoff_cost — higher infra cost over…"),
+            "tradeoff_cost",
+        )
+
+
+class DimensionEntriesForNodesTests(unittest.TestCase):
+    """Exercise the node-scoped dimension collector + active-dimensions reader."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="brainstorm_wizard_dims_")
+        import agentcrew.agentcrew_utils as ac_mod
+        import brainstorm.brainstorm_session as bs_mod
+
+        self._orig_agentcrew_dir = ac_mod.AGENTCREW_DIR
+        ac_mod.AGENTCREW_DIR = str(Path(self.tmpdir) / "agentcrew")
+        bs_mod.AGENTCREW_DIR = ac_mod.AGENTCREW_DIR
+
+        self.task_num = "998"
+        self.wt_path = Path(ac_mod.AGENTCREW_DIR) / f"crew-brainstorm-{self.task_num}"
+        (self.wt_path / "br_nodes").mkdir(parents=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        import agentcrew.agentcrew_utils as ac_mod
+        import brainstorm.brainstorm_session as bs_mod
+        ac_mod.AGENTCREW_DIR = self._orig_agentcrew_dir
+        bs_mod.AGENTCREW_DIR = self._orig_agentcrew_dir
+
+    def _write_node(self, node_id: str, dim_fields: dict) -> None:
+        import agentcrew.agentcrew_utils as ac_mod
+        data = {
+            "node_id": node_id,
+            "parents": [],
+            "description": f"Node {node_id}",
+            "proposal_file": f"br_proposals/{node_id}.md",
+            "created_at": "2026-01-01 00:00",
+            "created_by_group": "g1",
+        }
+        data.update(dim_fields)
+        ac_mod.write_yaml(str(self.wt_path / "br_nodes" / f"{node_id}.yaml"), data)
+
+    def _write_graph_state(self, data: dict) -> None:
+        import agentcrew.agentcrew_utils as ac_mod
+        ac_mod.write_yaml(str(self.wt_path / "br_graph_state.yaml"), data)
+
+    def _make_app(self):
+        from brainstorm.brainstorm_app import BrainstormApp
+        app = BrainstormApp.__new__(BrainstormApp)
+        # Bypass __init__; the collector only needs `session_path`.
+        app.session_path = self.wt_path
+        return app
+
+    def test_union_of_selected_nodes_grouped_in_prefix_order(self):
+        self._write_node("n1", {
+            "requirements_perf": "Must be fast",
+            "component_auth": "JWT-based auth",
+        })
+        self._write_node("n2", {
+            "component_auth": "JWT-based auth",
+            "tradeoff_cost": "Higher infra cost",
+        })
+        # n3 is NOT selected — its dimensions must not leak in.
+        self._write_node("n3", {"assumption_unused": "should not appear"})
+        app = self._make_app()
+        grouped = app._dimension_entries_for_nodes(["n1", "n2"])
+        # group_dimensions_by_prefix order: requirements_, assumption_, component_, tradeoff_
+        labels = [label for _prefix, label, _entries in grouped]
+        self.assertEqual(labels, ["Requirements", "Components", "Tradeoffs"])
+        full_keys = sorted(
+            fk for _p, _l, entries in grouped for _s, _v, fk in entries
+        )
+        self.assertEqual(
+            full_keys,
+            ["component_auth", "requirements_perf", "tradeoff_cost"],
+        )
+
+    def test_excludes_non_dimension_fields_and_unselected_nodes(self):
+        self._write_node("n1", {"component_auth": "JWT"})
+        self._write_node("n2", {"requirements_perf": "fast"})
+        app = self._make_app()
+        grouped = app._dimension_entries_for_nodes(["n1"])
+        full_keys = [fk for _p, _l, entries in grouped for _s, _v, fk in entries]
+        self.assertEqual(full_keys, ["component_auth"])
+
+    def test_first_node_value_wins_on_duplicate_key(self):
+        self._write_node("n1", {"component_auth": "from n1"})
+        self._write_node("n2", {"component_auth": "from n2"})
+        app = self._make_app()
+        grouped = app._dimension_entries_for_nodes(["n1", "n2"])
+        values = [v for _p, _l, entries in grouped for _s, v, _fk in entries]
+        self.assertEqual(values, ["from n1"])
+
+    def test_missing_node_is_skipped(self):
+        self._write_node("n1", {"component_auth": "JWT"})
+        app = self._make_app()
+        grouped = app._dimension_entries_for_nodes(["n1", "nonexistent"])
+        full_keys = [fk for _p, _l, entries in grouped for _s, _v, fk in entries]
+        self.assertEqual(full_keys, ["component_auth"])
+
+    def test_get_active_dimensions_reads_list(self):
+        self._write_graph_state({
+            "current_head": "n1",
+            "history": ["n1"],
+            "next_node_id": 3,
+            "active_dimensions": ["component_auth", "requirements_perf"],
+        })
+        self.assertEqual(
+            get_active_dimensions(self.wt_path),
+            ["component_auth", "requirements_perf"],
+        )
+
+    def test_get_active_dimensions_empty_when_absent(self):
+        self._write_graph_state({"current_head": "n1", "history": ["n1"]})
+        self.assertEqual(get_active_dimensions(self.wt_path), [])
 
 
 if __name__ == "__main__":
