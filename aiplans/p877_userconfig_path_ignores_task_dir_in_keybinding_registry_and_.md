@@ -147,3 +147,39 @@ or golden regeneration needed. No new lib added to ait's source chain → no
 Post-implementation: commit code (`bug: ... (t877)`), consolidate + commit the
 plan file, then archival/merge per task-workflow Step 9 (working on current
 branch — no worktree to clean up).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, no deviations.
+  - `keybinding_registry._userconfig_path()` now delegates to
+    `userconfig_persist._userconfig_path()` via a function-local import (keeps
+    the module's import yaml-free, matching its deferred-`import yaml` design).
+  - `shortcuts_mixin._resolve_uppercase_key()` reads via the canonical
+    `_userconfig_path()` (top-level import alongside `config_utils`, which
+    already pulls yaml); removed the now-unused `from pathlib import Path`.
+  - Added regression tests: `tests/test_keybinding_registry.sh` case 10
+    (`load_user_overrides()` honors `TASK_DIR`) and
+    `tests/test_shortcut_label_case.py::TaskDirOverrideTests`
+    (`shortcut_label_case` read from the `TASK_DIR` file, not the decoy).
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Both new tests confirmed red-on-old /
+  green-on-new by stashing the lib fix: the python test cleanly FAILs and the
+  bash case10 aborts under `set -e` (python assertion) — both detect the bug.
+- **Key decisions:** Delegation over replicating the `TASK_DIR` logic — single
+  source of truth, the task's stated preference. Local import in
+  `keybinding_registry` (not top-level) deliberately preserves its yaml-free
+  import path; top-level is fine in `shortcuts_mixin` because `config_utils`
+  already imports yaml at module load. Importing the private `_userconfig_path`
+  is consistent with the existing `shortcut_persist` → `userconfig_persist`
+  (`_atomic_dump`/`_load_full`) precedent. No circular import (`userconfig_persist`
+  imports only stdlib + yaml).
+- **Upstream defects identified:**
+  - `.aitask-scripts/settings/settings_app.py:79 — METADATA_DIR = Path("aitasks")/"metadata" hardcoded at module load, ignoring TASK_DIR; makes config export/import (config_utils.export_all_configs/import_all_configs, themselves correct via the caller-provided base) target the wrong metadata dir under a TASK_DIR override.`
+  - `.aitask-scripts/board/aitask_board.py:56 — TASKS_DIR = Path("aitasks") hardcoded at module load, ignoring TASK_DIR; USERCONFIG_FILE (board email read) then resolves the wrong file under a TASK_DIR override.`
+  - `.aitask-scripts/lib/agent_model_picker.py:36 — METADATA_DIR = Path("aitasks")/"metadata" hardcoded at module load, ignoring TASK_DIR; same latent TUI module-load pattern as the two above.`
+
+  All three are the same class as t877 (latent test-isolation / non-default-layout
+  correctness, harmless in default production where TUIs chdir to repo root with
+  TASK_DIR unset) but are different consumers outside t877's `file_references`.
+  Candidate for a single follow-up that routes these module-load constants
+  through a TASK_DIR-aware resolver.
