@@ -92,6 +92,52 @@ class ManifestDriftTests(unittest.TestCase):
         )
 
 
+class ScopeFilteredSweepTests(unittest.TestCase):
+    """register_scope_bindings(scope) — the in-TUI `?` editor's filtered sweep
+    (t848_9): loads only the active TUI's own scope + sub-scopes + shared, with
+    no App instantiated, and skips every unrelated TUI."""
+
+    def setUp(self) -> None:
+        keybinding_registry._reset_for_tests()
+
+    def tearDown(self) -> None:
+        keybinding_registry._reset_for_tests()
+
+    def _registered(self) -> set[str]:
+        return {scope for (scope, _action) in keybinding_registry._DEFAULTS}
+
+    def test_board_scope_loads_own_subscopes_and_shared_only(self):
+        failed = shortcut_scopes.register_scope_bindings("board")
+        self.assertEqual(failed, [], f"unexpected import failures: {failed}")
+        registered = self._registered()
+        # board's own scope + its modal sub-scope register eagerly, with no
+        # TaskDetailScreen ever instantiated.
+        for scope in ("board", "board.detail"):
+            self.assertIn(scope, registered, f"{scope} not registered eagerly")
+        # global shared scopes are always included (the editor surfaces them):
+        # the TUI switcher, the stale-entry modal, and the cross-TUI agent
+        # command dialog (shared.agent_cmd, reused by board/codebrowser/…).
+        for scope in ("shared", "shared.stale_entry", "shared.agent_cmd"):
+            self.assertIn(scope, registered, f"{scope} not registered eagerly")
+        # unrelated TUIs are NOT imported by the filtered sweep.
+        for scope in ("brainstorm", "codebrowser", "monitor", "syncer"):
+            self.assertNotIn(scope, registered,
+                             f"{scope} should not be loaded for a board editor")
+
+    def test_codebrowser_scope_filtered(self):
+        failed = shortcut_scopes.register_scope_bindings("codebrowser")
+        self.assertEqual(failed, [], f"unexpected import failures: {failed}")
+        registered = self._registered()
+        self.assertIn("codebrowser", registered)
+        self.assertIn("codebrowser.copypath", registered)
+        self.assertIn("shared", registered)
+        # the agent command dialog is reused in codebrowser too, so its shared
+        # sub-scope surfaces here as well — the point of rescoping it to shared.
+        self.assertIn("shared.agent_cmd", registered)
+        self.assertNotIn("board", registered)
+        self.assertNotIn("brainstorm", registered)
+
+
 if __name__ == "__main__":
     # Ensure cwd doesn't matter for the path-based sweep.
     os.chdir(REPO_ROOT)

@@ -302,7 +302,8 @@ How to apply when you add a new scope:
   module and introspects its classes for `_shortcuts_scope`. No manifest edit
   needed.
 - A **brand-new TUI module file** MUST be added to `KNOWN_BINDING_SOURCES` in
-  `lib/shortcut_scopes.py` (entry: `(module_name, path_relative_to_.aitask-scripts)`).
+  `lib/shortcut_scopes.py` (entry: `(module_name, path_relative_to_.aitask-scripts,
+  scopes_tuple)`, where `scopes_tuple` lists every scope the module contributes).
 - `tests/test_shortcut_scopes.py` is a drift guard: it scans the source tree for
   every `_shortcuts_scope`/`register_*bindings` declaration and fails if the
   sweep does not register it — so a forgotten manifest entry surfaces as a test
@@ -310,6 +311,18 @@ How to apply when you add a new scope:
 - Keep `KNOWN_BINDING_SOURCES` module-only (no per-class entries); the sweep
   reads class attributes without instantiating, so do not add heavy
   instantiation there.
+
+The in-TUI `?` editor uses the same manifest, *filtered*: it calls
+`shortcut_scopes.register_scope_bindings(scope)` (from
+`ShortcutsMixin.action_open_shortcuts_editor`) so the active TUI's modal
+sub-scopes (e.g. `board.detail`) and the shared cross-TUI dialogs (`shared.*`,
+e.g. `shared.agent_cmd`) are listed up front without opening each modal
+first — and without importing every other TUI. The `scopes`
+column in `KNOWN_BINDING_SOURCES` is what drives that filtering. The `?` editor
+binding itself (`open_shortcuts_editor`) is a **`shared`-scope** shortcut,
+registered at import by `shortcuts_mixin.register_shared_bindings()` (mirroring
+the `j` TUI switcher); the shared-action de-dup in `register_app_bindings` then
+lists it once under `shared` and applies a rebind in every TUI.
 
 ## Tmux-stress tasks: implement outside the user's main aitasks tmux
 

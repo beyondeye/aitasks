@@ -33,6 +33,7 @@ from textual.widgets import DataTable  # noqa: E402
 import keybinding_registry  # noqa: E402
 import shortcut_persist  # noqa: E402
 from shortcut_editor_modal import _CLEAR, ShortcutEditorModal  # noqa: E402
+import shortcuts_mixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 
 
@@ -120,6 +121,41 @@ class IterScopeBindingsTests(_Fixture):
             "monitor", [Binding("j", "tui_switcher", "Switch")]
         )
         self.assertEqual(applied[0].key, "k")  # resolved from the shared override
+
+    def test_shortcuts_editor_action_not_duplicated_under_app_scope(self):
+        # t848_9: the `?` editor binding (open_shortcuts_editor) is registered
+        # under "shared" at shortcuts_mixin import; _reset_for_tests (setUp)
+        # wiped it, so re-trigger it the way the runtime would.
+        shortcuts_mixin.register_shared_bindings()
+        # An App then splices the same binding into its own BINDINGS.
+        keybinding_registry.register_app_bindings(
+            "board",
+            [*ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS, Binding("p", "pick", "Pick")],
+        )
+        # ? is NOT shadowed under the app scope...
+        self.assertNotIn(
+            ("board", "open_shortcuts_editor"), keybinding_registry._DEFAULTS
+        )
+        self.assertIn(
+            ("shared", "open_shortcuts_editor"), keybinding_registry._DEFAULTS
+        )
+        # ...so the board editor lists it exactly once (under "shared").
+        rows = [
+            r for r in keybinding_registry.iter_scope_bindings("board")
+            if r[1] == "open_shortcuts_editor"
+        ]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0], "shared")
+
+    def test_shortcuts_editor_shared_override_applies(self):
+        shortcuts_mixin.register_shared_bindings()
+        shortcut_persist.save_override("shared", "open_shortcuts_editor", "f1")
+        keybinding_registry.refresh()
+        applied = keybinding_registry.register_app_bindings(
+            "board", [*ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS]
+        )
+        # the ? binding resolves to the shared override key in every TUI
+        self.assertEqual(applied[0].key, "f1")
 
 
 class ModalLogicTests(_Fixture):
@@ -272,9 +308,18 @@ class PilotTests(_Fixture):
                 await pilot.pause()
                 self.assertIsInstance(app.screen, ShortcutEditorModal)
                 table = app.screen.query_one("#se_table", DataTable)
-                # 3 registered actions in testscope: noop_pick, noop_brainstorm,
-                # open_shortcuts_editor (no shared scope registered in this test).
-                self.assertEqual(table.row_count, 3)
+                # The 3 testscope actions (noop_pick, noop_brainstorm,
+                # open_shortcuts_editor) are always present. Pressing ? now also
+                # eagerly registers shared sub-scopes (t848_9), so the table may
+                # carry extra shared rows — assert on the testscope rows.
+                testscope_actions = {
+                    a for (s, a, _, _) in app.screen._rows if s == "testscope"
+                }
+                self.assertEqual(
+                    testscope_actions,
+                    {"noop_pick", "noop_brainstorm", "open_shortcuts_editor"},
+                )
+                self.assertGreaterEqual(table.row_count, 3)
 
         self._run(runner())
 
@@ -287,10 +332,14 @@ class PilotTests(_Fixture):
                 await pilot.pause()
                 modal = app.screen
                 self.assertIsInstance(modal, ShortcutEditorModal)
-                # Rows sorted by action_id: noop_brainstorm(0), noop_pick(1),
-                # open_shortcuts_editor(2). Move to noop_pick.
+                # Locate noop_pick's row (the table may include shared rows from
+                # the t848_9 eager registration, so don't hardcode the index).
+                target = next(
+                    i for i, (s, a, _, _) in enumerate(modal._rows)
+                    if s == "testscope" and a == "noop_pick"
+                )
                 table = modal.query_one("#se_table", DataTable)
-                table.move_cursor(row=1)
+                table.move_cursor(row=target)
                 await pilot.pause()
                 await pilot.press("enter")        # -> KeyCaptureScreen
                 await pilot.pause()

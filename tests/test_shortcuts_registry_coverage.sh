@@ -44,6 +44,12 @@ keybinding_registry._reset_for_tests()
 # Import tui_switcher first so the "shared" scope is registered.
 import tui_switcher  # noqa: F401
 
+# Re-register the App-level `?` editor binding under "shared" — the import-time
+# call in shortcuts_mixin was wiped by _reset_for_tests above (t848_9). Mirrors
+# the tui_switcher re-import for the shared `j` switcher.
+import shortcuts_mixin  # noqa: F401
+shortcuts_mixin.register_shared_bindings()
+
 # Each entry: (module_path, module_name, app_class_name, instantiate_lambda, expected_scope)
 TUIS = [
     (".aitask-scripts/syncer/syncer_app.py", "syncer_app", "SyncerApp",
@@ -112,6 +118,16 @@ for path, name, cls_name, factory, expected_scope in TUIS:
 # Assert "shared" scope is registered (from tui_switcher import at top).
 if "shared" not in {s for (s, _) in keybinding_registry._DEFAULTS}:
     failures.append("  tui_switcher: scope 'shared' not registered")
+
+# `?` (open_shortcuts_editor) must be a single shared binding (t848_9), never
+# shadowed under a per-App scope.
+sc_scopes = {s for (s, a) in keybinding_registry._DEFAULTS
+             if a == "open_shortcuts_editor"}
+if sc_scopes != {"shared"}:
+    failures.append(
+        "  open_shortcuts_editor must be registered only under 'shared', "
+        f"found: {sorted(sc_scopes)}"
+    )
 
 # Coherence lint (advisory).
 warnings = keybinding_registry.coherence_lint()

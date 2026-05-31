@@ -25,7 +25,7 @@ _DEFAULTS: dict[tuple[str, str], tuple[str, str]] = {}
 _OVERRIDES_CACHE: dict[str, dict[str, str]] | None = None
 
 SHARED_ACTION_IDS: frozenset[str] = frozenset(
-    {"quit", "tui_switcher", "refresh", "shortcuts_editor"}
+    {"quit", "tui_switcher", "refresh", "open_shortcuts_editor"}
 )
 
 

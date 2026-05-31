@@ -130,7 +130,10 @@ def pick_initial_session(
 
 
 class AgentCommandScreen(ShortcutsMixin, ModalScreen):
-    _shortcuts_scope = "board.agent_cmd"
+    # Shared sub-scope: this dialog is reused across multiple TUIs (board,
+    # codebrowser, monitor, syncer), so its shortcuts belong under "shared"
+    # (like shared.stale_entry), not under any single TUI's scope.
+    _shortcuts_scope = "shared.agent_cmd"
 
     """Dialog showing an agent command for copying or running.
 

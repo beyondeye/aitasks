@@ -51,6 +51,19 @@ class ShortcutsMixin:
         # there import as bare names (not package-relative).
         from shortcut_editor_modal import ShortcutEditorModal
 
+        # Eagerly register this TUI's modal sub-scopes (e.g. board.detail) and
+        # the shared dialogs (shared.*) so the editor lists them up front, not
+        # only after the user has opened each modal once. Filtered + fail-soft;
+        # guarded so the one-time module load happens at most once per instance.
+        if not getattr(self, "_subscopes_registered", False):
+            try:
+                import shortcut_scopes
+
+                shortcut_scopes.register_scope_bindings(self._shortcuts_scope)
+            except Exception:
+                pass  # fail-soft: editor still lists already-registered scopes
+            self._subscopes_registered = True
+
         self.app.push_screen(ShortcutEditorModal(scope=self._shortcuts_scope))
 
 
@@ -58,3 +71,26 @@ def get_label(scope: str, action_id: str, text: str, *, style: str = "wrap") -> 
     """Render ``text`` annotated with the active key for ``(scope, action_id)``."""
     key = resolve_key(scope, action_id) or ""
     return render_label(text, key, style=style)
+
+
+def register_shared_bindings() -> None:
+    """Register the App-level ``?`` editor binding under the global ``shared`` scope.
+
+    Mirrors ``tui_switcher.py``'s module-level shared registration of ``j``.
+    Because ``?`` is the same binding spliced into every App via
+    ``SHORTCUTS_MIXIN_BINDINGS``, recording it under ``shared`` makes the t848_4
+    shortcut editor list it once (under ``shared``), and the shared-action
+    de-dup in ``register_app_bindings`` resolves each App's ``?`` from the shared
+    scope — so a rebind there applies in every TUI.
+
+    Idempotent. Runs once at import (below); tests that call
+    ``keybinding_registry._reset_for_tests()`` must call this again to restore it.
+    """
+    register_app_bindings("shared", ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS)
+
+
+# Register at import so `("shared", "open_shortcuts_editor")` is in the registry
+# before any App's ShortcutsMixin.__init__ runs (every App module imports this
+# module at import time, before instantiation) — that ordering is what lets the
+# shared-action de-dup fire when each App registers its own bindings.
+register_shared_bindings()
