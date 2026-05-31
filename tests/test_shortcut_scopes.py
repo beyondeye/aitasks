@@ -138,6 +138,50 @@ class ScopeFilteredSweepTests(unittest.TestCase):
         self.assertNotIn("brainstorm", registered)
 
 
+class TuiSwitcherScopeTests(unittest.TestCase):
+    """t876: the TUI-switcher overlay's quick-jumps register under
+    ``shared.tui_switcher`` and surface in both the Settings tab
+    (``iter_all_bindings`` after the full sweep) and the in-TUI ``?`` editor
+    (``iter_scope_bindings`` — it's a ``shared.*`` scope, always included). The
+    structural keys (escape/enter/←/→/j) stay fixed literals and are NOT
+    registered, so only the quick-jumps are customizable."""
+
+    _QUICK_JUMPS = {
+        "shortcut_applink", "shortcut_board", "shortcut_monitor",
+        "shortcut_codebrowser", "shortcut_settings", "shortcut_stats",
+        "shortcut_syncer", "shortcut_brainstorm", "shortcut_explore",
+        "shortcut_git", "shortcut_create",
+    }
+    _STRUCTURAL = {"dismiss_overlay", "select_tui", "prev_session", "next_session"}
+
+    def setUp(self) -> None:
+        keybinding_registry._reset_for_tests()
+
+    def tearDown(self) -> None:
+        keybinding_registry._reset_for_tests()
+
+    def test_quick_jumps_in_iter_all_bindings(self):
+        shortcut_scopes.register_all_known_bindings()
+        actions = {
+            action for (scope, action, _k, _l)
+            in keybinding_registry.iter_all_bindings()
+            if scope == "shared.tui_switcher"
+        }
+        self.assertEqual(actions, self._QUICK_JUMPS)
+        # The fixed structural keys are intentionally left unregistered.
+        self.assertFalse(actions & self._STRUCTURAL)
+
+    def test_quick_jumps_in_scope_filtered_editor(self):
+        # A board editor's filtered sweep must surface shared.tui_switcher.
+        shortcut_scopes.register_scope_bindings("board")
+        actions = {
+            action for (scope, action, _k, _l)
+            in keybinding_registry.iter_scope_bindings("board")
+            if scope == "shared.tui_switcher"
+        }
+        self.assertEqual(actions, self._QUICK_JUMPS)
+
+
 if __name__ == "__main__":
     # Ensure cwd doesn't matter for the path-based sweep.
     os.chdir(REPO_ROOT)

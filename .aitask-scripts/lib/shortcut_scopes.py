@@ -59,7 +59,7 @@ KNOWN_BINDING_SOURCES: list[tuple[str, str, tuple[str, ...]]] = [
     # under "shared.*" so every TUI's `?` editor surfaces them.
     ("agent_command_screen", "lib/agent_command_screen.py", ("shared.agent_cmd",)),
     ("stale_entry_modal", "lib/stale_entry_modal.py", ("shared.stale_entry",)),
-    ("tui_switcher", "lib/tui_switcher.py", ("shared",)),  # module-level register
+    ("tui_switcher", "lib/tui_switcher.py", ("shared", "shared.tui_switcher")),  # module- + class-body register
 ]
 
 

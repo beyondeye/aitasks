@@ -97,7 +97,8 @@ class PopulateTests(_Fixture):
                 await pilot.pause()
                 table = app.query_one("#shortcuts_table", DataTable)
                 scopes = self._table_scopes(table)
-                for need in ("board", "monitor", "brainstorm", "settings", "shared"):
+                for need in ("board", "monitor", "brainstorm", "settings",
+                             "shared", "shared.tui_switcher"):
                     self.assertIn(need, scopes)
                 self.assertGreater(table.row_count, 20)
         self._run(runner())

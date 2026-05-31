@@ -29,6 +29,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -53,6 +54,8 @@ from agent_launch_utils import (  # noqa: E402
 )
 from stale_entry_modal import RegistryRefresh, StaleEntryModal  # noqa: E402
 from tui_registry import BRAINSTORM_PREFIX as _BRAINSTORM_PREFIX, TUI_NAMES as _TUI_NAMES, switcher_tuis  # noqa: E402
+from keybinding_registry import register_app_bindings, resolve_key  # noqa: E402
+from shortcut_labels import display_form, render_label  # noqa: E402
 
 
 def _format_desync_lines(lines_output: str) -> str:
@@ -160,7 +163,19 @@ def _build_tui_list(project_root: Path | None = None):
 # Classification constants shared with tmux_monitor.py via tui_registry.
 _AGENT_PREFIXES = ["agent-"]
 
-# Shortcut keys for specific TUIs: (key, tui_name)
+# Customizable-shortcuts scope for the switcher overlay's quick-jump keys
+# (t876). Distinct from the module-level "shared" scope that registers the
+# `j` key that *opens* the switcher (see bottom of file). The quick-jumps are
+# registered at class body (see TuiSwitcherOverlay.BINDINGS) — the pattern that
+# actually wires user overrides into Textual's live key map, mirroring
+# brainstorm_dag_display.py. The structural keys (escape/enter/←/→) stay fixed
+# literals and are intentionally NOT registered (not user-customizable).
+_TUI_SWITCHER_SCOPE = "shared.tui_switcher"
+
+# Default quick-jump keys per switchable TUI. These are the registration
+# defaults; the live key (and the hint/list rendering) resolve through
+# `resolve_key(_TUI_SWITCHER_SCOPE, "shortcut_<name>", default)` so a rebind is
+# reflected without going stale.
 _TUI_SHORTCUTS = {
     "board": "b",
     "monitor": "m",
@@ -171,6 +186,50 @@ _TUI_SHORTCUTS = {
     "git": "g",
     "applink": "a",
 }
+
+
+def _resolve_tui_shortcut(tui_name: str) -> str | None:
+    """Active quick-jump key for ``tui_name`` (override-aware), or None.
+
+    The action id is ``shortcut_<tui_name>`` for every entry in
+    ``_TUI_SHORTCUTS``; falls back to the hardcoded default when no override or
+    recorded default exists yet.
+    """
+    default = _TUI_SHORTCUTS.get(tui_name)
+    if default is None:
+        return None
+    return resolve_key(_TUI_SWITCHER_SCOPE, f"shortcut_{tui_name}", default) or default
+
+
+# Ordered (action_id, label, default_key) for the overlay's bottom hint row.
+# Omits applink (the hint historically does not advertise the App Linker key).
+_HINT_ITEMS = [
+    ("shortcut_board", "board", "b"),
+    ("shortcut_monitor", "monitor", "m"),
+    ("shortcut_codebrowser", "code", "c"),
+    ("shortcut_settings", "settings", "s"),
+    ("shortcut_stats", "stats", "t"),
+    ("shortcut_syncer", "syncer", "y"),
+    ("shortcut_brainstorm", "brainstorm", "r"),
+    ("shortcut_git", "git", "g"),
+    ("shortcut_explore", "explore", "x"),
+    ("shortcut_create", "new task", "n"),
+]
+
+_KEY_PAREN_RE = re.compile(r"\(([^)]*)\)")
+
+
+def _hint_segment(action_id: str, label: str, default_key: str) -> str:
+    """Render one bottom-hint segment with its live key highlighted in cyan.
+
+    ``render_label`` inlines the key into the word where possible
+    (``board`` + ``b`` -> ``(B)oard``) or prefixes it otherwise
+    (``stats`` + ``z`` -> ``(Z) stats``); the regex re-applies the existing
+    cyan markup to whichever ``(K)`` group it produced.
+    """
+    key = resolve_key(_TUI_SWITCHER_SCOPE, action_id, default_key) or default_key
+    rendered = render_label(label, key)
+    return _KEY_PAREN_RE.sub(r"[bold bright_cyan](\1)[/]", rendered, count=1)
 
 
 def _discover_brainstorm_sessions(project_root: Path | None = None) -> list[str]:
@@ -266,9 +325,13 @@ class _TuiListItem(ListItem):
         else:
             indicator = "[dim]\u25cb[/]"
             style = "dim"
-        # Show shortcut hint if this TUI has one
-        shortcut = _TUI_SHORTCUTS.get(self.tui_name)
-        hint = f" [bold bright_cyan]({shortcut})[/]" if shortcut and not self.is_current else ""
+        # Show shortcut hint if this TUI has one (resolved so a rebind shows).
+        shortcut = _resolve_tui_shortcut(self.tui_name)
+        hint = (
+            f" [bold bright_cyan]({display_form(shortcut)})[/]"
+            if shortcut and not self.is_current
+            else ""
+        )
         yield Static(f" {indicator}  [{style}]{self.tui_label}[/]{hint}")
 
 
@@ -282,6 +345,34 @@ class _WindowListItem(ListItem):
 
     def compose(self):
         yield Static(f" [bright_green]\u25cf[/]  {self.window_name}")
+
+
+# Quick-jump bindings, registered under `shared.tui_switcher` so they surface
+# in the in-TUI `?` editor and the Settings \u2192 Shortcuts tab and pick up user
+# overrides. Only these are customizable; see TuiSwitcherOverlay.BINDINGS.
+_QUICK_JUMP_BINDINGS = [
+    Binding("a", "shortcut_applink", "App Linker", show=False),
+    Binding("b", "shortcut_board", "Board", show=False),
+    Binding("m", "shortcut_monitor", "Monitor", show=False),
+    Binding("c", "shortcut_codebrowser", "Code Browser", show=False),
+    Binding("s", "shortcut_settings", "Settings", show=False),
+    Binding("t", "shortcut_stats", "Statistics", show=False),
+    Binding("y", "shortcut_syncer", "Syncer", show=False),
+    Binding("r", "shortcut_brainstorm", "Brainstorm", show=False),
+    Binding("x", "shortcut_explore", "Explore", show=False),
+    Binding("g", "shortcut_git", "Git", show=False),
+    Binding("n", "shortcut_create", "New Task", show=False),
+]
+
+# The overlay closes on the same key that opens it (a toggle). Resolve the
+# shared "open switcher" key at import so a rebind of the open key carries over
+# to the close key; skip it when it collides with a fixed/quick-jump key
+# (escape always closes regardless).
+_OVERLAY_OPEN_KEY = resolve_key("shared", "tui_switcher", "j") or "j"
+_OVERLAY_RESERVED_KEYS = {
+    "escape", "enter", "left", "right",
+    *(b.key for b in _QUICK_JUMP_BINDINGS),
+}
 
 
 class TuiSwitcherOverlay(ModalScreen):
@@ -330,23 +421,22 @@ class TuiSwitcherOverlay(ModalScreen):
     }
     """
 
+    # Structural keys stay fixed literals; only the quick-jumps are registered
+    # (customizable). The class-body register_app_bindings() call is what wires
+    # user overrides into Textual's live key map AND records the defaults for
+    # the editor — mirroring brainstorm_dag_display.py. The `j`→close toggle
+    # tracks the resolved open key (_OVERLAY_OPEN_KEY).
     BINDINGS = [
         Binding("escape", "dismiss_overlay", "Close", show=False),
-        Binding("j", "dismiss_overlay", "Close", show=False),
         Binding("enter", "select_tui", "Switch", show=False),
         Binding("left", "prev_session", "Prev session", show=False, priority=True),
         Binding("right", "next_session", "Next session", show=False, priority=True),
-        Binding("a", "shortcut_applink", "App Linker", show=False),
-        Binding("b", "shortcut_board", "Board", show=False),
-        Binding("m", "shortcut_monitor", "Monitor", show=False),
-        Binding("c", "shortcut_codebrowser", "Code Browser", show=False),
-        Binding("s", "shortcut_settings", "Settings", show=False),
-        Binding("t", "shortcut_stats", "Statistics", show=False),
-        Binding("y", "shortcut_syncer", "Syncer", show=False),
-        Binding("r", "shortcut_brainstorm", "Brainstorm", show=False),
-        Binding("x", "shortcut_explore", "Explore", show=False),
-        Binding("g", "shortcut_git", "Git", show=False),
-        Binding("n", "shortcut_create", "New Task", show=False),
+        *(
+            [Binding(_OVERLAY_OPEN_KEY, "dismiss_overlay", "Close", show=False)]
+            if _OVERLAY_OPEN_KEY not in _OVERLAY_RESERVED_KEYS
+            else []
+        ),
+        *register_app_bindings(_TUI_SWITCHER_SCOPE, _QUICK_JUMP_BINDINGS),
     ]
 
     def __init__(
@@ -562,22 +652,19 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def _render_hint(self) -> None:
         hint = self.query_one("#switcher_hint", Label)
-        text = (
-            "[bold bright_cyan](b)[/]oard  [bold bright_cyan](m)[/]onitor  "
-            "[bold bright_cyan](c)[/]ode  [bold bright_cyan](s)[/]ettings  "
-            "s[bold bright_cyan](t)[/]ats  s[bold bright_cyan](y)[/]ncer  "
-            "b[bold bright_cyan](r)[/]ainstorm  "
-            "[bold bright_cyan](g)[/]it  e[bold bright_cyan](x)[/]plore  "
-            "[bold bright_cyan](n)[/]ew task\n"
-        )
+        text = "  ".join(
+            _hint_segment(action_id, label, default_key)
+            for action_id, label, default_key in _HINT_ITEMS
+        ) + "\n"
+        close = f"[bold bright_cyan]{display_form(_OVERLAY_OPEN_KEY)}/Esc[/] close"
         if self._multi_mode:
             text += (
                 "[bold bright_cyan]Enter[/] switch  "
                 "[bold bright_cyan]←/→[/] session  "
-                "[bold bright_cyan]j/Esc[/] close"
+                + close
             )
         else:
-            text += "[bold bright_cyan]Enter[/] switch  [bold bright_cyan]j/Esc[/] close"
+            text += "[bold bright_cyan]Enter[/] switch  " + close
         hint.update(text)
 
     def _render_session_row(self) -> None:
@@ -1061,5 +1148,4 @@ class TuiSwitcherMixin:
 # t848_4 shortcuts editor can surface it from every TUI (the `j` key is
 # bound in every host App via the mixin, but the editor enumerates by
 # scope, not by host).
-from keybinding_registry import register_app_bindings as _register_shared_bindings  # noqa: E402
-_register_shared_bindings("shared", TuiSwitcherMixin.SWITCHER_BINDINGS)
+register_app_bindings("shared", TuiSwitcherMixin.SWITCHER_BINDINGS)
