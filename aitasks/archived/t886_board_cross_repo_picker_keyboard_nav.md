@@ -3,11 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_board, tui, upstream_defect_followup]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-31 18:45
-updated_at: 2026-05-31 21:55
+updated_at: 2026-05-31 22:30
+completed_at: 2026-05-31 22:30
 ---
 
 The cross-repo reference picker on the `ait board` TUI
