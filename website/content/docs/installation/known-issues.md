@@ -18,18 +18,11 @@ Use stronger reasoning/model settings when you need reliable workflow compliance
 
 ## Codex CLI
 
-#### Interactive checkpoints depend on Suggest mode
+#### Interactive checkpoints
 
-`aitasks` wrappers use `request_user_input` for workflow checkpoints (task confirmation, plan approval, commit review). In current Codex CLI mappings, `request_user_input` is only available in **Suggest mode**. Once the agent transitions to normal execution mode, interactive prompts stop working.
+`ait setup` enables the `default_mode_request_user_input` feature in the generated Codex config (`.codex/config.toml`), so `request_user_input` is available in Codex's default mode. Interactive workflow checkpoints — task confirmation, plan approval, and commit review — work throughout the `aitask-*` workflow, including post-implementation finalization (commit, archive).
 
-When Codex is launched through `ait codeagent invoke` for interactive skill operations (`pick`, `explain`, `qa`, or `explore`), the wrapper starts Codex in a PTY and sends `/plan <skill prompt>` after the TUI starts. Directly running Codex with `$aitask-*` still requires entering plan mode manually first.
-
-This causes two related problems:
-
-- **Task locking is sometimes skipped.** Codex CLI may start implementation without first acquiring a task lock (Step 4), because lock acquisition requires writing metadata, which is not possible during the planning phase (read-only Suggest mode).
-- **Post-implementation workflow stalls.** After implementation, the agent often fails to continue to finalization (commit, archive) because it can no longer prompt the user for approval decisions.
-
-**Workaround:** After Codex completes its implementation, explicitly prompt it to continue the workflow (e.g., "please commit and archive the task"). Using [execution profiles](../../commands/codeagent/) (e.g., the `fast` profile) also helps by pre-answering workflow questions and reducing the dependency on `request_user_input`.
+> `ait codeagent invoke` still launches interactive Codex skill operations (`pick`, `explain`, `qa`, `explore`) through plan mode; whether that remains necessary is under review.
 
 #### Model self-identification is unreliable
 

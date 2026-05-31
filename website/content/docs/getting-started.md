@@ -80,7 +80,7 @@ Use the same command in Claude Code, OpenCode, and other slash-style supported a
 $aitask-pick
 ```
 
-> Interactive Codex skill flows require **plan mode** because `request_user_input` is only available in plan mode.
+> Codex CLI interactive skill flows work in default mode: `ait setup` enables the `default_mode_request_user_input` feature, so `request_user_input` is available outside plan mode.
 
 This launches the full development workflow:
 
