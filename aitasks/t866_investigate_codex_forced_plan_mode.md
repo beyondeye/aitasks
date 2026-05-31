@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [862]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [codexcli]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 10:38
-updated_at: 2026-05-31 10:38
+updated_at: 2026-05-31 10:45
 ---
 
 Follow-up to t862 (Codex caveats docs update).
