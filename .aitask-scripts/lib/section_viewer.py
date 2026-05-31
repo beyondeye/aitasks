@@ -223,22 +223,30 @@ class SectionRow(Static):
             super().__init__()
 
     def __init__(
-        self, name: str, dimensions: list[str], compact: bool = True, **kwargs
+        self,
+        name: str,
+        dimensions: list[str],
+        compact: bool = True,
+        depth: int = 0,
+        **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.section_name = name
         self.dimensions = dimensions
         self._compact = compact
+        self.depth = depth
         self.add_class("-compact" if compact else "-expanded")
 
     def render(self):
+        # Indent nested rows so the minimap reflects the section hierarchy.
+        indent = "  " * self.depth
         if self._compact:
             dim_str = f" [{', '.join(self.dimensions)}]" if self.dimensions else ""
-            return f" {self.section_name}{dim_str}"
+            return f" {indent}{self.section_name}{dim_str}"
         text = Text()
-        text.append(f" {self.section_name}", style="bold")
+        text.append(f" {indent}{self.section_name}", style="bold")
         if self.dimensions:
-            text.append(f"\n   {', '.join(self.dimensions)}", style="dim")
+            text.append(f"\n   {indent}{', '.join(self.dimensions)}", style="dim")
         return text
 
     def on_click(self) -> None:
@@ -313,7 +321,10 @@ class SectionMinimap(VerticalScroll):
         """
         self.remove_children()
         for section in _filter_sections(parsed, names):
-            self.mount(SectionRow(section.name, section.dimensions, compact=self._compact))
+            self.mount(SectionRow(
+                section.name, section.dimensions,
+                compact=self._compact, depth=section.depth,
+            ))
         self._last_focused_row_index = 0
 
     def _rows(self) -> list[SectionRow]:
@@ -519,11 +530,16 @@ class SectionViewerScreen(ModalScreen):
         content: str,
         title: str = "Plan Viewer",
         section_filter: list[str] | None = None,
+        scroll_target: str | None = None,
     ) -> None:
         super().__init__()
         self._content = content
         self._title = title
         self._section_filter = section_filter
+        # Explicit auto-scroll target (overrides the default "first filtered
+        # section"). Used to land on a specific nested subsection rather than
+        # its wrapper when navigating from a dimension.
+        self._scroll_target = scroll_target
 
     def compose(self) -> ComposeResult:
         with Container(id="section_viewer"):
@@ -540,15 +556,19 @@ class SectionViewerScreen(ModalScreen):
         if parsed.sections:
             minimap.populate(parsed, names=self._section_filter)
             minimap.focus_first_row()
-            # When a filter is active, auto-scroll to the first filtered section
-            # so the user lands at relevant content without pressing Enter on the
-            # minimap. Markdown.update() parses asynchronously, so the heading
-            # widgets don't exist yet — request_scroll_to_section defers the
-            # scroll until the table of contents arrives.
-            if self._section_filter is not None:
+            # Auto-scroll so the user lands at relevant content without pressing
+            # Enter on the minimap. Prefer an explicit scroll_target (e.g. a
+            # specific nested subsection); otherwise fall back to the first
+            # filtered section. Markdown.update() parses asynchronously, so the
+            # heading widgets don't exist yet — request_scroll_to_section defers
+            # the scroll until the table of contents arrives.
+            target = self._scroll_target
+            if target is None and self._section_filter is not None:
                 filtered = _filter_sections(parsed, self._section_filter)
                 if filtered:
-                    content.request_scroll_to_section(filtered[0].name)
+                    target = filtered[0].name
+            if target is not None:
+                content.request_scroll_to_section(target)
         else:
             minimap.display = False
             content.focus()

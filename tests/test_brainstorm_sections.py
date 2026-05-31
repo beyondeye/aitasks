@@ -12,6 +12,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 from brainstorm.brainstorm_sections import (
     ContentSection,
     ParsedContent,
+    best_section_for_dimension,
     dimension_matches_tag,
     format_section_footer,
     format_section_header,
@@ -275,6 +276,129 @@ class TestGlobDimensionExpansion(unittest.TestCase):
         # section is returned once.
         secs = get_sections_for_dimension(parsed, "component_auth")
         self.assertEqual([s.name for s in secs], ["comp"])
+
+
+class TestNestedSections(unittest.TestCase):
+    """Tests for nested section markers (t878).
+
+    The brainstorm templates emit a wrapper section (e.g. ``components``)
+    containing leaf subsections (e.g. ``component_auth``). The parser must
+    surface each as its own ContentSection with depth/parent metadata while
+    keeping the wrapper's content free of the subsection bodies.
+    """
+
+    NESTED_TEXT = """\
+# Proposal
+
+<!-- section: overview -->
+## Overview
+Intro.
+<!-- /section: overview -->
+
+<!-- section: components [dimensions: component_*] -->
+## Components
+One subsection per component.
+<!-- section: component_auth [dimensions: component_auth] -->
+### Auth
+JWT-based auth.
+<!-- /section: component_auth -->
+<!-- section: component_api [dimensions: component_api] -->
+### API
+REST API.
+<!-- /section: component_api -->
+Link all component_* keys.
+<!-- /section: components -->
+
+<!-- section: assumptions [dimensions: assumption_*] -->
+## Assumptions
+Scale assumptions.
+<!-- /section: assumptions -->
+"""
+
+    def setUp(self):
+        self.parsed = parse_sections(self.NESTED_TEXT)
+        self.by_name = {s.name: s for s in self.parsed.sections}
+
+    def test_subsections_parsed_in_document_order(self):
+        self.assertEqual(
+            [s.name for s in self.parsed.sections],
+            ["overview", "components", "component_auth", "component_api",
+             "assumptions"],
+        )
+        # start_line is strictly increasing (document order).
+        starts = [s.start_line for s in self.parsed.sections]
+        self.assertEqual(starts, sorted(starts))
+        self.assertEqual(len(set(starts)), len(starts))
+
+    def test_depth_and_parent_metadata(self):
+        self.assertEqual(self.by_name["overview"].depth, 0)
+        self.assertIsNone(self.by_name["overview"].parent)
+        self.assertEqual(self.by_name["components"].depth, 0)
+        self.assertIsNone(self.by_name["components"].parent)
+        self.assertEqual(self.by_name["component_auth"].depth, 1)
+        self.assertEqual(self.by_name["component_auth"].parent, "components")
+        self.assertEqual(self.by_name["component_api"].depth, 1)
+        self.assertEqual(self.by_name["component_api"].parent, "components")
+
+    def test_wrapper_content_excludes_subsection_bodies(self):
+        comp = self.by_name["components"]
+        self.assertIn("One subsection per component.", comp.content)
+        self.assertIn("Link all component_* keys.", comp.content)
+        # Leaf bodies belong to the leaves, not the wrapper.
+        self.assertNotIn("JWT-based auth.", comp.content)
+        self.assertNotIn("REST API.", comp.content)
+
+    def test_leaf_content_is_its_own(self):
+        auth = self.by_name["component_auth"]
+        self.assertIn("### Auth", auth.content)
+        self.assertIn("JWT-based auth.", auth.content)
+        self.assertNotIn("REST API.", auth.content)
+
+    def test_dimension_resolves_wrapper_and_leaf(self):
+        secs = get_sections_for_dimension(self.parsed, "component_auth")
+        # Wrapper (glob) + the exact leaf, in document order.
+        self.assertEqual([s.name for s in secs], ["components", "component_auth"])
+
+    def test_best_section_prefers_exact_leaf(self):
+        best = best_section_for_dimension(self.parsed, "component_auth")
+        self.assertIsNotNone(best)
+        self.assertEqual(best.name, "component_auth")
+
+    def test_best_section_falls_back_to_wrapper_for_glob_only(self):
+        # assumption_scale is covered only by the glob wrapper (no leaf).
+        best = best_section_for_dimension(self.parsed, "assumption_scale")
+        self.assertIsNotNone(best)
+        self.assertEqual(best.name, "assumptions")
+
+    def test_best_section_none_when_no_match(self):
+        self.assertIsNone(
+            best_section_for_dimension(self.parsed, "requirements_perf")
+        )
+
+    def test_nested_valid_has_no_errors(self):
+        # Distinct nested names must not be flagged as duplicates.
+        self.assertEqual(validate_sections(self.parsed), [])
+
+    def test_unclosed_nested_subsection_flagged(self):
+        text = (
+            "<!-- section: outer -->\n"
+            "## Outer\n"
+            "<!-- section: inner -->\n"
+            "### Inner\n"
+            "text\n"
+            "<!-- /section: outer -->\n"
+        )
+        parsed = parse_sections(text)
+        errors = validate_sections(parsed)
+        self.assertTrue(
+            any("Unclosed" in e and "inner" in e for e in errors)
+        )
+
+    def test_flat_input_unaffected(self):
+        # Regression: a flat document keeps depth 0 / parent None throughout.
+        parsed = parse_sections(MULTI_SECTION_TEXT)
+        self.assertTrue(all(s.depth == 0 for s in parsed.sections))
+        self.assertTrue(all(s.parent is None for s in parsed.sections))
 
 
 class TestGenerationHelpers(unittest.TestCase):

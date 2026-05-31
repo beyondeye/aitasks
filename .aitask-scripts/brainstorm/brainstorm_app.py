@@ -54,6 +54,7 @@ from brainstorm.brainstorm_dag import (
 )
 from brainstorm.brainstorm_schemas import extract_dimensions, group_dimensions_by_prefix
 from brainstorm.brainstorm_sections import (
+    best_section_for_dimension,
     dimension_matches_tag,
     get_sections_for_dimension,
     parse_sections,
@@ -5106,11 +5107,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 severity="warning",
             )
             return
+        # Land on the most-specific section (a nested subsection when present,
+        # else the wrapper); keep the wrapper + leaf both in the minimap filter.
+        best = best_section_for_dimension(parsed, event.dim_key)
         from section_viewer import SectionViewerScreen
         self.push_screen(SectionViewerScreen(
             proposal,
             title=f"Proposal: {node_id} — {event.dim_key}",
             section_filter=[s.name for s in matching],
+            scroll_target=best.name if best else None,
         ))
 
     def on_descendant_focus(self, event) -> None:

@@ -163,6 +163,32 @@ class CorrelateSectionsToTocTests(unittest.TestCase):
             {"comp": "h-comp", "conf": "h-conf"},
         )
 
+    def test_nested_subsections_map_to_own_headings(self):
+        # With nested parsing (t878), each leaf subsection is its own section
+        # and must correlate to its own heading via the monotonic pointer.
+        doc = (
+            "<!-- section: components [dimensions: component_*] -->\n"
+            "## Components\n"
+            "<!-- section: component_auth [dimensions: component_auth] -->\n"
+            "### Auth\n"
+            "<!-- /section: component_auth -->\n"
+            "<!-- section: component_api [dimensions: component_api] -->\n"
+            "### API\n"
+            "<!-- /section: component_api -->\n"
+            "<!-- /section: components -->\n"
+        )
+        parsed = parse_sections(doc)
+        toc = [
+            (2, "Components", "h-comp"),
+            (3, "Auth", "h-auth"),
+            (3, "API", "h-api"),
+        ]
+        self.assertEqual(
+            correlate_sections_to_toc(parsed.sections, toc),
+            {"components": "h-comp", "component_auth": "h-auth",
+             "component_api": "h-api"},
+        )
+
     def test_empty_toc_yields_no_anchors(self):
         doc = _section("ov", "## Overview")
         parsed = parse_sections(doc)
@@ -201,6 +227,23 @@ def _build_long_proposal() -> str:
             f"<!-- section: {name} -->\n{heading}\n\n{filler}\n<!-- /section: {name} -->"
         )
     return "\n\n".join(parts) + "\n"
+
+
+def _build_nested_proposal() -> str:
+    """A proposal with a wrapper section containing leaf subsections, long
+    enough that a deep leaf sits well below the fold."""
+    filler = "\n".join(f"- point {i} with some descriptive text" for i in range(12))
+    return (
+        f"<!-- section: overview -->\n## Overview\n\n{filler}\n"
+        f"<!-- /section: overview -->\n\n"
+        f"<!-- section: components [dimensions: component_*] -->\n"
+        f"## Components\n\n{filler}\n"
+        f"<!-- section: component_auth [dimensions: component_auth] -->\n"
+        f"### Auth\n\n{filler}\n<!-- /section: component_auth -->\n"
+        f"<!-- section: component_api [dimensions: component_api] -->\n"
+        f"### API\n\n{filler}\n<!-- /section: component_api -->\n"
+        f"<!-- /section: components -->\n"
+    )
 
 
 class _Host(App):
@@ -258,6 +301,29 @@ class AutoScrollPilotTests(unittest.TestCase):
                 off = self._heading_top_offset(content, "tooling")
                 self.assertIsNotNone(off)
                 self.assertLessEqual(abs(off), 3)
+        self._run(runner())
+
+    def test_scroll_target_lands_on_nested_subsection(self):
+        # Simulates dimension nav (t878): the minimap filter shows the wrapper
+        # + leaf, but scroll_target pins the viewport to the leaf subsection.
+        async def runner():
+            app = _Host()
+            async with app.run_test(size=(80, 18)) as pilot:
+                app.push_screen(SectionViewerScreen(
+                    _build_nested_proposal(),
+                    title="P",
+                    section_filter=["components", "component_api"],
+                    scroll_target="component_api",
+                ))
+                await pilot.pause()
+                for _ in range(14):
+                    await pilot.pause()
+                content = app.screen.query_one("#sv_content", SectionAwareMarkdown)
+                self.assertTrue(content.toc_ready)
+                self.assertGreater(content.scroll_offset.y, 0)  # not at the wrapper
+                off = self._heading_top_offset(content, "component_api")
+                self.assertIsNotNone(off)
+                self.assertLessEqual(abs(off), 3)  # leaf heading pinned near top
         self._run(runner())
 
     def test_no_filter_does_not_autoscroll(self):
