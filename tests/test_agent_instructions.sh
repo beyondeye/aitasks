@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test_agent_instructions.sh - Tests for unified agent instruction management (t130_2)
 # Tests: assemble_aitasks_instructions(), insert_aitasks_instructions(),
-#        update_claudemd_git_section(), setup_codex_cli()
+#        update_claudemd_git_section(), update_agentsmd(), setup_codex_cli()
 # Run: bash tests/test_agent_instructions.sh
 
 set -e
@@ -422,6 +422,69 @@ assert_contains "T17: custom rule preserved" "Custom user rule" "$rules_result"
 assert_contains "T17: missing aitask rule merged" "aitask_skill_resolve_profile.sh" "$rules_result"
 render_rule_count=$(grep -c "aitask_skill_render.sh" "$TMPDIR_TEST/.codex/rules/default.rules" || true)
 assert_eq "T17: existing aitask rule not duplicated" "1" "$render_rule_count"
+cleanup_tmpdir
+
+# ============================================================
+# Tests for update_agentsmd() (AGENTS.md cross-agent convention, t875)
+# ============================================================
+# AGENTS.md is installed unconditionally by setup_code_agents() and receives
+# the shared Layer-1 instructions only (no agent_type passed). setup_tmpdir
+# seeds BOTH the shared seed and a codex Layer-2 seed, so the Layer-1-only
+# assertion below is meaningful: the codex content is present on disk but must
+# NOT leak into AGENTS.md.
+
+echo "--- update_agentsmd() ---"
+
+# Test 18: Create-if-missing — fresh AGENTS.md gets the marked Layer-1 block
+setup_tmpdir
+update_agentsmd "$TMPDIR_TEST"
+result="$(cat "$TMPDIR_TEST/AGENTS.md")"
+assert_file_contains "T18: AGENTS.md created when absent" ">>>aitasks" "$TMPDIR_TEST/AGENTS.md"
+assert_contains "T18: fresh AGENTS.md has start marker" ">>>aitasks" "$result"
+assert_contains "T18: fresh AGENTS.md has end marker" "<<<aitasks" "$result"
+assert_contains "T18: fresh AGENTS.md has shared content" "## Git Operations" "$result"
+cleanup_tmpdir
+
+# Test 19: Layer-1 only — shared content present, agent-specific Layer 2 excluded
+setup_tmpdir
+update_agentsmd "$TMPDIR_TEST"
+result="$(cat "$TMPDIR_TEST/AGENTS.md")"
+assert_contains "T19: shared Layer-1 content present" "## Git Operations" "$result"
+assert_not_contains "T19: no codex Skills body" "Invoke skills with" "$result"
+assert_not_contains "T19: no codex Agent Identification header" "## Agent Identification" "$result"
+assert_not_contains "T19: no codex agent-id blurb" "codex/<model_name>" "$result"
+cleanup_tmpdir
+
+# Test 20: Marker idempotency — running twice yields identical output, one block
+setup_tmpdir
+update_agentsmd "$TMPDIR_TEST"
+first_result="$(cat "$TMPDIR_TEST/AGENTS.md")"
+update_agentsmd "$TMPDIR_TEST"
+second_result="$(cat "$TMPDIR_TEST/AGENTS.md")"
+assert_eq "T20: idempotent update" "$first_result" "$second_result"
+marker_count=$(grep -c ">>>aitasks" "$TMPDIR_TEST/AGENTS.md" || true)
+assert_eq "T20: exactly one start marker" "1" "$marker_count"
+cleanup_tmpdir
+
+# Test 21: Preserve surrounding text — prose kept, block appended, then replaced in place
+setup_tmpdir
+cat > "$TMPDIR_TEST/AGENTS.md" <<'EOF'
+# Project Agent Guide
+
+Custom user prose that must survive.
+EOF
+update_agentsmd "$TMPDIR_TEST"
+result="$(cat "$TMPDIR_TEST/AGENTS.md")"
+assert_contains "T21: user prose preserved" "Custom user prose that must survive." "$result"
+assert_contains "T21: header preserved" "# Project Agent Guide" "$result"
+assert_contains "T21: markers appended" ">>>aitasks" "$result"
+assert_contains "T21: shared content appended" "## Git Operations" "$result"
+# Second run replaces only the marked region, preserving the surrounding prose
+update_agentsmd "$TMPDIR_TEST"
+result2="$(cat "$TMPDIR_TEST/AGENTS.md")"
+assert_contains "T21: prose still preserved after 2nd run" "Custom user prose that must survive." "$result2"
+marker_count=$(grep -c ">>>aitasks" "$TMPDIR_TEST/AGENTS.md" || true)
+assert_eq "T21: single marker block after 2nd run" "1" "$marker_count"
 cleanup_tmpdir
 
 # ============================================================
