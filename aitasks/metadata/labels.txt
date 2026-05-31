@@ -73,6 +73,7 @@ skill_optiomizations
 statistics
 stats_ui
 task-archive
+task-planning
 task_workflow
 testing
 test_marker
