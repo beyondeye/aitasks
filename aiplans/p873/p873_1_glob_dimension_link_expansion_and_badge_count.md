@@ -78,3 +78,56 @@ explorer/detailer/initializer templates literally instruct agents to emit
 ## Post-implementation
 Follow task-workflow Step 8 (review/commit) and Step 9 (archival/merge). Record
 any related upstream defect in the plan's Final Implementation Notes.
+
+## Final Implementation Notes
+- **Actual work done:** Added `dimension_matches_tag(dim_key, tag)` to
+  `brainstorm_sections.py` (exact match or `prefix_*` glob). `get_sections_for_dimension`
+  now expands globs so glob-only-linked dimensions resolve. `validate_sections`
+  gained an optional `node_keys` arg that flags invented (non-glob) tags absent
+  from the node's real keys, while always accepting globs. The detail-pane
+  `section_counts` loop in `brainstorm_app.py:_render_node_detail_widgets` now
+  expands each section's tags against the node's real keys (`dims`) and counts
+  each section once per real key. Templates: `explorer.md` tradeoffs section uses
+  `tradeoff_*` (was invented `tradeoff_pros, tradeoff_cons`) in both the field
+  list and the section tag; `_section_format.md` documents glob support and
+  warns against inventing keys (propagates to detailer/synthesizer/initializer
+  via their `<!-- include: _section_format.md -->`). Added 8 unit tests.
+- **Deviations from plan:** (1) Named the predicate `dimension_matches_tag`
+  (public) rather than the plan's `_dimension_matches_tag` — `brainstorm_app.py`
+  imports it cross-module, so a public name is cleaner than importing an
+  underscore-prefixed symbol. (2) Only `explorer.md` + the shared
+  `_section_format.md` needed editing; `detailer.md`/`initializer.md` already use
+  `component_*`/`assumption_*`/`tradeoff_*` globs consistently and inherit the
+  glob clarification through the include, so no separate edits there.
+- **Issues encountered:** The full `tests/run_all_python_tests.sh` run reported 2
+  failures, both pre-existing and unrelated to this task: `test_shortcut_scopes`
+  (`board.agent_cmd` not registered) from in-flight shortcut-scopes work present
+  in the working tree (`lib/shortcut_scopes.py`, `keybinding_registry.py`,
+  `agent_command_screen.py`, `settings_app.py`), and `test_desync_state`
+  (`python_resolve.sh: No such file or directory` in the fake-repo scaffold).
+  Neither touches brainstorm; the brainstorm trio (`test_brainstorm_sections`,
+  `test_brainstorm_wizard_sections`, `test_section_viewer_filter` — 49 tests) is
+  green.
+- **Key decisions:** Glob matching is purely string-based (no node data); only
+  the count loop and the opt-in `node_keys` validation use real keys. The count
+  loop dedupes per (section, real_key) via a set comprehension so a section
+  tagging both `component_*` and `component_foo` is counted once. `node_keys`
+  validation is opt-in to keep `validate_sections(parsed)` backward compatible.
+- **Upstream defects identified:** None. This task's symptom (glob tags not
+  resolving) was self-contained in `get_sections_for_dimension` / the count loop;
+  no separate pre-existing bug seeded it. The two unrelated suite failures noted
+  above stem from active in-flight work in the working tree and a scaffold/env
+  condition, not committed defects to file against.
+- **Notes for sibling tasks:**
+  - **t873_2 (scroll):** Confirmed live by the user — opening a proposal via a
+    dimension row does NOT land on the matching section; it stays at the top.
+    Auto-scroll path: `SectionViewerScreen.on_mount` queues
+    `_pending_auto_scroll = filtered[0].name` → `_poll_auto_scroll` →
+    `SectionAwareMarkdown.scroll_to_section` (`lib/section_viewer.py:367-409`,
+    `277-289`); the minimap jump (`on_section_minimap_section_selected` :420)
+    shares the same `scroll_to_section`. t873_1 now opens the viewer for
+    glob-linked dims too, so t873_2's fix benefits more cases.
+  - **t873_4 (compare):** `dimension_matches_tag` is reusable if glob-aware
+    matching is needed, though compare scoping is by real node keys.
+  - Detail-pane dimension keys come from `get_dimension_fields(node_data)`;
+    badge counts now reflect real keys.
