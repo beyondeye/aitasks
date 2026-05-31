@@ -1763,7 +1763,7 @@ setup_codex_cli() {
         installed=$((installed + 1))
     done
     # Copy shared helper docs (codex)
-    for doc in codex_tool_mapping.md codex_interactive_prereqs.md; do
+    for doc in codex_tool_mapping.md; do
         if [[ -f "$staging_skills/$doc" ]]; then
             cp "$staging_skills/$doc" "$dest_skills/$doc"
         fi

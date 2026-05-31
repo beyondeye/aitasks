@@ -479,7 +479,7 @@ install_codex_staging() {
     done
 
     # Copy shared helper docs (codex)
-    for doc in codex_tool_mapping.md codex_interactive_prereqs.md; do
+    for doc in codex_tool_mapping.md; do
         if [[ -f "$INSTALL_DIR/codex_skills/$doc" ]]; then
             cp "$INSTALL_DIR/codex_skills/$doc" "$INSTALL_DIR/aitasks/metadata/codex_skills/$doc"
         fi

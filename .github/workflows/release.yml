@@ -54,7 +54,7 @@ jobs:
               cp -r "$skill_dir" "codex_skills/$skill_name"
             done
             # Copy shared helper docs (codex)
-            for doc in codex_tool_mapping.md codex_interactive_prereqs.md; do
+            for doc in codex_tool_mapping.md; do
               if [ -f ".agents/skills/$doc" ]; then
                 cp ".agents/skills/$doc" "codex_skills/$doc"
               fi

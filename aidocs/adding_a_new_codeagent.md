@@ -862,12 +862,11 @@ wrapper (`aitask_codemap.sh`) so `--help` stays in sync.
 ## 16. Shared helper docs in `.agents/skills/`
 
 Non-templated wrappers for codex (and future shared-root agents) read
-per-agent tool-mapping and plan-mode prereq docs from `.agents/skills/`:
+per-agent tool-mapping docs (and plan-mode prereq docs where an agent
+needs them) from `.agents/skills/`:
 
 - `.agents/skills/codex_tool_mapping.md` — codex-specific tool-name
   translations from the Claude source (e.g., what `Read` maps to).
-- `.agents/skills/codex_interactive_prereqs.md` — interactive-mode
-  prerequisites for codex (read before entering plan mode).
 
 `render_agents_skill()` emits "If you are <Agent> CLI: read
 `.agents/skills/<agent>_tool_mapping.md`" lines for each such agent.
@@ -876,7 +875,7 @@ When adding an agent that needs per-agent prereqs:
 
 1. Create `.agents/skills/<agent>_tool_mapping.md` (and
    `<agent>_planmode_prereqs.md` if applicable). Mirror the structure
-   of the codex equivalents.
+   of `.agents/skills/codex_tool_mapping.md`.
 2. Add the matching "If you are …" line to `render_agents_skill()`
    (and to `render_opencode_skill()` if the agent also lands in
    opencode's tree).
@@ -884,7 +883,7 @@ When adding an agent that needs per-agent prereqs:
    (`apply-wrapper agents <skill> --force`) so the new "If you are …"
    line lands in the committed stubs.
 
-When retiring an agent: `./ait git rm` the two prereq docs, remove
+When retiring an agent: `./ait git rm` its helper doc(s), remove
 the "If you are …" line(s), and re-apply every affected stub to flush
 the now-dangling references.
 
@@ -1126,7 +1125,7 @@ editing **all three**; removing one requires the inverse.
 
 | Site | Approx. line | Loop variable |
 |------|--------------|---------------|
-| `.aitask-scripts/aitask_setup.sh::setup_codex_cli()` | ~1766 | `for doc in codex_tool_mapping.md codex_interactive_prereqs.md; do` |
+| `.aitask-scripts/aitask_setup.sh::setup_codex_cli()` | ~1766 | `for doc in codex_tool_mapping.md; do` |
 | `install.sh::install_codex_staging()` | ~482 | (same tuple) |
 | `.github/workflows/release.yml` (codex build step) | ~57 | (same tuple) |
 
