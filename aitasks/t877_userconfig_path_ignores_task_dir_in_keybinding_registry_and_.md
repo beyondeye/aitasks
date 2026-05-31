@@ -3,11 +3,12 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [custom_shortcuts, tui, python]
 file_references: [.aitask-scripts/lib/keybinding_registry.py:32-33, .aitask-scripts/lib/shortcuts_mixin.py:59, .aitask-scripts/lib/userconfig_persist.py:63-72]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 16:03
-updated_at: 2026-05-31 16:03
+updated_at: 2026-05-31 16:08
 ---
 
 ## Problem
