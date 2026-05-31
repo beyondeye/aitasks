@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [codexcli]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 08:16
-updated_at: 2026-05-31 08:16
+updated_at: 2026-05-31 10:16
 ---
 
 we have just added codex configuration to ait setup to allow workflow user questions also outside plan mode. see
