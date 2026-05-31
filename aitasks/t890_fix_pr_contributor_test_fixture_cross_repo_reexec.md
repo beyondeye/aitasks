@@ -4,9 +4,9 @@ effort: low
 depends: []
 issue_type: bug
 status: Ready
-labels: [testing, python]
+labels: [testing, python, upstream_defect_followup]
 created_at: 2026-05-31 22:34
-updated_at: 2026-05-31 22:34
+updated_at: 2026-05-31 22:35
 ---
 
 ## Origin
