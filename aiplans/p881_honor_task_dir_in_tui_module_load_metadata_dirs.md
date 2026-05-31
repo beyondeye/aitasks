@@ -118,3 +118,44 @@ no goldens. The fix has no Codex/OpenCode skill analog — no follow-up ports ne
 Single-task flow on current branch: review (Step 8) → commit
 (`bug: ... (t881)`) → plan-file commit → upstream-defect & manual-verify
 follow-up offers (Steps 8b/8c) → archive (`aitask_archive.sh 881`) → push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `task_dir()` and `metadata_dir()` to
+  `config_utils.py` (both read `os.environ.get("TASK_DIR", "aitasks")`, mirroring
+  `userconfig_persist._userconfig_path()`). Routed the three module-load
+  constants through them: `settings_app.METADATA_DIR = metadata_dir()`,
+  `aitask_board.TASKS_DIR = task_dir()`, `agent_model_picker.METADATA_DIR =
+  metadata_dir()` — each with the corresponding `from config_utils import …`
+  addition. Added `tests/test_task_dir_module_constants.py` (8 tests).
+- **Deviations from plan:** Test implementation uses **subprocess probes**
+  instead of the planned `importlib.reload`. Reason: the three modules are
+  imported at top level by other test files in the same interpreter
+  (`test_settings_shortcuts_tab.py`, `test_board_*`); reloading them mid-suite
+  churns class identities and risks cross-file pollution. A subprocess sets
+  `TASK_DIR` before import, so it tests the genuine import-time resolution with
+  zero parent-interpreter side effects. Each consumer test also asserts the
+  unset→`aitasks` default (decoy) alongside the set→sentinel case (real).
+- **Issues encountered:** None for the fix. Default-env behavior is
+  byte-identical (`aitasks/metadata`), so production (TUIs chdir to repo root,
+  `TASK_DIR` unset) is unaffected.
+- **Key decisions:** Kept the constants as module-load constants (per the task's
+  "simplest fix" guidance) rather than converting to per-call resolvers — only
+  the hardcoded base was swapped. `config_utils.py` chosen as the single helper
+  home because all three consumers already import from it (no new dependency, no
+  circular-import risk: `config_utils` imports only stdlib + `yaml`).
+- **Upstream defects identified:** `tests/test_desync_state.py:49 — fixture
+  lib-copy loop omits python_resolve.sh (copies only desync_state.py,
+  task_utils.sh, terminal_compat.sh, archive_utils.sh, yaml_utils.sh), but
+  task_utils.sh:18 sources python_resolve.sh unconditionally, so
+  aitask_changelog.sh --gather fails inside the fixture with "python_resolve.sh:
+  No such file or directory". Pre-existing (reproduces with t881 edits stashed);
+  unrelated to this task. Same test-scaffold-sync class CLAUDE.md flags for
+  test_scaffold.sh::setup_fake_aitask_repo, but in this test's own fixture
+  builder.`
+
+### Build verification
+`bash tests/run_all_python_tests.sh` → 916 pass, 1 fail. The single failure is
+the pre-existing `test_desync_state` defect above (confirmed by re-running with
+t881 changes stashed — fails identically). Not caused by t881; left for the
+upstream-defect follow-up.
