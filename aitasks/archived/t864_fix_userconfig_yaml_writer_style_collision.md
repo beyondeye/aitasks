@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui, custom_shortcuts, crash_recovery]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-05-31 09:08
-updated_at: 2026-05-31 10:37
+updated_at: 2026-05-31 10:54
+completed_at: 2026-05-31 10:54
 ---
 
 ## Origin
