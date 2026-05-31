@@ -210,3 +210,65 @@ new page itself uses cross-repo / linked terminology throughout.)
 
 Follow task-workflow Step 8 (review) → Step 9 (archival of t832_12 child task
 and plan). This is a child of t832; the archived plan becomes sibling context.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-31 22:56)
+- **Requested by user:** In the workflows index contexts, replace "across
+  sibling aitasks projects" with "across linked projects".
+- **Changes made:** Updated the Multi-Project bullet in
+  `website/content/docs/workflows/_index.md` and the `description` frontmatter
+  of `website/content/docs/workflows/multi_project.md` from "across sibling
+  aitasks projects" to "across linked projects" (consistent with the
+  no-"sister" terminology already applied; here "sibling aitasks" was also
+  dropped in favor of "linked").
+- **Files affected:** `website/content/docs/workflows/_index.md`,
+  `website/content/docs/workflows/multi_project.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created the new workflow page
+  `website/content/docs/workflows/cross_project_dependencies.md` (weight 49,
+  under the Parallel group, right after Multi-Project) covering all six
+  required topics: `xdeps`/`xdeprepo` dependency schema + `Done`-only blocking
+  + `UNREACHABLE`; board surfacing; `--project` read helpers; `ait update
+  --project` guardrails; interactive `ait create` cross-repo flow; and paired
+  cross-repo planning. Added bidirectional cross-links: `_index.md` Parallel
+  bullet, `multi_project.md` → new page (and scrubbed all 3 "sister" → "linked"
+  in the Recipe section), `parallel-planning.md` → the paired-planning section,
+  and a See-also pointer in `aidocs/cross_repo_references.md`.
+- **Deviations from plan:** (1) The plan named `ait explain --project`, but
+  there is no `ait explain` CLI subcommand — documented the canonical scanner
+  `./.aitask-scripts/aitask_explain_context.sh --project <name>:<path>`
+  instead. (2) Dropped an invented `--project-deps` create flag; the real batch
+  form is `ait create --batch --xdeps <csv> --xdeprepo <name>`. (3) Used
+  Hugo `{{< relref >}}` with full content-root paths (`/docs/workflows/...`,
+  the established site convention) instead of plain relative links, so the
+  build validates every cross-link; avoided the Docsy `{{% alert %}}` shortcode
+  (unused elsewhere on the site) in favor of a plain blockquote.
+- **Issues encountered:** Working directory drifted into `website/.../workflows`
+  early on (a stray `cd` from a grep), which made repo-root-relative script
+  paths fail with exit 127 — re-ran from the repo root. The `--minify` build
+  strips quotes from heading `id` attributes, which initially made an `id="..."`
+  grep look empty; the anchors were correct (`id=...` unquoted).
+- **Key decisions:** Documented the t886-fixed board picker as fully
+  keyboard-navigable (t886 is Done, commit `4c3b5df1`). Kept the
+  `xdeps`/`xdeprepo` field names (corrected from the brainstorm's
+  `xdepends`/`xdependrepo`), documented `xdeprepo`-alone as the intent-only
+  paired-planning trigger, and `Done`-only dependency satisfaction. Used
+  generic `frontend`/`backend` placeholder names only. Per a mid-task user
+  instruction, replaced "across sibling aitasks projects" with "across linked
+  projects" in the index contexts (Change Request 1).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The shipped cross-repo surface was reconstructed
+  from the archived t832 child plans — the authoritative field names/flags are
+  `xdeps` (list) / `xdeprepo` (scalar); `aitask_query_files.sh task-status
+  --project`; `ait update --batch --project` (refuses `--name` and
+  `--status Implementing|Done|Folded`, plus lock-by-different-host); the board
+  parser `cross_repo_notation.py` with the `#` reference picker; the two
+  planning procedures `task-workflow/planning-cross-repo.md` (design) +
+  `cross-repo-child-assignment.md` (creation). **Terminology convention
+  established here (carry into sibling t832_11 / any cross-repo doc):** never
+  use "sister" repo wording — use "cross-repo" or "linked repo/project". This
+  page is the user-facing companion to `multi_project.md` (t826_3, the registry
+  layer); the two are now bidirectionally linked.
