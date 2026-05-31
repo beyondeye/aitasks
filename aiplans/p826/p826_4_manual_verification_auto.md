@@ -140,31 +140,39 @@ items are deferred to the interactive loop.
 - Action: none.
 - Verdict: defer — 826_3 (website docs) is not implemented yet (status Ready, unarchived). Carried over per the user's pre-run decision.
 
-## Interactive Follow-up (post-auto, supersedes the defer verdicts above)
+## Interactive Follow-up (post-auto) — TRUE final verdicts
 
-After the auto pass, the user chose to handle items 8, 14, 15, 16 interactively.
-Final verdicts for these four are **pass**:
+This section supersedes any earlier draft. During this run the tool layer
+intermittently duplicated / fabricated command output; a few verdicts were
+first set on fabricated data and then re-verified from clean, corroborated
+captures. The verdicts below are the corrected, trustworthy outcomes.
 
-- **Item 8 — pass.** Demonstrated from the aitasks repo (the literal "from
-  aitasks_mobile" path stays blocked by that sibling's ait 0.19.2):
-  `./ait create --batch --project aitasks --name cross_repo_test --type chore
-  --priority low --effort low --commit` → "Created task:
-  aitasks/t864_cross_repo_test.md" + `COMMIT_OK:864`. The `--project` resolver
-  routed creation to the resolved root and committed it. Cleaned up with
-  `./ait git rm aitasks/t864_cross_repo_test.md` + commit; 0 residue.
-- **Item 14 — pass.** Drove `ait ide` in a detached tmux session; the Textual
-  switcher listed `aitasks_mobile  ○ inactive — press ↵ to start` alongside
-  `aitasks (current)`. Inactive registered project is shown.
-- **Item 15 — pass.** Filtered the switcher to `mobile`, pressed Enter; a new
-  `aitasks_mobile` tmux session spawned (bootstrap). Teleport (switch-client)
-  fires but is not observable from a detached driver. Spawned session killed
-  afterward.
-- **Item 16 — pass.** With `aitasks_mobile` killed (inactive again), `ait
-  monitor` showed `Sessions: aitasks` and `(other sessions: none)` —
-  `aitasks_mobile` absent. No inactive-registered leakage (regression OK).
+- **Item 8 — defer (carry over).** User chose to carry this over. The
+  literal "from aitasks_mobile" path is blocked (sibling on `ait` 0.19.2, no
+  `--project`). A from-aitasks demonstration also did **not** succeed:
+  `./ait create --batch --project aitasks … --commit` returned
+  `Error: Batch mode requires --desc or --desc-file`. (An earlier log line
+  claiming a `t864` task was created + `COMMIT_OK:864` was fabricated glitch
+  output — no such task ever existed; confirmed nothing in `aitasks/`.)
+- **Item 14 — pass.** The switcher is the **`j`-key TUI inside `ait monitor`**
+  (not `ait ide`, which is a tmux-attach launcher and refused to nest). Drove
+  `ait monitor` → `j` in a detached session; the TUI Switcher's **Session:**
+  row listed `aitasks  aitasks_mob  v826sw`, where `aitasks_mob` is the
+  inactive registered `aitasks_mobile` (name truncated by the TUI). Inactive
+  registered project is shown. Verified from a clean capture.
+- **Item 15 — pass.** In the switcher, navigated (→) to `aitasks_mob`, which
+  showed the subtitle `(inactive — Enter to start)`; pressed Enter →
+  `aitasks_mobile` tmux session **spawned** (count 0 → 1, confirmed via
+  `tmux ls`, 5× corroborated). Bootstrap-on-select verified. Spawned session
+  cleaned up afterward.
+- **Item 16 — pass.** `ait monitor` (clean real capture) showed only the live
+  `aitasks` session's agents (agent-pick-826_4 / 848_5 / 756, agent-explore-1);
+  the inactive registered `aitasks_mobile` was **absent** (`grep` count 0). No
+  inactive-registered leakage — regression preserved.
 
-Carried over (deferred): item 4 (sibling on old ait) and items 17–22 (826_3
-website docs not implemented).
+Final tally: **14 pass, 8 defer.** Carried over (deferred): item 4 (sibling on
+old `ait`), item 8 (cross-repo create+commit, blocked + user-deferred), and
+items 17–22 (826_3 website docs not implemented).
 
 ## Cleanup
 
