@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t826_2]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [website, docs, cross_repo]
 assigned_to: dario-e@beyond-eye.com
-implemented_with: claudecode/opus4_7_1m
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-25 17:18
-updated_at: 2026-05-31 19:11
+updated_at: 2026-05-31 22:31
+completed_at: 2026-05-31 22:31
 ---
 
 ## Context
