@@ -5,9 +5,10 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [brainstorming, ait_brainstorm, ui]
+children_to_implement: [t873_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 12:44
-updated_at: 2026-05-31 12:55
+updated_at: 2026-05-31 13:12
 ---
 
 Fix a cluster of related defects in the `ait brainstorm` TUI around **dimensions** — how they link to proposals, how they render in the node detail pane, and how they feed the `compare` operation. Surfaced while using session 635 (`crew-brainstorm-635`); validated against its real data (8 nodes, 50 unique dimension keys, 26 `active_dimensions`).
