@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, python, upstream_defect_followup]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 17:42
-updated_at: 2026-05-31 17:42
+updated_at: 2026-05-31 19:14
 ---
 
 ## Origin
