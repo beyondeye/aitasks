@@ -19,5 +19,9 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # yaml_utils.sh is a base leaf lib sourced unconditionally by both
         # task_utils.sh and agentcrew_utils.sh — the two most-copied add-on libs.
         cp "$PROJECT_DIR/.aitask-scripts/lib/yaml_utils.sh"      "$repo_dir/.aitask-scripts/lib/"
+        # cross_repo_reexec.sh is sourced at startup by aitask_ls.sh,
+        # aitask_query_files.sh, and aitask_find_by_file.sh; its only dep
+        # (terminal_compat.sh) is already copied above.
+        cp "$PROJECT_DIR/.aitask-scripts/lib/cross_repo_reexec.sh" "$repo_dir/.aitask-scripts/lib/"
     }
 fi
