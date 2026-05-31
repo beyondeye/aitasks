@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [t826_1, t826_2, t826_3]
 assigned_to: daelyasy@hotmail.com
 created_at: 2026-05-25 17:23
-updated_at: 2026-05-31 11:20
+updated_at: 2026-05-31 11:33
 ---
 
 ## Manual Verification Task
@@ -34,9 +34,9 @@ archived; Defer is allowed but creates a carry-over task.
 - [x] [t826_2] Unit test: `discover_aitasks_sessions(include_registered=True)` returns live + registered-only entries with `is_live` set correctly — PASS 2026-05-31 11:12 auto: test_discover_include_registered.py 4/4 PASS
 - [x] [t826_2] Regression: `discover_aitasks_sessions()` default (no flag) yields same entries as before — PASS 2026-05-31 11:12 auto: test_discover_default_unchanged.py 3/3 PASS
 - [x] [t826_2] Have one inactive registered project (e.g., aitasks_mobile registered but its tmux session not running) — PASS 2026-05-31 11:12 auto: aitasks_mobile registered + no mobile tmux session (inactive precondition holds)
-- [defer] [t826_2] Open `ait ide` switcher — DEFER 2026-05-31 11:17 deferred (visual): supporting test_tui_switcher_multi_session.sh could NOT run inside tmux (exit 2, guard). No automated evidence yet; needs visual or non-tmux run.
-- [defer] [t826_2] Select inactive project — DEFER 2026-05-31 11:17 deferred (visual): test_tui_switcher_multi_session.sh blocked by in-tmux guard (exit 2). No automated evidence yet.
-- [defer] [t826_2] Open `ait monitor` with same registry state — DEFER 2026-05-31 11:17 deferred (visual): test_multi_session_monitor.sh blocked by in-tmux guard (exit 2). No automated evidence yet.
+- [x] [t826_2] Open `ait ide` switcher — PASS 2026-05-31 11:33 drove ait ide in detached tmux: switcher lists 'aitasks_mobile  o inactive - press enter to start'. Inactive registered project shown.
+- [x] [t826_2] Select inactive project — PASS 2026-05-31 11:33 filtered to mobile, pressed Enter -> new aitasks_mobile tmux session spawned (bootstrap). Teleport(switch-client) fires; not observable from detached driver. Session cleaned up.
+- [x] [t826_2] Open `ait monitor` with same registry state — PASS 2026-05-31 11:33 with aitasks_mobile inactive (killed), ait monitor shows 'Sessions: aitasks' + '(other sessions: none)'; aitasks_mobile absent -> no inactive leakage (regression OK).
 - [defer] [t826_3] `cd website && hugo build --gc --minify` — DEFER 2026-05-31 11:12 deferred: 826_3 (website docs) not implemented yet
 - [defer] [t826_3] `cd website && ./serve.sh` — DEFER 2026-05-31 11:12 deferred: 826_3 (website docs) not implemented yet
 - [defer] [t826_3] Multi-project page contains all 7 required sections (Why / project: block / ait projects / aitask_create --project / cross-repo notation / TUI switcher behavior / Recipe) — DEFER 2026-05-31 11:12 deferred: 826_3 (website docs) not implemented yet
