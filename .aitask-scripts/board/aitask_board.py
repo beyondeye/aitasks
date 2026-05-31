@@ -3640,6 +3640,14 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # keys fall through to the focused modal widget.
         if action in ("nav_up", "nav_down", "nav_left", "nav_right") and len(self.screen_stack) > 1:
             return False
+        # Tab normally jumps to the board search box. While a modal is on the
+        # stack that yanks focus out of the modal (e.g. the cross-repo ref
+        # picker, which then only exposes its first item to the keyboard). Gate
+        # it so Tab falls through to default widget focus-cycling inside the
+        # modal. Escape is left App-level: action_focus_board is already
+        # modal-aware and dismisses the active modal.
+        if action == "focus_search" and len(self.screen_stack) > 1:
+            return False
         # Let TuiSwitcherOverlay's ListView handle arrow keys natively
         if action in ("nav_up", "nav_down", "nav_left", "nav_right") and isinstance(self.screen, TuiSwitcherOverlay):
             return False
