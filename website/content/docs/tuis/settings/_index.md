@@ -17,7 +17,7 @@ The Settings TUI requires the shared Python virtual environment (installed by `a
 
 ## Understanding the Layout
 
-The Settings TUI organizes configuration into five tabs, each accessible via a keyboard shortcut displayed in the footer.
+The Settings TUI organizes configuration into tabs, each accessible via a keyboard shortcut displayed in the footer.
 
 ### Agent Defaults (a)
 
@@ -93,6 +93,28 @@ Browse and edit execution profiles -- YAML files that pre-answer workflow questi
 
 Fields use type-appropriate controls: boolean keys toggle between `true`/`false`/`(unset)`, enum keys cycle through their options, and string keys open an edit dialog. Setting a value to `(unset)` removes it from the profile so the question is asked interactively at runtime.
 
+### Shortcuts (s)
+
+Browse and edit the keyboard shortcuts of **every** TUI in one place — not just Settings. The tab lists all bindings in a single table:
+
+| Column | Meaning |
+|--------|---------|
+| **Scope** | The TUI (or sub-dialog) the action belongs to (e.g. `board`, `monitor`, `shared`) |
+| **Action** | The internal action identifier |
+| **Current** | The key currently in effect |
+| **Default** | The built-in key |
+| **Label** | The mnemonic label shown in that TUI |
+| **Origin** | `user` if you have overridden the key, otherwise `default` |
+
+Press **Enter** on a row to open the in-place editor for that scope, where you rebind (**Enter**), revert an unsaved edit (**r**), reset to default (**d**), and save (**s**). Rebinds apply the next time you launch the affected TUI.
+
+Two buttons act on the table:
+
+- **(D) Reset scope** — clears every override for the selected row's scope (after a confirmation).
+- **(L)int coherence** — reports actions that should share a key across TUIs but have drifted apart.
+
+**Exporting and importing shortcuts** is part of the general settings Export (**e**) and Import (**i**) flow rather than a dedicated button: tick the **Shortcuts** category. Export writes only the `shortcuts:` subtree into the `.aitcfg.json` bundle (your email and other local settings are never included). Import **deep-merges** those keys into `aitasks/metadata/userconfig.yaml`, preserving the rest of the file.
+
 ## Navigating
 
 | Key | Action |
@@ -102,6 +124,7 @@ Fields use type-appropriate controls: boolean keys toggle between `true`/`false`
 | **c** | Switch to Project Config tab |
 | **m** | Switch to Models tab |
 | **p** | Switch to Profiles tab |
+| **s** | Switch to Shortcuts tab |
 | **Enter** | Edit selected field |
 | **d** / **Delete** | Remove user override (Agent Defaults) |
 | **e** | Export all configs to `.aitcfg.json` bundle |

@@ -13,6 +13,10 @@ Minimonitor is **meant to be auto-spawned** alongside every code agent you launc
 
 <!-- SCREENSHOT: aitasks_minimonitor_main_view.svg — minimonitor running as a right-side split alongside an agent pane -->
 
+> **Customizable keys:** every shortcut here can be rebound. Press `?` in this
+> TUI for the in-place editor, or open
+> [Settings → Shortcuts]({{< relref "/docs/tuis/settings#shortcuts-s" >}}).
+
 ## Purpose
 
 Minimonitor is the persistent sidebar companion of a code agent pane. It gives you an at-a-glance status view of every running code agent across every aitasks tmux session on this server without giving up screen real estate to the full monitor dashboard, so you can keep watching the agent next to you (and all the others on the box) while you stay focused on the agent's output.

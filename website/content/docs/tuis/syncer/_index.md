@@ -9,6 +9,10 @@ depth: [intermediate]
 
 `ait syncer` is a Textual TUI that surfaces remote desync state for the project's tracked branches and offers one-keystroke pull, push, and sync actions. It watches `main` and `aitask-data`, shows ahead/behind counts against `origin`, and falls through to a code-agent escape hatch when a sync action fails.
 
+> **Customizable keys:** every shortcut here can be rebound. Press `?` in this
+> TUI for the in-place editor, or open
+> [Settings → Shortcuts]({{< relref "/docs/tuis/settings#shortcuts-s" >}}).
+
 ## Purpose
 
 Cross-machine workflows accumulate divergence: another PC pushes commits to `origin/main`, a mobile session lands a task on `origin/aitask-data`, or a long-lived branch needs to be reconciled. The syncer makes that drift visible and resolvable without leaving tmux. Pair it with [monitor]({{< relref "/docs/tuis/monitor" >}}) and [minimonitor]({{< relref "/docs/tuis/minimonitor" >}}), which surface a compact one-line desync summary in their session bar fed by the same data helper.

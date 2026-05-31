@@ -16,6 +16,10 @@ token, renders the `applink://` URI as a scannable QR code on the terminal,
 and shows a placeholder status screen. The actual WebSocket transport and
 remote command handling are tracked under a follow-up task.
 
+> **Customizable keys:** every shortcut here can be rebound. Press `?` in this
+> TUI for the in-place editor, or open
+> [Settings → Shortcuts]({{< relref "/docs/tuis/settings#shortcuts-s" >}}).
+
 ## Tutorial
 
 ### Launching the App Linker

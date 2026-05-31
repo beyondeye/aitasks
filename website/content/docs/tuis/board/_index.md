@@ -11,6 +11,10 @@ The `ait board` command launches an interactive terminal-based kanban board for 
 
 {{< static-img src="imgs/aitasks_board_main_view.svg" alt="Board overview showing kanban columns with task cards" caption="The ait board kanban view with task cards organized into columns" >}}
 
+> **Customizable keys:** every shortcut here can be rebound. Press `?` in this
+> TUI for the in-place editor, or open
+> [Settings → Shortcuts]({{< relref "/docs/tuis/settings#shortcuts-s" >}}).
+
 ## Tutorial
 
 ### Launching the Board

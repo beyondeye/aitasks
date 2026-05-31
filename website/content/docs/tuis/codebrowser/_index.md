@@ -11,6 +11,10 @@ The `ait codebrowser` command launches an interactive terminal-based code browse
 
 {{< static-img src="imgs/aitasks_codebrowser.svg" alt="Code browser showing file tree and syntax-highlighted code viewer" caption="The ait codebrowser with file tree (left) and syntax-highlighted code viewer (right)" >}}
 
+> **Customizable keys:** every shortcut here can be rebound. Press `?` in this
+> TUI for the in-place editor, or open
+> [Settings → Shortcuts]({{< relref "/docs/tuis/settings#shortcuts-s" >}}).
+
 ## Tutorial
 
 ### Launching the Code Browser

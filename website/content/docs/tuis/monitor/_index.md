@@ -11,6 +11,10 @@ The `ait monitor` command launches an interactive TUI that shows every pane in t
 
 {{< static-img src="imgs/home/monitor.svg" alt="Monitor TUI showing the pane list and live preview" caption="The ait monitor dashboard with categorized panes and live preview." >}}
 
+> **Customizable keys:** every shortcut here can be rebound. Press `?` in this
+> TUI for the in-place editor, or open
+> [Settings → Shortcuts]({{< relref "/docs/tuis/settings#shortcuts-s" >}}).
+
 ## Tutorial
 
 ### Launching the Monitor

@@ -9,6 +9,10 @@ depth: [intermediate]
 
 {{< static-img src="imgs/home/statistics.svg" alt="Stats TUI showing summary, daily completions, and weekday distribution panes" caption="The Stats TUI with the overview layout active." >}}
 
+> **Customizable keys:** every shortcut here can be rebound. Press `?` in this
+> TUI for the in-place editor, or open
+> [Settings → Shortcuts]({{< relref "/docs/tuis/settings#shortcuts-s" >}}).
+
 ## Launching
 
 ```bash

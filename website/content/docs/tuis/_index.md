@@ -35,6 +35,47 @@ The switcher only works inside tmux. If you are not running inside tmux yet, see
 
 When more than one aitasks tmux session is running on the same tmux server, the switcher also shows a session row at the top. The attached session is marked with `▶`, and the selected session is highlighted. Use **Left/Right** to pick a different session; the list below refreshes to show that session's TUIs and windows. **Enter** (or any shortcut key like **`b`** for board, **`y`** for syncer, **`n`** for a new task) acts on the selected session — if it differs from your attached session, the switcher teleports your tmux client there automatically.
 
+## Customizing keyboard shortcuts
+
+Every keyboard shortcut shown across these TUIs can be rebound to a key of your choosing.
+
+### In any TUI
+
+Press **`?`** in any TUI to open the in-place shortcut editor. It lists that TUI's actions (plus the global `shared` actions) in a table; from there:
+
+- **Enter** on a row — rebind the action (press the new key when prompted).
+- **`r`** — revert the unsaved edit on the current row.
+- **`d`** — reset the action to its default key (remove your override).
+- **`s`** — save your changes.
+- **Esc** — close without saving.
+
+Saved rebinds take effect **the next time you launch the TUI**.
+
+### Browse and edit across all TUIs
+
+The [Settings → Shortcuts]({{< relref "/docs/tuis/settings#shortcuts-s" >}}) tab shows every TUI's bindings in one place, so you can review and edit keys without opening each TUI. It also resets a whole scope to defaults, lints for cross-TUI coherence, and exports/imports your bindings.
+
+### Where customizations live
+
+Overrides are stored per-user in `aitasks/metadata/userconfig.yaml` (gitignored, never shared) under the `shortcuts:` key, mapping each TUI scope and action to your chosen key:
+
+```yaml
+email: you@example.com
+shortcuts:
+  board:
+    pick: o
+  monitor:
+    refresh: g
+```
+
+### Labels follow the current key
+
+Button and footer labels that highlight a mnemonic — such as `(P)ick` — reflect the key currently bound to that action. After you rebind and relaunch the TUI, the highlighted letter updates to match.
+
+### Coherent shared actions
+
+Actions shared across every TUI — the **`j`** TUI switcher and the **`?`** shortcut editor — stay on the same key everywhere. The Settings → Shortcuts tab's **Lint coherence** button reports any drift between TUIs for actions that should match.
+
 ---
 
 **Next:** [Board](board/) — start here for daily triage and task organization.
