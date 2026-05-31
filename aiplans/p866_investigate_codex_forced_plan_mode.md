@@ -209,3 +209,50 @@ docs with `chore: <desc> (t866)`; commit the plan with `./ait git`; run Step 8b
 (upstream-defect follow-up — flag the orphaned `codex_interactive_prereqs.md`
 removal) and Step 8c (manual-verification follow-up above); then
 `./.aitask-scripts/aitask_archive.sh 866` and `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Relaxed forced Codex plan mode for the analysis skills
+  (`qa`, `explain`) while keeping it for the planning skills (`pick`,
+  `explore`) and every other skill:
+  - New `.aitask-scripts/lib/codex_plan_policy.sh` — single-source predicate
+    `codex_skill_forces_plan_mode` (returns 1 for qa/explain, 0 otherwise),
+    accepting both bare (`qa`) and full (`aitask-qa`) names.
+  - `aitask_codeagent.sh` — sourced the lib; restructured the `codex)` case so
+    skill ops build the `$aitask-*` prompt then branch on the predicate
+    (helper vs. direct `codex -m <id> "$aitask-* …"`); `batch-review`/`raw`
+    stay passthrough.
+  - `aitask_skillrun.sh` — sourced the lib; the `codex)` arm branches on the
+    predicate (Python resolved only on the helper path).
+  - `.agents/skills/codex_tool_mapping.md` (live-referenced) and
+    `.agents/skills/codex_interactive_prereqs.md` (orphaned) — rewrote the
+    stale "only works in Suggest/plan mode" claims to current state.
+  - `website/.../known-issues.md` + `.../commands/codeagent.md` — replaced the
+    t862 "under review" hedges with the resolved behavior.
+  - Tests: `tests/test_codeagent.sh` (Test 11c narrowed to explore; new 11c2
+    asserts qa/explain are direct; added `codex_plan_policy.sh` to the fixture
+    lib copy) and new `tests/test_skillrun_codex_planmode.sh` (dry-run parity).
+- **Deviations from plan:** None of substance. Chose a shared lib over inline
+  duplication after confirming the scaffold tests never exec
+  codeagent/skillrun (so a new sourced lib is scaffold-safe). The skillrun
+  test runs against the real repo via side-effect-free `--dry-run` (a hermetic
+  fixture was unnecessary).
+- **Issues encountered:** `codex_interactive_prereqs.md` turned out to be
+  **orphaned** — no skill body, instruction layer, or template references it;
+  the actual plan-mode enforcement is solely the `/plan` typing in
+  `aitask_codex_plan_invoke.py`. Rewrote it for accuracy rather than expanding
+  scope into the install-flow copy loops.
+- **Key decisions:** No defensive `-c features.default_mode_request_user_input=true`
+  on the direct launches — rely on the seed + codex's on-by-default flag,
+  respecting user config. Kept plan mode for all non-qa/explain skillrun skills
+  (status quo; out of scope to re-evaluate fold/review/etc.).
+- **Verification:** `test_codeagent.sh` 89/89; `test_skillrun_codex_planmode.sh`
+  9/9; `shellcheck -S warning` clean on all touched scripts; `aitask_skill_verify.sh`
+  OK; `hugo build --gc --minify` clean; grep confirms no remaining hedges/stale
+  claims. The live interactive smoke test is deferred to a manual-verification
+  follow-up (Step 8c).
+- **Upstream defects identified:** `.agents/skills/codex_interactive_prereqs.md:1` —
+  orphaned doc (referenced only by the setup/install copy loops in
+  `aitask_setup.sh:1766` and `install.sh:482`); cleanly removing it + its copy
+  loops + the aidocs reference is a follow-up cleanup candidate, deferred here
+  to avoid scope-creep into the install flow.
