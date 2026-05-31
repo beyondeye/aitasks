@@ -47,6 +47,31 @@ with the current OpenAI Codex Rules documentation.
 When splitting a plan that introduces one or more new helper scripts, surface
 this 7-touchpoint checklist as an explicit deliverable per helper.
 
+**This whitelist applies ONLY to helpers invoked from a skill.** A helper whose
+only callers are Python TUIs (via `subprocess.run([...])`), other
+`.aitask-scripts/` shell scripts (via `"$SCRIPTS_DIR/foo.sh"`), or manual shell
+invocation runs under the user's normal process — no sandbox approval is
+involved, so adding allow-list entries for it is dead weight that pollutes the
+policy files and falsely advertises a skill-facing surface. Whitelist only when
+the script's path appears (literally or via `ait <subcommand>` dispatch) inside
+a `*/SKILL.md` closure, or inside a helper that such a skill invokes. Example:
+`aitask_skill_invalidate.sh` is run only by Python save-hooks (Settings TUI /
+AgentCommandScreen), so it needs zero whitelist entries.
+
+## The `ait` dispatcher is user-facing only
+
+The `ait` dispatcher (`./ait`) is the user-facing CLI surface. Only add a new
+top-level `ait <name>` case when a real human would plausibly type that command
+at a shell prompt. Helpers that exist solely to be shelled out from other
+scripts, Python TUIs, or hooks stay invoked via their full path
+(`./.aitask-scripts/aitask_<name>.sh …`) — wrapping them in `ait <foo>` adds
+zero capability, clutters `ait --help`, leaks implementation detail, and tempts
+accidental manual misuse. When in doubt, default to "no dispatcher entry":
+adding the case later is trivial, removing it is a breaking change. Example:
+`aitask_skill_invalidate.sh` was planned with an `ait skill invalidate` surface;
+that was rejected because only Python save-hooks call it, and the final design
+has no dispatcher entry.
+
 ## Test the full install flow for setup helpers
 
 When adding or modifying helpers in `.aitask-scripts/aitask_setup.sh` that
@@ -99,3 +124,20 @@ the framework binary (covers skill-direct calls bypassing the dispatcher).
 The exception is `~/.local/bin` — `ensure_path_in_profile()` correctly manages
 only that directory because the global `ait` entry-point shim is meant to be
 user-invocable.
+
+## Framework constants live in source, not `project_config.yaml`
+
+When adding a lookup table the framework consults at runtime (known TUI window
+names, code-agent window prefixes, agent prompt-pattern regexes, similar
+enumerations), put it in a Python module under the relevant `.aitask-scripts/`
+subdirectory — NOT in `aitasks/metadata/project_config.yaml`. That YAML is a
+user-facing config surface; framework constants are not user choices — they
+evolve with the framework. Adding a YAML key for every internal table bloats the
+config surface, creates a migration burden across downstream repos, and invites
+stale overrides. The agent-prefix / prompt-pattern tables under
+`.aitask-scripts/monitor/` set the precedent. Only add a YAML surface when the
+user *explicitly* asks for that specific item to be user-configurable. For
+multi-category lists (e.g. prompt patterns per code-agent), organize the module
+by category (one dict keyed by `claude` / `codex` / `opencode` / `all`) even if
+today every category merges into one flat list — the per-category shape is cheap
+and pays off when differentiation lands.

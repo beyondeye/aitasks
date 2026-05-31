@@ -40,6 +40,16 @@ Notes:
 | `seed/models_opencode.json` | 14,15 | Synced copy | `covered_by_refresh` / `needed_for_add` |
 | `seed/models_codex.json` | — | Synced copy | `covered_by_refresh` / `needed_for_add` |
 
+**The 1M-context Opus variant is a distinct registry entry.** In
+`models_claudecode.json`, `claude-opus-4-7` (`opus4_7`) and `claude-opus-4-7[1m]`
+(`opus4_7_1m`) are two separate entries with distinct `cli_id`s. During Model
+Self-Detection / Agent Attribution, the system-message "exact model ID" for the
+1M variant carries the bracketed `[1m]` suffix — pass it to
+`aitask_resolve_detected_agent.sh --cli-id` **verbatim**. Stripping `[1m]`
+resolves to `claudecode/opus4_7` instead of `claudecode/opus4_7_1m`,
+mis-attributing `implemented_with` and skewing per-model verified/usage scores.
+(See CLAUDE.md "Model Attribution" for the detection-time rule.)
+
 ### 2. Operational defaults (per-op agent strings)
 
 | File | Line | Context | Tag |

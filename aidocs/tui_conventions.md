@@ -83,6 +83,54 @@ Scope guards to `self.screen.query_one(...)`. On guard-miss, raise
 `textual.actions.SkipAction` so the next priority binding (the active screen's
 own action) gets a chance. Alternative: use distinct action names per screen.
 
+The same App-priority-first ordering bites **arrow-key navigation** in a pushed
+modal: in Textual 8.x an App's `priority=True` binding fires before a modal's own
+`priority=True` binding, so a modal that wants ←/→/↑/↓ gets nothing when the App
+already binds those keys (e.g. `KanbanApp` binds `left`/`right` for column nav).
+Two remedies:
+
+- **Blanket (preferred when the modal just needs default widget navigation):**
+  gate the App's nav actions in `check_action` — `if action in ("nav_up",
+  "nav_down","nav_left","nav_right") and len(self.screen_stack) > 1: return
+  False`. Returning `False` for a priority binding makes Textual treat it as
+  inactive, so the key falls through to the focused modal widget. Covers any
+  current or future pushed modal without per-class enumeration.
+- **Targeted (when the App action must delegate to the modal's widget):** make
+  the App action modal-aware and **duck-type across class boundaries** — a modal
+  under `lib/` has its own widget classes, so `isinstance(focused, CycleField)`
+  against the App's own `CycleField` won't match; test
+  `hasattr(focused, "cycle_prev")` / `getattr` for the method instead. See
+  `aitask_board.action_nav_left`.
+
+## Modals pushed by multiple Apps must carry their own DEFAULT_CSS
+
+A `lib/` `ModalScreen` that can be pushed by more than one App must define its
+own `DEFAULT_CSS` for everything its descendant widgets need — it does NOT
+inherit the pushing App's CSS. A modal that borrows the launching App's styles
+(focus highlight, `.section-header` / `.section-hint`, per-widget heights) looks
+correct from its "home" App but loses all of it when pushed from another: e.g.
+`lib/profile_editor.ProfileEditScreen` relied on `SettingsApp.CSS`, so pushed
+from `ait board` the focus highlight vanished and rows were unstyled, making the
+arrow-key UI feel broken. Give the modal a `DEFAULT_CSS` class attribute
+covering dialog size, focus-highlight rules for any `.focused`-class widget,
+header/hint styling, and widget heights/paddings; mirror the rules from any App
+that already styles those widgets so behavior is identical across launch
+surfaces. Always include a help/instructions line so keyboard discoverability
+never depends on focus styling alone. (See the priority-bindings note above for
+the matching arrow-key fix.)
+
+## Filters over a multi-select list keep selected rows visible
+
+A search/fuzzy filter over a **multi-select** list (e.g. the `FuzzyCheckList`
+widget) must keep already-checked rows **on screen** even when they don't match
+the current query — "view-only filter" / "selection survives filtering" means
+visible-on-screen, not merely state-preserved-in-memory. The visibility rule is
+`display = matched OR checked`; only unselected non-matching rows are hidden.
+Implementing it as `display = matched` (hide checked-but-unmatched rows, preserve
+state) reads as broken — the user loses sight of their current selection. When a
+requirement says "view-only filter", confirm it means visible-on-screen rather
+than assuming hidden-but-state-preserved.
+
 ## No auto-commit/push of project-level config from runtime TUIs
 
 Runtime `save()` paths in config modules must write only the user-level
@@ -139,6 +187,27 @@ that read is correct. The separate `self._attached_session` attribute exists
 only to decide whether to issue `switch-client`. Do not "fix" the asymmetry by
 routing shortcuts through the attached session or by adding a current-running-
 names set.
+
+## Registering a switcher-visible TUI is a four-part atomic change
+
+Adding a TUI to `TUI_REGISTRY` in `.aitask-scripts/lib/tui_registry.py` is not
+complete on its own. A switcher-visible TUI needs all four of these, changed
+together:
+
+1. **Registry position** in `TUI_REGISTRY` — order by user-perceived,
+   related-functionality grouping, NOT alphabetically by name (e.g. App Linker
+   sits after `stats` and before `diffviewer`).
+2. **A single-letter shortcut** in `_TUI_SHORTCUTS` in `tui_switcher.py` — pick a
+   free, mnemonic letter (the taken set is whatever `_TUI_SHORTCUTS` currently
+   holds; read it, don't hardcode the list).
+3. **A matching `Binding(...)` row** in the switcher's `BINDINGS`.
+4. **An `action_shortcut_<name>(self)` method** that calls
+   `self._shortcut_switch("<name>")`.
+
+Without 2–4 the TUI appears in the modal but can't be teleported to with a
+keystroke, while every other switcher-visible TUI can. Treat the four as one
+atomic change. (`applink` is the worked example: registry row + shortcut `a` +
+`Binding("a", "shortcut_applink")` + `action_shortcut_applink`.)
 
 ## Single tmux session per project
 
@@ -215,6 +284,32 @@ How to apply:
   just because Textual examples often do.
 - Surface this as an explicit deliverable in the child task that introduces
   the new operations.
+
+## New TUIs / dialogs must register in the global shortcut manifest
+
+Every Textual App or modal/sub-screen that owns customizable shortcuts sets
+`_shortcuts_scope` and registers its bindings via `ShortcutsMixin.__init__`
+(or, for module-level widgets, a class-body `register_app_bindings("<scope>",
+…)`). That registration is **lazy** — it only happens when the class is
+instantiated/imported. The **Settings → Shortcuts** tab, however, must list
+*every* TUI's bindings in a process where only `SettingsApp` runs, so it relies
+on the global sweep `register_all_known_bindings()` in
+`.aitask-scripts/lib/shortcut_scopes.py`.
+
+How to apply when you add a new scope:
+- A new dialog/sub-screen **inside an existing TUI module** (one already listed
+  in `KNOWN_BINDING_SOURCES`) is picked up automatically — the sweep imports the
+  module and introspects its classes for `_shortcuts_scope`. No manifest edit
+  needed.
+- A **brand-new TUI module file** MUST be added to `KNOWN_BINDING_SOURCES` in
+  `lib/shortcut_scopes.py` (entry: `(module_name, path_relative_to_.aitask-scripts)`).
+- `tests/test_shortcut_scopes.py` is a drift guard: it scans the source tree for
+  every `_shortcuts_scope`/`register_*bindings` declaration and fails if the
+  sweep does not register it — so a forgotten manifest entry surfaces as a test
+  failure naming the missing scope, not a silently-empty Settings tab.
+- Keep `KNOWN_BINDING_SOURCES` module-only (no per-class entries); the sweep
+  reads class attributes without instantiating, so do not add heavy
+  instantiation there.
 
 ## Tmux-stress tasks: implement outside the user's main aitasks tmux
 

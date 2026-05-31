@@ -174,6 +174,11 @@ only**.
   redirects explicitly in Post-Review Changes (they break silently if
   missed).
 
+> **Read `aidocs/documentation_conventions.md`** when writing user-facing doc
+> prose — especially manual-verification auto-mode descriptions (say
+> "autonomous", not "auto-execution") or any passage that names the supported
+> coding agents (genericize the list).
+
 ## Model Attribution
 
 When running the Model Self-Detection sub-procedure in Claude Code, scan the
@@ -190,6 +195,11 @@ initial system message.
   --cli-id <id>`.
 - Only fall back to the system-message model ID if no mid-session switch is
   visible.
+- **When you do fall back to the system-message exact ID, pass it verbatim.**
+  The 1M-context Opus variant's exact ID carries a bracketed `[1m]` suffix
+  (e.g. `claude-opus-4-7[1m]`); stripping it resolves to the non-1M entry
+  (`claudecode/opus4_7` instead of `claudecode/opus4_7_1m`) and mis-attributes
+  the model. See `aidocs/model_reference_locations.md`.
 - If the human name is ambiguous (e.g., "Opus 4.7" without the `1M` suffix),
   ask the user which variant.
 

@@ -6,7 +6,7 @@ introduced by t826_1. Read this when:
 - Designing a feature that needs to reach into a sibling aitasks project
   (create a task there, reference a file/spec, coordinate work).
 - Writing a plan, commit message, or task description that mentions a
-  sister project's task ID.
+  cross-repo project's task ID.
 - Modifying the resolver / registry / `ait projects` / `aitask_create.sh
   --project` surfaces.
 

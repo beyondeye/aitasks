@@ -1,8 +1,7 @@
 # Testing Conventions
 
-Rules for designing tests in the aitasks framework. Currently scoped to
-threading / asyncio coverage; additional conventions can be added here as
-they emerge.
+Rules for designing tests in the aitasks framework. Additional conventions can
+be added here as they emerge.
 
 ## Threading / asyncio migrations require thorough automated coverage
 
@@ -37,3 +36,29 @@ If a planned case is flaky on timing (e.g., sub-ms timeout assertions on a
 fast IPC), DROP the case rather than weakening it with sleeps / retries —
 note the dropped case in Final Implementation Notes and rely on adjacent
 cases that exercise the same semantics deterministically.
+
+## Golden-file regression tests for template-engine output
+
+Any code path that produces output through an external template engine
+(minijinja, jinja2, mustache, handlebars, …) needs golden-file regression tests
+in addition to whatever "renders without error" / "stub markers present" check
+already exists (e.g. `ait skill verify`). Template engines have non-trivial
+release cadences and subtly shift output across versions — whitespace handling,
+filter semantics, escape rules, default-value behavior. A "renders successfully"
+check catches only *hard* failures; silent output drift still ships broken
+behavior.
+
+How to apply:
+
+- For every `(input, parameter-combination)` the renderer supports, render once
+  at acceptance and commit the output as a golden under `tests/golden/<scope>/`.
+- Add a `tests/test_*.sh` script that re-renders fresh and asserts an empty diff
+  against the golden (PASS/FAIL summary, matching the repo's test convention).
+- Cover EVERY combination — for skill rendering, every `(skill × profile ×
+  agent)` tuple, not a representative sample. Minor per-combination differences
+  are exactly what version drift hides in.
+- When the engine is intentionally upgraded, regenerate the goldens in a
+  dedicated commit (`test: regenerate golden files for minijinja X.Y → X.Z`) so
+  the diff is reviewable.
+- This applies beyond skill rendering — any future code path that pipes through a
+  template engine inherits the same requirement.
