@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t832_8]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
-verifies: [832_1, 832_2, 832_3, 832_4, 832_5, 832_6, 832_7, 832_8]
+verifies: [t832_1, t832_2, t832_3, t832_4, t832_5, t832_6, t832_7, t832_8]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 18:39
-updated_at: 2026-05-26 18:39
+updated_at: 2026-05-31 15:22
 ---
 
 ## Manual Verification Task
