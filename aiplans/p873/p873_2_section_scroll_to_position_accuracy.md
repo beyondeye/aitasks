@@ -169,3 +169,37 @@ Final Implementation Notes record: the chosen TOC-correlation approach (and why
 `goto_anchor` slug-matching was rejected — title de-format fragility); the
 parser non-reentrancy scope limit (deep `component_*` subsections aren't
 separately navigable — candidate follow-up); and any upstream defect surfaced.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-05-31 16:05)
+- **Requested by user:** After the accuracy fix, the auto-scroll on *opening* a
+  proposal from a detail-pane dimension row still did nothing — the viewer
+  stayed at the top. Asked whether that was expected.
+- **Root cause (pre-existing, separate from the accuracy bug):**
+  `SectionViewerScreen.on_mount` drove the deferred auto-scroll with
+  `self.set_interval(0.1, self._poll_auto_scroll)`. The interval timer is
+  created but its callback **never fires** from a freshly-pushed modal screen
+  (reproduced: `attempts=0` after 3s of driven clock). So the pending scroll
+  was never applied. The manual minimap-selection path worked because it calls
+  `scroll_to_section` directly (no timer) — which is why accuracy improved there
+  but on-open auto-scroll did not happen.
+- **Changes made:** Replaced the poll-timer with an **event-driven** auto-scroll.
+  `SectionAwareMarkdown.request_scroll_to_section(name)` records an active
+  target; the `TableOfContentsUpdated` handler (which reliably fires) triggers
+  `_apply_pending_scroll` via `call_after_refresh`. Because a long body lays out
+  over several refresh cycles (the first `scroll_visible` lands mid-viewport —
+  observed offset 29 vs target ~0), `_apply_pending_scroll` **re-applies the
+  scroll across refreshes until the scroll offset stabilizes** (bounded to 5
+  attempts), then clears the target. Removed `_poll_auto_scroll`,
+  `_stop_auto_scroll`, and the `_pending_auto_scroll/_auto_scroll_attempts/
+  _auto_scroll_timer` state from `SectionViewerScreen`.
+- **Verification added:** New Pilot-driven integration tests in
+  `tests/test_section_viewer_scroll.py` (`AutoScrollPilotTests`, synthetic
+  proposal — no crew-data dependency): auto-scroll lands a deep section's
+  heading at the top, an inline-code heading lands correctly, no-filter does not
+  auto-scroll, and minimap selection scrolls. Confirmed live against
+  `crew-brainstorm-635` n004/n002/n000 — every section (incl. deepest +
+  inline-code `tooling`) lands at viewport-top offset ≤ 2.
+- **Files affected:** `.aitask-scripts/lib/section_viewer.py`,
+  `tests/test_section_viewer_scroll.py`.
