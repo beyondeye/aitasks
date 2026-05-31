@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t826_3]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
-verifies: [826_1, 826_2, 826_3]
+verifies: [t826_1, t826_2, t826_3]
+assigned_to: daelyasy@hotmail.com
 created_at: 2026-05-25 17:23
-updated_at: 2026-05-25 17:23
+updated_at: 2026-05-31 10:55
 ---
 
 ## Manual Verification Task
