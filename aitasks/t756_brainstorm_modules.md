@@ -1,14 +1,13 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [873]
 issue_type: feature
-status: Implementing
+status: Postponed
 labels: [ait_brainstorm, brainstom_modules]
 file_references: [aidocs/brainstorming/module_decomposition_design.md]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-06 18:53
-updated_at: 2026-05-31 10:59
+updated_at: 2026-05-31 12:53
 boardidx: 130
 ---
 
