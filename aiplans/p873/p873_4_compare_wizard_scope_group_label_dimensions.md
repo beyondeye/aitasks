@@ -253,3 +253,47 @@ No `.md.j2` / skill / golden changes (Python TUI only).
 Follow task-workflow Step 8 (review/commit) and Step 9 (archival/merge). Record
 the `FuzzyCheckList.set_grouped_items` extension and the union-scope decision in
 Final Implementation Notes, plus any upstream defect surfaced.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned (Steps 1–8). In
+  `brainstorm_dag.py`: added `get_active_dimensions(session_path)`. In
+  `brainstorm_app.py`: added the `get_active_dimensions` import; module-level
+  `_parse_dimension_label`; `FuzzyCheckList.set_grouped_items()` + a
+  `.fcl_subheader` CSS rule; replaced the dead `_get_all_dimension_keys` with
+  the node-scoped `_dimension_entries_for_nodes`; added
+  `_refresh_compare_dimensions`; rewired `_config_compare` (empty `cmp_dims` +
+  `self._cmp_dim_checks = {}` + `call_after_refresh`); added the dimension
+  refresh to `_on_cmp_node_changed`; and switched the compare-branch
+  `config["dimensions"]` collection to `_parse_dimension_label`. Extended
+  `tests/test_brainstorm_wizard_sections.py` with `ParseDimensionLabelTests`
+  (4) and `DimensionEntriesForNodesTests` (6, covering the union collector +
+  `get_active_dimensions`).
+- **Deviations from plan:** None. The plan was implemented verbatim.
+- **Issues encountered:** None. Full suite (`bash tests/run_all_python_tests.sh`)
+  passes 929/929; the previously-flagged `test_desync_state` no longer fails
+  (fixed upstream by t883 — "Add python_resolve.sh to desync test fixture
+  lib-copy list").
+- **Key decisions:** (1) **Union, not intersection** for the node-scoped
+  collector — a dimension on only one selected node is still a valid comparison
+  axis, and intersection risks an empty list (nodes carry 23–45 of 50 keys).
+  (2) Extended `FuzzyCheckList` with `set_grouped_items()` rather than mirroring
+  `_refresh_compare_sections` literally — the literal mirror (plain `Checkbox`es
+  in a plain `Container`) would have dropped the fuzzy-filter `Input` and broken
+  the `cmp_dims` Tab-nav group. Keeping the FuzzyCheckList (mounted empty,
+  repopulated on refresh) preserves both. (3) Toggle preservation via
+  `self._cmp_dim_checks` keyed on the raw key (parsed from the label) so prior
+  selections survive re-scoping; `active_dimensions` only seeds the *initial*
+  check state, with all-checked fallback when the session has none.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The only remaining sibling is **t873_5**
+  (manual_verification). Verify the compare wizard end-to-end against session
+  `crew-brainstorm-635`: after selecting ≥2 nodes the dimension checklist is
+  scoped to *those* nodes (not the whole-graph 50), grouped under
+  Requirements/Assumptions/Components/Tradeoffs subheaders, each row labeled
+  `key — description`, with `active_dimensions` pre-checked; changing the node
+  selection re-scopes and preserves prior toggles; the fuzzy filter + Tab still
+  work; and submitting passes the correct **raw** dimension keys to the compare
+  operation. The reusable building block for future grouped/filterable
+  checklists is `FuzzyCheckList.set_grouped_items(groups)` where
+  `groups = [(subheader_text, [(label, checked), ...]), ...]`.
