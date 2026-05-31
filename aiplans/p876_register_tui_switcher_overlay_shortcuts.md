@@ -183,3 +183,45 @@ branch/worktree: skip merge; run `./.aitask-scripts/aitask_archive.sh 876`, then
 `./ait git push`). Per CLAUDE.md, suggest a follow-up aitask to port the same
 registration to the Codex CLI / OpenCode switcher equivalents only if those
 trees carry a parallel switcher (they don't — this is Python TUI code, shared).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. `TuiSwitcherOverlay`'s 11
+  quick-jumps now register under `shared.tui_switcher` via a class-body
+  `register_app_bindings(...)` call; structural keys (escape/enter/←/→) stay
+  fixed literals; the `j` close-toggle mirrors the resolved shared open key
+  (`_OVERLAY_OPEN_KEY`), skipped on collision. `_render_hint` and
+  `_TuiListItem.compose` render quick-jump labels from resolved keys via
+  `render_label`/`display_form` (added `_hint_segment` + `_HINT_ITEMS`). Manifest
+  entry in `shortcut_scopes.py` updated to `("shared", "shared.tui_switcher")`.
+  Added `TuiSwitcherScopeTests` and extended the Settings-tab scope assertion.
+- **Deviations from plan:** None in substance. `_OVERLAY_RESERVED_KEYS` is derived
+  from `_QUICK_JUMP_BINDINGS` keys (+ escape/enter/left/right) rather than a
+  hardcoded literal set.
+- **Issues encountered:** A concurrent session was editing the shortcuts system
+  in the same working tree (`shortcut_labels.py`, `shortcuts_mixin.py`,
+  `settings_app.py`, `aitask_setup.sh`, `test_shortcut_labels.sh`,
+  `.claude/settings.local.json` showed edits not made by this task). Committed
+  only the four t876 files via explicit `git add` paths. t876's code uses only
+  stable pre-existing APIs (`render_label`, `display_form`, `resolve_key`,
+  `register_app_bindings`), so it is independent of those edits.
+  `test_tui_switcher_multi_session.sh` could not run (its safety guard refuses to
+  run inside a tmux session); its paths are covered by the footer-fit and
+  brainstorm-session switcher tests.
+- **Key decisions:** (per user) quick-jumps only customizable; structural keys
+  fixed; `j`-toggle mirrors the open key; hint/list render from resolved keys.
+  Chose class-body `register_app_bindings` (precedent: `brainstorm.dag`) because
+  it is the only pattern that both wires overrides into Textual's live key map AND
+  registers a *subset* of a screen's bindings.
+- **Upstream defects identified:** `.aitask-scripts/lib/shortcuts_mixin.py:41 — the
+  mixin's `self.BINDINGS = register_app_bindings(...)` reassignment runs in
+  __init__ after super().__init__(), but Textual 8.2.7 builds the live key map
+  (self._bindings) from the class-level merged map during DOMNode.__init__, so the
+  reassignment never reaches live dispatch.` Verified empirically on a minimal
+  App/ModalScreen + ShortcutsMixin with literal BINDINGS: a saved override appears
+  in the editor/registry but does NOT rebind the live key (only class-body
+  register_app_bindings — as brainstorm.dag and now tui_switcher use — does). This
+  would affect every mixin-only scope (e.g. `board`, `board.detail`,
+  `shared.agent_cmd`). NOTE: `shortcuts_mixin.py` had concurrent uncommitted edits
+  (+69 lines) during this task that may already address this — confirm before
+  filing a follow-up.
