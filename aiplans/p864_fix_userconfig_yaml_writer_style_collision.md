@@ -159,3 +159,53 @@ valid, parseable `userconfig.yaml`.
   existing file drops inline comments (header re-added only for new files). This
   matches established shortcut-editor behavior.
 - Commit type: `bug: ... (t864)`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the Preferred approach exactly as planned.
+  New `.aitask-scripts/lib/userconfig_persist.py` is the single persistence
+  layer (owns `_userconfig_path`/`_load_full`/`_atomic_dump` + a `_FlowList`
+  flow-style policy for `last_used_labels`, plus `get/set_last_used_labels` and
+  a `get-labels`/`set-labels` CLI). `shortcut_persist.py` now imports the shared
+  `_load_full`/`_atomic_dump` (−57 lines, public API unchanged). `task_utils.sh`
+  sources `python_resolve.sh` and its `get/set_last_used_labels` delegate to the
+  Python CLI with a block-safe bash fallback. New regression test
+  `tests/test_userconfig_writer_collision.sh` (13 assertions).
+- **Deviations from plan:** None of substance. Confirmed during implementation
+  that the flow-style policy also fixes the *Python* writer: after the refactor,
+  `shortcut_persist.save_override` now emits `last_used_labels` in flow style
+  too (both writers agree), so a block-style value never even appears on disk
+  through normal operation — the corruption is removed at the source rather than
+  only being tolerated by the bash side.
+- **Issues encountered:** A transient `test_keybinding_registry.sh` failure was
+  traced to a *test-shell* `export TASK_DIR` leak from an ad-hoc end-to-end repro
+  run in the same shell, not a code regression. In separate processes (how tests
+  actually run) it passes 7/7. See Key decisions re: `TASK_DIR`.
+- **Key decisions:**
+  - On-disk format kept as **flow** (`last_used_labels: [a, b]`) via a
+    `_FlowList` + SafeDumper representer, so the existing `test_last_used_labels.sh`
+    flow-style assertions and the live file format are preserved while `shortcuts:`
+    stays block. Both writers route through one `yaml.safe_dump`.
+  - `userconfig_persist._userconfig_path()` honors the `TASK_DIR` env (default
+    `aitasks`) to match the long-standing bash behavior and enable isolated
+    tests. `keybinding_registry._userconfig_path()` still hardcodes
+    `aitasks/metadata/userconfig.yaml`. These agree at runtime because `TASK_DIR`
+    is **never exported** anywhere in the framework (verified) — the board TUI's
+    Python env has no `TASK_DIR`, so both resolve to `aitasks/...`. The bash
+    helpers pass `TASK_DIR` as a scoped per-subprocess env, so it never leaks.
+    If a future change ever exports a non-default `TASK_DIR` to a TUI, both path
+    resolvers should be unified (candidate: have `keybinding_registry` import
+    `_userconfig_path` from `userconfig_persist`) — relevant to t863's reader work.
+  - No-Python degradation: `get` falls back to a flow-only grep read; `set`
+    falls back to a block-safe `awk` writer that strips orphaned `- item` lines
+    (never the old corrupting single-line `sed`). Label memory keeps working
+    without the venv.
+- **Upstream defects identified:** None. (`keybinding_registry` already has a
+  `try/except yaml.YAMLError` reader guard covered by
+  `test_keybinding_registry.sh` case 7 — that is t863's complementary
+  defense-in-depth, not a defect, and intentionally out of scope here.)
+- **Verification:** new test fails on pre-fix code (orphaned `- agentcrew` →
+  `ParserError`) and passes 13/13 after the fix; `test_last_used_labels.sh`
+  15/15, `test_keybinding_registry.sh` 7/7, `test_shortcut_editor_modal.py`
+  14 OK; real-module end-to-end leaves valid YAML with `shortcuts:` intact;
+  `shellcheck` clean (pre-existing style infos only).
