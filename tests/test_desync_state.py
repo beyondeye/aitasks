@@ -46,7 +46,7 @@ def copy_changelog(project: Path) -> Path:
     lib_dir = script_dir / "lib"
     lib_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(CHANGELOG_SRC, script_dir / "aitask_changelog.sh")
-    for name in ["desync_state.py", "task_utils.sh", "terminal_compat.sh", "archive_utils.sh", "yaml_utils.sh"]:
+    for name in ["desync_state.py", "task_utils.sh", "terminal_compat.sh", "python_resolve.sh", "archive_utils.sh", "yaml_utils.sh"]:
         shutil.copy2(LIB_SRC / name, lib_dir / name)
     return script_dir / "aitask_changelog.sh"
 
