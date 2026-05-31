@@ -203,3 +203,51 @@ separately navigable — candidate follow-up); and any upstream defect surfaced.
   inline-code `tooling`) lands at viewport-top offset ≤ 2.
 - **Files affected:** `.aitask-scripts/lib/section_viewer.py`,
   `tests/test_section_viewer_scroll.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced the line-ratio scroll estimate in
+  `SectionAwareMarkdown` with a rendered-heading lookup. New module-level pure
+  helpers `_first_heading` / `_norm_title` / `correlate_sections_to_toc` map each
+  parsed section to its first heading's Textual `header_id` via a monotonic
+  document-order walk over the widget's table of contents (captured from the
+  public `Markdown.TableOfContentsUpdated` message). `scroll_to_section` now
+  scrolls the heading widget with `scroll_visible(top=True)` and falls back to
+  the old ratio math defensively. Auto-scroll-on-open was rebuilt event-driven
+  (see Post-Review Changes Change Request 1). Added 25 tests (21 pure-function +
+  4 Pilot integration) in `tests/test_section_viewer_scroll.py`.
+- **Deviations from plan:** (1) Plan step 1 favored `Markdown.goto_anchor`;
+  rejected during verification because Textual de-formats inline code/emphasis in
+  TOC titles before slugging, so a slug computed from a raw section heading
+  mismatches (real case: n000 `orchestrator` / `tooling`). Used the
+  TOC-correlation + `scroll_visible` path instead — exact and offline-testable.
+  (2) Plan step 6 kept the poll-timer and only re-gated its readiness on
+  `toc_ready`. Implementation found the timer never fires from a modal screen, so
+  the timer was removed entirely in favor of an event-driven, self-rescheduling
+  `call_after_refresh` apply (Post-Review Change Request 1).
+- **Issues encountered:** The first `scroll_visible` after the TOC arrives lands
+  mid-viewport because a long body lays out over several refresh cycles;
+  `_apply_pending_scroll` re-applies (≤5 attempts) until the scroll offset
+  stabilizes. Full suite: 891 tests, 1 failure — `test_desync_state` — pre-existing
+  and unrelated (`python_resolve.sh` missing from the fake-repo scaffold;
+  confirmed identical with this change stashed). The other failure t873_1 flagged
+  (`test_shortcut_scopes`) is resolved on `main` (commit e66abc7d).
+- **Key decisions:** Correlate by normalized title + heading level with a
+  monotonic pointer so duplicate-title headings (real in n002/n000) resolve by
+  position; anchors only ever come from Textual's own TOC (never a reconstructed
+  slug). Keep the line-ratio fallback so behavior never regresses when a heading
+  can't be resolved.
+- **Upstream defects identified:** None. The original symptoms (wrong scroll
+  target; no auto-scroll on open) were both self-contained in `section_viewer.py`.
+  One **design limitation** (not a defect) is worth a follow-up enhancement, not a
+  bug: `brainstorm_sections.parse_sections` is non-reentrant, so nested
+  `component_*` subsections are swallowed into the parent `components` section and
+  are not individually navigable — opening a `component_X` dimension lands on the
+  `## Components` heading rather than that subsection's heading. Out of scope here.
+- **Notes for sibling tasks:** `SectionAwareMarkdown` now exposes
+  `request_scroll_to_section(name)` (event-driven, deferred) and a `toc_ready`
+  property; `scroll_to_section(name)` remains the synchronous post-layout entry
+  used by the minimap path. Auto-scroll-on-open must go through
+  `request_scroll_to_section`, not `scroll_to_section`, because heading widgets
+  don't exist until the async Markdown parse completes. Reuse
+  `correlate_sections_to_toc(sections, toc)` for any section→heading mapping.
