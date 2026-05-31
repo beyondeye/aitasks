@@ -8,7 +8,7 @@ labels: [brainstorming, cross_repo, aitask_query, aitask_create]
 children_to_implement: [t832_6, t832_9, t832_11]
 created_at: 2026-05-25 22:30
 updated_at: 2026-05-31 08:35
-boardidx: 10
+boardidx: 20
 ---
 
 Brainstorm and scope: teach framework skills and helper scripts to use the

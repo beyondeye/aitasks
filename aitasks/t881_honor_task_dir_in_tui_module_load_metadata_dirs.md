@@ -8,7 +8,7 @@ labels: [tui, python]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 16:48
 updated_at: 2026-05-31 17:16
-boardidx: 30
+boardidx: 40
 ---
 
 ## Origin
