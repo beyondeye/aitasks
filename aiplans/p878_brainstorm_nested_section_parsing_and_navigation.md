@@ -174,3 +174,49 @@ the minimap lists indented subsections.
 Step 9 (current branch, profile 'fast'): no worktree/merge. Consolidate plan,
 commit code (`bug: … (t878)`) + plan separately, then archive via
 `./.aitask-scripts/aitask_archive.sh 878` and `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned across three source
+  files + two test files.
+  - `brainstorm_sections.py`: `parse_sections` rewritten from a single
+    open-section state to a `_OpenFrame` **stack**; content accumulates into the
+    innermost open frame, completed sections are `sort`ed by `start_line` for
+    document order. `ContentSection` gained `depth`/`parent` (defaulted, so
+    keyword construction stays compatible). New `best_section_for_dimension`
+    ranks matches exact-tag-then-deepest for nav targeting.
+  - `section_viewer.py` (shared widget): `SectionRow` gained `depth` and indents
+    `"  " * depth`; `SectionMinimap.populate` passes `section.depth`;
+    `SectionViewerScreen` gained `scroll_target` (overrides the default
+    first-filtered auto-scroll).
+  - `brainstorm_app.py`: `on_dimension_row_activated` now computes
+    `best_section_for_dimension` and passes it as `scroll_target` (minimap filter
+    still lists wrapper + leaf for context).
+- **Deviations from plan:** None. Adopted "content model B" (wrapper content
+  excludes subsection bodies) as planned — simpler and keeps each section's
+  first heading correct for `correlate_sections_to_toc`.
+- **Issues encountered:** None. All four affected suites pass
+  (`test_brainstorm_sections` 39, `test_section_viewer_filter` 5,
+  `test_section_viewer_scroll` 27, `test_brainstorm_wizard_sections` 16).
+  Backward-compat confirmed: board/codebrowser only call `populate(parsed)` /
+  `SectionViewerScreen(...)` — new params default safely; flat content is
+  unchanged (`test_flat_input_unaffected`).
+- **Key decisions:** Flat document-ordered section list + `depth`/`parent` tag
+  (not a tree) so the existing consumers — `correlate_sections_to_toc`'s
+  monotonic TOC pointer, `estimate_section_y`, `_filter_sections`,
+  `get_sections_for_dimension` — keep working unchanged. Duplicate-name
+  detection kept **global** (names must be globally unique for the name-keyed
+  anchor map / `get_section_by_name`); template subsection names
+  (`component_<name>`, `steps_<component_name>`) are already unique.
+- **Intended side effect (surfaced at review, user approved "it's good"):**
+  dimension **badge counts** (`brainstorm_app.py:5024-5038`) now count both the
+  wrapper glob section and a key's own subsection, so a `component_X` badge can
+  rise (e.g. 1 → 2). This is the accurate consequence of parsing subsections.
+  The compare wizard / section picker likewise gain subsections as finer-grained
+  selectable targets (additive, keyed on names). Both were offered as tunable at
+  review and accepted as-is.
+- **Upstream defects identified:** None.
+- **Manual verification:** Live TUI behavior (open a `component_X` dimension →
+  lands on the `### X` subsection; minimap lists indented subsections) is best
+  validated by a human against a real nested session — offered as a Step 8c
+  manual-verification follow-up.
