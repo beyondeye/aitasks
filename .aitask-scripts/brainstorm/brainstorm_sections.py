@@ -121,8 +121,16 @@ def parse_sections(text: str) -> ParsedContent:
 # ---------------------------------------------------------------------------
 
 
-def validate_sections(parsed: ParsedContent) -> list[str]:
-    """Return a list of error messages (empty means valid)."""
+def validate_sections(
+    parsed: ParsedContent, node_keys: list[str] | None = None
+) -> list[str]:
+    """Return a list of error messages (empty means valid).
+
+    When *node_keys* (the node's real dimension keys) is provided, each non-glob
+    dimension tag that does not match any real key is flagged. Glob tags
+    (``component_*``) are always accepted — they are expanded at lookup time. The
+    ``node_keys=None`` default preserves the prior, node-agnostic behavior.
+    """
     errors: list[str] = []
 
     # Duplicate names.
@@ -140,6 +148,21 @@ def validate_sections(parsed: ParsedContent) -> list[str]:
                     f"Invalid dimension '{dim}' in section '{sec.name}': "
                     f"must start with one of {DIMENSION_PREFIXES}"
                 )
+
+    # Invented dimension tags — non-glob keys that match no real node key.
+    if node_keys is not None:
+        key_set = set(node_keys)
+        for sec in parsed.sections:
+            for dim in sec.dimensions:
+                if (
+                    is_dimension_field(dim)
+                    and not dim.endswith("*")
+                    and dim not in key_set
+                ):
+                    errors.append(
+                        f"Section '{sec.name}' references unknown dimension "
+                        f"key '{dim}'"
+                    )
 
     # Unclosed sections — re-scan raw text for opens without matching closes.
     open_names: list[str] = [m.group(1) for m in _OPEN_RE.finditer(parsed.raw)]
@@ -167,11 +190,34 @@ def get_section_by_name(
     return None
 
 
+def dimension_matches_tag(dim_key: str, tag: str) -> bool:
+    """Return True if real dimension *dim_key* is covered by a section *tag*.
+
+    A section's ``[dimensions: ...]`` tag may be an exact key
+    (``component_foo``) or a **prefix glob** (``component_*``). A glob matches
+    any key sharing the literal prefix that precedes the trailing ``*``; an
+    exact tag matches only an identical key. Purely string-based — no node data
+    required.
+    """
+    if tag.endswith("*"):
+        return dim_key.startswith(tag[:-1])
+    return dim_key == tag
+
+
 def get_sections_for_dimension(
     parsed: ParsedContent, dimension: str
 ) -> list[ContentSection]:
-    """Return all sections linked to *dimension*."""
-    return [sec for sec in parsed.sections if dimension in sec.dimensions]
+    """Return all sections linked to *dimension*.
+
+    Section tags may be exact keys or prefix globs (e.g. ``component_*``); both
+    are expanded via :func:`dimension_matches_tag`, so a dimension covered only
+    by a glob section is still linked.
+    """
+    return [
+        sec
+        for sec in parsed.sections
+        if any(dimension_matches_tag(dimension, t) for t in sec.dimensions)
+    ]
 
 
 def section_names(parsed: ParsedContent) -> list[str]:

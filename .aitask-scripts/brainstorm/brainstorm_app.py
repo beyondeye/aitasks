@@ -53,7 +53,11 @@ from brainstorm.brainstorm_dag import (
     set_head,
 )
 from brainstorm.brainstorm_schemas import extract_dimensions, group_dimensions_by_prefix
-from brainstorm.brainstorm_sections import get_sections_for_dimension, parse_sections
+from brainstorm.brainstorm_sections import (
+    dimension_matches_tag,
+    get_sections_for_dimension,
+    parse_sections,
+)
 from brainstorm.brainstorm_dag_display import (
     DAGDisplay,
     OP_BADGE_STYLES,
@@ -5022,8 +5026,16 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 proposal = read_proposal(self.session_path, node_id)
                 parsed_proposal = parse_sections(proposal)
                 for sec in parsed_proposal.sections:
-                    for dim in sec.dimensions:
-                        section_counts[dim] = section_counts.get(dim, 0) + 1
+                    # Expand each tag (exact or glob) against the node's real
+                    # dimension keys, counting each section once per real key.
+                    linked = {
+                        k
+                        for k in dims
+                        for t in sec.dimensions
+                        if dimension_matches_tag(k, t)
+                    }
+                    for k in linked:
+                        section_counts[k] = section_counts.get(k, 0) + 1
             except Exception:
                 pass
 

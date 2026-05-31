@@ -38,7 +38,7 @@ A flat YAML file following the node schema. Requirements:
   Start with the baseline's reference_files. Add files for new components,
   remove files for components that were replaced or dropped.
 - All dimension fields: requirements_fixed, requirements_mutable,
-  assumption_*, component_*, tradeoff_pros, tradeoff_cons
+  assumption_*, component_*, tradeoff_*
 
 Every dimension from the baseline node must appear in your output. You may
 modify values, add new dimensions, or keep them unchanged — but never silently
@@ -80,10 +80,10 @@ All assumptions, flagging which are inherited vs new.
 Link ALL assumption_* dimension keys.
 <!-- /section: assumptions -->
 
-<!-- section: tradeoffs [dimensions: tradeoff_pros, tradeoff_cons] -->
+<!-- section: tradeoffs [dimensions: tradeoff_*] -->
 ## Tradeoffs
 Advantages, disadvantages, and risks with mitigations.
-Link tradeoff_pros and tradeoff_cons dimension keys.
+Link ALL tradeoff_* dimension keys from your input's Dimension Keys block.
 <!-- /section: tradeoffs -->
 
 If no "Dimension Keys" block is present in your input, omit the [dimensions: ...] attributes but still use the section markers.

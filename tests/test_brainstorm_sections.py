@@ -12,6 +12,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 from brainstorm.brainstorm_sections import (
     ContentSection,
     ParsedContent,
+    dimension_matches_tag,
     format_section_footer,
     format_section_header,
     get_section_by_name,
@@ -160,6 +161,40 @@ class TestValidateSections(unittest.TestCase):
         errors = validate_sections(parsed)
         self.assertTrue(any("Invalid dimension" in e for e in errors))
 
+    def test_node_keys_flags_invented_tag(self):
+        text = (
+            "<!-- section: tradeoffs [dimensions: tradeoff_*, tradeoff_pros] -->\n"
+            "Content\n"
+            "<!-- /section: tradeoffs -->"
+        )
+        parsed = parse_sections(text)
+        # tradeoff_pros is a non-glob tag absent from the node's real keys.
+        errors = validate_sections(parsed, node_keys=["tradeoff_balance"])
+        self.assertTrue(
+            any("unknown dimension key" in e and "tradeoff_pros" in e for e in errors)
+        )
+
+    def test_node_keys_accepts_glob_and_real_key(self):
+        text = (
+            "<!-- section: comps [dimensions: component_*, component_auth] -->\n"
+            "Content\n"
+            "<!-- /section: comps -->"
+        )
+        parsed = parse_sections(text)
+        # The glob is always valid; component_auth is a real key — no errors.
+        errors = validate_sections(parsed, node_keys=["component_auth", "component_db"])
+        self.assertEqual(errors, [])
+
+    def test_node_keys_none_is_backward_compatible(self):
+        text = (
+            "<!-- section: tradeoffs [dimensions: tradeoff_pros] -->\n"
+            "Content\n"
+            "<!-- /section: tradeoffs -->"
+        )
+        parsed = parse_sections(text)
+        # Without node_keys, invented keys are not flagged (prior behavior).
+        self.assertEqual(validate_sections(parsed), [])
+
 
 class TestQueryHelpers(unittest.TestCase):
     """Tests for get_section_by_name, get_sections_for_dimension, section_names."""
@@ -194,6 +229,52 @@ class TestQueryHelpers(unittest.TestCase):
     def test_section_names(self):
         names = section_names(self.parsed)
         self.assertEqual(names, ["database_layer", "auth", "prerequisites"])
+
+
+class TestGlobDimensionExpansion(unittest.TestCase):
+    """Tests for dimension_matches_tag and glob expansion in get_sections_for_dimension."""
+
+    GLOB_TEXT = (
+        "<!-- section: components [dimensions: component_*] -->\n"
+        "Components here.\n"
+        "<!-- /section: components -->\n"
+        "<!-- section: assumptions [dimensions: assumption_*] -->\n"
+        "Assumptions here.\n"
+        "<!-- /section: assumptions -->"
+    )
+
+    def test_matches_exact(self):
+        self.assertTrue(dimension_matches_tag("component_auth", "component_auth"))
+        self.assertFalse(dimension_matches_tag("component_auth", "component_db"))
+
+    def test_matches_prefix_glob(self):
+        self.assertTrue(dimension_matches_tag("component_auth", "component_*"))
+        self.assertTrue(dimension_matches_tag("component_", "component_*"))
+        self.assertFalse(dimension_matches_tag("assumption_scale", "component_*"))
+
+    def test_glob_tag_resolves_real_key(self):
+        parsed = parse_sections(self.GLOB_TEXT)
+        secs = get_sections_for_dimension(parsed, "component_profile_registry")
+        self.assertEqual([s.name for s in secs], ["components"])
+        secs = get_sections_for_dimension(parsed, "assumption_stateless")
+        self.assertEqual([s.name for s in secs], ["assumptions"])
+
+    def test_glob_tag_no_false_match(self):
+        parsed = parse_sections(self.GLOB_TEXT)
+        secs = get_sections_for_dimension(parsed, "requirements_perf")
+        self.assertEqual(secs, [])
+
+    def test_mixed_exact_and_glob_no_duplicate(self):
+        text = (
+            "<!-- section: comp [dimensions: component_*, component_auth] -->\n"
+            "C\n"
+            "<!-- /section: comp -->"
+        )
+        parsed = parse_sections(text)
+        # component_auth matches both the glob and the exact tag, but the
+        # section is returned once.
+        secs = get_sections_for_dimension(parsed, "component_auth")
+        self.assertEqual([s.name for s in secs], ["comp"])
 
 
 class TestGenerationHelpers(unittest.TestCase):
