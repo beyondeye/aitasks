@@ -30,7 +30,17 @@ SHARED_ACTION_IDS: frozenset[str] = frozenset(
 
 
 def _userconfig_path() -> Path:
-    return Path("aitasks/metadata/userconfig.yaml")
+    """Resolve userconfig.yaml via the canonical persistence layer.
+
+    Delegates to ``userconfig_persist._userconfig_path`` so the ``TASK_DIR``
+    env override is honored identically to the single writer of this file
+    (tests / non-default layouts set ``TASK_DIR``). Imported locally to keep
+    yaml off this module's import path until a read actually happens — see the
+    deferred ``import yaml`` in ``load_user_overrides``.
+    """
+    from userconfig_persist import _userconfig_path as _canonical_path
+
+    return _canonical_path()
 
 
 def load_user_overrides() -> dict[str, dict[str, str]]:

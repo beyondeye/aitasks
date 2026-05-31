@@ -28,13 +28,12 @@ here.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from textual.binding import Binding
 
 from config_utils import load_yaml_config
 from keybinding_registry import register_app_bindings, resolve_key
 from shortcut_labels import render_label
+from userconfig_persist import _userconfig_path
 
 
 # Cached resolution of the global ``shortcut_label_case`` setting.
@@ -56,7 +55,7 @@ def _resolve_uppercase_key() -> bool:
     if _LABEL_CASE_CACHE is not None:
         return _LABEL_CASE_CACHE
     try:
-        cfg = load_yaml_config(Path("aitasks/metadata/userconfig.yaml"))
+        cfg = load_yaml_config(_userconfig_path())
         value = str(cfg.get("shortcut_label_case", "upper")).strip().lower()
     except Exception:
         value = "upper"

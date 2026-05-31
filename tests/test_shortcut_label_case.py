@@ -147,5 +147,33 @@ class GetLabelTests(_Fixture):
         )
 
 
+class TaskDirOverrideTests(_Fixture):
+    """shortcut_label_case is read from TASK_DIR, not the hardcoded aitasks/ (t877)."""
+
+    def test_task_dir_override_is_honored(self):
+        # Decoy in the default cwd-relative location says 'upper' (True).
+        (self._meta / "userconfig.yaml").write_text(
+            "shortcut_label_case: upper\n", encoding="utf-8"
+        )
+        # The real target lives under a TASK_DIR-named sibling dir, says 'preserve'.
+        scratch_meta = Path(self._tmp.name) / "scratch" / "metadata"
+        scratch_meta.mkdir(parents=True, exist_ok=True)
+        (scratch_meta / "userconfig.yaml").write_text(
+            "shortcut_label_case: preserve\n", encoding="utf-8"
+        )
+        prev = os.environ.get("TASK_DIR")
+        os.environ["TASK_DIR"] = "scratch"
+        try:
+            refresh_label_case()
+            # Honors TASK_DIR -> reads the 'preserve' file, not the 'upper' decoy.
+            self.assertFalse(_resolve_uppercase_key())
+        finally:
+            if prev is None:
+                os.environ.pop("TASK_DIR", None)
+            else:
+                os.environ["TASK_DIR"] = prev
+            refresh_label_case()
+
+
 if __name__ == "__main__":
     unittest.main()

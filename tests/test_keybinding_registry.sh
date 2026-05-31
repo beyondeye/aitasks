@@ -269,6 +269,28 @@ print("OK")
 ')
 assert_eq "case9: read degrades to [], write fails loud, file intact" "OK" "$OUT"
 
+# --- Case 10: TASK_DIR override is honored (t877) ----------------------
+
+# keybinding_registry._userconfig_path() must delegate to userconfig_persist
+# so the TASK_DIR env override targets the right file. Two configs: a decoy at
+# the default cwd-relative aitasks/metadata, and the REAL one under a scratch
+# dir named by TASK_DIR. With the bug (hardcoded path) the decoy wins.
+WORK="$TMPROOT/case10"
+mkdir -p "$WORK/aitasks/metadata" "$WORK/scratch/metadata"
+printf 'shortcuts:\n  board:\n    pick_task: DECOY\n' > "$WORK/aitasks/metadata/userconfig.yaml"
+printf 'shortcuts:\n  board:\n    pick_task: REAL\n'  > "$WORK/scratch/metadata/userconfig.yaml"
+OUT=$(
+    cd "$WORK"
+    PYTHONPATH="$LIB_DIR" TASK_DIR=scratch "$AITASK_PYTHON" -c '
+import keybinding_registry as kr
+kr._reset_for_tests()
+ov = kr.load_user_overrides()
+assert ov == {"board": {"pick_task": "REAL"}}, ov
+print("OK")
+'
+)
+assert_eq "case10: keybinding_registry honors TASK_DIR override" "OK" "$OUT"
+
 # --- Summary -----------------------------------------------------------
 
 echo
