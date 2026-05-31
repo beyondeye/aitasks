@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [t832_1, t832_2, t832_3, t832_4, t832_5, t832_6, t832_7, t832_8]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-26 18:39
-updated_at: 2026-05-31 17:15
+updated_at: 2026-05-31 17:48
 ---
 
 ## Manual Verification Task
@@ -36,7 +36,7 @@ archived; Defer is allowed but creates a carry-over task.
 - [skip] [t832_2] Manual: from `aitasks`, — SKIP 2026-05-31 17:15 manual step truncated; functional coverage via item 11 (explain_context test 22/22)
 - [x] [t832_3] `bash tests/test_xdeps_parser.sh` / `test_xdeps_validation.sh` / — PASS 2026-05-31 16:47 auto: xdeps_parser 5/5, xdeps_validation 14/14, xdeps_fold_warn 9/9
 - [x] [t832_3] `shellcheck` clean on touched scripts. — PASS 2026-05-31 16:47 auto: shellcheck create/fold_validate/ls/update: baseline warnings (blame=initial import), none from t832
-- [defer] [t832_3] TUI round-trip: create a task with `xdeps` / `xdeprepo`, open in `ait — DEFER 2026-05-31 16:57 auto: TUI round-trip (ait board xdeps/xdeprepo preservation) needs interactive board session
+- [x] [t832_3] TUI round-trip: create a task with `xdeps` / `xdeprepo`, open in `ait — PASS 2026-05-31 17:48 auto(tmux+serialize): board save path preserves xdeps:[1]/xdeprepo on priority change medium->high
 - [x] [t832_4] `bash tests/test_xdeps_blocking.sh` passes. — PASS 2026-05-31 16:47 auto: test_xdeps_blocking.sh 18/18
 - [x] [t832_4] `shellcheck .aitask-scripts/aitask_ls.sh` clean. — PASS 2026-05-31 16:47 auto: shellcheck aitask_ls.sh: baseline-only warnings, none from t832
 - [skip] [t832_4] Manual: `./.aitask-scripts/aitask_ls.sh -v 5` against a real cross-repo — SKIP 2026-05-31 17:15 blocking logic covered by item 17 (test_xdeps_blocking 18/18); live-board flag not separately verified
@@ -50,10 +50,10 @@ archived; Defer is allowed but creates a carry-over task.
 - [x] [t832_8] `bash tests/test_cross_repo_notation.sh` passes (or equivalent — PASS 2026-05-31 16:47 auto: test_cross_repo_notation.py 9/9 (equivalent to .sh)
 - [x] [t832_8] `./.aitask-scripts/aitask_skill_verify.sh` passes (no skill changes, — PASS 2026-05-31 16:47 auto: aitask_skill_verify.sh OK (same run as item 4)
 - [x] [t832_8] `shellcheck` clean if any new bash wrappers are introduced. — PASS 2026-05-31 16:47 auto: no new bash wrappers in t832_8; edited bash scripts baseline-only
-- [defer] [t832_8] Launch `ait board` in project A. A task with `xdeps: [1]` — DEFER 2026-05-31 16:57 auto: TUI: ait board cross-repo xdeps blocked indicator needs interactive session
-- [defer] [t832_8] That same task shows "blocked by cross-repo" indicator (assuming — DEFER 2026-05-31 16:57 auto: TUI: ait board 'blocked by cross-repo' indicator needs interactive session
-- [defer] [t832_8] When B/t1's status changes to Done (out-of-band) and the board — DEFER 2026-05-31 16:57 auto: TUI: board live status-change refresh needs interactive session + out-of-band edit
+- [x] [t832_8] Launch `ait board` in project A. A task with `xdeps: [1]` — PASS 2026-05-31 17:48 auto(tmux board): card shows distinct '↗ av_projB#1' cross-repo dep line
+- [x] [t832_8] That same task shows "blocked by cross-repo" indicator (assuming — PASS 2026-05-31 17:48 auto(tmux board): card shows distinct '🌐 blocked (cross-repo)' indicator when dep unmet
+- [x] [t832_8] When B/t1's status changes to Done (out-of-band) and the board — PASS 2026-05-31 17:48 auto(tmux board): projB#1->Done out-of-band + refresh cleared blocked chip, card shows Ready
 - [skip] [t832_8] Stale-registry case: edit `~/.config/aitasks/projects.yaml` to point — SKIP 2026-05-31 17:15 would mutate real ~/.config/aitasks/projects.yaml; resolver-level stale handling already verified in item 7
 - [skip] [t832_8] Restore registry. — SKIP 2026-05-31 17:15 paired with item 33 (registry restore); not run since 33 not mutated
-- [defer] [t832_8] Open a task whose body contains `aitasks#42`. Activate the link. — DEFER 2026-05-31 16:57 auto: TUI: board cross-repo link activation needs interactive session
-- [defer] [t832_8] Activate a link to a non-registered project. The popup shows the — DEFER 2026-05-31 16:57 auto: TUI: board link to non-registered project popup needs interactive session
+- [x] [t832_8] Open a task whose body contains `aitasks#42`. Activate the link. — PASS 2026-05-31 17:48 auto(tmux board): '#' opens read-only popup with cross-repo task content (no lock); ESC closes, board unchanged
+- [x] [t832_8] Activate a link to a non-registered project. The popup shows the — PASS 2026-05-31 17:48 auto(tmux board): '#' on single non-registered ref opens error popup 'Project ghost_proj is not registered...'; no crash
