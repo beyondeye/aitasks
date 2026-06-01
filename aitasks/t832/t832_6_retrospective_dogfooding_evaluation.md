@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [cross_repo, retrospective]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-26 18:28
-updated_at: 2026-06-01 12:19
+updated_at: 2026-06-01 12:39
 ---
 
 ## Context
