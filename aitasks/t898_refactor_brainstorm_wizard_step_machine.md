@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 18:59
-updated_at: 2026-06-01 19:06
+updated_at: 2026-06-01 19:07
 ---
 
 Refactor the `ait brainstorm` wizard step machine in
