@@ -137,3 +137,60 @@ On completion follow task-workflow Step 9: review, commit (`feature: … (t756_1
 consolidate this plan with Final Implementation Notes (incl. the wizard-scaffold
 boundary decision + any notes for sibling tasks), then archive via
 `./.aitask-scripts/aitask_archive.sh 756_1`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the additive, back-compatible data model
+  exactly as planned, in three source files + tests:
+  - `brainstorm_schemas.py`: `module_label` added to `NODE_OPTIONAL_FIELDS`;
+    new `GRAPH_STATE_MODULE_MAPS = ["current_heads","module_tasks","last_synced_at"]`
+    constant; `validate_graph_state` now accepts `history` as **either** the
+    legacy list **or** a per-module map (validating map values are lists),
+    validates the three module maps as dicts when present, and keeps
+    `active_dimensions` validated as a flat list.
+  - `brainstorm_dag.py`: new `UMBRELLA_SUBGRAPH = "_umbrella"` constant;
+    `module="_umbrella"` keyword threaded through `get_head`, `set_head`,
+    `get_node_lineage`, `next_node_id`. `get_head` reads `current_heads[module]`
+    with legacy `current_head` fallback for `_umbrella`. `set_head` writes
+    `current_heads[module]`, mirrors the `_umbrella` HEAD into the legacy
+    `current_head` alias, and migrates a legacy list `history` into
+    `history["_umbrella"]` on first write. Added `_node_module`,
+    `_subgraph_root`, and `is_ancestor_subgraph(session_path, source,
+    destination)` (the merge "up-only" guard).
+  - `brainstorm_session.py::init_session`: seeds `current_heads={}`,
+    `history={}`, `module_tasks={}`, `last_synced_at={}` alongside the legacy
+    fields; `set_head(wt, "n000_init")` then back-fills `_umbrella`.
+- **Deviations from plan:** None substantive. The plan's "~line 13" reference
+  for `NODE_OPTIONAL_FIELDS` was stale (actual line 17) — corrected during the
+  verify pass. `is_ancestor_subgraph` takes `session_path` as its first arg (the
+  design doc writes the bare 2-arg form `(source, destination)`); the impl needs
+  the session path to read node `module_label`s.
+- **`next_node_id` design note (for sibling tasks):** the node-id counter is
+  **session-wide / shared across all subgraphs**, not per-module. `next_node_id`
+  accepts a `module` param for signature symmetry but ignores it. Phases B/C must
+  NOT assume per-module id sequences.
+- **Wizard-scaffold boundary decision (READ THIS, t756_2):** the subgraph-selector
+  wizard scaffolding was **deferred to Phase B1 (t756_2)** — NOT landed here.
+  §4.5 of the design doc calls the wizard plumbing "the chunk of work that touches
+  the most existing code", so a partial scaffold here would have been non-trivial
+  and split the selector across two tasks. `brainstorm_app.py` is **untouched** by
+  Phase A. B1 owns the entire subgraph-selector step.
+- **`history` shape change is a hard cutover (for sibling tasks):** `history` in
+  `br_graph_state.yaml` is now a per-module map `<module> -> [node_id, ...]`.
+  Only `set_head` (writer) and `validate_graph_state` (reader) touch it; the
+  validator still accepts a legacy list so on-disk pre-module sessions load, and
+  `set_head` migrates them in place. Any new code reading `history` must handle
+  the map shape (use `history.get("_umbrella", [])`, not `history` as a list).
+- **Issues encountered:** Five existing tests asserted the old flat-list
+  `history` (`test_brainstorm_dag.py` ×2, `test_brainstorm_apply_{explorer,
+  patcher,synthesizer}.py` ×1 each). Updated them to the per-module-map shape —
+  these are intentional contract changes, not regressions.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** Reuse `UMBRELLA_SUBGRAPH`, `_node_module`,
+  `_subgraph_root`, and `is_ancestor_subgraph` from `brainstorm_dag.py` — do not
+  fork them. Phase B2's `module_merge` guard calls `is_ancestor_subgraph` at
+  op-launch. Phase B1's selector should read `get_head(path, module=...)` per
+  subgraph and `current_heads` for the subgraph list. `module_tasks` /
+  `last_synced_at` maps are seeded empty and ready for B2 (`--link-to-task`) and
+  C (`module_sync` horizon) to populate. Tests: `tests/test_brainstorm_dag.py`
+  now has `TestModuleSubgraphs` and `TestValidateGraphState` covering this layer.
