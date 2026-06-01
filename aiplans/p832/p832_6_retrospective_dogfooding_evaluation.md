@@ -146,7 +146,48 @@ project-switch (note: picker nav already fixed); xdeps maintenance/repair.
 
 ## Final Implementation Notes
 
-(To be filled by the implementing agent during/after execution.)
+- **Actual work done:** Ran the controlled low-footprint dogfood. Exercised
+  every scriptable shipped surface against the real `aitasks_mobile` sibling:
+  t832_1 (query_files `--project`: resolve/task-status/child-file/sibling-context
+  + negative paths), t832_2 (explain_context `--project name:path` and `name#path`),
+  t832_3 (xdeps create + create-time validation incl. bad-id rejection and
+  both-or-neither), t832_4 (blocking display — `Blocked (by aitasks_mobile#13)`),
+  t832_5 (parallel-planning trigger confirmed metadata-only via `read_xdeprepo`),
+  t832_7 (update `--project`: refused Implementing/rename; label round-trip
+  reverted). t832_8 (board TUI) delegated to t889/t887 manual verification.
+  Authored `aidocs/cross_repo_retrospective_t832.md` (one section per surface +
+  Recommended-follow-ups). Outcome: **audit-only, no new follow-ups** — every
+  surface behaved as documented and all friction is already tracked.
+- **Deviations from plan:** None substantive. The plan's "implement a real
+  coordination task end-to-end" was scoped down (per the user-confirmed
+  controlled/low-footprint decision) to surface-exercising with a disposable
+  probe rather than a full applink wire-protocol bump.
+- **Issues encountered:** (1) Exercising the `aitask_ls.sh` blocking *display*
+  required a real numbered task, so the probe draft was finalized to `t895`,
+  observed, then deleted (transient create+delete commits on the `aitask-data`
+  branch, self-cancelling). (2) The cross-repo `--add-label` round-trip
+  registered `dogfood_probe` in the sibling's `aitasks/metadata/labels.txt`
+  (append-only registry); `--remove-label` does not unregister, so it was
+  removed by hand. Both repos verified clean afterward.
+- **Key decisions:** Scoped to controlled/low-footprint (matches `effort: low`
+  + audit-only convention + user confirmation). Did NOT re-file already-tracked
+  friction (board picker nav → t886/t889; keybinding YAML crash → already fixed;
+  t857/t858/t872/t887). Declined the speculative follow-ups (`ait monitor`
+  cross-repo surfacing, board project-switch, xdeps repair) — none bit during
+  the exercise.
+- **Upstream defects identified:** None. (The two upstream defects flagged in
+  archived sibling plans — board picker keyboard-nav in p832_9 and the
+  `keybinding_registry.py` YAML crash in p832_8 — are both already fixed in the
+  current tree; verified during the dogfood, not re-filed.)
+- **Notes for sibling tasks:** This is the final t832 child; archiving it (with
+  the other children already done) archives parent t832. The audit doc at
+  `aidocs/cross_repo_retrospective_t832.md` is the canonical record and is the
+  artifact that t887's deferred manual-verification items check for. Two minor
+  by-design observations (revert bumps `updated_at`; cross-repo label add
+  pollutes the sibling label registry) are recorded in the audit but not worth
+  follow-ups. Sibling repo `aitasks_mobile` still uses the deprecated
+  `../aitasks/` path notation and "sister" terminology in its older plans — that
+  is the sibling repo's own cleanup, out of scope here.
 
 ## Step 9 reference
 
