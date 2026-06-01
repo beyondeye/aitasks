@@ -70,6 +70,13 @@
       "notes": "Most capable model, 1M context default, complex reasoning + agentic coding, adaptive thinking",
       "verified": {},
       "verifiedstats": {}
+    },
+    {
+      "name": "opus4_8_1m",
+      "cli_id": "claude-opus-4-8[1m]",
+      "notes": "Most capable model, 1M context, complex reasoning + agentic coding, adaptive thinking",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
