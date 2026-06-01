@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [756]
 issue_type: refactor
 status: Ready
 labels: [ait_brainstorm, tui]
