@@ -36,6 +36,27 @@ the as-landed t873 design before creating any children.** Specifically:
 This plan is saved now so the settled decisions (`module_` op naming everywhere,
 the 4-phase split, session-wide dimensions) are not lost during the t873 redesign.
 
+### ⚠️ Also gated by t891 — proposal-only brainstorm (retire plans)
+
+`t891_brainstorm_proposal_only_retire_plans` proposes making `ait brainstorm`
+**proposal-only**: retire the implementation-plan layer (`detail`/`patch`,
+`detailer`/`patcher`, `br_plans/`, `plan_file`, the `finalize` plan export) and
+absorb its value into the module architecture. This is an **upstream decision**
+for t756, not a follow-up — it materially shrinks this plan:
+
+- **Phase B** ("existing ops become module-aware") drops from 5 ops to 3 — no
+  `detail`/`patch` to thread `module_label`/`subgraph` through.
+- **Phase C** `module_sync` becomes the **sole** bottom-up mechanism. The
+  patcher's bottom-up impact-analysis flow ports *into* `module_sync` (it observes
+  as-implemented reality instead of hypothetical plan edits), so there is no
+  patcher semantics to stay coherent with.
+- `module_decompose`'s lifecycle loses its `detail` step; fast-track seeds the
+  linked aitask from the module **proposal slice** (richer than a stale plan).
+
+The retired-feature → module mapping and full motivation live in t891.
+**On the next pick of t756, re-verify this plan against both t873 AND the
+proposal-only decision in t891 before creating any children.**
+
 ## Context
 
 `ait brainstorm` today models **one session = one task = one DAG = one HEAD**.
