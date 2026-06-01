@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: []
 verifies: [t826_1, t826_2, t826_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 12:26
-updated_at: 2026-06-01 13:37
+updated_at: 2026-06-01 13:38
+completed_at: 2026-06-01 13:38
 boardidx: 120
 ---
 
