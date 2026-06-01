@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t884_4]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [task_workflow, task-planning]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 00:31
-updated_at: 2026-06-01 00:31
+updated_at: 2026-06-01 19:04
 ---
 
 ## Context
