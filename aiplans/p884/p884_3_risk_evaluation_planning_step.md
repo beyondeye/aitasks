@@ -171,8 +171,77 @@ Skip silently if the plan has no `## Risk` section.
 - Always use the `{% if profile.X is defined and profile.X %}` gate form
   (strict-mode renderer errors on bare access).
 
+## Post-Review Changes
+
+### Change Request 1 (2026-06-01 17:40)
+- **Requested by user:** Do not mention the gate framework (or future
+  porting/integration) in the `task-workflow/` skill files — document the seam
+  somewhere else.
+- **Changes made:** Removed the `## Forward-compatible gates seam` section from
+  `.claude/skills/task-workflow/risk-evaluation.md` (the only gate-framework
+  reference in the skill sources; the remaining "gate" words there are generic,
+  e.g. "post-approval gate"). Captured the seam in a new design note,
+  `aidocs/gates/risk-evaluation-gate-seam.md`, documenting how the standalone
+  risk-evaluation maps to a future `aitask-gate-risk` (evidence = `## Risk`
+  section, verdict = the two levels) without coupling the skill to t635.
+  Regenerated `tests/golden/procs/task-workflow/risk-evaluation-default.md` to
+  match; re-ran the render test (79/79) and `aitask_skill_verify.sh` (OK).
+- **Files affected:** `.claude/skills/task-workflow/risk-evaluation.md`,
+  `aidocs/gates/risk-evaluation-gate-seam.md` (new),
+  `tests/golden/procs/task-workflow/risk-evaluation-default.md`.
+
 ## Step 9 (Post-Implementation)
 
 Standard child-task archival per the shared workflow Step 9: commit code changes
 (`enhancement: … (t884_3)`) + goldens/rerenders in the **same commit**, update +
 commit the plan file via `./ait git`, then `aitask_archive.sh 884_3`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the two-field risk-evaluation step exactly as
+  planned (after the verify-path rewrite from the stale single-aggregate plan):
+  - New closure `.claude/skills/task-workflow/risk-evaluation.md` — assesses
+    code-health and goal-achievement risk **separately**, per-dimension level
+    rubric, two-subsection `## Risk` template (each headed by its own level),
+    return contract (`risk_level_code_health` / `risk_level_goal_achievement` /
+    `risk_mitigations_planned`). Profile-agnostic.
+  - `planning.md` §6.1: zero-footprint
+    `{%- if profile.risk_evaluation is defined and profile.risk_evaluation %}`
+    dispatch inserted before `Use ExitPlanMode`.
+  - `SKILL.md` Step 7: same-guarded post-approval write
+    (`aitask_update.sh --batch <id> --risk-code-health … --risk-goal-achievement …`),
+    skip-if-no-`## Risk`-section.
+  - `tests/test_skill_render_task_workflow.sh`: added `risk-evaluation.md` to
+    `WRAPPED_FILES_INVARIANT`, new Test 5 (synthetic `risk_evaluation: true`
+    proves both dispatch sites fire; default shows neither), updated header counts
+    (10 wrapped / 22 goldens) + coverage block.
+  - New golden `tests/golden/procs/task-workflow/risk-evaluation-default.md`.
+- **Deviations from plan:** Per user review (Post-Review Change Request 1), the
+  forward-compatible **gates seam** note was **not** placed inside the closure as
+  the plan originally specified. Instead it lives in a new design note
+  `aidocs/gates/risk-evaluation-gate-seam.md` — keeping the `task-workflow/`
+  sources free of gate-framework / future-integration references.
+- **Issues encountered:** None. Confirmed the renderer has `trim_blocks` /
+  `lstrip_blocks` off (`keep_trailing_newline=True`, `undefined_behavior=strict`),
+  so the `{%-`/`%}`-trailing-newline idiom gives true zero footprint when the key
+  is absent — verified by byte-diffing default/fast/remote planning + SKILL renders
+  against the committed goldens (zero diff) and confirming the rerender touched no
+  committed variant.
+- **Key decisions:** (1) `risk-evaluation.md` is profile-agnostic → lives in
+  `WRAPPED_FILES_INVARIANT` (one canonical golden); the `risk_evaluation` gate
+  lives only at the two dispatch sites in `planning.md`/`SKILL.md`. (2) `is defined`
+  guard is mandatory under strict-mode minijinja. (3) Gates seam documented outside
+  the skill tree per user direction.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - The two-subsection `## Risk` format (each subsection headed by its own level)
+    is the contract consumed by **t884_4** (fills `→ mitigation` links) and
+    surfaced by **t884_6** (docs). Bullet shape:
+    `<description> · severity: <…> · → mitigation: <link>`.
+  - `risk_mitigations_planned` (threaded from planning) gates t884_4's Step 7 /
+    Step 8d creation; `risk_mitigation_tasks` stays a single shared list.
+  - The zero-footprint gate idiom (`{%- if profile.X is defined and profile.X %}`
+    … `{%- endif %}`) is the template for t884_5's 6.0a and t884_4's 8d additions —
+    keep existing Step 6.0 / 8b / 8c numbering intact (suffixes only).
+  - The gates-integration follow-up against t635 is tracked via
+    `aidocs/gates/risk-evaluation-gate-seam.md` (t884_7 files the actual follow-up).
