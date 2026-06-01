@@ -3,10 +3,10 @@ priority: medium
 effort: medium
 depends: [t719_2]
 issue_type: performance
-status: Ready
+status: Postponed
 labels: [performance, monitor, tui]
 created_at: 2026-04-30 10:27
-updated_at: 2026-04-30 10:27
+updated_at: 2026-06-01 11:56
 ---
 
 ## Context

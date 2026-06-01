@@ -3,10 +3,10 @@ priority: low
 effort: high
 depends: [t719_3]
 issue_type: performance
-status: Ready
+status: Postponed
 labels: [performance, monitor, tui]
 created_at: 2026-04-30 10:28
-updated_at: 2026-05-04 10:00
+updated_at: 2026-06-01 11:56
 ---
 
 ## Context
