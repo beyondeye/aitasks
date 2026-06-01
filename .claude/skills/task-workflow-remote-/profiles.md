@@ -32,6 +32,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `plan_verification_stale_after_hours` | int | no | Positive integer; default `24` | Step 6.0 |
 | `post_plan_action` | string | no | `"start_implementation"` = skip to impl; `"ask"` = always show checkpoint; omit = ask | Step 6 checkpoint |
 | `post_plan_action_for_child` | string | no | Same values as `post_plan_action`; overrides `post_plan_action` when the current task is a child task. Defaults to `post_plan_action` if omitted | Step 6 checkpoint |
+| `risk_evaluation` | bool | no | `true` = run risk evaluation at end of planning and offer mitigation follow-ups; omit or `false` = disabled | Step 6.1 (planning) |
 | `enableFeedbackQuestions` | bool | no | `false` = skip satisfaction feedback prompts; omit or `true` = ask them | Satisfaction Feedback Procedure |
 | `qa_mode` | string | no | `"ask"` = prompt; `"create_task"` = auto-create follow-up; `"implement"` = implement tests now; `"plan_only"` = export plan only; omit = ask | aitask-qa Step 5 |
 | `qa_run_tests` | bool | no | `true` = run discovered tests; `false` = skip test execution; omit or `true` = run | aitask-qa Step 4 |

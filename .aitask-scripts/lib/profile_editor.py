@@ -56,6 +56,7 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "plan_verification_stale_after_hours": ("int", None),
     "post_plan_action": ("enum", ["start_implementation", "ask"]),
     "post_plan_action_for_child": ("enum", ["start_implementation", "ask"]),
+    "risk_evaluation": ("bool", None),
     "enableFeedbackQuestions": ("bool", None),
     "manual_verification_followup_mode": ("enum", ["ask", "never"]),
     "manual_verification_mode": (
@@ -171,6 +172,16 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "Same values as post_plan_action ('start_implementation' or 'ask'), "
         "but only applies when the current task is a child. Takes priority over "
         "post_plan_action in that case. Omit to fall back to post_plan_action."
+    ),
+    "risk_evaluation": (
+        "Enable risk evaluation during planning",
+        "When true, the planning workflow assesses the task's code-health and "
+        "goal-achievement risk at the end of planning and records it, then offers "
+        "to spawn risk-mitigation follow-up tasks. Gates both the risk-evaluation "
+        "step and the mitigation follow-up offer.\n"
+        "  true    — run risk evaluation and offer mitigation follow-ups\n"
+        "  false   — disabled\n"
+        "  (unset) — disabled (opt-in feature)"
     ),
     "enableFeedbackQuestions": (
         "Ask satisfaction feedback questions at the end of supported skills",
@@ -308,6 +319,7 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
         "plan_verification_stale_after_hours",
         "post_plan_action",
         "post_plan_action_for_child",
+        "risk_evaluation",
     ]),
     ("Feedback", ["enableFeedbackQuestions"]),
     ("Manual Verification", [
