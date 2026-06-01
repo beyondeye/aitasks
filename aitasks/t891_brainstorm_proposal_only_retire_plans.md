@@ -5,7 +5,7 @@ depends: [756]
 issue_type: enhancement
 status: Implementing
 labels: [ait_brainstorm, brainstom_modules, remove_support]
-children_to_implement: [t891_1, t891_2]
+children_to_implement: [t891_1, t891_2, t891_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 09:19
 updated_at: 2026-06-01 10:52
