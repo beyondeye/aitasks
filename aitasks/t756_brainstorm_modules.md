@@ -6,9 +6,9 @@ issue_type: feature
 status: Ready
 labels: [ait_brainstorm, brainstom_modules]
 file_references: [aidocs/brainstorming/module_decomposition_design.md]
-children_to_implement: [t756_1, t756_2, t756_3, t756_4, t756_5, t756_6, t756_7]
+children_to_implement: [t756_2, t756_3, t756_4, t756_5, t756_6, t756_7]
 created_at: 2026-05-06 18:53
-updated_at: 2026-06-01 17:38
+updated_at: 2026-06-01 18:18
 boardidx: 10
 ---
 
