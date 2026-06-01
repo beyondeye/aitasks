@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t848_6]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
-verifies: [848_1, 848_2, 848_3, 848_4, 848_5, 848_6]
+verifies: [t848_1, t848_2, t848_3, t848_4, t848_5, t848_6]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-27 17:47
-updated_at: 2026-05-27 17:47
+updated_at: 2026-06-01 12:15
 ---
 
 ## Manual Verification Task
