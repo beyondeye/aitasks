@@ -36,26 +36,31 @@ the as-landed t873 design before creating any children.** Specifically:
 This plan is saved now so the settled decisions (`module_` op naming everywhere,
 the 4-phase split, session-wide dimensions) are not lost during the t873 redesign.
 
-### ⚠️ Also gated by t891 — proposal-only brainstorm (retire plans)
+### t891 — proposal-only brainstorm (retire plans) runs AFTER t756
 
-`t891_brainstorm_proposal_only_retire_plans` proposes making `ait brainstorm`
+`t891_brainstorm_proposal_only_retire_plans` makes `ait brainstorm`
 **proposal-only**: retire the implementation-plan layer (`detail`/`patch`,
 `detailer`/`patcher`, `br_plans/`, `plan_file`, the `finalize` plan export) and
-absorb its value into the module architecture. This is an **upstream decision**
-for t756, not a follow-up — it materially shrinks this plan:
+absorb its value into the module architecture.
 
-- **Phase B** ("existing ops become module-aware") drops from 5 ops to 3 — no
-  `detail`/`patch` to thread `module_label`/`subgraph` through.
-- **Phase C** `module_sync` becomes the **sole** bottom-up mechanism. The
-  patcher's bottom-up impact-analysis flow ports *into* `module_sync` (it observes
-  as-implemented reality instead of hypothetical plan edits), so there is no
-  patcher semantics to stay coherent with.
-- `module_decompose`'s lifecycle loses its `detail` step; fast-track seeds the
-  linked aitask from the module **proposal slice** (richer than a stale plan).
+**Sequencing reversed (2026-06-01): t891 is DOWNSTREAM of t756, not upstream.**
+The plan-layer machinery is the **working reference model** for the module ops
+this plan builds — `module_decompose`, `module_sync`, their wizards, and the
+syncer's bottom-up reconciliation are modelled on `detail`/`patch`, the
+detailer/patcher agents, the plan wizard flows, and the impact-analysis
+escalation. So **keep the plan machinery intact while building t756**; t891's
+children are gated on `depends: 756` and execute only after this lands.
+
+When t891 *does* run, the relationship to this plan is:
+- The patcher's bottom-up impact-analysis flow has by then been re-expressed as
+  `module_sync` (observing as-implemented reality instead of hypothetical plan
+  edits), so retiring `patch` is pure removal of the now-redundant model.
+- `detail` is likewise redundant once `module_decompose` fast-track + the
+  proposal slice + `/aitask-pick` Step 6 cover its role.
 
 The retired-feature → module mapping and full motivation live in t891.
-**On the next pick of t756, re-verify this plan against both t873 AND the
-proposal-only decision in t891 before creating any children.**
+**On the next pick of t756, re-verify this plan against the as-landed t873
+design before creating any children.**
 
 ## Context
 
