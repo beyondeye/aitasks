@@ -5,9 +5,9 @@ depends: []
 issue_type: enhancement
 status: Ready
 labels: [task_workflow, aitask-create]
-children_to_implement: [t884_2, t884_3, t884_4, t884_5, t884_6, t884_7, t884_8]
+children_to_implement: [t884_3, t884_4, t884_5, t884_6, t884_7, t884_8]
 created_at: 2026-05-31 18:35
-updated_at: 2026-06-01 11:53
+updated_at: 2026-06-01 12:31
 boardidx: 30
 ---
 
