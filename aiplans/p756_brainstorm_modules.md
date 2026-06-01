@@ -3,38 +3,56 @@ Task: t756_brainstorm_modules.md
 Worktree: (none — planned on current branch)
 Branch: main
 Base branch: main
-Status: DEFERRED — blocked on t873; re-verify before implementing
+Status: RE-VERIFIED 2026-06-01 (t873 landed) — ready to create children
 ---
 
 # t756 — Brainstorm Modules: Parent Decomposition Plan
 
-## ⛔ Sequencing — DEFERRED, BLOCKED on t873 (re-verify before implementing)
+## ✅ Re-verification — t873 landed, plan HOLDS (2026-06-01)
 
-**This plan is committed but NOT to be executed yet.** t756 is gated behind
-`t873_fix_brainstorm_dimension_proposal_linking_and_compare` (`depends: [873]`,
-status `Postponed`). The proposal **dimension** model that modules build on is
-being actively reworked in t873, and t756's design rests directly on it:
+This plan was deferred behind
+`t873_fix_brainstorm_dimension_proposal_linking_and_compare` (`depends: [873]`)
+because t756's design rested on the proposal **dimension** model that t873
+reworked. **t873 has now landed (archived).** Per the original deferral gate, the
+three risk points were re-verified against the as-landed t873 source before
+creating any children. Outcome:
 
-- t873 #1 — glob/prefix expansion of `<!-- section: name [dimensions: KEY*] -->`
-  tags + validation of section tags against a node's real dimension keys. This is
-  exactly the `component_*` + section-marker machinery `module_decompose` relies
-  on for boundary hints (§4.2 / Phase B).
-- t873 #4/#5 — compare-wizard dimension scoping, default-to-`active_dimensions`,
-  and a possible dimension "full-name registry" field. This can change the
-  `active_dimensions` data model that Phase A's "session-wide vocabulary"
-  decision rests on.
+1. **Phase A `active_dimensions` decision — HOLDS.** `active_dimensions` in
+   `br_graph_state.yaml` is still a **flat session-wide list of strings**.
+   `GRAPH_STATE_REQUIRED = ["current_head","history","next_node_id","active_dimensions"]`
+   is unchanged; `validate_graph_state` still requires a `list`; `init_session`
+   still seeds `[]`. t873 added **no** registry, per-module map, or dimension
+   "full-name registry" field. The "modules do NOT fork the dimension axis list"
+   decision is safe exactly as written.
+2. **Phase B boundary-hint approach — HOLDS and is now better-supported.** t873_1
+   shipped glob/prefix expansion of `<!-- section: name [dimensions: KEY*] -->`
+   tags as first-class helpers. Phase B's `module_decomposer` should **consume**
+   these (see helper-reuse note in 756_2) rather than reinvent exact-match.
+3. **New t873 helpers to reuse (not reinvent) — recorded below.** No new
+   frontmatter / section-syntax / node-YAML fields were added, so Phase A's
+   additive data-model fields (`current_heads`, `module_label`, `module_tasks`,
+   `last_synced_at`) do not collide with anything t873 introduced.
 
-**On the next pick of t756 (after t873 lands), RE-VERIFY this entire plan against
-the as-landed t873 design before creating any children.** Specifically:
-1. "Modules × dimensions × sections" + Phase A's `active_dimensions` decision —
-   does t873 keep it a flat session-wide list, or introduce a registry/new field?
-2. Phase B's `module_decomposer` boundary-hint approach — does it now consume
-   t873's glob-expanded section↔dimension linking instead of exact-match?
-3. Whether t873 adds new fields/helpers the children should reuse rather than
-   reinvent.
+No `module_*` ops/agents exist yet (`GROUP_OPERATIONS` and `BRAINSTORM_AGENT_TYPES`
+are still the pre-module set), so there is no partial implementation to
+reconcile — the "Current state" baseline below remains accurate.
 
-This plan is saved now so the settled decisions (`module_` op naming everywhere,
-the 4-phase split, session-wide dimensions) are not lost during the t873 redesign.
+### t873 helpers the children must REUSE (CLAUDE.md "Reusable Helpers")
+- `dimension_matches_tag(dim_key, tag)` — `brainstorm_sections.py:233` — exact-or-glob
+  section↔dimension match. **Phase B** boundary hints.
+- `get_sections_for_dimension(parsed, dim)` / `best_section_for_dimension(parsed, dim)`
+  — `brainstorm_sections.py:247,263` — section lookup by dimension. **Phase B**.
+- `validate_sections(parsed, node_keys=...)` — `brainstorm_sections.py:164` — opt-in
+  validation of invented section tags against a node's real keys. **Phase B**.
+- `extract_dimensions(data)` / `group_dimensions_by_prefix(dims)` —
+  `brainstorm_schemas.py:145,150` — dimension extraction + prefix grouping. **Phase D** views.
+- `get_active_dimensions(session_path)` — `brainstorm_dag.py:116` — read session
+  active dimensions. **Phase B/D**.
+- `FuzzyCheckList.set_grouped_items(groups)` — `brainstorm_app.py:1654` — reusable
+  grouped/filterable checklist. **Phase D** subgraph selector / dashboard.
+
+This plan keeps the settled decisions (`module_` op naming everywhere, the
+4-phase split, session-wide dimensions) intact across the t873 redesign.
 
 ### t891 — proposal-only brainstorm (retire plans) runs AFTER t756
 
@@ -59,8 +77,8 @@ When t891 *does* run, the relationship to this plan is:
   proposal slice + `/aitask-pick` Step 6 cover its role.
 
 The retired-feature → module mapping and full motivation live in t891.
-**On the next pick of t756, re-verify this plan against the as-landed t873
-design before creating any children.**
+(Re-verification against the as-landed t873 design is complete — see the
+"Re-verification" section at the top of this plan.)
 
 ## Context
 
@@ -162,8 +180,9 @@ NOT fork the dimension axis list.** Consequences threaded into the children:
   then operates *within* the subgraph. Cross-module compare/`module_merge` stay
   coherent because the axis vocabulary is shared.
 
-> **t873 caveat:** this section is the part most exposed to the t873 dimension
-> redesign — re-verify it (per the Sequencing banner) before implementing.
+> **t873 re-verification (2026-06-01):** confirmed against the as-landed t873
+> source — `active_dimensions` is unchanged (flat session-wide list); this
+> section stands exactly as written. See the "Re-verification" section at top.
 
 ## Decomposition (4 children, dependency-ordered)
 
@@ -222,6 +241,12 @@ subgraph-selector machinery (design doc §7 Phase B rationale).
   in group entry, prompt front-matter "subgraph context: <module_label>").
 - UC-3 fast-track = `module_decompose --modules=one + --link-to-task` (one-step
   wizard preset; the polished preset UI is Phase D, the functional path is here).
+- **Reuse t873 section↔dimension helpers (do NOT reinvent):** boundary-hint logic
+  uses `dimension_matches_tag` / `get_sections_for_dimension` /
+  `best_section_for_dimension`, and validates the decomposer's emitted section
+  tags with `validate_sections(parsed, node_keys=...)` (all in
+  `brainstorm_sections.py`, landed by t873_1). Glob (`component_*`) expansion is
+  already implemented — consume it for boundary hints.
 **Verification:** decompose on `_umbrella` HEAD spawns per-module roots with
 correct `module_label`/`parents`/`current_heads`; merge produces a 2-parent
 destination node and refuses non-ancestor destinations; an existing op targeted
@@ -259,6 +284,11 @@ data + ops being settled.
   --link-to-task`.
 - Dashboard showing the subgraph tree with per-module sync/merge state.
 - Deferred-module marker (TUI binding to set `status.deferred=true`).
+- **Reuse t873 TUI/dimension helpers:** `FuzzyCheckList.set_grouped_items` for the
+  subgraph selector & dashboard checklists, `group_dimensions_by_prefix` +
+  `extract_dimensions` for grouped status views, `get_active_dimensions` for scope
+  defaults (all landed by t873 — `brainstorm_app.py` / `brainstorm_schemas.py` /
+  `brainstorm_dag.py`).
 - Follow `aidocs/tui_conventions.md` for any Textual changes.
 **Verification:** manual TUI walk-through (covered by the aggregate
 manual-verification sibling) — badges reflect mixed module states; fast-track
