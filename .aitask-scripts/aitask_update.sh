@@ -20,8 +20,11 @@ BATCH_TASK_NUM=""
 BATCH_PRIORITY=""
 # risk is a planning output (set later by the risk-evaluation step), not a
 # creation input — it enters the framework here in update, never in create.
-BATCH_RISK=""
-BATCH_RISK_SET=false
+# Stored as two independent dimensions: code-health and goal-achievement.
+BATCH_RISK_CODE_HEALTH=""
+BATCH_RISK_CODE_HEALTH_SET=false
+BATCH_RISK_GOAL_ACHIEVEMENT=""
+BATCH_RISK_GOAL_ACHIEVEMENT_SET=false
 BATCH_RISK_MITIGATION_TASKS=""
 BATCH_RISK_MITIGATION_TASKS_SET=false
 BATCH_EFFORT=""
@@ -75,7 +78,8 @@ BATCH_COMMIT=false
 
 # Current values (parsed from file)
 CURRENT_PRIORITY=""
-CURRENT_RISK=""
+CURRENT_RISK_CODE_HEALTH=""
+CURRENT_RISK_GOAL_ACHIEVEMENT=""
 CURRENT_RISK_MITIGATION_TASKS=""
 CURRENT_EFFORT=""
 CURRENT_DEPS=""
@@ -118,8 +122,12 @@ Batch mode (for automation):
 
 Metadata options (batch mode):
   --priority, -p LEVEL   Priority: high, medium, low
-  --risk LEVEL           Risk: high, medium, low (planning output; use "" to
-                         clear). Display-only — not a sort dimension.
+  --risk-code-health LEVEL
+                         Code-health risk: high, medium, low (planning output;
+                         use "" to clear). Display-only — not a sort dimension.
+  --risk-goal-achievement LEVEL
+                         Goal-achievement risk: high, medium, low (planning
+                         output; use "" to clear). Display-only.
   --risk-mitigation-tasks IDS
                          Risk-mitigation task IDs (comma-separated, replaces
                          all; use "" to clear). Written by the risk-mitigation
@@ -239,7 +247,8 @@ parse_args() {
         case "$1" in
             --batch) BATCH_MODE=true; shift ;;
             --priority|-p) BATCH_PRIORITY="$2"; shift 2 ;;
-            --risk) BATCH_RISK="$2"; BATCH_RISK_SET=true; shift 2 ;;
+            --risk-code-health) BATCH_RISK_CODE_HEALTH="$2"; BATCH_RISK_CODE_HEALTH_SET=true; shift 2 ;;
+            --risk-goal-achievement) BATCH_RISK_GOAL_ACHIEVEMENT="$2"; BATCH_RISK_GOAL_ACHIEVEMENT_SET=true; shift 2 ;;
             --risk-mitigation-tasks) BATCH_RISK_MITIGATION_TASKS="$2"; BATCH_RISK_MITIGATION_TASKS_SET=true; shift 2 ;;
             --effort|-e) BATCH_EFFORT="$2"; shift 2 ;;
             --status|-s) BATCH_STATUS="$2"; shift 2 ;;
@@ -335,7 +344,8 @@ parse_yaml_frontmatter() {
     # Reset current values
     CURRENT_PRIORITY="medium"
     # risk has NO default — absent means unset (omit-by-default).
-    CURRENT_RISK=""
+    CURRENT_RISK_CODE_HEALTH=""
+    CURRENT_RISK_GOAL_ACHIEVEMENT=""
     CURRENT_RISK_MITIGATION_TASKS=""
     CURRENT_EFFORT="medium"
     CURRENT_DEPS=""
@@ -397,7 +407,8 @@ parse_yaml_frontmatter() {
 
             case "$key" in
                 priority) CURRENT_PRIORITY="$value" ;;
-                risk) CURRENT_RISK="$value" ;;
+                risk_code_health) CURRENT_RISK_CODE_HEALTH="$value" ;;
+                risk_goal_achievement) CURRENT_RISK_GOAL_ACHIEVEMENT="$value" ;;
                 risk_mitigation_tasks)
                     CURRENT_RISK_MITIGATION_TASKS=$(parse_yaml_list "$value")
                     CURRENT_RISK_MITIGATION_TASKS=$(normalize_task_ids "$CURRENT_RISK_MITIGATION_TASKS")
@@ -495,8 +506,9 @@ write_task_file() {
     local verifies="${22:-}"
     local xdeps="${23:-}"
     local xdeprepo="${24:-}"
-    local risk="${25:-}"
-    local risk_mitigation_tasks="${26:-}"
+    local risk_code_health="${25:-}"
+    local risk_goal_achievement="${26:-}"
+    local risk_mitigation_tasks="${27:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -511,9 +523,13 @@ write_task_file() {
     {
         echo "---"
         echo "priority: $priority"
-        # Only write risk if present (planning output; omitted by default).
-        if [[ -n "$risk" ]]; then
-            echo "risk: $risk"
+        # Only write risk fields if present (planning output; omitted by
+        # default). Two independent dimensions, code-health then goal-achievement.
+        if [[ -n "$risk_code_health" ]]; then
+            echo "risk_code_health: $risk_code_health"
+        fi
+        if [[ -n "$risk_goal_achievement" ]]; then
+            echo "risk_goal_achievement: $risk_goal_achievement"
         fi
         echo "effort: $effort"
         echo "depends: $deps_yaml"
@@ -894,7 +910,8 @@ handle_child_task_completion() {
 
     # Parse parent file
     local saved_priority="$CURRENT_PRIORITY"
-    local saved_risk="$CURRENT_RISK"
+    local saved_risk_code_health="$CURRENT_RISK_CODE_HEALTH"
+    local saved_risk_goal_achievement="$CURRENT_RISK_GOAL_ACHIEVEMENT"
     local saved_risk_mitigation="$CURRENT_RISK_MITIGATION_TASKS"
     local saved_effort="$CURRENT_EFFORT"
     local saved_deps="$CURRENT_DEPS"
@@ -928,7 +945,7 @@ handle_child_task_completion() {
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
-        "$CURRENT_RISK" "$CURRENT_RISK_MITIGATION_TASKS"
+        "$CURRENT_RISK_CODE_HEALTH" "$CURRENT_RISK_GOAL_ACHIEVEMENT" "$CURRENT_RISK_MITIGATION_TASKS"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -938,7 +955,8 @@ handle_child_task_completion() {
 
     # Restore original values
     CURRENT_PRIORITY="$saved_priority"
-    CURRENT_RISK="$saved_risk"
+    CURRENT_RISK_CODE_HEALTH="$saved_risk_code_health"
+    CURRENT_RISK_GOAL_ACHIEVEMENT="$saved_risk_goal_achievement"
     CURRENT_RISK_MITIGATION_TASKS="$saved_risk_mitigation"
     CURRENT_EFFORT="$saved_effort"
     CURRENT_DEPS="$saved_deps"
@@ -1006,23 +1024,25 @@ interactive_select_field() {
     local issue_type="$4"
     local deps="$5"
     local labels="$6"
-    local risk="$7"
+    local risk_code_health="$7"
+    local risk_goal_achievement="$8"
 
-    local options="priority      [current: $priority]
-risk          [current: ${risk:-unset}]
-effort        [current: $effort]
-status        [current: $status]
-issue_type    [current: $issue_type]
-dependencies  [current: ${deps:-None}]
-labels        [current: ${labels:-None}]
-description   [edit in editor]
-rename        [change filename]
+    local options="priority              [current: $priority]
+risk_code_health      [current: ${risk_code_health:-unset}]
+risk_goal_achievement [current: ${risk_goal_achievement:-unset}]
+effort                [current: $effort]
+status                [current: $status]
+issue_type            [current: $issue_type]
+dependencies          [current: ${deps:-None}]
+labels                [current: ${labels:-None}]
+description           [edit in editor]
+rename                [change filename]
 ---
 Done - save changes
 Exit - discard changes"
 
     local selected
-    selected=$(echo "$options" | fzf --prompt="Select field to update: " --height=17 --no-info --header="Select a field to update, Done to save, or Exit to discard")
+    selected=$(echo "$options" | fzf --prompt="Select field to update: " --height=18 --no-info --header="Select a field to update, Done to save, or Exit to discard")
 
     # Extract just the field name (before the bracket or spaces)
     echo "$selected" | sed 's/[[:space:]]*\[.*//' | sed 's/[[:space:]]*$//'
@@ -1033,9 +1053,14 @@ interactive_update_priority() {
     echo -e "high\nmedium\nlow" | fzf --prompt="Priority (current: $current): " --height=10 --no-info --header="Select new priority"
 }
 
-interactive_update_risk() {
+interactive_update_risk_code_health() {
     local current="$1"
-    echo -e "high\nmedium\nlow" | fzf --prompt="Risk (current: ${current:-unset}): " --height=10 --no-info --header="Select risk level"
+    echo -e "high\nmedium\nlow" | fzf --prompt="Code-health risk (current: ${current:-unset}): " --height=10 --no-info --header="Select code-health risk level"
+}
+
+interactive_update_risk_goal_achievement() {
+    local current="$1"
+    echo -e "high\nmedium\nlow" | fzf --prompt="Goal-achievement risk (current: ${current:-unset}): " --height=10 --no-info --header="Select goal-achievement risk level"
 }
 
 interactive_update_effort() {
@@ -1276,7 +1301,8 @@ run_interactive_mode() {
 
     # New values (start with current)
     local new_priority="$CURRENT_PRIORITY"
-    local new_risk="$CURRENT_RISK"
+    local new_risk_code_health="$CURRENT_RISK_CODE_HEALTH"
+    local new_risk_goal_achievement="$CURRENT_RISK_GOAL_ACHIEVEMENT"
     local new_effort="$CURRENT_EFFORT"
     local new_status="$CURRENT_STATUS"
     local new_type="$CURRENT_TYPE"
@@ -1290,7 +1316,7 @@ run_interactive_mode() {
     while true; do
         echo ""
         local field
-        field=$(interactive_select_field "$new_priority" "$new_effort" "$new_status" "$new_type" "$new_deps" "$new_labels" "$new_risk")
+        field=$(interactive_select_field "$new_priority" "$new_effort" "$new_status" "$new_type" "$new_deps" "$new_labels" "$new_risk_code_health" "$new_risk_goal_achievement")
 
         case "$field" in
             "Exit - discard changes"|"Exit")
@@ -1309,13 +1335,22 @@ run_interactive_mode() {
                     success "Priority updated to: $new_priority"
                 fi
                 ;;
-            risk)
+            risk_code_health)
                 local result
-                result=$(interactive_update_risk "$new_risk")
+                result=$(interactive_update_risk_code_health "$new_risk_code_health")
                 if [[ -n "$result" ]]; then
-                    new_risk="$result"
+                    new_risk_code_health="$result"
                     changes_made=true
-                    success "Risk updated to: $new_risk"
+                    success "Code-health risk updated to: $new_risk_code_health"
+                fi
+                ;;
+            risk_goal_achievement)
+                local result
+                result=$(interactive_update_risk_goal_achievement "$new_risk_goal_achievement")
+                if [[ -n "$result" ]]; then
+                    new_risk_goal_achievement="$result"
+                    changes_made=true
+                    success "Goal-achievement risk updated to: $new_risk_goal_achievement"
                 fi
                 ;;
             effort)
@@ -1403,7 +1438,7 @@ run_interactive_mode() {
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
-        "$new_risk" "$CURRENT_RISK_MITIGATION_TASKS"
+        "$new_risk_code_health" "$new_risk_goal_achievement" "$CURRENT_RISK_MITIGATION_TASKS"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1415,7 +1450,8 @@ run_interactive_mode() {
     echo ""
     echo "Updated values:"
     echo "  Priority:     $new_priority"
-    echo "  Risk:         ${new_risk:-unset}"
+    echo "  CH-risk:      ${new_risk_code_health:-unset}"
+    echo "  GA-risk:      ${new_risk_goal_achievement:-unset}"
     echo "  Effort:       $new_effort"
     echo "  Status:       $new_status"
     echo "  Type:         $new_type"
@@ -1484,7 +1520,8 @@ run_batch_mode() {
     # Check that at least one update is specified
     local has_update=false
     [[ -n "$BATCH_PRIORITY" ]] && has_update=true
-    [[ "$BATCH_RISK_SET" == true ]] && has_update=true
+    [[ "$BATCH_RISK_CODE_HEALTH_SET" == true ]] && has_update=true
+    [[ "$BATCH_RISK_GOAL_ACHIEVEMENT_SET" == true ]] && has_update=true
     [[ "$BATCH_RISK_MITIGATION_TASKS_SET" == true ]] && has_update=true
     [[ -n "$BATCH_EFFORT" ]] && has_update=true
     [[ -n "$BATCH_STATUS" ]] && has_update=true
@@ -1528,11 +1565,17 @@ run_batch_mode() {
         esac
     fi
 
-    # Validate risk only when a non-empty value is supplied ("" clears it).
-    if [[ "$BATCH_RISK_SET" == true && -n "$BATCH_RISK" ]]; then
-        case "$BATCH_RISK" in
+    # Validate risk fields only when a non-empty value is supplied ("" clears).
+    if [[ "$BATCH_RISK_CODE_HEALTH_SET" == true && -n "$BATCH_RISK_CODE_HEALTH" ]]; then
+        case "$BATCH_RISK_CODE_HEALTH" in
             high|medium|low) ;;
-            *) die "Invalid risk: $BATCH_RISK (must be high, medium, or low)" ;;
+            *) die "Invalid risk-code-health: $BATCH_RISK_CODE_HEALTH (must be high, medium, or low)" ;;
+        esac
+    fi
+    if [[ "$BATCH_RISK_GOAL_ACHIEVEMENT_SET" == true && -n "$BATCH_RISK_GOAL_ACHIEVEMENT" ]]; then
+        case "$BATCH_RISK_GOAL_ACHIEVEMENT" in
+            high|medium|low) ;;
+            *) die "Invalid risk-goal-achievement: $BATCH_RISK_GOAL_ACHIEVEMENT (must be high, medium, or low)" ;;
         esac
     fi
 
@@ -1568,11 +1611,15 @@ run_batch_mode() {
     local new_priority="${BATCH_PRIORITY:-$CURRENT_PRIORITY}"
     local new_effort="${BATCH_EFFORT:-$CURRENT_EFFORT}"
 
-    # Risk: scalar planning output. Use BATCH_RISK only when --risk was passed
-    # (even if empty, to allow clearing); otherwise preserve current.
-    local new_risk="$CURRENT_RISK"
-    if [[ "$BATCH_RISK_SET" == true ]]; then
-        new_risk="$BATCH_RISK"
+    # Risk: two scalar planning outputs. Use a BATCH value only when its flag
+    # was passed (even if empty, to allow clearing); otherwise preserve current.
+    local new_risk_code_health="$CURRENT_RISK_CODE_HEALTH"
+    if [[ "$BATCH_RISK_CODE_HEALTH_SET" == true ]]; then
+        new_risk_code_health="$BATCH_RISK_CODE_HEALTH"
+    fi
+    local new_risk_goal_achievement="$CURRENT_RISK_GOAL_ACHIEVEMENT"
+    if [[ "$BATCH_RISK_GOAL_ACHIEVEMENT_SET" == true ]]; then
+        new_risk_goal_achievement="$BATCH_RISK_GOAL_ACHIEVEMENT"
     fi
 
     # Risk-mitigation tasks: list, replaces-all. read-modify-write friendly for
@@ -1721,7 +1768,7 @@ run_batch_mode() {
         "$new_folded_tasks" "$new_folded_into" "$new_pull_request" "$new_contributor" \
         "$new_contributor_email" "$new_implemented_with" "$new_file_references" \
         "$new_verifies" "$new_xdeps" "$new_xdeprepo" \
-        "$new_risk" "$new_risk_mitigation_tasks"
+        "$new_risk_code_health" "$new_risk_goal_achievement" "$new_risk_mitigation_tasks"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then

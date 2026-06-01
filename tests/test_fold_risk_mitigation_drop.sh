@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # test_fold_risk_mitigation_drop.sh - Tests that aitask_fold_mark.sh treats
-# risk_mitigation_tasks correctly when folding (t884_1).
+# risk_mitigation_tasks correctly when folding (t884_9).
 #
 # Contract:
 #   - risk_mitigation_tasks is instance-specific and is NOT unioned into the
 #     primary (unlike verifies).
 #   - A folded task's own risk_mitigation_tasks is cleared on fold.
-#   - The primary keeps its own `risk` scalar untouched.
+#   - The primary keeps both its own risk fields (risk_code_health +
+#     risk_goal_achievement) untouched.
 #
 # Run: bash tests/test_fold_risk_mitigation_drop.sh
 
@@ -119,13 +120,13 @@ write_task() {
 }
 
 test_fold_drops_mitigation_keeps_risk() {
-    echo "=== Test: fold drops risk_mitigation_tasks, keeps primary's risk ==="
+    echo "=== Test: fold drops risk_mitigation_tasks, keeps primary's risk fields ==="
     setup_project
 
-    # Primary carries its own risk but no mitigation list.
-    write_task aitasks/t10_primary.md "risk: medium"
-    # Folded task carries a mitigation list (and its own risk).
-    write_task aitasks/t20_folded.md "risk: high" "risk_mitigation_tasks: [99]"
+    # Primary carries both its own risk fields but no mitigation list.
+    write_task aitasks/t10_primary.md "risk_code_health: medium" "risk_goal_achievement: high"
+    # Folded task carries a mitigation list (and its own risk fields).
+    write_task aitasks/t20_folded.md "risk_code_health: high" "risk_goal_achievement: low" "risk_mitigation_tasks: [99]"
 
     git add -A
     git commit -m "seed fold fixtures" --quiet
@@ -134,8 +135,10 @@ test_fold_drops_mitigation_keeps_risk() {
     output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode none 10 20 2>&1)
     echo "$output" | grep -q "FOLDED:20" || { echo "FAIL: t20 not folded"; FAIL=$((FAIL+1)); }
 
-    # Primary keeps its own risk, and did NOT gain a risk_mitigation_tasks line
-    assert_eq "primary keeps risk: medium" "medium" "$(read_frontmatter_field aitasks/t10_primary.md risk)"
+    # Primary keeps both its own risk fields, and did NOT gain a
+    # risk_mitigation_tasks line
+    assert_eq "primary keeps risk_code_health: medium" "medium" "$(read_frontmatter_field aitasks/t10_primary.md risk_code_health)"
+    assert_eq "primary keeps risk_goal_achievement: high" "high" "$(read_frontmatter_field aitasks/t10_primary.md risk_goal_achievement)"
     assert_no_field "primary did not gain risk_mitigation_tasks" aitasks/t10_primary.md risk_mitigation_tasks
 
     # Folded task's own mitigation list was cleared

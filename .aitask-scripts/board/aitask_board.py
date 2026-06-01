@@ -2386,9 +2386,11 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
         self._lock_info = None
         self._original_values = {
             "priority": task.metadata.get("priority", "medium"),
-            # risk has NO default — None means unset. The risk CycleField only
-            # writes a value when the user actively cycles it (see compose()).
-            "risk": task.metadata.get("risk"),
+            # risk has NO default — None means unset. The risk CycleFields only
+            # write a value when the user actively cycles them (see compose()).
+            # Two independent dimensions: code-health and goal-achievement.
+            "risk_code_health": task.metadata.get("risk_code_health"),
+            "risk_goal_achievement": task.metadata.get("risk_goal_achievement"),
             "effort": task.metadata.get("effort", "medium"),
             "status": task.metadata.get("status", "Ready"),
             "issue_type": task.metadata.get("issue_type", "feature"),
@@ -2426,8 +2428,10 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
                 if is_done_or_ro:
                     yield ReadOnlyField(f"[b]Priority:[/b] {meta.get('priority', 'medium')}", classes="meta-ro")
                     # Risk shown only when set (display-only; no default).
-                    if meta.get("risk"):
-                        yield ReadOnlyField(f"[b]Risk:[/b] {meta.get('risk')}", classes="meta-ro")
+                    if meta.get("risk_code_health"):
+                        yield ReadOnlyField(f"[b]Code-health risk:[/b] {meta.get('risk_code_health')}", classes="meta-ro")
+                    if meta.get("risk_goal_achievement"):
+                        yield ReadOnlyField(f"[b]Goal risk:[/b] {meta.get('risk_goal_achievement')}", classes="meta-ro")
                     yield ReadOnlyField(f"[b]Effort:[/b] {meta.get('effort', 'medium')}", classes="meta-ro")
                     yield ReadOnlyField(f"[b]Status:[/b] {meta.get('status', 'Ready')}", classes="meta-ro")
                     yield ReadOnlyField(f"[b]Type:[/b] {meta.get('issue_type', 'feature')}", classes="meta-ro")
@@ -2435,13 +2439,17 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
                     yield CycleField("Priority", ["low", "medium", "high"],
                                      meta.get("priority", "medium"), "priority",
                                      id="cf_priority")
-                    # Risk is editable but has no default: an unset risk shows
-                    # "low" (CycleField index-0 fallback) yet is NOT persisted
-                    # unless the user actively cycles it (see save_changes —
-                    # only fields whose value differs from _original are written).
-                    yield CycleField("Risk", ["low", "medium", "high"],
-                                     meta.get("risk"), "risk",
-                                     id="cf_risk")
+                    # Risk fields are editable but have no default: an unset
+                    # risk shows "low" (CycleField index-0 fallback) yet is NOT
+                    # persisted unless the user actively cycles it (see
+                    # save_changes — only fields whose value differs from
+                    # _original are written).
+                    yield CycleField("Code-health risk", ["low", "medium", "high"],
+                                     meta.get("risk_code_health"), "risk_code_health",
+                                     id="cf_risk_code_health")
+                    yield CycleField("Goal risk", ["low", "medium", "high"],
+                                     meta.get("risk_goal_achievement"), "risk_goal_achievement",
+                                     id="cf_risk_goal_achievement")
                     yield CycleField("Effort", ["low", "medium", "high"],
                                      meta.get("effort", "medium"), "effort",
                                      id="cf_effort")

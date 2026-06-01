@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# test_update_risk.sh - Tests for the `risk` + `risk_mitigation_tasks`
-# frontmatter plumbing added to aitask_update.sh (t884_1).
+# test_update_risk.sh - Tests for the two-field risk (`risk_code_health` +
+# `risk_goal_achievement`) and `risk_mitigation_tasks` frontmatter plumbing in
+# aitask_update.sh (t884_9, replacing the single aggregate `risk` of t884_1).
 #
 # Covers:
-#   - --risk high writes `risk: high`
-#   - invalid --risk value is rejected (non-zero exit + message)
-#   - updating an unrelated field on a risk-less task leaves NO `risk:` line
+#   - --risk-code-health high writes `risk_code_health: high`
+#   - --risk-goal-achievement medium writes `risk_goal_achievement: medium`
+#     (independent of code-health)
+#   - both flags at once write both lines
+#   - invalid value on either flag is rejected (non-zero exit)
+#   - updating an unrelated field on a risk-less task leaves NO risk lines
 #     (omit-by-default / conditional-emit holds)
-#   - --risk "" clears an existing risk
+#   - clearing one field with "" leaves the other intact
 #   - --risk-mitigation-tasks writes a YAML list; an unrelated later update
 #     preserves it (read-modify-write friendly)
-#   - GUARD: aitask_create.sh emits neither `risk:` nor `risk_mitigation_tasks:`
+#   - GUARD: aitask_create.sh emits neither risk field nor risk_mitigation_tasks
 #     (risk is a planning output, never a creation input)
 #
 # Run: bash tests/test_update_risk.sh
@@ -151,35 +155,49 @@ write_task() {
 }
 
 test_set_and_validate_risk() {
-    echo "=== Test: --risk set + validation ==="
+    echo "=== Test: two-field risk set + validation ==="
     setup_project
 
     write_task aitasks/t10_foo.md
     git add -A; git commit -m "seed t10" --quiet
 
-    bash .aitask-scripts/aitask_update.sh --batch 10 --risk high --silent >/dev/null
-    assert_eq "risk set to high" "high" "$(read_frontmatter_field aitasks/t10_foo.md risk)"
+    # (a) --risk-code-health writes its own line
+    bash .aitask-scripts/aitask_update.sh --batch 10 --risk-code-health high --silent >/dev/null
+    assert_eq "code-health risk set to high" "high" "$(read_frontmatter_field aitasks/t10_foo.md risk_code_health)"
 
-    bash .aitask-scripts/aitask_update.sh --batch 10 --risk medium --silent >/dev/null
-    assert_eq "risk updated to medium" "medium" "$(read_frontmatter_field aitasks/t10_foo.md risk)"
+    # (b) --risk-goal-achievement writes its own line, independent of code-health
+    bash .aitask-scripts/aitask_update.sh --batch 10 --risk-goal-achievement medium --silent >/dev/null
+    assert_eq "goal risk set to medium" "medium" "$(read_frontmatter_field aitasks/t10_foo.md risk_goal_achievement)"
+    assert_eq "code-health risk preserved" "high" "$(read_frontmatter_field aitasks/t10_foo.md risk_code_health)"
 
-    # Invalid value rejected
+    # (c) both at once
+    bash .aitask-scripts/aitask_update.sh --batch 10 --risk-code-health low --risk-goal-achievement high --silent >/dev/null
+    assert_eq "code-health updated to low" "low" "$(read_frontmatter_field aitasks/t10_foo.md risk_code_health)"
+    assert_eq "goal updated to high" "high" "$(read_frontmatter_field aitasks/t10_foo.md risk_goal_achievement)"
+
+    # (d) invalid value rejected on each flag
     local rc
     set +e
-    bash .aitask-scripts/aitask_update.sh --batch 10 --risk bogus --silent >/dev/null 2>&1
+    bash .aitask-scripts/aitask_update.sh --batch 10 --risk-code-health bogus --silent >/dev/null 2>&1
     rc=$?
     set -e
-    assert_nonzero "invalid --risk rejected" "$rc"
+    assert_nonzero "invalid --risk-code-health rejected" "$rc"
+    set +e
+    bash .aitask-scripts/aitask_update.sh --batch 10 --risk-goal-achievement nope --silent >/dev/null 2>&1
+    rc=$?
+    set -e
+    assert_nonzero "invalid --risk-goal-achievement rejected" "$rc"
 
-    # --risk "" clears it
-    bash .aitask-scripts/aitask_update.sh --batch 10 --risk "" --silent >/dev/null
-    assert_no_field "risk cleared by --risk \"\"" aitasks/t10_foo.md risk
+    # (f) clearing one field with "" leaves the other intact
+    bash .aitask-scripts/aitask_update.sh --batch 10 --risk-code-health "" --silent >/dev/null
+    assert_no_field "code-health cleared by \"\"" aitasks/t10_foo.md risk_code_health
+    assert_eq "goal risk still set after clearing code-health" "high" "$(read_frontmatter_field aitasks/t10_foo.md risk_goal_achievement)"
 
     teardown
 }
 
 test_omit_by_default() {
-    echo "=== Test: unrelated update on a risk-less task leaves no risk: line ==="
+    echo "=== Test: unrelated update on a risk-less task leaves no risk lines ==="
     setup_project
 
     write_task aitasks/t20_bar.md
@@ -187,7 +205,8 @@ test_omit_by_default() {
 
     bash .aitask-scripts/aitask_update.sh --batch 20 --priority high --silent >/dev/null
     assert_eq "priority updated" "high" "$(read_frontmatter_field aitasks/t20_bar.md priority)"
-    assert_no_field "no risk: line after unrelated update" aitasks/t20_bar.md risk
+    assert_no_field "no risk_code_health: line after unrelated update" aitasks/t20_bar.md risk_code_health
+    assert_no_field "no risk_goal_achievement: line after unrelated update" aitasks/t20_bar.md risk_goal_achievement
 
     teardown
 }
@@ -236,7 +255,8 @@ test_create_emits_no_risk() {
         return
     fi
 
-    assert_no_field "created task has no risk:" "$created" risk
+    assert_no_field "created task has no risk_code_health:" "$created" risk_code_health
+    assert_no_field "created task has no risk_goal_achievement:" "$created" risk_goal_achievement
     assert_no_field "created task has no risk_mitigation_tasks:" "$created" risk_mitigation_tasks
 
     teardown
