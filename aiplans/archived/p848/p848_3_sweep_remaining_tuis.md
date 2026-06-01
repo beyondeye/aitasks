@@ -437,3 +437,4 @@ Standard archival; no special cleanup.
     helper-based render if it wants to demonstrate live override
     feedback.
 
+- **Manual-verification failure:** item "[t848_3] Settings tab-switcher footer correctly lists current tab keys (registry-derived, not hardcoded)." failed; follow-up task t896.
