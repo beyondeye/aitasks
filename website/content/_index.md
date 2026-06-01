@@ -19,16 +19,20 @@ linkTitle: "aitasks"
 
 {{% blocks/section color="white" type="row" %}}
 
-{{% blocks/feature icon="fa-terminal" title="Agentic IDE in your terminal" url="#take-the-tour" %}}
+{{% blocks/feature icon="fa-terminal" title="Agentic IDE in your terminal" url="#take-the-tour" col="col-md-6 col-lg-6" %}}
 Board, Code Browser, Monitor, Minimonitor, Settings, Stats, Syncer, and Brainstorm — all in one tmux session via `ait ide`, with support for multiple projects in multiple sessions.
 {{% /blocks/feature %}}
 
-{{% blocks/feature icon="fa-brain" title="Long-term memory for agents" url="/docs/concepts/agent-memory/" %}}
+{{% blocks/feature icon="fa-brain" title="Long-term memory for agents" url="/docs/concepts/agent-memory/" col="col-md-6 col-lg-6" %}}
 Archived tasks and plans become queryable context for future work. The Code Browser annotates each line back to the task and plan that introduced it — your repo remembers *why*, not just *what*.
 {{% /blocks/feature %}}
 
-{{% blocks/feature icon="fa-code-branch" title="Tight git coupling, AI-enhanced" url="/docs/workflows/#git" %}}
+{{% blocks/feature icon="fa-code-branch" title="Tight git coupling" url="/docs/workflows/#git" col="col-md-6 col-lg-6" %}}
 PR import/close, issue tracker integration, contribution flow, changelog generation, and AI-assisted reverts — all rooted in git commits and task metadata.
+{{% /blocks/feature %}}
+
+{{% blocks/feature icon="fa-arrows-spin" title="AI-enhanced workflows" url="/docs/workflows/" col="col-md-6 col-lg-6" %}}
+Combine CLI tools and agent skills into repeatable workflows — task decomposition, parallel development, code review, QA, and releases.
 {{% /blocks/feature %}}
 
 {{% /blocks/section %}}
