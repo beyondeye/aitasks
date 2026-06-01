@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.22.1
+
+### Enhancements
+
+- **Task risk fields** (t884_1): Tasks now support a `risk` field (high/medium/low) and a `risk_mitigation_tasks` list. Set them with `ait update --risk <level>` / `--risk-mitigation-tasks "a,b,c"`; risk is shown in `ait ls` and is viewable/editable in the board TUI.
+- **`risk_evaluation` profile key** (t884_2): Added an opt-in `risk_evaluation` execution-profile key (in the Planning group) that gates risk evaluation during the planning step. Configure it per profile or from the settings TUI; it's off unless enabled.
+
+### Bug Fixes
+
+- **Board detail dialog arrow navigation** (t893): Restored up/down arrow-key field navigation in the board's task-detail dialog, while keeping arrow-key support in the shortcut editor's table.
+
+### Documentation
+
+- **AI-enhanced workflows homepage highlight** (t892): Added a fourth homepage feature highlight linking to the workflows docs, with the highlights reflowed into a 2×2 grid.
+
 ## v0.22.0
 
 ### Features
