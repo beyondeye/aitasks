@@ -271,6 +271,7 @@ While in plan mode:
 - Include a reference to **Step 9 (Post-Implementation)** in the plan for the cleanup, archival, and merge steps
 {%- if profile.risk_evaluation is defined and profile.risk_evaluation %}
 - **Risk evaluation (end of planning):** Now that the plan is designed, read and follow the **Risk Evaluation Procedure** (see `risk-evaluation.md`). It assesses the two risk dimensions (code-health and goal-achievement) **separately**, assigns a level to each, and appends a `## Risk` section to the plan. Thread `risk_level_code_health`, `risk_level_goal_achievement`, and `risk_mitigations_planned` into the workflow context — `SKILL.md` Step 7 writes the two fields post-approval (plan mode is read-only).
+- **Risk-mitigation design (end of planning):** Immediately after the risk evaluation, read and follow **Part 1 (Design-in-planning)** of the **Risk-Mitigation Follow-up Procedure** (see `risk-mitigation-followup.md`). It proposes before/after mitigation tasks for the identified risks (propose-and-confirm), records the confirmed ones into the plan's `## Risk` section, and threads `risk_mitigations_confirmed`. It creates nothing (plan mode is read-only) — `SKILL.md` Step 7 creates the "before" mitigations and Step 8d creates the "after" ones, post-approval.
 {%- endif %}
 - Use `ExitPlanMode` when ready for user approval
 

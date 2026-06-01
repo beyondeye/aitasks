@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # test_skill_render_task_workflow.sh - Regression tests for the wrapped
 # shared workflow under .claude/skills/task-workflow/:
-#   - 10 wrapped .md files (6 profile-varying + 4 profile-invariant)
-#   - 22 golden files under tests/golden/procs/task-workflow/
+#   - 11 wrapped .md files (6 profile-varying + 5 profile-invariant)
+#   - 23 golden files under tests/golden/procs/task-workflow/
 # Coverage:
 #   1.  Per-(file, profile) golden diff for the 4 profile-varying wrapped
 #       files × 3 profiles.
@@ -17,8 +17,9 @@
 #   4. remote_drift_check synthetic profile demonstrates the true branch
 #      fires when the key is defined (no committed profile uses it).
 #   5. risk_evaluation synthetic profile demonstrates the gated risk steps
-#      (planning.md eval step + SKILL.md two-field write) fire when the key
-#      is defined; default renders show neither (no committed profile uses it).
+#      (planning.md eval step + mitigation design, SKILL.md two-field write +
+#      "before" creation + Step 8d "after" creation) fire when the key is
+#      defined; default renders show none (no committed profile uses it).
 # Run: bash tests/test_skill_render_task_workflow.sh
 
 set -e
@@ -95,6 +96,7 @@ WRAPPED_FILES_INVARIANT=(
     "planning-cross-repo.md"
     "cross-repo-child-assignment.md"
     "risk-evaluation.md"
+    "risk-mitigation-followup.md"
 )
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)
@@ -265,17 +267,34 @@ RISK_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$TMP_RISK" claude 2>&1)"
 RISK_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$TMP_RISK" claude 2>&1)"
 assert_contains "risk_evaluation true: planning.md emits the eval step" \
     'Risk evaluation (end of planning)' "$RISK_PLAN"
+assert_contains "risk_evaluation true: planning.md emits the mitigation design step" \
+    'Risk-mitigation design (end of planning)' "$RISK_PLAN"
 assert_contains "risk_evaluation true: SKILL.md emits the two-field write" \
     '--risk-code-health' "$RISK_SKILL"
 assert_contains "risk_evaluation true: SKILL.md write includes goal-achievement flag" \
     '--risk-goal-achievement' "$RISK_SKILL"
-# Default profile (key absent) shows neither — guards the zero-footprint claim.
+assert_contains "risk_evaluation true: SKILL.md emits the Step 7 'before' creation hook" \
+    'Risk-mitigation "before" creation' "$RISK_SKILL"
+assert_contains "risk_evaluation true: SKILL.md emits Step 8d 'after' creation" \
+    'Step 8d: Risk-Mitigation' "$RISK_SKILL"
+assert_contains "risk_evaluation true: Step 8c points to Step 8d" \
+    'proceed to Step 8d' "$RISK_SKILL"
+# Default profile (key absent) shows none — guards the zero-footprint claim.
 DEFAULT_RISK_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
 DEFAULT_RISK_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
 assert_not_contains "default profile: no planning risk step" \
     'Risk evaluation (end of planning)' "$DEFAULT_RISK_PLAN"
+assert_not_contains "default profile: no planning mitigation design step" \
+    'Risk-mitigation design (end of planning)' "$DEFAULT_RISK_PLAN"
 assert_not_contains "default profile: no Step 7 risk write" \
     '--risk-code-health' "$DEFAULT_RISK_SKILL"
+assert_not_contains "default profile: no Step 7 'before' creation hook" \
+    'Risk-mitigation "before" creation' "$DEFAULT_RISK_SKILL"
+assert_not_contains "default profile: no Step 8d" \
+    'Step 8d: Risk-Mitigation' "$DEFAULT_RISK_SKILL"
+# Step 8c's default pointer to Step 9 must be byte-stable when the key is absent.
+assert_contains "default profile: Step 8c points to Step 9" \
+    'proceed to Step 9.' "$DEFAULT_RISK_SKILL"
 
 # === Summary ===
 

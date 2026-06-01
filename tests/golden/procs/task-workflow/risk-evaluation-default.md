@@ -11,11 +11,6 @@ decomposition flow and the cross-repo design/creation split
 (`planning-cross-repo.md` design + `cross-repo-child-assignment.md` creation),
 where mutations are always deferred out of plan mode.
 
-This procedure is **opt-in**: it is dispatched only when the active execution
-profile sets `risk_evaluation: true`. The gate lives at the dispatch sites
-(`planning.md` §6.1 and `SKILL.md` Step 7), not here, so this file is
-profile-agnostic and renders identically across profiles.
-
 ## Input context (from `planning.md` §6.1)
 
 | Variable | Description |
