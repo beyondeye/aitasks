@@ -87,3 +87,49 @@ Leave `aitasks/metadata/profiles/{default,fast,remote}.yaml` and
 
 Standard child-task archival: commit code changes (`enhancement: ... (t884_2)`),
 update + commit the plan file via `./ait git`, then `aitask_archive.sh 884_2`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, plus one extra
+  consistency step the plan under-specified.
+  - `.aitask-scripts/lib/profile_editor.py`: added `"risk_evaluation": ("bool",
+    None)` to `PROFILE_SCHEMA` (after `post_plan_action_for_child`), a
+    `(short, long)` help tuple to `PROFILE_FIELD_INFO`, and `"risk_evaluation"`
+    to the **"Planning"** group in `PROFILE_FIELD_GROUPS`. The settings TUI
+    auto-discovers from these three structures — no other editor code touched.
+  - `.claude/skills/task-workflow/profiles.md`: added the schema-table row
+    (`| risk_evaluation | bool | no | … | Step 6.1 (planning) |`).
+  - **Headless prerender propagation (extra step):** `profiles.md` is part of
+    the committed headless-prerender closure for `aitask-pickrem`/`aitask-pickweb`
+    under the `remote` profile. Regenerated all three committed copies so they
+    carry the new row: `.claude/skills/task-workflow-remote-/profiles.md`,
+    `.agents/skills/task-workflow-remote-codex-/profiles.md`,
+    `.opencode/skills/task-workflow-remote-/profiles.md` (`aitask_skill_render.sh
+    aitask-pickrem/pickweb --profile remote --agent {claude,codex,opencode}
+    --force`). Each diff was exactly the single `risk_evaluation` row (+1 line),
+    zero unrelated bleed.
+- **Deviations from plan:** The plan said "no goldens regeneration / no closure
+  edits". That held for `tests/golden/`, but it overlooked that the **committed
+  headless prerenders** bundle `profiles.md` verbatim and therefore needed
+  regeneration. Caught and handled in this task. Profile YAMLs left untouched as
+  planned (absent ⇒ feature OFF; verified `grep risk_evaluation` over
+  `aitasks/metadata/profiles` + `seed/profiles` returns nothing).
+- **Issues encountered:** During verification a transient working-tree state made
+  the `task-workflow-remote-` prerenders briefly *appear* stale w.r.t. the
+  cross-repo feature (t832_5). On clean re-inspection this was a false alarm: the
+  committed prerenders already contain the cross-repo content and
+  `aitask_skill_verify.sh` passes. No stale-prerender defect exists; no follow-up
+  bug task warranted.
+- **Key decisions:** Placed `risk_evaluation` in the "Planning" group (it gates a
+  planning-time step), kept the profiles.md Step reference generic to "Step 6.1
+  (planning)" since t884_3/t884_4 own the exact consumption sites.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - t884_3 / t884_4 consume the key via `{% if profile.risk_evaluation %}` at
+    their dispatch sites and MUST regenerate goldens (they edit `.md.j2` / closure
+    procedures, unlike this task).
+  - The key is **opt-in**: undefined ⇒ Jinja-falsy ⇒ feature OFF. Do not seed it
+    `true` in any profile YAML.
+  - `aitask_skill_verify.sh` does NOT deep-compare `profiles.md` content between
+    source and the committed headless prerenders, so it will not flag a missing
+    row there — propagate manually (as done here) whenever `profiles.md` changes.
