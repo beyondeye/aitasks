@@ -220,6 +220,12 @@ if [[ ${#verifies_list[@]} -gt 0 ]]; then
     verifies_args=(--verifies "$verifies_csv")
 fi
 
+# risk_mitigation_tasks is deliberately NOT unioned into the primary (unlike
+# verifies above). Each task's mitigation list is instance-specific to its own
+# risk evaluation — merging folded tasks' lists into the primary would attribute
+# mitigations to a plan that never evaluated them. The folded tasks' lists are
+# instead cleared below (Step 4) and the primary keeps only its own.
+
 "$SCRIPT_DIR/aitask_update.sh" --batch "$primary_id" \
     --folded-tasks "$full_csv" \
     ${file_ref_args[@]+"${file_ref_args[@]}"} \
@@ -227,10 +233,12 @@ fi
     --silent >/dev/null
 echo "PRIMARY_UPDATED:${primary_id}"
 
-# Step 4: mark each new folded task
+# Step 4: mark each new folded task. Clear its risk_mitigation_tasks: the list
+# is instance-specific (see note above) and a folded task no longer drives its
+# own mitigation flow once merged into the primary.
 for fid in "${folded_ids[@]}"; do
     fid="${fid#t}"
-    "$SCRIPT_DIR/aitask_update.sh" --batch "$fid" --status Folded --folded-into "$primary_id" --silent >/dev/null
+    "$SCRIPT_DIR/aitask_update.sh" --batch "$fid" --status Folded --folded-into "$primary_id" --risk-mitigation-tasks "" --silent >/dev/null
     echo "FOLDED:${fid}"
 
     # Step 4b: child task parent cleanup

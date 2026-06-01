@@ -179,6 +179,8 @@ p_score=2
 e_score=2
 blocked=0
 p_text="Medium"
+# risk is display-only — NOT a sort dimension (no r_score). Empty = unset.
+risk_text=""
 e_text="Medium"
 d_text="None"
 issue_type_text="feature"
@@ -227,6 +229,14 @@ parse_yaml_frontmatter() {
                         high)   p_score=1; p_text="High" ;;
                         medium) p_score=2; p_text="Medium" ;;
                         low)    p_score=3; p_text="Low" ;;
+                    esac
+                    ;;
+                risk)
+                    # Display only — deliberately NOT folded into p_score.
+                    case "$value" in
+                        high)   risk_text="High" ;;
+                        medium) risk_text="Medium" ;;
+                        low)    risk_text="Low" ;;
                     esac
                     ;;
                 effort)
@@ -330,6 +340,7 @@ parse_task_metadata() {
 
     # Reset to defaults
     p_score=2; p_text="Medium"
+    risk_text=""
     e_score=2; e_text="Medium"
     blocked=0; d_text="None"
     issue_type_text="feature"
@@ -424,7 +435,11 @@ process_task_file() {
         if [[ -n "$contributor_text" ]]; then
             contributor_info=", Contributor: $contributor_text"
         fi
-        display="${indent_prefix}$filename [Status: $display_status, Priority: $p_text, Effort: $e_text${assigned_info}${issue_info}${pr_info}${contributor_info}]"
+        local risk_info=""
+        if [[ -n "$risk_text" ]]; then
+            risk_info=", Risk: $risk_text"
+        fi
+        display="${indent_prefix}$filename [Status: $display_status, Priority: $p_text${risk_info}, Effort: $e_text${assigned_info}${issue_info}${pr_info}${contributor_info}]"
     else
         display="${indent_prefix}$filename"
     fi

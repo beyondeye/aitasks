@@ -18,6 +18,12 @@ TASK_TYPES_FILE="aitasks/metadata/task_types.txt"
 BATCH_MODE=false
 BATCH_TASK_NUM=""
 BATCH_PRIORITY=""
+# risk is a planning output (set later by the risk-evaluation step), not a
+# creation input — it enters the framework here in update, never in create.
+BATCH_RISK=""
+BATCH_RISK_SET=false
+BATCH_RISK_MITIGATION_TASKS=""
+BATCH_RISK_MITIGATION_TASKS_SET=false
 BATCH_EFFORT=""
 BATCH_STATUS=""
 BATCH_TYPE=""
@@ -69,6 +75,8 @@ BATCH_COMMIT=false
 
 # Current values (parsed from file)
 CURRENT_PRIORITY=""
+CURRENT_RISK=""
+CURRENT_RISK_MITIGATION_TASKS=""
 CURRENT_EFFORT=""
 CURRENT_DEPS=""
 CURRENT_XDEPS=""
@@ -110,6 +118,12 @@ Batch mode (for automation):
 
 Metadata options (batch mode):
   --priority, -p LEVEL   Priority: high, medium, low
+  --risk LEVEL           Risk: high, medium, low (planning output; use "" to
+                         clear). Display-only — not a sort dimension.
+  --risk-mitigation-tasks IDS
+                         Risk-mitigation task IDs (comma-separated, replaces
+                         all; use "" to clear). Written by the risk-mitigation
+                         procedure via read-modify-write.
   --effort, -e LEVEL     Effort: low, medium, high
   --status, -s STATUS    Status: Ready, Editing, Implementing, Postponed, Done, Folded
   --type TYPE            Issue type (see aitasks/metadata/task_types.txt)
@@ -225,6 +239,8 @@ parse_args() {
         case "$1" in
             --batch) BATCH_MODE=true; shift ;;
             --priority|-p) BATCH_PRIORITY="$2"; shift 2 ;;
+            --risk) BATCH_RISK="$2"; BATCH_RISK_SET=true; shift 2 ;;
+            --risk-mitigation-tasks) BATCH_RISK_MITIGATION_TASKS="$2"; BATCH_RISK_MITIGATION_TASKS_SET=true; shift 2 ;;
             --effort|-e) BATCH_EFFORT="$2"; shift 2 ;;
             --status|-s) BATCH_STATUS="$2"; shift 2 ;;
             --type) BATCH_TYPE="$2"; shift 2 ;;
@@ -318,6 +334,9 @@ parse_yaml_frontmatter() {
 
     # Reset current values
     CURRENT_PRIORITY="medium"
+    # risk has NO default — absent means unset (omit-by-default).
+    CURRENT_RISK=""
+    CURRENT_RISK_MITIGATION_TASKS=""
     CURRENT_EFFORT="medium"
     CURRENT_DEPS=""
     CURRENT_XDEPS=""
@@ -378,6 +397,11 @@ parse_yaml_frontmatter() {
 
             case "$key" in
                 priority) CURRENT_PRIORITY="$value" ;;
+                risk) CURRENT_RISK="$value" ;;
+                risk_mitigation_tasks)
+                    CURRENT_RISK_MITIGATION_TASKS=$(parse_yaml_list "$value")
+                    CURRENT_RISK_MITIGATION_TASKS=$(normalize_task_ids "$CURRENT_RISK_MITIGATION_TASKS")
+                    ;;
                 effort) CURRENT_EFFORT="$value" ;;
                 depends)
                     CURRENT_DEPS=$(parse_yaml_list "$value")
@@ -471,6 +495,8 @@ write_task_file() {
     local verifies="${22:-}"
     local xdeps="${23:-}"
     local xdeprepo="${24:-}"
+    local risk="${25:-}"
+    local risk_mitigation_tasks="${26:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -485,6 +511,10 @@ write_task_file() {
     {
         echo "---"
         echo "priority: $priority"
+        # Only write risk if present (planning output; omitted by default).
+        if [[ -n "$risk" ]]; then
+            echo "risk: $risk"
+        fi
         echo "effort: $effort"
         echo "depends: $deps_yaml"
         # Cross-repo fields. As of t832_10, `xdeprepo:` may appear alone
@@ -506,6 +536,13 @@ write_task_file() {
             local verifies_yaml
             verifies_yaml=$(format_yaml_list "$verifies")
             echo "verifies: $verifies_yaml"
+        fi
+        # Only write risk_mitigation_tasks if present (list; omitted by default,
+        # dropped on fold by aitask_fold_mark.sh)
+        if [[ -n "$risk_mitigation_tasks" ]]; then
+            local risk_mitigation_yaml
+            risk_mitigation_yaml=$(format_yaml_list "$risk_mitigation_tasks")
+            echo "risk_mitigation_tasks: $risk_mitigation_yaml"
         fi
         # Only write file_references if present
         if [[ -n "$file_references" ]]; then
@@ -857,6 +894,8 @@ handle_child_task_completion() {
 
     # Parse parent file
     local saved_priority="$CURRENT_PRIORITY"
+    local saved_risk="$CURRENT_RISK"
+    local saved_risk_mitigation="$CURRENT_RISK_MITIGATION_TASKS"
     local saved_effort="$CURRENT_EFFORT"
     local saved_deps="$CURRENT_DEPS"
     local saved_xdeps="$CURRENT_XDEPS"
@@ -888,7 +927,8 @@ handle_child_task_completion() {
         "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
-        "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO"
+        "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
+        "$CURRENT_RISK" "$CURRENT_RISK_MITIGATION_TASKS"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -898,6 +938,8 @@ handle_child_task_completion() {
 
     # Restore original values
     CURRENT_PRIORITY="$saved_priority"
+    CURRENT_RISK="$saved_risk"
+    CURRENT_RISK_MITIGATION_TASKS="$saved_risk_mitigation"
     CURRENT_EFFORT="$saved_effort"
     CURRENT_DEPS="$saved_deps"
     CURRENT_XDEPS="$saved_xdeps"
@@ -964,8 +1006,10 @@ interactive_select_field() {
     local issue_type="$4"
     local deps="$5"
     local labels="$6"
+    local risk="$7"
 
     local options="priority      [current: $priority]
+risk          [current: ${risk:-unset}]
 effort        [current: $effort]
 status        [current: $status]
 issue_type    [current: $issue_type]
@@ -987,6 +1031,11 @@ Exit - discard changes"
 interactive_update_priority() {
     local current="$1"
     echo -e "high\nmedium\nlow" | fzf --prompt="Priority (current: $current): " --height=10 --no-info --header="Select new priority"
+}
+
+interactive_update_risk() {
+    local current="$1"
+    echo -e "high\nmedium\nlow" | fzf --prompt="Risk (current: ${current:-unset}): " --height=10 --no-info --header="Select risk level"
 }
 
 interactive_update_effort() {
@@ -1227,6 +1276,7 @@ run_interactive_mode() {
 
     # New values (start with current)
     local new_priority="$CURRENT_PRIORITY"
+    local new_risk="$CURRENT_RISK"
     local new_effort="$CURRENT_EFFORT"
     local new_status="$CURRENT_STATUS"
     local new_type="$CURRENT_TYPE"
@@ -1240,7 +1290,7 @@ run_interactive_mode() {
     while true; do
         echo ""
         local field
-        field=$(interactive_select_field "$new_priority" "$new_effort" "$new_status" "$new_type" "$new_deps" "$new_labels")
+        field=$(interactive_select_field "$new_priority" "$new_effort" "$new_status" "$new_type" "$new_deps" "$new_labels" "$new_risk")
 
         case "$field" in
             "Exit - discard changes"|"Exit")
@@ -1257,6 +1307,15 @@ run_interactive_mode() {
                     new_priority="$result"
                     changes_made=true
                     success "Priority updated to: $new_priority"
+                fi
+                ;;
+            risk)
+                local result
+                result=$(interactive_update_risk "$new_risk")
+                if [[ -n "$result" ]]; then
+                    new_risk="$result"
+                    changes_made=true
+                    success "Risk updated to: $new_risk"
                 fi
                 ;;
             effort)
@@ -1343,7 +1402,8 @@ run_interactive_mode() {
         "$CURRENT_BOARDCOL" "$CURRENT_BOARDIDX" "$CURRENT_ISSUE" "$CURRENT_FOLDED_TASKS" \
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
-        "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO"
+        "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
+        "$new_risk" "$CURRENT_RISK_MITIGATION_TASKS"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1355,6 +1415,7 @@ run_interactive_mode() {
     echo ""
     echo "Updated values:"
     echo "  Priority:     $new_priority"
+    echo "  Risk:         ${new_risk:-unset}"
     echo "  Effort:       $new_effort"
     echo "  Status:       $new_status"
     echo "  Type:         $new_type"
@@ -1423,6 +1484,8 @@ run_batch_mode() {
     # Check that at least one update is specified
     local has_update=false
     [[ -n "$BATCH_PRIORITY" ]] && has_update=true
+    [[ "$BATCH_RISK_SET" == true ]] && has_update=true
+    [[ "$BATCH_RISK_MITIGATION_TASKS_SET" == true ]] && has_update=true
     [[ -n "$BATCH_EFFORT" ]] && has_update=true
     [[ -n "$BATCH_STATUS" ]] && has_update=true
     [[ -n "$BATCH_TYPE" ]] && has_update=true
@@ -1465,6 +1528,14 @@ run_batch_mode() {
         esac
     fi
 
+    # Validate risk only when a non-empty value is supplied ("" clears it).
+    if [[ "$BATCH_RISK_SET" == true && -n "$BATCH_RISK" ]]; then
+        case "$BATCH_RISK" in
+            high|medium|low) ;;
+            *) die "Invalid risk: $BATCH_RISK (must be high, medium, or low)" ;;
+        esac
+    fi
+
     if [[ -n "$BATCH_EFFORT" ]]; then
         case "$BATCH_EFFORT" in
             low|medium|high) ;;
@@ -1496,6 +1567,21 @@ run_batch_mode() {
     # Apply updates (use current value if not specified)
     local new_priority="${BATCH_PRIORITY:-$CURRENT_PRIORITY}"
     local new_effort="${BATCH_EFFORT:-$CURRENT_EFFORT}"
+
+    # Risk: scalar planning output. Use BATCH_RISK only when --risk was passed
+    # (even if empty, to allow clearing); otherwise preserve current.
+    local new_risk="$CURRENT_RISK"
+    if [[ "$BATCH_RISK_SET" == true ]]; then
+        new_risk="$BATCH_RISK"
+    fi
+
+    # Risk-mitigation tasks: list, replaces-all. read-modify-write friendly for
+    # t884_4 (caller reads current list, appends, passes the full set back).
+    local new_risk_mitigation_tasks="$CURRENT_RISK_MITIGATION_TASKS"
+    if [[ "$BATCH_RISK_MITIGATION_TASKS_SET" == true ]]; then
+        new_risk_mitigation_tasks="$BATCH_RISK_MITIGATION_TASKS"
+    fi
+    new_risk_mitigation_tasks=$(normalize_task_ids "$new_risk_mitigation_tasks")
     local new_status="${BATCH_STATUS:-$CURRENT_STATUS}"
     local new_type="${BATCH_TYPE:-$CURRENT_TYPE}"
     local new_deps="${BATCH_DEPS:-$CURRENT_DEPS}"
@@ -1634,7 +1720,8 @@ run_batch_mode() {
         "$new_children" "$new_assigned_to" "$new_boardcol" "$new_boardidx" "$new_issue" \
         "$new_folded_tasks" "$new_folded_into" "$new_pull_request" "$new_contributor" \
         "$new_contributor_email" "$new_implemented_with" "$new_file_references" \
-        "$new_verifies" "$new_xdeps" "$new_xdeprepo"
+        "$new_verifies" "$new_xdeps" "$new_xdeprepo" \
+        "$new_risk" "$new_risk_mitigation_tasks"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then
