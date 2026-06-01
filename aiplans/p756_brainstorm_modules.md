@@ -184,11 +184,18 @@ NOT fork the dimension axis list.** Consequences threaded into the children:
 > source — `active_dimensions` is unchanged (flat session-wide list); this
 > section stands exactly as written. See the "Re-verification" section at top.
 
-## Decomposition (4 children, dependency-ordered)
+## Decomposition (6 children + 1 manual-verification sibling, dependency-ordered)
 
-Children auto-depend on prior siblings, enforcing A→B→C→D. Each child file gets
-the full per-child context required for fresh-context execution (Child Task
-Documentation Requirements: Context, Key Files, Reference Patterns,
+> **Scope-split refinement (2026-06-01):** the original Phase B and Phase D were
+> each judged too large during review and split: **B → B1** (module-aware wizard
+> infra) **+ B2** (the two new ops); **D → D1** (status views) **+ D2** (fast-track
+> preset). This yields 6 implementation children + 1 aggregate manual-verification
+> sibling (756_7). The design doc's §7 roadmap still maps cleanly: A=§7-A,
+> B1+B2=§7-B, C=§7-C, D1+D2=§7-D.
+
+Children auto-depend on prior siblings, enforcing A→B1→B2→C→D1→D2→(MV). Each child
+file gets the full per-child context required for fresh-context execution (Child
+Task Documentation Requirements: Context, Key Files, Reference Patterns,
 Implementation Plan, Verification). The design doc is referenced as primary
 reference in every child.
 
@@ -211,16 +218,33 @@ reference in every child.
   per-module map) — see "Modules × dimensions × sections" above. `module_label`
   is orthogonal to dimension fields.
 - No new ops; existing ops continue to operate on `_umbrella`. Wizard gains the
-  subgraph-selector scaffolding only if cheap; otherwise the selector lands in B
+  subgraph-selector scaffolding only if cheap; otherwise the selector lands in B1
   (note this boundary in the child file).
 **Verification:** unit-style checks that legacy single-head sessions still load
 and validate; new map fields round-trip; `is_ancestor_subgraph` correctness;
 existing brainstorm tests still pass.
 
-### 756_2 — Phase B: `module_decompose` + `module_merge` ops (paired)
-**Scope (design doc §4.2, §4.4, §4.5, §4.8, §4.10, §5 op-recipe):** Paired in
-one task because they share the validators (ancestry guard) and the wizard
-subgraph-selector machinery (design doc §7 Phase B rationale).
+### 756_2 — Phase B1: module-aware wizard infrastructure
+**Scope (design doc §4.5, §7 Phase A subgraph-selector note):** the cross-cutting
+wizard plumbing — split out of Phase B because §4.5 calls it "the chunk of work
+that touches the most existing code". **No new ops.**
+- `brainstorm_app.py`: insert the **subgraph-selector** wizard step before
+  node-select (default = most-recently-touched subgraph; fallback `_umbrella`;
+  auto-skip / invisible when only `_umbrella` exists). Filter `_NODE_SELECT_OPS`
+  candidates by `module_label`. Record the chosen `subgraph` in the group entry.
+- `brainstorm_schemas.py`: optional `subgraph` field on group entries (default
+  `_umbrella` for back-compat).
+- `brainstorm_crew.py` + existing templates (explorer/comparator/synthesizer/
+  detailer/patcher): add "subgraph context: <module_label>" front-matter; thread
+  module context through the `register_*()` input assembly.
+**Verification:** with only `_umbrella`, existing ops behave exactly as before;
+on a multi-module fixture the selector lists subgraphs and node-select filters by
+`module_label`; legacy groups without `subgraph` default to `_umbrella`.
+
+### 756_3 — Phase B2: `module_decompose` + `module_merge` ops (paired)
+**Scope (design doc §4.2, §4.4, §4.8, §4.10, §5 op-recipe):** Paired in one task
+because they share the ancestry-guard validator (built in A) and B1's
+subgraph-selector machinery. Thin now that B1 made the wizard module-aware.
 - New templates `templates/module_decomposer.md`, `templates/module_merger.md`.
 - `brainstorm_crew.py`: add `module_decomposer`/`module_merger` to
   `BRAINSTORM_AGENT_TYPES`; `register_module_decomposer()` (multi-output: one
@@ -229,18 +253,15 @@ subgraph-selector machinery (design doc §7 Phase B rationale).
   <umbrella>`), `register_module_merger()` (2-parent output node in destination
   subgraph; ancestry guard at launch).
 - `brainstorm_schemas.py`: add `module_decompose`,`module_merge` to
-  `GROUP_OPERATIONS`; optional `subgraph` field on group entries (default
-  `_umbrella`).
+  `GROUP_OPERATIONS`.
 - `brainstorm_op_refs.py`: `_OP_INPUT_SECTION` entries
   `module_decompose:"Decomposition Plan"`, `module_merge:"Merge-Up Rules"`
   (distinct from synthesize's "Merge Rules").
 - `brainstorm_app.py`: `_DESIGN_OPS` (labels "Module Decompose"/"Module Merge"),
-  `_WIZARD_OP_TO_AGENT_TYPE`, `_OPERATION_HELP`, `_execute_design_op` branches;
-  insert the **subgraph selector** wizard step before node-select; make existing
-  ops module-aware (filter node candidates by `module_label`, record `subgraph`
-  in group entry, prompt front-matter "subgraph context: <module_label>").
-- UC-3 fast-track = `module_decompose --modules=one + --link-to-task` (one-step
-  wizard preset; the polished preset UI is Phase D, the functional path is here).
+  `_WIZARD_OP_TO_AGENT_TYPE`, `_OPERATION_HELP`, `_execute_design_op` branches.
+  **Reuse** B1's subgraph selector — do not re-add it.
+- UC-3 fast-track = `module_decompose --modules=one + --link-to-task` (functional
+  path here; the polished preset UI is Phase D2).
 - **Reuse t873 section↔dimension helpers (do NOT reinvent):** boundary-hint logic
   uses `dimension_matches_tag` / `get_sections_for_dimension` /
   `best_section_for_dimension`, and validates the decomposer's emitted section
@@ -252,7 +273,7 @@ correct `module_label`/`parents`/`current_heads`; merge produces a 2-parent
 destination node and refuses non-ancestor destinations; an existing op targeted
 at a module changes only that subgraph.
 
-### 756_3 — Phase C: `module_sync` op (consumer of `aitask_explain_context.sh`)
+### 756_4 — Phase C: `module_sync` op (consumer of `aitask_explain_context.sh`)
 **Scope (design doc §4.3, §5 "sync scan engine", §7 Phase C):**
 - New template `templates/module_syncer.md`.
 - `brainstorm_crew.py`: add `module_syncer` to `BRAINSTORM_AGENT_TYPES`;
@@ -273,26 +294,36 @@ module it consumes plan + scoped diff + explain-context and produces a synced
 HEAD; `last_synced_at` advances so re-sync sees only newer context; the helper
 family is unmodified (consumed via shell-out only).
 
-### 756_4 — Phase D: TUI surfaces & status views
-**Scope (design doc §4.7, §4.8, §7 Phase D):** Built last; depends on A/B/C
-data + ops being settled.
+### 756_5 — Phase D1: status views (badges + dashboard + deferred marker)
+**Scope (design doc §4.7, §7 Phase D):** the status-visualization half; built
+after A/B/C data + ops settle.
 - Per-module **status badge** computed per §4.7 table (`unstarted`/`in_design`/
   `in_implementation`/`implemented`/`merged`/`deferred`) — a derived render, not
   a new op. Inputs are all existing data (per-subgraph history, `linked_task`
   frontmatter, `parents` walk for `merged`, new `deferred` marker).
-- "Fast-track this module" wizard **preset** on top of `module_decompose
-  --link-to-task`.
 - Dashboard showing the subgraph tree with per-module sync/merge state.
 - Deferred-module marker (TUI binding to set `status.deferred=true`).
 - **Reuse t873 TUI/dimension helpers:** `FuzzyCheckList.set_grouped_items` for the
-  subgraph selector & dashboard checklists, `group_dimensions_by_prefix` +
-  `extract_dimensions` for grouped status views, `get_active_dimensions` for scope
-  defaults (all landed by t873 — `brainstorm_app.py` / `brainstorm_schemas.py` /
-  `brainstorm_dag.py`).
+  dashboard checklists, `group_dimensions_by_prefix` + `extract_dimensions` for
+  grouped status views, `get_active_dimensions` for scope defaults (all landed by
+  t873 — `brainstorm_app.py` / `brainstorm_schemas.py` / `brainstorm_dag.py`).
 - Follow `aidocs/tui_conventions.md` for any Textual changes.
-**Verification:** manual TUI walk-through (covered by the aggregate
-manual-verification sibling) — badges reflect mixed module states; fast-track
-preset creates subgraph + linked task in one pass; deferred toggle persists.
+**Verification:** badges reflect mixed module states; deferred toggle persists;
+dashboard renders the subgraph tree with per-module sync/merge state. (Covered by
+the aggregate manual-verification sibling.)
+
+### 756_6 — Phase D2: "Fast-track this module" wizard preset
+**Scope (design doc §4.8, §7 Phase D):** the ergonomics half — a one-pass preset
+over B2's functional `module_decompose --link-to-task` path. UC-3 is just
+`module_decompose` parameterised — a presentation layer, **not** a new op.
+- `brainstorm_app.py`: "Fast-track this module" wizard preset driving a
+  single-module `module_decompose --link-to-task` in one pass; routes through the
+  same `register_module_decomposer()` as the multi-module path.
+- Reuse `FuzzyCheckList.set_grouped_items` for any grouped selection; follow
+  `aidocs/tui_conventions.md`.
+**Verification:** the preset creates a subgraph + linked task in a single pass and
+reuses the B2 op logic (no fork). (Covered by the aggregate manual-verification
+sibling.)
 
 ### Out of scope (design doc §6 open questions — recommendations stand)
 Linked-task auto-archival on merge (recommend NO), nested-decompose recursion
@@ -301,41 +332,34 @@ field defaults to `_umbrella`), sync scan radius (exact-file-match for v1), sync
 without a linked task (NO for v1). These are recorded as decided defaults in the
 relevant child plans, not as separate tasks.
 
-## Post-approval execution (DEFERRED until t873 lands)
+## Post-approval execution — COMPLETED (2026-06-01)
 
-> These steps are the agreed child-creation flow, **to be run only after the
-> Sequencing re-verification passes**. They are NOT executed in the current run.
+The child-creation flow ran after the t873 re-verification passed (task-workflow
+Step 7 + planning.md §6.1 child-creation path). Children were first created as a
+4-child set (A/B/C/D), then **re-decomposed** the same day after a scope review
+split B→B1/B2 and D→D1/D2. Final state:
 
-Because planning runs in read-only plan mode, **all creation happens after
-approval** (task-workflow Step 7 + planning.md §6.1 child-creation path):
+1. Six implementation children created via the Batch Task Creation Procedure
+   (`issue_type: feature`, priority/effort per phase, full Child Task
+   Documentation Requirements):
+   - 756_1 Phase A · 756_2 Phase B1 · 756_3 Phase B2 · 756_4 Phase C ·
+     756_5 Phase D1 · 756_6 Phase D2 (sequential auto-dep A→B1→B2→C→D1→D2).
+2. Parent t756 reverted to `Ready`, `assigned_to` cleared, parent lock released —
+   board auto-renders "Has children".
+3. Six child plans written to `aiplans/p756/p756_<n>_<name>.md`.
+4. Aggregate `manual_verification` sibling **756_7** created (verifies 756_1–756_6),
+   covering the TUI/agent-launch behavior; depends on 756_6.
+5. Child checkpoint: "Stop here" — children/plans written, picked later in fresh
+   contexts; Satisfaction Feedback collected.
 
-1. For each child A–D, create via the **Batch Task Creation Procedure**:
-   `aitask_create.sh --batch --parent 756 --name <phase_name> ...` with
-   `issue_type: feature`, priority/effort per phase, and a full description
-   meeting the Child Task Documentation Requirements.
-2. Revert parent t756 to `Ready` and clear `assigned_to`
-   (`aitask_update.sh --batch 756 --status Ready --assigned-to ""`); release the
-   parent lock (`aitask_lock.sh --unlock 756`). The board auto-renders t756 as
-   "Has children".
-3. Write all four child plans to `aiplans/p756/p756_<n>_<name>.md` (metadata
-   header per planning.md; leverage this exploration), then
-   `./ait git add aiplans/p756/ && ./ait git commit -m "ait: Add t756 child
-   implementation plans"`.
-4. **Manual-verification sibling offer** (auto, ≥2 children): offer an aggregate
-   `manual_verification` sibling covering the TUI/agent-launch behavior across
-   children (very apt — Phase D + live agent ops). Created via
-   `aitask_create_manual_verification.sh` if accepted.
-5. **Child task checkpoint** (always interactive): "Start first child" →
-   `/aitask-pick 756_1`; or "Stop here" → run Satisfaction Feedback and end.
-
-## Verification (of this decomposition task, once executed)
-- `aitask_ls.sh -v --children 756 99` lists the four children (plus MV sibling
-  if added) in dependency order.
-- Each child file contains all five required documentation sections and
-  references `aidocs/brainstorming/module_decomposition_design.md` as primary
-  reference.
-- `aiplans/p756/` contains a plan per child with correct metadata headers.
-- t756 shows `status: Ready` with populated `children_to_implement`; parent lock
-  released.
+## Verification (of this decomposition task) — satisfied
+- `aitask_ls.sh -v --children 756 99` lists the six children + the MV sibling
+  (756_7) in dependency order (756_1→…→756_6→756_7).
+- Each child file contains all five required documentation sections and references
+  `aidocs/brainstorming/module_decomposition_design.md` as primary reference.
+- `aiplans/p756/` contains a plan per implementation child (756_1–756_6) with
+  correct metadata headers (the MV sibling is a checklist task, no plan file).
+- t756 shows `status: Ready` with populated `children_to_implement`
+  (`[t756_1 … t756_7]`); parent lock released.
 - No source code under `.aitask-scripts/brainstorm/` is modified by this task —
   implementation is deferred to the children.
