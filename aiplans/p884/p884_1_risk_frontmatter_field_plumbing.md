@@ -17,21 +17,24 @@ plan_verified:
 ## Goal
 
 Add two additive task frontmatter fields. **Zero behavior change when absent.**
-- `risk` — scalar `high|medium|low`, mirrors `priority`. Display-only; **no** sort score; **no** border color; **omitted by default**.
-- `risk_mitigation_tasks` — YAML **list** of task IDs; omitted by default; **dropped on fold**.
+- `risk` — scalar `high|medium|low`. **A planning output, not a creation-time input:** it is assigned later by the risk-evaluation step (t884_3) via `aitask_update.sh`, never chosen at `ait create`. Mirrors `priority`'s *update/display* plumbing only. Display-only; **no** sort score; **no** border color; **omitted by default**.
+- `risk_mitigation_tasks` — YAML **list** of task IDs; written post-create (by t884_4); omitted by default; **dropped on fold**.
 
 ## Steps
 
-1. **`aitask_create.sh`** — mirror every `priority` site for `risk` (batch `--risk` flag ~144, validation `high|medium|low` ~1766, `select_risk()` fzf ~802, interactive flow + summary, serialization in `create_draft_file`/`create_task_file`/`create_child_task_file`). **But:** default = omit (no `risk:` line when unset), not `medium`. Do NOT expose `risk_mitigation_tasks` as a create-time prompt — only ensure the serializer emits it if a value is present (or skip entirely at create).
-2. **`aitask_update.sh`** — `BATCH_RISK`/`CURRENT_RISK`, `--risk` flag ~227, parse ~380, validation ~1461, `interactive_update_risk()` ~987, field handler, `write_task_file` ~487. Add `--risk-mitigation-tasks` (list) for later read-modify-write by t884_4.
+1. **`aitask_create.sh`** — **No change.** Neither `risk` nor `risk_mitigation_tasks` is chosen up-front: both are written *after* creation (risk by the t884_3 evaluation step, the mitigation list by t884_4), and both are always absent at create time, so there is nothing to serialize. Do **not** add a `--risk` flag, `select_risk()`, interactive prompt, validation, or create-time serialization. (This is the key deviation from the "mirror `priority` everywhere" template — `priority` is a creation input; `risk` is a planning output.)
+2. **`aitask_update.sh`** — this is where `risk` enters. `BATCH_RISK`/`CURRENT_RISK`, `--risk` flag ~227, parse ~380, validation `high|medium|low` ~1461, `interactive_update_risk()` ~987, field handler, `write_task_file` serialization ~487 (conditional-emit like `verifies`/`xdeprepo` so unset = no `risk:` line). Add `--risk-mitigation-tasks` (list) for later read-modify-write by t884_4.
 3. **`aitask_ls.sh`** — parse `risk` for display only (~225-230 pattern); do NOT add to `p_score`.
 4. **`aitask_board.py`** — snapshot dict (~2388), ReadOnlyField for Done/Folded (~2424), `CycleField("Risk", ["low","medium","high"], meta.get("risk"), "risk", ...)` (~2429). No `_risk_border_color`. **CycleField caveat (verified 2026-06-01):** `CycleField.__init__` falls back to `current_index = 0` ("low") when the passed value isn't in `options` (line ~974), so an *unset* risk renders as "low" in the editor. Omit-by-default still holds at the data layer — the snapshot stores `None` (`meta.get("risk")` with no default), `_current_values`/`_original_values` start equal, and `save_changes` only writes fields the user *actively* cycled (Changed message). So a task opened-but-not-touched is not written a `risk:` line. Accept this display-only quirk for the foundation task (same inherent limitation `priority`/`effort` avoid only by always having a value); do not invent an "unset" sentinel option.
 5. **`aitask_fold_mark.sh`** — explicitly drop `risk_mitigation_tasks` on fold (do not union/transfer). `risk` scalar needs no fold change.
 
 ## Verification
 
-- Create with/without `--risk`; update; `ait board` renders; fold drops `risk_mitigation_tasks`, keeps primary `risk`.
-- `shellcheck` the four scripts; run existing create/update test suites.
+- A freshly created task has **no** `risk:` line (confirm `aitask_create.sh` was not touched / emits no risk).
+- `aitask_update.sh --batch <id> --risk medium` sets the field; interactive update offers Risk; `--risk-mitigation-tasks` writes the list.
+- `ait board` renders the risk value (read-only for Done/Folded, CycleField otherwise); tasks with no risk render without error.
+- Fold a task carrying `risk_mitigation_tasks` into a primary → primary keeps its own `risk`, the list is NOT carried over.
+- `shellcheck .aitask-scripts/aitask_update.sh .aitask-scripts/aitask_ls.sh .aitask-scripts/aitask_fold_mark.sh` (create.sh unchanged); run existing update/fold test suites.
 
 ## Notes for sibling tasks
 
