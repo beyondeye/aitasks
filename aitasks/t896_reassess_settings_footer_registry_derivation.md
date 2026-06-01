@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [848_3]
+depends: [t848_3]
 issue_type: refactor
 status: Ready
 labels: [custom_shortcuts, verification]
 created_at: 2026-06-01 12:45
 updated_at: 2026-06-01 12:45
+boardidx: 40
 ---
 
 ## Reassess: settings tab-switcher footer registry-derivation

@@ -7,6 +7,7 @@ status: Ready
 labels: [task_workflow, task-planning]
 created_at: 2026-06-01 12:20
 updated_at: 2026-06-01 12:20
+boardidx: 30
 ---
 
 ## Origin
