@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [custom_shortcuts]
-children_to_implement: [t848_7]
 created_at: 2026-05-27 15:00
-updated_at: 2026-05-31 19:20
+updated_at: 2026-06-01 13:35
+completed_at: 2026-06-01 13:35
 boardidx: 80
 ---
 
