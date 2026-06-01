@@ -1,13 +1,14 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [756]
 issue_type: enhancement
 status: Implementing
 labels: [ait_brainstorm, brainstom_modules, remove_support]
+children_to_implement: [t891_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 09:19
-updated_at: 2026-06-01 09:29
+updated_at: 2026-06-01 10:51
 ---
 
 # Retire plans — make `ait brainstorm` proposal-only; port plan value into the module architecture
@@ -25,11 +26,23 @@ Premise (user): *detailed implementation plans belong to the implementation
 phase, not the brainstorm phase. In practice proposals are good enough during
 brainstorm, and a detailed plan is rebuilt anyway at `/aitask-pick` time.*
 
-This task is framed as a **sibling/companion to t756** and a decision **upstream
-of t756 implementation** — settling it shrinks the modules work (see Sequencing).
-The deliverable of this parent is the decision + a child decomposition + the
-retired-feature → module mapping below; it is **a brainstorm-design exploration**
-of which ideas from the retired plan machinery should improve the module design.
+This task is framed as a **sibling/companion to t756**. The deliverable of this
+parent is the decision + a child decomposition + the retired-feature → module
+mapping below; it is **a brainstorm-design exploration** of which ideas from the
+retired plan machinery should improve the module design.
+
+> **⚠️ REVISED SEQUENCING (2026-06-01): t891 retirement is DEFERRED until after
+> t756 (module redesign) lands.** The earlier framing put t891 *upstream* of
+> t756 (shrinking it). That is reversed: the existing plan-specific machinery
+> (`detail`/`patch` wizard flows, the detailer/patcher agents, the
+> poll/auto-apply infra, the impact-analysis escalation) is the **working
+> reference model** for the new module operations t756 must build
+> (`module_decompose`, `module_sync`, their wizards, the syncer's bottom-up
+> reconciliation). Retiring it first would delete that model. The four children
+> below are fully detailed now but **gated on `depends: 756`**; each child
+> re-verifies its code anchors against the as-landed codebase at execution time.
+> `ait brainstorm` is unshipped, so **no back-compat / migration** is needed.
+> See the Sequencing section.
 
 ## Motivation / analysis (why plans give reduced benefit once modules land)
 
@@ -85,26 +98,33 @@ implementation reality** instead of hypothetical plan edits.
 
 ## Sequencing (binding)
 
-- **Upstream of t756 implementation; coordinate with t873** (`t873` dimension
-  redesign already blocks t756 — `aiplans/p756_brainstorm_modules.md`). Deciding
-  proposal-only is a third input to that same redesign and **shrinks** t756:
-  - Phase B "make existing ops module-aware" drops from 5 ops to 3 (no
-    `detail`/`patch` to thread `module_label`/`plan_file` through).
-  - Phase C `module_sync` becomes the **sole** bottom-up mechanism (no patcher
-    semantics to keep coherent).
-  - `module_decompose` lifecycle loses its `detail` step; fast-track seeds from the
-    proposal.
-- **Re-verify** against the as-landed t873 design before implementing (same caveat
-  as t756's Sequencing banner).
-- Add references to this task in `aiplans/p756_brainstorm_modules.md` and the
-  design doc so the modules work consumes the proposal-only decision.
+- **DOWNSTREAM of t756; gated on `depends: 756`.** Retirement runs only *after*
+  the module redesign lands. Rationale: the plan-specific machinery
+  (`detail`/`patch`, detailer/patcher agents, plan wizard flows, impact-analysis
+  escalation) is the **reference model** for the module operations t756 builds.
+  Build the module ops from that model first, then retire the plan layer here.
+- **t873 has landed** (archived). It reworked the section-marker / dimension-link
+  machinery that is **shared with proposals** — removal children must preserve it
+  and touch only the plan-specific consumers.
+- **Re-verify** each child's code anchors against the as-landed codebase before
+  implementing: the anchors recorded in the child plans are a 2026-06-01
+  pre-modules snapshot and will drift once t756 lands.
+- Cross-links recorded as part of this decomposition: `t756`'s description and
+  `aiplans/p756_brainstorm_modules.md` reference this task with the reversed
+  (model + defer) framing; `module_decomposition_design.md` gets a t891 cross-ref
+  (deferred to child t891_1).
+- **No back-compat / migration:** `ait brainstorm` is not a shipped feature, so
+  `plan_file` nodes and `br_plans/` stores are removed outright.
 
-## Likely child decomposition (decompose at pick time — re-verify after t873)
+## Child decomposition (created — gated on `depends: 756`; full plans in `aiplans/p891/`)
 
-1. **Decision + docs**: ratify proposal-only in
-   `aidocs/brainstorming/brainstorm_engine_architecture.md` (rewrite §4.4 Plan
-   Template, §7.5 Detail, §7.6 Patch, §7.7 Finalize, the Top-Down/Bottom-Up flow
-   §); cross-reference from the module design doc and `p756`.
+1. **Decision + docs**: ratify proposal-only by authoring a **new v2 doc**
+   `aidocs/brainstorming/brainstorm_engine_architecture_v2.md` (proposal-only
+   architecture) and **archiving** the current
+   `aidocs/brainstorming/brainstorm_engine_architecture.md` to
+   `aidocs/brainstorming/old/` (preserve the two-level design as a reference, not
+   an in-place rewrite). Repoint cross-references. Add a t891 cross-ref to the
+   module design doc and drop its `detail` lifecycle step.
 2. **Ops/agents removal**: retire `detail`/`patch` from `GROUP_OPERATIONS`,
    `BRAINSTORM_AGENT_TYPES`, `_DESIGN_OPS`, `_WIZARD_OP_TO_AGENT_TYPE`,
    `_NODE_SELECT_OPS`, `_OPERATION_HELP`, `_execute_design_op`; remove
@@ -116,14 +136,15 @@ implementation reality** instead of hypothetical plan edits.
    remove `read_plan`/`PLANS_DIR`/`br_plans/`; NodeDetailModal Plan tab, `l`/`V`
    plan bindings, plan badges (`brainstorm_dag_display.py`), patch wizard step +
    `_node_has_plan` gating.
-4. **Finalize replacement + back-compat/migration**: replace `finalize_session()`
-   plan-export with a proposal export (or rely on fast-track + aitask ownership);
-   migration story for pre-modules sessions that carry `plan_file`.
+4. **Finalize replacement**: replace `finalize_session()` plan-export with a
+   proposal export (or rely on fast-track + aitask ownership). No migration —
+   `plan_file` nodes and `br_plans/` are removed outright (unshipped feature).
 
 ## Obsoleted by this task
-- `t744_manual_verification_brainstorm_apply_patcher_output_followup`
-- `t811_manual_verification_brainstorm_reconcile_patcher_into_apply_`
-  (patcher behavior disappears). Re-verify and close/retire when this lands.
+- `t744_manual_verification_brainstorm_apply_patcher_output_followup` and
+  `t811_manual_verification_brainstorm_reconcile_patcher_into_apply_` —
+  **already removed** (not present in active or archived dirs as of 2026-06-01).
+  No close/retire action required.
 
 ## Key references
 - `aidocs/brainstorming/brainstorm_engine_architecture.md` — §3 node triad,
