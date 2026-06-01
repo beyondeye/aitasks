@@ -5,9 +5,9 @@ depends: [756]
 issue_type: enhancement
 status: Ready
 labels: [ait_brainstorm, brainstom_modules, remove_support]
-children_to_implement: [t891_1, t891_2, t891_3, t891_4]
+children_to_implement: [t891_1, t891_2, t891_3, t891_4, t891_5]
 created_at: 2026-06-01 09:19
-updated_at: 2026-06-01 10:54
+updated_at: 2026-06-01 11:49
 ---
 
 # Retire plans — make `ait brainstorm` proposal-only; port plan value into the module architecture
