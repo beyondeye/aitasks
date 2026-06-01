@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t832_1, t832_2, t832_3, t832_4, t832_5, t832_7, t832_8]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [cross_repo, retrospective]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-05-26 18:28
-updated_at: 2026-06-01 12:39
+updated_at: 2026-06-01 13:32
+completed_at: 2026-06-01 13:32
 ---
 
 ## Context
