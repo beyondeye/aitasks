@@ -6,8 +6,9 @@ issue_type: enhancement
 status: Implementing
 labels: [task_workflow, task-planning]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 00:30
-updated_at: 2026-06-01 17:24
+updated_at: 2026-06-01 17:39
 ---
 
 ## Context

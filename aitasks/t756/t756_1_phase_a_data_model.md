@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, brainstom_modules]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 16:44
-updated_at: 2026-06-01 16:44
+updated_at: 2026-06-01 17:50
 ---
 
 Phase A of the `ait brainstorm` **module decomposition** feature (parent t756).
