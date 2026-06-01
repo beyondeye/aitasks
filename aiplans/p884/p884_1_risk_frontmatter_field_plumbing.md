@@ -44,3 +44,20 @@ Add two additive task frontmatter fields. **Zero behavior change when absent.**
 ## Notes for sibling tasks
 
 t884_3 writes `risk`; t884_4 read-modify-writes `risk_mitigation_tasks`; t884_5 reads it. All depend on these flags/serialization existing.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly the revised 6-step plan.
+  - `aitask_update.sh`: added `BATCH_RISK`/`BATCH_RISK_SET`, `BATCH_RISK_MITIGATION_TASKS`/`_SET`, and `CURRENT_RISK`/`CURRENT_RISK_MITIGATION_TASKS`. New flags `--risk` (scalar, validated only when non-empty so `--risk ""` clears) and `--risk-mitigation-tasks` (list, replace-all, `normalize_task_ids`). `write_task_file` gained two positional params (`${25}` risk, `${26}` risk_mitigation_tasks) emitted conditionally — `risk:` right after `priority:`; `risk_mitigation_tasks:` right after the `verifies:` block. Wired through all three `write_task_file` call sites (batch, interactive, child-completion) plus the child-completion save/restore block. Interactive mode: `interactive_update_risk()` + a "risk" row in `interactive_select_field` (7th param) + handler + summary line.
+  - `aitask_ls.sh`: `risk_text` parsed (display-only, **no** `r_score`; deliberately excluded from `p_score`), rendered as `, Risk: <v>` between Priority and Effort, only when set.
+  - `aitask_board.py`: `risk` added to `_original_values` with **no** default (`task.metadata.get("risk")` → None when unset); ReadOnlyField shown only when `meta.get("risk")` truthy; editable `CycleField("Risk", ...)`. Save round-trips via the generic `serialize_frontmatter`, which also preserves `risk_mitigation_tasks` untouched (no board edit path for it).
+  - `aitask_fold_mark.sh`: documented that `risk_mitigation_tasks` is intentionally NOT unioned into the primary (contrast with `verifies`), and added `--risk-mitigation-tasks ""` to the Step-4 folded-task update so the folded instance's list is cleared.
+- **Deviations from plan:** None of substance. The only nuance beyond the written plan: chose to also **clear** the folded task's own `risk_mitigation_tasks` (not just skip the union) so "drop on fold" is observable and testable — this is what `test_fold_risk_mitigation_drop.sh` asserts. `--risk`/`--risk-mitigation-tasks` use the `_SET` guard pattern (like `verifies`/`issue`) so `""` explicitly clears.
+- **Issues encountered:** None. Verified `serialize_frontmatter` (board) emits arbitrary keys and round-trips lists via `_FlowListDumper`, so no board-serializer change was needed and `risk_mitigation_tasks` is never dropped by a board edit.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - t884_3 (writes `risk`): call `aitask_update.sh --batch <id> --risk <level>`. Omit the flag (or pass `""`) to leave/clear it. Validation accepts only `high|medium|low`.
+  - t884_4 (populates `risk_mitigation_tasks`): the flag is **replace-all**, not append. Read-modify-write = read the current list (e.g. `read_yaml_field`/`parse_yaml_list`), append, then pass the full CSV back via `--risk-mitigation-tasks "a,b,c"`.
+  - t884_5 (reads `risk_mitigation_tasks`): it serializes as a YAML flow list (`[12, 13]`); parse with `parse_yaml_list`.
+  - Board: an **unset** risk renders as "low" in the CycleField editor (index-0 fallback) but is NOT persisted unless the user actively cycles it — accepted display-only quirk; no "unset" sentinel was added.
+  - `aitask_create.sh` was deliberately left untouched; `test_update_risk.sh` has a guard asserting created tasks carry neither field.
