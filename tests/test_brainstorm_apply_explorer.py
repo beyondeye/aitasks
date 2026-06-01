@@ -190,7 +190,9 @@ class ApplyExplorerHappyPathTests(unittest.TestCase):
             # next_node_id is consumed at registration time (t795); apply
             # no longer bumps the counter. Initial value is preserved.
             self.assertEqual(gs["next_node_id"], 1)
-            self.assertIn(new_id, gs["history"])
+            # history is a per-module map (t756); the legacy list fixture is
+            # migrated into the _umbrella subgraph on set_head.
+            self.assertIn(new_id, gs["history"]["_umbrella"])
 
     def test_reference_files_preserved(self):
         with tempfile.TemporaryDirectory() as td:

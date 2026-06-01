@@ -198,7 +198,9 @@ class ApplySynthesizerHappyPathTests(unittest.TestCase):
             # next_node_id is consumed at registration time (t795); apply
             # no longer bumps the counter. Initial value is preserved.
             self.assertEqual(gs["next_node_id"], 2)
-            self.assertIn(new_id, gs["history"])
+            # history is a per-module map (t756); the legacy list fixture is
+            # migrated into the _umbrella subgraph on set_head.
+            self.assertIn(new_id, gs["history"]["_umbrella"])
 
     def test_multi_parent_node_links_all_parents(self):
         """Synthesizers merge ≥2 nodes — the new node's parents list

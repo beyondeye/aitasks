@@ -25,12 +25,14 @@ from brainstorm.brainstorm_dag import (
     NODES_DIR,
     PLANS_DIR,
     PROPOSALS_DIR,
+    UMBRELLA_SUBGRAPH,
     create_node,
     get_children,
     get_dimension_fields,
     get_head,
     get_node_lineage,
     get_parents,
+    is_ancestor_subgraph,
     list_nodes,
     next_node_id,
     read_node,
@@ -106,7 +108,12 @@ class TestInitSession(BrainstormTestBase):
 
         gs = read_yaml(str(wt / GRAPH_STATE_FILE))
         self.assertEqual(gs["current_head"], "n000_init")
-        self.assertEqual(gs["history"], ["n000_init"])
+        # current_head is the legacy alias of the _umbrella subgraph HEAD; the
+        # module-aware maps (t756) are seeded and back-fill _umbrella on set_head.
+        self.assertEqual(gs["current_heads"], {"_umbrella": "n000_init"})
+        self.assertEqual(gs["history"], {"_umbrella": ["n000_init"]})
+        self.assertEqual(gs["module_tasks"], {})
+        self.assertEqual(gs["last_synced_at"], {})
         self.assertEqual(gs["next_node_id"], 1)
         self.assertEqual(gs["active_dimensions"], [])
 
@@ -171,12 +178,13 @@ class TestSetHead(BrainstormTestBase):
         self._init_session()
         create_node(self.wt_path, "n000_init", [], "Init", {}, "# Init", "explore_001")
 
-        # init_session already sets head to n000_init with history ["n000_init"]
+        # init_session already sets head to n000_init with _umbrella history
+        # ["n000_init"]; history is now a per-module map (t756).
         set_head(self.wt_path, "n000_init")
         self.assertEqual(get_head(self.wt_path), "n000_init")
 
         gs = read_yaml(str(self.wt_path / GRAPH_STATE_FILE))
-        self.assertEqual(gs["history"], ["n000_init", "n000_init"])
+        self.assertEqual(gs["history"], {"_umbrella": ["n000_init", "n000_init"]})
 
         # Set another head
         create_node(self.wt_path, "n001_alt", ["n000_init"], "Alt", {}, "# Alt", "explore_001")
@@ -184,7 +192,11 @@ class TestSetHead(BrainstormTestBase):
         self.assertEqual(get_head(self.wt_path), "n001_alt")
 
         gs = read_yaml(str(self.wt_path / GRAPH_STATE_FILE))
-        self.assertEqual(gs["history"], ["n000_init", "n000_init", "n001_alt"])
+        self.assertEqual(
+            gs["history"], {"_umbrella": ["n000_init", "n000_init", "n001_alt"]}
+        )
+        self.assertEqual(gs["current_head"], "n001_alt")
+        self.assertEqual(gs["current_heads"]["_umbrella"], "n001_alt")
 
 
 class TestGetChildren(BrainstormTestBase):
@@ -245,6 +257,97 @@ class TestGetNodeLineage(BrainstormTestBase):
         self.assertEqual(get_node_lineage(self.wt_path, "n000_root"), ["n000_root"])
 
 
+class TestModuleSubgraphs(BrainstormTestBase):
+    """Module-decomposition data model (t756): per-subgraph HEADs, module_label,
+    module-scoped lineage, and the merge ancestry guard."""
+
+    def _module_node(self, node_id, parents, module, group="explore_001"):
+        """Create a node and tag it with a module_label subgraph membership."""
+        create_node(self.wt_path, node_id, parents, node_id, {}, f"# {node_id}", group)
+        update_node(self.wt_path, node_id, {"module_label": module})
+
+    def test_per_module_heads_are_independent(self):
+        self._init_session()
+        # _umbrella head is seeded by init_session.
+        self._module_node("n010_p", ["n000_init"], "parser")
+        set_head(self.wt_path, "n010_p", module="parser")
+
+        # Each subgraph tracks its own HEAD.
+        self.assertEqual(get_head(self.wt_path, module="parser"), "n010_p")
+        self.assertEqual(get_head(self.wt_path, module=UMBRELLA_SUBGRAPH), "n000_init")
+        # Default arg resolves the _umbrella subgraph.
+        self.assertEqual(get_head(self.wt_path), "n000_init")
+
+        gs = read_yaml(str(self.wt_path / GRAPH_STATE_FILE))
+        self.assertEqual(gs["current_heads"]["parser"], "n010_p")
+        self.assertEqual(gs["history"]["parser"], ["n010_p"])
+
+    def test_umbrella_head_aliases_legacy_current_head(self):
+        self._init_session()
+        create_node(self.wt_path, "n001_u", ["n000_init"], "U", {}, "# U", "explore_001")
+        set_head(self.wt_path, "n001_u")  # default _umbrella
+
+        gs = read_yaml(str(self.wt_path / GRAPH_STATE_FILE))
+        # Writing the _umbrella HEAD keeps the legacy current_head alias in sync.
+        self.assertEqual(gs["current_head"], "n001_u")
+        self.assertEqual(gs["current_heads"][UMBRELLA_SUBGRAPH], "n001_u")
+
+    def test_get_head_falls_back_to_legacy_current_head(self):
+        """A legacy single-head state (no current_heads map) still resolves."""
+        self._init_session()
+        # Simulate a pre-module session on disk: only current_head + list history.
+        write_yaml(
+            str(self.wt_path / GRAPH_STATE_FILE),
+            {
+                "current_head": "n000_init",
+                "history": ["n000_init"],
+                "next_node_id": 1,
+                "active_dimensions": [],
+            },
+        )
+        self.assertEqual(get_head(self.wt_path), "n000_init")
+        # First set_head migrates the legacy list into the per-module map.
+        create_node(self.wt_path, "n001_u", ["n000_init"], "U", {}, "# U", "explore_001")
+        set_head(self.wt_path, "n001_u")
+        gs = read_yaml(str(self.wt_path / GRAPH_STATE_FILE))
+        self.assertEqual(gs["history"], {UMBRELLA_SUBGRAPH: ["n000_init", "n001_u"]})
+
+    def test_lineage_is_scoped_to_subgraph(self):
+        self._init_session()
+        # _umbrella: n000_init -> n001_u ; parser subgraph roots at n010_p.
+        create_node(self.wt_path, "n001_u", ["n000_init"], "U", {}, "# U", "explore_001")
+        self._module_node("n010_p", ["n001_u"], "parser")
+        self._module_node("n011_p", ["n010_p"], "parser")
+
+        # Module-scoped lineage stops at the subgraph root (does not cross into
+        # the _umbrella ancestor).
+        self.assertEqual(
+            get_node_lineage(self.wt_path, "n011_p", module="parser"),
+            ["n010_p", "n011_p"],
+        )
+
+    def test_is_ancestor_subgraph_up_only(self):
+        self._init_session()
+        # _umbrella spine.
+        create_node(self.wt_path, "n001_u", ["n000_init"], "U", {}, "# U", "explore_001")
+        # parser branches off _umbrella; auth branches off parser (nested).
+        self._module_node("n010_p", ["n001_u"], "parser")
+        self._module_node("n020_a", ["n010_p"], "auth")
+
+        # Ancestors → True.
+        self.assertTrue(
+            is_ancestor_subgraph(self.wt_path, "parser", UMBRELLA_SUBGRAPH)
+        )
+        self.assertTrue(is_ancestor_subgraph(self.wt_path, "auth", "parser"))
+        self.assertTrue(
+            is_ancestor_subgraph(self.wt_path, "auth", UMBRELLA_SUBGRAPH)
+        )
+        # Descendant, sibling, and self → False.
+        self.assertFalse(is_ancestor_subgraph(self.wt_path, UMBRELLA_SUBGRAPH, "parser"))
+        self.assertFalse(is_ancestor_subgraph(self.wt_path, "parser", "auth"))
+        self.assertFalse(is_ancestor_subgraph(self.wt_path, "parser", "parser"))
+
+
 class TestValidateNode(BrainstormTestBase):
 
     def test_valid_node(self):
@@ -275,6 +378,59 @@ class TestValidateNode(BrainstormTestBase):
             "created_by_group": "",
         })
         self.assertTrue(any("parents" in e and "list" in e for e in errors))
+
+
+class TestValidateGraphState(unittest.TestCase):
+    """Graph-state validation, incl. the additive module-decomposition maps (t756)."""
+
+    def _legacy(self):
+        return {
+            "current_head": "n000_init",
+            "history": ["n000_init"],
+            "next_node_id": 1,
+            "active_dimensions": [],
+        }
+
+    def test_legacy_single_head_state_is_valid(self):
+        self.assertEqual(validate_graph_state(self._legacy()), [])
+
+    def test_module_aware_state_is_valid(self):
+        data = {
+            "current_head": "n005",
+            "current_heads": {"_umbrella": "n005", "parser": "n012"},
+            "history": {"_umbrella": ["n001", "n005"], "parser": ["n010", "n012"]},
+            "next_node_id": 13,
+            "active_dimensions": ["component_parser"],
+            "module_tasks": {"parser": "754_1"},
+            "last_synced_at": {"parser": "2026-05-04 14:30"},
+        }
+        self.assertEqual(validate_graph_state(data), [])
+
+    def test_history_may_be_list_or_map_but_not_scalar(self):
+        data = self._legacy()
+        data["history"] = 5
+        self.assertTrue(any("history" in e for e in validate_graph_state(data)))
+
+    def test_history_map_values_must_be_lists(self):
+        data = self._legacy()
+        data["history"] = {"_umbrella": "n000_init"}
+        self.assertTrue(any("history" in e for e in validate_graph_state(data)))
+
+    def test_module_maps_must_be_dicts(self):
+        for field in ("current_heads", "module_tasks", "last_synced_at"):
+            data = self._legacy()
+            data[field] = ["not", "a", "map"]
+            self.assertTrue(
+                any(field in e for e in validate_graph_state(data)),
+                f"{field} list shape should be rejected",
+            )
+
+    def test_active_dimensions_stays_a_list(self):
+        data = self._legacy()
+        data["active_dimensions"] = {"parser": ["component_parser"]}
+        self.assertTrue(
+            any("active_dimensions" in e for e in validate_graph_state(data))
+        )
 
 
 class TestValidateSession(BrainstormTestBase):

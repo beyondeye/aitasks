@@ -106,12 +106,19 @@ def init_session(
         session_data["initial_proposal_file"] = abs_proposal_path
     write_yaml(str(wt / SESSION_FILE), session_data)
 
-    # Write br_graph_state.yaml
+    # Write br_graph_state.yaml. The module-decomposition maps (t756) are seeded
+    # empty and back-compat: current_head/history are the legacy single-head
+    # fields, kept in sync by set_head() as aliases of the _umbrella subgraph.
+    # set_head(wt, "n000_init") below populates current_heads["_umbrella"] and
+    # history["_umbrella"].
     graph_state = {
         "current_head": None,
-        "history": [],
+        "current_heads": {},
+        "history": {},
         "next_node_id": 0,
         "active_dimensions": [],
+        "module_tasks": {},
+        "last_synced_at": {},
     }
     write_yaml(str(wt / GRAPH_STATE_FILE), graph_state)
 

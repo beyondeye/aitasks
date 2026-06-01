@@ -24,6 +24,11 @@ PROPOSALS_DIR = "br_proposals"
 PLANS_DIR = "br_plans"
 GRAPH_STATE_FILE = "br_graph_state.yaml"
 
+# Default subgraph for the module-decomposition feature (t756). Every legacy
+# single-head session is an implicit ``_umbrella`` subgraph; head/lineage
+# helpers default to it so existing call-sites are unchanged.
+UMBRELLA_SUBGRAPH = "_umbrella"
+
 
 # ---------------------------------------------------------------------------
 # Node CRUD
@@ -119,30 +124,67 @@ def get_active_dimensions(session_path: Path) -> list[str]:
     return [str(d) for d in (gs.get("active_dimensions") or [])]
 
 
-def get_head(session_path: Path) -> str | None:
-    """Read br_graph_state.yaml and return current HEAD node ID (or None)."""
+def get_head(session_path: Path, module: str = UMBRELLA_SUBGRAPH) -> str | None:
+    """Return the HEAD node ID for a subgraph (or None).
+
+    Reads ``current_heads[module]`` when the per-module map exists; for the
+    ``_umbrella`` subgraph it falls back to the legacy ``current_head`` field
+    so single-head sessions written before module support still resolve.
+    """
     gs = _read_graph_state(session_path)
-    head = gs.get("current_head")
+    head = None
+    heads = gs.get("current_heads")
+    if isinstance(heads, dict) and module in heads:
+        head = heads.get(module)
+    elif module == UMBRELLA_SUBGRAPH:
+        head = gs.get("current_head")
     # YAML null / empty string → None
     if not head:
         return None
     return str(head)
 
 
-def set_head(session_path: Path, node_id: str) -> None:
-    """Update HEAD in br_graph_state.yaml and append to history."""
+def set_head(session_path: Path, node_id: str, module: str = UMBRELLA_SUBGRAPH) -> None:
+    """Update a subgraph HEAD in br_graph_state.yaml and append to its history.
+
+    Writes ``current_heads[module]`` and, for the ``_umbrella`` subgraph, keeps
+    the legacy ``current_head`` field in sync as an alias. ``history`` is a
+    per-module map (<module> -> [node_id, ...]); a legacy linear list is
+    migrated in place to ``history["_umbrella"]`` on first write.
+    """
     gs = _read_graph_state(session_path)
-    gs["current_head"] = node_id
-    history = gs.get("history", [])
-    history.append(node_id)
+
+    heads = gs.get("current_heads")
+    if not isinstance(heads, dict):
+        heads = {}
+    heads[module] = node_id
+    gs["current_heads"] = heads
+
+    # Legacy alias: the _umbrella HEAD is mirrored to current_head.
+    if module == UMBRELLA_SUBGRAPH:
+        gs["current_head"] = node_id
+
+    history = gs.get("history")
+    if isinstance(history, list):
+        # Legacy linear list — repurpose as the _umbrella subgraph history.
+        history = {UMBRELLA_SUBGRAPH: history}
+    elif not isinstance(history, dict):
+        history = {}
+    module_history = list(history.get(module, []))
+    module_history.append(node_id)
+    history[module] = module_history
     gs["history"] = history
+
     _write_graph_state(session_path, gs)
 
 
-def next_node_id(session_path: Path) -> int:
+def next_node_id(session_path: Path, module: str = UMBRELLA_SUBGRAPH) -> int:
     """Read, increment, and return next_node_id from br_graph_state.yaml.
 
-    Returns the current value and increments the stored counter.
+    Returns the current value and increments the stored counter. The node-id
+    counter is session-wide (shared across all subgraphs); the ``module``
+    parameter is accepted for signature symmetry with the other head helpers
+    and is currently unused.
     """
     gs = _read_graph_state(session_path)
     current = gs.get("next_node_id", 0)
@@ -172,11 +214,28 @@ def get_children(session_path: Path, node_id: str) -> list[str]:
     return children
 
 
-def get_node_lineage(session_path: Path, node_id: str) -> list[str]:
-    """Trace ancestry back to root node. Returns list from root to node_id.
+def _node_module(session_path: Path, node_id: str) -> str:
+    """Return a node's subgraph membership (``module_label``, default _umbrella).
 
-    Uses BFS backwards through parents. If the node has multiple parents
-    (synthesis), follows the first parent at each step.
+    Absent / empty ``module_label`` means the node belongs to the default
+    ``_umbrella`` subgraph, so legacy nodes need no migration.
+    """
+    data = read_node(session_path, node_id)
+    label = data.get("module_label")
+    return str(label) if label else UMBRELLA_SUBGRAPH
+
+
+def get_node_lineage(
+    session_path: Path, node_id: str, module: str = UMBRELLA_SUBGRAPH
+) -> list[str]:
+    """Trace ancestry back to the subgraph root. Returns list from root to node_id.
+
+    Uses a backwards first-parent walk (multi-parent ``synthesize`` / ``merge``
+    nodes follow their first parent). The walk stays within the ``module``
+    subgraph: it stops as soon as the next first-parent belongs to a different
+    subgraph — e.g. a subgraph root whose first parent lives in the ancestor
+    subgraph. For legacy single-head sessions every node is ``_umbrella``, so
+    the walk reaches the real root exactly as before.
     """
     lineage = [node_id]
     visited = {node_id}
@@ -190,12 +249,71 @@ def get_node_lineage(session_path: Path, node_id: str) -> list[str]:
         parent = parents[0]
         if parent in visited:
             break
+        if _node_module(session_path, parent) != module:
+            # Crossed a subgraph boundary — stop at this subgraph's root.
+            break
         visited.add(parent)
         lineage.append(parent)
         current = parent
 
     lineage.reverse()
     return lineage
+
+
+def _subgraph_root(session_path: Path, module: str) -> str | None:
+    """Return the root node of a subgraph.
+
+    The root is the earliest node tagged with ``module`` whose first-parent
+    lies outside ``module`` (the ``decompose`` boundary), or a parentless node
+    (the ``_umbrella`` root). Returns None if the subgraph has no nodes.
+    """
+    candidates = [
+        nid for nid in list_nodes(session_path)
+        if _node_module(session_path, nid) == module
+    ]
+    for nid in candidates:
+        parents = get_parents(session_path, nid)
+        if not parents:
+            return nid
+        if _node_module(session_path, parents[0]) != module:
+            return nid
+    # Fallback: earliest candidate by creation order.
+    return candidates[0] if candidates else None
+
+
+def is_ancestor_subgraph(
+    session_path: Path, source: str, destination: str
+) -> bool:
+    """Return True iff ``destination`` is an ancestor subgraph of ``source``.
+
+    Enforces the ``merge`` op's "up only" rule: a module subgraph may merge
+    only into a subgraph that lies on the chain of ``parents`` above the
+    source subgraph's root node. Sibling and descendant destinations return
+    False, as does ``source == destination`` (a subgraph is not its own
+    ancestor). Walks the first-parent chain from the source root upward.
+    """
+    if source == destination:
+        return False
+
+    root = _subgraph_root(session_path, source)
+    if root is None:
+        return False
+
+    visited = {root}
+    current = root
+    while True:
+        parents = get_parents(session_path, current)
+        if not parents:
+            break
+        parent = parents[0]
+        if parent in visited:
+            break
+        visited.add(parent)
+        if _node_module(session_path, parent) == destination:
+            return True
+        current = parent
+
+    return False
 
 
 # ---------------------------------------------------------------------------

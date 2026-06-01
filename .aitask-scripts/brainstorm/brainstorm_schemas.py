@@ -14,7 +14,10 @@ NODE_REQUIRED_FIELDS = [
     "node_id", "parents", "description", "proposal_file",
     "created_at", "created_by_group",
 ]
-NODE_OPTIONAL_FIELDS = ["plan_file", "reference_files"]
+# ``module_label`` (optional) records the node's subgraph membership for the
+# module-decomposition feature (t756). Absent / empty means the default
+# ``_umbrella`` subgraph, so legacy single-head sessions need no migration.
+NODE_OPTIONAL_FIELDS = ["plan_file", "reference_files", "module_label"]
 
 # Dimension fields use these prefixes — extensible, any key starting with
 # one of these is treated as a dimension field.
@@ -33,6 +36,16 @@ PREFIX_TO_LABEL = {
 # ---------------------------------------------------------------------------
 
 GRAPH_STATE_REQUIRED = ["current_head", "history", "next_node_id", "active_dimensions"]
+
+# Additive, optional fields for module decomposition (t756). They are NOT in
+# GRAPH_STATE_REQUIRED so legacy single-head sessions keep validating:
+#   current_heads   — map <module>:<node_id>; current_head stays as the legacy
+#                     alias of current_heads["_umbrella"].
+#   module_tasks    — map <module>:<task_id> (optional fast-track linkage).
+#   last_synced_at  — map <module>:<timestamp> (sync scan horizon).
+# ``history`` is repurposed from the legacy linear list into a per-module map
+# (<module> -> [node_id, ...]); validate_graph_state accepts either shape.
+GRAPH_STATE_MODULE_MAPS = ["current_heads", "module_tasks", "last_synced_at"]
 
 # ---------------------------------------------------------------------------
 # Session schema (br_session.yaml)
@@ -105,14 +118,31 @@ def validate_graph_state(data: dict) -> list[str]:
         if field not in data:
             errors.append(f"Missing required field: {field}")
 
-    if "history" in data and not isinstance(data["history"], list):
-        errors.append("Field 'history' must be a list")
+    # history is either the legacy linear list (single-head sessions) or the
+    # new per-module map <module> -> [node_id, ...] (module decomposition, t756).
+    if "history" in data:
+        history = data["history"]
+        if isinstance(history, dict):
+            for module, entries in history.items():
+                if not isinstance(entries, list):
+                    errors.append(
+                        f"Field 'history[{module}]' must be a list of node IDs"
+                    )
+        elif not isinstance(history, list):
+            errors.append("Field 'history' must be a list or a per-module map")
 
     if "next_node_id" in data and not isinstance(data["next_node_id"], int):
         errors.append("Field 'next_node_id' must be an integer")
 
+    # active_dimensions stays a flat, session-wide list — modules do NOT fork
+    # the dimension axis (re-verified against t873). Do not convert to a map.
     if "active_dimensions" in data and not isinstance(data["active_dimensions"], list):
         errors.append("Field 'active_dimensions' must be a list")
+
+    # Additive module-decomposition maps (all optional, all <module>-keyed).
+    for field in GRAPH_STATE_MODULE_MAPS:
+        if field in data and not isinstance(data[field], dict):
+            errors.append(f"Field '{field}' must be a map keyed by module name")
 
     return errors
 
