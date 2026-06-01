@@ -165,3 +165,36 @@ unchanged: the `Input`/`SelectionList`/`SelectOverlay` guards carry no
   letting arrows fall through *only* to widgets that own them.
 - See **Step 9 (Post-Implementation)** in the task-workflow for cleanup, archival,
   and (since this runs on the current branch) the merge step is a no-op.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly as planned. Two hunks in
+  `.aitask-scripts/board/aitask_board.py`: (1) added `DataTable` to the
+  `textual.widgets` import; (2) split the blanket nav guard in
+  `KanbanApp.check_action` so left/right keep falling through to the focused modal
+  widget, while up/down only fall through when the focused widget is a `DataTable`
+  (the shortcut editor) — every other modal (TaskDetailScreen fields, focusable-
+  Static pickers, AgentCommandScreen buttons) keeps driving the App's modal-aware
+  `action_nav_up`/`action_nav_down` (`focus_previous`/`focus_next`). Added
+  `tests/test_board_detail_arrow_nav.py` (3 Pilot tests, all passing); existing
+  `tests/test_board_picker_tab_nav.py` still passes.
+- **Deviations from plan:** None to the fix itself.
+- **Issues encountered — concurrent-session commit sweep:** While this task was at
+  the Step 8 review prompt, a parallel session committed `43b86ec5`
+  ("enhancement: Add risk + risk_mitigation_tasks frontmatter plumbing (t884_1)").
+  That session's `git add .aitask-scripts/board/aitask_board.py` swept in **this
+  task's two t893 hunks** alongside its own risk-field changes, so the t893 code
+  fix is committed under `43b86ec5` rather than a `(t893)`-tagged commit. The fix
+  is correct and present in HEAD (verified: `aitask_board.py:39` and the
+  `isinstance(self.app.focused, DataTable)` guard). `43b86ec5` was local-only
+  (origin/main 2 behind) and therefore amendable, but it belongs to another active
+  session — rewriting it would risk corrupting that session's in-progress state
+  (cf. the concurrent-writer hazard), so it was deliberately left intact. Only the
+  new test file (untracked, not swept) was committed under t893.
+- **Key decisions:** Do not rewrite a concurrent session's local commit; accept the
+  cosmetic mis-attribution of the code hunks in exchange for not destabilizing the
+  other session. t893 has no linked `issue`, so the missing `(t893)` commit tag has
+  no functional consequence for issue/PR auto-update.
+- **Upstream defects identified:** None. (The root cause was a self-inflicted
+  over-broad guard from t848_4, already addressed by this task — not a separate
+  pre-existing defect in another module.)
