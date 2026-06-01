@@ -26,6 +26,8 @@ Decision (from parent plan): mirror `priority`'s existing hardcoded duplication 
 - `.aitask-scripts/aitask_ls.sh` — parse `risk` for **display only**; do NOT add it to the `p_score` sort pipeline.
 - `.aitask-scripts/board/aitask_board.py` — add `risk` to the snapshot dict (~line 2388), a ReadOnlyField for Done/Folded (~2424), and an editable `CycleField("Risk", ["low","medium","high"], ...)` (~2429). NO `_risk_border_color` analog.
 - `.aitask-scripts/aitask_fold_mark.sh` — add explicit handling for the `risk_mitigation_tasks` **list** field: drop/ignore on fold (task-instance-specific, not foldable/unionable). `risk` scalar needs no fold change.
+- `tests/test_update_risk.sh` (**new**) — automated coverage of `aitask_update.sh` risk handling (set, validate, omit-by-default, `--risk-mitigation-tasks` list read-modify-write) plus a guard that `aitask_create.sh` emits no risk fields.
+- `tests/test_fold_risk_mitigation_drop.sh` (**new**) — automated coverage that fold drops `risk_mitigation_tasks` and keeps the primary's `risk`.
 
 ## Reference Files for Patterns
 
@@ -38,6 +40,7 @@ Decision (from parent plan): mirror `priority`'s existing hardcoded duplication 
 2. Add `risk_mitigation_tasks` list support to `aitask_update.sh` serialization + `--risk-mitigation-tasks` flag (read-modify-write for additive use later). Not handled at create.
 3. Add the `risk_mitigation_tasks` drop rule to `aitask_fold_mark.sh`.
 4. Defaults: both fields omitted entirely when not set; readers use `.get(...)`/absent-safe parsing and render nothing.
+5. Write automated tests (`tests/test_update_risk.sh`, `tests/test_fold_risk_mitigation_drop.sh`) following the self-contained bash convention with the `setup_fake_aitask_repo` scaffold; model on `tests/test_fold_mark.sh` and `tests/test_verified_update_flags.sh`. Board rendering is left to the t884_8 manual-verification sibling (no automated board test here).
 
 ## Verification Steps
 
@@ -45,7 +48,8 @@ Decision (from parent plan): mirror `priority`'s existing hardcoded duplication 
 - `./.aitask-scripts/aitask_update.sh --batch <id> --risk medium` updates the field; interactive mode offers Risk; `--risk-mitigation-tasks` writes the list.
 - `ait board` shows the risk value (read-only for Done/Folded, CycleField otherwise); existing tasks with no risk render blank, no errors.
 - Fold a task carrying `risk_mitigation_tasks` into a primary → primary keeps its own `risk`, and `risk_mitigation_tasks` is NOT carried over.
-- `shellcheck .aitask-scripts/aitask_update.sh .aitask-scripts/aitask_ls.sh .aitask-scripts/aitask_fold_mark.sh` (create.sh unchanged).
+- **New automated tests pass:** `bash tests/test_update_risk.sh && bash tests/test_fold_risk_mitigation_drop.sh`.
+- `shellcheck .aitask-scripts/aitask_update.sh .aitask-scripts/aitask_ls.sh .aitask-scripts/aitask_fold_mark.sh tests/test_update_risk.sh tests/test_fold_risk_mitigation_drop.sh` (create.sh unchanged).
 - Run any existing `bash tests/test_*update*` / `*fold*` suites.
 
 ## Notes for sibling tasks
