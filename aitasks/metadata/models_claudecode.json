@@ -87,8 +87,8 @@
         },
         "test_414_flags": {
           "all_time": {
-            "runs": 39,
-            "score_sum": 3500
+            "runs": 40,
+            "score_sum": 3600
           },
           "prev_month": {
             "period": "2026-05",
@@ -97,13 +97,13 @@
           },
           "month": {
             "period": "2026-06",
-            "runs": 2,
-            "score_sum": 180
+            "runs": 3,
+            "score_sum": 280
           },
           "week": {
             "period": "2026-W23",
-            "runs": 2,
-            "score_sum": 180
+            "runs": 3,
+            "score_sum": 280
           }
         },
         "qa": {
