@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, brainstom_modules, remove_support]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 09:19
-updated_at: 2026-06-01 09:19
+updated_at: 2026-06-01 09:29
 ---
 
 # Retire plans — make `ait brainstorm` proposal-only; port plan value into the module architecture
