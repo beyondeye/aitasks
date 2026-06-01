@@ -166,3 +166,58 @@ references it). Confirmed line anchors are inlined in the Steps below.
 - t884_6 (docs) + t884_8 (manual verification) describe TWO risk fields.
 
 See Step 9 (Post-Implementation) in the shared workflow for cleanup/archival/merge.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the plan exactly across the 4 scripts + 2
+  tests.
+  - `aitask_update.sh`: replaced `BATCH_RISK`/`BATCH_RISK_SET`/`CURRENT_RISK`
+    with `BATCH_RISK_CODE_HEALTH`/`_SET`, `BATCH_RISK_GOAL_ACHIEVEMENT`/`_SET`,
+    `CURRENT_RISK_CODE_HEALTH`, `CURRENT_RISK_GOAL_ACHIEVEMENT`. New flags
+    `--risk-code-health` / `--risk-goal-achievement` (each validated only when
+    `_SET` and non-empty, so `""` clears). `write_task_file` gained two
+    positionals (`${25}` code-health, `${26}` goal-achievement) emitted
+    conditionally right after `priority:`; `risk_mitigation_tasks` shifted to
+    `${27}`. Wired through all three call sites (child-completion ~948,
+    interactive ~1441, batch ~1771) + the child-completion save/restore block.
+    Interactive: two `interactive_update_risk_*` functions, two rows in
+    `interactive_select_field` (params `$7`/`$8`, fzf height 17→18), two field
+    handlers, two summary lines (`CH-risk:` / `GA-risk:`). `--risk-mitigation-tasks`
+    left entirely unchanged (only its positional index moved).
+  - `aitask_ls.sh`: two display values (`risk_code_health_text` /
+    `risk_goal_achievement_text`), rendered `, CH-risk: <v>, GA-risk: <v>`
+    between Priority and Effort, each only when set; no `*_score`.
+  - `aitask_board.py`: two snapshot keys (`.get(...)` → None when unset), two
+    ReadOnlyFields (shown only when set), two CycleFields `"Code-health risk"` /
+    `"Goal risk"` (ids `cf_risk_code_health` / `cf_risk_goal_achievement`).
+    Generic `save_changes` round-trips both new keys with no further change.
+  - `aitask_fold_mark.sh`: confirmed no change needed (scalars don't fold; the
+    `risk_mitigation_tasks` drop-on-fold is unchanged).
+  - Tests reworked: `test_update_risk.sh` (21/21) and
+    `test_fold_risk_mitigation_drop.sh` (5/5).
+- **Deviations from plan:** None of substance. Bumped the interactive
+  `fzf --height` 17→18 to fit the extra risk row (the only detail beyond the
+  written plan).
+- **Issues encountered:** None. Confirmed the test helpers' anchored `^field:`
+  regex does not collide across `risk_code_health` / `risk_goal_achievement` /
+  `risk_mitigation_tasks`, so they were reused unchanged.
+- **Key decisions:** Display labels `CH-risk` / `GA-risk` (ls), `Code-health
+  risk` / `Goal risk` (board). Code-health emitted before goal-achievement,
+  both right after `priority:`.
+- **Verification:** Both reworked suites pass; shellcheck shows zero new
+  warnings vs the committed baseline (identical SC-code counts); 10 existing
+  update/fold suites pass; a live `aitask_ls.sh` smoke test in a scratch dir
+  confirmed both/one/neither-field rendering. Board TUI rendering deferred to
+  the t884_8 manual-verification sibling (no automated board test added).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - t884_3 (writes both): `aitask_update.sh --batch <id> --risk-code-health <ch>
+    --risk-goal-achievement <ga>`. Omit a flag (or pass `""`) to leave/clear it.
+    Each accepts only `high|medium|low`.
+  - t884_4 (`risk_mitigation_tasks`): unchanged single list, replace-all;
+    read-modify-write via `--risk-mitigation-tasks "a,b,c"`.
+  - Board: an unset risk renders as "low" in either CycleField editor (index-0
+    fallback) but is NOT persisted unless the user actively cycles it — accepted
+    display-only quirk (no "unset" sentinel), same as t884_1.
+  - `aitask_create.sh` remains untouched; `test_update_risk.sh` guards that
+    created tasks carry neither field.
