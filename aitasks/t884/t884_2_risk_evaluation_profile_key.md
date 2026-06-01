@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: [t884_1]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [task_workflow, execution_profiles, ait_settings]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 00:30
-updated_at: 2026-06-01 00:30
+updated_at: 2026-06-01 12:05
 ---
 
 ## Context
