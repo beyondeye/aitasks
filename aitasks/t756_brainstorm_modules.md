@@ -6,9 +6,10 @@ issue_type: feature
 status: Implementing
 labels: [ait_brainstorm, brainstom_modules]
 file_references: [aidocs/brainstorming/module_decomposition_design.md]
+children_to_implement: [t756_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-06 18:53
-updated_at: 2026-06-01 13:49
+updated_at: 2026-06-01 16:44
 boardidx: 10
 ---
 
