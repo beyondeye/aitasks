@@ -52,6 +52,19 @@ Propose-and-confirm before/after risk-mitigation follow-up tasks, gated by
 `risk_evaluation`. **before** = independent task the original DEPENDS ON (created
 Step 7); **after** = post-implementation follow-up (created new Step 8d).
 
+## Before-mitigation flow decision (user-confirmed 2026-06-01)
+
+When a "before" mitigation is created at Step 7 and wired as a blocking
+dependency, the original task **does not continue to implementation in the same
+session**: Step 7 reverts the original to `Ready` (so it shows **Blocked** in
+`ait ls` until the mitigation lands), releases its lock, and **ends the
+workflow**. The user implements the mitigation, then re-picks the original — at
+which point t884_5's force-reverify (Step 6.0a) fires because the codebase
+changed under the plan. This matches the parent plan's "force re-verified on the
+**next pick**" model and t884_4's own verification ("original shows Blocked until
+it lands"). "After" mitigations (Step 8d) block nothing → the workflow proceeds
+normally to Step 9.
+
 ## Steps
 
 1. **New closure `.claude/skills/task-workflow/risk-mitigation-followup.md`**:
