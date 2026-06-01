@@ -279,6 +279,18 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
 **Repository structure awareness:** Before starting implementation, read `repo-structure.md`
 
 **Cross-repo child assignment (post-approval creation):** If `cross_repo_planned` is `true` (set in `planning.md` §6.1 — the approved plan is a cross-repo paired design), execute the **Cross-Repo Child Assignment Procedure** (see `cross-repo-child-assignment.md`) now. It creates the cross-repo parent first, then assigns all children (local + cross-repo) to their parents with their plans, demotes the local parent to a parent-of-children, and presents its own child checkpoint. When it returns, the workflow has ended (via that checkpoint's "Start first child" / "Stop here") — do **NOT** continue with the normal single-task implementation below or proceed to Step 8. (This is the post-approval creation gate: planning runs in read-only plan mode, so no tasks were created during Step 6.)
+{%- if profile.risk_evaluation is defined and profile.risk_evaluation %}
+
+**Risk fields (post-approval write):** If the approved plan contains a `## Risk` section (authored by the Risk Evaluation Procedure during planning), write the two decided levels to the task's frontmatter now:
+
+```bash
+./.aitask-scripts/aitask_update.sh --batch <task_id> \
+  --risk-code-health <risk_level_code_health> \
+  --risk-goal-achievement <risk_level_goal_achievement>
+```
+
+Skip silently if the plan has no `## Risk` section (e.g. the evaluation was not run). This is the post-approval write gate: planning runs in read-only plan mode, so the fields are not written during Step 6.
+{%- endif %}
 
 Follow the approved plan, working in the directory specified in the plan metadata.
 

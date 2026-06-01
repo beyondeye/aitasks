@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # test_skill_render_task_workflow.sh - Regression tests for the wrapped
 # shared workflow under .claude/skills/task-workflow/:
-#   - 9 wrapped .md files (6 profile-varying + 3 profile-invariant)
-#   - 21 golden files under tests/golden/procs/task-workflow/
+#   - 10 wrapped .md files (6 profile-varying + 4 profile-invariant)
+#   - 22 golden files under tests/golden/procs/task-workflow/
 # Coverage:
 #   1.  Per-(file, profile) golden diff for the 4 profile-varying wrapped
 #       files × 3 profiles.
@@ -16,6 +16,9 @@
 #      verbatim (no key is defined → all guards fall through to {% else %}).
 #   4. remote_drift_check synthetic profile demonstrates the true branch
 #      fires when the key is defined (no committed profile uses it).
+#   5. risk_evaluation synthetic profile demonstrates the gated risk steps
+#      (planning.md eval step + SKILL.md two-field write) fire when the key
+#      is defined; default renders show neither (no committed profile uses it).
 # Run: bash tests/test_skill_render_task_workflow.sh
 
 set -e
@@ -91,6 +94,7 @@ WRAPPED_FILES_INVARIANT=(
     "remote-drift-check.md"
     "planning-cross-repo.md"
     "cross-repo-child-assignment.md"
+    "risk-evaluation.md"
 )
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)
@@ -240,6 +244,38 @@ assert_contains "synthetic profile triggers true branch (return immediately)" \
     "Profile 'test_rdc_skip' sets" "$SYNTH_OUT"
 assert_not_contains "synthetic profile suppresses fallback prose" \
     '**Profile check.** If the active profile has' "$SYNTH_OUT"
+
+# === Test 5: synthetic risk_evaluation: true fires the gated risk steps (t884_3) ===
+#
+# The risk-evaluation gate is a zero-footprint {%- if profile.risk_evaluation
+# is defined and profile.risk_evaluation %} wrap at two dispatch sites:
+# planning.md §6.1 (the eval step) and SKILL.md Step 7 (the two-field write).
+# No committed profile sets the key, so default renders show neither (proven by
+# Test 1 zero-diff goldens); a synthetic risk_evaluation: true profile proves
+# both branches fire.
+echo "=== Test 5: synthetic risk_evaluation: true profile ==="
+TMP_RISK="$(mktemp "${TMPDIR:-/tmp}/test_risk_XXXXXX.yaml")"
+trap 'rm -f "$TMP_PROFILE" "$TMP_RISK"' EXIT
+cat > "$TMP_RISK" <<'YAML'
+name: test_risk_eval
+description: "Synthetic profile for t884_3 test (risk_evaluation true)"
+risk_evaluation: true
+YAML
+RISK_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$TMP_RISK" claude 2>&1)"
+RISK_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$TMP_RISK" claude 2>&1)"
+assert_contains "risk_evaluation true: planning.md emits the eval step" \
+    'Risk evaluation (end of planning)' "$RISK_PLAN"
+assert_contains "risk_evaluation true: SKILL.md emits the two-field write" \
+    '--risk-code-health' "$RISK_SKILL"
+assert_contains "risk_evaluation true: SKILL.md write includes goal-achievement flag" \
+    '--risk-goal-achievement' "$RISK_SKILL"
+# Default profile (key absent) shows neither — guards the zero-footprint claim.
+DEFAULT_RISK_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+DEFAULT_RISK_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+assert_not_contains "default profile: no planning risk step" \
+    'Risk evaluation (end of planning)' "$DEFAULT_RISK_PLAN"
+assert_not_contains "default profile: no Step 7 risk write" \
+    '--risk-code-health' "$DEFAULT_RISK_SKILL"
 
 # === Summary ===
 

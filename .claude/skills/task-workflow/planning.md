@@ -269,6 +269,9 @@ While in plan mode:
       - **If "Stop here":** Display: "Child tasks and plans written to `aiplans/p<parent>/`. Pick individual children later with `/aitask-pick <parent>_<N>`." Execute the **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from the context variables. Then end the workflow.
 {%- include "_planning_plan_contract.md" -%}
 - Include a reference to **Step 9 (Post-Implementation)** in the plan for the cleanup, archival, and merge steps
+{%- if profile.risk_evaluation is defined and profile.risk_evaluation %}
+- **Risk evaluation (end of planning):** Now that the plan is designed, read and follow the **Risk Evaluation Procedure** (see `risk-evaluation.md`). It assesses the two risk dimensions (code-health and goal-achievement) **separately**, assigns a level to each, and appends a `## Risk` section to the plan. Thread `risk_level_code_health`, `risk_level_goal_achievement`, and `risk_mitigations_planned` into the workflow context — `SKILL.md` Step 7 writes the two fields post-approval (plan mode is read-only).
+{%- endif %}
 - Use `ExitPlanMode` when ready for user approval
 
 ## Child Task Documentation Requirements
