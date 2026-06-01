@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: []
 verifies: [t832_1, t832_2, t832_3, t832_4, t832_5, t832_6, t832_7, t832_8]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 18:45
-updated_at: 2026-05-31 18:45
+updated_at: 2026-06-01 12:15
 boardidx: 40
 ---
 
