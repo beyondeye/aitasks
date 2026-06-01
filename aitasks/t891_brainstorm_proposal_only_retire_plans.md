@@ -5,10 +5,10 @@ depends: [756]
 issue_type: enhancement
 status: Implementing
 labels: [ait_brainstorm, brainstom_modules, remove_support]
-children_to_implement: [t891_1]
+children_to_implement: [t891_1, t891_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 09:19
-updated_at: 2026-06-01 10:51
+updated_at: 2026-06-01 10:52
 ---
 
 # Retire plans — make `ait brainstorm` proposal-only; port plan value into the module architecture
