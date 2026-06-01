@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [ait_brainstorm, brainstom_modules]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 16:44
-updated_at: 2026-06-01 17:50
+updated_at: 2026-06-01 18:08
 ---
 
 Phase A of the `ait brainstorm` **module decomposition** feature (parent t756).
