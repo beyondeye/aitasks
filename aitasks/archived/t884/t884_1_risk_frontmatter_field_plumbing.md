@@ -3,11 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [task_workflow, aitask-create, aitask_board]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 00:30
-updated_at: 2026-06-01 09:32
+updated_at: 2026-06-01 11:53
+completed_at: 2026-06-01 11:53
 ---
 
 ## Context
