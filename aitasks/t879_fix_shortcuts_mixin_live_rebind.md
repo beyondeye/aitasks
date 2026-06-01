@@ -3,11 +3,12 @@ priority: low
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Postponed
 labels: [custom_shortcuts]
 created_at: 2026-05-31 16:28
-updated_at: 2026-05-31 18:45
-boardidx: 140
+updated_at: 2026-06-01 11:56
+boardidx: 60
+boardcol: now
 ---
 
 ## Origin
