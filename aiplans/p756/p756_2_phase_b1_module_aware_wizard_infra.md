@@ -4,11 +4,26 @@ Parent Task: aitasks/t756_brainstorm_modules.md
 Sibling Tasks: aitasks/t756/t756_3_phase_b2_decompose_merge_ops.md, aitasks/t756/t756_4_phase_c_sync_op.md, aitasks/t756/t756_5_phase_d1_status_views.md, aitasks/t756/t756_6_phase_d2_fast_track_preset.md, aitasks/t756/t756_7_manual_verification_brainstorm_modules.md
 Archived Sibling Plans: aiplans/archived/p756/p756_1_phase_a_data_model.md
 Base branch: main
-plan_verified:
-  - claudecode/opus4_8 @ 2026-06-01 18:38
 ---
 
 # t756_2 — Phase B1: module-aware wizard infrastructure
+
+> **⚠️ SEQUENCING UPDATE (2026-06-01) — re-plan before implementing.**
+> This task was started, then **paused and reverted**. Inserting the
+> subgraph-selector as an in-wizard step fought the fragile integer-indexed
+> `_wizard_step` machine (it touches ~6 hardcoded handlers). Rather than build a
+> workaround, the wizard step machine is being refactored first under **t898**
+> (now a hard dependency of this task — `depends: [t756_1, 898]`).
+>
+> When resuming after t898 lands: the **subgraph-selector becomes a declarative
+> step descriptor** on t898's new step model — NOT the integer-ladder insertion
+> described in "Design decisions" §1 below. The data-model plumbing parts
+> (schema `GROUP_OPTIONAL` subgraph field, `list_subgraphs`/`_node_id_ordinal` in
+> `brainstorm_dag.py`, the `subgraph` kwarg on `record_operation`, the
+> `_nodes_for_subgraph` node-filter helper, and the crew "subgraph context"
+> front-matter) were reverted with the pause and should be recreated — they are
+> orthogonal to t898 and remain valid as designed. **Re-verify all anchors and
+> re-plan the selector on the new step model before implementing.**
 
 **Primary reference:** `aidocs/brainstorming/module_decomposition_design.md`
 (§4.5 existing-ops-become-module-aware; §7 Phase A subgraph-selector note).
