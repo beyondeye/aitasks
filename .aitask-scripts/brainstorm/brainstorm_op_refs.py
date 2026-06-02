@@ -20,6 +20,8 @@ _OP_INPUT_SECTION = {
     "hybridize":  "Merge Rules",  # legacy alias (t807)
     "detail":     None,
     "patch":      "Patch Request",
+    "module_decompose": "Decomposition Plan",
+    "module_merge":     "Merge-Up Rules",
     "bootstrap":  "Mandate",
 }
 

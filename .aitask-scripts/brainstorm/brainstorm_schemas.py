@@ -70,7 +70,15 @@ GROUP_REQUIRED = [
 # it today, symmetric with GROUP_REQUIRED): ``subgraph`` records which module
 # subgraph an op ran inside; absent entries default to ``_umbrella``.
 GROUP_OPTIONAL = ["subgraph"]
-GROUP_OPERATIONS = ["explore", "compare", "synthesize", "detail", "patch"]
+GROUP_OPERATIONS = [
+    "explore",
+    "compare",
+    "synthesize",
+    "detail",
+    "patch",
+    "module_decompose",
+    "module_merge",
+]
 
 # Legacy operation names kept readable for in-flight sessions on disk.
 # t807 renamed the DAG op "hybridize" -> "synthesize" (agent stays

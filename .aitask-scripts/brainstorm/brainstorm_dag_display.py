@@ -64,6 +64,8 @@ OP_BADGE_STYLES = {
     "hybridize":  Style(color="#FF79C6"),  # legacy alias (t807) — magenta
     "detail":     Style(color="#BD93F9"),  # purple
     "patch":      Style(color="#FF5555"),  # red
+    "module_decompose": Style(color="#50FA7B"),  # green
+    "module_merge":     Style(color="#FFB86C"),  # orange
     "bootstrap":  Style(color="#6272A4"),  # dim
 }
 UNKNOWN_OP_STYLE = Style(color="#6272A4", italic=True)

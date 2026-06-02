@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -29,11 +30,21 @@ from .brainstorm_dag import (  # noqa: E402
     PROPOSALS_DIR,
     UMBRELLA_SUBGRAPH,
     create_node,
+    get_head,
+    is_ancestor_subgraph,
     next_node_id,
+    read_node,
     read_proposal,
     set_head,
     update_node,
 )
+from .brainstorm_sections import (  # noqa: E402
+    get_section_by_name,
+    get_sections_for_dimension,
+    parse_sections,
+    validate_sections,
+)
+from .brainstorm_schemas import extract_dimensions  # noqa: E402
 
 SESSION_FILE = "br_session.yaml"
 GROUPS_FILE = "br_groups.yaml"
@@ -225,6 +236,7 @@ def record_operation(
     agents: list[str],
     head_at_creation: str | None,
     subgraph: str = UMBRELLA_SUBGRAPH,
+    **extra_fields,
 ) -> None:
     """Write a fresh group entry to br_groups.yaml.
 
@@ -238,7 +250,7 @@ def record_operation(
     path = str(wt / GROUPS_FILE)
     data = _read_groups_file(path)
     groups = data.setdefault("groups", {})
-    groups[group_name] = {
+    entry = {
         "operation": operation,
         "agents": list(agents),
         "status": "Waiting",
@@ -247,6 +259,8 @@ def record_operation(
         "nodes_created": [],
         "subgraph": subgraph,
     }
+    entry.update(extra_fields)
+    groups[group_name] = entry
     write_yaml(path, data)
 
 
@@ -538,7 +552,7 @@ _NODE_NON_DIMENSION_FIELDS = frozenset({
     "created_at", "created_by_group", "reference_files", "plan_file",
 })
 
-_AGENT_NAME_RE = re.compile(r"^([a-z]+)_([0-9A-Za-z_]+)$")
+_AGENT_NAME_RE = re.compile(r"^([a-z_]+)_([0-9A-Za-z_]+)$")
 
 
 def resolve_node_group(
@@ -592,18 +606,24 @@ def _agent_to_group_name(agent_name: str) -> str:
     ``explorer_001a`` → ``explore_001``. Returns the input unchanged if
     the pattern does not match.
     """
-    m = _AGENT_NAME_RE.match(agent_name)
-    if not m:
-        return agent_name
-    role, suffix = m.group(1), m.group(2)
-    # Strip the parallel-explorer single-letter suffix (a-h) from the
-    # numeric portion when the prefix is digits-only-plus-one-letter.
-    parallel_suffix_match = re.match(r"^(\d+)[a-h]$", suffix)
-    if parallel_suffix_match:
-        suffix = parallel_suffix_match.group(1)
-    role_to_group = {"patcher": "patch", "explorer": "explore",
-                     "synthesizer": "synthesize", "detailer": "detail"}
-    return f"{role_to_group.get(role, role)}_{suffix}"
+    role_to_group = {
+        "patcher": "patch",
+        "explorer": "explore",
+        "synthesizer": "synthesize",
+        "detailer": "detail",
+        "module_decomposer": "module_decompose",
+        "module_merger": "module_merge",
+    }
+    for role in sorted(role_to_group, key=len, reverse=True):
+        prefix = f"{role}_"
+        if not agent_name.startswith(prefix):
+            continue
+        suffix = agent_name[len(prefix):]
+        parallel_suffix_match = re.match(r"^(\d+)[a-h]$", suffix)
+        if parallel_suffix_match:
+            suffix = parallel_suffix_match.group(1)
+        return f"{role_to_group[role]}_{suffix}"
+    return agent_name
 
 
 # Agent _status.yaml values that are terminal but yield no applyable
@@ -1138,6 +1158,347 @@ def apply_synthesizer_output(
     update_operation(
         task_num,
         node_data["created_by_group"],
+        agents_append=agent_name,
+        nodes_created=new_id,
+        status="Completed",
+    )
+    return new_id
+
+
+_MODULE_NODE_BLOCK_RE = re.compile(
+    r"--- MODULE_NODE_START ---\s*(.*?)\s*--- MODULE_NODE_END ---",
+    re.DOTALL,
+)
+
+
+def _module_decomposer_needs_apply(
+    task_num: int | str, agent_name: str,
+) -> bool:
+    wt = crew_worktree(task_num)
+    out_path = wt / f"{agent_name}_output.md"
+    if not out_path.is_file():
+        return False
+    try:
+        text = out_path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    if not all(
+        token in text
+        for token in (
+            "MODULE_NODE_START",
+            "MODULE_NAME_START",
+            "MODULE_NAME_END",
+            "NODE_YAML_START",
+            "NODE_YAML_END",
+            "PROPOSAL_START",
+            "PROPOSAL_END",
+            "MODULE_NODE_END",
+        )
+    ):
+        return False
+    try:
+        blocks = [m.group(1) for m in _MODULE_NODE_BLOCK_RE.finditer(text)]
+        if not blocks:
+            return True
+        for block in blocks:
+            meta = _tolerant_yaml_load(
+                _extract_block(block, "NODE_YAML_START", "NODE_YAML_END")
+            )
+            new_node_id = meta.get("node_id") if isinstance(meta, dict) else None
+            if not new_node_id:
+                return True
+            if not (wt / NODES_DIR / f"{new_node_id}.yaml").exists():
+                return True
+    except Exception:
+        return True
+    return False
+
+
+def _module_merger_needs_apply(
+    task_num: int | str, agent_name: str,
+) -> bool:
+    return _explorer_needs_apply(task_num, agent_name)
+
+
+def _module_tasks_map(wt: Path) -> dict:
+    path = wt / GRAPH_STATE_FILE
+    gs = read_yaml(str(path))
+    tasks = gs.get("module_tasks")
+    return tasks if isinstance(tasks, dict) else {}
+
+
+def _write_module_task(wt: Path, module: str, task_id: str) -> None:
+    path = wt / GRAPH_STATE_FILE
+    gs = read_yaml(str(path))
+    tasks = gs.get("module_tasks")
+    if not isinstance(tasks, dict):
+        tasks = {}
+    tasks[module] = task_id
+    gs["module_tasks"] = tasks
+    write_yaml(str(path), gs)
+
+
+def _create_linked_module_task(
+    task_num: int | str, module: str, description: str,
+) -> str:
+    name = f"{module}_module"
+    cmd = [
+        "./.aitask-scripts/aitask_create.sh",
+        "--batch",
+        "--commit",
+        "--silent",
+        "--parent",
+        str(task_num),
+        "--name",
+        name,
+        "--desc",
+        description,
+        "--type",
+        "feature",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"aitask_create.sh failed for module {module!r}: {result.stderr}"
+        )
+    created_path = result.stdout.strip().splitlines()[-1]
+    stem = Path(created_path).stem
+    match = re.match(r"^t(\d+_\d+)_", stem) or re.match(r"^t(\d+)_", stem)
+    if not match:
+        raise ValueError(f"could not parse created task id from {created_path!r}")
+    return match.group(1)
+
+
+def _section_for_module(parsed, module: str):
+    section = get_section_by_name(parsed, module)
+    if section is not None:
+        return section
+    dimension = f"component_{module}"
+    matches = get_sections_for_dimension(parsed, dimension)
+    if matches:
+        return matches[-1]
+    return None
+
+
+def apply_module_decompose_from_sections(
+    task_num: int | str, group_name: str,
+) -> list[str]:
+    """Create module roots directly from clean source proposal sections."""
+    wt = crew_worktree(task_num)
+    groups = _read_groups_file(str(wt / GROUPS_FILE)).get("groups", {})
+    group_info = groups.get(group_name, {}) if isinstance(groups, dict) else {}
+    modules = [str(m) for m in (group_info.get("modules") or [])]
+    if not modules:
+        raise ValueError("module_decompose from_sections requires modules")
+    source_node_id = group_info.get("head_at_creation")
+    if not source_node_id:
+        source_node_id = get_head(wt, module=_group_subgraph(wt, group_name))
+    if not source_node_id:
+        raise ValueError("module_decompose from_sections requires a source head")
+
+    source_data = read_node(wt, source_node_id)
+    source_dims = extract_dimensions(source_data)
+    source_proposal = read_proposal(wt, source_node_id)
+    parsed = parse_sections(source_proposal)
+    section_errors = validate_sections(parsed, node_keys=list(source_dims.keys()))
+    if section_errors:
+        raise ValueError(f"source proposal sections invalid: {section_errors}")
+
+    created: list[str] = []
+    for module in modules:
+        section = _section_for_module(parsed, module)
+        if section is None:
+            raise ValueError(
+                f"no section found for module {module!r}; expected a section "
+                f"named {module!r} or tagged with component_{module}"
+            )
+        node_num = next_node_id(wt)
+        safe_module = "".join(ch if ch.isalnum() else "_" for ch in module).strip("_")
+        new_node_id = f"n{node_num:03d}_module_decomposer_sections_{safe_module}"
+        dimensions = {
+            k: v for k, v in source_dims.items()
+            if any(k == tag or (tag.endswith("*") and k.startswith(tag[:-1]))
+                   for tag in section.dimensions)
+            or k == f"component_{module}"
+        }
+        if not dimensions and f"component_{module}" in source_dims:
+            dimensions[f"component_{module}"] = source_dims[f"component_{module}"]
+        proposal_text = "\n".join([
+            f"<!-- section: {section.name}"
+            + (
+                f" [dimensions: {', '.join(section.dimensions)}]"
+                if section.dimensions else ""
+            )
+            + " -->",
+            section.content.strip(),
+            f"<!-- /section: {section.name} -->",
+            "",
+        ])
+        create_node(
+            session_path=wt,
+            node_id=new_node_id,
+            parents=[source_node_id],
+            description=f"{module} module root",
+            dimensions=dimensions,
+            proposal_content=proposal_text,
+            group_name=group_name,
+            reference_files=source_data.get("reference_files"),
+            module_label=module,
+        )
+        set_head(wt, new_node_id, module=module)
+        update_operation(task_num, group_name, nodes_created=new_node_id)
+        created.append(new_node_id)
+
+        if bool(group_info.get("link_to_task")):
+            task_id = _create_linked_module_task(
+                task_num,
+                module,
+                f"Implement/refine brainstorm module `{module}` from t{task_num}.",
+            )
+            _write_module_task(wt, module, task_id)
+
+    update_operation(task_num, group_name, status="Completed")
+    return created
+
+
+def apply_module_decomposer_output(
+    task_num: int | str, agent_name: str,
+) -> list[str]:
+    """Integrate module decomposition output as multiple subgraph roots."""
+    wt = crew_worktree(task_num)
+    out_path = wt / f"{agent_name}_output.md"
+    if not out_path.is_file():
+        raise FileNotFoundError(f"No module decomposer output at {out_path}")
+
+    err_log = wt / f"{agent_name}_apply_error.log"
+    try:
+        text = out_path.read_text(encoding="utf-8")
+        blocks = [m.group(1) for m in _MODULE_NODE_BLOCK_RE.finditer(text)]
+        if not blocks:
+            raise ValueError("module decomposer output has no MODULE_NODE blocks")
+
+        group_name = _agent_to_group_name(agent_name)
+        groups = _read_groups_file(str(wt / GROUPS_FILE)).get("groups", {})
+        group_info = groups.get(group_name, {}) if isinstance(groups, dict) else {}
+        source_node_id = group_info.get("head_at_creation")
+        if not source_node_id:
+            source_node_id = get_head(wt, module=_group_subgraph(wt, group_name))
+        if not source_node_id:
+            raise ValueError("module_decompose requires a source head")
+        link_to_task = bool(group_info.get("link_to_task"))
+
+        created: list[str] = []
+        for block in blocks:
+            module = _extract_block(
+                block, "MODULE_NAME_START", "MODULE_NAME_END"
+            ).strip()
+            if not module:
+                raise ValueError("MODULE_NAME block cannot be empty")
+            meta_text = _extract_block(block, "NODE_YAML_START", "NODE_YAML_END")
+            proposal_text = _extract_block(block, "PROPOSAL_START", "PROPOSAL_END")
+            node_data = _tolerant_yaml_load(meta_text)
+            if not isinstance(node_data, dict):
+                raise ValueError("module NODE_YAML block did not parse as a dict")
+
+            new_node_id = node_data.get("node_id")
+            if not new_node_id:
+                raise ValueError("module NODE_YAML missing node_id")
+            if (wt / NODES_DIR / f"{new_node_id}.yaml").exists():
+                raise ValueError(f"node {new_node_id} already exists")
+
+            node_data["parents"] = [source_node_id]
+            dimensions = extract_dimensions(node_data)
+            section_errors = validate_sections(
+                parse_sections(proposal_text), node_keys=list(dimensions.keys())
+            )
+            if section_errors:
+                raise ValueError(
+                    f"module proposal sections invalid for {module}: {section_errors}"
+                )
+            create_node(
+                session_path=wt,
+                node_id=new_node_id,
+                parents=[source_node_id],
+                description=node_data.get("description", f"{module} module root"),
+                dimensions=dimensions,
+                proposal_content=proposal_text,
+                group_name=group_name,
+                reference_files=node_data.get("reference_files"),
+                module_label=module,
+            )
+            set_head(wt, new_node_id, module=module)
+            update_operation(task_num, group_name, nodes_created=new_node_id)
+            created.append(new_node_id)
+
+            if link_to_task:
+                task_id = _create_linked_module_task(
+                    task_num,
+                    module,
+                    f"Implement/refine brainstorm module `{module}` from t{task_num}.",
+                )
+                _write_module_task(wt, module, task_id)
+
+        update_operation(
+            task_num,
+            group_name,
+            agents_append=agent_name,
+            status="Completed",
+        )
+        return created
+    except Exception as exc:
+        try:
+            err_log.write_text(
+                f"apply_module_decomposer_output failed at "
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"Error: {type(exc).__name__}: {exc}\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+        raise
+
+
+def apply_module_merger_output(
+    task_num: int | str, agent_name: str,
+) -> str:
+    """Integrate module merge output as a 2-parent destination-subgraph node."""
+    wt = crew_worktree(task_num)
+    group_name = _agent_to_group_name(agent_name)
+    groups = _read_groups_file(str(wt / GROUPS_FILE)).get("groups", {})
+    group_info = groups.get(group_name, {}) if isinstance(groups, dict) else {}
+    source_module = str(group_info.get("source_subgraph") or "")
+    destination_module = str(group_info.get("destination_subgraph") or "")
+    if not source_module or not destination_module:
+        raise ValueError("module_merge group missing source/destination subgraph")
+    if not is_ancestor_subgraph(wt, source_module, destination_module):
+        raise ValueError(
+            f"module_merge refused: {destination_module!r} is not an ancestor "
+            f"of {source_module!r}"
+        )
+    source_head = get_head(wt, module=source_module)
+    destination_head = get_head(wt, module=destination_module)
+    if not source_head or not destination_head:
+        raise ValueError("module_merge requires source and destination HEADs")
+
+    def parse_module_merger(
+        text: str, err_log: Path, expected_role: str
+    ) -> tuple[dict, str, dict]:
+        node_data, proposal_text, extras = _parse_two_block_output(
+            text, err_log, expected_role
+        )
+        node_data["parents"] = [destination_head, source_head]
+        return node_data, proposal_text, extras
+
+    new_id, node_data, extras = _apply_node_output(
+        task_num,
+        agent_name,
+        expected_role="module_merger",
+        parser=parse_module_merger,
+    )
+    _merge_new_dimensions(wt, extras["raw_text"])
+    update_operation(
+        task_num,
+        group_name,
         agents_append=agent_name,
         nodes_created=new_id,
         status="Completed",

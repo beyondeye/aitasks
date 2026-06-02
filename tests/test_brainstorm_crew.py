@@ -331,6 +331,7 @@ class TestBrainstormAgentTypes(unittest.TestCase):
         expected = {
             "explorer", "comparator", "synthesizer",
             "detailer", "patcher", "initializer",
+            "module_decomposer", "module_merger",
         }
         self.assertEqual(set(BRAINSTORM_AGENT_TYPES.keys()), expected)
 
@@ -381,6 +382,8 @@ class TestGetAgentTypes(unittest.TestCase):
         "brainstorm-detailer": "claudecode/opus4_8",
         "brainstorm-patcher": "claudecode/sonnet4_6",
         "brainstorm-initializer": "claudecode/sonnet4_6",
+        "brainstorm-module_decomposer": "claudecode/opus4_8",
+        "brainstorm-module_merger": "claudecode/opus4_8",
     }
 
     def setUp(self):

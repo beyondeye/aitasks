@@ -31,6 +31,8 @@ from .brainstorm_dag import (  # noqa: E402
     NODES_DIR,
     PLANS_DIR,
     PROPOSALS_DIR,
+    get_head,
+    is_ancestor_subgraph,
     _node_module,
     _read_graph_state,
     next_node_id,
@@ -50,6 +52,8 @@ BRAINSTORM_AGENT_TYPES = {
     "detailer": {"max_parallel": 1, "launch_mode": "interactive"},
     "patcher": {"max_parallel": 1, "launch_mode": "interactive"},
     "initializer": {"max_parallel": 1, "launch_mode": "interactive"},
+    "module_decomposer": {"max_parallel": 1, "launch_mode": "interactive"},
+    "module_merger": {"max_parallel": 1, "launch_mode": "interactive"},
 }
 
 def get_agent_types(config_root: Path | None = None) -> dict[str, dict]:
@@ -483,6 +487,103 @@ def _assemble_input_patcher(
     return "\n".join(lines) + "\n"
 
 
+def _module_node_id_lines(module_node_ids: dict[str, str]) -> list[str]:
+    lines = ["", "## Assigned Module Node IDs"]
+    for module, node_id in module_node_ids.items():
+        lines.append(f"- {module}: {node_id}")
+    lines.extend([
+        "",
+        "Use these exact values as each module root's `node_id`.",
+        "Do not invent different ids or modify them in any way.",
+    ])
+    return lines
+
+
+def _assemble_input_module_decomposer(
+    session_path: Path,
+    source_node_id: str,
+    modules: list[str],
+    module_node_ids: dict[str, str],
+    from_sections: bool,
+    link_to_task: bool,
+    instructions: str,
+) -> str:
+    source_data = read_node(session_path, source_node_id)
+    source_module = _node_module(session_path, source_node_id)
+    ref_files = source_data.get("reference_files", []) or []
+    dims = extract_dimensions(source_data)
+
+    lines = [
+        "# Module Decomposer Input",
+        "",
+        "## Source Subgraph",
+        source_module,
+        "",
+        "## Source Node",
+        source_node_id,
+        "",
+        "## Source Node Files",
+        f"- Metadata: {session_path}/{NODES_DIR}/{source_node_id}.yaml",
+        f"- Proposal: {session_path}/{PROPOSALS_DIR}/{source_node_id}.md",
+        "",
+        "## Modules",
+        *[f"- {module}" for module in modules],
+        "",
+        "## Options",
+        f"from_sections: {str(from_sections).lower()}",
+        f"link_to_task: {str(link_to_task).lower()}",
+    ]
+    lines.extend(_module_node_id_lines(module_node_ids))
+    if dims:
+        lines.extend(["", "## Dimension Keys"])
+        lines.extend(f"- {k}" for k in sorted(dims.keys()))
+    if ref_files:
+        lines.extend(["", "## Reference Files", _format_reference_files(ref_files)])
+    if instructions:
+        lines.extend(["", "## Decomposition Plan", instructions])
+    return "\n".join(lines) + "\n"
+
+
+def _assemble_input_module_merger(
+    session_path: Path,
+    source_module: str,
+    destination_module: str,
+    source_head: str,
+    destination_head: str,
+    merge_rules: str,
+    assigned_node_id: str,
+) -> str:
+    return "\n".join([
+        "# Module Merger Input",
+        "",
+        "## Source Subgraph",
+        source_module,
+        "",
+        "## Destination Subgraph",
+        destination_module,
+        "",
+        "## Source HEAD",
+        source_head,
+        "",
+        "## Source Node Files",
+        f"- Metadata: {session_path}/{NODES_DIR}/{source_head}.yaml",
+        f"- Proposal: {session_path}/{PROPOSALS_DIR}/{source_head}.md",
+        "",
+        "## Destination HEAD",
+        destination_head,
+        "",
+        "## Destination Node Files",
+        f"- Metadata: {session_path}/{NODES_DIR}/{destination_head}.yaml",
+        f"- Proposal: {session_path}/{PROPOSALS_DIR}/{destination_head}.md",
+        "",
+        "## Assigned Node ID",
+        assigned_node_id,
+        "",
+        "## Merge-Up Rules",
+        merge_rules,
+    ]) + "\n"
+
+
 def _assemble_input_initializer(
     session_path: Path,
     imported_path: str,
@@ -730,6 +831,93 @@ def register_patcher(
     work2do_path = TEMPLATE_DIR / "patcher.md"
     _run_addwork(
         crew_id, agent_name, "patcher", group_name, work2do_path,
+        launch_mode=launch_mode,
+    )
+    _write_agent_input(session_dir, agent_name, input_content)
+
+    return agent_name
+
+
+def register_module_decomposer(
+    session_dir: Path,
+    crew_id: str,
+    source_node_id: str,
+    modules: list[str],
+    group_name: str,
+    from_sections: bool = False,
+    link_to_task: bool = False,
+    instructions: str = "",
+    launch_mode: str = DEFAULT_LAUNCH_MODE,
+) -> str:
+    """Register a Module Decomposer agent that creates one root per module."""
+    seq = _group_seq(group_name)
+    agent_name = f"module_decomposer_{seq}"
+
+    module_node_ids: dict[str, str] = {}
+    for module in modules:
+        node_num = next_node_id(session_dir)
+        safe_module = "".join(ch if ch.isalnum() else "_" for ch in module).strip("_")
+        module_node_ids[module] = f"n{node_num:03d}_{agent_name}_{safe_module}"
+
+    input_content = _assemble_input_module_decomposer(
+        session_dir,
+        source_node_id,
+        modules,
+        module_node_ids,
+        from_sections,
+        link_to_task,
+        instructions,
+    )
+
+    work2do_path = TEMPLATE_DIR / "module_decomposer.md"
+    _run_addwork(
+        crew_id, agent_name, "module_decomposer", group_name, work2do_path,
+        launch_mode=launch_mode,
+    )
+    _write_agent_input(session_dir, agent_name, input_content)
+
+    return agent_name
+
+
+def register_module_merger(
+    session_dir: Path,
+    crew_id: str,
+    source_module: str,
+    destination_module: str,
+    merge_rules: str,
+    group_name: str,
+    launch_mode: str = DEFAULT_LAUNCH_MODE,
+) -> str:
+    """Register a Module Merger agent after enforcing the up-only guard."""
+    if not is_ancestor_subgraph(session_dir, source_module, destination_module):
+        raise ValueError(
+            f"module_merge requires an ancestor destination; "
+            f"{destination_module!r} is not above {source_module!r}"
+        )
+
+    source_head = get_head(session_dir, module=source_module)
+    destination_head = get_head(session_dir, module=destination_module)
+    if not source_head or not destination_head:
+        raise ValueError("module_merge requires source and destination HEADs")
+
+    seq = _group_seq(group_name)
+    agent_name = f"module_merger_{seq}"
+    node_num = next_node_id(session_dir)
+    assigned_node_id = f"n{node_num:03d}_{agent_name}"
+
+    input_content = _assemble_input_module_merger(
+        session_dir,
+        source_module,
+        destination_module,
+        source_head,
+        destination_head,
+        merge_rules,
+        assigned_node_id,
+    )
+
+    work2do_path = TEMPLATE_DIR / "module_merger.md"
+    _run_addwork(
+        crew_id, agent_name, "module_merger", group_name, work2do_path,
         launch_mode=launch_mode,
     )
     _write_agent_input(session_dir, agent_name, input_content)

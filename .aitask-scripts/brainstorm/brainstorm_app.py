@@ -50,6 +50,7 @@ from brainstorm.brainstorm_dag import (
     get_active_dimensions,
     get_dimension_fields,
     get_head,
+    is_ancestor_subgraph,
     list_nodes,
     list_subgraphs,
     read_node,
@@ -90,6 +91,8 @@ from brainstorm.brainstorm_crew import (
     register_comparator,
     register_detailer,
     register_explorer,
+    register_module_decomposer,
+    register_module_merger,
     register_patcher,
     register_synthesizer,
 )
@@ -140,6 +143,7 @@ AGENT_STATUS_COLORS = {
 }
 
 _NODE_SELECT_OPS = {"explore", "detail", "patch"}
+_SUBGRAPH_SELECT_OPS = _NODE_SELECT_OPS | {"module_decompose", "module_merge"}
 
 _WIZARD_OP_TO_AGENT_TYPE = {
     "explore": "explorer",
@@ -147,6 +151,8 @@ _WIZARD_OP_TO_AGENT_TYPE = {
     "synthesize": "synthesizer",
     "detail": "detailer",
     "patch": "patcher",
+    "module_decompose": "module_decomposer",
+    "module_merge": "module_merger",
 }
 
 
@@ -198,6 +204,8 @@ _DESIGN_OPS = [
     ("synthesize", "Synthesize", "Merge multiple nodes into a synthesis"),
     ("detail", "Detail", "Generate implementation plan for a node"),
     ("patch", "Patch", "Tweak an existing plan"),
+    ("module_decompose", "Module Decompose", "Fork module subgraph roots"),
+    ("module_merge", "Module Merge", "Merge a module up into an ancestor"),
 ]
 
 _SESSION_OPS = [
@@ -388,6 +396,47 @@ _OPERATION_HELP: dict[str, dict] = {
             "Detail pass.",
             "Swap one library for another and surface whether the change "
             "has architectural implications.",
+        ],
+    },
+    "module_decompose": {
+        "title": "Module Decompose — Module Fork",
+        "summary": (
+            "Fork the selected subgraph HEAD into one root node per named "
+            "module so each module can evolve independently."
+        ),
+        "reads_from_parent": [
+            "YAML metadata and proposal markdown of the selected subgraph HEAD.",
+            "Existing section markers and component dimensions as boundary hints.",
+        ],
+        "produces": [
+            "One new root node per module.",
+            "Per-module HEAD/history entries in graph state.",
+            "Optional linked child aitasks recorded in module_tasks.",
+        ],
+        "use_cases": [
+            "Split a broad umbrella proposal into module-specific subgraphs.",
+            "Fast-track one module into a linked implementation task.",
+        ],
+    },
+    "module_merge": {
+        "title": "Module Merge — Merge Up",
+        "summary": (
+            "Merge a refined source module into an ancestor destination "
+            "subgraph, producing a 2-parent destination node."
+        ),
+        "reads_from_parent": [
+            "Source module HEAD proposal.",
+            "Destination subgraph HEAD proposal.",
+            "User-supplied merge-up rules.",
+        ],
+        "produces": [
+            "A new destination-subgraph node with parents "
+            "[destination_head, source_head].",
+            "The destination HEAD advances; the source HEAD is unchanged.",
+        ],
+        "use_cases": [
+            "Absorb a refined module back into the umbrella proposal.",
+            "Record explicit merge provenance across subgraphs.",
         ],
     },
     # Source: BrainstormApp._is_session_op_disabled (this file) +
@@ -1534,7 +1583,8 @@ _WIZARD_STEPS: list[_WizardStep] = [
     # session with 2+ subgraphs; single-subgraph sessions skip it entirely.
     _WizardStep(
         "subgraph_select",
-        lambda c: c.get("op") in _NODE_SELECT_OPS and c.get("subgraph_count", 1) >= 2,
+        lambda c: c.get("op") in _SUBGRAPH_SELECT_OPS
+        and c.get("subgraph_count", 1) >= 2,
         True,
     ),
     _WizardStep("node_select", lambda c: c.get("op") in _NODE_SELECT_OPS, True),
@@ -1545,7 +1595,14 @@ _WIZARD_STEPS: list[_WizardStep] = [
     ),
     _WizardStep(
         "config",
-        lambda c: c.get("op") in ("explore", "patch", "compare", "synthesize"),
+        lambda c: c.get("op") in (
+            "explore",
+            "patch",
+            "compare",
+            "synthesize",
+            "module_decompose",
+            "module_merge",
+        ),
         False,
     ),
     _WizardStep("confirm", lambda c: c.get("op") not in ("", "delete"), False),
@@ -2995,6 +3052,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._applying_detailer: set[str] = set()
         self._detailer_apply_errors: dict[str, str] = {}
         self._detailer_poll_timer = None
+        self._module_agents: set[str] = set()
+        self._applying_module_agent: set[str] = set()
+        self._module_apply_errors: dict[str, str] = {}
+        self._module_poll_timer = None
         self._current_focused_node_id: str | None = None
         # Remembered for the lifetime of the app; pre-fills the export modal's
         # directory input so repeated exports default to the previous choice.
@@ -3930,6 +3991,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._scan_existing_explorers()
         self._scan_existing_synthesizers()
         self._scan_existing_detailers()
+        self._scan_existing_module_agents()
 
     def _try_apply_initializer_if_needed(self, force: bool = False) -> None:
         """Re-attempt apply_initializer_output if n000_init is still placeholder.
@@ -4312,6 +4374,134 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._load_existing_session()
         finally:
             self._applying_explorer.discard(agent_name)
+
+    # ------------------------------------------------------------------
+    # Module op auto-apply
+    # ------------------------------------------------------------------
+
+    def _register_module_agent(self, agent_name: str) -> None:
+        self._module_agents.add(agent_name)
+        self._ensure_module_poll_timer()
+
+    def _ensure_module_poll_timer(self) -> None:
+        if self._module_poll_timer is not None:
+            return
+        if not self._module_agents:
+            return
+        self._module_poll_timer = self.set_interval(5, self._poll_module_agents)
+
+    def _stop_module_poll_timer(self) -> None:
+        if self._module_poll_timer is not None:
+            try:
+                self._module_poll_timer.stop()
+            except Exception:
+                pass
+            self._module_poll_timer = None
+
+    def _scan_existing_module_agents(self) -> None:
+        wt = self.session_path
+        if not wt or not Path(wt).is_dir():
+            return
+        try:
+            from brainstorm.brainstorm_session import (
+                _agent_apply_scan_should_track,
+                _module_decomposer_needs_apply,
+                _module_merger_needs_apply,
+            )
+        except Exception:
+            return
+        for pattern, needs_fn in (
+            ("module_decomposer_*_status.yaml", _module_decomposer_needs_apply),
+            ("module_merger_*_status.yaml", _module_merger_needs_apply),
+        ):
+            for status_path in sorted(Path(wt).glob(pattern)):
+                agent = status_path.stem[:-len("_status")]
+                if agent in self._module_agents:
+                    continue
+                try:
+                    data = read_yaml(str(status_path))
+                except Exception:
+                    continue
+                status = (data or {}).get("status", "")
+                needs_apply = (
+                    needs_fn(self.task_num, agent) if status == "Completed" else False
+                )
+                if _agent_apply_scan_should_track(status, needs_apply):
+                    self._module_agents.add(agent)
+        self._ensure_module_poll_timer()
+
+    def _poll_module_agents(self) -> None:
+        if not self._module_agents:
+            self._stop_module_poll_timer()
+            return
+        try:
+            from brainstorm.brainstorm_session import _AGENT_FAILED_STATUSES
+        except Exception:
+            return
+        for agent in list(self._module_agents):
+            if agent in self._applying_module_agent:
+                continue
+            status_path = self.session_path / f"{agent}_status.yaml"
+            if not status_path.is_file():
+                continue
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            status = (data or {}).get("status", "")
+            if status in _AGENT_FAILED_STATUSES:
+                self._module_agents.discard(agent)
+                continue
+            if status != "Completed":
+                continue
+            self._try_apply_module_agent_if_needed(agent)
+        if not self._module_agents:
+            self._stop_module_poll_timer()
+
+    def _module_agent_needs_apply(self, agent_name: str) -> bool:
+        from brainstorm.brainstorm_session import (
+            _module_decomposer_needs_apply,
+            _module_merger_needs_apply,
+        )
+        if agent_name.startswith("module_decomposer_"):
+            return _module_decomposer_needs_apply(self.task_num, agent_name)
+        if agent_name.startswith("module_merger_"):
+            return _module_merger_needs_apply(self.task_num, agent_name)
+        return False
+
+    def _try_apply_module_agent_if_needed(
+        self, agent_name: str, force: bool = False,
+    ) -> None:
+        if agent_name in self._applying_module_agent:
+            return
+        if not force and not self._module_agent_needs_apply(agent_name):
+            self._module_agents.discard(agent_name)
+            return
+        from brainstorm.brainstorm_session import (
+            apply_module_decomposer_output,
+            apply_module_merger_output,
+        )
+        self._applying_module_agent.add(agent_name)
+        try:
+            try:
+                if agent_name.startswith("module_decomposer_"):
+                    new_ids = apply_module_decomposer_output(self.task_num, agent_name)
+                    result = ", ".join(new_ids)
+                else:
+                    result = apply_module_merger_output(self.task_num, agent_name)
+            except Exception as exc:
+                self._module_apply_errors[agent_name] = str(exc)
+                self._set_apply_banner(
+                    f"Module agent {agent_name} apply failed: {exc}"
+                )
+                return
+            self._module_apply_errors.pop(agent_name, None)
+            self._module_agents.discard(agent_name)
+            self._clear_apply_banner()
+            self.notify(f"Module agent {agent_name} applied → {result}.")
+            self._load_existing_session()
+        finally:
+            self._applying_module_agent.discard(agent_name)
 
     def _pick_completed_agent_for_retry(self, role: str) -> str | None:
         """Walk the session worktree and return the agent name with the
@@ -5634,6 +5824,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """
         self._wizard_has_sections = False
         self._cmp_section_checks = {}
+        self._wizard_subgraph = UMBRELLA_SUBGRAPH
 
     def _wizard_ctx(self) -> dict:
         """Context dict consumed by the pure step resolver (no I/O)."""
@@ -5678,7 +5869,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _actions_show_subgraph_select(self) -> None:
         """Optional step: choose which module subgraph the op runs inside.
 
-        Only rendered for node-select ops in a 2+ subgraph session (see the
+        Only rendered for subgraph-scoped ops in a 2+ subgraph session (see the
         ``subgraph_select`` predicate). Defaults the highlighted choice to the
         most-recently-touched subgraph. Mirrors op-select: Enter/click advances
         immediately (no Next button).
@@ -5699,12 +5890,19 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         subgraphs = list_subgraphs(self.session_path)
         # Default selection = most-recently-touched subgraph (first in the list).
-        self._wizard_subgraph = subgraphs[0] if subgraphs else UMBRELLA_SUBGRAPH
+        if self._wizard_op == "module_merge":
+            self._wizard_subgraph = next(
+                (m for m in subgraphs if m != UMBRELLA_SUBGRAPH),
+                UMBRELLA_SUBGRAPH,
+            )
+        else:
+            self._wizard_subgraph = subgraphs[0] if subgraphs else UMBRELLA_SUBGRAPH
         for module in subgraphs:
             head = get_head(self.session_path, module=module)
             head_str = head or "(empty)"
+            disabled = self._wizard_op == "module_merge" and module == UMBRELLA_SUBGRAPH
             container.mount(
-                OperationRow(module, module, f"HEAD: {head_str}", disabled=False)
+                OperationRow(module, module, f"HEAD: {head_str}", disabled=disabled)
             )
         self.call_after_refresh(self._focus_first_operation)
 
@@ -5867,6 +6065,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._config_synthesize(container)
         elif op == "patch":
             self._config_patch_no_node(container)
+        elif op == "module_decompose":
+            self._config_module_decompose(container)
+        elif op == "module_merge":
+            self._config_module_merge(container)
 
     def _focus_fcl_filter(self, fcl_id: str) -> None:
         """Focus the filter Input of a FuzzyCheckList by widget id."""
@@ -6025,6 +6227,57 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             )
         )
 
+    def _config_module_decompose(self, container: VerticalScroll) -> None:
+        """Module decompose config: module list + extraction options."""
+        source = get_head(self.session_path, module=self._wizard_subgraph)
+        container.mount(Label(f"[bold]Source Subgraph:[/] {self._wizard_subgraph}"))
+        container.mount(Label(f"[bold]Source HEAD:[/] {source or '(none)'}"))
+        container.mount(Label("[bold]Modules[/]"))
+        container.mount(TextArea("", classes="ta_module_decompose_modules"))
+        container.mount(Checkbox("Use section markers", classes="chk_from_sections"))
+        container.mount(Checkbox("Create linked child tasks", classes="chk_link_to_task"))
+        container.mount(Label("[bold]Decomposition Plan (optional)[/]"))
+        container.mount(TextArea("", classes="ta_module_decompose_plan"))
+        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+    def _ancestor_subgraphs(self, source: str) -> list[str]:
+        return [
+            module for module in list_subgraphs(self.session_path)
+            if module != source
+            and is_ancestor_subgraph(self.session_path, source, module)
+        ]
+
+    def _config_module_merge(self, container: VerticalScroll) -> None:
+        """Module merge config: ancestor destination + merge-up rules."""
+        source = self._wizard_subgraph
+        ancestors = self._ancestor_subgraphs(source)
+        source_head = get_head(self.session_path, module=source)
+        container.mount(Label(f"[bold]Source Subgraph:[/] {source}"))
+        container.mount(Label(f"[bold]Source HEAD:[/] {source_head or '(none)'}"))
+        if not ancestors:
+            container.mount(
+                Label("[bold yellow]No ancestor destination is available for this source.[/]")
+            )
+        else:
+            container.mount(
+                CycleField(
+                    "Destination subgraph",
+                    ancestors,
+                    initial=ancestors[0],
+                    id="cf_module_merge_destination",
+                )
+            )
+        container.mount(Label("[bold]Merge-Up Rules[/]"))
+        container.mount(TextArea("", classes="ta_module_merge_rules"))
+        container.mount(
+            Button(
+                "Next \u25b6",
+                variant="primary",
+                classes="btn_actions_next",
+                disabled=not bool(ancestors),
+            )
+        )
+
     def _config_session_op(self, container: VerticalScroll) -> None:
         """Session operation config: confirmation only."""
         labels = {
@@ -6153,6 +6406,61 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.notify("Patch request cannot be empty", severity="warning")
                 return False
 
+        elif op == "module_decompose":
+            config["subgraph"] = self._wizard_subgraph
+            config["source_node"] = get_head(
+                self.session_path, module=self._wizard_subgraph
+            )
+            if not config["source_node"]:
+                self.notify("Selected subgraph has no HEAD", severity="warning")
+                return False
+            module_text = container.query_one(
+                ".ta_module_decompose_modules", TextArea
+            ).text
+            modules = [
+                m.strip()
+                for m in re.split(r"[,\n]+", module_text)
+                if m.strip()
+            ]
+            if not modules:
+                self.notify("Enter at least one module name", severity="warning")
+                return False
+            if len(set(modules)) != len(modules):
+                self.notify("Module names must be unique", severity="warning")
+                return False
+            config["modules"] = modules
+            config["from_sections"] = bool(
+                container.query_one(".chk_from_sections", Checkbox).value
+            )
+            config["link_to_task"] = bool(
+                container.query_one(".chk_link_to_task", Checkbox).value
+            )
+            config["instructions"] = container.query_one(
+                ".ta_module_decompose_plan", TextArea
+            ).text.strip()
+
+        elif op == "module_merge":
+            config["source_subgraph"] = self._wizard_subgraph
+            try:
+                dest = container.query_one(
+                    "#cf_module_merge_destination", CycleField
+                ).current_value
+            except Exception:
+                dest = ""
+            if not dest:
+                self.notify("No ancestor destination available", severity="warning")
+                return False
+            if not is_ancestor_subgraph(self.session_path, self._wizard_subgraph, dest):
+                self.notify("Destination is not an ancestor", severity="warning")
+                return False
+            config["destination_subgraph"] = dest
+            config["merge_rules"] = container.query_one(
+                ".ta_module_merge_rules", TextArea
+            ).text.strip()
+            if not config["merge_rules"]:
+                self.notify("Merge-up rules cannot be empty", severity="warning")
+                return False
+
         elif op in ("pause", "resume", "finalize", "archive"):
             config["confirmed"] = True
 
@@ -6248,6 +6556,26 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             lines.append(f"[bold]Node:[/] {cfg['node']}")
             lines.append("[bold]Patch Request:[/]")
             lines.append(cfg["patch_request"])
+        elif op == "module_decompose":
+            lines.append(f"[bold]Source Subgraph:[/] {cfg['subgraph']}")
+            lines.append(f"[bold]Source HEAD:[/] {cfg['source_node']}")
+            lines.append(f"[bold]Modules:[/] {', '.join(cfg['modules'])}")
+            lines.append(
+                f"[bold]From Sections:[/] {str(cfg['from_sections']).lower()}"
+            )
+            lines.append(
+                f"[bold]Link To Task:[/] {str(cfg['link_to_task']).lower()}"
+            )
+            if cfg.get("instructions"):
+                lines.append("[bold]Decomposition Plan:[/]")
+                lines.append(cfg["instructions"])
+        elif op == "module_merge":
+            lines.append(f"[bold]Source Subgraph:[/] {cfg['source_subgraph']}")
+            lines.append(
+                f"[bold]Destination Subgraph:[/] {cfg['destination_subgraph']}"
+            )
+            lines.append("[bold]Merge-Up Rules:[/]")
+            lines.append(cfg["merge_rules"])
         elif op == "pause":
             lines.append("Session will be paused.")
         elif op == "resume":
@@ -6425,16 +6753,24 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         target_sections = cfg.get("target_sections")
         # Scope the op to a subgraph: node-select ops use the selector's choice;
         # compare/synthesize (no selector) derive it from their first input node.
-        if op in _NODE_SELECT_OPS:
+        if op == "module_merge":
+            subgraph = cfg.get("destination_subgraph", UMBRELLA_SUBGRAPH)
+            head_at_creation = get_head(
+                self.session_path,
+                module=cfg.get("source_subgraph", UMBRELLA_SUBGRAPH),
+            )
+        elif op in _SUBGRAPH_SELECT_OPS:
             subgraph = self._wizard_subgraph
+            head_at_creation = get_head(self.session_path, module=subgraph)
         else:
             input_nodes = cfg.get("nodes") or []
             subgraph = (
                 _node_module(self.session_path, input_nodes[0])
                 if input_nodes else UMBRELLA_SUBGRAPH
             )
-        head_at_creation = get_head(self.session_path, module=subgraph)
+            head_at_creation = get_head(self.session_path, module=subgraph)
         agents_list: list[str] = []
+        operation_extra: dict = {}
 
         try:
             if op == "explore":
@@ -6505,6 +6841,62 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     self._register_patcher_source, agent, cfg["node"],
                 )
                 msg = f"Registered patcher: {agent}"
+            elif op == "module_decompose":
+                operation_extra = {
+                    "modules": cfg["modules"],
+                    "from_sections": cfg["from_sections"],
+                    "link_to_task": cfg["link_to_task"],
+                    "source_subgraph": cfg["subgraph"],
+                }
+                if cfg["from_sections"]:
+                    from brainstorm.brainstorm_session import (
+                        apply_module_decompose_from_sections,
+                    )
+                    record_operation(
+                        self.task_num,
+                        group_name=group_name,
+                        operation=op,
+                        agents=[],
+                        head_at_creation=head_at_creation,
+                        subgraph=subgraph,
+                        **operation_extra,
+                    )
+                    created = apply_module_decompose_from_sections(
+                        self.task_num, group_name
+                    )
+                    msg = "Created module roots from sections: " + ", ".join(created)
+                else:
+                    agent = register_module_decomposer(
+                        self.session_path,
+                        crew_id,
+                        cfg["source_node"],
+                        cfg["modules"],
+                        group_name,
+                        from_sections=cfg["from_sections"],
+                        link_to_task=cfg["link_to_task"],
+                        instructions=cfg.get("instructions", ""),
+                        launch_mode=launch_mode,
+                    )
+                    agents_list.append(agent)
+                    self.call_from_thread(self._register_module_agent, agent)
+                    msg = f"Registered module decomposer: {agent}"
+            elif op == "module_merge":
+                agent = register_module_merger(
+                    self.session_path,
+                    crew_id,
+                    cfg["source_subgraph"],
+                    cfg["destination_subgraph"],
+                    cfg["merge_rules"],
+                    group_name,
+                    launch_mode=launch_mode,
+                )
+                agents_list.append(agent)
+                self.call_from_thread(self._register_module_agent, agent)
+                operation_extra = {
+                    "source_subgraph": cfg["source_subgraph"],
+                    "destination_subgraph": cfg["destination_subgraph"],
+                }
+                msg = f"Registered module merger: {agent}"
             else:
                 msg = f"Unknown operation: {op}"
                 agents_list = []
@@ -6517,6 +6909,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     agents=agents_list,
                     head_at_creation=head_at_creation,
                     subgraph=subgraph,
+                    **operation_extra,
                 )
 
             self.call_from_thread(self.notify, msg)
