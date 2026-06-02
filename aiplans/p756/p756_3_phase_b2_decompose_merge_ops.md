@@ -79,3 +79,49 @@ dimensions relevant to it; the axis vocabulary stays session-wide.
 Follow task-workflow Step 9: review, commit (`feature: … (t756_3)`), consolidate this
 plan with Final Implementation Notes (op-wiring pattern + notes for 756_4/756_6),
 archive via `./.aitask-scripts/aitask_archive.sh 756_3`.
+
+## Final Implementation Notes
+
+- Added the `module_decompose` / `module_merge` op keys, operation refs, DAG badge
+  colors, TUI labels/help, and code-agent defaults. New agent types are
+  `module_decomposer` and `module_merger`.
+- Added `templates/module_decomposer.md` and `templates/module_merger.md`.
+  `module_decomposer` emits repeated `MODULE_NODE` blocks; `module_merger` emits
+  the normal single-node `NODE_YAML` + `PROPOSAL` blocks.
+- Added `register_module_decomposer()` and `register_module_merger()` in
+  `brainstorm_crew.py`. The merger registration enforces `is_ancestor_subgraph`
+  before launch and reserves a destination node id.
+- Added apply paths in `brainstorm_session.py`:
+  - `apply_module_decomposer_output()` creates one root per module, tags
+    `module_label`, sets each module HEAD/history, records all `nodes_created`,
+    and leaves the source subgraph HEAD unchanged.
+  - `apply_module_decompose_from_sections()` is the deterministic no-agent
+    `from_sections` path. It validates source sections, slices by section name or
+    `component_<module>` dimension tag, then creates module roots directly.
+  - `apply_module_merger_output()` creates one destination-subgraph node with
+    parents `[destination_head, source_head]`; only the destination HEAD advances.
+- Added TUI config and launch wiring. `module_decompose` / `module_merge` reuse
+  B1's subgraph selector but skip node-select. Module agents are auto-applied via
+  a dedicated poller and existing restart scan pattern.
+- `--link-to-task` uses `aitask_create.sh --batch --commit --silent --parent ...`
+  and writes `module_tasks[module] = <child_id>`. This is intentionally real-child
+  creation rather than draft creation so later status/sync tasks have an id to
+  resolve.
+- Notes for t756_4/t756_5/t756_6: group metadata now carries `modules`,
+  `from_sections`, `link_to_task`, `source_subgraph`, and `destination_subgraph`
+  where relevant. `module_tasks` is populated only by linked decomposition;
+  status/sync should treat absent entries as unlinked.
+
+## Risk
+
+### Code-health risk: high
+- The implementation adds new behavior across central brainstorm TUI, crew registration, group persistence, DAG badge rendering, and session apply paths; regressions in existing op launch/apply flows are plausible despite focused tests · severity: high · → mitigation: t906
+- The module-agent auto-apply and multi-output parser add a new lifecycle shape that is similar to existing pollers but not yet factored into a shared abstraction, increasing maintenance coupling inside `brainstorm_app.py` and `brainstorm_session.py` · severity: medium · → mitigation: t906
+
+### Goal-achievement risk: medium
+- The functional `module_decompose --link-to-task` path shells out to real child-task creation during apply; unit tests cover graph effects but not the full live create/commit/module_tasks workflow · severity: medium · → mitigation: t905
+- The module op TUI flow and live agent-launch/apply cycle were not manually exercised in this session, so there is a bounded risk that the implemented wiring does not fully satisfy the intended user workflow even though static/unit checks pass · severity: medium · → mitigation: t905
+
+### Planned mitigations
+- timing: after | name: t905 | type: manual_verification | priority: high | effort: medium | addresses: goal-achievement live workflow risks | desc: Manually verify module_decompose/module_merge TUI flows, live agent launch/apply, from_sections behavior, and link-to-task module_tasks persistence.
+- timing: after | name: t906 | type: chore | priority: high | effort: medium | addresses: code-health apply and auto-apply risks | desc: Add higher-level integration or contract coverage for module-agent auto-apply, group metadata, multi-output parsing, and linked child-task creation with a stubbed create script.
