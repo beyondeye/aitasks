@@ -1193,6 +1193,14 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     }
     .profile-sep { color: $text-muted; padding: 0 1; }
 
+    /* Execution Profiles tab: non-scrolling shell, params scroll fills the
+       middle, selector/search/buttons stay fixed (mirrors the Shortcuts tab).
+       The inner panes are re-created (with a fresh repop-counter suffix) on
+       every repopulation, so they are styled by class, not by fixed id. */
+    #profiles_content { height: 1fr; }
+    .profiles-params { height: 1fr; }
+    .profiles-search { margin: 0 1; }
+
     /* Modal dialogs */
     #edit_dialog, #import_dialog, #picker_dialog {
         width: 65%;
@@ -1261,16 +1269,31 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # export/import buttons.)
         Binding("d", "sc_reset", "Reset scope", show=False),
         Binding("l", "sc_lint", "Lint", show=False),
+        # Execution Profiles tab actions — gated to that tab by check_action.
+        # show=False: the keys live on the tab's on-screen buttons (whose labels
+        # carry the key via render_label_cfg), not the global footer.
+        Binding("w", "profile_save", "Save profile", show=False),
+        Binding("v", "profile_revert", "Revert profile", show=False),
+        Binding("x", "profile_delete", "Delete profile", show=False),
     ]
 
     _SHORTCUT_TAB_ACTIONS = frozenset({"sc_reset", "sc_lint"})
+    _PROFILE_TAB_ACTIONS = frozenset(
+        {"profile_save", "profile_revert", "profile_delete"}
+    )
 
     def check_action(self, action: str, parameters):
-        """Show/enable the sc_* bindings only on the Shortcuts tab."""
+        """Gate the sc_* / profile_* bindings to their owning tab."""
         if action in self._SHORTCUT_TAB_ACTIONS:
             try:
                 if self.query_one(TabbedContent).active != "tab_shortcuts":
                     return None  # hide from footer on other tabs
+            except Exception:
+                return None
+        if action in self._PROFILE_TAB_ACTIONS:
+            try:
+                if self.query_one(TabbedContent).active != "tab_profiles":
+                    return None  # inert on other tabs
             except Exception:
                 return None
         return True
@@ -1283,6 +1306,11 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._selected_profile: str | None = None  # currently selected profile filename
         self._expanded_field: str | None = None  # field key with expanded description
         self._profiles_focus_target: str | None = None  # widget ID to focus after repop
+        # Profiles tab: index of (group_header_label, [[key, field_widget, hint_label], ...])
+        # built from the flat compose_profile_fields() stream — drives the
+        # name-only search filter. Search text persists across param re-renders.
+        self._profile_groups: list = []
+        self._profile_search_text: str = ""
         self._editing_layer: str = "project"  # track which layer is being edited
         self._editing_project_key: str | None = None
         self._repop_counter: int = 0  # ensures unique widget IDs across repopulations
@@ -1292,7 +1320,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with TabbedContent("Agent Defaults", "Board", "Project Config", "Tmux", "Models", "Profiles", "Shortcuts"):
+        with TabbedContent("Agent Defaults", "Board", "Project Config", "Tmux", "Models", "Execution Profiles", "Shortcuts"):
             with TabPane("Agent Defaults", id="tab_agent"):
                 yield VerticalScroll(id="agent_content")
             with TabPane("Board", id="tab_board"):
@@ -1303,8 +1331,10 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 yield VerticalScroll(id="tmux_content")
             with TabPane("Models", id="tab_models"):
                 yield VerticalScroll(id="models_content")
-            with TabPane("Profiles", id="tab_profiles"):
-                yield VerticalScroll(id="profiles_content")
+            with TabPane("Execution Profiles", id="tab_profiles"):
+                # Non-scrolling shell: the selector + search + buttons stay fixed
+                # while only the inner params VerticalScroll scrolls.
+                yield Vertical(id="profiles_content")
             with TabPane("Shortcuts", id="tab_shortcuts"):
                 # Non-scrolling: the inner DataTable scrolls itself, so an outer
                 # VerticalScroll would produce a redundant second scrollbar.
@@ -1333,9 +1363,12 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         # Exclude VerticalScroll containers — they are focusable by default
         # but have no visual indicator and steal focus from actual widgets.
+        # `focusable` (not `can_focus`) also skips disabled widgets (e.g. the
+        # Save/Revert buttons when a profile has no unsaved changes) and
+        # search-filtered fields whose `display` is off.
         focusable = [
             w for w in pane.query("*")
-            if w.can_focus and w.display and not isinstance(w, VerticalScroll)
+            if w.focusable and not isinstance(w, VerticalScroll)
         ]
         if not focusable:
             return
@@ -1375,7 +1408,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             pane = self.query_one(f"#{tab_id}", TabPane)
             focusable = [
                 w for w in pane.query("*")
-                if w.can_focus and w.display and not isinstance(w, VerticalScroll)
+                if w.focusable and not isinstance(w, VerticalScroll)
             ]
             if focusable:
                 focusable[0].focus()
@@ -1393,6 +1426,18 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
 
         focused = self.focused
+
+        # Tab / Shift+Tab cycle focus between the Execution Profiles panes.
+        # Handled before the Input guard so Tab can leave the search box too.
+        if event.key in ("tab", "shift+tab"):
+            try:
+                if self.query_one(TabbedContent).active == "tab_profiles":
+                    self._cycle_profile_pane(-1 if event.key == "shift+tab" else 1)
+                    event.prevent_default()
+                    event.stop()
+                    return
+            except Exception:
+                pass
 
         # Guard: skip all custom handling when an Input has focus
         if isinstance(focused, Input):
@@ -2469,10 +2514,11 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     # Profiles tab (editable)
     # -------------------------------------------------------------------
     def _populate_profiles_tab(self, focus_widget_id: str | None = None):
-        container = self.query_one("#profiles_content", VerticalScroll)
+        container = self.query_one("#profiles_content", Vertical)
         container.remove_children()
 
         self._profile_id_map = {}
+        self._profile_groups = []
         self._repop_counter += 1
         rc = self._repop_counter
         self._profiles_tab_rc = rc
@@ -2481,7 +2527,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # --- Explanation ---
         container.mount(Label("Execution Profiles", classes="section-header"))
         container.mount(Label(
-            "[dim]Profiles pre-answer workflow questions to reduce interactive prompts.\n"
+            "[dim]Execution profiles pre-answer workflow questions to reduce "
+            "interactive prompts.\n"
             "Used by: aitask-pick, aitask-explore, aitask-pickrem, "
             "aitask-pickweb, task-workflow\n\n"
             "Project-scoped profiles are git-tracked and shared with all users — "
@@ -2548,44 +2595,83 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             file_display = current_selection
             scope_hint = "[dim](project-scoped, shared with team)[/dim]"
 
-        container.mount(Label(""))
         container.mount(Label(
             f"Editing: [bold]{profile_name}[/bold] "
             f"[dim]({file_display})[/dim]  {scope_hint}",
             classes="profile-header",
         ))
 
-        # Render fields grouped (delegates to shared renderer in lib/profile_editor.py)
+        # --- Search pane (fixed): name-only filter over the params below ---
+        # Fixed-id widgets mounted directly into `container` would collide with
+        # the not-yet-removed previous copies on repop (remove_children() is
+        # deferred), so the repop counter suffixes their ids; CSS targets them
+        # by class.
+        container.mount(Input(
+            placeholder="Filter parameters by name…",
+            id=f"profiles_search_{rc}",
+            classes="profiles-search",
+            value=self._profile_search_text,
+        ))
+
+        # --- Params pane (scrolls): grouped fields from the shared renderer.
+        # Walk the flat widget stream to build a group/field index so the
+        # search filter can toggle widget visibility in place (without
+        # unmounting — see _apply_profile_filter). ---
+        params = VerticalScroll(
+            id=f"profiles_params_scroll_{rc}", classes="profiles-params",
+        )
+        container.mount(params)
+        cur_fields = None       # field list for the current group
+        last_field = None       # most-recent [key, widget, hint] awaiting its hint
         for w in compose_profile_fields(
             data,
             id_prefix=f"{safe_fn}_{rc}",
             expanded_field=self._expanded_field,
         ):
-            container.mount(w)
+            params.mount(w)
+            if isinstance(w, Label) and "section-header" in w.classes:
+                cur_fields = []
+                self._profile_groups.append((w, cur_fields))
+                last_field = None
+            elif isinstance(w, (CycleField, ConfigRow)):
+                fkey = getattr(w, "field_key", None) or getattr(w, "row_key", "")
+                if cur_fields is not None:
+                    last_field = [fkey, w, None]
+                    cur_fields.append(last_field)
+            elif isinstance(w, Label) and "section-hint" in w.classes:
+                if last_field is not None:
+                    last_field[2] = w
+                    last_field = None
 
-        # --- Action buttons ---
-        container.mount(Label(""))
-        hbox = Horizontal(classes="tab-buttons")
+        # --- Button pane (fixed, pinned to the bottom) ---
+        # Profile name is shown in the "Editing:" header above, so the buttons
+        # carry only the action + its shortcut key (w / v / x).
+        hbox = Horizontal(classes="tab-buttons", id=f"profiles_buttons_{rc}")
         container.mount(hbox)
         hbox.mount(Button(
-            f"Save {profile_name}", variant="success",
+            render_label_cfg("Save", "w"), variant="success",
             id=f"btn_profile_save__{safe_fn}",
         ))
         hbox.mount(Button(
-            f"Revert {profile_name}", variant="warning",
+            render_label_cfg("Revert", "v"), variant="warning",
             id=f"btn_profile_revert__{safe_fn}",
         ))
         hbox.mount(Button(
-            f"Delete {profile_name}", variant="error",
+            render_label_cfg("Delete", "x"), variant="error",
             id=f"btn_profile_delete__{safe_fn}",
         ))
 
         container.mount(Label(
             "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
-            "|  Enter: edit strings  |  ?: field details  "
-            "|  a/b/c/m/p/t: switch tabs[/dim]",
+            "|  Tab: switch pane  |  Enter: edit strings  |  ?: field details  "
+            "|  w/v/x: save/revert/delete  |  a/b/c/m/p/t: switch tabs[/dim]",
             classes="section-hint",
         ))
+
+        # Re-apply any active filter and the dirty-state button gating once the
+        # widgets have mounted.
+        self.call_after_refresh(self._apply_profile_filter, self._profile_search_text)
+        self.call_after_refresh(self._update_profile_button_states)
 
         # Restore focus after repopulation
         if self._profiles_focus_target:
@@ -2602,9 +2688,165 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         except Exception:
             pass
 
+    def _apply_profile_filter(self, text: str) -> None:
+        """Show only params whose field name matches `text` (case-insensitive).
+
+        Toggles `display` on the field widget + its hint label, and hides a
+        group header when none of its fields survive. Hidden widgets stay in the
+        DOM (queryable by `collect_profile_values`), so in-progress edits to a
+        filtered-out field are preserved on Save.
+        """
+        q = (text or "").strip().lower()
+        for header, fields in self._profile_groups:
+            any_vis = False
+            for entry in fields:
+                key, fw, hint = entry[0], entry[1], entry[2]
+                vis = True if not q else (q in key.lower())
+                fw.display = vis
+                if hint is not None:
+                    hint.display = vis
+                any_vis = any_vis or vis
+            header.display = any_vis
+
+    @on(Input.Changed)
+    def _on_profiles_search_changed(self, event: Input.Changed) -> None:
+        # The search box id is repop-counter-suffixed, so match by prefix.
+        if (event.input.id or "").startswith("profiles_search"):
+            self._profile_search_text = event.value
+            self._apply_profile_filter(event.value)
+
+    def _profile_is_dirty(self, filename: str | None) -> bool:
+        """True if the on-screen field values differ from the stored profile."""
+        if not filename or filename not in self.config_mgr.profiles:
+            return False
+        base = self.config_mgr.profiles.get(filename, {})
+        try:
+            data, _ = collect_profile_values(
+                self.query_one, base,
+                id_prefix=f"{_safe_id(filename)}_{self._profiles_tab_rc}",
+            )
+        except Exception:
+            return False
+        return data != base
+
+    def _update_profile_button_states(self) -> None:
+        """Disable Save/Revert when the profile has no unsaved changes."""
+        fn = self._selected_profile
+        if not fn or fn == "+ Add new profile":
+            return
+        dirty = self._profile_is_dirty(fn)
+        safe_fn = _safe_id(fn)
+        for prefix in ("btn_profile_save__", "btn_profile_revert__"):
+            try:
+                self.query_one(f"#{prefix}{safe_fn}", Button).disabled = not dirty
+            except Exception:
+                pass
+
+    def _cycle_profile_pane(self, direction: int) -> None:
+        """Move focus between the four Execution Profiles panes with Tab."""
+        rc = self._profiles_tab_rc
+        anchors: list = []  # (pane_id, widget)
+        try:
+            anchors.append(
+                ("selector",
+                 self.query_one(f"#cf_profile_selector_{rc}", CycleField))
+            )
+        except Exception:
+            pass
+        try:
+            anchors.append(
+                ("search", self.query_one(f"#profiles_search_{rc}", Input))
+            )
+        except Exception:
+            pass
+        params_scroll = None
+        try:
+            params_scroll = self.query_one(
+                f"#profiles_params_scroll_{rc}", VerticalScroll
+            )
+            for w in params_scroll.query("*"):
+                # `focusable` (not `can_focus`) so filtered-out / disabled
+                # widgets are skipped — a disabled widget's focus() is a no-op.
+                if w.focusable and not isinstance(w, VerticalScroll):
+                    anchors.append(("params", w))
+                    break
+        except Exception:
+            pass
+        buttons_box = None
+        try:
+            buttons_box = self.query_one(f"#profiles_buttons_{rc}", Horizontal)
+            for w in buttons_box.query(Button):
+                # Skip disabled Save/Revert (focus() on a disabled widget is a
+                # no-op) — land on the first focusable button (e.g. Delete).
+                if w.focusable:
+                    anchors.append(("buttons", w))
+                    break
+        except Exception:
+            pass
+        if not anchors:
+            return
+        focused = self.focused
+        cur = -1
+        for i, (_pane, widget) in enumerate(anchors):
+            if focused is widget:
+                cur = i
+                break
+        if cur < 0 and focused is not None:
+            ancestors = list(getattr(focused, "ancestors", []))
+            for i, (pane, _widget) in enumerate(anchors):
+                if pane == "params" and params_scroll in ancestors:
+                    cur = i
+                    break
+                if pane == "buttons" and buttons_box in ancestors:
+                    cur = i
+                    break
+        if cur < 0:
+            anchors[0][1].focus()
+            return
+        nxt = (cur + direction) % len(anchors)
+        anchors[nxt][1].focus()
+
+    def action_profile_save(self) -> None:
+        fn = self._selected_profile
+        if not fn or fn == "+ Add new profile" or fn not in self.config_mgr.profiles:
+            return
+        if not self._profile_is_dirty(fn):
+            self.notify("No changes to save")
+            return
+        data = self.config_mgr.profiles.get(fn, {})
+        profile_name = data.get("name", fn)
+        self.push_screen(
+            SaveProfileConfirmScreen(profile_name, fn),
+            callback=lambda result, f=fn: self._handle_save_profile(result, f),
+        )
+
+    def action_profile_revert(self) -> None:
+        fn = self._selected_profile
+        if not fn or fn == "+ Add new profile" or fn not in self.config_mgr.profiles:
+            return
+        if not self._profile_is_dirty(fn):
+            self.notify("No changes to revert")
+            return
+        self._revert_profile(fn)
+
+    def action_profile_delete(self) -> None:
+        fn = self._selected_profile
+        if not fn or fn == "+ Add new profile" or fn not in self.config_mgr.profiles:
+            return
+        data = self.config_mgr.profiles.get(fn, {})
+        profile_name = data.get("name", fn)
+        self.push_screen(
+            DeleteProfileConfirmScreen(profile_name, fn),
+            callback=lambda confirmed, f=fn:
+                self._handle_delete_profile(bool(confirmed), f),
+        )
+
     @on(CycleField.Changed)
     def on_cycle_field_changed(self, event: CycleField.Changed):
         if event.field.field_key != "profile_selector":
+            # A profile parameter field changed — refresh Save/Revert gating.
+            if (event.field.id or "").startswith("profile_"):
+                self._update_profile_button_states()
             return
         new_value = event.value
         if new_value == "+ Add new profile":
@@ -2853,6 +3095,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             row.refresh()
         except Exception:
             pass
+        self._update_profile_button_states()
         self.notify(f"Updated {key} — press Save to persist")
 
     # -------------------------------------------------------------------
