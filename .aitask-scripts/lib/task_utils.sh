@@ -253,6 +253,26 @@ format_yaml_list() {
 # (sourced above) — a shared lib so agentcrew_utils.sh can reuse the same
 # canonical readers without a copy of its own.
 
+# --- Task level enum (single source of truth) ---
+
+# Canonical task level enum (high/medium/low), shared by priority, effort, and
+# the two risk fields (risk_code_health, risk_goal_achievement). Single bash
+# source of truth — Python mirror: .aitask-scripts/lib/task_levels.py.
+TASK_LEVELS="high medium low"   # canonical, severity-descending
+
+# Return 0 if $1 is a valid task level, non-zero otherwise (empty => invalid).
+is_valid_task_level() {
+    local val="$1" level
+    for level in $TASK_LEVELS; do
+        [[ "$val" == "$level" ]] && return 0
+    done
+    return 1
+}
+
+# Emit the levels one-per-line for interactive pickers (e.g. fzf).
+task_levels_lines()     { printf '%s\n' high medium low; }   # canonical (desc)
+task_levels_lines_asc() { printf '%s\n' low medium high; }   # ascending
+
 # --- Helper: read status of a folded task ---
 read_task_status() {
     local file_path="$1"

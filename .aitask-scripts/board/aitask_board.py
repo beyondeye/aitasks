@@ -33,6 +33,7 @@ from sync_action_runner import (
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 from shortcuts_mixin import ShortcutsMixin, get_label
 from cross_repo_notation import parse as parse_cross_repo_notation
+from task_levels import LEVELS_ASCENDING
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
@@ -2559,10 +2560,10 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
                     yield ReadOnlyField(f"[b]Status:[/b] {meta.get('status', 'Ready')}", classes="meta-ro")
                     yield ReadOnlyField(f"[b]Type:[/b] {meta.get('issue_type', 'feature')}", classes="meta-ro")
                 else:
-                    yield CycleField("Priority", ["low", "medium", "high"],
+                    yield CycleField("Priority", list(LEVELS_ASCENDING),
                                      meta.get("priority", "medium"), "priority",
                                      id="cf_priority")
-                    yield CycleField("Effort", ["low", "medium", "high"],
+                    yield CycleField("Effort", list(LEVELS_ASCENDING),
                                      meta.get("effort", "medium"), "effort",
                                      id="cf_effort")
                     status_options = ["Ready", "Editing", "Implementing", "Postponed"]

@@ -1050,22 +1050,22 @@ Exit - discard changes"
 
 interactive_update_priority() {
     local current="$1"
-    echo -e "high\nmedium\nlow" | fzf --prompt="Priority (current: $current): " --height=10 --no-info --header="Select new priority"
+    task_levels_lines | fzf --prompt="Priority (current: $current): " --height=10 --no-info --header="Select new priority"
 }
 
 interactive_update_risk_code_health() {
     local current="$1"
-    echo -e "high\nmedium\nlow" | fzf --prompt="Code-health risk (current: ${current:-unset}): " --height=10 --no-info --header="Select code-health risk level"
+    task_levels_lines | fzf --prompt="Code-health risk (current: ${current:-unset}): " --height=10 --no-info --header="Select code-health risk level"
 }
 
 interactive_update_risk_goal_achievement() {
     local current="$1"
-    echo -e "high\nmedium\nlow" | fzf --prompt="Goal-achievement risk (current: ${current:-unset}): " --height=10 --no-info --header="Select goal-achievement risk level"
+    task_levels_lines | fzf --prompt="Goal-achievement risk (current: ${current:-unset}): " --height=10 --no-info --header="Select goal-achievement risk level"
 }
 
 interactive_update_effort() {
     local current="$1"
-    echo -e "low\nmedium\nhigh" | fzf --prompt="Effort (current: $current): " --height=10 --no-info --header="Select new effort level"
+    task_levels_lines_asc | fzf --prompt="Effort (current: $current): " --height=10 --no-info --header="Select new effort level"
 }
 
 interactive_update_status() {
@@ -1559,31 +1559,23 @@ run_batch_mode() {
 
     # Validate enum values
     if [[ -n "$BATCH_PRIORITY" ]]; then
-        case "$BATCH_PRIORITY" in
-            high|medium|low) ;;
-            *) die "Invalid priority: $BATCH_PRIORITY (must be high, medium, or low)" ;;
-        esac
+        is_valid_task_level "$BATCH_PRIORITY" \
+            || die "Invalid priority: $BATCH_PRIORITY (must be high, medium, or low)"
     fi
 
     # Validate risk fields only when a non-empty value is supplied ("" clears).
     if [[ "$BATCH_RISK_CODE_HEALTH_SET" == true && -n "$BATCH_RISK_CODE_HEALTH" ]]; then
-        case "$BATCH_RISK_CODE_HEALTH" in
-            high|medium|low) ;;
-            *) die "Invalid risk-code-health: $BATCH_RISK_CODE_HEALTH (must be high, medium, or low)" ;;
-        esac
+        is_valid_task_level "$BATCH_RISK_CODE_HEALTH" \
+            || die "Invalid risk-code-health: $BATCH_RISK_CODE_HEALTH (must be high, medium, or low)"
     fi
     if [[ "$BATCH_RISK_GOAL_ACHIEVEMENT_SET" == true && -n "$BATCH_RISK_GOAL_ACHIEVEMENT" ]]; then
-        case "$BATCH_RISK_GOAL_ACHIEVEMENT" in
-            high|medium|low) ;;
-            *) die "Invalid risk-goal-achievement: $BATCH_RISK_GOAL_ACHIEVEMENT (must be high, medium, or low)" ;;
-        esac
+        is_valid_task_level "$BATCH_RISK_GOAL_ACHIEVEMENT" \
+            || die "Invalid risk-goal-achievement: $BATCH_RISK_GOAL_ACHIEVEMENT (must be high, medium, or low)"
     fi
 
     if [[ -n "$BATCH_EFFORT" ]]; then
-        case "$BATCH_EFFORT" in
-            low|medium|high) ;;
-            *) die "Invalid effort: $BATCH_EFFORT (must be low, medium, or high)" ;;
-        esac
+        is_valid_task_level "$BATCH_EFFORT" \
+            || die "Invalid effort: $BATCH_EFFORT (must be low, medium, or high)"
     fi
 
     if [[ -n "$BATCH_STATUS" ]]; then

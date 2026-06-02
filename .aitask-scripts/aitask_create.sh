@@ -800,11 +800,11 @@ list_drafts() {
 # --- Step 2: Metadata Collection ---
 
 select_priority() {
-    echo -e "high\nmedium\nlow" | fzf --prompt="Priority: " --height=10 --no-info --header="Select task priority"
+    task_levels_lines | fzf --prompt="Priority: " --height=10 --no-info --header="Select task priority"
 }
 
 select_effort() {
-    echo -e "low\nmedium\nhigh" | fzf --prompt="Effort: " --height=10 --no-info --header="Select estimated effort"
+    task_levels_lines_asc | fzf --prompt="Effort: " --height=10 --no-info --header="Select estimated effort"
 }
 
 select_issue_type() {
@@ -1763,15 +1763,11 @@ run_batch_mode() {
     [[ -z "$BATCH_DESC" ]] && die "Batch mode requires --desc or --desc-file"
 
     # Validate enum values
-    case "$BATCH_PRIORITY" in
-        high|medium|low) ;;
-        *) die "Invalid priority: $BATCH_PRIORITY (must be high, medium, or low)" ;;
-    esac
+    is_valid_task_level "$BATCH_PRIORITY" \
+        || die "Invalid priority: $BATCH_PRIORITY (must be high, medium, or low)"
 
-    case "$BATCH_EFFORT" in
-        low|medium|high) ;;
-        *) die "Invalid effort: $BATCH_EFFORT (must be low, medium, or high)" ;;
-    esac
+    is_valid_task_level "$BATCH_EFFORT" \
+        || die "Invalid effort: $BATCH_EFFORT (must be low, medium, or high)"
 
     validate_task_type "$BATCH_TYPE"
 
