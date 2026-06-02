@@ -45,10 +45,13 @@ from rich.text import Text
 from diffviewer.diff_display import word_diff_texts, TAG_STYLES
 
 from brainstorm.brainstorm_dag import (
+    UMBRELLA_SUBGRAPH,
+    _node_module,
     get_active_dimensions,
     get_dimension_fields,
     get_head,
     list_nodes,
+    list_subgraphs,
     read_node,
     read_plan,
     read_proposal,
@@ -1495,6 +1498,18 @@ def _filter_labels(query: str, labels: list[str]) -> list[str]:
     return [lbl for lbl in labels if q in lbl.lower()]
 
 
+def _nodes_for_subgraph(
+    session_path, nodes: list[str], subgraph: str
+) -> list[str]:
+    """Keep only the nodes belonging to ``subgraph`` (by ``module_label``).
+
+    Order-preserving. Unlabeled / legacy nodes resolve to ``_umbrella`` via
+    ``_node_module``, so a single-subgraph session keeps every node. Pure
+    (no App state) — unit-tested alongside ``_filter_labels``.
+    """
+    return [nid for nid in nodes if _node_module(session_path, nid) == subgraph]
+
+
 # ---------------------------------------------------------------------------
 # Wizard step model (pure, App-independent — see tests/test_brainstorm_wizard_steps.py)
 #
@@ -1515,12 +1530,13 @@ class _WizardStep(NamedTuple):
 
 _WIZARD_STEPS: list[_WizardStep] = [
     _WizardStep("op_select", lambda c: True, True),
-    # Future (t756_2): module subgraph-selector — active only with 2+ subgraphs.
-    # _WizardStep(
-    #     "subgraph_select",
-    #     lambda c: c.get("op") in _NODE_SELECT_OPS and c.get("subgraph_count", 1) >= 2,
-    #     True,
-    # ),
+    # Module subgraph-selector (t756_2) — active only for node-select ops in a
+    # session with 2+ subgraphs; single-subgraph sessions skip it entirely.
+    _WizardStep(
+        "subgraph_select",
+        lambda c: c.get("op") in _NODE_SELECT_OPS and c.get("subgraph_count", 1) >= 2,
+        True,
+    ),
     _WizardStep("node_select", lambda c: c.get("op") in _NODE_SELECT_OPS, True),
     _WizardStep(
         "section_select",
@@ -2932,6 +2948,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._wizard_op: str = ""
         self._wizard_config: dict = {}
         self._wizard_has_sections: bool = False
+        # Cached subgraph count for the I/O-free _wizard_ctx (set when op-select
+        # renders); gates the optional subgraph-selector step (>= 2 subgraphs).
+        self._wizard_subgraph_count: int = 1
+        # The subgraph chosen in the selector (or _umbrella default). Held in a
+        # dedicated field, NOT _wizard_config, because node-select resets that
+        # dict after the selector runs.
+        self._wizard_subgraph: str = UMBRELLA_SUBGRAPH
         self._cmp_section_checks: dict[str, bool] = {}
         self._expanded_groups: set[str] = set()
         self._status_refresh_timer = None
@@ -3211,6 +3234,17 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     event.prevent_default()
                     event.stop()
                     return
+            # Enter on subgraph-select: choose subgraph and advance
+            if event.key == "enter" and self._wizard_step_id == "subgraph_select":
+                focused = self.focused
+                if isinstance(focused, OperationRow) and not focused.op_disabled:
+                    self._wizard_subgraph = focused.op_key
+                    nxt = next_step_id(self._wizard_ctx(), "subgraph_select")
+                    if nxt is not None:
+                        self._render_wizard_step(nxt)
+                    event.prevent_default()
+                    event.stop()
+                    return
             # Enter on node-select: select node and advance
             if event.key == "enter" and self._wizard_step_id == "node_select":
                 focused = self.focused
@@ -3248,7 +3282,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     return
             # Up/down: navigate OperationRow widgets in the row-select steps
             if event.key in ("up", "down") and self._wizard_step_id in (
-                "op_select", "node_select",
+                "op_select", "subgraph_select", "node_select",
             ):
                 direction = 1 if event.key == "down" else -1
                 if self._navigate_rows(direction, "actions_content", (OperationRow,)):
@@ -5488,6 +5522,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._wizard_config = {}
         self._wizard_has_sections = False
         self._cmp_section_checks = {}
+        # Refresh the cached subgraph count for the selector predicate (one
+        # disk read per wizard entry; _wizard_ctx then stays I/O-free).
+        self._wizard_subgraph_count = len(list_subgraphs(self.session_path))
+        self._wizard_subgraph = UMBRELLA_SUBGRAPH
         self._enter_wizard_step("op_select")
 
         container = self.query_one("#actions_content", VerticalScroll)
@@ -5602,6 +5640,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return {
             "op": self._wizard_op,
             "node_has_sections": self._wizard_has_sections,
+            "subgraph_count": self._wizard_subgraph_count,
         }
 
     def _enter_wizard_step(self, step_id: str) -> None:
@@ -5615,6 +5654,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """Render the wizard step with id ``step_id`` (back/next dispatch target)."""
         renderers = {
             "op_select": self._actions_show_step1,
+            "subgraph_select": self._actions_show_subgraph_select,
             "node_select": self._actions_show_node_select,
             "section_select": self._actions_show_section_select,
             "config": self._actions_show_config,
@@ -5625,11 +5665,48 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             renderer()
 
     def _actions_show_step2(self) -> None:
-        """Route to node selection or config based on operation type."""
-        if self._wizard_op in _NODE_SELECT_OPS:
-            self._actions_show_node_select()
-        else:
-            self._actions_show_config()
+        """Render the step after op-select (resolver-driven).
+
+        Routes to subgraph-select (multi-subgraph node-select ops), node-select
+        (single-subgraph node-select ops), or config (compare/synthesize),
+        whichever the active step set says comes next after op_select.
+        """
+        nxt = next_step_id(self._wizard_ctx(), "op_select")
+        if nxt is not None:
+            self._render_wizard_step(nxt)
+
+    def _actions_show_subgraph_select(self) -> None:
+        """Optional step: choose which module subgraph the op runs inside.
+
+        Only rendered for node-select ops in a 2+ subgraph session (see the
+        ``subgraph_select`` predicate). Defaults the highlighted choice to the
+        most-recently-touched subgraph. Mirrors op-select: Enter/click advances
+        immediately (no Next button).
+        """
+        self._enter_wizard_step("subgraph_select")
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+
+        container.mount(
+            Label(
+                f"Step {self._wizard_step} of {self._wizard_total_steps} "
+                "— Select Subgraph  (↑↓ Navigate  Enter Select  Esc: Back)",
+                classes="actions_step_indicator",
+            )
+        )
+        self._mount_op_context_header(container)
+
+        subgraphs = list_subgraphs(self.session_path)
+        # Default selection = most-recently-touched subgraph (first in the list).
+        self._wizard_subgraph = subgraphs[0] if subgraphs else UMBRELLA_SUBGRAPH
+        for module in subgraphs:
+            head = get_head(self.session_path, module=module)
+            head_str = head or "(empty)"
+            container.mount(
+                OperationRow(module, module, f"HEAD: {head_str}", disabled=False)
+            )
+        self.call_after_refresh(self._focus_first_operation)
 
     def _actions_show_node_select(self) -> None:
         """Step 2: dedicated node selection for explore/detail/patch."""
@@ -5657,8 +5734,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             Label("[dim]  \u2191\u2193 Navigate  Enter Select  |  Click node + Next[/dim]")
         )
 
-        nodes = list_nodes(self.session_path)
-        head = get_head(self.session_path)
+        # Scope candidates + HEAD to the selected subgraph (default _umbrella
+        # \u2192 every node, identical to pre-module behaviour).
+        subgraph = self._wizard_subgraph
+        nodes = _nodes_for_subgraph(
+            self.session_path, list_nodes(self.session_path), subgraph
+        )
+        head = get_head(self.session_path, module=subgraph)
 
         if not nodes:
             container.mount(
@@ -6279,6 +6361,12 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self._actions_show_confirm()
             else:
                 self._actions_show_step2()
+        elif self._wizard_step_id == "subgraph_select":
+            # Mirror op-select: clicking a subgraph chooses it and advances.
+            self._wizard_subgraph = row.op_key
+            nxt = next_step_id(self._wizard_ctx(), "subgraph_select")
+            if nxt is not None:
+                self._render_wizard_step(nxt)
         elif self._wizard_step_id == "node_select" and self._wizard_op in _NODE_SELECT_OPS:
             self._wizard_config["_selected_node"] = row.op_key
             # Visual feedback: mark selected node
@@ -6335,7 +6423,17 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         group_name = self._next_group_name(op)
         launch_mode = cfg.get("launch_mode", DEFAULT_LAUNCH_MODE)
         target_sections = cfg.get("target_sections")
-        head_at_creation = get_head(self.session_path)
+        # Scope the op to a subgraph: node-select ops use the selector's choice;
+        # compare/synthesize (no selector) derive it from their first input node.
+        if op in _NODE_SELECT_OPS:
+            subgraph = self._wizard_subgraph
+        else:
+            input_nodes = cfg.get("nodes") or []
+            subgraph = (
+                _node_module(self.session_path, input_nodes[0])
+                if input_nodes else UMBRELLA_SUBGRAPH
+            )
+        head_at_creation = get_head(self.session_path, module=subgraph)
         agents_list: list[str] = []
 
         try:
@@ -6418,6 +6516,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     operation=op,
                     agents=agents_list,
                     head_at_creation=head_at_creation,
+                    subgraph=subgraph,
                 )
 
             self.call_from_thread(self.notify, msg)

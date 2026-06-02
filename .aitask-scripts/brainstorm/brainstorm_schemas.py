@@ -66,6 +66,10 @@ GROUP_REQUIRED = [
     "operation", "agents", "status", "created_at",
     "head_at_creation", "nodes_created",
 ]
+# Canonical optional group fields. Documentation-only (no validator consumes
+# it today, symmetric with GROUP_REQUIRED): ``subgraph`` records which module
+# subgraph an op ran inside; absent entries default to ``_umbrella``.
+GROUP_OPTIONAL = ["subgraph"]
 GROUP_OPERATIONS = ["explore", "compare", "synthesize", "detail", "patch"]
 
 # Legacy operation names kept readable for in-flight sessions on disk.

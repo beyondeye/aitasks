@@ -15,6 +15,11 @@ Read the referenced YAML files using your tools. You only need the YAML
 metadata — do not read proposals, plans, or codebase files. This keeps the
 comparison fast and focused.
 
+> **Subgraph scope:** Your `_input.md` includes a `## Subgraph Context`
+> section naming the module subgraph this operation runs inside. Keep your
+> output within that module's scope — do not blur boundaries into other
+> subgraphs.
+
 ## Output
 
 Write your output to `_output.md` with two parts:

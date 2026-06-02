@@ -31,6 +31,7 @@ from .brainstorm_dag import (  # noqa: E402
     NODES_DIR,
     PLANS_DIR,
     PROPOSALS_DIR,
+    _node_module,
     _read_graph_state,
     next_node_id,
     read_node,
@@ -189,6 +190,16 @@ def _format_reference_files(reference_files: list[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _subgraph_context_lines(session_path: Path, node_id: str) -> list[str]:
+    """Front-matter naming the op's module subgraph (default ``_umbrella``).
+
+    Derived from the op's primary node so the agent stays within the subgraph
+    boundary; the op templates instruct the agent to honour it.
+    """
+    module = _node_module(session_path, node_id)
+    return ["", "## Subgraph Context", f"subgraph context: {module}"]
+
+
 def _assemble_input_explorer(
     session_path: Path,
     base_node_id: str,
@@ -218,6 +229,8 @@ def _assemble_input_explorer(
     plan_file = session_path / PLANS_DIR / f"{base_node_id}_plan.md"
     if plan_file.is_file():
         lines.append(f"- Plan: {session_path}/{PLANS_DIR}/{base_node_id}_plan.md")
+
+    lines.extend(_subgraph_context_lines(session_path, base_node_id))
 
     lines.extend(["", "## Reference Files"])
     if ref_files:
@@ -294,6 +307,9 @@ def _assemble_input_comparator(
     for nid in node_ids:
         lines.append(f"- {session_path}/{NODES_DIR}/{nid}.yaml")
 
+    if node_ids:
+        lines.extend(_subgraph_context_lines(session_path, node_ids[0]))
+
     if target_sections:
         lines.extend(["", "## Section Focus",
                       "Compare only content within these sections across nodes:"])
@@ -339,6 +355,9 @@ def _assemble_input_synthesizer(
             if dk not in all_dims:
                 all_dims[dk] = dv
 
+    if parent_node_ids:
+        lines.extend(_subgraph_context_lines(session_path, parent_node_ids[0]))
+
     lines.append("## Reference Files (merged from all source nodes, deduplicated)")
     if all_refs:
         lines.append(_format_reference_files(all_refs))
@@ -379,6 +398,7 @@ def _assemble_input_detailer(
         "## Target Node",
         f"- Metadata: {session_path}/{NODES_DIR}/{node_id}.yaml",
         f"- Proposal: {session_path}/{PROPOSALS_DIR}/{node_id}.md",
+        *_subgraph_context_lines(session_path, node_id),
         "",
         "## Reference Files",
     ]
@@ -441,6 +461,8 @@ def _assemble_input_patcher(
         f"- Proposal: {session_path}/{PROPOSALS_DIR}/{node_id}.md"
         " (read-only, for impact analysis)"
     )
+
+    lines.extend(_subgraph_context_lines(session_path, node_id))
 
     if target_sections:
         lines.extend(["", "## Target Sections",

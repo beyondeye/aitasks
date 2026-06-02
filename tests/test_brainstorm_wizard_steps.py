@@ -158,5 +158,51 @@ class NextPrevTests(unittest.TestCase):
         self.assertIsNone(prev_step_id(ctx("explore"), "nope"))
 
 
+class SubgraphSelectStepTests(unittest.TestCase):
+    """The optional module subgraph-selector row (t756_2)."""
+
+    def _ctx(self, op, subgraph_count=1, node_has_sections=False):
+        return {
+            "op": op,
+            "node_has_sections": node_has_sections,
+            "subgraph_count": subgraph_count,
+        }
+
+    def test_inactive_with_single_subgraph(self):
+        # Default count of 1 (or absent) keeps the pre-module shape exactly.
+        self.assertEqual(
+            active_step_ids(self._ctx("explore", subgraph_count=1)),
+            ["op_select", "node_select", "config", "confirm"],
+        )
+        self.assertNotIn("subgraph_select", active_step_ids(ctx("explore")))
+
+    def test_active_for_node_select_ops_with_multi_subgraph(self):
+        self.assertEqual(
+            active_step_ids(self._ctx("explore", subgraph_count=2)),
+            ["op_select", "subgraph_select", "node_select", "config", "confirm"],
+        )
+        self.assertEqual(
+            active_step_ids(self._ctx("detail", subgraph_count=3)),
+            ["op_select", "subgraph_select", "node_select", "confirm"],
+        )
+
+    def test_inactive_for_non_node_select_ops(self):
+        # compare/synthesize never get a selector (no base-node step).
+        self.assertEqual(
+            active_step_ids(self._ctx("compare", subgraph_count=3)),
+            ["op_select", "config", "confirm"],
+        )
+
+    def test_op_select_routing_and_back(self):
+        multi = self._ctx("explore", subgraph_count=2)
+        single = self._ctx("explore", subgraph_count=1)
+        self.assertEqual(next_step_id(multi, "op_select"), "subgraph_select")
+        self.assertEqual(next_step_id(single, "op_select"), "node_select")
+        self.assertEqual(next_step_id(multi, "subgraph_select"), "node_select")
+        # Back from node-select returns to the selector when it is active.
+        self.assertEqual(prev_step_id(multi, "node_select"), "subgraph_select")
+        self.assertEqual(prev_step_id(single, "node_select"), "op_select")
+
+
 if __name__ == "__main__":
     unittest.main()

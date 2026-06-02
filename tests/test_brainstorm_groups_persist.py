@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 
 from brainstorm.brainstorm_session import (  # noqa: E402
     GROUPS_FILE,
+    _group_subgraph,
     record_operation,
     update_operation,
 )
@@ -96,6 +97,29 @@ class RecordOperationTests(unittest.TestCase):
             self.assertTrue((wt / GROUPS_FILE).is_file())
             groups = _read_groups(wt)
             self.assertIn("compare_001", groups)
+
+    def test_subgraph_defaults_umbrella_and_round_trips(self):
+        with tempfile.TemporaryDirectory() as td:
+            wt = Path(td)
+            _seed_empty_groups(wt)
+            with _patch_worktree(wt):
+                record_operation(
+                    "42", "explore_001", "explore", ["a"],
+                    head_at_creation="n0",
+                )
+                record_operation(
+                    "42", "explore_002", "explore", ["b"],
+                    head_at_creation="n1", subgraph="parser",
+                )
+            groups = _read_groups(wt)
+            # Default recorded explicitly; explicit value round-trips.
+            self.assertEqual(groups["explore_001"]["subgraph"], "_umbrella")
+            self.assertEqual(groups["explore_002"]["subgraph"], "parser")
+            # _group_subgraph reads it back; missing/legacy entries → _umbrella.
+            self.assertEqual(_group_subgraph(wt, "explore_002"), "parser")
+            self.assertEqual(_group_subgraph(wt, "explore_001"), "_umbrella")
+            self.assertEqual(_group_subgraph(wt, "missing_group"), "_umbrella")
+            self.assertEqual(_group_subgraph(wt, ""), "_umbrella")
 
 
 class UpdateOperationTests(unittest.TestCase):

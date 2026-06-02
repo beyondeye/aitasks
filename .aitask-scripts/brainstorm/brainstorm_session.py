@@ -27,6 +27,7 @@ from .brainstorm_dag import (  # noqa: E402
     NODES_DIR,
     PLANS_DIR,
     PROPOSALS_DIR,
+    UMBRELLA_SUBGRAPH,
     create_node,
     next_node_id,
     read_proposal,
@@ -223,12 +224,15 @@ def record_operation(
     operation: str,
     agents: list[str],
     head_at_creation: str | None,
+    subgraph: str = UMBRELLA_SUBGRAPH,
 ) -> None:
     """Write a fresh group entry to br_groups.yaml.
 
     Idempotent — overwrites any existing entry with the same name. Status
     is initialized to "Waiting"; callers use ``update_operation`` to flip
-    it to "Completed" once the operation finishes.
+    it to "Completed" once the operation finishes. ``subgraph`` records the
+    module subgraph the op ran inside (default ``_umbrella``); the apply path
+    reads it back to scope ``module_label`` / ``set_head`` for created nodes.
     """
     wt = crew_worktree(task_num)
     path = str(wt / GROUPS_FILE)
@@ -241,8 +245,24 @@ def record_operation(
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "head_at_creation": head_at_creation,
         "nodes_created": [],
+        "subgraph": subgraph,
     }
     write_yaml(path, data)
+
+
+def _group_subgraph(wt: Path, group_name: str) -> str:
+    """Return the subgraph a group's op ran inside (default ``_umbrella``).
+
+    Read by the apply path so a newly-ingested node inherits its op's
+    subgraph membership. Legacy groups without a ``subgraph`` field (and the
+    bootstrap init group) resolve to ``_umbrella``.
+    """
+    if not group_name:
+        return UMBRELLA_SUBGRAPH
+    data = _read_groups_file(str(wt / GROUPS_FILE))
+    grp = data.get("groups", {}).get(group_name, {})
+    sg = grp.get("subgraph") if isinstance(grp, dict) else None
+    return str(sg) if sg else UMBRELLA_SUBGRAPH
 
 
 def update_operation(task_num: int | str, group_name: str, **fields) -> None:
@@ -976,6 +996,11 @@ def _apply_node_output(
             if k not in _NODE_NON_DIMENSION_FIELDS
         }
 
+        # The op's group recorded which subgraph it ran inside; the new node
+        # inherits that membership and advances that subgraph's HEAD (default
+        # _umbrella → byte-identical to pre-module behaviour).
+        subgraph = _group_subgraph(wt, node_data["created_by_group"])
+
         create_node(
             session_path=wt,
             node_id=new_node_id,
@@ -985,12 +1010,13 @@ def _apply_node_output(
             proposal_content=proposal_text,
             group_name=node_data["created_by_group"],
             reference_files=node_data.get("reference_files"),
+            module_label=subgraph,
         )
 
         if finalize is not None:
             finalize(wt, new_node_id, node_data, extras)
 
-        set_head(wt, new_node_id)
+        set_head(wt, new_node_id, module=subgraph)
         # next_node_id is consumed at registration time (see
         # register_explorer / register_synthesizer / register_patcher in
         # brainstorm_crew.py).

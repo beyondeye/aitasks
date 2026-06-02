@@ -17,6 +17,11 @@ Read your `_input.md` file (see your `_instructions.md` for the path). It contai
 Read all referenced files using your tools (Read, Glob, Grep). For remote
 references, read the cached file; if the cache is missing, fetch via WebFetch.
 
+> **Subgraph scope:** Your `_input.md` includes a `## Subgraph Context`
+> section naming the module subgraph this operation runs inside. Keep your
+> output within that module's scope — do not blur boundaries into other
+> subgraphs.
+
 ## Output
 
 <!-- include: _section_format.md -->

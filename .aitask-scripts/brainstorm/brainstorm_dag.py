@@ -44,10 +44,15 @@ def create_node(
     proposal_content: str,
     group_name: str = "",
     reference_files: list[str] | None = None,
+    module_label: str | None = None,
 ) -> Path:
     """Create a node YAML in br_nodes/ and proposal MD in br_proposals/.
 
     Returns the path to the created node YAML file.
+
+    ``module_label`` records the node's subgraph membership. It is written
+    only for non-``_umbrella`` subgraphs so legacy / umbrella nodes stay
+    byte-identical (``_node_module`` defaults an absent label to _umbrella).
     """
     nodes_dir = session_path / NODES_DIR
     proposals_dir = session_path / PROPOSALS_DIR
@@ -65,6 +70,9 @@ def create_node(
 
     if reference_files is not None:
         node_data["reference_files"] = reference_files
+
+    if module_label and module_label != UMBRELLA_SUBGRAPH:
+        node_data["module_label"] = module_label
 
     # Merge dimension fields
     node_data.update(dimensions)
@@ -223,6 +231,40 @@ def _node_module(session_path: Path, node_id: str) -> str:
     data = read_node(session_path, node_id)
     label = data.get("module_label")
     return str(label) if label else UMBRELLA_SUBGRAPH
+
+
+def _node_id_ordinal(node_id: str) -> int:
+    """Return the numeric ordinal of a node id (``n012_patcher`` -> 12).
+
+    Node ids are minted as ``f"n{num:03d}_{agent}"`` with a session-wide
+    counter, so the ordinal is a stable global recency key. Returns -1 for an
+    id that does not match the pattern (sorts such ids last).
+    """
+    if not node_id.startswith("n"):
+        return -1
+    digits = node_id[1:].split("_", 1)[0]
+    return int(digits) if digits.isdigit() else -1
+
+
+def list_subgraphs(session_path: Path) -> list[str]:
+    """Return the session's subgraph names, most-recently-touched first.
+
+    Recency is the ordinal of each subgraph's current HEAD node id (the
+    node-id counter is session-wide, so a higher ordinal means more recently
+    extended). ``_umbrella`` is always present; an absent / empty
+    ``current_heads`` map yields ``["_umbrella"]``. Single source of truth for
+    the wizard subgraph-selector and its tests — callers must not re-walk
+    graph state.
+    """
+    gs = _read_graph_state(session_path)
+    heads = gs.get("current_heads")
+    if not isinstance(heads, dict) or not heads:
+        return [UMBRELLA_SUBGRAPH]
+    names = list(heads.keys())
+    if UMBRELLA_SUBGRAPH not in names:
+        names.append(UMBRELLA_SUBGRAPH)
+    names.sort(key=lambda m: _node_id_ordinal(str(heads.get(m) or "")), reverse=True)
+    return names
 
 
 def get_node_lineage(

@@ -309,6 +309,60 @@ class NewDimensionsTests(unittest.TestCase):
             )
 
 
+class ApplyExplorerSubgraphTests(unittest.TestCase):
+    """The apply path consumes the op group's recorded subgraph (t756_2)."""
+
+    def _seed_group(self, wt: Path, entry: dict, group: str = "explore_001"):
+        (wt / "br_groups.yaml").write_text(
+            yaml.safe_dump({"groups": {group: entry}}), encoding="utf-8"
+        )
+
+    def test_node_inherits_subgraph_and_advances_module_head(self):
+        with tempfile.TemporaryDirectory() as td:
+            wt = Path(td)
+            output = _build_output(
+                node_yaml_text=_node_yaml(created_by_group="explore_001"),
+            )
+            _seed_session(wt, output_text=output)
+            # The op recorded that it ran inside the 'parser' subgraph.
+            self._seed_group(wt, {"operation": "explore", "subgraph": "parser"})
+
+            new_id = _apply(wt)
+
+            node_data = yaml.safe_load(
+                (wt / NODES_DIR / f"{new_id}.yaml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(node_data["module_label"], "parser")
+
+            gs = yaml.safe_load(
+                (wt / GRAPH_STATE_FILE).read_text(encoding="utf-8")
+            )
+            # The parser HEAD advances; the _umbrella HEAD is untouched.
+            self.assertEqual(gs["current_heads"]["parser"], new_id)
+            self.assertEqual(gs["current_head"], "n000_init")
+
+    def test_group_without_subgraph_defaults_umbrella(self):
+        with tempfile.TemporaryDirectory() as td:
+            wt = Path(td)
+            output = _build_output(
+                node_yaml_text=_node_yaml(created_by_group="explore_001"),
+            )
+            _seed_session(wt, output_text=output)
+            # Legacy group entry (no subgraph field) → _umbrella, no label.
+            self._seed_group(wt, {"operation": "explore"})
+
+            new_id = _apply(wt)
+
+            node_data = yaml.safe_load(
+                (wt / NODES_DIR / f"{new_id}.yaml").read_text(encoding="utf-8")
+            )
+            self.assertNotIn("module_label", node_data)
+            gs = yaml.safe_load(
+                (wt / GRAPH_STATE_FILE).read_text(encoding="utf-8")
+            )
+            self.assertEqual(gs["current_head"], new_id)
+
+
 class ApplyExplorerErrorTests(unittest.TestCase):
     def test_missing_output_raises_filenotfound(self):
         with tempfile.TemporaryDirectory() as td:

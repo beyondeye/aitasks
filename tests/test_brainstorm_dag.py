@@ -34,6 +34,7 @@ from brainstorm.brainstorm_dag import (
     get_parents,
     is_ancestor_subgraph,
     list_nodes,
+    list_subgraphs,
     next_node_id,
     read_node,
     read_plan,
@@ -346,6 +347,48 @@ class TestModuleSubgraphs(BrainstormTestBase):
         self.assertFalse(is_ancestor_subgraph(self.wt_path, UMBRELLA_SUBGRAPH, "parser"))
         self.assertFalse(is_ancestor_subgraph(self.wt_path, "parser", "auth"))
         self.assertFalse(is_ancestor_subgraph(self.wt_path, "parser", "parser"))
+
+    def test_create_node_writes_module_label_only_for_non_umbrella(self):
+        self._init_session()
+        # Non-umbrella subgraph → module_label persisted.
+        create_node(
+            self.wt_path, "n010_p", ["n000_init"], "P", {}, "# P",
+            "explore_001", module_label="parser",
+        )
+        self.assertEqual(read_node(self.wt_path, "n010_p").get("module_label"), "parser")
+        # _umbrella default → field omitted (legacy/umbrella nodes byte-identical).
+        create_node(
+            self.wt_path, "n001_u", ["n000_init"], "U", {}, "# U",
+            "explore_001", module_label=UMBRELLA_SUBGRAPH,
+        )
+        self.assertNotIn("module_label", read_node(self.wt_path, "n001_u"))
+
+    def test_list_subgraphs_orders_by_head_recency_umbrella_last(self):
+        self._init_session()
+        # Only _umbrella seeded by init.
+        self.assertEqual(list_subgraphs(self.wt_path), [UMBRELLA_SUBGRAPH])
+        # parser HEAD n010 (ord 10), cache HEAD n014 (ord 14 → most recent).
+        self._module_node("n010_p", ["n000_init"], "parser")
+        set_head(self.wt_path, "n010_p", module="parser")
+        self._module_node("n014_c", ["n000_init"], "cache")
+        set_head(self.wt_path, "n014_c", module="cache")
+        self.assertEqual(
+            list_subgraphs(self.wt_path), ["cache", "parser", UMBRELLA_SUBGRAPH]
+        )
+
+    def test_list_subgraphs_legacy_state_returns_umbrella(self):
+        self._init_session()
+        # Pre-module on-disk state: no current_heads map.
+        write_yaml(
+            str(self.wt_path / GRAPH_STATE_FILE),
+            {
+                "current_head": "n000_init",
+                "history": ["n000_init"],
+                "next_node_id": 1,
+                "active_dimensions": [],
+            },
+        )
+        self.assertEqual(list_subgraphs(self.wt_path), [UMBRELLA_SUBGRAPH])
 
 
 class TestValidateNode(BrainstormTestBase):
