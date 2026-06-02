@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [task_workflow, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-02 12:24
-updated_at: 2026-06-02 12:24
+updated_at: 2026-06-02 12:27
 ---
 
 ## Problem
