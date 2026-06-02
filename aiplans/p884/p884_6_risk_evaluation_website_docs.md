@@ -128,3 +128,47 @@ sibling. t884_7 tracks the Codex/OpenCode skill ports.
 
 See Step 9 (Post-Implementation) in the shared workflow for cleanup/archival/merge
 (profile 'fast' → current branch, no separate branch).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-02)
+- **Requested by user:** The new Risk Evaluation workflow page must be listed on the
+  main Workflow Guides index page (`workflows/_index.md`), in the **Review & Quality**
+  section.
+- **Changes made:** Plan step 6 assumed the workflows menu was auto-built from the content
+  tree, so no index edit was needed. That was wrong — `workflows/_index.md` carries a
+  **manually curated** list of pages per grouping (Tasks / Parallel / Review & Quality /
+  Git). Added a "Risk Evaluation" bullet to the **Review & Quality** group, after
+  "Manual Verification" and before "Explain". (The Docsy sidebar menu *is* auto-built; the
+  index page *body* is hand-maintained.)
+- **Files affected:** `website/content/docs/workflows/_index.md`.
+- **Verification:** `hugo build --gc --minify` clean (no broken refs).
+
+## Final Implementation Notes
+
+- **Actual work done:** Documented the risk-evaluation feature's user-visible surfaces
+  across the website, describing **two** risk fields throughout (the verify-pass correction):
+  - `development/task-format.md` — three new Frontmatter Fields rows (`risk_code_health`,
+    `risk_goal_achievement`, `risk_mitigation_tasks`).
+  - `tuis/board/reference.md` — two new Task Metadata Fields rows (cycle-editable,
+    read-only for Done/Folded).
+  - `skills/aitask-pick/execution-profiles.md` — `risk_evaluation` row in Standard Profile
+    Fields; `concepts/execution-profiles.md` — `risk_evaluation` added to the example key list.
+  - NEW `workflows/risk-evaluation.md` (weight 79) — full feature narrative: two dimensions,
+    `## Risk` plan section, before/after mitigation follow-ups, force re-verification, enabling.
+  - `workflows/follow-up-tasks.md` — two new hub summary sections (risk-mitigation +
+    the previously-missing manual-verification follow-up, per user request).
+  - `workflows/_index.md` — Risk Evaluation listed under Review & Quality (post-review).
+- **Deviations from plan:** (1) The single→two-field correction was already folded into the
+  plan during the verify pass. (2) Plan step 6 wrongly assumed the workflows index was
+  auto-built; it is a hand-curated list, fixed in Change Request 1.
+- **Issues encountered:** None. Hugo build clean (205 pages); `relref` link validation passed.
+- **Key decisions:** Risk evaluation given its own dedicated workflow page (not folded into
+  follow-up-tasks.md) because it is a planning-time feature broader than a follow-up;
+  follow-up-tasks.md kept as a hub of short summaries cross-linking to dedicated pages,
+  matching the upstream-defect pattern.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** t884_7 ports the skill changes to Codex/OpenCode (no doc
+  impact); t884_8 manual-verification sibling covers the same surfaces behaviorally. The
+  docs describe two risk fields and the `risk_evaluation` opt-in key — keep in sync if those
+  names change.
