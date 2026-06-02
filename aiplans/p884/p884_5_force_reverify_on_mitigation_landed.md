@@ -253,3 +253,56 @@ explicit.
 
 Standard cleanup/archival/merge per `task-workflow` Step 9 (no separate branch —
 profile 'fast' works on the current branch).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the split design exactly as approved.
+  - `aitask_plan_verified.sh decide`: optional 4th-position `--force-verify`
+    flag (parsed after the 3 positionals; unknown flag → `die`). New first
+    decision arm forces `DECISION:VERIFY` with a distinct `DISPLAY` while
+    preserving accurate `TOTAL/FRESH/STALE/LAST`. Output byte-identical when the
+    flag is absent. Header/usage comment updated.
+  - New `aitask_risk_mitigation_landed.sh <task_file> <plan_file>` → emits
+    `FORCE_VERIFY:<0|1>` plus one `LANDED:<id>|<completed_at>` line per
+    mitigation that landed after the last verification. Reuses
+    `aitask_plan_verified.sh read` for the last-verify timestamp,
+    `aitask_query_files.sh archived-task` for resolution, `read_yaml_list` /
+    `read_yaml_field` from `yaml_utils.sh`. Lexicographic timestamp compare
+    (both `YYYY-MM-DD HH:MM`). No-op (`FORCE_VERIFY:0`) when the field is
+    absent/empty or when there is no prior verification.
+  - `planning.md` Step 6.0a (profile-agnostic, inserted before the
+    plan_preference Jinja block; 6.0/6.1 not renumbered): calls the helper,
+    surfaces landed mitigations, sets a `force_verify` signal, and feeds landed
+    IDs into verify mode. `--force-verify` threaded into BOTH Verify Decision
+    sub-procedures (profile branch + both-absent fallback).
+  - Allowlist: helper added to `seed/codex_rules.default.rules`,
+    `.codex/rules/default.rules`, `seed/opencode_config.seed.json`,
+    `seed/claude_settings.local.json`.
+  - Tests: `test_plan_verified.sh` +`--force-verify` block (49/49); new
+    `test_risk_mitigation_landed.sh` (13/13, ARCHIVED_DIR-sandboxed, fixed
+    timestamps). Goldens `planning-{default,fast,remote}.md` regenerated (+32
+    identical lines each — only the new block + threading note).
+- **Deviations from plan:** None structural. Two design refinements were made
+  *during planning* (pre-approval) at the user's direction: (1) the check moved
+  from in-prose timestamp math to a dedicated script; (2) that script is a
+  risk-named standalone (`aitask_risk_mitigation_landed.sh`), not a generic
+  subcommand, because it is meaningful only under risk evaluation; (3) it returns
+  the landed task IDs (`LANDED:` lines), not a bare boolean, so verify mode can
+  read exactly those archived plans.
+- **Issues encountered:** Initial helper omitted the `LANDED:` prefix on output
+  lines — caught immediately by `test_risk_mitigation_landed.sh` and fixed.
+- **Key decisions:** `--force-verify` stays caller-agnostic on `decide` (it does
+  not read any risk field); all risk knowledge lives in the new helper. The
+  `use_current` scope boundary is intentional (no `plan_verified` timestamps
+  exist on that path, so there is nothing to stale-ize).
+- **Upstream defects identified:** None.
+- **Outstanding (surfaced to user at review):** The runtime
+  `.claude/settings.local.json` allowlist entry was blocked by the Claude Code
+  auto-mode self-modification guard. The user opted to add
+  `Bash(./.aitask-scripts/aitask_risk_mitigation_landed.sh:*)` manually. The
+  seed (`seed/claude_settings.local.json`) is committed, so fresh installs are
+  covered. `/aitask-audit-wrappers` (interactive) was not run;
+  `aitask_skill_verify.sh` passed and the 5 touchpoints were cross-checked
+  manually.
+- **Notes for sibling tasks:** unchanged from "Notes for sibling tasks" above —
+  t884_6 docs this as a one-liner; t884_7 covers the auto-rendered ports.
