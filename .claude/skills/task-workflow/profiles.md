@@ -39,8 +39,18 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `qa_tier` | string | no | `"quick"`, `"standard"` (default), `"exhaustive"` | aitask-qa Step 1c |
 | `remote_drift_check` | string | no | `"warn"` (default — soft warning when remote is ahead with no plan-overlap, strong warning with overlap), `"skip"` (do nothing), `"strong-only"` (only prompt when overlap exists) | Step 6 checkpoint (post-plan) |
 | `manual_verification_mode` | string | no | `"ask"` (default — prompt fires with autonomous / autonomous_with_plan / skip), `"manual"` (skip prompt; straight to interactive), `"autonomous"` (skip prompt; run autonomous), `"autonomous_with_plan"` (skip prompt; design + approve + execute). Controls only the up-front prompt — the per-item `auto` verb in the interactive loop is always available regardless. | Manual Verification Step 1.5 |
+| `headless` | bool | no | `true` = a fully autonomous profile (no interactive prompts) used where `ait setup` never ran, e.g. Claude Code Web. Marks the profile as one whose `prerender_for_headless` skills ship committed prerenders. Currently only `remote`. | (build-time: `aitask_skill_verify.sh`) |
 
 Only `name` and `description` are required. Omitting any other key means the corresponding question is asked interactively.
+
+> **Committed headless prerenders (`headless` × `prerender_for_headless`):** A
+> skill that declares `prerender_for_headless: true` in its `SKILL.md.j2`
+> frontmatter ships a pre-rendered closure for every `headless: true` profile,
+> committed to git (the `!…-<profile>-/` un-ignore entries in `.gitignore`), so
+> it works in environments where `ait setup` has not rendered skills on demand.
+> `aitask_skill_verify.sh` discovers these two markers and fails loudly if any
+> committed prerender is missing or has drifted from its source closure — run
+> `aitask_skill_rerender.sh <profile>` and commit when it does.
 
 > **Plan verification tracking (`plan_verification_required`, `plan_verification_stale_after_hours`):** When `plan_preference` (or `plan_preference_child`) is `"verify"`, the workflow consults the plan file's `plan_verified` metadata list to decide whether a fresh verification is actually needed. `plan_verification_required` is the number of fresh (non-stale) entries required to skip re-verification — default `1` means a single prior verification is sufficient. `plan_verification_stale_after_hours` is how old (in hours) an entry may be before it no longer counts as fresh — default `24`. Both keys apply uniformly to parent and child tasks — there are no `_child` variants. The actual decision (skip / verify / ask) is computed by `./.aitask-scripts/aitask_plan_verified.sh decide`, which returns a structured report the workflow parses directly.
 

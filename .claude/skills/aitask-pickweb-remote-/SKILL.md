@@ -1,6 +1,7 @@
 ---
 name: aitask-pickweb-remote
 description: Pick and implement a task on Claude Code Web. Zero interactive prompts. No cross-branch operations — stores task data locally in .aitask-data-updated/.
+prerender_for_headless: true
 ---
 
 ## Overview

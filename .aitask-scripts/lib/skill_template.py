@@ -480,16 +480,74 @@ def _main_walk(argv: list, write: bool) -> int:
     return 0
 
 
+def _main_walk_verify(argv: list) -> int:
+    """Verify committed prerender freshness: render the entry's closure in
+    memory (no writes) and confirm every committed target matches the fresh
+    render. Read-only. Used by aitask_skill_verify.sh for skills that declare
+    `prerender_for_headless: true` (t894).
+
+    Unlike walk-check (which only proves the closure renders), this compares
+    each rendered target against its committed on-disk content and fails
+    loudly on drift — the same content authority `walk_closure(write=True)`
+    uses via `_any_target_differs` (t907), but read-only and with a per-file
+    diagnostic. A target that is missing or differs is a stale committed
+    prerender that needs `aitask_skill_rerender.sh <profile>` + a commit."""
+    if len(argv) != 4:
+        sys.stderr.write(
+            "usage: skill_template.py walk-verify "
+            "<entry> <profile.yaml> <agent> <repo_root>\n"
+        )
+        return 2
+    entry = Path(argv[0]).resolve()
+    profile_yaml = Path(argv[1]).resolve()
+    agent = argv[2]
+    repo_root = Path(argv[3]).resolve()
+    if agent not in AGENT_ROOTS:
+        sys.stderr.write(f"skill_template: unknown agent '{agent}'\n")
+        return 2
+    profile = _load_profile(profile_yaml)
+    profile_name = _profile_name(profile, profile_yaml)
+    try:
+        plan = walk_closure(
+            entry,
+            profile,
+            agent,
+            profile_name,
+            profile_yaml,
+            repo_root,
+            write=False,
+            force=False,
+        )
+    except Exception as e:
+        sys.stderr.write(f"skill_template walk error: {e}\n")
+        return 1
+    drifted: list[str] = []
+    for _src, target, content in plan:
+        try:
+            if target.read_text(encoding="utf-8") != content:
+                drifted.append(f"{target} (stale)")
+        except OSError:
+            drifted.append(f"{target} (missing)")
+    if drifted:
+        sys.stderr.write(
+            "committed prerender drift:\n  " + "\n  ".join(drifted) + "\n"
+        )
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     if not args:
         sys.stderr.write(
             "usage: skill_template.py <template> <profile.yaml> <agent>\n"
-            "       skill_template.py walk-write|walk-check <entry> <profile.yaml> <agent> <repo_root>\n"
+            "       skill_template.py walk-write|walk-check|walk-verify <entry> <profile.yaml> <agent> <repo_root>\n"
         )
         sys.exit(2)
     if args[0] == "walk-write":
         sys.exit(_main_walk(args[1:], write=True))
     if args[0] == "walk-check":
         sys.exit(_main_walk(args[1:], write=False))
+    if args[0] == "walk-verify":
+        sys.exit(_main_walk_verify(args[1:]))
     sys.exit(_main_legacy(args))

@@ -275,6 +275,35 @@ assert_contains "test 7: STUB_FAIL names missing trailing-hyphen Read path" "mis
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
 
+# --- Test 8 (t894): prerender_for_headless skill with no committed prerender
+#     → PRERENDER_FAIL. Exercises the generalized headless-prerender check:
+#     the `headless: true` profile (real `remote`) × the `prerender_for_headless`
+#     j2-frontmatter marker discover a (skill, profile, agent) triple whose
+#     committed prerender is absent. ---
+
+SK_PRERENDER="${TEST_SKILL_PREFIX}prerender"
+mkdir -p ".claude/skills/$SK_PRERENDER"
+cat > ".claude/skills/$SK_PRERENDER/SKILL.md.j2" <<'EOF'
+---
+name: scratch-prerender
+description: scratch headless prerender skill for t894 test
+prerender_for_headless: true
+---
+# Smoke template for {{ profile.name }} ({{ agent }})
+EOF
+# Canonical stubs so STUB_FAIL noise doesn't drown the PRERENDER_FAIL we assert.
+_write_canonical_stubs "$SK_PRERENDER"
+
+set +e
+OUT="$("$VERIFY" 2>&1)"
+RC=$?
+set -e
+assert_nonzero_exit "test 8: prerender marker + missing committed prerender → exit non-zero" "$RC"
+assert_contains "test 8: PRERENDER_FAIL names the scratch skill" "PRERENDER_FAIL: .claude/skills/$SK_PRERENDER-remote-" "$OUT"
+
+cleanup
+mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
+
 # --- Test 10: helper whitelist touchpoints — exactly one entry per file ---
 
 declare -a WHITELIST_FILES=(

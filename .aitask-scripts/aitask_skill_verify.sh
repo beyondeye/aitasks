@@ -25,6 +25,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=.aitask-scripts/lib/agent_skills_paths.sh
 source "$SCRIPT_DIR/lib/agent_skills_paths.sh"
+# shellcheck source=.aitask-scripts/lib/yaml_utils.sh
+source "$SCRIPT_DIR/lib/yaml_utils.sh"  # read_yaml_field (headless / prerender markers)
 
 cd "$REPO_ROOT"
 
@@ -77,6 +79,20 @@ _resolver_key_for() {
         echo "${skill#aitask-}"
     fi
 }
+
+# --- Discover headless profiles (profiles flagged `headless: true`) ---
+# A headless profile (currently just `remote`) is one whose skills must work
+# where `ait setup` never ran (e.g. Claude Code Web), so their rendered
+# closures are committed. Discovered declaratively so adding another headless
+# profile needs no edit here. Top-level profiles only — `local/` profiles are
+# per-user and ship no committed prerenders.
+headless_profiles=()
+for _pf in aitasks/metadata/profiles/*.yaml; do
+    [[ -f "$_pf" ]] || continue
+    if [[ "$(read_yaml_field "$_pf" headless)" == "true" ]]; then
+        headless_profiles+=("$(basename "$_pf" .yaml)")
+    fi
+done
 
 # --- Verification loop ---
 
@@ -148,18 +164,34 @@ for tpl in "${templates[@]}"; do
         fi
     done
 
-    # --- Headless prerender check (pickrem only for now) ---
-    # TODO(t777_29): generalize — read `prerender_for_headless` marker from j2
-    # frontmatter and the `headless: true` flag from profile YAML; this hardcode
-    # exists only until the marker mechanism lands.
-    if [[ "$skill" == "aitask-pickrem" ]]; then
-        for agent in "${agents[@]}"; do
-            committed="$(agent_skill_dir "$agent" "$skill" "remote")/SKILL.md"
-            if [[ ! -f "$committed" ]]; then
-                printf 'PRERENDER_FAIL: %s: missing committed remote variant (run aitask_skill_render.sh aitask-pickrem --profile remote --agent %s and commit)\n' \
-                    "$committed" "$agent" >&2
-                failures=$((failures + 1))
-            fi
+    # --- Headless prerender freshness check (generalized, t894) ---
+    # A skill that declares `prerender_for_headless: true` in its .md.j2
+    # frontmatter ships committed prerenders for every headless profile so it
+    # works where `ait setup` never ran (e.g. Claude Code Web). For each
+    # (skill, headless-profile, agent) verify the committed entry-point exists
+    # AND that the skill's whole rendered closure matches what is committed.
+    # The closure comparison (walk-verify) is what catches source-vs-committed
+    # drift — e.g. a `task-workflow/` edit without a `aitask_skill_rerender.sh
+    # remote`, which left the committed task-workflow-remote- closure stale
+    # with nothing failing (t888). task-workflow-remote- is committed only as
+    # a transitive closure dependency of the headless pickrem/pickweb renders,
+    # so verifying those two transitively covers every committed file in it.
+    if [[ "$(read_yaml_field "$tpl" prerender_for_headless)" == "true" ]]; then
+        for hprofile in "${headless_profiles[@]}"; do
+            for agent in "${agents[@]}"; do
+                committed="$(agent_skill_dir "$agent" "$skill" "$hprofile")/SKILL.md"
+                if [[ ! -f "$committed" ]]; then
+                    printf 'PRERENDER_FAIL: %s: missing committed %s prerender (run aitask_skill_render.sh %s --profile %s --agent %s and commit)\n' \
+                        "$committed" "$hprofile" "$skill" "$hprofile" "$agent" >&2
+                    failures=$((failures + 1))
+                    continue
+                fi
+                if ! out="$("$PYTHON" "$SKILL_TEMPLATE_PY" walk-verify "$tpl" "aitasks/metadata/profiles/${hprofile}.yaml" "$agent" "$REPO_ROOT" 2>&1)"; then
+                    printf 'PRERENDER_FAIL: %s agent=%s profile=%s committed prerender stale or unrenderable (run aitask_skill_rerender.sh %s and commit):\n%s\n' \
+                        "$skill" "$agent" "$hprofile" "$hprofile" "$out" >&2
+                    failures=$((failures + 1))
+                fi
+            done
         done
     fi
 done
