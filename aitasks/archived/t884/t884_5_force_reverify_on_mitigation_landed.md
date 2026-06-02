@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: [t884_4]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [task_workflow, task-planning]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 00:31
-updated_at: 2026-06-01 19:04
+updated_at: 2026-06-02 07:49
+completed_at: 2026-06-02 07:49
 ---
 
 ## Context
