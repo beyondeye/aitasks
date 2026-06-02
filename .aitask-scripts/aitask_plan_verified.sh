@@ -8,13 +8,19 @@
 # Usage:
 #   aitask_plan_verified.sh read <plan_file>
 #   aitask_plan_verified.sh append <plan_file> <agent>
-#   aitask_plan_verified.sh decide <plan_file> <required> <stale_after_hours>
+#   aitask_plan_verified.sh decide <plan_file> <required> <stale_after_hours> [--force-verify]
 #
 # Output (exit 0):
 #   read:   one `<agent>|<timestamp>` line per entry (empty if none)
 #   append: silent on success
 #   decide: 8 KEY:value lines in fixed order — TOTAL, FRESH, STALE, LAST,
 #           REQUIRED, STALE_AFTER_HOURS, DISPLAY, DECISION
+#
+# The optional `--force-verify` flag on `decide` short-circuits DECISION to
+# VERIFY (with a distinct DISPLAY line) while leaving TOTAL/FRESH/STALE/LAST
+# accurate. The flag is caller-agnostic: `decide` does not know *why* it is
+# being forced. When the flag is absent the output is byte-identical to the
+# pre-flag behaviour.
 
 set -euo pipefail
 
@@ -187,6 +193,18 @@ cmd_decide() {
     local plan_file="${1:-}"
     local required="${2:-}"
     local stale_hours="${3:-}"
+    local force_verify=0
+    # Optional flags follow the three positionals.
+    if [[ $# -gt 3 ]]; then
+        shift 3
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --force-verify) force_verify=1 ;;
+                *) die "decide: unknown option: $1" ;;
+            esac
+            shift
+        done
+    fi
     [[ -z "$plan_file" ]] && die "decide requires a plan file"
     [[ -z "$required" ]] && die "decide requires a required count"
     [[ -z "$stale_hours" ]] && die "decide requires stale_after_hours"
@@ -230,7 +248,10 @@ cmd_decide() {
 
     local display
     local decision
-    if [[ $total -eq 0 ]]; then
+    if [[ $force_verify -eq 1 ]]; then
+        decision="VERIFY"
+        display="Forced re-verification: a risk-mitigation task landed after the last verification."
+    elif [[ $total -eq 0 ]]; then
         decision="VERIFY"
         display="No prior verifications found — entering verify mode."
     elif [[ $fresh -ge $required ]]; then

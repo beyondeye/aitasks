@@ -26,6 +26,35 @@ Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
 
 **If a plan file exists**, read it.
 
+### Step 6.0a: Force-reverify when a risk mitigation landed
+
+Before applying any plan preference, check whether a "before" risk-mitigation
+task has landed since this plan was last verified. If one has, the codebase
+changed underneath the plan and it must be re-verified — even if a fresh
+verification entry would otherwise let it be skipped. (This is a no-op in the
+common case where the task has no `risk_mitigation_tasks`.)
+
+1. Run:
+   ```bash
+   ./.aitask-scripts/aitask_risk_mitigation_landed.sh <task_file> <plan_file>
+   ```
+2. Parse the output. The first line is `FORCE_VERIFY:<0|1>`; any following
+   `LANDED:<id>|<completed_at>` lines name the mitigations that landed after the
+   last verification.
+   - **`FORCE_VERIFY:0`** → no mitigation landed (or the field is absent).
+     Proceed to the plan-preference logic below unchanged.
+   - **`FORCE_VERIFY:1`** →
+     - Display the landed mitigations to the user, e.g. "Risk-mitigation task(s)
+       landed since the last plan verification: t884_4 (2026-06-01 18:14).
+       Forcing plan re-verification."
+     - Set a **`force_verify` signal** for this Step 6: the **Verify Decision**
+       sub-procedure below MUST append `--force-verify` to its `decide` call.
+     - Keep the landed `<id>` list — on entering verify mode (Step 6.1), resolve
+       each with `./.aitask-scripts/aitask_query_files.sh archived-task <id>` and
+       read the matching `aiplans/archived/p<parent>/` plan to see exactly what
+       changed, then re-check the plan's assumptions and file paths against those
+       changes. This makes the re-verification targeted, not a blind re-read.
+
 {# ---------- plan_preference / plan_preference_child ---------- #}{% if profile.plan_preference is defined or profile.plan_preference_child is defined %}
 **Profile-driven plan preference** (profile '{{ profile.name }}').
 
@@ -51,6 +80,9 @@ When the profile resolves the preference, skip the interactive AskUserQuestion b
    ```bash
    ./.aitask-scripts/aitask_plan_verified.sh decide <plan_file> {{ profile.plan_verification_required | default(1) }} {{ profile.plan_verification_stale_after_hours | default(24) }}
    ```
+   If Step 6.0a set the `force_verify` signal, append `--force-verify` to the
+   command above (it forces `DECISION:VERIFY` even when a fresh verification
+   exists).
 4. Parse the 8-line structured output (`KEY:value` per line):
    - `TOTAL:<N>` / `FRESH:<M>` / `STALE:<K>` / `LAST:<agent @ timestamp>` (or `LAST:NONE`)
    - `REQUIRED:<R>` / `STALE_AFTER_HOURS:<H>`
@@ -85,6 +117,9 @@ When the profile resolves the preference, skip the interactive AskUserQuestion b
    ```bash
    ./.aitask-scripts/aitask_plan_verified.sh decide <plan_file> <required> <stale_after_hours>
    ```
+   If Step 6.0a set the `force_verify` signal, append `--force-verify` to the
+   command above (it forces `DECISION:VERIFY` even when a fresh verification
+   exists).
 4. Parse the 8-line structured output (`KEY:value` per line):
    - `TOTAL:<N>` / `FRESH:<M>` / `STALE:<K>` / `LAST:<agent @ timestamp>` (or `LAST:NONE`)
    - `REQUIRED:<R>` / `STALE_AFTER_HOURS:<H>`

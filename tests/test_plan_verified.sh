@@ -53,6 +53,19 @@ assert_empty() {
     fi
 }
 
+assert_not_contains() {
+    local desc="$1" needle="$2" actual="$3"
+    TOTAL=$((TOTAL + 1))
+    if echo "$actual" | grep -q -- "$needle"; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: $desc"
+        echo "  expected NOT to contain: $needle"
+        echo "  actual: $actual"
+    else
+        PASS=$((PASS + 1))
+    fi
+}
+
 # --- Timestamp helpers (GNU/BSD portable) ---
 
 fresh_ts() {
@@ -326,6 +339,46 @@ if [[ $rc -ne 0 ]]; then
 else
     FAIL=$((FAIL + 1))
     echo "FAIL: decide bad required → expected non-zero exit code, got $rc"
+fi
+
+# --- decide --force-verify tests ---
+
+echo "--- decide: --force-verify forces VERIFY on a fresh plan ---"
+PLAN="$SANDBOX/p_decide_force.md"
+make_plan_with_fresh_entries "$PLAN" 1
+# Without the flag, a fresh plan SKIPs.
+plain=$("$HELPER" decide "$PLAN" 1 24)
+assert_contains "fresh plan without flag → SKIP" "DECISION:SKIP" "$plain"
+# With the flag, the same plan is forced into VERIFY.
+forced=$("$HELPER" decide "$PLAN" 1 24 --force-verify)
+assert_contains "fresh plan --force-verify → VERIFY" "DECISION:VERIFY" "$forced"
+assert_contains "force-verify → distinct DISPLAY line" "DISPLAY:Forced re-verification" "$forced"
+# Counts stay accurate under the flag (richer than a bare short-circuit).
+assert_contains "force-verify → TOTAL:1 preserved" "TOTAL:1" "$forced"
+assert_contains "force-verify → FRESH:1 preserved" "FRESH:1" "$forced"
+# All 8 KEY lines still emitted.
+forced_lines=$(printf '%s\n' "$forced" | grep -c ':')
+assert_eq "force-verify → 8 KEY:value lines" "8" "$forced_lines"
+
+echo "--- decide: byte-stable when flag absent ---"
+# The no-flag path must be byte-identical to the historical output. Compare a
+# second no-flag invocation to the first (the flag arm must never fire here).
+plain2=$("$HELPER" decide "$PLAN" 1 24)
+assert_eq "no-flag output is stable/deterministic" "$plain" "$plain2"
+assert_not_contains "no-flag output has no forced DISPLAY" "Forced re-verification" "$plain"
+
+echo "--- decide: unknown flag rejected ---"
+set +e
+err=$("$HELPER" decide "$PLAN" 1 24 --bogus 2>&1)
+rc=$?
+set -e
+assert_contains "decide unknown flag → error message" "unknown option" "$err"
+TOTAL=$((TOTAL + 1))
+if [[ $rc -ne 0 ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: decide unknown flag → expected non-zero exit code, got $rc"
 fi
 
 # --- Summary ---

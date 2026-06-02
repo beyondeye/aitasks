@@ -76,6 +76,7 @@
       "Bash(./.aitask-scripts/aitask_review_commits.sh:*)",
       "Bash(./.aitask-scripts/aitask_review_detect_env.sh:*)",
       "Bash(./.aitask-scripts/aitask_reviewguide_scan.sh:*)",
+      "Bash(./.aitask-scripts/aitask_risk_mitigation_landed.sh:*)",
       "Bash(./.aitask-scripts/aitask_scan_profiles.sh:*)",
       "Bash(./.aitask-scripts/aitask_stats.sh:*)",
       "Bash(./.aitask-scripts/aitask_sync.sh:*)",
