@@ -7,7 +7,7 @@ status: Implementing
 labels: [ait_brainstorm, brainstom_modules]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-02 10:43
-updated_at: 2026-06-02 11:04
+updated_at: 2026-06-02 11:25
 ---
 
 ## Origin
@@ -32,3 +32,12 @@ goal-achievement live workflow risks:
 Manually verify `module_decompose` / `module_merge` TUI flows, live agent
 launch/apply, `from_sections` behavior, and `--link-to-task` child creation plus
 `module_tasks` persistence.
+
+## Verification Checklist
+
+- [ ] module_decompose on _umbrella HEAD spawns per-module roots with correct module_label / parents / current_heads.
+- [ ] module_merge produces a 2-parent destination node and refuses a non-ancestor destination (guard fires before agent input assembly).
+- [ ] An existing op targeted at a module changes only that subgraph (B1 regression).
+- [ ] --link-to-task creates a child aitask and writes module_tasks[M].
+- [ ] --from-sections slices deterministically on clean section markers.
+- [ ] Existing brainstorm tests still pass.
