@@ -1,13 +1,17 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [bash_scripts, python]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-02 12:48
-updated_at: 2026-06-02 12:52
+updated_at: 2026-06-02 13:43
+completed_at: 2026-06-02 13:43
 ---
 
 ## Context
