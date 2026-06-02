@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t573_4]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
-verifies: [573_1, 573_2, 573_3, 573_4]
+verifies: [t573_1, t573_2, t573_3, t573_4]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-23 11:05
-updated_at: 2026-04-23 11:05
+updated_at: 2026-06-02 11:48
 ---
 
 ## Manual Verification Task
