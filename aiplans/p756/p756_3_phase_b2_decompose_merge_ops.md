@@ -82,6 +82,28 @@ archive via `./.aitask-scripts/aitask_archive.sh 756_3`.
 
 ## Final Implementation Notes
 
+- **Actual work done:** Implemented `module_decompose` and `module_merge` as
+  first-class brainstorm operations with schemas, op refs, TUI flow, crew
+  registration, templates, apply paths, DAG badge colors, code-agent defaults,
+  and focused tests.
+- **Deviations from plan:** Added a direct deterministic
+  `apply_module_decompose_from_sections()` path instead of treating
+  `from_sections` as only an agent instruction. This better matches the task's
+  required slice-without-agent behavior.
+- **Issues encountered:** The normal `aitask_create.sh --batch --commit` path
+  failed once while creating risk mitigation follow-ups due to task-id claiming
+  retry exhaustion. Standalone `aitask_claim_id.sh --claim` then succeeded, so
+  reserved IDs `905` and `906` were used for the two mitigation tasks. Main-repo
+  `git add` required escalated permissions because the Codex sandbox mounted
+  `.git` read-only for regular commands.
+- **Key decisions:** Module agent outputs use explicit delimiters:
+  decomposer emits repeated `MODULE_NODE` blocks while merger emits the normal
+  single-node `NODE_YAML` + `PROPOSAL` format. Group metadata records module
+  options and source/destination subgraphs so apply can run from persisted state
+  after app restarts.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** The following contracts are now available for
+  t756_4/t756_5/t756_6:
 - Added the `module_decompose` / `module_merge` op keys, operation refs, DAG badge
   colors, TUI labels/help, and code-agent defaults. New agent types are
   `module_decomposer` and `module_merger`.
