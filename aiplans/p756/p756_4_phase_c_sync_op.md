@@ -183,6 +183,67 @@ Follow task-workflow Step 9: review, commit (`feature: … (t756_4)`), consolida
 this plan with Final Implementation Notes (syncer input-bundle shape + notes for
 Phase D), archive via `./.aitask-scripts/aitask_archive.sh 756_4`.
 
+## Final Implementation Notes
+
+- **Actual work done:** Implemented `module_sync` end-to-end exactly as planned —
+  op-key + "Sync Sources" input section (`brainstorm_schemas.py`,
+  `brainstorm_op_refs.py`); `module_syncer` agent type + `register_module_syncer()`
+  with the three-stream scan bundle (linked-task plan, scoped git diff via
+  `git log --grep=(t<id>) [--since last_synced]`, and `aitask_explain_context.sh`
+  shell-out — REUSE, with a 60k-char diff cap) (`brainstorm_crew.py`);
+  `apply_module_syncer_output()` + `_module_syncer_needs_apply` + `_write_last_synced`
+  (`brainstorm_session.py`); full wizard wiring + 3 auto-apply poller sites + config
+  step + help (`brainstorm_app.py`); badge color (`brainstorm_dag_display.py`);
+  `templates/module_syncer.md`; `brainstorm-module_syncer` codeagent default; new
+  `tests/test_brainstorm_module_sync.py` (8 tests) + 2 fixture updates.
+- **Deviations from plan:** The apply path turned out **simpler** than the plan
+  feared. The HEAD-scoping "risk" is fully handled by the existing
+  `_apply_node_output`, which derives the subgraph from the op group via
+  `_group_subgraph()` and calls `set_head(module=subgraph)`. So
+  `apply_module_syncer_output` only needed to set `parents=[source_head]` and stamp
+  `last_synced_at`; no custom head logic. Also had to add `module_syncer→module_sync`
+  to `_agent_to_group_name`'s `role_to_group` map and to the wizard `config`-step
+  predicate (both easy-to-miss parallel sites).
+- **Issues encountered:** Verification surfaced a **pre-existing upstream defect in
+  `_group_seq` (t756_3)** — it split the group name on the *first* underscore, so
+  `module_sync_001` → `sync_001` (not `001`), producing agent names like
+  `module_syncer_sync_001` whose `_agent_to_group_name` round-trip no longer matched
+  the real group. This broke the auto-apply poller's group resolution for **all**
+  module ops (decompose/merge/sync). It survived t756_3 because that op's live cycle
+  was deferred to its manual-verification mitigation (t905), and t906's unit tests
+  hand-build agent names that bypass `_group_seq`. **Fixed inline** (`rsplit("_", 1)`)
+  because `module_sync` cannot function without it; the fix repairs the shipped
+  decompose/merge real-flow too, and a regression guard test was added
+  (`GroupSeqRoundTripTests`). Also had to add the `brainstorm-module_syncer` key to
+  the project `codeagent_config.json` and three test fixtures (the agent-types set
+  and `get_agent_types` fixtures) — `get_agent_types` hard-requires a default per
+  agent type.
+- **Key decisions:** Sync emits a single node (NODE_YAML+PROPOSAL, parented on the
+  module's prior HEAD) — modelled on `module_merger` but single-parent. Scan horizon
+  = `last_synced_at[module]` via `--since`; first sync = full task history. Diff
+  bundle soft-capped at 60k chars. Explain-context consumed strictly via shell-out.
+  Refusal when the module has no `module_tasks` entry is enforced at **two** layers:
+  the wizard disables Next + shows a warning, and `register_module_syncer` raises.
+  Badge color = Dracula bright-purple `#D6ACFF` (all 7 base accents were taken).
+- **Upstream defects identified:** None. (The `_group_seq` defect above was fixed
+  in-scope in this commit, not left pending — see Issues encountered. No standalone
+  follow-up is warranted; the decompose/merge live cycle is already covered by t905.)
+- **Notes for sibling tasks (Phase D — t756_5/t756_6):**
+  - `module_tasks` (`<module>:<task_id>`) and `last_synced_at` (`<module>:<ts>`) maps
+    in `br_graph_state.yaml` are now both written: `module_tasks` by linked
+    decompose, `last_synced_at` by sync apply. Phase D status views should treat an
+    absent `last_synced_at[m]` as "never synced" and absent `module_tasks[m]` as
+    "unlinked".
+  - The group↔agent name round-trip is now reliable for multi-token op names — Phase
+    D can trust `_agent_to_group_name` / `_group_seq` for module agents.
+  - Adding a new module op requires touching this exact set of parallel sites:
+    `GROUP_OPERATIONS`, `_OP_INPUT_SECTION`, `BRAINSTORM_AGENT_TYPES`,
+    `role_to_group` (`_agent_to_group_name`), `_SUBGRAPH_SELECT_OPS`,
+    `_WIZARD_OP_TO_AGENT_TYPE`, `_DESIGN_OPS`, `_OPERATION_HELP`, the wizard
+    `config`-step predicate, `_config_*`/`_collect_config`/summary branches,
+    `_run_design_op`, the 3 poller sites, `OP_BADGE_STYLES`, and the
+    `codeagent_config.json` default (+ its test fixtures).
+
 ## Risk
 
 ### Code-health risk: medium
