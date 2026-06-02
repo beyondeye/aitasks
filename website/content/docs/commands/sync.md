@@ -105,6 +105,30 @@ When the repository uses a separate `aitask-data` branch for task files (set up 
 
 - [Syncer TUI]({{< relref "/docs/tuis/syncer" >}}) — interactive surface for remote desync state across `main` and `aitask-data` with one-keystroke pull/push/sync actions and an agent escape hatch on failure. The syncer's `s` action invokes `ait sync --batch` under the hood.
 
+## ait git-health
+
+Diagnose the state of the `.aitask-data` worktree that backs task and plan
+storage in [data-branch mode](#data-branch-mode).
+
+```bash
+ait git-health
+```
+
+In **legacy mode** (no separate `aitask-data` branch) it reports that there is
+nothing to check. In **branch mode** it prints the worktree path, git-dir,
+current branch, and HEAD commit, then flags anything that would leave `ait git`
+operations stuck:
+
+- A detached HEAD on the worktree.
+- An in-progress `rebase`, `merge`, `cherry-pick`, `revert`, or `bisect`, with a
+  recovery hint (`./ait git <op> --abort` or `--continue`).
+
+A clean worktree reports no in-progress operations. Reach for `git-health` when
+a fresh clone or a moved checkout looks like it is missing tasks — see the
+[installation troubleshooting notes]({{< relref "/docs/installation#what-gets-installed" >}})
+and the [Repository Maintenance]({{< relref "/docs/workflows/repo-maintenance" >}})
+workflow.
+
 ---
 
 **Next:** [Lock]({{< relref "/docs/commands/lock" >}})

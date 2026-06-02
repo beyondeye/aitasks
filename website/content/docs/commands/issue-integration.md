@@ -152,7 +152,12 @@ Each task section includes: issue type (from task frontmatter), human-readable t
 
 ## ait zip-old
 
-Archive old completed task and plan files to compressed tar.gz archives.
+Archive old completed task and plan files to compressed `tar.zst` archives.
+
+This is **periodic maintenance** — run it from time to time (a natural cadence
+is right after a release) to keep `aitasks/archived/` and `aiplans/archived/`
+tidy. See the [Repository Maintenance]({{< relref "/docs/workflows/repo-maintenance" >}})
+workflow for the full set of upkeep commands.
 
 ```bash
 ait zip-old                    # Archive and commit
@@ -174,8 +179,8 @@ ait zip-old -v                 # Verbose output
 3. Groups eligible files by 100-task bundles and archives each group to a numbered archive:
    - **Bundle** = `task_id / 100` (integer division)
    - **Directory** = `bundle / 10` (integer division)
-   - **Path** = `archived/_b{dir}/old{bundle}.tar.gz`
-   - Example: task 150 → `archived/_b0/old1.tar.gz`, task 1050 → `archived/_b1/old10.tar.gz`
+   - **Path** = `archived/_b{dir}/old{bundle}.tar.zst`
+   - Example: task 150 → `archived/_b0/old1.tar.zst`, task 1050 → `archived/_b1/old10.tar.zst`
 4. If a numbered archive already exists, merges new files into it
 5. Verifies archive integrity before deleting originals
 6. If an existing archive is corrupted, creates a backup before starting fresh

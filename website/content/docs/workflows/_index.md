@@ -7,7 +7,7 @@ description: "End-to-end workflow guides for common aitasks operations"
 
 This section describes common usage patterns that combine the CLI tools and code agent skills into end-to-end development workflows.
 
-<!-- t594_7 note: these four groupings (Tasks / Parallel / Review & Quality / Git) are candidate source data for a `workflow_category` Hugo taxonomy. When t594_7 adds Docsy label/taxonomy support, this manual grouping can be replaced by taxonomy-driven rendering. -->
+<!-- t594_7 note: these five groupings (Tasks / Parallel / Review & Quality / Git / Maintenance) are candidate source data for a `workflow_category` Hugo taxonomy. When t594_7 adds Docsy label/taxonomy support, this manual grouping can be replaced by taxonomy-driven rendering. -->
 
 ## Tasks
 
@@ -52,6 +52,10 @@ Round-tripping with issue trackers, pull requests, upstream contributions, relea
 - [Contributions](contribute-and-manage/) — Sharing changes back upstream and managing incoming contributions with aitasks.
 - [Releases](releases/) — Automated changelog generation and release pipeline from task data.
 - [Revert Changes](revert-changes/) — Reverting features or changes that are no longer needed.
+
+## Maintenance
+
+- [Repository Maintenance](repo-maintenance/) — Periodic upkeep: archiving old tasks, pruning explain caches, changelog/release prep, diagnosing the task-data worktree, and upgrading the framework.
 
 ---
 

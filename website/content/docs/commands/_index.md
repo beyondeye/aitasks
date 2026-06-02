@@ -14,6 +14,7 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait update`](task-management/#ait-update) | Update task metadata (status, priority, labels, etc.) |
 | [`ait sync`](sync/) | Sync task data with remote (push/pull) |
 | [`ait git`](sync/) | Run git commands against task data (worktree-aware) |
+| [`ait git-health`](sync/#ait-git-health) | Diagnose the `.aitask-data` worktree state (detached HEAD, stuck rebase/merge) |
 | [`ait lock`](lock/) | Lock/unlock tasks to prevent concurrent work |
 
 ### TUI
@@ -22,6 +23,10 @@ description: "Complete CLI reference for all ait subcommands"
 |---------|-------------|
 | [`ait board`](board-stats/#ait-board) | Open the kanban-style TUI board |
 | [`ait codebrowser`](board-stats/#ait-codebrowser) | Launch the code browser TUI |
+| [`ait monitor`](../tuis/monitor/) | Dashboard of every code-agent and TUI pane across all aitasks tmux sessions |
+| [`ait minimonitor`](../tuis/minimonitor/) | Narrow sidebar variant of monitor for tmux agent panes |
+| [`ait applink`](../tuis/applink/) | Pair the mobile companion app to your workspace over LAN (QR bootstrap) |
+| [`ait stats-tui`](../tuis/stats/) | Pane-based viewer for archived task completion statistics |
 | [`ait ide`](../installation/terminal-setup/) | Start (or attach to) the configured tmux session and launch `ait monitor` — one view of a shared session; see `ait ide --help` |
 | [`ait settings`](../tuis/settings/) | Open the settings TUI for configuration management |
 | [`ait syncer`](../tuis/syncer/) | Open the remote-desync syncer TUI for `main` and `aitask-data` |
@@ -33,6 +38,12 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait issue-import`](issue-integration/#ait-issue-import) | Import tasks from GitHub/GitLab/Bitbucket issues |
 | [`ait issue-update`](issue-integration/#ait-issue-update) | Update or close linked GitHub/GitLab/Bitbucket issues |
 | [`ait pr-import`](pr-import/#ait-pr-import) | Import pull requests as tasks or extract PR data for AI analysis |
+
+### Cross-repo
+
+| Command | Description |
+|---------|-------------|
+| [`ait projects`](../workflows/multi_project/#the-ait-projects-command) | Manage the linked-project registry (`list`, `add`, `remove`, `update`, `prune`, `doctor`, `resolve`, `exec`) — see [Multi-Project](../workflows/multi_project/) and [Cross-Project Dependencies](../workflows/cross_project_dependencies/) |
 
 ### Reporting
 
@@ -46,9 +57,10 @@ description: "Complete CLI reference for all ait subcommands"
 | Command | Description |
 |---------|-------------|
 | [`ait codeagent`](codeagent/) | Manage code agent and model configuration |
+| [`ait skillrun`](../concepts/skill-templating/#invocation-paths) | Launch a code agent with a profile-aware aitask skill |
 | [`ait explain-runs`](explain/#ait-explain-runs) | Manage aitask-explain run directories (list, delete, cleanup) |
 | [`ait explain-cleanup`](explain/#ait-explain-cleanup) | Remove stale aitask-explain run directories |
-| [`ait zip-old`](issue-integration/#ait-zip-old) | Archive old completed task and plan files |
+| [`ait zip-old`](issue-integration/#ait-zip-old) | Archive old completed task and plan files into `tar.zst` bundles — periodic maintenance ([guide](../workflows/repo-maintenance/)) |
 
 ### Infrastructure
 
@@ -70,6 +82,10 @@ ait ls -v -l ui,frontend 10             # Filter by labels
 ait update --batch 42 --status Done     # Mark task done
 ait board                               # Open TUI board
 ait codebrowser                         # Open code browser TUI
+ait monitor                             # Dashboard of all agent/TUI panes
+ait projects list                       # List registered linked projects
+ait skillrun pick --profile fast 42     # Launch a code agent on task 42
+ait git-health                          # Diagnose the .aitask-data worktree
 ait issue-import                        # Import issues from issue tracker
 ait lock 42                             # Pre-lock a task before Claude Web
 ait lock --list                         # See all active locks
@@ -91,5 +107,7 @@ ait --version                           # Show installed version
 ```
 
 ---
+
+**See also:** [Repository Maintenance]({{< relref "/docs/workflows/repo-maintenance" >}}) for periodic upkeep commands (`zip-old`, explain cleanup, `changelog`, `git-health`, `upgrade`), and [Multi-Project]({{< relref "/docs/workflows/multi_project" >}}) for the cross-repo `ait projects` workflow.
 
 **Next:** [Development Guide]({{< relref "development" >}})
