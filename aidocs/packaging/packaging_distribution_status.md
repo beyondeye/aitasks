@@ -13,7 +13,7 @@ For the *architectural* rationale behind the shim-only packaging model (why ever
 | APT (.deb) | <https://github.com/beyondeye/aitasks/releases/latest> (asset `aitasks_<ver>_all.deb`) | GitHub Releases asset (NOT a hosted apt repo, NOT in official Debian/Ubuntu archives) | Debian 11+, Ubuntu 22.04+ (Ubuntu 20.04 has caveats — see below) |
 | DNF (.rpm) | <https://github.com/beyondeye/aitasks/releases/latest> (asset `aitasks-<ver>-1.noarch.rpm`) | GitHub Releases asset (NOT in COPR, NOT in official Fedora/EPEL/RHEL repos) | Fedora 40+, Rocky/Alma 9 (with EPEL), RHEL 9 (with EPEL) |
 
-Every channel is auto-published on each release tag by [`.github/workflows/release-packaging.yml`](../.github/workflows/release-packaging.yml). Maintainer first-time setup is in [`homebrew_maintainer_setup.md`](./homebrew_maintainer_setup.md) and [`aur_maintainer_setup.md`](./aur_maintainer_setup.md).
+Every channel is auto-published on each release tag by [`.github/workflows/release-packaging.yml`](../../.github/workflows/release-packaging.yml). Maintainer first-time setup is in [`homebrew_maintainer_setup.md`](./homebrew_maintainer_setup.md) and [`aur_maintainer_setup.md`](./aur_maintainer_setup.md).
 
 ---
 
@@ -23,7 +23,7 @@ Every channel is auto-published on each release tag by [`.github/workflows/relea
 
 **Where it lives:** <https://github.com/beyondeye/homebrew-aitasks>
 **Install command:** `brew install beyondeye/aitasks/aitasks`
-**Publish workflow:** [`.github/workflows/release-packaging.yml`](../.github/workflows/release-packaging.yml) → `publish-homebrew` job
+**Publish workflow:** [`.github/workflows/release-packaging.yml`](../../.github/workflows/release-packaging.yml) → `publish-homebrew` job
 **First-time setup:** [`homebrew_maintainer_setup.md`](./homebrew_maintainer_setup.md)
 
 **Limitations:**
@@ -54,7 +54,7 @@ Every channel is auto-published on each release tag by [`.github/workflows/relea
 **Where it lives:** <https://aur.archlinux.org/packages/aitasks>
 **AUR clone URL:** `https://aur.archlinux.org/aitasks.git`
 **Install commands:** `yay -S aitasks` or `paru -S aitasks` (or manual: `git clone https://aur.archlinux.org/aitasks.git && cd aitasks && makepkg -si`)
-**Publish workflow:** [`.github/workflows/release-packaging.yml`](../.github/workflows/release-packaging.yml) → `publish-aur` job
+**Publish workflow:** [`.github/workflows/release-packaging.yml`](../../.github/workflows/release-packaging.yml) → `publish-aur` job
 **First-time setup:** [`aur_maintainer_setup.md`](./aur_maintainer_setup.md)
 
 **Limitations:**
@@ -84,8 +84,8 @@ Every channel is auto-published on each release tag by [`.github/workflows/relea
 
 **Where it lives:** <https://github.com/beyondeye/aitasks/releases/latest>
 **Asset name:** `aitasks_<VERSION>_all.deb` (architecture-independent; the shim is a shell script)
-**Publish workflow:** [`.github/workflows/release-packaging.yml`](../.github/workflows/release-packaging.yml) → `build-deb` + `test-deb` jobs (uses `goreleaser/nfpm` Docker image)
-**Source of truth (deps):** [`packaging/nfpm/nfpm.yaml`](../packaging/nfpm/nfpm.yaml) (`overrides.deb.depends` block, lines 24–33)
+**Publish workflow:** [`.github/workflows/release-packaging.yml`](../../.github/workflows/release-packaging.yml) → `build-deb` + `test-deb` jobs (uses `goreleaser/nfpm` Docker image)
+**Source of truth (deps):** [`packaging/nfpm/nfpm.yaml`](../../packaging/nfpm/nfpm.yaml) (`overrides.deb.depends` block, lines 24–33)
 
 **Limitations:**
 
@@ -105,7 +105,7 @@ Every channel is auto-published on each release tag by [`.github/workflows/relea
 
 1. **Provision a static-file host.** apt only needs `Release`, `Packages`, `Packages.gz`, and the actual `.deb` files at well-known paths under `dists/<suite>/main/binary-all/`. Lowest-effort backends: GitHub Pages, Cloudflare Pages, S3/R2.
 2. **Generate a GPG signing key.** Create an `aitasks-archive` keypair for the apt repo. Distribute the public key via the website AND as a `aitasks-archive-keyring.deb` per Debian convention.
-3. **Tooling.** Use `reprepro` or `aptly` to produce repo metadata. Run inside [`release-packaging.yml`](../.github/workflows/release-packaging.yml) after `build-deb`. The signing key lives as a GitHub Actions secret.
+3. **Tooling.** Use `reprepro` or `aptly` to produce repo metadata. Run inside [`release-packaging.yml`](../../.github/workflows/release-packaging.yml) after `build-deb`. The signing key lives as a GitHub Actions secret.
 4. **Document the apt source line.** Users add `deb [signed-by=/usr/share/keyrings/aitasks-archive-keyring.gpg] https://apt.aitasks.io stable main` to `/etc/apt/sources.list.d/aitasks.list`. Then `apt update && apt install aitasks`.
 5. **Update website docs.** Replace the manual-download flow on `debian-apt.md` with the apt-source-add flow once the repo is stable.
 
@@ -127,8 +127,8 @@ Every channel is auto-published on each release tag by [`.github/workflows/relea
 
 **Where it lives:** <https://github.com/beyondeye/aitasks/releases/latest>
 **Asset name:** `aitasks-<VERSION>-1.noarch.rpm`
-**Publish workflow:** [`.github/workflows/release-packaging.yml`](../.github/workflows/release-packaging.yml) → `build-rpm` + `test-rpm` jobs
-**Source of truth (deps):** [`packaging/nfpm/nfpm.yaml`](../packaging/nfpm/nfpm.yaml) (`overrides.rpm.depends` block, lines 37–46)
+**Publish workflow:** [`.github/workflows/release-packaging.yml`](../../.github/workflows/release-packaging.yml) → `build-rpm` + `test-rpm` jobs
+**Source of truth (deps):** [`packaging/nfpm/nfpm.yaml`](../../packaging/nfpm/nfpm.yaml) (`overrides.rpm.depends` block, lines 37–46)
 
 **Limitations:**
 

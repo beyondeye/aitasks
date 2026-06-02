@@ -19,7 +19,7 @@
 #   3b. Rendered body must NOT re-resolve profile (t777_26 forbidden tokens).
 #   4.  Per-agent reference rewrites via walk-write (task-workflow refs).
 #   5.  Stub markers present on all 3 stub files (canonical body fingerprint
-#       from aidocs/stub-skill-pattern.md §3b/§3c/§3d).
+#       from aidocs/framework/stub-skill-pattern.md §3b/§3c/§3d).
 # Run: bash tests/test_skill_render_aitask_wrap.sh
 
 set -e

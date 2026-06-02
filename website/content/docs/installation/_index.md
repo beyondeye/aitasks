@@ -29,7 +29,7 @@ If you prefer your distro's package manager:
 | **Linux** (Arch / Debian / Ubuntu / Fedora / RHEL / Rocky / Alma / WSL) | Distro-specific install paths — see the [Linux guide](linux/) |
 | **Windows / WSL** | Use a WSL2 Ubuntu/Debian shell — see the [Windows / WSL guide](windows-wsl/) |
 
-All install methods drop a single `ait` command on your `$PATH` — the **global shim** (~3 KB). The shim downloads the framework on demand when you run `ait setup` in your project, so the installed package stays tiny and you do not need to re-install the package to get framework updates. For the design rationale see the [packaging strategy reference](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_strategy.md); for current limitations of each channel and the roadmap toward more official repos see the [packaging distribution status & roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md).
+All install methods drop a single `ait` command on your `$PATH` — the **global shim** (~3 KB). The shim downloads the framework on demand when you run `ait setup` in your project, so the installed package stays tiny and you do not need to re-install the package to get framework updates. For the design rationale see the [packaging strategy reference](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_strategy.md); for current limitations of each channel and the roadmap toward more official repos see the [packaging distribution status & roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_distribution_status.md).
 
 ### Upgrade
 

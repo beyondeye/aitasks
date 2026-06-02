@@ -214,7 +214,7 @@ established five patterns that subsequent per-skill conversions
    conversion time. A template-only commit ships with stale goldens
    and silently fails Test 1 on the next test run. See
    "Regenerate goldens after any `.md.j2` or closure edit" in
-   `aidocs/skill_authoring_conventions.md` for the regenerate command
+   `aidocs/framework/skill_authoring_conventions.md` for the regenerate command
    and the same-commit rule.
 
    **Golden dimensionality (t809 refinement):** entry-point goldens are

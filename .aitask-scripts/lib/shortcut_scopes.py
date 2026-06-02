@@ -17,7 +17,7 @@ Maintenance: a *new dialog inside an existing TUI module* is picked up
 automatically (the sweep introspects the module's classes). Only a **brand-new
 TUI module file** must be added to ``KNOWN_BINDING_SOURCES`` below — and
 ``tests/test_shortcut_scopes.py`` fails until it is. See the
-"Shortcut-scope registration" rule in ``aidocs/tui_conventions.md``.
+"Shortcut-scope registration" rule in ``aidocs/framework/tui_conventions.md``.
 
 This lives in its own module (not ``keybinding_registry``) on purpose: the TUI
 modules import ``keybinding_registry``, so the registry must not import them. The

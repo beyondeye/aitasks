@@ -22,7 +22,7 @@ fast path. t831 brought the fast path back scoped to board only.
 
 **Rule for new fast-path adoption.** Do not add `require_ait_python_fast` to
 a launcher without a per-TUI benchmark following the t718_6 protocol
-(`aidocs/python_tui_performance.md`, "t718_6 Empirical Verification"). Routing
+(`aidocs/framework/python_tui_performance.md`, "t718_6 Empirical Verification"). Routing
 by analogy is no longer acceptable.
 
 **Permanent exceptions** (empirically verified — keep on CPython regardless of
@@ -34,7 +34,7 @@ benchmark interest):
 
 Short-lived CLIs (one-shot helpers, `ait create`, status reporters) keep
 `require_ait_python` to avoid the ~150-300 ms PyPy warmup penalty. Full
-evidence and tables: `aidocs/python_tui_performance.md`.
+evidence and tables: `aidocs/framework/python_tui_performance.md`.
 
 ## `AIT_USE_PYPY` precedence (runtime override)
 
@@ -60,7 +60,7 @@ manual hook intended for measurement, not a supported runtime mode.
 
 Codebrowser / monitor / minimonitor / stats-tui stay on CPython regardless of
 `AIT_USE_PYPY` (see the exceptions list above). Full analysis:
-`aidocs/python_tui_performance.md`.
+`aidocs/framework/python_tui_performance.md`.
 
 ## `n` is the create-task key across every aitasks TUI
 

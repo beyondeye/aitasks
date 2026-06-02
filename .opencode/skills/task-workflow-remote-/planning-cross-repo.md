@@ -116,7 +116,7 @@ design step.
 
 **Cross-repo reference resolution.** Before spawning the subagents, scan
 `trigger_source` for the two authoring notations documented in
-`aidocs/cross_repo_references.md` (consumed here, during exploration — never
+`aidocs/framework/cross_repo_references.md` (consumed here, during exploration — never
 during Step 1 trigger detection):
 
 - `<project>#<id>` (e.g. `aitasks_mobile#42_3`) — resolve the referenced

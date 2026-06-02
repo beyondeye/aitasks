@@ -66,7 +66,7 @@ Pick your platform:
 | **Fedora / RHEL / Rocky / Alma** | Download the latest `.rpm` from [Releases](https://github.com/beyondeye/aitasks/releases/latest) and `sudo dnf install ./aitasks-*.noarch.rpm` — see the [Fedora guide](https://aitasks.io/docs/installation/fedora-dnf/) |
 | **Other (any POSIX)** | `curl -fsSL https://raw.githubusercontent.com/beyondeye/aitasks/main/install.sh \| bash` |
 
-All install methods drop a single `ait` command on your `$PATH` — the **global shim** (~3 KB). The shim downloads the framework on demand when you run `ait setup` in your project, so the package itself stays tiny and you do not need to re-install it to get framework updates. See the [installation guide](https://aitasks.io/docs/installation/) for the full picture, and the [packaging distribution status & roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md) for current limitations and how each channel might evolve toward more official repos.
+All install methods drop a single `ait` command on your `$PATH` — the **global shim** (~3 KB). The shim downloads the framework on demand when you run `ait setup` in your project, so the package itself stays tiny and you do not need to re-install it to get framework updates. See the [installation guide](https://aitasks.io/docs/installation/) for the full picture, and the [packaging distribution status & roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_distribution_status.md) for current limitations and how each channel might evolve toward more official repos.
 
 After installing, `cd` into your project (the git repository root) and run `ait setup` to bootstrap the framework.
 

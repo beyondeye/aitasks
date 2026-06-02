@@ -86,7 +86,7 @@ mis-attributing `implemented_with` and skewing per-model verified/usage scores.
 | `website/content/docs/tuis/codebrowser/how-to.md` | 197 | "By default, this is `claudecode/sonnet4_6`" (qa default) | `needed_for_promote` (only when sonnet is bumped, not applicable to opus4_7) |
 | `website/content/docs/tuis/board/reference.md` | 189 | Example in `implemented_with` column | `informational_only` |
 | `website/content/docs/skills/aitask-refresh-code-models.md` | 39 | "e.g., Opus 4.6 → `opus4_6`" naming-convention example | `informational_only` |
-| `aidocs/claudecode_tools.md` | 5 | `**Model:** Claude Opus 4.6 (claude-opus-4-6)` — stale asof-today statement | `needed_for_promote` |
+| `aidocs/codeagents/claudecode_tools.md` | 5 | `**Model:** Claude Opus 4.6 (claude-opus-4-6)` — stale asof-today statement | `needed_for_promote` |
 | `aidocs/agentcrew/agentcrew_architecture.md` | 68, 71, 185 | Architecture diagrams using agent strings as examples | `informational_only` |
 | `aidocs/brainstorming/brainstorm_engine_architecture.md` | 476, 479, 482, 485, 488 | Rationale for assigning specific agents to brainstorm types | `informational_only` (historical rationale) |
 
@@ -123,7 +123,7 @@ mis-attributing `implemented_with` and skewing per-model verified/usage scores.
 | Operational defaults (§2) | 0 | 0 | 2 files | 0 |
 | Hardcoded source defaults (§3) | 0 | 0 | 3 files | 0 |
 | Script help/examples (§4) | 0 | 0 | 2 lines (aitask_codeagent.sh:663, aitask_brainstorm_init.sh:126–130) | ~8 lines |
-| Docs (§5) | 0 | 0 | 3 locations (codeagent.md defaults table + line 167, aidocs/claudecode_tools.md:5) | many |
+| Docs (§5) | 0 | 0 | 3 locations (codeagent.md defaults table + line 167, aidocs/codeagents/claudecode_tools.md:5) | many |
 | Skills & procedures (§6) | 0 | 0 | 0 | 8 locations |
 | Tests (§7) | 0 | test_resolve_detected_agent, test_aitask_stats_py | test_codeagent, test_brainstorm_crew | many stable fixtures |
 
@@ -141,7 +141,7 @@ Those are the files a new skill must touch to promote a model to default.
 |---|---|---|
 | Discovery | Web research (WebSearch + WebFetch) | Known inputs from user (or CLI flags) |
 | Scope | All agents, all models found upstream | One agent, one new model per invocation |
-| Writes | Model registry only (§1) | Model registry (§1) + optional promotion writes (§2, §3, §4 hardcoded, §5 aidocs/claudecode_tools.md, §7 default-sensitive tests) |
+| Writes | Model registry only (§1) | Model registry (§1) + optional promotion writes (§2, §3, §4 hardcoded, §5 aidocs/codeagents/claudecode_tools.md, §7 default-sensitive tests) |
 | Typical use | "Refresh everything periodically" | "Vendor announced a specific model, add it and maybe make it default" |
 | Determinism | Web-research results vary | Fully deterministic given inputs |
 | Dry-run | No | Yes (`--dry-run`) |
@@ -212,13 +212,13 @@ Add mode does NOT touch §2, §3, §4, §5, or §7.
    - Config (metadata) commit separately via `./ait git`
 
 Promote mode does NOT touch §5 docs (except
-`aidocs/claudecode_tools.md` — see below) or §7 tests; those go to the
+`aidocs/codeagents/claudecode_tools.md` — see below) or §7 tests; those go to the
 manual-review list.
 
-#### Optional aidocs/claudecode_tools.md update
+#### Optional aidocs/codeagents/claudecode_tools.md update
 
 When `agent == claudecode` and the promote-ops include `pick`, the skill
-also updates line 5 of `aidocs/claudecode_tools.md` (the `**Model:** Claude
+also updates line 5 of `aidocs/codeagents/claudecode_tools.md` (the `**Model:** Claude
 <Display> (<cli_id>)` line). This file is meant to always reflect the
 current default pick model, so it's part of the automated set rather than
 the manual-review list. Derivation: the human-readable display name is
@@ -238,7 +238,7 @@ These files reference the previous default and may need updating:
                                     (defaults table + line 167 hardcoded default)
   website/content/docs/skills/aitask-refresh-code-models.md
                                     (naming-convention example — OK to skip)
-See aidocs/model_reference_locations.md for the full audit.
+See aidocs/framework/model_reference_locations.md for the full audit.
 ```
 
 Emitted only in promote-mode (add-mode doesn't change defaults, so nothing
@@ -260,7 +260,7 @@ is left stale).
 2. Seed commit: plain `git` for `seed/*.json`. Message:
    `ait: Sync <agent>/<name> to seed template`.
 3. Source commit (promote-mode only): plain `git` for
-   `.aitask-scripts/` and `aidocs/claudecode_tools.md`. Message:
+   `.aitask-scripts/` and `aidocs/codeagents/claudecode_tools.md`. Message:
    `feature: Promote <agent>/<name> to default (<ops>)`.
 
 Rationale: keeps the task-data branch (`aitasks/`, `aiplans/`) strictly
@@ -277,7 +277,7 @@ Subcommands for testability:
 | `promote-config --agent <a> --name <n> --ops <csv> [--dry-run]` | Update `codeagent_config.json` + seed |
 | `promote-default-agent-string --agent <a> --name <n> [--dry-run]` | Update `DEFAULT_AGENT_STRING` (claudecode only); error if not claudecode |
 | `promote-brainstorm --agent <a> --name <n> --ops <csv> [--dry-run]` | No-op after t579_5: brainstorm agent_strings now come exclusively from codeagent_config.json (updated by `promote-config`) |
-| `promote-aidocs --agent <a> --name <n> --display-name <s> --cli-id <id> [--dry-run]` | Update `aidocs/claudecode_tools.md` line 5 |
+| `promote-aidocs --agent <a> --name <n> --display-name <s> --cli-id <id> [--dry-run]` | Update `aidocs/codeagents/claudecode_tools.md` line 5 |
 | `emit-manual-review --agent <a> --old-name <n> --new-name <n>` | Print the manual-review list |
 
 All subcommands:

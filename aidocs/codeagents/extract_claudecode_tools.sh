@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUTPUT_FILE="${ROOT_DIR}/aidocs/claudecode_tools.md"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+OUTPUT_FILE="${ROOT_DIR}/aidocs/codeagents/claudecode_tools.md"
 
 PROMPT=$(cat <<'PROMPT_EOF'
-Write all the tools descriptions to aidocs/claudecode_tools.md with the current date and time and Claude Code version.
+Write all the tools descriptions to aidocs/codeagents/claudecode_tools.md with the current date and time and Claude Code version.
 
 Requirements:
 - Use the current working project root.
@@ -13,11 +13,11 @@ Requirements:
 - Do NOT include skills, custom commands, or user-defined extensions — only tools.
 - For each tool, include functionality and arguments.
 - The output must be in Markdown format.
-- Save the final result only to aidocs/claudecode_tools.md.
+- Save the final result only to aidocs/codeagents/claudecode_tools.md.
 PROMPT_EOF
 )
 
-mkdir -p "${ROOT_DIR}/aidocs"
+mkdir -p "${ROOT_DIR}/aidocs/codeagents"
 
 cd "${ROOT_DIR}"
 claude -p \

@@ -8,12 +8,12 @@ end-to-end, when first shipping the AUR package.
 For day-to-day reference (PKGBUILD structure, how the CI is wired, where the
 template lives) see:
 
-- [`packaging/aur/README.md`](../packaging/aur/README.md) — directory-level
+- [`packaging/aur/README.md`](../../packaging/aur/README.md) — directory-level
   reference for the PKGBUILD template.
-- [`aidocs/packaging_strategy.md`](packaging_strategy.md) — cross-PM strategy
+- [`aidocs/packaging/packaging_strategy.md`](packaging_strategy.md) — cross-PM strategy
   (why we ship a shim only, dependency-name mapping across PMs,
   release-cadence policy).
-- [`aidocs/homebrew_maintainer_setup.md`](homebrew_maintainer_setup.md) —
+- [`aidocs/packaging/homebrew_maintainer_setup.md`](homebrew_maintainer_setup.md) —
   sibling walkthrough for the Homebrew tap; shares the same overall shape.
 
 ## 1. What the AUR is

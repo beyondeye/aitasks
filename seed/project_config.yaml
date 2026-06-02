@@ -30,7 +30,7 @@
 #     name: aitasks
 #     git_remote: https://github.com/beyondeye/aitasks.git
 #
-# See aidocs/cross_repo_references.md for the full registry schema and
+# See aidocs/framework/cross_repo_references.md for the full registry schema and
 # resolver semantics.
 # ──────────────────────────────────────────────────────────────────────
 

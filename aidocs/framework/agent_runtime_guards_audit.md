@@ -54,7 +54,7 @@ The renderer (`.aitask-scripts/lib/skill_template.py:305`) evaluates Jinja on ev
 
 Each of those skills' `tests/test_skill_render_aitask_<name>.sh` runs **Test 1b** (agent-dimension invariance — see e.g. `tests/test_skill_render_aitask_fold.sh:91-105`). That test asserts the basic stdout render is byte-identical across all four agents. Introducing a real `{% if agent %}` gate inside `task-workflow/{SKILL.md,planning.md}` immediately breaks that assertion for all 9 callers at once.
 
-The disciplined cleanup path — explicitly anticipated by `aidocs/stub-skill-pattern.md:248-257` ("the pruned goldens are re-added surgically for that skill") — is to bundle the change into a single follow-up task that:
+The disciplined cleanup path — explicitly anticipated by `aidocs/framework/stub-skill-pattern.md:248-257` ("the pruned goldens are re-added surgically for that skill") — is to bundle the change into a single follow-up task that:
 
 1. Gates the two callsites in `task-workflow/{SKILL.md, planning.md}` with `{% if agent == "claude" %}`.
 2. For each of the 9 caller skills above:
@@ -67,7 +67,7 @@ This is one coherent semantic step but ~10 files of test/golden churn — clearl
 
 ## Recommended follow-up task
 
-> **Convert task-workflow runtime "If running in Claude Code" guards to Jinja gates.** Wrap the Plan Externalization callsites in `task-workflow/SKILL.md` (line ~332) and `task-workflow/planning.md` (line ~289) with `{% if agent == "claude" %}` / `{% endif %}`. Update the 9 caller skills' regression tests (`aitask-pick`, `aitask-explore`, `aitask-fold`, `aitask-review`, `aitask-qa`, `aitask-pr-import`, `aitask-revert`, `aitask-pickrem`, `aitask-pickweb`) to add per-agent codex goldens and re-purpose the Test 1b agent-invariance assertion accordingly. Regenerate all affected claude goldens in the same commit. Reference `aidocs/stub-skill-pattern.md:248-257` for the precedent. Reference `aitask-wrap` (t803 Part A) for the per-agent golden + gate-divergence test pattern.
+> **Convert task-workflow runtime "If running in Claude Code" guards to Jinja gates.** Wrap the Plan Externalization callsites in `task-workflow/SKILL.md` (line ~332) and `task-workflow/planning.md` (line ~289) with `{% if agent == "claude" %}` / `{% endif %}`. Update the 9 caller skills' regression tests (`aitask-pick`, `aitask-explore`, `aitask-fold`, `aitask-review`, `aitask-qa`, `aitask-pr-import`, `aitask-revert`, `aitask-pickrem`, `aitask-pickweb`) to add per-agent codex goldens and re-purpose the Test 1b agent-invariance assertion accordingly. Regenerate all affected claude goldens in the same commit. Reference `aidocs/framework/stub-skill-pattern.md:248-257` for the precedent. Reference `aitask-wrap` (t803 Part A) for the per-agent golden + gate-divergence test pattern.
 
 This audit deliberately stops short of creating the follow-up aitask automatically (per the task description "follow-up sibling tasks" — singular suggested follow-up, not auto-created in t803).
 

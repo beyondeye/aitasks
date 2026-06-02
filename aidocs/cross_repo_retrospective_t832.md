@@ -157,7 +157,7 @@ and tracked for verification (board picker nav → t886/t889; keybinding YAML
 crash → fixed), (b) already filed (t857, t858, t872, t887), or (c) a by-design
 trade-off not worth a task (`UNREACHABLE` reachability, `updated_at` drift on
 revert). The shipped cross-repo plumbing behaved as documented across every
-scriptable surface exercised. Per the `aidocs/planning_conventions.md`
+scriptable surface exercised. Per the `aidocs/framework/planning_conventions.md`
 audit-only convention, the deliverable is this audit with an explicit
 no-follow-ups outcome.
 

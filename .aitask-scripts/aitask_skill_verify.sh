@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # aitask_skill_verify.sh — Verify all .j2 authoring templates render cleanly
 # across the 4 supported agents (default profile) and that each stub surface
-# follows the canonical pattern documented in aidocs/stub-skill-pattern.md.
+# follows the canonical pattern documented in aidocs/framework/stub-skill-pattern.md.
 #
 # Usage:
 #   aitask_skill_verify.sh
@@ -50,7 +50,7 @@ fi
 PYTHON="$(require_ait_python)"
 SKILL_TEMPLATE_PY="$SCRIPT_DIR/lib/skill_template.py"
 
-# --- Per-skill stub-surface map (mirrors aidocs/stub-skill-pattern.md §3g) ---
+# --- Per-skill stub-surface map (mirrors aidocs/framework/stub-skill-pattern.md §3g) ---
 
 _stub_path_for() {
     local agent="$1" skill="$2"
@@ -62,7 +62,7 @@ _stub_path_for() {
 }
 
 # Map a skill slug to its task-workflow short name (resolver key). See
-# aidocs/stub-skill-pattern.md §3f. Stub authoring uses the short name in
+# aidocs/framework/stub-skill-pattern.md §3f. Stub authoring uses the short name in
 # the resolver call so it matches the body's userconfig lookup.
 #
 # Default convention: strip the `aitask-` prefix. Skills whose resolver key
@@ -109,7 +109,7 @@ for tpl in "${templates[@]}"; do
     done
 
     # --- Stub-pattern check: 4 surfaces per skill ---
-    # Canonical markers from aidocs/stub-skill-pattern.md §3b-§3d:
+    # Canonical markers from aidocs/framework/stub-skill-pattern.md §3b-§3d:
     #   1) resolver call referencing this skill
     #   2) render call referencing this skill
     #   3) trailing-hyphen Read path with <profile>- placeholder

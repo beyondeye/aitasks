@@ -2,7 +2,7 @@
 
 Minimal, dependency-free helper shared by TUIs and scripts that need to
 find cross-repo task references inside free text (task bodies, plan bodies).
-The canonical notation lives in ``aidocs/cross_repo_references.md``:
+The canonical notation lives in ``aidocs/framework/cross_repo_references.md``:
 
     aitasks#835_3     # preferred
     aitasks#t835_3    # accepted; the leading ``t`` is tolerated
@@ -15,7 +15,7 @@ the regex.
 import re
 
 # Unanchored variant of the canonical regex from
-# aidocs/cross_repo_references.md (``^([a-z0-9_-]+)#t?([0-9]+(?:_[0-9]+)?)$``)
+# aidocs/framework/cross_repo_references.md (``^([a-z0-9_-]+)#t?([0-9]+(?:_[0-9]+)?)$``)
 # so it can scan references embedded in larger text. The leading ``t`` on the
 # id is tolerated but stripped from the returned value (canonical form).
 _NOTATION_RE = re.compile(r"([a-z0-9_-]+)#t?(\d+(?:_\d+)?)")

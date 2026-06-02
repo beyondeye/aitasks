@@ -161,7 +161,7 @@ single source of truth that all of them consult at runtime:
 ### 1d. Write the per-agent stub
 
 Each skill needs a committed stub at the agent's authoring location
-(see `aidocs/stub-skill-pattern.md` §3g for the per-agent surface
+(see `aidocs/framework/stub-skill-pattern.md` §3g for the per-agent surface
 table). For shared-root agents the stub MUST point at the
 agent-suffixed Read path:
 
@@ -219,7 +219,7 @@ once it appears in `agent_skills_paths.sh`.
 
 ### 1f. Regenerate tests and goldens
 
-Per `aidocs/skill_authoring_conventions.md`, any change touching the
+Per `aidocs/framework/skill_authoring_conventions.md`, any change touching the
 rendering pipeline must regenerate goldens in the **same commit** as the
 source edit. Specifically:
 
@@ -249,7 +249,7 @@ bash tests/test_skill_parity_runtime_vs_rendered.sh
 ### 1g. Canonical reference
 
 The full canonical pattern for stubs lives in
-`aidocs/stub-skill-pattern.md` — read it for the stub body templates per
+`aidocs/framework/stub-skill-pattern.md` — read it for the stub body templates per
 agent surface, the resolver-key convention, the argument-forwarding
 contract, and the reference-resolution rules for `.j2` cross-skill
 refs. This section is the *adding-a-new-agent* checklist; that doc is
@@ -545,7 +545,7 @@ matches existing usage in `ait monitor`'s codepath.
 
 Patterns are populated when an agent's prompt wording is observed in
 practice; an empty list is a valid no-op until you have a pattern to
-add. See `aidocs/monitor_idle_and_prompt_detection.md` for the pattern
+add. See `aidocs/framework/monitor_idle_and_prompt_detection.md` for the pattern
 authoring spec.
 
 ---
@@ -1230,9 +1230,9 @@ add/remove:
 
 | File | Surface | Edit on add/remove |
 |---|---|---|
-| `aidocs/aitasks_extension_points.md` | Helper-script whitelist touchpoint table | Add/remove per-agent rows; renumber **only** by leaving retired slots vacant (numbering is stable). |
-| `aidocs/model_reference_locations.md` | Inventory tables (model registry, supported agents) | Add/remove rows for `aitasks/metadata/models_<agent>.json` and the seed mirror. |
-| `aidocs/stub-skill-pattern.md` | §3g per-agent surface table, §3b/§3d/§3e stub-form subsections, the "one stub per (skill, agent surface)" count, the dep-walker reference-resolution roots list | Add/remove a row, a subsection, and the bare agent-root reference (`.<agent>` literal). |
+| `aidocs/framework/aitasks_extension_points.md` | Helper-script whitelist touchpoint table | Add/remove per-agent rows; renumber **only** by leaving retired slots vacant (numbering is stable). |
+| `aidocs/framework/model_reference_locations.md` | Inventory tables (model registry, supported agents) | Add/remove rows for `aitasks/metadata/models_<agent>.json` and the seed mirror. |
+| `aidocs/framework/stub-skill-pattern.md` | §3g per-agent surface table, §3b/§3d/§3e stub-form subsections, the "one stub per (skill, agent surface)" count, the dep-walker reference-resolution roots list | Add/remove a row, a subsection, and the bare agent-root reference (`.<agent>` literal). |
 | `aidocs/issue_type_vocabulary_duplication.md` | "agent-identification only" seed file list | Add/remove the `seed/<agent>_instructions.seed.md` entry. |
 
 ### 23d. Skill-closure `.md` files (Claude-Code source, fan-out via rerender)
@@ -1271,7 +1271,7 @@ never hand-edit a rendered `*-/` directory.
 
 ### 23e. Golden snapshots — closure-edit trigger
 
-Per `aidocs/skill_authoring_conventions.md` and the CLAUDE.md
+Per `aidocs/framework/skill_authoring_conventions.md` and the CLAUDE.md
 "Regenerate goldens after any `.md.j2` or closure edit" rule, **any**
 edit to a closure `.md` file requires regenerating its goldens in
 the same commit. For each affected procedure:

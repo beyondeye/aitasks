@@ -10,7 +10,7 @@ includes by **two independent template pipelines**:
 
 For the broader authoring rules (when to reach for a macro vs. an
 `{% include %}` vs. a procedure-markdown extraction, plus the minijinja
-caveats), see `aidocs/skill_authoring_conventions.md` §"Jinja templating
+caveats), see `aidocs/framework/skill_authoring_conventions.md` §"Jinja templating
 in skills".
 
 Both renderers search this dir as a **fallback** after their primary search

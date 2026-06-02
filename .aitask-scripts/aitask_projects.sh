@@ -78,7 +78,7 @@ Verbs:
 Registry file: $HOME/.config/aitasks/projects.yaml
               (override with AITASKS_PROJECTS_INDEX)
 
-See aidocs/cross_repo_references.md for the registry schema and the
+See aidocs/framework/cross_repo_references.md for the registry schema and the
 resolver order.
 
 Examples:

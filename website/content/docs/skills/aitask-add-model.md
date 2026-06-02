@@ -42,7 +42,7 @@ Everything add-mode does, plus:
 - Updates `aitasks/metadata/codeagent_config.json` for the ops listed in `--promote-ops`
 - Syncs to `seed/codeagent_config.json`
 - For `claudecode` only: rewrites `DEFAULT_AGENT_STRING` in `.aitask-scripts/aitask_codeagent.sh`
-- For `claudecode` + `pick`: updates `aidocs/claudecode_tools.md` line 5
+- For `claudecode` + `pick`: updates `aidocs/codeagents/claudecode_tools.md` line 5
 
 ## Supported Agents
 
@@ -59,7 +59,7 @@ Promote-mode writes are intentionally limited to configuration and hardcoded def
 - `tests/test_codeagent.sh` — default-sensitive assertions
 - `tests/test_brainstorm_crew.py` — brainstorm agent defaults
 - `website/content/docs/commands/codeagent.md` — defaults table + hardcoded-default line
-- `aidocs/model_reference_locations.md` — full audit with per-file tags
+- `aidocs/framework/model_reference_locations.md` — full audit with per-file tags
 
 Run the suggested follow-up edits manually to complete the rollout.
 

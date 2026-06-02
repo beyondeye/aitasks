@@ -17,7 +17,7 @@ immediately regardless of the idle timer.
 ## When to edit `prompt_patterns.py`
 
 Edit
-[`./.aitask-scripts/monitor/prompt_patterns.py`](../.aitask-scripts/monitor/prompt_patterns.py)
+[`./.aitask-scripts/monitor/prompt_patterns.py`](../../.aitask-scripts/monitor/prompt_patterns.py)
 when:
 
 - The monitor fails to flag an agent that is visibly waiting on user input
@@ -32,7 +32,7 @@ under the matching code-agent group (`claude`, `codex`, `opencode`,
 `claude_proceed`, `codex_yes_proceed`).
 
 Then add a unit test in
-[`tests/test_prompt_detection.py`](../tests/test_prompt_detection.py)
+[`tests/test_prompt_detection.py`](../../tests/test_prompt_detection.py)
 asserting that a representative captured pane snippet sets
 `awaiting_input is True` and `awaiting_input_kind == "<your_name>"`.
 
@@ -77,7 +77,7 @@ when per-pane code-agent detection lands later, the call site changes to
 
 Three sites consume `awaiting_input`/`is_idle` and must stay in sync via the
 shared
-[`format_pane_status(snap)`](../.aitask-scripts/monitor/monitor_shared.py)
+[`format_pane_status(snap)`](../../.aitask-scripts/monitor/monitor_shared.py)
 helper:
 
 - `monitor_shared.py` — kill-confirmation dialog status line.

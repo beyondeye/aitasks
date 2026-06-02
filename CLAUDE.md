@@ -1,14 +1,14 @@
 # CLAUDE.md
 
-This file is the always-loaded context for working on this repository.
+always-loaded context for working on this repository.
 Specialist rules live in `aidocs/` and are read on demand — pointers appear
 inline below.
 
 ## Project Overview
 
 **aitasks** is a file-based task management framework for AI coding agents.
-Tasks are markdown files with YAML frontmatter stored in git — no backend
-infrastructure required. The `ait` CLI dispatcher routes to shell scripts in
+Tasks are markdown files with YAML frontmatter stored in git.
+The `ait` CLI dispatcher routes to shell scripts in
 `.aitask-scripts/`.
 
 ### Testing
@@ -89,7 +89,7 @@ Most scripts support both **interactive** (uses `fzf`) and **batch** (CLI
 flags for automation) modes. Example: `aitask_create.sh --batch --name "task"
 --priority high --commit`.
 
-> **Read `aidocs/aitasks_extension_points.md`** when adding a new
+> **Read `aidocs/framework/aitasks_extension_points.md`** when adding a new
 > frontmatter field, adding a new helper script under `.aitask-scripts/`,
 > editing `aitask_setup.sh` or anything in the install flow, fixing an
 > OS-specific bug, or touching framework PATH / binary shimming.
@@ -121,7 +121,7 @@ flags for automation) modes. Example: `aitask_create.sh --batch --name "task"
 
 > **macOS portability quirks** (BSD sed vs GNU sed, `grep -P` unavailable,
 > `wc -l` padding, `mktemp --suffix`, `base64 -D` vs `-d`): see
-> `aidocs/sed_macos_issues.md`.
+> `aidocs/framework/sed_macos_issues.md`.
 
 ## CLI Conventions
 
@@ -174,7 +174,7 @@ only**.
   redirects explicitly in Post-Review Changes (they break silently if
   missed).
 
-> **Read `aidocs/documentation_conventions.md`** when writing user-facing doc
+> **Read `aidocs/framework/documentation_conventions.md`** when writing user-facing doc
 > prose — especially manual-verification auto-mode descriptions (say
 > "autonomous", not "auto-execution") or any passage that names the supported
 > coding agents (genericize the list).
@@ -199,7 +199,7 @@ initial system message.
   The 1M-context Opus variant's exact ID carries a bracketed `[1m]` suffix
   (e.g. `claude-opus-4-7[1m]`); stripping it resolves to the non-1M entry
   (`claudecode/opus4_7` instead of `claudecode/opus4_7_1m`) and mis-attributes
-  the model. See `aidocs/model_reference_locations.md`.
+  the model. See `aidocs/framework/model_reference_locations.md`.
 - If the human name is ambiguous (e.g., "Opus 4.7" without the `1M` suffix),
   ask the user which variant.
 
@@ -221,22 +221,22 @@ Run `./.aitask-scripts/aitask_skill_verify.sh` before committing any `.j2`
 template or stub-surface change. After editing any `.md.j2` or closure
 procedure, regenerate the affected goldens in the same commit — see
 "Regenerate goldens after any `.md.j2` or closure edit" in
-`aidocs/skill_authoring_conventions.md`.
+`aidocs/framework/skill_authoring_conventions.md`.
 
 **IMPORTANT:** Skill/custom command changes, if not specified otherwise,
 should be done in the Claude Code version first. When such changes take
 place, suggest separate aitasks to update the corresponding skills/commands
 in the other supported coding agents.
 
-> **Read `aidocs/skill_authoring_conventions.md`** when editing anything
+> **Read `aidocs/framework/skill_authoring_conventions.md`** when editing anything
 > under `.claude/skills/`, `.agents/skills/`, `.opencode/skills/`, or
 > `.opencode/commands/` — or when designing a new skill, procedure, or
 > per-profile variant.
 >
-> **Read `aidocs/stub-skill-pattern.md`** when authoring or modifying a
+> **Read `aidocs/framework/stub-skill-pattern.md`** when authoring or modifying a
 > profile-aware skill's stub surface or `.md.j2` authoring template.
 >
-> **Read `aidocs/adding_a_new_codeagent.md`** when adding a new code agent
+> **Read `aidocs/framework/adding_a_new_codeagent.md`** when adding a new code agent
 > to the framework (skill discovery / rendering, shared-root semantics,
 > rerender driver, headless variants, goldens regeneration).
 
@@ -276,7 +276,7 @@ Jinja conditional patterns inside `.md.j2` and closure procedures:
   (`default_email`, `create_worktree`, `plan_preference`, …).
 - `{% if agent == "<name>" %}` — gate per-agent content
   (currently `aitask-wrap` Step 1b; remaining call-sites tracked in
-  `aidocs/agent_runtime_guards_audit.md`).
+  `aidocs/framework/agent_runtime_guards_audit.md`).
 - `{% raw %} … {% endraw %}` for literal `{{` / `{%` that must not be
   evaluated.
 
@@ -285,28 +285,28 @@ markers, dep-closure render cleanliness, and headless prerender freshness.
 After **any** `.md.j2` or closure-`.md` edit, regenerate the affected goldens
 under `tests/golden/skills/<skill>/` and `tests/golden/procs/<scope>/` in the
 same commit — see "Regenerate goldens after any `.md.j2` or closure edit"
-in `aidocs/skill_authoring_conventions.md`.
+in `aidocs/framework/skill_authoring_conventions.md`.
 
-> **Read `aidocs/agent_runtime_guards_audit.md`** when introducing a new
+> **Read `aidocs/framework/agent_runtime_guards_audit.md`** when introducing a new
 > `{% if agent %}` gate or moving an existing "If running in Claude Code"
 > runtime guard into a Jinja gate — the audit catalogs the cross-skill
 > cascade impact (Test 1b agent-invariance) before any such move.
 
 ## TUI Development
 
-> **Read `aidocs/tui_conventions.md`** when editing any Textual TUI under
+> **Read `aidocs/framework/tui_conventions.md`** when editing any Textual TUI under
 > `.aitask-scripts/` (board, monitor, minimonitor, codebrowser, brainstorm,
 > settings, syncer, stats-tui, diffviewer, TUI switcher) or its launcher
 > `.sh`, when adding keybindings to an existing TUI, or when spawning tmux
 > panes / windows from framework code.
 >
-> **Read `aidocs/python_tui_performance.md`** when re-evaluating a TUI's
+> **Read `aidocs/framework/python_tui_performance.md`** when re-evaluating a TUI's
 > Python runtime (CPython vs PyPy) choice. The framework currently routes
 > only `ait board` through the PyPy fast path; the document records the
 > empirical evidence for that scoping decision and the criteria for
 > reconsidering other TUIs.
 >
-> **Read `aidocs/monitor_idle_and_prompt_detection.md`** when `ait monitor`
+> **Read `aidocs/framework/monitor_idle_and_prompt_detection.md`** when `ait monitor`
 > / `ait minimonitor` fails to flag an agent that is visibly waiting on
 > user input, when adding a new code-agent CLI, or when changing how idle
 > vs. "awaiting user input" is detected. The patterns live in
@@ -315,19 +315,19 @@ in `aidocs/skill_authoring_conventions.md`.
 
 ## Planning / Testing / Code Conventions
 
-> **Read `aidocs/planning_conventions.md`** when writing or reviewing an
+> **Read `aidocs/framework/planning_conventions.md`** when writing or reviewing an
 > implementation plan — especially before splitting a complex task into
 > children, deferring follow-ups, or proposing edits to a list/config that
 > appears in 3+ files. (These rules are a candidate for future promotion
 > into the task-workflow planning procedure.)
 >
-> **Read `aidocs/testing_conventions.md`** when designing tests for a
+> **Read `aidocs/framework/testing_conventions.md`** when designing tests for a
 > threading / asyncio migration or any other concurrency primitive.
 >
-> **Read `aidocs/code_conventions.md`** when adding a constant or dict that
+> **Read `aidocs/framework/code_conventions.md`** when adding a constant or dict that
 > holds user-facing help text condensed from another canonical file
 > (language-agnostic — bash, Python, etc.). Shell-specific portability
-> quirks live in `aidocs/sed_macos_issues.md`; general shell style stays in
+> quirks live in `aidocs/framework/sed_macos_issues.md`; general shell style stays in
 > the Shell Conventions section above.
 
 ## Reusable Helpers
@@ -377,7 +377,7 @@ the existing helper (add a flag) over forking the scan logic.
   --batch --project <name>` resolve names against the per-user registry
   at `~/.config/aitasks/projects.yaml`. Cross-repo task IDs use the
   `aitasks#835_3` notation (preferred without `t`; accepted with `t`).
-  See `aidocs/cross_repo_references.md` for the registry schema,
+  See `aidocs/framework/cross_repo_references.md` for the registry schema,
   resolver semantics, and notation regex.
 
 ## Mobile Companion
@@ -387,6 +387,4 @@ companion app (developed in the sibling repo `../aitasks_mobile`, Kotlin
 Multiplatform) over a paired, QR-bootstrapped LAN WebSocket. The wire
 protocol, pairing flow, connection state machine, and permission profiles
 are documented under `aidocs/applink/` — see
-`aidocs/applink/protocol.md` and `aidocs/applink/permissions.md`. The
-canonical command-verb inventory and `ait monitor` port design live in
-`aidocs/applink/monitor_port_design.md` (authored separately).
+`aidocs/applink/protocol.md` and `aidocs/applink/permissions.md`.

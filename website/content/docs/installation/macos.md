@@ -21,7 +21,7 @@ Install aitasks on macOS via the official Homebrew tap, then configure your term
 - Framework updates do NOT require re-installing the package; `ait upgrade latest` (or simply running `ait setup` in a fresh project) fetches the newest framework on demand.
 - `ait --version` *outside* a project shows the shim version; *inside* a project it shows the framework version installed in that project. They are independent.
 
-For the full design rationale, see [`aidocs/packaging_strategy.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_strategy.md).
+For the full design rationale, see [`aidocs/packaging/packaging_strategy.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_strategy.md).
 
 ## Install
 
@@ -108,7 +108,7 @@ If the third line shows orange, truecolor is working. If it shows the literal es
 
 ## See also
 
-- [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md) — current state of the Homebrew tap and the roadmap toward `homebrew-core`.
+- [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_distribution_status.md) — current state of the Homebrew tap and the roadmap toward `homebrew-core`.
 - [`ait setup`](../commands/setup-install/) — what `ait setup` configures and how.
 - [Terminal Setup]({{< relref "terminal-setup" >}}) — `ait ide` workflow, `tmux` overview, multi-project sessions.
 - [Getting Started]({{< relref "/docs/getting-started" >}}) — first task walkthrough.

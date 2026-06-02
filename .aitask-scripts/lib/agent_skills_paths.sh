@@ -30,7 +30,7 @@
 #     stub SKILL.md / command wrapper — it is NEVER overwritten by a render.
 #   - REVERSES t777_1's "default profile uses no suffix" convention. Renders
 #     for the default profile now go to <skill>-default-/, NOT <skill>/.
-#     See aidocs/stub-skill-pattern.md for full design.
+#     See aidocs/framework/stub-skill-pattern.md for full design.
 
 [[ -n "${_AIT_AGENT_SKILLS_PATHS_LOADED:-}" ]] && return 0
 _AIT_AGENT_SKILLS_PATHS_LOADED=1

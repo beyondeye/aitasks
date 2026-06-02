@@ -16,7 +16,7 @@ If you are setting up Homebrew distribution for aitasks for the first time
 — creating the `beyondeye/homebrew-aitasks` tap repo, generating the
 `HOMEBREW_TAP_TOKEN` PAT, validating the formula on a macOS workstation,
 cutting the first release — see
-[`aidocs/homebrew_maintainer_setup.md`](../../aidocs/homebrew_maintainer_setup.md)
+[`aidocs/packaging/homebrew_maintainer_setup.md`](../../aidocs/packaging/homebrew_maintainer_setup.md)
 for the comprehensive walkthrough.
 
 ## Local-test snippet (macOS)
@@ -42,7 +42,7 @@ exist — `brew install --build-from-source` against a local file path
 bypasses the URL fetch, so the test still works.
 
 For the end-user install path (`brew tap … && brew install aitasks`), see
-section 5 of `aidocs/homebrew_maintainer_setup.md`.
+section 5 of `aidocs/packaging/homebrew_maintainer_setup.md`.
 
 ## Why shim-only
 
@@ -50,5 +50,5 @@ The Homebrew formula bundles only the global `ait` shim — not the framework
 itself. Each PM ships the same 87-line shim; the framework is downloaded
 on first `ait setup` from `github.com/beyondeye/aitasks`. This decouples
 PM release cycles from framework changes — see
-[`aidocs/packaging_strategy.md`](../../aidocs/packaging_strategy.md) for
+[`aidocs/packaging/packaging_strategy.md`](../../aidocs/packaging/packaging_strategy.md) for
 the full rationale, dependency-name mapping, and release-cadence policy.

@@ -117,12 +117,12 @@ and require manual review:
 Manual review needed — the following files reference the default model
 string but are NOT patched by this skill:
 
-  - aidocs/claudecode_tools.md:5         (display name + cli_id)
+  - aidocs/codeagents/claudecode_tools.md:5         (display name + cli_id)
   - tests/test_codeagent.sh              (model-resolution assertions)
   - tests/test_brainstorm_crew.py        (default agent_string fixtures)
   - website/content/docs/commands/codeagent.md  (user-facing docs)
 
-Full audit: aidocs/model_reference_locations.md
+Full audit: aidocs/framework/model_reference_locations.md
 ```
 
 Skip this block for add-only mode (nothing beyond the registry changed).

@@ -8,7 +8,7 @@ description: Select the next AI task for implementation from the `aitasks/` dire
 {# Macro confirm_task_selection: emits the `skip_task_confirmation` decision
    block with the given `indent` (e.g. "      " for the parent block, "    "
    for the child block) and `summary` placeholder. Co-located with its
-   call-sites in Step 0b. See `aidocs/skill_authoring_conventions.md`
+   call-sites in Step 0b. See `aidocs/framework/skill_authoring_conventions.md`
    "Jinja templating in skills" for the macro-placement convention. #}
 {%- macro confirm_task_selection(indent, summary) -%}
 {% if profile.skip_task_confirmation is defined and profile.skip_task_confirmation -%}

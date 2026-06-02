@@ -34,6 +34,6 @@ sections, model-self-detection lists, touchpoint tables).
 
 This rule is documented in full — preferred phrasings, the acceptable
 one-or-two-anchor variant, and the complete list of literal-enumeration
-exceptions — in `aidocs/adding_a_new_codeagent.md` §23b ("Genericization rule").
+exceptions — in `aidocs/framework/adding_a_new_codeagent.md` §23b ("Genericization rule").
 Follow it there; this entry exists so doc writers who are *not* adding an agent
 still reach the rule from a general "how to write docs" entry point.

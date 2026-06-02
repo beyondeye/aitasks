@@ -168,14 +168,14 @@ edit" in the authoring reference below.
 Authoring references (in-repo, on
 [github](https://github.com/beyondeye/aitasks/tree/main/aidocs)):
 
-- [`aidocs/stub-skill-pattern.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/stub-skill-pattern.md)
+- [`aidocs/framework/stub-skill-pattern.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/framework/stub-skill-pattern.md)
   — canonical stub bodies, per-agent surface table, argument-forwarding
   contract, reference resolution rules, template-completeness checks.
-- [`aidocs/skill_authoring_conventions.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/skill_authoring_conventions.md)
+- [`aidocs/framework/skill_authoring_conventions.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/framework/skill_authoring_conventions.md)
   — Jinja conventions (comment markers, macros, `{% from %}` imports,
   whitespace control, minijinja caveats), golden regeneration, and the
   NON-SKIPPABLE banner rule.
-- [`aidocs/agent_runtime_guards_audit.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/agent_runtime_guards_audit.md)
+- [`aidocs/framework/agent_runtime_guards_audit.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/framework/agent_runtime_guards_audit.md)
   — inventory of remaining "If running in Claude Code" guards eligible to
   move to `{% if agent %}` gates.
 

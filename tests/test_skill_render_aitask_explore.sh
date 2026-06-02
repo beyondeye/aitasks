@@ -15,7 +15,7 @@
 #   3. No Jinja markers leak into any rendered entry-point.
 #   3b. Rendered body must NOT re-resolve profile (t777_26 forbidden tokens).
 #   4. Stub markers present on all 3 stub files (canonical body fingerprint
-#      from aidocs/stub-skill-pattern.md §3b/§3c/§3d).
+#      from aidocs/framework/stub-skill-pattern.md §3b/§3c/§3d).
 # Run: bash tests/test_skill_render_aitask_explore.sh
 
 set -e
@@ -94,7 +94,7 @@ done
 # stdout render is byte-identical across all 4 agents. This single
 # assertion replaces the 9 deleted per-agent goldens; if a future
 # template introduces agent gating it fails LOUDLY — re-add per-agent
-# goldens for that skill then (see aidocs/stub-skill-pattern.md).
+# goldens for that skill then (see aidocs/framework/stub-skill-pattern.md).
 echo "=== Test 1b: agent renders are byte-identical (no {% if agent %} in template) ==="
 for profile in "${PROFILES[@]}"; do
     base="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"

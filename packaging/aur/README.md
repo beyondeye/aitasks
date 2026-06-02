@@ -3,7 +3,7 @@
 Slim directory-level reference for the AUR packaging assets shipped with
 `beyondeye/aitasks`. **Setting up AUR distribution for the first time?**
 See the comprehensive walkthrough at
-[`aidocs/aur_maintainer_setup.md`](../../aidocs/aur_maintainer_setup.md).
+[`aidocs/packaging/aur_maintainer_setup.md`](../../aidocs/packaging/aur_maintainer_setup.md).
 
 ## What's here
 
@@ -23,7 +23,7 @@ If you are setting up AUR distribution for `aitasks` for the first time —
 creating the AUR account, generating the ed25519 SSH key, registering the
 package page on `aur.archlinux.org`, and provisioning the three GitHub
 Actions secrets — see
-[`aidocs/aur_maintainer_setup.md`](../../aidocs/aur_maintainer_setup.md).
+[`aidocs/packaging/aur_maintainer_setup.md`](../../aidocs/packaging/aur_maintainer_setup.md).
 That walkthrough covers the entire flow end-to-end with troubleshooting.
 
 ## Local-test snippet (Arch / `archlinux:base-devel` container)
@@ -55,5 +55,5 @@ The PKGBUILD ships only the `ait` global shim (~4 KB). The shim, on first
 invocation in any project, runs `ait setup` which downloads the rest of
 the framework into the local repository. This keeps the AUR package
 small, fast to build, and trivially auto-bumpable on every release. See
-[`aidocs/packaging_strategy.md`](../../aidocs/packaging_strategy.md) for
+[`aidocs/packaging/packaging_strategy.md`](../../aidocs/packaging/packaging_strategy.md) for
 the full cross-PM rationale.

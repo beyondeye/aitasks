@@ -63,4 +63,4 @@ Confirm `textual` is importable:
 
 ## Background
 
-For the per-TUI bottleneck analysis and PyPy compatibility audit that motivated this design, see [`aidocs/python_tui_performance.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/python_tui_performance.md) in the repo.
+For the per-TUI bottleneck analysis and PyPy compatibility audit that motivated this design, see [`aidocs/framework/python_tui_performance.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/framework/python_tui_performance.md) in the repo.

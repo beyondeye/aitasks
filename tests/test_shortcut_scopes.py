@@ -80,7 +80,7 @@ class ManifestDriftTests(unittest.TestCase):
             "Scopes declared in source but NOT registered by the global sweep: "
             f"{missing}. Add the declaring module file(s) to "
             "KNOWN_BINDING_SOURCES in .aitask-scripts/lib/shortcut_scopes.py "
-            "(see aidocs/tui_conventions.md). "
+            "(see aidocs/framework/tui_conventions.md). "
             f"Modules that failed to import: {failed}",
         )
 

@@ -21,7 +21,7 @@ This renders every `.j2` against `default.yaml` for all 4 supported agents
 (claude, codex, gemini, opencode), walks each authoring template's dep closure
 to verify every transitive `.md` reference resolves and renders cleanly, and
 asserts each stub surface contains the canonical markers from
-`aidocs/stub-skill-pattern.md` (resolver call, render call, trailing-hyphen
+`aidocs/framework/stub-skill-pattern.md` (resolver call, render call, trailing-hyphen
 Read path). The script exits non-zero on any render error, broken closure
 reference, or stub-pattern violation; address every failure before committing.
 
@@ -168,11 +168,11 @@ An entry-point skill that needs to vary by execution profile MUST be authored
 as two files in `.claude/skills/<skill>/`:
 
 1. `SKILL.md` — the committed, profile-agnostic **stub** (per
-   `aidocs/stub-skill-pattern.md` §3b). Resolves the active profile, calls
+   `aidocs/framework/stub-skill-pattern.md` §3b). Resolves the active profile, calls
    `aitask_skill_render.sh`, and Read-and-follows the per-profile rendered variant.
 2. `SKILL.md.j2` — the **authoring template** rendered by minijinja against the
    active profile YAML. May reference other `.md` procedures (full-path,
-   sibling, or skill-relative — see `aidocs/stub-skill-pattern.md` §3i); the
+   sibling, or skill-relative — see `aidocs/framework/stub-skill-pattern.md` §3i); the
    dep-walker recursively renders every reachable `.md` into the per-profile
    sibling tree, with cross-references rewritten to point at the rendered
    copies.
@@ -187,7 +187,7 @@ render-on-invocation model materialises a stable per-(skill, profile) snapshot
 once per invocation, then the agent reads that frozen file.
 
 When converting a skill to be profile-aware, author the `.md.j2` template
-first, then drop the canonical stub from `aidocs/stub-skill-pattern.md` §3b at
+first, then drop the canonical stub from `aidocs/framework/stub-skill-pattern.md` §3b at
 the existing `SKILL.md` path. The 3 sibling stubs (Codex `SKILL.md`, Gemini
 command TOML, OpenCode command MD) follow §3c-§3d. Run
 `./.aitask-scripts/aitask_skill_verify.sh` to confirm all 4 stub surfaces

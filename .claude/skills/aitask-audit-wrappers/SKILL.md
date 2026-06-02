@@ -108,7 +108,7 @@ Each `MISSING:<touchpoint>:<helper>` indicates the helper is not whitelisted in 
 | 6 | `seed/codex_rules.default.rules` | mirror of #3 |
 | 7 | `seed/opencode_config.seed.json` | `"./.aitask-scripts/<helper> *": "allow"` |
 
-Touchpoint IDs 2 and 5 are intentionally left vacant — numbering stays stable across additions and removals of touchpoints (see `aidocs/adding_a_new_codeagent.md` §13).
+Touchpoint IDs 2 and 5 are intentionally left vacant — numbering stays stable across additions and removals of touchpoints (see `aidocs/framework/adding_a_new_codeagent.md` §13).
 
 Build a per-helper × per-touchpoint matrix (rows = helpers with at least one missing touchpoint, columns = the live touchpoint IDs). Display it.
 

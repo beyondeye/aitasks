@@ -52,7 +52,7 @@ Scans `.claude/skills/aitask-*/`, `.claude/skills/task-workflow/`, `.claude/skil
 | 6 | `seed/codex_rules.default.rules` | mirror of #3 |
 | 7 | `seed/opencode_config.seed.json` | `"./.aitask-scripts/<helper> *": "allow"` |
 
-Touchpoint IDs 2 and 5 are intentionally left vacant (numbering stays stable across additions and removals of touchpoints — see [`aidocs/adding_a_new_codeagent.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/adding_a_new_codeagent.md) §13). Codex helper allow entries live in `.rules` files rather than `.codex/config.toml`. Codex rules are experimental, so keep this touchpoint aligned with the current OpenAI Codex Rules documentation.
+Touchpoint IDs 2 and 5 are intentionally left vacant (numbering stays stable across additions and removals of touchpoints — see [`aidocs/framework/adding_a_new_codeagent.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/framework/adding_a_new_codeagent.md) §13). Codex helper allow entries live in `.rules` files rather than `.codex/config.toml`. Codex rules are experimental, so keep this touchpoint aligned with the current OpenAI Codex Rules documentation.
 
 The skill displays a per-helper × per-touchpoint matrix, collects approval, and inserts missing entries at the alphabetically-correct positions. JSON entries are inserted with format-aware splicing; TOML entries are inserted as `[[rule]]` blocks.
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUTPUT_FILE="${ROOT_DIR}/aidocs/opencode_tools.md"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+OUTPUT_FILE="${ROOT_DIR}/aidocs/codeagents/opencode_tools.md"
 
 PROMPT=$(cat <<'PROMPT_EOF'
-Write all the tools descriptions to aidocs/opencode_tools.md with the current date and time and OpenCode version.
+Write all the tools descriptions to aidocs/codeagents/opencode_tools.md with the current date and time and OpenCode version.
 
 Requirements:
 - Use the current working project root.
@@ -13,11 +13,11 @@ Requirements:
 - Do NOT include skills, custom commands, or user-defined extensions — only tools.
 - For each tool, include functionality and arguments.
 - The output must be in Markdown format.
-- Save the final result only to aidocs/opencode_tools.md.
+- Save the final result only to aidocs/codeagents/opencode_tools.md.
 PROMPT_EOF
 )
 
-mkdir -p "${ROOT_DIR}/aidocs"
+mkdir -p "${ROOT_DIR}/aidocs/codeagents"
 
 # OpenCode has no --dangerously-skip-permissions flag. Create a temporary
 # project config with "permission": "allow" so the run doesn't block on

@@ -15,7 +15,7 @@ Each distro install path places the **aitasks global shim** (a single ~3 KB shel
 - Framework updates do NOT require re-installing the package; `ait upgrade latest` (or simply running `ait setup` in a fresh project) fetches the newest framework on demand.
 - `ait --version` *outside* a project shows the shim version; *inside* a project it shows the framework version installed in that project. They are independent.
 
-For the full design rationale, see [`aidocs/packaging_strategy.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_strategy.md).
+For the full design rationale, see [`aidocs/packaging/packaging_strategy.md`](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_strategy.md).
 
 ---
 
@@ -72,7 +72,7 @@ sudo pacman -R aitasks
 
 ### Arch / Manjaro roadmap
 
-The AUR is community-curated and unsigned by Arch maintainers. Moving aitasks into the official Arch `extra` repo (so plain `pacman -S aitasks` would work) requires a Trusted User sponsor. See [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md#aur-arch--manjaro--community-curated-not-official) for the concrete steps and current status.
+The AUR is community-curated and unsigned by Arch maintainers. Moving aitasks into the official Arch `extra` repo (so plain `pacman -S aitasks` would work) requires a Trusted User sponsor. See [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_distribution_status.md#aur-arch--manjaro--community-curated-not-official) for the concrete steps and current status.
 
 ---
 
@@ -149,7 +149,7 @@ sudo apt remove aitasks
 
 ### Debian / Ubuntu roadmap
 
-The `.deb` is currently distributed only via GitHub Releases — there is no hosted apt repo yet, so `apt update` will not pick up new versions automatically. See [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md#apt-deb--debian--ubuntu--wsl--github-releases-asset) for the concrete steps toward a hosted repo at `apt.aitasks.io` and (longer-term) inclusion in official Debian.
+The `.deb` is currently distributed only via GitHub Releases — there is no hosted apt repo yet, so `apt update` will not pick up new versions automatically. See [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_distribution_status.md#apt-deb--debian--ubuntu--wsl--github-releases-asset) for the concrete steps toward a hosted repo at `apt.aitasks.io` and (longer-term) inclusion in official Debian.
 
 ---
 
@@ -219,13 +219,13 @@ sudo dnf remove aitasks
 
 ### Fedora roadmap
 
-The `.rpm` is currently distributed only via GitHub Releases — there is no [Fedora COPR](https://copr.fedorainfracloud.org/) project or hosted DNF repo yet, so `dnf upgrade` will not pick up new versions automatically. See [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md#dnf-rpm--fedora--rhel--rocky--alma--github-releases-asset) for the concrete steps toward COPR (the next planned channel) and (longer-term) official Fedora / EPEL inclusion.
+The `.rpm` is currently distributed only via GitHub Releases — there is no [Fedora COPR](https://copr.fedorainfracloud.org/) project or hosted DNF repo yet, so `dnf upgrade` will not pick up new versions automatically. See [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_distribution_status.md#dnf-rpm--fedora--rhel--rocky--alma--github-releases-asset) for the concrete steps toward COPR (the next planned channel) and (longer-term) official Fedora / EPEL inclusion.
 
 ## See also
 
 - [GitHub Releases](https://github.com/beyondeye/aitasks/releases/latest) — `.deb` and `.rpm` artifacts.
 - [AUR package page](https://aur.archlinux.org/packages/aitasks)
-- [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging_distribution_status.md) — current state of every Linux channel and roadmap toward official repos.
+- [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_distribution_status.md) — current state of every Linux channel and roadmap toward official repos.
 - [`ait setup`](../commands/setup-install/) — what `ait setup` configures and how.
 - [Windows/WSL Installation Guide](windows-wsl/) — WSL2 host-side setup preceding the Debian/Ubuntu `.deb` path.
 - [Getting Started]({{< relref "/docs/getting-started" >}}) — first task walkthrough.

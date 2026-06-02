@@ -8,9 +8,9 @@ shipping the Homebrew tap.
 For day-to-day reference (formula structure, how the CI is wired, where the
 template lives) see:
 
-- [`packaging/homebrew/README.md`](../packaging/homebrew/README.md) —
+- [`packaging/homebrew/README.md`](../../packaging/homebrew/README.md) —
   directory-level reference for the formula template.
-- [`aidocs/packaging_strategy.md`](packaging_strategy.md) — cross-PM strategy
+- [`aidocs/packaging/packaging_strategy.md`](packaging_strategy.md) — cross-PM strategy
   (why we ship a shim only, dependency-name mapping across PMs,
   release-cadence policy).
 

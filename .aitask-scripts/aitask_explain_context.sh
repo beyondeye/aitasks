@@ -75,7 +75,7 @@ add_input_file() {
 
 # Classify a positional token and route it to add_input_file. Tokens matching
 # `<name>#<path>` are treated as cross-repo references (mirrors the
-# `aitasks#835_3` notation from aidocs/cross_repo_references.md, adapted to
+# `aitasks#835_3` notation from aidocs/framework/cross_repo_references.md, adapted to
 # file paths). Anything else is a local file.
 classify_token() {
     local token="$1"
