@@ -199,3 +199,32 @@ Standard archival: review → commit (code/docs separate from plan), then
 `./.aitask-scripts/aitask_archive.sh 901`, then `./ait git push`. The CLAUDE.md +
 aidocs + skill + website edits are a single `documentation:` commit
 (`documentation: Reorganize aidocs into framework/packaging/codeagents (t901)`).
+
+## Final Implementation Notes
+- **Actual work done:** Moved 26 loose top-level `aidocs/` files into three
+  subject dirs — `framework/` (15 CLAUDE.md-linked), `packaging/` (4),
+  `codeagents/` (7, incl. 3 `extract_*.sh`) — via `git mv`. Repointed every
+  live reference (65 files staged): CLAUDE.md (15 links + removed the dead
+  `monitor_port_design.md` pointer), scripts/lib, skill `.j2`/closure sources +
+  regenerated rendered variants and the `planning-cross-repo` proc golden,
+  website docs, seed, packaging READMEs, `.github` workflow, test-script
+  comments, and intra-aidocs cross-links. Bumped `../`→`../../` relative links
+  inside moved files. 3 internal notes stay top-level.
+- **Deviations from plan:** None to scope. Two correctness fixes beyond pure
+  path rewrites, both caused by the move and required: `extract_*.sh` `ROOT_DIR`
+  depth (`/..`→`/../..`, since the scripts are now one dir deeper) and their
+  `mkdir -p` target (`aidocs`→`aidocs/codeagents`).
+- **Issues encountered:** The bulk path-rewrite caught only `aidocs/<file>`
+  references; `../`-relative links and the `extract_*.sh` `ROOT_DIR`/`mkdir`
+  internals needed separate targeted fixes (found via realpath link-validation
+  and reading the script). The `aitask-pick` `.j2` ref sits in a Jinja header
+  comment, so its golden was correctly unchanged.
+- **Key decisions:** Kept the commit strictly scoped to t901. Foreign
+  uncommitted work present in the tree (`brainstorm/*`, `settings_app.py`,
+  `test_brainstorm_*.py`, `settings.local.json`) was left unstaged. My rerender
+  incidentally regenerated 3 stale `planning.md` rendered variants (drift from
+  commit t884_5); I reverted those to HEAD to avoid mixing unrelated render
+  drift into this commit.
+- **Upstream defects identified:**
+  - `.claude/skills/task-workflow-remote-/planning.md`, `.opencode/skills/task-workflow-remote-/planning.md`, `.agents/skills/task-workflow-remote-codex-/planning.md` — stale renders: missing the "Step 6.0a Force-reverify" content present in their source `.claude/skills/task-workflow/planning.md` since commit t884_5 (rendered variants were not regenerated in that commit).
+  - `tests/golden/procs/task-workflow/SKILL-fast.md` and `tests/golden/procs/task-workflow/planning-fast.md` — stale goldens: `tests/test_skill_render_task_workflow.sh` Test 1 fails at HEAD for the `fast` profile (40- and 444-line diffs, no aidocs paths involved); a `.md.j2`/closure edit landed without regenerating these `fast` goldens.
