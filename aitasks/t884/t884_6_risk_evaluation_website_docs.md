@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t884_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [task_workflow, web_site]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 00:31
-updated_at: 2026-06-01 00:31
+updated_at: 2026-06-02 11:44
 ---
 
 ## Context
