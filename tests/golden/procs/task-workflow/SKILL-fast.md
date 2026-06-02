@@ -258,6 +258,35 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
 
 **Cross-repo child assignment (post-approval creation):** If `cross_repo_planned` is `true` (set in `planning.md` §6.1 — the approved plan is a cross-repo paired design), execute the **Cross-Repo Child Assignment Procedure** (see `cross-repo-child-assignment.md`) now. It creates the cross-repo parent first, then assigns all children (local + cross-repo) to their parents with their plans, demotes the local parent to a parent-of-children, and presents its own child checkpoint. When it returns, the workflow has ended (via that checkpoint's "Start first child" / "Stop here") — do **NOT** continue with the normal single-task implementation below or proceed to Step 8. (This is the post-approval creation gate: planning runs in read-only plan mode, so no tasks were created during Step 6.)
 
+**Risk fields (post-approval write):** If the approved plan contains a `## Risk` section (authored by the Risk Evaluation Procedure during planning), write the two decided levels to the task's frontmatter now:
+
+```bash
+./.aitask-scripts/aitask_update.sh --batch <task_id> \
+  --risk-code-health <risk_level_code_health> \
+  --risk-goal-achievement <risk_level_goal_achievement>
+```
+
+Skip silently if the plan has no `## Risk` section (e.g. the evaluation was not run). This is the post-approval write gate: planning runs in read-only plan mode, so the fields are not written during Step 6.
+
+**Risk-mitigation "before" creation (post-approval):** If the approved plan has a `### Planned mitigations` subsection with ≥1 `before` line (authored during planning by the Risk-Mitigation Follow-up Procedure), execute **Part 2 (Step 7 "before" creation)** of that procedure now (see `risk-mitigation-followup.md`). It creates each "before" mitigation as an **independent task the original depends on** (not a child), read-modify-writes the original's `depends:` and `risk_mitigation_tasks` to wire the blocking edge, and back-fills the plan's mitigation links.
+
+If it returns `risk_before_created: true`, the original is now blocked by an unfinished mitigation and must **not** be implemented this session. Stop the original here:
+
+1. Release the task lock via the **Lock Release Procedure** (see `lock-release.md`).
+2. Revert the task to `Ready` and clear `assigned_to` (it will show **Blocked** in `ait ls` until the mitigation lands):
+   ```bash
+   ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to ""
+   ```
+3. Commit and push the status revert:
+   ```bash
+   ./ait git add aitasks/
+   ./ait git commit -m "ait: Revert t<task_num> to Ready (risk mitigation pending)" 2>/dev/null || true
+   ./ait git push
+   ```
+4. Display: "Created risk-mitigation 'before' task(s) the original depends on. Task t\<task_id\> reverted to Ready — implement the mitigation first, then re-pick t\<task_id\> (its plan will be force re-verified)." Then **END the workflow** — do NOT proceed to the implementation below or to Step 8.
+
+If it returns `risk_before_created: false` (no "before" mitigations), continue to implementation normally.
+
 Follow the approved plan, working in the directory specified in the plan metadata.
 
 Update the external plan file as you progress:
@@ -396,7 +425,13 @@ Execute the **Manual Verification Follow-up Procedure** (see `manual-verificatio
 - `task_file`, `task_id`, `is_child`, `active_profile`, `parent_id` from the current context.
 - `task_slug` — filename stem with the `t<id>_` prefix stripped (e.g. `aitasks/t42_add_login.md` → `add_login`).
 
-When the procedure returns, proceed to Step 9.
+When the procedure returns, proceed to Step 8d.
+
+### Step 8d: Risk-Mitigation "After" Follow-up
+
+Entered from Step 8c. At this point the code and plan files have already been committed. If the approved plan has a `### Planned mitigations` subsection with ≥1 `after` line (authored during planning by the Risk-Mitigation Follow-up Procedure), execute **Part 3 (Step 8d "after" creation)** of that procedure now (see `risk-mitigation-followup.md`) with `task_id`, `task_num`, `plan_file`, `is_child`, `parent_id`, and `active_profile` from the current context.
+
+It creates each "after" mitigation as an independent follow-up task and records it in the original's `risk_mitigation_tasks`. "After" mitigations block nothing, so the workflow continues normally. When the procedure returns, proceed to Step 9.
 
 ### Step 9: Post-Implementation
 
