@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [agents_md]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-02 10:21
-updated_at: 2026-06-02 10:21
+updated_at: 2026-06-02 10:25
 ---
 
 ## Origin
