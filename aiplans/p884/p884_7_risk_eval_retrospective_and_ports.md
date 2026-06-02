@@ -97,3 +97,55 @@ Use the **Batch Task Creation Procedure** (`task-creation-batch.md`) for both.
 
 Standard Step 9 (child archival/merge per profile). This child files only
 follow-ups — no feature code, so build/test verification is N/A.
+
+## Final Implementation Notes
+
+- **Actual work done:** Filed the two standalone follow-ups t884 deferred and
+  recorded the retrospective. No source code touched.
+  - **t911** — `extract_priority_risk_enum_single_source` (refactor, low/medium,
+    labels `bash_scripts,python`): extract the `high|medium|low` enum to a single
+    source.
+  - **t912** — `risk_evaluation_gate_integration` (enhancement, low/medium,
+    `depends: [635]`, labels `gates,task_workflow`): wrap risk evaluation as
+    `aitask-gate-risk` once the gates framework lands.
+
+- **Retrospective — what shipped (t884):** two-field risk plumbing
+  (`risk_code_health` / `risk_goal_achievement`, t884_9 replacing t884_1's
+  aggregate `risk`), the `risk_evaluation` profile key (t884_2), the
+  risk-evaluation planning step + `## Risk` plan section + Step 7 frontmatter
+  write (t884_3), the before/after risk-mitigation procedure (t884_4), the
+  force-reverify read-time signal (t884_5), and website docs (t884_6). The two
+  design shapes the user flagged — the read-time force-reverify signal
+  (`aitask_risk_mitigation_landed.sh` → `--force-verify`) and the propose-confirm
+  mitigation flow (mirroring `manual-verification-followup.md`) — both shipped as
+  designed. The gates coupling was deliberately kept as a doc seam
+  (`aidocs/gates/risk-evaluation-gate-seam.md`), not code, deferred to t912.
+
+- **Deviations from plan:** The original plan listed **three** follow-ups. The
+  verify-mode pass (this pick) found follow-up #1 (cross-agent skill ports to
+  Codex/OpenCode) **unwarranted** and dropped it (user-confirmed). Rationale:
+  Claude is the single source of truth (`SOURCE_AGENT_ROOT = ".claude/skills"` in
+  `.aitask-scripts/lib/skill_template.py`); the Codex (`.agents/skills/…-codex-/`)
+  and OpenCode (`.opencode/skills/…`) closure variants **auto-render** from the
+  Claude sources via `aitask_skill_render.sh`. The t884 risk closures carry no
+  agent-specific (`{% if agent %}`) content and t884 added no agent-specific
+  stubs or `.codex/` / `.opencode/commands/` config, so the closure content
+  already reaches every agent automatically. CLAUDE.md's general "suggest port
+  tasks" guidance targets agent-specific surfaces, not auto-rendered shared
+  closures. Also, the enum-refactor scope (t911) is larger than the parent plan's
+  "~5 bash sites + board.py" estimate — ~15 files across bash + Python.
+
+- **Issues encountered:** None. The working tree carried unrelated, pre-existing
+  `brainstorm_*` / test edits and concurrent-writer changes on the aitask-data
+  branch (`p756_4`, `codeagent_config.json`, `t909`); these were left untouched —
+  only this task's own paths were staged.
+
+- **Key decisions:** Drop follow-up #1 rather than file a no-op or verify-only
+  task; keep t912's hard `depends: [635]` since the integration genuinely cannot
+  start before the gates framework lands.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:** t884_7 is the last t884 child; once it archives the
+  parent t884 archives too. The deferred work now lives in t911 and t912, both
+  cross-referencing t884.
