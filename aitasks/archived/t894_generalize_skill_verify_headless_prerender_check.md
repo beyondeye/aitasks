@@ -1,13 +1,17 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [task_workflow, task-planning]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 12:20
-updated_at: 2026-06-02 16:40
+updated_at: 2026-06-02 22:38
+completed_at: 2026-06-02 22:38
 boardidx: 70
 ---
 
