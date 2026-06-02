@@ -438,6 +438,41 @@ else
 fi
 
 # ============================================================================
+# Test 13 — Content-diff safety net repairs git-equalized drift (t907)
+#
+# Simulates the t903 failure: a committed prerender drifts from its source,
+# then a `git checkout`/clone equalizes mtimes so the target looks "fresh" by
+# mtime even though its content is stale. `_is_stale` alone (mtime-only) would
+# skip the write; the content-diff safety net must still repair the target on
+# a plain re-render (no --force).
+# ============================================================================
+
+# Start from a clean fresh render of the A/B tree and capture canonical output.
+"$RENDER" "$SK_A" --profile fast --agent claude --force
+B_CANON="$(cat "$B_TARGET")"
+assert_contains "Test13: precondition — canonical B render present" \
+    "identity transform" "$B_CANON"
+
+# Drift the target: overwrite with stale content, then bump its mtime to NOW so
+# it is newer than every closure source — `_is_stale` will report it "fresh".
+printf '# STALE DRIFT MARKER t907 — must be overwritten\n' > "$B_TARGET"
+touch "$B_TARGET"
+
+# Re-render WITHOUT --force. mtime fast-path sees the target as fresh; only the
+# content comparison can detect the drift and trigger the rewrite.
+"$RENDER" "$SK_A" --profile fast --agent claude
+
+B_AFTER="$(cat "$B_TARGET")"
+assert_eq "Test13: drifted target restored to canonical render" "$B_CANON" "$B_AFTER"
+TOTAL=$((TOTAL + 1))
+if echo "$B_AFTER" | grep -qF 'STALE DRIFT MARKER'; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: Test13: stale content survived re-render (content-diff net did not fire)"
+else
+    PASS=$((PASS + 1))
+fi
+
+# ============================================================================
 # Summary
 # ============================================================================
 

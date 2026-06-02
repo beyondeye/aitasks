@@ -55,7 +55,10 @@ Editing a fragment here propagates correctly to consumers:
   for `{% include %}`, `{% from %}`, and `{% import %}` directives and
   folds the resolved dep mtimes into `_is_stale()`. Touching a fragment
   re-renders every consuming skill on the next `aitask_skill_render.sh`
-  invocation.
+  invocation. Alongside the mtime fast-path, `_any_target_differs()` compares
+  each target's on-disk content against the fresh render, so a committed
+  prerender that drifted under git-equalized mtimes (`git checkout`/clone
+  resets source and target to the same timestamp) is still repaired.
 - **Brainstorm side:** detailer.md is freshly include-resolved into a new
   work2do file on every `ait crew addwork`, so no caching layer to
   invalidate.

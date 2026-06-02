@@ -284,6 +284,28 @@ def _is_stale(plan: list, profile_yaml: Path, include_deps: set[Path] | None = N
     return False
 
 
+def _any_target_differs(plan: list) -> bool:
+    """True if any target is missing or its on-disk content differs from the
+    freshly rendered content.
+
+    Used as an authoritative safety net alongside the mtime-based `_is_stale`:
+    a `git checkout`/clone resets the mtimes of source *and* target to the same
+    checkout timestamp, so `target.mtime < source.mtime` reads as "fresh" even
+    when a committed prerender has really drifted from its source (t907). That
+    masked drift — committed `*-remote-` prerenders silently staying stale — is
+    what this comparison catches. It is effectively free: `walk_closure`
+    already renders every target's content into the plan, so this only adds a
+    short read+compare of each (small) target file, short-circuiting on the
+    first difference."""
+    for _src, target, content in plan:
+        try:
+            if target.read_text(encoding="utf-8") != content:
+                return True
+        except OSError:
+            return True  # missing/unreadable target → must (re)write
+    return False
+
+
 def walk_closure(
     entry_template: Path,
     profile: dict,
@@ -296,8 +318,11 @@ def walk_closure(
 ) -> list:
     """BFS over dep closure starting at entry_template. Renders every
     reachable .md / .md.j2 source through minijinja, rewrites references in
-    each rendered output, and (if write=True and stale-or-force) atomically
-    writes every (source, target) pair to disk. Returns the plan list."""
+    each rendered output, and (if write=True and force/stale/content-differs)
+    atomically writes every (source, target) pair to disk. Returns the plan
+    list. Skip-if-fresh combines an mtime fast-path (`_is_stale`) with an
+    authoritative content comparison (`_any_target_differs`) so git-equalized
+    mtimes cannot mask real drift in committed prerenders (t907)."""
     skill = _skill_name_from_source(entry_template, repo_root)
     if skill is None:
         raise ValueError(f"Entry template not under <agent_root>/skills/: {entry_template}")
@@ -367,7 +392,16 @@ def walk_closure(
         targets_seen[target] = src
 
     if write:
-        if force or _is_stale(plan, profile_yaml, include_deps):
+        # Write the closure when forced, when the mtime fast-path reports a
+        # stale leaf, OR when any target's on-disk content differs from the
+        # freshly rendered content. The content check is the authority: it
+        # repairs committed prerenders that drifted under git-equalized mtimes,
+        # which `_is_stale` alone misses (t907).
+        if (
+            force
+            or _is_stale(plan, profile_yaml, include_deps)
+            or _any_target_differs(plan)
+        ):
             for _src, target, content in plan:
                 _atomic_write(target, content)
 

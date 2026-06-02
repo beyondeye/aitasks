@@ -13,7 +13,9 @@
 #   .claude/skills/<other_skill>-<profile>-/<file>.md    (transitive procs)
 #
 # Skip-if-fresh is closure-aware: any stale leaf re-renders the whole chain.
-# --force re-renders unconditionally.
+# Staleness combines an mtime fast-path with an authoritative content-diff
+# safety net, so a committed prerender that drifted under git-equalized mtimes
+# (checkout/clone) is still repaired (t907). --force re-renders unconditionally.
 
 set -euo pipefail
 
