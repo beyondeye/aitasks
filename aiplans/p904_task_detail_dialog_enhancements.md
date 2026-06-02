@@ -321,6 +321,49 @@ when no parent task is loaded, mirroring the existing test). Assert:
   changes; `Collapsible` availability verified on Textual 8.2.7 · severity: low
   · → mitigation: TBD.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-06-02)
+- **Requested by user:** (a) Risk fields should be read-only and only shown when
+  explicitly set in metadata; (b) place risk in its own collapsible just before
+  "Dependencies & hierarchy"; (c) move the Task/Plan view-mode indicator onto the
+  title line (end), with a background that changes between Task and Plan, to
+  reclaim the standalone indicator line.
+- **Changes made:**
+  - Removed the two editable risk `CycleField`s from `#meta_editable` and dropped
+    `risk_code_health`/`risk_goal_achievement` from `_original_values` tracking.
+  - Added `_build_risk_fields(meta)` returning **read-only** `ReadOnlyField`s,
+    emitted only when the corresponding metadata is set. Emitted as a new
+    `#sec_risk` `Collapsible` (collapsed) placed **first**, before `#sec_relations`.
+  - Replaced the standalone `#view_indicator` line with a docked `#detail_title_bar`
+    `Horizontal` containing `#detail_title` (1fr, centered) + `#view_indicator`
+    (end). `toggle_view()` swaps the indicator text ("Task"/"Plan") and CSS class
+    (`viewing-task` → `$primary`, `viewing-plan` → `#FFB86C`).
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `tests/test_board_detail_collapsible.py`.
+
+## Final Implementation Notes
+- **Actual work done:** Both planned improvements (96% dialog height; three
+  collapsed metadata sections via `Collapsible`) plus the four post-review
+  refinements above. Editable core reduced to priority/effort/status/type.
+- **Deviations from plan:** Risk moved out of the editable core entirely and made
+  read-only/conditional (was originally left in the core as editable CycleFields);
+  the view-mode indicator was relocated into the title bar. Both per user request
+  during Step 8 review.
+- **Issues encountered:** A CSS `%` height is stored by Textual as
+  `Scalar(value=96.0, unit=HEIGHT)` rendering as `"96h"`, not `"96%"` — the test
+  asserts on `height.value`/`height.unit.name` instead of the string form.
+- **Key decisions:** Field-emission refactored into `_build_*_fields` helpers
+  returning widget lists so empty groups are skipped with a trivial `if list:`.
+  No new screen-level `Binding` added — `Collapsible` toggling uses the widget's
+  own Enter binding (the App's `enter`→`view_details` is non-priority), so the
+  `board.detail` shortcut manifest and goldens are unchanged.
+- **Upstream defects identified:** None
+- **Verification:** `tests/test_board_detail_collapsible.py` (8 tests) +
+  regression suites `test_board_detail_arrow_nav.py`, `test_shortcut_scopes.py`,
+  `test_board_picker_tab_nav.py`, `test_board_view_filter.py`,
+  `test_board_config_split.py` — all pass (40 tests total).
+
 ## Step 9 — Post-Implementation
 
 Standard cleanup/archival per `task-workflow` Step 9: commit code (regular git)
