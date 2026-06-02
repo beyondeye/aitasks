@@ -179,3 +179,46 @@ archive via `./.aitask-scripts/aitask_archive.sh 909`, then `./ait git push`.
 - The fix relies on the reader following the new cross-reference; the Edit C
   `grep` guard is the deterministic backstop that converts a silent skip into a
   loud `RISK_MISSING` before Step 7/8d run. · severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented Edits A/B/C in
+  `.claude/skills/task-workflow/planning.md` exactly as planned, all three gated
+  by `{% if profile.risk_evaluation is defined and profile.risk_evaluation %}`.
+  Edit A reroutes the §6.1 verify-path entry note into the shared terminal step
+  (was self-terminating at `ExitPlanMode`); Edit B adds the `#### End-of-planning
+  terminal step (NON-SKIPPABLE — runs on EVERY plan path)` heading + framing
+  around the two risk bullets (literal labels preserved for Test 5); Edit C adds
+  the `## Risk`-section `grep` guard before the Checkpoint, exempting
+  `cross_repo_planned`. Regenerated `tests/golden/procs/task-workflow/planning-fast.md`.
+- **Deviations from plan:** One mid-implementation fix — the first cut of Edit A
+  kept a trailing period on "…still sound." so the `{% else %}` branch rendered
+  "…still sound. and exit plan mode." (doubled period) for default/remote. Moved
+  the period into the `{% if %}` true-branch so the false-branch is byte-identical
+  to the original ("…still sound and exit plan mode."). Confirmed default/remote
+  goldens unchanged afterward.
+- **Issues encountered:** Jinja whitespace control around the guard/Checkpoint
+  boundary — used `{% if … -%}` / `{% endif -%}` so the false case renders
+  "```\n\n## Checkpoint" identically to before and the true case keeps a blank
+  line before the guard paragraph and before `## Checkpoint`. Verified by reading
+  the rendered fast output directly.
+- **Key decisions:** Gated all three edits behind `risk_evaluation` (only `fast`
+  sets it) → blast radius limited to the `fast` golden; `default`/`remote` are
+  byte-unchanged. Edit C made a deterministic `grep` backstop rather than relying
+  solely on reader-followed prose (source enforcement, per
+  `feedback_prefer_source_enforcement_over_memory`).
+- **Cross-agent note:** `planning.md` is a shared closure that auto-renders to
+  Codex/OpenCode from the Claude source (no agent-specific surface touched), so
+  no cross-agent port follow-up task is needed — per the
+  `project_closure_changes_autorender_no_port` convention. The plan's earlier
+  "Cross-agent follow-up" section is superseded by this.
+- **Upstream defects identified:** Test 5's header comment in
+  `tests/test_skill_render_task_workflow.sh` ("No committed profile sets the key")
+  is stale — `aitasks/metadata/profiles/fast.yaml` now sets `risk_evaluation: true`,
+  so `planning-fast.md`/`SKILL-fast` goldens already carry the gated risk steps.
+  The test's assertions still pass (synthetic profile + default-absence checks),
+  so this is a comment-only inaccuracy, not a functional defect:
+  `tests/test_skill_render_task_workflow.sh:~Test 5 comment block — "No committed profile sets the key" is outdated since fast.yaml enabled risk_evaluation`.
+- **Verification:** `bash tests/test_skill_render_task_workflow.sh` → 91/91 pass;
+  `./.aitask-scripts/aitask_skill_verify.sh` → OK (10 templates × 3 agents);
+  `git diff` confirms only `planning-fast.md` golden moved.
