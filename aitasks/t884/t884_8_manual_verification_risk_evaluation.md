@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t884_7]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
-verifies: [884_1, 884_2, 884_3, 884_4, 884_5, 884_6, 884_7]
+verifies: [t884_1, t884_2, t884_3, t884_4, t884_5, t884_6, t884_7]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 00:35
-updated_at: 2026-06-01 00:35
+updated_at: 2026-06-02 12:58
 ---
 
 ## Manual Verification Task
