@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, brainstom_modules]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-02 12:50
-updated_at: 2026-06-02 12:50
+updated_at: 2026-06-02 12:54
 ---
 
 ## Origin
