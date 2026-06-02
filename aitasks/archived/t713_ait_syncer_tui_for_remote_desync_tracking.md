@@ -3,13 +3,14 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [tui, scripts]
-children_to_implement: [t713_7]
 created_at: 2026-04-29 08:42
-updated_at: 2026-04-30 15:59
-boardidx: 20
+updated_at: 2026-06-02 11:45
+completed_at: 2026-06-02 11:45
 boardcol: manual_verifications
+boardidx: 20
 ---
 
 ## Goal
