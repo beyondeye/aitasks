@@ -7,6 +7,7 @@ import subprocess
 import sys
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import Callable, NamedTuple
 
 # Allow importing sibling packages (brainstorm, agentcrew)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -1494,6 +1495,84 @@ def _filter_labels(query: str, labels: list[str]) -> list[str]:
     return [lbl for lbl in labels if q in lbl.lower()]
 
 
+# ---------------------------------------------------------------------------
+# Wizard step model (pure, App-independent — see tests/test_brainstorm_wizard_steps.py)
+#
+# The Actions-tab wizard is an ordered table of steps; which steps are *active*
+# for a given flow is decided by per-step predicates over a small context dict
+# (`{"op": <op>, "node_has_sections": <bool>}`). Back/Next/Esc navigation and
+# the "Step X of Y" indicator are derived from the active list, so adding an
+# optional step is "add one row + predicate" — no integer renumbering. A future
+# module subgraph-selector slots in as one more row (see commented entry).
+# ---------------------------------------------------------------------------
+
+
+class _WizardStep(NamedTuple):
+    id: str
+    active: Callable[[dict], bool]  # reads ONLY ctx keys; never does I/O
+    rows: bool                      # True => renders an OperationRow list (nav target)
+
+
+_WIZARD_STEPS: list[_WizardStep] = [
+    _WizardStep("op_select", lambda c: True, True),
+    # Future (t756_2): module subgraph-selector — active only with 2+ subgraphs.
+    # _WizardStep(
+    #     "subgraph_select",
+    #     lambda c: c.get("op") in _NODE_SELECT_OPS and c.get("subgraph_count", 1) >= 2,
+    #     True,
+    # ),
+    _WizardStep("node_select", lambda c: c.get("op") in _NODE_SELECT_OPS, True),
+    _WizardStep(
+        "section_select",
+        lambda c: c.get("op") in _NODE_SELECT_OPS and bool(c.get("node_has_sections")),
+        False,
+    ),
+    _WizardStep(
+        "config",
+        lambda c: c.get("op") in ("explore", "patch", "compare", "synthesize"),
+        False,
+    ),
+    _WizardStep("confirm", lambda c: c.get("op") not in ("", "delete"), False),
+]
+
+_WIZARD_STEPS_BY_ID = {s.id: s for s in _WIZARD_STEPS}
+
+
+def active_step_ids(ctx: dict) -> list[str]:
+    """Ordered ids of the wizard steps active for ``ctx``."""
+    return [s.id for s in _WIZARD_STEPS if s.active(ctx)]
+
+
+def step_position(ctx: dict, step_id: str) -> tuple[int, int]:
+    """Return ``(index, total)`` (1-based) of ``step_id`` within the active list.
+
+    ``index`` is 0 when ``step_id`` is not active for ``ctx`` (caller is between
+    flows); ``total`` is always the active-step count.
+    """
+    ids = active_step_ids(ctx)
+    total = len(ids)
+    index = ids.index(step_id) + 1 if step_id in ids else 0
+    return index, total
+
+
+def next_step_id(ctx: dict, step_id: str) -> str | None:
+    """Id of the step after ``step_id`` in the active list, or None if last."""
+    ids = active_step_ids(ctx)
+    if step_id not in ids:
+        return None
+    i = ids.index(step_id)
+    return ids[i + 1] if i + 1 < len(ids) else None
+
+
+def prev_step_id(ctx: dict, step_id: str) -> str | None:
+    """Id of the step before ``step_id`` in the active list, or None if first."""
+    ids = active_step_ids(ctx)
+    if step_id not in ids:
+        return None
+    i = ids.index(step_id)
+    return ids[i - 1] if i > 0 else None
+
+
 class CompareNodeSelectModal(ShortcutsMixin, ModalScreen):
     """Modal for selecting 2-4 nodes to compare in the dimension matrix."""
 
@@ -2844,8 +2923,12 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.session_path = crew_worktree(task_num)
         self.session_data: dict = {}
         self.read_only: bool = False
+        # _wizard_step / _wizard_total_steps are DERIVED ints (from step_position)
+        # kept for the "Step X of Y" label and the "wizard active" sentinel guards
+        # (_wizard_step > 0). _wizard_step_id is the source of truth for dispatch.
         self._wizard_step: int = 0
         self._wizard_total_steps: int = 3
+        self._wizard_step_id: str = ""
         self._wizard_op: str = ""
         self._wizard_config: dict = {}
         self._wizard_has_sections: bool = False
@@ -3101,40 +3184,16 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         # Actions tab wizard navigation
         if tabbed.active == "tab_actions" and self._wizard_step > 0:
-            # Esc: go back to previous wizard step
+            # Esc: go back to the previous active wizard step (resolver-driven)
             if event.key == "escape" and self._wizard_step > 1:
-                step = self._wizard_step
-                total = self._wizard_total_steps
-                if step == total:
-                    # From confirm step
-                    if self._wizard_op == "detail":
-                        if self._wizard_has_sections:
-                            self._actions_show_section_select()
-                        else:
-                            self._actions_show_node_select()
-                    elif self._wizard_op in ("explore", "patch", "compare", "synthesize"):
-                        self._actions_show_config()
-                    else:
-                        self._actions_show_config()
-                elif (
-                    step == total - 1
-                    and self._wizard_op in ("explore", "patch")
-                ):
-                    # From config step
-                    if self._wizard_has_sections:
-                        self._actions_show_section_select()
-                    else:
-                        self._actions_show_node_select()
-                elif step == 3 and self._wizard_has_sections:
-                    # From section-select step
-                    self._actions_show_node_select()
-                elif step == 2:
-                    self._actions_show_step1()
+                prev = prev_step_id(self._wizard_ctx(), self._wizard_step_id)
+                if prev is not None:
+                    self._render_wizard_step(prev)
                 event.prevent_default()
                 event.stop()
                 return
-            # Enter on step 1: select operation
-            if event.key == "enter" and self._wizard_step == 1:
+            # Enter on op-select: choose operation
+            if event.key == "enter" and self._wizard_step_id == "op_select":
                 focused = self.focused
                 if isinstance(focused, OperationRow) and not focused.op_disabled:
                     self._wizard_op = focused.op_key
@@ -3152,8 +3211,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     event.prevent_default()
                     event.stop()
                     return
-            # Enter on step 2 node select: select node and advance
-            if event.key == "enter" and self._wizard_step == 2:
+            # Enter on node-select: select node and advance
+            if event.key == "enter" and self._wizard_step_id == "node_select":
                 focused = self.focused
                 if isinstance(focused, OperationRow) and not focused.op_disabled:
                     if self._wizard_op in _NODE_SELECT_OPS:
@@ -3165,7 +3224,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # Compare/Synthesize config step: Tab cycles whole control groups
             if (
                 event.key in ("tab", "shift+tab")
-                and self._wizard_step == 2
+                and self._wizard_step_id == "config"
                 and self._wizard_op in ("compare", "synthesize")
             ):
                 if self._cycle_wizard_groups(-1 if event.key == "shift+tab" else 1):
@@ -3175,7 +3234,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # Compare config step: up/down within the section-checkbox group
             if (
                 event.key in ("up", "down")
-                and self._wizard_step == 2
+                and self._wizard_step_id == "config"
                 and self._wizard_op == "compare"
                 and isinstance(self.focused, Checkbox)
                 and "chk_section" in self.focused.classes
@@ -3187,18 +3246,17 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     event.prevent_default()
                     event.stop()
                     return
-            # Up/down: navigate OperationRow widgets in wizard steps 1-2
-            if event.key in ("up", "down") and self._wizard_step in (1, 2):
+            # Up/down: navigate OperationRow widgets in the row-select steps
+            if event.key in ("up", "down") and self._wizard_step_id in (
+                "op_select", "node_select",
+            ):
                 direction = 1 if event.key == "down" else -1
                 if self._navigate_rows(direction, "actions_content", (OperationRow,)):
                     event.prevent_default()
                     event.stop()
                     return
             # Up/down: cycle focus among focusable widgets on the confirm step
-            if (
-                event.key in ("up", "down")
-                and self._wizard_step == self._wizard_total_steps
-            ):
+            if event.key in ("up", "down") and self._wizard_step_id == "confirm":
                 if self._cycle_confirm_focus(1 if event.key == "down" else -1):
                     event.prevent_default()
                     event.stop()
@@ -3544,7 +3602,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             raise SkipAction
         if tabbed.active != "tab_actions" or self._wizard_step < 1:
             raise SkipAction
-        if self._wizard_step == 1:
+        if self._wizard_step_id == "op_select":
             focused = self.focused
             if not isinstance(focused, OperationRow):
                 raise SkipAction
@@ -5183,7 +5241,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._show_node_detail(event.widget.node_id)
         if isinstance(event.widget, OperationRow):
             tabbed = self.query_one(TabbedContent)
-            if tabbed.active == "tab_actions" and self._wizard_step == 2:
+            if tabbed.active == "tab_actions" and self._wizard_step_id == "node_select":
                 if self._wizard_op in _NODE_SELECT_OPS:
                     self._wizard_config["_selected_node"] = event.widget.op_key
                     # Visual feedback: mark selected node
@@ -5426,11 +5484,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _actions_show_step1(self) -> None:
         """Render Step 1: operation selection list."""
-        self._wizard_step = 1
         self._wizard_op = ""
         self._wizard_config = {}
         self._wizard_has_sections = False
         self._cmp_section_checks = {}
+        self._enter_wizard_step("op_select")
 
         container = self.query_one("#actions_content", VerticalScroll)
         container.remove_children()
@@ -5529,13 +5587,42 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             container.mount(Label(f"  [dim]{name}[/]  {op}  [{gstatus}]  {created}"))
 
     def _set_total_steps(self) -> None:
-        """Set _wizard_total_steps based on operation type."""
-        if self._wizard_op in ("explore", "patch"):
-            self._wizard_total_steps = 4
-        else:
-            self._wizard_total_steps = 3
+        """Reset per-op wizard flags when an operation is chosen.
+
+        The step count is now derived from the active step set (see
+        ``step_position``), so this only resets the section cache that the
+        predicates read. Kept as a named hook because op-select call-sites
+        invoke it right after setting ``_wizard_op``.
+        """
         self._wizard_has_sections = False
         self._cmp_section_checks = {}
+
+    def _wizard_ctx(self) -> dict:
+        """Context dict consumed by the pure step resolver (no I/O)."""
+        return {
+            "op": self._wizard_op,
+            "node_has_sections": self._wizard_has_sections,
+        }
+
+    def _enter_wizard_step(self, step_id: str) -> None:
+        """Mark the current wizard step and derive its 'Step X of Y' numbers."""
+        self._wizard_step_id = step_id
+        self._wizard_step, self._wizard_total_steps = step_position(
+            self._wizard_ctx(), step_id
+        )
+
+    def _render_wizard_step(self, step_id: str) -> None:
+        """Render the wizard step with id ``step_id`` (back/next dispatch target)."""
+        renderers = {
+            "op_select": self._actions_show_step1,
+            "node_select": self._actions_show_node_select,
+            "section_select": self._actions_show_section_select,
+            "config": self._actions_show_config,
+            "confirm": self._actions_show_confirm,
+        }
+        renderer = renderers.get(step_id)
+        if renderer is not None:
+            renderer()
 
     def _actions_show_step2(self) -> None:
         """Route to node selection or config based on operation type."""
@@ -5546,8 +5633,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _actions_show_node_select(self) -> None:
         """Step 2: dedicated node selection for explore/detail/patch."""
-        self._wizard_step = 2
         self._wizard_config = {}
+        self._enter_wizard_step("node_select")
 
         container = self.query_one("#actions_content", VerticalScroll)
         container.remove_children()
@@ -5561,7 +5648,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         desc = desc_map.get(self._wizard_op, "Select Node")
         container.mount(
             Label(
-                f"Step 2 of {total} \u2014 {desc}  (Esc: Back)",
+                f"Step {self._wizard_step} of {total} \u2014 {desc}  (Esc: Back)",
                 classes="actions_step_indicator",
             )
         )
@@ -5622,7 +5709,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 timeout=6,
             )
             return False
-        if self._node_has_sections(node):
+        # Cache section presence into the ctx source BEFORE transitioning so the
+        # step resolver sees it (else section_select would be skipped). This disk
+        # read happens once here, never inside a per-render predicate.
+        self._wizard_has_sections = self._node_has_sections(node)
+        if self._wizard_has_sections:
             self._actions_show_section_select()
             return True
         if self._wizard_op == "detail":
@@ -5633,16 +5724,14 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return True
 
     def _actions_show_section_select(self) -> None:
-        """Optional step 3: pick sections to target for the selected node."""
+        """Optional step (post node-select): pick sections to target."""
         node = self._wizard_config.get("_selected_node", "")
         secs = self._node_sections(node)
 
+        # Mark sections present so the resolver counts this step, then derive
+        # the indicator numbers from the active set.
         self._wizard_has_sections = True
-        if self._wizard_op in ("explore", "patch"):
-            self._wizard_total_steps = 5
-        elif self._wizard_op == "detail":
-            self._wizard_total_steps = 4
-        self._wizard_step = 3
+        self._enter_wizard_step("section_select")
 
         container = self.query_one("#actions_content", VerticalScroll)
         container.remove_children()
@@ -5650,7 +5739,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         total = self._wizard_total_steps
         container.mount(
             Label(
-                f"Step 3 of {total} \u2014 Select Sections for {node}  (Esc: Back)",
+                f"Step {self._wizard_step} of {total} \u2014 Select Sections for {node}  (Esc: Back)",
                 classes="actions_step_indicator",
             )
         )
@@ -5668,10 +5757,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _actions_show_config(self) -> None:
         """Render config step: operation-specific configuration form."""
         op = self._wizard_op
-        if op in ("explore", "patch"):
-            self._wizard_step = self._wizard_total_steps - 1
-        else:
-            self._wizard_step = 2
+        self._enter_wizard_step("config")
 
         container = self.query_one("#actions_content", VerticalScroll)
         container.remove_children()
@@ -6002,12 +6088,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _actions_show_confirm(self) -> None:
         """Render final confirm step: summary + launch/confirm button."""
+        self._enter_wizard_step("confirm")
         total = self._wizard_total_steps
-        self._wizard_step = total
+        step = self._wizard_step
 
         container = self.query_one("#actions_content", VerticalScroll)
         container.remove_children()
-        container.mount(Label(f"Step {total} of {total} \u2014 Confirm  (Esc: Back)", classes="actions_step_indicator"))
+        container.mount(Label(f"Step {step} of {total} \u2014 Confirm  (Esc: Back)", classes="actions_step_indicator"))
         self._mount_op_context_header(container)
 
         summary_lines = self._build_summary()
@@ -6117,42 +6204,28 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     @on(Button.Pressed, ".btn_actions_back")
     def _on_actions_back(self) -> None:
-        """Handle Back button in confirm step."""
-        if self._wizard_op == "detail":
-            if self._wizard_has_sections:
-                self._actions_show_section_select()
-            else:
-                self._actions_show_node_select()
-        elif self._wizard_op in ("explore", "patch", "compare", "synthesize"):
-            self._actions_show_config()
-        else:
-            self._actions_show_config()
+        """Handle Back button (confirm step) — go to the previous active step."""
+        prev = prev_step_id(self._wizard_ctx(), self._wizard_step_id)
+        if prev is not None:
+            self._render_wizard_step(prev)
 
     @on(Button.Pressed, ".btn_actions_next")
     def _on_actions_next(self) -> None:
-        """Handle Next button in wizard steps."""
-        if self._wizard_step == 2:
-            if self._wizard_op in _NODE_SELECT_OPS:
-                # Step 2 is node select; advance
-                self._actions_advance_from_node_select(
-                    self._wizard_config.get("_selected_node", "")
-                )
-            elif self._actions_collect_config():
-                self._actions_show_confirm()
-        elif (
-            self._wizard_step == 3
-            and self._wizard_has_sections
-            and self._wizard_op in _NODE_SELECT_OPS
-        ):
-            # Section-select step: collect sections, then go to config (explore/patch) or confirm (detail)
+        """Handle Next button — dispatch by the current step id."""
+        if self._wizard_step_id == "node_select":
+            # Guarded advance (patch-no-plan guard, section/config/confirm routing).
+            self._actions_advance_from_node_select(
+                self._wizard_config.get("_selected_node", "")
+            )
+        elif self._wizard_step_id == "section_select":
+            # Collect sections, then go to config (explore/patch) or confirm (detail).
             self._collect_target_sections()
             if self._wizard_op == "detail":
                 self._wizard_config["node"] = self._wizard_config.get("_selected_node", "")
                 self._actions_show_confirm()
             else:
                 self._actions_show_config()
-        elif self._wizard_step == self._wizard_total_steps - 1 and self._wizard_op in ("explore", "patch"):
-            # Config step for 4- or 5-step ops
+        elif self._wizard_step_id == "config":
             if self._actions_collect_config():
                 self._actions_show_confirm()
 
@@ -6193,7 +6266,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         tabbed = self.query_one(TabbedContent)
         if tabbed.active != "tab_actions":
             return
-        if self._wizard_step == 1:
+        if self._wizard_step_id == "op_select":
             self._wizard_op = row.op_key
             self._set_total_steps()
             if self._wizard_op == "delete":
@@ -6206,7 +6279,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self._actions_show_confirm()
             else:
                 self._actions_show_step2()
-        elif self._wizard_step == 2 and self._wizard_op in _NODE_SELECT_OPS:
+        elif self._wizard_step_id == "node_select" and self._wizard_op in _NODE_SELECT_OPS:
             self._wizard_config["_selected_node"] = row.op_key
             # Visual feedback: mark selected node
             container = self.query_one("#actions_content", VerticalScroll)

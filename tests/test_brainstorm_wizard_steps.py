@@ -1,0 +1,162 @@
+"""Tests for the brainstorm wizard step resolver (t898).
+
+Pure-logic tests for the declarative step model backing the Actions-tab wizard:
+`active_step_ids`, `step_position`, `next_step_id`, `prev_step_id`. The Textual
+TUI dispatch/rendering is verified separately (existing wizard tests +
+interactive). These functions take a plain ctx dict and do no I/O, so they are
+testable without a running App.
+"""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
+sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
+
+from brainstorm.brainstorm_app import (  # noqa: E402
+    active_step_ids,
+    next_step_id,
+    prev_step_id,
+    step_position,
+)
+
+
+def ctx(op, node_has_sections=False):
+    return {"op": op, "node_has_sections": node_has_sections}
+
+
+class ActiveStepTests(unittest.TestCase):
+    def test_explore_without_sections(self):
+        self.assertEqual(
+            active_step_ids(ctx("explore")),
+            ["op_select", "node_select", "config", "confirm"],
+        )
+
+    def test_explore_with_sections(self):
+        self.assertEqual(
+            active_step_ids(ctx("explore", True)),
+            ["op_select", "node_select", "section_select", "config", "confirm"],
+        )
+
+    def test_patch_matches_explore_shape(self):
+        self.assertEqual(
+            active_step_ids(ctx("patch", True)),
+            ["op_select", "node_select", "section_select", "config", "confirm"],
+        )
+
+    def test_detail_has_no_config(self):
+        self.assertEqual(
+            active_step_ids(ctx("detail")),
+            ["op_select", "node_select", "confirm"],
+        )
+        self.assertEqual(
+            active_step_ids(ctx("detail", True)),
+            ["op_select", "node_select", "section_select", "confirm"],
+        )
+
+    def test_compare_and_synthesize_have_no_node_select(self):
+        for op in ("compare", "synthesize"):
+            self.assertEqual(
+                active_step_ids(ctx(op)),
+                ["op_select", "config", "confirm"],
+            )
+
+    def test_session_ops_jump_to_confirm(self):
+        for op in ("pause", "resume", "finalize", "archive"):
+            self.assertEqual(active_step_ids(ctx(op)), ["op_select", "confirm"])
+
+    def test_delete_has_no_wizard_steps_beyond_op_select(self):
+        # delete opens a modal; confirm predicate excludes it.
+        self.assertEqual(active_step_ids(ctx("delete")), ["op_select"])
+
+    def test_empty_op_is_only_op_select(self):
+        # At op-select render time the op is "" — confirm must NOT be active.
+        self.assertEqual(active_step_ids(ctx("")), ["op_select"])
+
+
+class StepPositionTests(unittest.TestCase):
+    def test_explore_with_sections_indices(self):
+        c = ctx("explore", True)
+        self.assertEqual(step_position(c, "op_select"), (1, 5))
+        self.assertEqual(step_position(c, "node_select"), (2, 5))
+        self.assertEqual(step_position(c, "section_select"), (3, 5))
+        self.assertEqual(step_position(c, "config"), (4, 5))
+        self.assertEqual(step_position(c, "confirm"), (5, 5))
+
+    def test_explore_without_sections_indices(self):
+        c = ctx("explore")
+        self.assertEqual(step_position(c, "node_select"), (2, 4))
+        self.assertEqual(step_position(c, "config"), (3, 4))
+        self.assertEqual(step_position(c, "confirm"), (4, 4))
+
+    def test_detail_with_sections_indices(self):
+        c = ctx("detail", True)
+        self.assertEqual(step_position(c, "section_select"), (3, 4))
+        self.assertEqual(step_position(c, "confirm"), (4, 4))
+
+    def test_compare_config_index(self):
+        c = ctx("compare")
+        self.assertEqual(step_position(c, "config"), (2, 3))
+        self.assertEqual(step_position(c, "confirm"), (3, 3))
+
+    def test_session_op_confirm_is_two_of_two(self):
+        self.assertEqual(step_position(ctx("pause"), "confirm"), (2, 2))
+
+    def test_inactive_step_reports_index_zero(self):
+        # node_select is not active for compare; index 0, total still correct.
+        self.assertEqual(step_position(ctx("compare"), "node_select"), (0, 3))
+
+
+class NextPrevTests(unittest.TestCase):
+    def test_next_walks_active_list_in_order(self):
+        c = ctx("explore", True)
+        ids = active_step_ids(c)
+        for a, b in zip(ids, ids[1:]):
+            self.assertEqual(next_step_id(c, a), b)
+        self.assertIsNone(next_step_id(c, ids[-1]))  # confirm -> None
+
+    def test_prev_is_inverse_of_next(self):
+        c = ctx("patch", True)
+        ids = active_step_ids(c)
+        for a, b in zip(ids, ids[1:]):
+            self.assertEqual(prev_step_id(c, b), a)
+        self.assertIsNone(prev_step_id(c, ids[0]))  # op_select -> None
+
+    def test_detail_skips_config(self):
+        c = ctx("detail")
+        self.assertEqual(next_step_id(c, "node_select"), "confirm")
+        self.assertEqual(prev_step_id(c, "confirm"), "node_select")
+
+    def test_compare_back_from_config_is_op_select(self):
+        self.assertEqual(prev_step_id(ctx("compare"), "config"), "op_select")
+
+    def test_dynamic_total_contract(self):
+        # The key ordering rule: next() is recomputed against the CURRENT ctx.
+        # Before the chosen node's sections are known, node_select -> config.
+        self.assertEqual(next_step_id(ctx("explore", False), "node_select"), "config")
+        # Once node_has_sections flips true (cached pre-transition by the App),
+        # node_select -> section_select.
+        self.assertEqual(
+            next_step_id(ctx("explore", True), "node_select"), "section_select"
+        )
+        # Detail (no config): false -> confirm, true -> section_select.
+        self.assertEqual(next_step_id(ctx("detail", False), "node_select"), "confirm")
+        self.assertEqual(
+            next_step_id(ctx("detail", True), "node_select"), "section_select"
+        )
+
+    def test_prev_from_config_depends_on_sections(self):
+        self.assertEqual(prev_step_id(ctx("explore", True), "config"), "section_select")
+        self.assertEqual(prev_step_id(ctx("explore", False), "config"), "node_select")
+
+    def test_unknown_step_id_returns_none(self):
+        self.assertIsNone(next_step_id(ctx("explore"), "nope"))
+        self.assertIsNone(prev_step_id(ctx("explore"), "nope"))
+
+
+if __name__ == "__main__":
+    unittest.main()
