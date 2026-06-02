@@ -613,6 +613,7 @@ def _agent_to_group_name(agent_name: str) -> str:
         "detailer": "detail",
         "module_decomposer": "module_decompose",
         "module_merger": "module_merge",
+        "module_syncer": "module_sync",
     }
     for role in sorted(role_to_group, key=len, reverse=True):
         prefix = f"{role}_"
@@ -1220,6 +1221,13 @@ def _module_merger_needs_apply(
     return _explorer_needs_apply(task_num, agent_name)
 
 
+def _module_syncer_needs_apply(
+    task_num: int | str, agent_name: str,
+) -> bool:
+    # Single-node output (NODE_YAML + PROPOSAL), same shape as explorer/merger.
+    return _explorer_needs_apply(task_num, agent_name)
+
+
 def _module_tasks_map(wt: Path) -> dict:
     path = wt / GRAPH_STATE_FILE
     gs = read_yaml(str(path))
@@ -1235,6 +1243,18 @@ def _write_module_task(wt: Path, module: str, task_id: str) -> None:
         tasks = {}
     tasks[module] = task_id
     gs["module_tasks"] = tasks
+    write_yaml(str(path), gs)
+
+
+def _write_last_synced(wt: Path, module: str, timestamp: str) -> None:
+    """Stamp ``last_synced_at[module]`` so a re-sync's scan horizon advances."""
+    path = wt / GRAPH_STATE_FILE
+    gs = read_yaml(str(path))
+    synced = gs.get("last_synced_at")
+    if not isinstance(synced, dict):
+        synced = {}
+    synced[module] = timestamp
+    gs["last_synced_at"] = synced
     write_yaml(str(path), gs)
 
 
@@ -1496,6 +1516,50 @@ def apply_module_merger_output(
         parser=parse_module_merger,
     )
     _merge_new_dimensions(wt, extras["raw_text"])
+    update_operation(
+        task_num,
+        group_name,
+        agents_append=agent_name,
+        nodes_created=new_id,
+        status="Completed",
+    )
+    return new_id
+
+
+def apply_module_syncer_output(
+    task_num: int | str, agent_name: str,
+) -> str:
+    """Integrate module sync output as a single new node in the module subgraph.
+
+    The synced node advances the module's own HEAD (single parent = the prior
+    HEAD); ``_apply_node_output`` scopes the subgraph from the op's group, so the
+    correct module HEAD is advanced. After apply, ``last_synced_at[module]`` is
+    stamped so a re-sync's ``--since`` horizon only sees genuinely-newer commits.
+    """
+    wt = crew_worktree(task_num)
+    group_name = _agent_to_group_name(agent_name)
+    module = _group_subgraph(wt, group_name)
+    source_head = get_head(wt, module=module)
+    if not source_head:
+        raise ValueError(f"module_sync requires a HEAD for subgraph {module!r}")
+
+    def parse_module_syncer(
+        text: str, err_log: Path, expected_role: str
+    ) -> tuple[dict, str, dict]:
+        node_data, proposal_text, extras = _parse_two_block_output(
+            text, err_log, expected_role
+        )
+        node_data["parents"] = [source_head]
+        return node_data, proposal_text, extras
+
+    new_id, node_data, extras = _apply_node_output(
+        task_num,
+        agent_name,
+        expected_role="module_syncer",
+        parser=parse_module_syncer,
+    )
+    _merge_new_dimensions(wt, extras["raw_text"])
+    _write_last_synced(wt, module, datetime.now().strftime("%Y-%m-%d %H:%M"))
     update_operation(
         task_num,
         group_name,

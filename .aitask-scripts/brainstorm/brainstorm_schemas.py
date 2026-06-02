@@ -78,6 +78,7 @@ GROUP_OPERATIONS = [
     "patch",
     "module_decompose",
     "module_merge",
+    "module_sync",
 ]
 
 # Legacy operation names kept readable for in-flight sessions on disk.

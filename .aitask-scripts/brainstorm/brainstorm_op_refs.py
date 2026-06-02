@@ -22,6 +22,7 @@ _OP_INPUT_SECTION = {
     "patch":      "Patch Request",
     "module_decompose": "Decomposition Plan",
     "module_merge":     "Merge-Up Rules",
+    "module_sync":      "Sync Sources",
     "bootstrap":  "Mandate",
 }
 

@@ -47,6 +47,7 @@ from diffviewer.diff_display import word_diff_texts, TAG_STYLES
 from brainstorm.brainstorm_dag import (
     UMBRELLA_SUBGRAPH,
     _node_module,
+    _read_graph_state,
     get_active_dimensions,
     get_dimension_fields,
     get_head,
@@ -93,6 +94,7 @@ from brainstorm.brainstorm_crew import (
     register_explorer,
     register_module_decomposer,
     register_module_merger,
+    register_module_syncer,
     register_patcher,
     register_synthesizer,
 )
@@ -143,7 +145,9 @@ AGENT_STATUS_COLORS = {
 }
 
 _NODE_SELECT_OPS = {"explore", "detail", "patch"}
-_SUBGRAPH_SELECT_OPS = _NODE_SELECT_OPS | {"module_decompose", "module_merge"}
+_SUBGRAPH_SELECT_OPS = _NODE_SELECT_OPS | {
+    "module_decompose", "module_merge", "module_sync",
+}
 
 _WIZARD_OP_TO_AGENT_TYPE = {
     "explore": "explorer",
@@ -153,6 +157,7 @@ _WIZARD_OP_TO_AGENT_TYPE = {
     "patch": "patcher",
     "module_decompose": "module_decomposer",
     "module_merge": "module_merger",
+    "module_sync": "module_syncer",
 }
 
 
@@ -206,6 +211,7 @@ _DESIGN_OPS = [
     ("patch", "Patch", "Tweak an existing plan"),
     ("module_decompose", "Module Decompose", "Fork module subgraph roots"),
     ("module_merge", "Module Merge", "Merge a module up into an ancestor"),
+    ("module_sync", "Module Sync", "Pull a linked module's as-implemented design back in"),
 ]
 
 _SESSION_OPS = [
@@ -437,6 +443,27 @@ _OPERATION_HELP: dict[str, dict] = {
         "use_cases": [
             "Absorb a refined module back into the umbrella proposal.",
             "Record explicit merge provenance across subgraphs.",
+        ],
+    },
+    "module_sync": {
+        "title": "Module Sync — Reconcile As-Implemented",
+        "summary": (
+            "Pull a fast-tracked module's as-implemented design back into its "
+            "subgraph (new HEAD) so a later merge absorbs current reality, not a "
+            "stale design. Read-only on the linked aitask."
+        ),
+        "reads_from_parent": [
+            "Linked task plan (esp. Final Implementation Notes / Post-Review Changes).",
+            "Scoped git diff of the linked task's commits since the last sync.",
+            "aitask_explain_context historical scan of the touched files.",
+        ],
+        "produces": [
+            "A new single-parent node that becomes the module's HEAD.",
+            "An advanced last_synced_at[module] scan horizon.",
+        ],
+        "use_cases": [
+            "Refresh a module's design after its linked task landed code.",
+            "De-stale a module before merging it back up.",
         ],
     },
     # Source: BrainstormApp._is_session_op_disabled (this file) +
@@ -1602,6 +1629,7 @@ _WIZARD_STEPS: list[_WizardStep] = [
             "synthesize",
             "module_decompose",
             "module_merge",
+            "module_sync",
         ),
         False,
     ),
@@ -4407,12 +4435,14 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 _agent_apply_scan_should_track,
                 _module_decomposer_needs_apply,
                 _module_merger_needs_apply,
+                _module_syncer_needs_apply,
             )
         except Exception:
             return
         for pattern, needs_fn in (
             ("module_decomposer_*_status.yaml", _module_decomposer_needs_apply),
             ("module_merger_*_status.yaml", _module_merger_needs_apply),
+            ("module_syncer_*_status.yaml", _module_syncer_needs_apply),
         ):
             for status_path in sorted(Path(wt).glob(pattern)):
                 agent = status_path.stem[:-len("_status")]
@@ -4462,11 +4492,14 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         from brainstorm.brainstorm_session import (
             _module_decomposer_needs_apply,
             _module_merger_needs_apply,
+            _module_syncer_needs_apply,
         )
         if agent_name.startswith("module_decomposer_"):
             return _module_decomposer_needs_apply(self.task_num, agent_name)
         if agent_name.startswith("module_merger_"):
             return _module_merger_needs_apply(self.task_num, agent_name)
+        if agent_name.startswith("module_syncer_"):
+            return _module_syncer_needs_apply(self.task_num, agent_name)
         return False
 
     def _try_apply_module_agent_if_needed(
@@ -4480,6 +4513,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         from brainstorm.brainstorm_session import (
             apply_module_decomposer_output,
             apply_module_merger_output,
+            apply_module_syncer_output,
         )
         self._applying_module_agent.add(agent_name)
         try:
@@ -4487,6 +4521,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 if agent_name.startswith("module_decomposer_"):
                     new_ids = apply_module_decomposer_output(self.task_num, agent_name)
                     result = ", ".join(new_ids)
+                elif agent_name.startswith("module_syncer_"):
+                    result = apply_module_syncer_output(self.task_num, agent_name)
                 else:
                     result = apply_module_merger_output(self.task_num, agent_name)
             except Exception as exc:
@@ -6069,6 +6105,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._config_module_decompose(container)
         elif op == "module_merge":
             self._config_module_merge(container)
+        elif op == "module_sync":
+            self._config_module_sync(container)
 
     def _focus_fcl_filter(self, fcl_id: str) -> None:
         """Focus the filter Input of a FuzzyCheckList by widget id."""
@@ -6278,6 +6316,40 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             )
         )
 
+    def _config_module_sync(self, container: VerticalScroll) -> None:
+        """Module sync config: requires a linked task; surface scan horizon."""
+        module = self._wizard_subgraph
+        gs = _read_graph_state(self.session_path)
+        tasks = gs.get("module_tasks")
+        tasks = tasks if isinstance(tasks, dict) else {}
+        linked = tasks.get(module)
+        synced = gs.get("last_synced_at")
+        synced = synced if isinstance(synced, dict) else {}
+        last = synced.get(module) or "(never)"
+        source_head = get_head(self.session_path, module=module)
+        container.mount(Label(f"[bold]Module Subgraph:[/] {module}"))
+        container.mount(Label(f"[bold]Source HEAD:[/] {source_head or '(none)'}"))
+        if not linked:
+            container.mount(
+                Label(
+                    "[bold yellow]This module has no linked task (module_tasks). "
+                    "Sync requires one \u2014 use Patch for free-form context.[/]"
+                )
+            )
+        else:
+            container.mount(Label(f"[bold]Linked Task:[/] t{linked}"))
+            container.mount(Label(f"[bold]Last Synced:[/] {last}"))
+            container.mount(Label("[bold]Sync Instructions (optional)[/]"))
+            container.mount(TextArea("", classes="ta_module_sync_instructions"))
+        container.mount(
+            Button(
+                "Next \u25b6",
+                variant="primary",
+                classes="btn_actions_next",
+                disabled=not bool(linked) or not bool(source_head),
+            )
+        )
+
     def _config_session_op(self, container: VerticalScroll) -> None:
         """Session operation config: confirmation only."""
         labels = {
@@ -6461,6 +6533,25 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.notify("Merge-up rules cannot be empty", severity="warning")
                 return False
 
+        elif op == "module_sync":
+            module = self._wizard_subgraph
+            config["subgraph"] = module
+            gs = _read_graph_state(self.session_path)
+            tasks = gs.get("module_tasks")
+            tasks = tasks if isinstance(tasks, dict) else {}
+            if not tasks.get(module):
+                self.notify(
+                    "Module has no linked task — sync requires one",
+                    severity="warning",
+                )
+                return False
+            try:
+                config["instructions"] = container.query_one(
+                    ".ta_module_sync_instructions", TextArea
+                ).text.strip()
+            except Exception:
+                config["instructions"] = ""
+
         elif op in ("pause", "resume", "finalize", "archive"):
             config["confirmed"] = True
 
@@ -6576,6 +6667,19 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             )
             lines.append("[bold]Merge-Up Rules:[/]")
             lines.append(cfg["merge_rules"])
+        elif op == "module_sync":
+            module = cfg["subgraph"]
+            gs = _read_graph_state(self.session_path)
+            tasks = gs.get("module_tasks")
+            tasks = tasks if isinstance(tasks, dict) else {}
+            synced = gs.get("last_synced_at")
+            synced = synced if isinstance(synced, dict) else {}
+            lines.append(f"[bold]Module Subgraph:[/] {module}")
+            lines.append(f"[bold]Linked Task:[/] t{tasks.get(module, '?')}")
+            lines.append(f"[bold]Last Synced:[/] {synced.get(module) or '(never)'}")
+            if cfg.get("instructions"):
+                lines.append("[bold]Sync Instructions:[/]")
+                lines.append(cfg["instructions"])
         elif op == "pause":
             lines.append("Session will be paused.")
         elif op == "resume":
@@ -6897,6 +7001,18 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     "destination_subgraph": cfg["destination_subgraph"],
                 }
                 msg = f"Registered module merger: {agent}"
+            elif op == "module_sync":
+                agent = register_module_syncer(
+                    self.session_path,
+                    crew_id,
+                    cfg["subgraph"],
+                    group_name,
+                    instructions=cfg.get("instructions", ""),
+                    launch_mode=launch_mode,
+                )
+                agents_list.append(agent)
+                self.call_from_thread(self._register_module_agent, agent)
+                msg = f"Registered module syncer: {agent}"
             else:
                 msg = f"Unknown operation: {op}"
                 agents_list = []

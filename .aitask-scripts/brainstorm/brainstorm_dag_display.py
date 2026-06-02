@@ -66,6 +66,7 @@ OP_BADGE_STYLES = {
     "patch":      Style(color="#FF5555"),  # red
     "module_decompose": Style(color="#50FA7B"),  # green
     "module_merge":     Style(color="#FFB86C"),  # orange
+    "module_sync":      Style(color="#D6ACFF"),  # bright purple
     "bootstrap":  Style(color="#6272A4"),  # dim
 }
 UNKNOWN_OP_STYLE = Style(color="#6272A4", italic=True)

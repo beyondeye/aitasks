@@ -54,6 +54,7 @@ BRAINSTORM_AGENT_TYPES = {
     "initializer": {"max_parallel": 1, "launch_mode": "interactive"},
     "module_decomposer": {"max_parallel": 1, "launch_mode": "interactive"},
     "module_merger": {"max_parallel": 1, "launch_mode": "interactive"},
+    "module_syncer": {"max_parallel": 1, "launch_mode": "interactive"},
 }
 
 def get_agent_types(config_root: Path | None = None) -> dict[str, dict]:
@@ -112,9 +113,16 @@ def get_agent_types(config_root: Path | None = None) -> dict[str, dict]:
 
 
 def _group_seq(group_name: str) -> str:
-    """Extract the sequence part from a group name (e.g., 'explore_001' -> '001')."""
+    """Extract the trailing sequence part from a group name.
+
+    ``explore_001`` -> ``001``. Splits on the **last** underscore so multi-token
+    op names round-trip too: ``module_sync_001`` -> ``001`` (NOT ``sync_001``).
+    A first-underscore split silently mis-names module-op agents so the
+    auto-apply poller can no longer resolve their group (the group↔agent name
+    round-trip via ``_agent_to_group_name`` breaks).
+    """
     if "_" in group_name:
-        return group_name.split("_", 1)[1]
+        return group_name.rsplit("_", 1)[1]
     return group_name
 
 
@@ -918,6 +926,224 @@ def register_module_merger(
     work2do_path = TEMPLATE_DIR / "module_merger.md"
     _run_addwork(
         crew_id, agent_name, "module_merger", group_name, work2do_path,
+        launch_mode=launch_mode,
+    )
+    _write_agent_input(session_dir, agent_name, input_content)
+
+    return agent_name
+
+
+# Soft ceiling on the scoped-diff bundle so a long-lived linked task cannot
+# produce a multi-megabyte agent input. The horizon (`last_synced_at`) usually
+# keeps this small; the cap is a backstop for the first sync of a busy task.
+_SYNC_DIFF_MAX_CHARS = 60000
+
+
+def _resolve_linked_plan_path(task_id: str) -> Path | None:
+    """Resolve the live (or archived) plan file for a linked module task.
+
+    ``task_id`` may be a child id (``756_8`` → ``aiplans/p756/p756_8_*.md``) or a
+    parent id (``905`` → ``aiplans/p905_*.md``). Live location is preferred over
+    the archived copy. Returns ``None`` if no plan file exists.
+    """
+    if "_" in task_id:
+        parent = task_id.split("_", 1)[0]
+        dirs = [Path("aiplans") / f"p{parent}", Path("aiplans/archived") / f"p{parent}"]
+    else:
+        dirs = [Path("aiplans"), Path("aiplans/archived")]
+    pattern = f"p{task_id}_*.md"
+    for d in dirs:
+        if d.is_dir():
+            matches = sorted(d.glob(pattern))
+            if matches:
+                return matches[0]
+    return None
+
+
+def _sync_touched_files(task_id: str, since: str | None) -> list[str]:
+    """Files touched by the linked task's commits since the last sync horizon.
+
+    Uses the ``(t<id>)`` commit-suffix convention (see
+    ``aitask_issue_update.sh``); the parentheses delimit so ``(t905)`` does not
+    match ``(t905_1)``. Restricted to ``--since`` when a horizon is set. Only
+    still-existing paths are returned. Runs from the repo root (the brainstorm
+    process cwd), matching ``_create_linked_module_task``.
+    """
+    cmd = ["git", "log", f"--grep=(t{task_id})", "--name-only", "--pretty=format:"]
+    if since:
+        cmd += ["--since", since]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        return []
+    seen: list[str] = []
+    for line in res.stdout.splitlines():
+        f = line.strip()
+        if f and f not in seen and Path(f).exists():
+            seen.append(f)
+    return sorted(seen)
+
+
+def _sync_scoped_diff(task_id: str, since: str | None, files: list[str]) -> str:
+    """Combined patch of the linked task's commits restricted to ``files``.
+
+    Truncated to ``_SYNC_DIFF_MAX_CHARS`` with an explicit marker so a busy
+    task's first sync cannot produce a pathological agent input.
+    """
+    if not files:
+        return ""
+    cmd = ["git", "log", f"--grep=(t{task_id})", "-p"]
+    if since:
+        cmd += ["--since", since]
+    cmd += ["--", *files]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        return ""
+    out = res.stdout
+    if len(out) > _SYNC_DIFF_MAX_CHARS:
+        out = (
+            out[:_SYNC_DIFF_MAX_CHARS]
+            + "\n\n[... scoped diff truncated at "
+            + f"{_SYNC_DIFF_MAX_CHARS} chars ...]\n"
+        )
+    return out
+
+
+def _sync_explain_context(files: list[str], max_plans: int) -> str:
+    """Shell out to the canonical explain-context scanner (REUSE — never fork).
+
+    Returns its stdout, or a short notice if the helper is unavailable so a sync
+    can still proceed with the plan + diff streams.
+    """
+    if not files:
+        return ""
+    cmd = [
+        "./.aitask-scripts/aitask_explain_context.sh",
+        "--max-plans",
+        str(max_plans),
+        *files,
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        return f"(explain-context unavailable: {res.stderr.strip()})"
+    return res.stdout
+
+
+def _assemble_input_module_syncer(
+    session_path: Path,
+    module: str,
+    source_head: str,
+    assigned_node_id: str,
+    linked_task_id: str,
+    last_synced_display: str,
+    plan_text: str,
+    diff_text: str,
+    explain_text: str,
+    instructions: str,
+) -> str:
+    lines = [
+        "# Module Syncer Input",
+        "",
+        "## Source Subgraph",
+        module,
+        "",
+        "## Source HEAD",
+        source_head,
+        "",
+        "## Source Node Files",
+        f"- Metadata: {session_path}/{NODES_DIR}/{source_head}.yaml",
+        f"- Proposal: {session_path}/{PROPOSALS_DIR}/{source_head}.md",
+        "",
+        "## Assigned Node ID",
+        assigned_node_id,
+        "",
+        "## Linked Task",
+        f"- task: t{linked_task_id}",
+        f"- last_synced_at: {last_synced_display}",
+        "",
+        "## Sync Sources",
+        "",
+        "### Linked Task Plan (emphasize Final Implementation Notes / Post-Review Changes)",
+        plan_text.strip() or "(no plan file found for the linked task)",
+        "",
+        "### Scoped Git Diff (linked task commits since last sync)",
+        "```diff",
+        diff_text.strip() or "(no scoped changes found since last sync)",
+        "```",
+        "",
+        "### Historical Context (aitask_explain_context)",
+        explain_text.strip() or "(no explain-context available)",
+    ]
+    if instructions:
+        lines.extend(["", "## Sync Instructions", instructions])
+    return "\n".join(lines) + "\n"
+
+
+def register_module_syncer(
+    session_dir: Path,
+    crew_id: str,
+    module: str,
+    group_name: str,
+    max_plans: int = 5,
+    instructions: str = "",
+    launch_mode: str = DEFAULT_LAUNCH_MODE,
+) -> str:
+    """Register a Module Syncer agent that reconciles a linked module's design.
+
+    Refuses unless the module has a ``module_tasks`` entry (a linked aitask) —
+    free-form context belongs to ``patch``. Bundles three read-only streams for
+    the agent: the linked task's plan, a scoped git diff of its commits, and the
+    explain-context historical scan. Read-only on the aitask side.
+    """
+    gs = _read_graph_state(session_dir)
+    tasks = gs.get("module_tasks")
+    tasks = tasks if isinstance(tasks, dict) else {}
+    linked_task_id = tasks.get(module)
+    if not linked_task_id:
+        raise ValueError(
+            f"module_sync requires a linked task; module {module!r} has no "
+            f"module_tasks entry"
+        )
+    linked_task_id = str(linked_task_id)
+
+    source_head = get_head(session_dir, module=module)
+    if not source_head:
+        raise ValueError(f"module_sync requires a HEAD for subgraph {module!r}")
+
+    last_synced = gs.get("last_synced_at")
+    last_synced = last_synced if isinstance(last_synced, dict) else {}
+    since = last_synced.get(module)
+    since = str(since) if since else None
+
+    plan_path = _resolve_linked_plan_path(linked_task_id)
+    plan_text = (
+        plan_path.read_text(encoding="utf-8")
+        if plan_path and plan_path.is_file() else ""
+    )
+    touched = _sync_touched_files(linked_task_id, since)
+    diff_text = _sync_scoped_diff(linked_task_id, since, touched)
+    explain_text = _sync_explain_context(touched, max_plans)
+
+    seq = _group_seq(group_name)
+    agent_name = f"module_syncer_{seq}"
+    node_num = next_node_id(session_dir)
+    assigned_node_id = f"n{node_num:03d}_{agent_name}"
+
+    input_content = _assemble_input_module_syncer(
+        session_dir,
+        module,
+        source_head,
+        assigned_node_id,
+        linked_task_id,
+        since or "(never)",
+        plan_text,
+        diff_text,
+        explain_text,
+        instructions,
+    )
+
+    work2do_path = TEMPLATE_DIR / "module_syncer.md"
+    _run_addwork(
+        crew_id, agent_name, "module_syncer", group_name, work2do_path,
         launch_mode=launch_mode,
     )
     _write_agent_input(session_dir, agent_name, input_content)
