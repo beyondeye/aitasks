@@ -8,7 +8,7 @@ labels: [brainstorming, ait_brainstorm]
 children_to_implement: [t571_7]
 created_at: 2026-04-16 09:50
 updated_at: 2026-04-20 12:03
-boardidx: 80
+boardidx: 60
 boardcol: manual_verifications
 ---
 

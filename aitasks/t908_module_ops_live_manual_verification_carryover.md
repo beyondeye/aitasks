@@ -7,6 +7,7 @@ status: Ready
 labels: []
 created_at: 2026-06-02 11:55
 updated_at: 2026-06-02 11:55
+boardidx: 10
 ---
 
 Carry-over of deferred manual-verification items from t905. Re-pick this task to continue the remaining checklist.

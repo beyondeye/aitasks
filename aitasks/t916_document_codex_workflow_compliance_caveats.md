@@ -8,6 +8,7 @@ labels: [docs, codex]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-02 13:47
 updated_at: 2026-06-02 16:40
+boardidx: 50
 ---
 
 ## Goal

@@ -8,7 +8,7 @@ labels: [ait_brainstorm]
 children_to_implement: [t745_5]
 created_at: 2026-05-04 18:51
 updated_at: 2026-05-05 08:52
-boardidx: 110
+boardidx: 90
 boardcol: manual_verifications
 ---
 

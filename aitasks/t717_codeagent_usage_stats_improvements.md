@@ -8,7 +8,7 @@ labels: [verifiedstats, statistics]
 children_to_implement: [t717_5]
 created_at: 2026-04-29 22:40
 updated_at: 2026-04-30 14:47
-boardidx: 30
+boardidx: 20
 boardcol: manual_verifications
 ---
 

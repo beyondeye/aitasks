@@ -7,6 +7,7 @@ status: Ready
 labels: [gates, task_workflow]
 created_at: 2026-06-02 12:49
 updated_at: 2026-06-02 12:49
+boardidx: 20
 ---
 
 ## Context
