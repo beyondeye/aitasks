@@ -135,3 +135,30 @@ Covers `_create_linked_module_task` (relative `subprocess.run` of
 Single-task flow: review (Step 8) → commit `test: Add module-ops apply
 hardening tests (t906)` → consolidate this plan with Final Implementation Notes
 → `./.aitask-scripts/aitask_archive.sh 906`.
+
+## Final Implementation Notes
+- **Actual work done:** Added one new test module
+  `tests/test_brainstorm_module_ops_integration.py` with 16 unittest tests
+  across the four planned groups (parser robustness, auto-apply gate +
+  idempotency, group-metadata restore, linked child-task creation). No
+  production code changed. Auto-discovered by `tests/run_all_python_tests.sh`
+  and runnable standalone.
+- **Deviations from plan:** None of substance. The plan estimated ~12–14
+  tests; the final count is 16 (the parser group split cleanly into 5 cases
+  and the linked-task group into 5). Group D uses a `_StubRepo` context-manager
+  helper that writes a real `.aitask-scripts/aitask_create.sh` stub and
+  `chdir`s into it, exercising the true subprocess + stdout-parse boundary of
+  `_create_linked_module_task` (relative-path shell-out) — matching the task's
+  "stubbed create script" wording rather than monkeypatching `subprocess.run`.
+- **Issues encountered:** None. `pytest` is not installed in the project venv;
+  the full sweep was run via `python3 -m unittest discover -p
+  'test_brainstorm_*.py'` (428 tests, all green), which is the fallback path
+  `run_all_python_tests.sh` itself uses.
+- **Key decisions:** (1) New file rather than extending
+  `test_brainstorm_apply_module_ops.py`, keeping happy-path *unit* tests
+  distinct from these *integration/contract* tests. (2) Group B tests the pure
+  `*_needs_apply` gate + apply idempotency (the contract the Textual poller
+  relies on) instead of the App-method timer wiring, which is not
+  headless-testable — this scope boundary is documented in the module
+  docstring and owned by manual-verification task t905.
+- **Upstream defects identified:** None.
