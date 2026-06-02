@@ -273,3 +273,65 @@ contract, `list_subgraphs` / `_nodes_for_subgraph` signatures, the
 ## Cross-skill follow-up
 Per CLAUDE.md ("Working on Skills / Custom Commands"): these are source-code
 changes, not skill changes — no Codex/OpenCode skill port is needed.
+
+## Final Implementation Notes
+
+- **Actual work done (all as planned):**
+  - `brainstorm_dag.py`: `create_node` gained `module_label: str | None = None`
+    (written only for non-`_umbrella` → legacy/umbrella nodes byte-identical);
+    new pure `list_subgraphs(session_path)` (most-recently-touched first by HEAD
+    ordinal, `_umbrella` fallback) + `_node_id_ordinal(node_id)`.
+  - `brainstorm_schemas.py`: `GROUP_OPTIONAL = ["subgraph"]` documentation
+    constant (no validator consumes it — symmetric with `GROUP_REQUIRED`).
+  - `brainstorm_session.py`: `record_operation(subgraph="_umbrella")` writes the
+    field on every entry; new `_group_subgraph(wt, group_name)` reader; the apply
+    path resolves the op's subgraph from the new node's `created_by_group` and
+    passes `module_label=` to `create_node` + `set_head(module=)`.
+  - `brainstorm_app.py`: uncommented the `subgraph_select` `_WIZARD_STEPS` row;
+    cached `_wizard_subgraph_count` (set in `_actions_show_step1`) feeds the
+    I/O-free `_wizard_ctx`; `_nodes_for_subgraph` pure helper;
+    `_actions_show_subgraph_select()` (registered in `_render_wizard_step`);
+    `_actions_show_step2` now resolver-driven (`next_step_id(..., "op_select")`);
+    Enter/click/up-down wiring for `subgraph_select`; node-select scoped to the
+    chosen subgraph (candidates + HEAD); `_run_design_op` resolves the subgraph
+    and threads it into `head_at_creation` + `record_operation`.
+  - `brainstorm_crew.py` + 5 templates: `_subgraph_context_lines()` appends a
+    `## Subgraph Context` block (derived from each builder's primary node) to
+    every op input; each template got a "Subgraph scope" agent note.
+- **Deviations from plan (small, deliberate):**
+  - **Selected subgraph held in `self._wizard_subgraph`, NOT
+    `_wizard_config["subgraph"]`** as the plan first wrote. `_actions_show_node_select`
+    resets `_wizard_config = {}` *after* the selector runs, which would wipe the
+    key. A dedicated field (reset to `_umbrella` at op-select) survives the reset
+    and is read by node-select filtering and `_run_design_op`.
+  - **`create_node` omits `module_label` for `_umbrella`** (rather than always
+    writing it) so single-subgraph sessions produce byte-identical node YAML.
+    `record_operation`, by contrast, always writes `subgraph` (incl. `_umbrella`)
+    — the field is the apply path's contract and tests assert its presence.
+- **Issues encountered:** the new `tests/test_brainstorm_wizard_subgraph.py`
+  initially failed because `create_node` does not `mkdir` `br_nodes`/`br_proposals`
+  — fixed by pre-creating them in `setUp` (matches the apply-test fixture).
+- **Key decisions:** (1) apply-path consumption included this task (user-confirmed)
+  so the recorded `subgraph` is not inert — §4.6's "explore in a subgraph advances
+  that subgraph's HEAD" holds now. (2) selector mirrors op-select (immediate
+  Enter/click advance, no Next button) — 3 touch points, zero new button wiring.
+  (3) `subgraph_count` cached, not read in `_wizard_ctx`, preserving t898's
+  I/O-free-predicate contract.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (t756_3 — decompose/merge):**
+  - **Add an op to the selector** by adding it to `_NODE_SELECT_OPS`; the
+    `subgraph_select` predicate (`op in _NODE_SELECT_OPS and subgraph_count >= 2`)
+    and all nav are then automatic. The op's chosen subgraph is in
+    `self._wizard_subgraph`; node-select is filtered via `_nodes_for_subgraph`.
+  - **Record + consume contract:** call `record_operation(..., subgraph=<module>)`;
+    the apply path (`brainstorm_session.py` ingest) already stamps
+    `module_label`+module HEAD from the group's `subgraph` via `_group_subgraph`.
+    `decompose` (which creates a NEW subgraph) must instead set the new node's
+    `module_label` to the new module name and `set_head(module=<new>)` itself —
+    `_group_subgraph` returns the *parent* op's subgraph, so decompose's
+    node-creation is a special case, not the generic ingest path.
+  - `list_subgraphs` is the single source of truth for the subgraph list/order;
+    `is_ancestor_subgraph` (t756_1) is ready for the merge up-only guard.
+  - compare/synthesize derive their recorded `subgraph` from the first input
+    node (`_node_module`); no selector. Cross-subgraph compares default to the
+    first node's subgraph (a v1 simplification — revisit if B2 surfaces a need).
