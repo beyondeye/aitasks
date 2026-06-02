@@ -11,3 +11,9 @@ updated_at: 2026-06-02 12:30
 ---
 
 Carry-over of deferred manual-verification items from t573_5. Re-pick this task to continue the remaining checklist.
+
+## Verification Checklist
+
+- [ ] [t573_3] Imported source file mtime and md5 are unchanged after the full flow. — DEFER 2026-06-02 12:24 user: deferred for later (not verified this session)
+- [ ] [t573_3] Simulated initializer failure (malformed _output.md) surfaces as an error-severity notification; the placeholder n000_init is retained and the TUI remains usable. — DEFER 2026-06-02 12:25 user: deferred for later (not verified this session)
+- [ ] [t573_3] Running outside tmux (unset TMUX) still reaches Completed via the headless fallback. — DEFER 2026-06-02 12:28 user: deferred for later (not verified this session)
