@@ -36,7 +36,7 @@ from cross_repo_notation import parse as parse_cross_repo_notation
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
-from textual.widgets import Header, Footer, Static, Label, Markdown, Input, Button, LoadingIndicator, SelectionList, DataTable
+from textual.widgets import Header, Footer, Static, Label, Markdown, Input, Button, LoadingIndicator, SelectionList, DataTable, Collapsible
 from textual.widgets.selection_list import Selection
 from textual.screen import Screen, ModalScreen
 from textual.binding import Binding
@@ -2386,11 +2386,6 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
         self._lock_info = None
         self._original_values = {
             "priority": task.metadata.get("priority", "medium"),
-            # risk has NO default — None means unset. The risk CycleFields only
-            # write a value when the user actively cycles them (see compose()).
-            # Two independent dimensions: code-health and goal-achievement.
-            "risk_code_health": task.metadata.get("risk_code_health"),
-            "risk_goal_achievement": task.metadata.get("risk_goal_achievement"),
             "effort": task.metadata.get("effort", "medium"),
             "status": task.metadata.get("status", "Ready"),
             "issue_type": task.metadata.get("issue_type", "feature"),
@@ -2413,13 +2408,146 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
             plan_path = Path("aiplans") / plan_name
         return plan_path if plan_path.exists() else None
 
+    def _build_risk_fields(self, meta):
+        """Read-only risk widgets — shown only when explicitly set in metadata.
+
+        Risk has no default: an absent field means unset, so nothing is shown.
+        Risk levels are decided by the task workflow / plan, not edited here.
+        """
+        out = []
+        if meta.get("risk_code_health"):
+            out.append(ReadOnlyField(
+                f"[b]Code-health risk:[/b] {meta.get('risk_code_health')}", classes="meta-ro"))
+        if meta.get("risk_goal_achievement"):
+            out.append(ReadOnlyField(
+                f"[b]Goal risk:[/b] {meta.get('risk_goal_achievement')}", classes="meta-ro"))
+        return out
+
+    def _build_relations_fields(self, meta):
+        """Dependencies & hierarchy metadata widgets (in display order)."""
+        out = []
+        if meta.get("depends"):
+            deps = meta["depends"]
+            if deps and self.manager:
+                out.append(DependsField(deps, self.manager, self.task_data, classes="meta-ro"))
+            elif deps:
+                dep_str = ", ".join(str(d) for d in deps)
+                out.append(ReadOnlyField(f"[b]Depends:[/b] {dep_str}", classes="meta-ro"))
+        if meta.get("verifies"):
+            verifies = meta["verifies"]
+            if verifies and self.manager:
+                out.append(VerifiesField(verifies, self.manager, self.task_data, classes="meta-ro"))
+            elif verifies:
+                v_str = ", ".join(str(v) for v in verifies)
+                out.append(ReadOnlyField(f"[b]Verifies:[/b] {v_str}", classes="meta-ro"))
+        # Parent field for child tasks
+        if self.task_data.filepath.parent != TASKS_DIR and self.manager:
+            parent_num = self.manager.get_parent_num_for_child(self.task_data)
+            if parent_num:
+                out.append(ParentField(parent_num, self.manager, classes="meta-ro"))
+        # Children field for parent tasks
+        if meta.get("children_to_implement"):
+            children_ids = meta["children_to_implement"]
+            if children_ids and self.manager:
+                out.append(ChildrenField(children_ids, self.manager, self.task_data,
+                                         classes="meta-ro"))
+            elif children_ids:
+                children = ", ".join(str(c) for c in children_ids)
+                out.append(ReadOnlyField(f"[b]Children:[/b] {children}", classes="meta-ro"))
+        # Folded tasks field
+        if meta.get("folded_tasks"):
+            folded_ids = meta["folded_tasks"]
+            if folded_ids and self.manager:
+                out.append(FoldedTasksField(folded_ids, self.manager,
+                                            self.task_data, classes="meta-ro"))
+            elif folded_ids:
+                folded_str = ", ".join(str(f) for f in folded_ids)
+                out.append(ReadOnlyField(
+                    f"[b]Folded Tasks:[/b] {folded_str}", classes="meta-ro"))
+        # Folded into field
+        if meta.get("folded_into"):
+            folded_into_num = str(meta["folded_into"])
+            if self.manager:
+                out.append(FoldedIntoField(folded_into_num, self.manager, classes="meta-ro"))
+            else:
+                out.append(ReadOnlyField(
+                    f"[b]Folded Into:[/b] t{folded_into_num}", classes="meta-ro"))
+        return out
+
+    def _build_tracking_fields(self, meta):
+        """Tracking & provenance metadata widgets (in display order)."""
+        out = []
+        if meta.get("labels"):
+            out.append(ReadOnlyField(f"[b]Labels:[/b] {', '.join(meta['labels'])}", classes="meta-ro"))
+        if meta.get("assigned_to"):
+            out.append(ReadOnlyField(f"[b]Assigned to:[/b] {meta['assigned_to']}", classes="meta-ro"))
+        if meta.get("issue"):
+            out.append(IssueField(meta["issue"], classes="meta-ro"))
+        if meta.get("pull_request"):
+            out.append(PullRequestField(meta["pull_request"], classes="meta-ro"))
+        if meta.get("contributor"):
+            contributor_text = meta["contributor"]
+            if meta.get("contributor_email"):
+                contributor_text += f" ({meta['contributor_email']})"
+            out.append(ReadOnlyField(f"  [b]Contributor:[/b] @{contributor_text}", classes="meta-ro"))
+        if meta.get("implemented_with"):
+            out.append(ReadOnlyField(f"[b]Implemented with:[/b] {meta['implemented_with']}", classes="meta-ro"))
+        dates = []
+        if meta.get("created_at"):
+            dates.append(f"[b]Created:[/b] {meta['created_at']}")
+        if meta.get("updated_at"):
+            dates.append(f"[b]Updated:[/b] {meta['updated_at']}")
+        if dates:
+            out.append(ReadOnlyField("  |  ".join(dates), classes="meta-ro"))
+        return out
+
+    def _build_lockfiles_fields(self, meta):
+        """File references + lock status widgets. Side effect: sets self._lock_info."""
+        out = []
+        # File references field (read-only, navigate via enter)
+        if self.manager:
+            file_refs = meta.get("file_references") or []
+            out.append(FileReferencesField(
+                file_refs, self.manager, self.task_data,
+                classes="meta-ro"))
+        # Lock status (computes self._lock_info, consumed by compose for buttons)
+        if self.manager:
+            task_num, _ = TaskCard._parse_filename(self.task_data.filename)
+            lock_id = task_num.lstrip("t")
+            self._lock_info = self.manager.lock_map.get(lock_id)
+        if self._lock_info:
+            locked_by = self._lock_info["locked_by"]
+            locked_at = self._lock_info["locked_at"]
+            hostname = self._lock_info.get("hostname", "")
+            stale_marker = ""
+            try:
+                lock_time = datetime.strptime(locked_at, "%Y-%m-%d %H:%M")
+                hours_ago = (datetime.now() - lock_time).total_seconds() / 3600
+                if hours_ago > 24:
+                    stale_marker = " [yellow](may be stale)[/yellow]"
+            except (ValueError, TypeError):
+                pass
+            host_str = f" on {hostname}" if hostname else ""
+            out.append(ReadOnlyField(
+                f"[b]\U0001f512 Locked:[/b] {locked_by}{host_str} since {locked_at}{stale_marker}",
+                classes="meta-ro"))
+        else:
+            out.append(ReadOnlyField(
+                "[b]\U0001f513 Lock:[/b] [dim]Unlocked[/dim]",
+                classes="meta-ro"))
+        return out
+
     def compose(self):
         task_num, task_name = TaskCard._parse_filename(self.task_data.filename)
         display_title = f"{task_num} {task_name}".strip()
         meta = self.task_data.metadata
 
         with Container(id="detail_dialog"):
-            yield Label(f"\U0001f4c4 {display_title}", id="detail_title")
+            with Horizontal(id="detail_title_bar"):
+                yield Label(f"\U0001f4c4 {display_title}", id="detail_title")
+                # View-mode indicator lives at the end of the title line; its
+                # background changes between Task and Plan (see toggle_view).
+                yield Label("Task", id="view_indicator", classes="viewing-task")
 
             is_done = meta.get("status", "") == "Done"
             is_folded = meta.get("status", "") == "Folded"
@@ -2427,11 +2555,6 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
             with Container(id="meta_editable"):
                 if is_done_or_ro:
                     yield ReadOnlyField(f"[b]Priority:[/b] {meta.get('priority', 'medium')}", classes="meta-ro")
-                    # Risk shown only when set (display-only; no default).
-                    if meta.get("risk_code_health"):
-                        yield ReadOnlyField(f"[b]Code-health risk:[/b] {meta.get('risk_code_health')}", classes="meta-ro")
-                    if meta.get("risk_goal_achievement"):
-                        yield ReadOnlyField(f"[b]Goal risk:[/b] {meta.get('risk_goal_achievement')}", classes="meta-ro")
                     yield ReadOnlyField(f"[b]Effort:[/b] {meta.get('effort', 'medium')}", classes="meta-ro")
                     yield ReadOnlyField(f"[b]Status:[/b] {meta.get('status', 'Ready')}", classes="meta-ro")
                     yield ReadOnlyField(f"[b]Type:[/b] {meta.get('issue_type', 'feature')}", classes="meta-ro")
@@ -2439,17 +2562,6 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
                     yield CycleField("Priority", ["low", "medium", "high"],
                                      meta.get("priority", "medium"), "priority",
                                      id="cf_priority")
-                    # Risk fields are editable but have no default: an unset
-                    # risk shows "low" (CycleField index-0 fallback) yet is NOT
-                    # persisted unless the user actively cycles it (see
-                    # save_changes — only fields whose value differs from
-                    # _original are written).
-                    yield CycleField("Code-health risk", ["low", "medium", "high"],
-                                     meta.get("risk_code_health"), "risk_code_health",
-                                     id="cf_risk_code_health")
-                    yield CycleField("Goal risk", ["low", "medium", "high"],
-                                     meta.get("risk_goal_achievement"), "risk_goal_achievement",
-                                     id="cf_risk_goal_achievement")
                     yield CycleField("Effort", ["low", "medium", "high"],
                                      meta.get("effort", "medium"), "effort",
                                      id="cf_effort")
@@ -2461,110 +2573,33 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
                                      meta.get("issue_type", "feature"), "issue_type",
                                      id="cf_issue_type")
 
-            if meta.get("labels"):
-                yield ReadOnlyField(f"[b]Labels:[/b] {', '.join(meta['labels'])}", classes="meta-ro")
-            if meta.get("depends"):
-                deps = meta["depends"]
-                if deps and self.manager:
-                    yield DependsField(deps, self.manager, self.task_data, classes="meta-ro")
-                elif deps:
-                    dep_str = ", ".join(str(d) for d in deps)
-                    yield ReadOnlyField(f"[b]Depends:[/b] {dep_str}", classes="meta-ro")
-            if meta.get("verifies"):
-                verifies = meta["verifies"]
-                if verifies and self.manager:
-                    yield VerifiesField(verifies, self.manager, self.task_data, classes="meta-ro")
-                elif verifies:
-                    v_str = ", ".join(str(v) for v in verifies)
-                    yield ReadOnlyField(f"[b]Verifies:[/b] {v_str}", classes="meta-ro")
-            if meta.get("assigned_to"):
-                yield ReadOnlyField(f"[b]Assigned to:[/b] {meta['assigned_to']}", classes="meta-ro")
-            if meta.get("issue"):
-                yield IssueField(meta["issue"], classes="meta-ro")
-            if meta.get("pull_request"):
-                yield PullRequestField(meta["pull_request"], classes="meta-ro")
-            if meta.get("contributor"):
-                contributor_text = meta["contributor"]
-                if meta.get("contributor_email"):
-                    contributor_text += f" ({meta['contributor_email']})"
-                yield ReadOnlyField(f"  [b]Contributor:[/b] @{contributor_text}", classes="meta-ro")
-            if meta.get("implemented_with"):
-                yield ReadOnlyField(f"[b]Implemented with:[/b] {meta['implemented_with']}", classes="meta-ro")
-            dates = []
-            if meta.get("created_at"):
-                dates.append(f"[b]Created:[/b] {meta['created_at']}")
-            if meta.get("updated_at"):
-                dates.append(f"[b]Updated:[/b] {meta['updated_at']}")
-            if dates:
-                yield ReadOnlyField("  |  ".join(dates), classes="meta-ro")
-            # Parent field for child tasks
-            if self.task_data.filepath.parent != TASKS_DIR and self.manager:
-                parent_num = self.manager.get_parent_num_for_child(self.task_data)
-                if parent_num:
-                    yield ParentField(parent_num, self.manager, classes="meta-ro")
-            # Children field for parent tasks
-            if meta.get("children_to_implement"):
-                children_ids = meta["children_to_implement"]
-                if children_ids and self.manager:
-                    yield ChildrenField(children_ids, self.manager, self.task_data,
-                                       classes="meta-ro")
-                elif children_ids:
-                    children = ", ".join(str(c) for c in children_ids)
-                    yield ReadOnlyField(f"[b]Children:[/b] {children}", classes="meta-ro")
-            # Folded tasks field
-            if meta.get("folded_tasks"):
-                folded_ids = meta["folded_tasks"]
-                if folded_ids and self.manager:
-                    yield FoldedTasksField(folded_ids, self.manager,
-                                           self.task_data, classes="meta-ro")
-                elif folded_ids:
-                    folded_str = ", ".join(str(f) for f in folded_ids)
-                    yield ReadOnlyField(
-                        f"[b]Folded Tasks:[/b] {folded_str}", classes="meta-ro")
-            # Folded into field
-            if meta.get("folded_into"):
-                folded_into_num = str(meta["folded_into"])
-                if self.manager:
-                    yield FoldedIntoField(folded_into_num, self.manager, classes="meta-ro")
-                else:
-                    yield ReadOnlyField(
-                        f"[b]Folded Into:[/b] t{folded_into_num}", classes="meta-ro")
+            # --- Grouped, collapsible secondary metadata ---
+            # Risk (read-only) — only present when explicitly set in metadata.
+            risk = self._build_risk_fields(meta)
+            if risk:
+                with Collapsible(title=f"Risk ({len(risk)})",
+                                 collapsed=True, id="sec_risk", classes="meta-section"):
+                    yield from risk
 
-            # File references field (read-only, navigate via enter)
-            if self.manager:
-                file_refs = meta.get("file_references") or []
-                yield FileReferencesField(
-                    file_refs, self.manager, self.task_data,
-                    classes="meta-ro")
+            relations = self._build_relations_fields(meta)
+            if relations:
+                with Collapsible(title=f"Dependencies & hierarchy ({len(relations)})",
+                                 collapsed=True, id="sec_relations", classes="meta-section"):
+                    yield from relations
 
-            # Lock status
-            if self.manager:
-                task_num, _ = TaskCard._parse_filename(self.task_data.filename)
-                lock_id = task_num.lstrip("t")
-                self._lock_info = self.manager.lock_map.get(lock_id)
-            if self._lock_info:
-                locked_by = self._lock_info["locked_by"]
-                locked_at = self._lock_info["locked_at"]
-                hostname = self._lock_info.get("hostname", "")
-                stale_marker = ""
-                try:
-                    lock_time = datetime.strptime(locked_at, "%Y-%m-%d %H:%M")
-                    hours_ago = (datetime.now() - lock_time).total_seconds() / 3600
-                    if hours_ago > 24:
-                        stale_marker = " [yellow](may be stale)[/yellow]"
-                except (ValueError, TypeError):
-                    pass
-                host_str = f" on {hostname}" if hostname else ""
-                yield ReadOnlyField(
-                    f"[b]\U0001f512 Locked:[/b] {locked_by}{host_str} since {locked_at}{stale_marker}",
-                    classes="meta-ro")
-            else:
-                yield ReadOnlyField(
-                    "[b]\U0001f513 Lock:[/b] [dim]Unlocked[/dim]",
-                    classes="meta-ro")
+            tracking = self._build_tracking_fields(meta)
+            if tracking:
+                with Collapsible(title=f"Tracking & provenance ({len(tracking)})",
+                                 collapsed=True, id="sec_tracking", classes="meta-section"):
+                    yield from tracking
+
+            lockfiles = self._build_lockfiles_fields(meta)
+            if lockfiles:
+                with Collapsible(title="Lock & files",
+                                 collapsed=True, id="sec_lockfiles", classes="meta-section"):
+                    yield from lockfiles
 
             has_plan = self._plan_path is not None
-            yield Label("[b]Viewing:[/b] Task", id="view_indicator")
 
             with VerticalScroll(id="md_view"):
                 yield Markdown(self.task_data.content)
@@ -2690,13 +2725,17 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
         if self._showing_plan:
             content = self._read_plan_content() or ""
             md_widget.update(content)
-            indicator.update("[b]Viewing:[/b] [#FFB86C]Plan[/]")
+            indicator.update("Plan")
+            indicator.remove_class("viewing-task")
+            indicator.add_class("viewing-plan")
             btn_view.label = "(V)iew Task"
             md_view.styles.border = ("solid", "#FFB86C")
             self._mount_or_update_minimap(md_view, content)
         else:
             md_widget.update(self.task_data.content)
-            indicator.update("[b]Viewing:[/b] Task")
+            indicator.update("Task")
+            indicator.remove_class("viewing-plan")
+            indicator.add_class("viewing-task")
             btn_view.label = "(V)iew Plan"
             md_view.styles.border = None
             self._remove_minimap(md_view)
@@ -3409,17 +3448,22 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     Screen { align: center middle; }
     #detail_dialog {
         width: 80%;
-        height: 80%;
+        height: 96%;
         background: $surface;
         border: thick $primary;
         padding: 1 2;
     }
-    #detail_title { 
-        dock: top; 
-        text-align: center; 
-        background: $secondary; 
-        color: $text; 
-        padding: 1;
+    #detail_title_bar {
+        dock: top;
+        height: 3;
+        background: $secondary;
+    }
+    #detail_title {
+        width: 1fr;
+        height: 100%;
+        content-align: center middle;
+        text-align: center;
+        color: $text;
     }
     #detail_buttons {
         dock: bottom;
@@ -3440,13 +3484,17 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         align: center middle;
     }
     #meta_editable { height: auto; padding: 0 1; }
+    #detail_dialog .meta-section { padding-bottom: 0; border-top: hkey $secondary-background; }
+    #detail_dialog .meta-section Contents { padding: 0 0 0 3; }
     CycleField { height: 1; width: 100%; padding: 0 1; }
     CycleField.cycle-focused { background: $primary 20%; border-left: thick $accent; }
     .meta-ro { height: 1; width: 100%; padding: 0 2; color: $text-muted; }
     .meta-ro.ro-focused { background: $primary 20%; border-left: thick $accent; }
     #btn_save:disabled { opacity: 50%; }
     #btn_delete:disabled { opacity: 50%; }
-    #view_indicator { height: 1; width: 100%; padding: 0 2; color: $text-muted; }
+    #view_indicator { width: auto; height: 100%; content-align: center middle; padding: 0 2; text-style: bold; }
+    #view_indicator.viewing-task { background: $primary; color: $text; }
+    #view_indicator.viewing-plan { background: #FFB86C; color: $background; }
     #md_view { margin: 1 0; border: solid $secondary-background; }
     .task-title-row { height: auto; }
     .task-number { color: $accent; text-style: bold; width: auto; margin: 0 1 0 0; }
