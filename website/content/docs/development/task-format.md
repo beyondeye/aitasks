@@ -49,6 +49,9 @@ Detailed description of what needs to be done.
 | `folded_into` | task number | Task this was folded into (set by `/aitask-fold` or `/aitask-explore`) |
 | `file_references` | `[path, path:N, path:N-M, path:N-M^N-M]` | Structured pointers to source files / line ranges. 1-indexed, inclusive. Exact-string dedup. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) |
 | `verifies` | `[t10_1, t10_2]` | Task IDs this task verifies (used by `manual_verification` sibling tasks that gate release on human-checked behavior) |
+| `risk_code_health` | `high`, `medium`, `low` | Code-health risk (stability, quality, maintainability, blast-radius) assigned by the [risk-evaluation planning step]({{< relref "/docs/workflows/risk-evaluation" >}}); display-only, omitted unless evaluated |
+| `risk_goal_achievement` | `high`, `medium`, `low` | Goal-achievement risk (whether the plan will deliver the requested goals) assigned by the [risk-evaluation planning step]({{< relref "/docs/workflows/risk-evaluation" >}}); display-only |
+| `risk_mitigation_tasks` | `[884_4, 890]` | Task IDs created to mitigate risks identified during planning (dropped on fold) |
 | `implemented_with` | `<agent>/<model>` | Agent and model that implemented the task (e.g., `claudecode/opus4_7_1m`). See [Agent attribution]({{< relref "/docs/concepts/agent-attribution" >}}) |
 | `pull_request` | URL | Linked pull request URL (mirrors `issue`) |
 | `contributor` | name | External contributor credited on the commit (used by PR-import flow) |

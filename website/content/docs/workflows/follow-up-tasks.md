@@ -66,6 +66,14 @@ You're working on task t195 — adding keyboard navigation to the code browser. 
 
 The flows above are user-driven — you ask the agent to create or update a task. There is also an automatic prompt that fires from `/aitask-pick` Step 8b after the "Commit changes" review approval: when the just-committed plan file documents an *upstream defect* (a separate, pre-existing bug surfaced during diagnosis in a different script, helper, or module), the skill offers to spawn a fresh `bug` aitask for it with the diagnostic chain of reasoning pre-loaded into the body. See [Upstream Defect Follow-up](../upstream-defect-followup/) for the plan-file contract, the parsing modes, and the seeded task structure.
 
+## Automatic Manual-Verification Follow-up
+
+After the "Commit changes" review approval, `/aitask-pick` Step 8c offers to queue a standalone manual-verification task that is picked once the current task archives. It covers behavior only a human can check — TUI flows, live agent launches, on-disk artifact inspection — that automated tests cannot. See [Manual Verification → Post-Implementation Follow-up](../manual-verification/#post-implementation-follow-up-step-8c) for the candidate discovery and seeded checklist.
+
+## Automatic Risk-Mitigation Follow-up
+
+When [risk evaluation](../risk-evaluation/) is enabled, the planning step can propose mitigation tasks for the risks it identifies. A **before** mitigation becomes a blocking dependency of the original task (implement it first, then re-pick the original); an **after** mitigation is a post-implementation follow-up that blocks nothing. Each is proposed and confirmed during planning. See [Risk Evaluation](../risk-evaluation/) for the two risk dimensions, the `## Risk` plan section, and the force re-verification behavior.
+
 ## Advantages Over Standalone Task Creation
 
 - **No context re-entry** — The agent already knows the codebase state, what was changed, and why
