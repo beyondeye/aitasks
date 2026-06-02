@@ -145,3 +145,63 @@ gates.
   → mitigation: none
 
 No risks warrant before/after mitigation follow-up tasks.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-02)
+- **Requested by user:** Place the Repository Maintenance page in its own
+  "Maintenance" section in the workflows index, not under the "Git" grouping.
+- **Changes made:** Moved the `repo-maintenance` bullet out of `## Git` into a
+  new `## Maintenance` section in `workflows/_index.md`; updated the t594_7
+  taxonomy comment from "four groupings … / Git" to "five groupings … / Git /
+  Maintenance". (Page weight unchanged — sidebar ordering is weight-driven and
+  independent of the manual index-body grouping.)
+- **Files affected:** `website/content/docs/workflows/_index.md`
+
+### Change Request 2 (2026-06-02)
+- **Requested by user:** The new Maintenance section's intro paragraph
+  duplicated the single bullet's description — keep only the bullet.
+- **Changes made:** Removed the Maintenance section intro sentence, leaving the
+  `## Maintenance` heading + the `repo-maintenance` bullet.
+- **Files affected:** `website/content/docs/workflows/_index.md`
+
+### Change Request 3 (2026-06-02)
+- **Requested by user:** Mention that after `ait upgrade` it is best to also run
+  `ait setup`.
+- **Changes made:** Expanded the "Upgrading the framework" section of
+  `repo-maintenance.md` to recommend running `ait setup` after `ait upgrade`
+  (populates newly added scripts/skills/dependencies), keeping the
+  upgrade-vs-setup verb distinction from CLAUDE.md.
+- **Files affected:** `website/content/docs/workflows/repo-maintenance.md`
+
+### Change Request 4 (2026-06-02)
+- **Requested by user:** Drop the trailing upgrade-vs-setup sentence ("Use
+  `ait upgrade` to move to a newer version, and `ait setup` to reinstall...").
+- **Changes made:** Removed that sentence from the "Upgrading the framework"
+  section, leaving the recommendation to run `ait setup` after `ait upgrade`.
+- **Files affected:** `website/content/docs/workflows/repo-maintenance.md`
+
+## Final Implementation Notes
+- **Actual work done:** Audited the `ait` dispatcher against the docs tree and
+  completed the command reference: added TUI rows (monitor, minimonitor,
+  applink, stats-tui), a `git-health` row, a new Cross-repo section
+  (`ait projects`), and a `skillrun` row to `commands/_index.md`; added a brief
+  `## ait git-health` reference section to `commands/sync.md`; fixed the
+  inaccurate `tar.gz`→`tar.zst` prose in the `zip-old` reference and added
+  periodic-maintenance framing; created a new `workflows/repo-maintenance.md`
+  page (zip-old, explain cleanup, changelog, git-health, `ait upgrade`) and
+  wired it into the workflows index under a new Maintenance section.
+- **Deviations from plan:** zip-old discoverability handled via the new
+  maintenance workflow page (per user steer) rather than relocating the
+  reference. Repository Maintenance placed in its own index section (CR1) rather
+  than the Git grouping.
+- **Issues encountered:** None. Confirmed `aitask_zip_old.sh` produces `tar.zst`
+  (script lines 3-9, 261), making the prior `tar.gz` doc prose a genuine error.
+- **Key decisions:** Command-reference uses plain markdown links (not Hugo
+  `relref`), which `hugo build` does NOT validate — so every new plain link's
+  target page + heading anchor was verified directly in the built HTML under
+  `public/`. All resolved.
+- **Upstream defects identified:** None.
+- **Follow-ups created:** t917 (agentcrew docs — concept page + `ait crew`
+  reference), t918 (evaluate `ait migrate-archives` relevance). Brainstorm docs
+  intentionally left to existing t776.
