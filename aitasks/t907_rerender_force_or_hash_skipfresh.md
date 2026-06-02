@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
 status: Implementing
 labels: [agents_md]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-02 10:48
-updated_at: 2026-06-02 11:04
+updated_at: 2026-06-02 11:37
 ---
 
 ## Origin
