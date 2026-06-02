@@ -223,3 +223,55 @@ Standard archival per task-workflow Step 9: commit code (`.aitask-scripts`,
 `.claude/skills`, profiles, goldens, regenerated prerenders, tests) with
 `bug: … (t894)`, then `aitask_archive.sh 894`. No worktree to clean (current
 branch).
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `headless: true` to `remote.yaml`;
+  `prerender_for_headless: true` to the `aitask-pickrem`/`aitask-pickweb`
+  `SKILL.md.j2` frontmatter; documented both markers in `profiles.md`; added a
+  read-only `walk-verify` CLI mode to `skill_template.py` (renders the closure
+  with `write=False` and reports any committed target that is missing or differs
+  from the fresh render, reusing the t907 `_any_target_differs` content
+  authority); generalized `aitask_skill_verify.sh` to source `yaml_utils.sh`,
+  discover `headless: true` profiles, and replace the hardcoded `aitask-pickrem`
+  block (and its fake-task `TODO(t777_29)`) with a declarative
+  `prerender_for_headless` × headless-profile × agent existence + freshness
+  check; regenerated the 9 committed remote prerenders and the 2 pickrem/pickweb
+  SKILL goldens; added negative Test 8 to `tests/test_skill_verify.sh`.
+
+- **Deviations from plan:** The approved plan listed marking
+  `task-workflow/SKILL.md.j2`. **`task-workflow` has no `.md.j2`** — its source
+  is `SKILL.md` (inline Jinja), it is a non-invocable closure leaf, and both
+  `agent_authoring_template` and `aitask_skill_rerender.sh` treat it as
+  non-renderable on its own (rerender explicitly *skips* `task-workflow-remote-`
+  as "orphaned"). `task-workflow-remote-` is committed **only** as a transitive
+  closure dependency of the headless `pickrem`/`pickweb` renders, so every file
+  in it provably lives in the pickrem∪pickweb closure. The check therefore marks
+  only `pickrem` + `pickweb`; their full-closure `walk-verify` covers
+  `task-workflow-remote-` completely (verified by the drift smoke test below).
+  This also *lowered* blast radius: no `task-workflow/SKILL.md` edit and no
+  task-workflow SKILL-golden regen. Net: only the `profiles.md` leaf changed
+  under task-workflow (which refreshed `task-workflow-remote-/profiles.md`
+  transitively).
+
+- **Issues encountered:** The render suites' "fresh render matches HEAD"
+  freshness assertions (Test 6 in pickrem/pickweb render tests) compare against
+  `git show HEAD:`, so they fail until the regenerated prerenders are committed —
+  expected, resolved by this commit. (The standalone `skill_template.py
+  <tpl> <profile> <agent>` legacy render does NOT rewrite cross-refs; only
+  walk-write/walk-verify do — so a raw `diff` of legacy-render vs the committed
+  file shows ref-path differences that are not drift. `walk-verify` is the
+  authority.)
+
+- **Key decisions:** Marker lives in `.md.j2` frontmatter (user-approved over a
+  sidecar file), accepting the generated-file regen churn for self-documentation.
+  Freshness uses a dedicated read-only `walk-verify` mode rather than overloading
+  `walk-check` (which is run against `default.yaml`, whose targets are gitignored
+  and would all read as "missing").
+
+- **Upstream defects identified:** None. (Note, not a defect: the same
+  `TODO(t777_29)` also tags a `.gitignore` block for a future
+  `aitask_regen_gitignore_prerender.sh` that would auto-generate the
+  `!…-remote-/` un-ignore list from these same two markers. That tool is out of
+  scope here and left as a separate follow-up; the gitignore TODO comment is
+  retained.)
