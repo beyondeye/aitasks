@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [agents_md]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-02 10:48
-updated_at: 2026-06-02 10:48
+updated_at: 2026-06-02 11:04
 ---
 
 ## Origin
