@@ -156,3 +156,32 @@ stale state, run without `--force`, confirm restored").
 Standard cleanup/archival per task-workflow Step 9 (working on current branch;
 no worktree). Commit code (`skill_template.py`, test, README) with
 `bug: <desc> (t907)`; plan file via `./ait git`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `_any_target_differs(plan)` to
+  `.aitask-scripts/lib/skill_template.py` (reads each rendered target and
+  compares its on-disk content to the freshly rendered content, short-circuits
+  on first difference, treats missing/unreadable as differing). OR'd it into
+  `walk_closure`'s write gate alongside the existing `force` and `_is_stale`
+  terms, so a committed prerender that drifted under git-equalized mtimes is
+  repaired on a plain re-render. Updated the `walk_closure` docstring, the
+  `aitask_skill_render.sh` header comment, and the `skill_templates/README.md`
+  Staleness section. Added Test 13 to `tests/test_skill_render_uniform.sh`
+  reproducing the t903 git-equalization drift.
+- **Deviations from plan:** None functional. The plan referred to the new test
+  as "Test 7c"; it was added as **Test 13** (appended before the Summary) to
+  follow the file's existing sequential numbering (tests run through 12). The
+  Risk section still says "Test 7c" — harmless naming carryover.
+- **Issues encountered:** None. Confirmed the test is a genuine regression
+  guard by temporarily neutering the content-diff term (Test 13 failed:
+  stale content survived) and restoring it (37/37 pass).
+- **Key decisions:** Chose the **additive** content-diff net over replacing
+  `_is_stale` (option (b)-as-replacement) so existing touch-based tests
+  (Test7/7b, which assert a `touch` re-renders) stay green, and over option
+  (a) (`--force` in the rerender driver) because the renderer-level fix covers
+  every caller and keeps skip-if-fresh's write-avoidance benefit. The content
+  check is effectively free: `walk_closure` already renders every target's
+  content into the plan regardless of staleness — only the disk *write* was
+  gated.
+- **Upstream defects identified:** None.
