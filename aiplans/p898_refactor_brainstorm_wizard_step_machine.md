@@ -141,3 +141,63 @@ contract + resolver signatures and how to add an optional step, so t756_2 can
 add `subgraph_select` as one row** — then archive via
 `./.aitask-scripts/aitask_archive.sh 898`. After it lands, t756_2 (gated on this)
 resumes and builds the subgraph-selector on this model.
+
+## Final Implementation Notes
+
+- **Actual work done (all in `.aitask-scripts/brainstorm/brainstorm_app.py`,
+  +168/−94, plus new `tests/test_brainstorm_wizard_steps.py`):**
+  - Added the pure step model near `_filter_labels`: `_WizardStep` NamedTuple,
+    the ordered `_WIZARD_STEPS` table (`op_select`, `node_select`,
+    `section_select`, `config`, `confirm`) with per-step `active(ctx)`
+    predicates, and module-level resolvers `active_step_ids`, `step_position`,
+    `next_step_id`, `prev_step_id`. ctx = `{"op", "node_has_sections"}`.
+  - `self._wizard_step_id` is the dispatch source of truth (set in `__init__`).
+    `_wizard_step`/`_wizard_total_steps` are now DERIVED by `_enter_wizard_step`
+    via `step_position`, kept only for the "Step X of Y" label and the
+    "wizard active" sentinel guards (`_wizard_step < 1` / `> 0` / `> 1`,
+    intentionally left as-is).
+  - Helpers added: `_wizard_ctx()` (no I/O), `_enter_wizard_step(id)` (sets id +
+    derives label numbers), `_render_wizard_step(id)` (id → `_actions_show_*`
+    dispatch map). Each `_actions_show_*` now calls `_enter_wizard_step` instead
+    of hardcoding `self._wizard_step = N` / `_wizard_total_steps = 4/5`; their
+    other side effects (config clear, node seeding, checkbox mounts,
+    `_wizard_has_sections = True`) are unchanged.
+  - `_set_total_steps` reduced to a flag-reset hook (resets
+    `_wizard_has_sections` + `_cmp_section_checks`); the count is now derived.
+    Call-sites unchanged.
+  - `_actions_advance_from_node_select` caches
+    `self._wizard_has_sections = self._node_has_sections(node)` BEFORE
+    transitioning (the ordering rule so the resolver counts `section_select`).
+  - Dispatch rewrites: Esc ladder + Back button → `prev_step_id`; Next button →
+    `_wizard_step_id` dispatch (node_select→guarded advance; section_select→
+    collect+detail-seed; config→collect+confirm); every int-literal gate
+    (enter op/node, Tab-cycle config, up/down OperationRow nav, confirm
+    up/down, `?`-help, dashboard `on_descendant_focus`, mouse
+    `on_operation_row_activated`) → `_wizard_step_id`.
+- **Deviations from plan:** none substantive. Added `_render_wizard_step` (an
+  id→renderer map) as the natural companion to `_enter_wizard_step` — not named
+  in the plan but implied by the back/next dispatch. The lower-risk variant was
+  followed exactly (render-method bodies and the side effects left intact).
+- **Key decisions:** (1) Totals derived from the active set → session-op confirm
+  shows "Step 2 of 2" (was "Step 3 of 3", a phantom-gap artifact) — surfaced and
+  approved at plan time. All other labels byte-identical. (2) Reused the existing
+  `_wizard_has_sections` as the ctx source rather than a new field — the disk
+  read stays out of predicates (predicates are pure). (3) Resolvers are
+  module-level pure functions for unit-testability (precedent: `_filter_labels`).
+- **Issues encountered:** none. New resolver tests 21/21; all existing brainstorm
+  tests pass (25 Python files + 6 shell); module compiles & imports clean.
+- **Upstream defects identified:** None.
+- **Notes for the gated resumer (t756_2 — add `subgraph_select`):** it is now a
+  **single-row** addition, no handler edits:
+  1. Uncomment the `subgraph_select` row in `_WIZARD_STEPS` (predicate:
+     `c.get("op") in _NODE_SELECT_OPS and c.get("subgraph_count", 1) >= 2`,
+     `rows=True`).
+  2. Add `"subgraph_count"` to `_wizard_ctx()` (from `list_subgraphs(...)`).
+  3. Add a `_actions_show_subgraph_select()` that calls
+     `_enter_wizard_step("subgraph_select")` and renders OperationRows per
+     subgraph; register it in the `_render_wizard_step` map.
+  4. Route op_select → subgraph_select when active (the `_actions_show_step2`
+     fork, or let `next_step_id` carry it). Back/Esc/Next/up-down resolve
+     automatically because they are resolver-driven. The node-select
+     `module_label` filtering and `subgraph` group-recording remain the
+     t756_2-specific work (orthogonal to this step model).
