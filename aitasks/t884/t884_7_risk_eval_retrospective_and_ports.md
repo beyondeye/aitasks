@@ -1,13 +1,16 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [t884_6]
 issue_type: chore
 status: Implementing
 labels: [task_workflow, child_tasks]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 00:31
-updated_at: 2026-06-02 12:25
+updated_at: 2026-06-02 12:48
 ---
 
 ## Context
