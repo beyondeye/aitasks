@@ -182,3 +182,33 @@ on stdout. Family: `aitask_explain_context.sh`,
 Follow task-workflow Step 9: review, commit (`feature: … (t756_4)`), consolidate
 this plan with Final Implementation Notes (syncer input-bundle shape + notes for
 Phase D), archive via `./.aitask-scripts/aitask_archive.sh 756_4`.
+
+## Risk
+
+### Code-health risk: medium
+- New op wired in parallel to `module_merge` across 6 central files
+  (`brainstorm_schemas.py`, `brainstorm_op_refs.py`, `brainstorm_crew.py`,
+  `brainstorm_session.py`, `brainstorm_app.py`, `brainstorm_dag_display.py`) plus a
+  new apply path and poller branch; additive and pattern-guided, but a regression
+  in the shared op launch/apply/poller flow is plausible · severity: medium · → mitigation: TBD
+- The git-scan (`git log --grep`/`git diff`) + `aitask_explain_context.sh`
+  shell-out bundling inside `register_module_syncer` is genuinely new logic with no
+  prior analog in `crew.py` (new subprocess + large-bundle failure surface, not
+  covered by t906's decompose/merge contract tests) · severity: medium · → mitigation: module_sync_apply_contract_tests
+
+### Goal-achievement risk: medium
+- HEAD-scoping assumption: `apply_module_syncer_output` relies on the shared
+  `_apply_node_output` helper advancing the *selected module's* HEAD (not
+  `_umbrella`). If the helper does not derive subgraph scope from the group's
+  `subgraph` field, sync would silently advance the wrong HEAD · severity: medium · → mitigation: TBD
+- The live TUI wizard + agent launch/apply cycle for `module_sync` is not
+  manually exercised this session (static/unit checks only) · severity: medium · → mitigation: t756_7
+
+### Planned mitigations
+- timing: after | name: module_sync_apply_contract_tests | type: test | priority: medium | effort: medium | addresses: code-health new apply path + git-scan/explain-context bundling | desc: Add integration/contract coverage for apply_module_syncer_output, the git-scan + explain-context bundling (with a stubbed aitask_explain_context.sh), and the last_synced_at advance — paralleling t906's decompose/merge coverage.
+
+(Separate standalone follow-up **t909** — not a risk mitigation — fixes the
+task-workflow skill so the Risk Evaluation step runs on the verify path, not only
+on the create-new path. It was surfaced because this very pick skipped risk
+evaluation on the verify path until the user caught it.)
+
