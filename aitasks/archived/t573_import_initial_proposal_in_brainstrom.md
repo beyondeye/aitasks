@@ -3,11 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [ait_brainstorm]
-children_to_implement: [t573_5]
 created_at: 2026-04-16 11:50
-updated_at: 2026-04-23 18:07
+updated_at: 2026-06-02 12:30
+completed_at: 2026-06-02 12:30
 boardcol: manual_verifications
 boardidx: 140
 ---
