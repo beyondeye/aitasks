@@ -187,7 +187,7 @@ The fixed top/search/button regions are `height: auto`; the params scroll takes
 - Substantial rewrite of `_populate_profiles_tab` and new key/focus handling in
   a 3000-line TUI; the selector/up-down/Tab interplay and the extended
   `@on(CycleField.Changed)` handler are load-bearing focus paths · severity:
-  medium · → mitigation: profiles_tab_manual_verification
+  medium · → mitigation: t902
 - Tab-key interception may collide with Textual's built-in focus bindings,
   needing the priority-Binding fallback · severity: low · → mitigation: TBD
 
@@ -198,7 +198,7 @@ The fixed top/search/button regions are `height: auto`; the params scroll takes
   mitigation: profiles_tab_manual_verification
 
 ### Planned mitigations
-- timing: after | name: profiles_tab_manual_verification | type: manual_verification | priority: medium | effort: low | addresses: code-health + goal-achievement TUI focus/layout risks | desc: Manually verify the redesigned Execution Profiles tab — pinned selector while scrolling, name-only param filter, Tab pane-cycling, w/v/x shortcuts, Save/Revert dirty-gating, and save/revert persistence.
+- timing: after | name: profiles_tab_manual_verification (t902) | type: manual_verification | priority: medium | effort: low | addresses: code-health + goal-achievement TUI focus/layout risks | desc: Manually verify the redesigned Execution Profiles tab — pinned selector while scrolling, name-only param filter, Tab pane-cycling, w/v/x shortcuts, Save/Revert dirty-gating, and save/revert persistence.
 
 ## Verification
 
