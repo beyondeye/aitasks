@@ -7,10 +7,11 @@ depends: [t756_3]
 issue_type: feature
 status: Implementing
 labels: [ait_brainstorm, brainstom_modules]
+risk_mitigation_tasks: [913]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 17:29
-updated_at: 2026-06-02 12:25
+updated_at: 2026-06-02 12:50
 ---
 
 Phase C of the `ait brainstorm` **module decomposition** feature (parent t756).

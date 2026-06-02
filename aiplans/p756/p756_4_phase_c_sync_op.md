@@ -255,7 +255,7 @@ Phase D), archive via `./.aitask-scripts/aitask_archive.sh 756_4`.
 - The git-scan (`git log --grep`/`git diff`) + `aitask_explain_context.sh`
   shell-out bundling inside `register_module_syncer` is genuinely new logic with no
   prior analog in `crew.py` (new subprocess + large-bundle failure surface, not
-  covered by t906's decompose/merge contract tests) · severity: medium · → mitigation: module_sync_apply_contract_tests
+  covered by t906's decompose/merge contract tests) · severity: medium · → mitigation: t913
 
 ### Goal-achievement risk: medium
 - HEAD-scoping assumption: `apply_module_syncer_output` relies on the shared
@@ -266,7 +266,7 @@ Phase D), archive via `./.aitask-scripts/aitask_archive.sh 756_4`.
   manually exercised this session (static/unit checks only) · severity: medium · → mitigation: t756_7
 
 ### Planned mitigations
-- timing: after | name: module_sync_apply_contract_tests | type: test | priority: medium | effort: medium | addresses: code-health new apply path + git-scan/explain-context bundling | desc: Add integration/contract coverage for apply_module_syncer_output, the git-scan + explain-context bundling (with a stubbed aitask_explain_context.sh), and the last_synced_at advance — paralleling t906's decompose/merge coverage.
+- timing: after | name: module_sync_apply_contract_tests | created: t913 | type: test | priority: medium | effort: medium | addresses: code-health new apply path + git-scan/explain-context bundling | desc: Add integration/contract coverage for apply_module_syncer_output, the git-scan + explain-context bundling (with a stubbed aitask_explain_context.sh), and the last_synced_at advance — paralleling t906's decompose/merge coverage.
 
 (Separate standalone follow-up **t909** — not a risk mitigation — fixes the
 task-workflow skill so the Risk Evaluation step runs on the verify path, not only
