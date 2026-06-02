@@ -224,3 +224,65 @@ The fixed top/search/button regions are `height: auto`; the params scroll takes
 Follow task-workflow Step 8 (review) → 8b/8c/8d (upstream/manual-verification/
 risk-mitigation follow-ups) → Step 9 (archival on current branch). The Step 8c
 manual-verification offer covers the TUI behaviors above.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-02)
+- **Requested by user:** Tab did nothing when the parameter list was focused —
+  it failed to move focus to the next pane.
+- **Root cause:** In this Textual version a *disabled* `Button` still reports
+  `can_focus = True`, so the buttons-pane anchor picked the disabled **Save**
+  button (when the profile had no unsaved changes), and `focus()` on a disabled
+  widget is a no-op — focus stayed on the field. The anchor/nav filters used
+  `can_focus and display`, which does not exclude disabled widgets.
+- **Changes made:** Switched anchor selection in `_cycle_profile_pane` (params
+  + buttons loops) and the shared `_nav_vertical` / `_focus_first_in_tab`
+  filters from `can_focus and display` to the stricter `focusable` property
+  (which also excludes disabled and search-filtered widgets). Now Tab from a
+  params field lands on Delete when Save/Revert are disabled, and on Save once
+  the profile is dirty; Up/Down likewise skip disabled buttons.
+- **Files affected:** `.aitask-scripts/settings/settings_app.py`
+- **Verification:** Re-ran the Textual pilot — full Tab/Shift+Tab cycle across
+  all four panes in both clean and dirty states; Up/Down skip disabled buttons.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented entirely in
+  `.aitask-scripts/settings/settings_app.py` as planned — renamed tab/intro to
+  "Execution Profiles"; converted `#profiles_content` to a non-scrolling
+  `Vertical`; built the four panes (fixed selector, fixed name-filter `Input`,
+  scrolling `VerticalScroll` params, pinned button row); added
+  `_apply_profile_filter` (name-only, display-toggle), `_profile_is_dirty` /
+  `_update_profile_button_states` (Save/Revert disabled when unchanged),
+  `_cycle_profile_pane` (Tab/Shift+Tab), `w`/`v`/`x` bindings +
+  `action_profile_*` gated via `_PROFILE_TAB_ACTIONS` in `check_action`, and
+  `render_label_cfg` button labels without the profile name.
+- **Deviations from plan:** Two refinements forced by Textual runtime behavior,
+  both caught by headless pilot tests:
+  1. The new direct-child panes (`profiles_search`, `profiles_params_scroll`,
+     `profiles_buttons`) needed **repop-counter-suffixed ids** + class-based CSS,
+     because fixed sibling ids collide with the not-yet-removed previous copies
+     on repop (`remove_children()` is deferred). The original code dodged this
+     by nesting buttons in a per-repop `hbox`; the new direct children did not.
+  2. Anchor/nav selection had to use the `focusable` property instead of
+     `can_focus and display`: a *disabled* `Button` still reports
+     `can_focus = True`, so Tab/Up-Down would target the disabled Save/Revert and
+     `focus()` would no-op (the post-review Tab fix). This also hardened the
+     shared `_nav_vertical` / `_focus_first_in_tab`.
+- **Issues encountered:** See the two deviations — both surfaced only at runtime
+  (DuplicateIds crash on repop; Tab no-op from the params pane) and were fixed
+  before/after the user's review respectively.
+- **Key decisions:** Filter hides via `display` (not unmount) so edits to
+  filtered-out fields survive Save; shortcuts use single lowercase keys gated to
+  the tab (no Ctrl/Alt, per user); the group/field index is parsed from the flat
+  `compose_profile_fields()` stream so `lib/profile_editor.py` (and its
+  `ProfileEditScreen` modal) is left untouched.
+- **Upstream defects identified:** None. (The `_nav_vertical` /
+  `_focus_first_in_tab` `can_focus`→`focusable` change is a hardening of the
+  same file edited here, not a separate pre-existing defect — before this task
+  no settings widget was ever disabled, so the latent gap never manifested.)
+- **Verification:** Headless Textual `run_test()` pilots cover layout, name
+  filter, dirty-gating + revert round-trip, real `Tab`/`Shift+Tab` cycling
+  (clean + dirty), `w`/`v`/`x` keypresses (incl. tab-gating and search-box
+  typing not firing shortcuts), and same-/switch-profile repop. Manual TUI
+  verification is the residual safety net (Step 8c offer + the `after`
+  risk-mitigation task).
