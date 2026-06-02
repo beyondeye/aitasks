@@ -3,11 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: enhancement
-status: Ready
+status: Done
 labels: [task_workflow, aitask-create]
-children_to_implement: [t884_8]
 created_at: 2026-05-31 18:35
-updated_at: 2026-06-02 12:53
+updated_at: 2026-06-02 13:47
+completed_at: 2026-06-02 13:47
 boardidx: 20
 ---
 
