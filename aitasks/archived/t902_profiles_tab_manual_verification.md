@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [ait_settings, execution_profiles]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-02 10:18
-updated_at: 2026-06-02 11:36
+updated_at: 2026-06-02 11:37
+completed_at: 2026-06-02 11:37
 ---
 
 ## Origin
