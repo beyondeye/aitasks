@@ -9,8 +9,9 @@ status: Implementing
 labels: [ait_brainstorm, brainstom_modules]
 risk_mitigation_tasks: [905, 906]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_5
 created_at: 2026-06-01 17:29
-updated_at: 2026-06-02 10:43
+updated_at: 2026-06-02 10:46
 ---
 
 Phase B2 of the `ait brainstorm` **module decomposition** feature (parent t756).

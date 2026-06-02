@@ -6,8 +6,9 @@ issue_type: chore
 status: Implementing
 labels: [agents_md]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-02 10:21
-updated_at: 2026-06-02 10:25
+updated_at: 2026-06-02 10:37
 ---
 
 ## Origin
