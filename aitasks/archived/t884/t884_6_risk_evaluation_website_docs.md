@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t884_5]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [task_workflow, web_site]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 00:31
-updated_at: 2026-06-02 12:07
+updated_at: 2026-06-02 12:19
+completed_at: 2026-06-02 12:19
 ---
 
 ## Context
