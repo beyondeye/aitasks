@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: [t884_6]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [task_workflow, child_tasks]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 00:31
-updated_at: 2026-06-01 00:31
+updated_at: 2026-06-02 12:25
 ---
 
 ## Context
