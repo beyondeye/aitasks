@@ -148,3 +148,24 @@ skill change). Run `/aitask-qa 913` afterward for any further coverage-gap analy
 ## Step 9 (Post-Implementation)
 No separate branch (profile 'fast' — current branch). After review/commit, archive via
 `./.aitask-scripts/aitask_archive.sh 913` and `./ait git push`.
+
+## Final Implementation Notes
+- **Actual work done:** Added `tests/test_brainstorm_module_sync_apply_contract.py`
+  (404 lines, 9 tests) exactly as planned — Group A (apply round-trip + re-sync chain),
+  Group B (live scan bundling via a real `git init` repo + stubbed `aitask_explain_context.sh`,
+  driving `_sync_touched_files` / `_sync_scoped_diff` / `_sync_explain_context` for real),
+  Group C (refuse-path decision contract backing the wizard Next-disable predicate).
+  No production code changed.
+- **Deviations from plan:** None. The `_GitSyncRepo` fixture and the `--since` horizon
+  test landed as designed; git's `--since` with pinned `GIT_AUTHOR_DATE`/`GIT_COMMITTER_DATE`
+  proved deterministic, so the documented call-args fallback was not needed. The truncation
+  test imports `_SYNC_DIFF_MAX_CHARS` from `brainstorm_crew` rather than hard-coding 60000,
+  so the assertion tracks the constant.
+- **Issues encountered:** None. All 9 new tests pass; the existing unit test
+  (`test_brainstorm_module_sync.py`, 5) and the t906 sibling
+  (`test_brainstorm_module_ops_integration.py`, 16) remain green.
+- **Key decisions:** Kept this as a separate integration file (not folded into the unit
+  test) to preserve the unit/integration split t906 established; asserted the refuse
+  contract that backs the wizard predicate rather than refactoring `brainstorm_app.py`
+  (test-only task, lowest blast radius).
+- **Upstream defects identified:** None
