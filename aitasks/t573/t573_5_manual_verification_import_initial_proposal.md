@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [t573_1, t573_2, t573_3, t573_4]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-23 11:05
-updated_at: 2026-06-02 12:25
+updated_at: 2026-06-02 12:28
 ---
 
 ## Manual Verification Task
@@ -33,7 +33,7 @@ archived; Defer is allowed but creates a carry-over task.
 - [x] [t573_3] After selecting a valid .md, the TUI shows a waiting notification and polls until the initializer agent reaches Completed; on completion the DAG pane shows a properly sectioned n000_init with visible dimensions. — PASS 2026-06-02 12:16 user: confirmed live TUI import flow - DAG shows sectioned n000_init with dimensions
 - [defer] [t573_3] Imported source file mtime and md5 are unchanged after the full flow. — DEFER 2026-06-02 12:24 user: deferred for later (not verified this session)
 - [defer] [t573_3] Simulated initializer failure (malformed _output.md) surfaces as an error-severity notification; the placeholder n000_init is retained and the TUI remains usable. — DEFER 2026-06-02 12:25 user: deferred for later (not verified this session)
-- [defer] [t573_3] Running outside tmux (unset TMUX) still reaches Completed via the headless fallback. — DEFER 2026-06-02 12:09 auto: TMUX-unset headless-fallback agent launch reaching Completed needs a live run. Verify interactively.
+- [defer] [t573_3] Running outside tmux (unset TMUX) still reaches Completed via the headless fallback. — DEFER 2026-06-02 12:28 user: deferred for later (not verified this session)
 - [x] [t573_4] grep "initializer" aidocs/brainstorming/brainstorm_engine_architecture.md returns §5 and §7 additions plus the ASCII block update. — PASS 2026-06-02 12:07 auto: grep initializer in brainstorm_engine_architecture.md -> S5 (577-589), S7.1a (935-941), ASCII (63), layout table (162,164)
 - [skip] [t573_4] defaults.brainstorm-initializer is present and identical in both aitasks/metadata/codeagent_config.json and seed/codeagent_config.seed.json. — SKIP 2026-06-02 12:09 Premise invalid per design: seed/codeagent_config.seed.json does not exist; actual seed seed/codeagent_config.json intentionally omits brainstorm-* keys (invariant, test_add_model.sh:181). Runtime config has brainstorm-initializer=claudecode/sonnet4_6 (t573_1). Not applicable.
 - [x] [t573_4] No "previously" / "now" / "used to be" phrasing in the user-facing doc diff. — PASS 2026-06-02 12:07 auto: t573_4 commit b7d9c994 doc diff added-lines contain no previously/now/used-to-be phrasing
