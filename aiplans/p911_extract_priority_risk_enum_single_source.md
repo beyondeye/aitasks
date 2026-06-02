@@ -173,3 +173,27 @@ profile).
 - None identified. The goal (one canonical definition per language) is
   unambiguous and the approach plainly delivers it; orders are preserved so
   there is no behavior change to misjudge.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added the canonical level enum to
+  `lib/task_utils.sh` (`TASK_LEVELS` + `is_valid_task_level()` +
+  `task_levels_lines()` / `task_levels_lines_asc()`) and a Python mirror
+  `lib/task_levels.py` (`LEVELS`, `LEVELS_ASCENDING`, `is_valid_level()`).
+  Replaced the 6 bash validation `case` blocks (create ×2, update ×4) with
+  `is_valid_task_level` and routed the 6 interactive fzf lists through the
+  emitters. `board/aitask_board.py` now imports `LEVELS_ASCENDING` for its two
+  CycleField option lists. Added `tests/test_task_levels.sh` (12 assertions,
+  incl. a bash↔Python value-set agreement check).
+- **Deviations from plan:** None. Implemented exactly as approved (per-language
+  constants + fzf-list migration scope).
+- **Issues encountered:** None. `die` error-message prose was kept verbatim
+  (left as field-appropriate help text) so no test/message churn; the create.sh
+  desc-required guard fires before enum validation, so the invalid-effort smoke
+  test needed `--desc` to reach the enum check.
+- **Key decisions:** Centralized only enum *membership* (validation + selection
+  sets); per-field sort weights (`aitask_ls.sh`), border colors, display
+  capitalization, defaults, and help prose stay local (field-specific, not
+  membership). `issue_import`/`pr_import` fzf lists left as-is (deliberate
+  default-first UX, no validation). The `status` enum is out of scope.
+- **Upstream defects identified:** None.
