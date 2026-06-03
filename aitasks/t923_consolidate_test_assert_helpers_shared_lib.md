@@ -5,9 +5,10 @@ depends: []
 issue_type: refactor
 status: Implementing
 labels: [testing, bash_scripts]
+children_to_implement: [t923_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 10:51
-updated_at: 2026-06-03 11:02
+updated_at: 2026-06-03 11:24
 ---
 
 ## Context
