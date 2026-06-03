@@ -5,6 +5,18 @@ description: Explore the codebase interactively, then create a task for implemen
 
 ## Workflow
 
+> **Runtime context variables** (maintained across steps during this run —
+> analogous to the pre-Jinja execution-profile context variables, *not* Jinja
+> keys). All default to empty; they are set only if Step 1's **Cross-repo scope
+> detection** finds a match:
+> - `cross_repo_scope` — registered cross-repo project name the exploration
+>   became scoped to (`""` = single-repo). Drives Step 2 and the Step 3 option.
+> - `cross_repo_root` — filesystem root of `cross_repo_scope`.
+> - `cross_repo_files` — cross-repo file paths resolved from `<name>:<path>`
+>   notation, used as high-priority reads in Step 2.
+> - `cross_repo_xdeps` — cross-repo dependency task IDs parsed from `<name>#<id>`
+>   notation (CSV), pre-filled as `--xdeps` in Step 3.
+
 ### Step 1: Exploration Setup
 
 Use `AskUserQuestion` to determine the exploration intent:
@@ -65,13 +77,46 @@ The user can also provide free text via the "Other" option.
 - **Exploration strategy:** General-purpose exploration based on the user's description.
 - **Task defaults:** `issue_type: feature`, `priority: medium`
 
+#### Cross-repo scope detection
+
+After the exploration intent and its free-text description are captured (from
+the follow-up question above, or the top-level "Other" text), check whether the
+exploration is scoped to a registered cross-repo project. **Do NOT run this
+before the first `AskUserQuestion` above** — that prompt must fire with no I/O
+latency; this detection runs only once the user's description is in hand.
+
+1. Read the resolved project registry:
+   ```bash
+   ./.aitask-scripts/aitask_project_resolve.sh list
+   ```
+   Collect `<name>` from each `PROJECT:<name>:<path>:RESOLVED` line whose
+   `<path>` is **not** the current repo root. Skip `STALE` entries.
+2. Scan the user's free-text description for any of: a resolved `<name>`
+   mention, `<name>#<id>` notation, or `<name>:<relative/path>` notation
+   (documented in `aidocs/framework/cross_repo_references.md`).
+3. **On a match**, set the runtime context variables:
+   - `cross_repo_scope = <name>`.
+   - Resolve its root: `./.aitask-scripts/aitask_project_resolve.sh <name>` →
+     `RESOLVED:<root>`; set `cross_repo_root = <root>`.
+   - For each `<name>:<relative/path>`, append `<root>/<relative/path>` to
+     `cross_repo_files`.
+   - For each `<name>#<id>`, append `<id>` to `cross_repo_xdeps`; optionally
+     resolve its title for a richer exploration question:
+     `./.aitask-scripts/aitask_query_files.sh --project <name> task-file <id>`.
+4. **No match** → leave all four variables empty and continue as a normal
+   single-repo exploration.
+
 ### Step 2: Iterative Exploration
 
 Explore the codebase guided by the exploration strategy set in Step 1. Use Read, Glob, Grep, and Task (Explore agents) as needed.
 
 **Exploration loop:**
 
-1. Perform an exploration round based on the strategy and user's focus area
+1. Perform an exploration round based on the strategy and user's focus area.
+   **If `cross_repo_scope` is set,** make this a cross-repo round: in addition to
+   exploring the local repo, spawn an `Explore` subagent rooted in
+   `cross_repo_root` and include any `cross_repo_files` as high-priority reads,
+   so findings span both repos
 2. Present a brief summary of findings so far to the user
 3. Use `AskUserQuestion`:
    - Question: "How would you like to proceed?"
@@ -135,10 +180,20 @@ Use `AskUserQuestion` to confirm or modify:
 - Options:
   - "Create task as proposed" (description: "<task_name> [priority: <p>, effort: <e>, type: <t>]")
   - "Modify before creating" (description: "Change the title, priority, effort, labels, or description")
+  - **Include this option ONLY when `cross_repo_scope` is non-empty:** "Create as cross-repo paired task" (description: "Exploration is scoped to `<cross_repo_scope>`; sets `xdeprepo` so planning designs a paired decomposition spanning both repos")
 
 **If "Modify before creating":**
 - Ask the user what to change via `AskUserQuestion` or free text
 - Apply their modifications
+
+**If "Create as cross-repo paired task":**
+- Confirm the cross-repo dependency task IDs: default to `cross_repo_xdeps` (if
+  any were detected); allow the user to edit or clear them via free text
+  ("Other"). Store the result as `<xdeps>` (may be empty — `xdeprepo` alone is
+  the valid intent-only form per `validate_xdeps_pair`).
+- Set `<xdeprepo> = cross_repo_scope`, then create the task with the cross-repo
+  flags (see "Create the task" below). Apply any other metadata changes the user
+  also requested, as in "Modify before creating".
 
 **If folded_tasks is non-empty:** Build the merged description using `aitask_fold_content.sh` with `--primary-stdin` (the primary task does not exist yet):
 
@@ -159,6 +214,19 @@ Execute the **Batch Task Creation Procedure** (see `.claude/skills/task-workflow
 - issue_type: `<issue_type>`
 - labels: `"<l>"`
 - description: task description (or merged description if folded_tasks is non-empty)
+
+**Cross-repo flags:** When the "Create as cross-repo paired task" option was
+chosen, append to the `aitask_create.sh --batch` invocation:
+`--xdeprepo "<xdeprepo>"`, and — only when `<xdeps>` is non-empty —
+`--xdeps "<xdeps>"`. Pass `--xdeps` only together with `--xdeprepo` (the
+validator enforces both-or-neither; `--xdeprepo` alone is the intent-only form).
+The created task then carries `xdeprepo` in its frontmatter.
+
+**No dispatch needed here.** When Step 5 hands off to
+`.claude/skills/task-workflow/SKILL.md`, the existing cross-repo wiring fires on
+the `xdeprepo` trigger: `planning.md` §6.1 runs the Cross-Repo Planning
+Procedure (design) and Step 7 runs the Cross-Repo Child Assignment Procedure
+(creation, after approval). This skill dispatches neither procedure itself.
 
 Read back the created task file to confirm the assigned task ID:
 ```bash

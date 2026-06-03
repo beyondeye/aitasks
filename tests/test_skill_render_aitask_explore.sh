@@ -198,6 +198,44 @@ assert_contains "codex stub: reads from .agents/skills/aitask-explore-<profile>-
 assert_contains "opencode stub: reads from .opencode/skills/aitask-explore-<profile>-" \
     ".opencode/skills/aitask-explore-<profile>-/SKILL.md" "$(cat "$OPENCODE_STUB")"
 
+# === Test 6: cross-repo paired-planning trigger (t832_11) ===
+#
+# explore sets `xdeprepo` at task creation (auto-detected from the user's
+# free-text exploration scope); the cross-repo design + creation dispatch is
+# INHERITED from the task-workflow handoff, never duplicated into explore.
+
+echo "=== Test 6: cross-repo scope detection + inherited dispatch ==="
+for profile in "${PROFILES[@]}"; do
+    rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+
+    assert_contains "$profile: cross-repo scope detection reads registry" \
+        "aitask_project_resolve.sh list" "$rendered"
+    assert_contains "$profile: runtime var cross_repo_scope present" \
+        "cross_repo_scope" "$rendered"
+    assert_contains "$profile: sets xdeprepo at creation" \
+        "xdeprepo" "$rendered"
+    assert_contains "$profile: conditional cross-repo paired option" \
+        "Create as cross-repo paired task" "$rendered"
+
+    # Dispatch is inherited from task-workflow, NOT duplicated into explore.
+    assert_not_contains "$profile: does NOT dispatch planning-cross-repo.md" \
+        "planning-cross-repo.md" "$rendered"
+    assert_not_contains "$profile: does NOT dispatch cross-repo-child-assignment.md" \
+        "cross-repo-child-assignment.md" "$rendered"
+
+    # The first "what to explore" prompt must precede any registry read
+    # (no upfront I/O before the first AskUserQuestion).
+    prompt_ln="$(printf '%s\n' "$rendered" | grep -n 'What would you like to explore?' | head -1 | cut -d: -f1)"
+    probe_ln="$(printf '%s\n' "$rendered" | grep -n 'aitask_project_resolve.sh list' | head -1 | cut -d: -f1)"
+    TOTAL=$((TOTAL + 1))
+    if [[ -n "$prompt_ln" && -n "$probe_ln" && "$prompt_ln" -lt "$probe_ln" ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: $profile: first explore prompt (line $prompt_ln) must precede registry read (line $probe_ln)"
+    fi
+done
+
 # === Summary ===
 
 echo ""
