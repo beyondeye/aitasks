@@ -153,6 +153,60 @@ an op** — it does **not** go in `OP_BADGE_STYLES`; it is a separate status ind
 ### Planned mitigations
 - timing: after | name: module_status_compute_contract_tests | type: test | priority: medium | effort: medium | addresses: goal-achievement (merged/implemented status correctness) + code-health (_node_module graph-build wiring regression guard) | desc: Contract/unit coverage for compute_module_status across all 6 states over seeded graph state — cross-subgraph merged parents-walk, live-vs-archived implemented resolution, deferred overlay + module_deferred round-trip. Parallels t756_4's t913.
 
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the §4.7 status views end-to-end.
+  - New `brainstorm_status.py` (pure, read-only): `compute_module_status` (base
+    state, `merged` as terminal override), `is_module_merged` (cross-subgraph
+    `parents`-walk for the source HEAD), `_resolve_task_state` (live-vs-archived
+    task-file frontmatter resolution, modelled on `_resolve_linked_plan_path`),
+    `module_status_rows` (per-subgraph render data: status + deferred overlay +
+    sync/link/count).
+  - Data model: added `module_deferred` to `GRAPH_STATE_MODULE_MAPS`
+    (`brainstorm_schemas.py`), seeded `{}` in `init_session`, and added
+    `_module_deferred_map` / `_write_module_deferred` mirroring `last_synced_at`
+    (`brainstorm_session.py`).
+  - Render: `MODULE_STATUS_STYLES` badge palette in `brainstorm_dag_display.py`,
+    kept **separate** from `OP_BADGE_STYLES` (status is a render, not an op).
+  - TUI (`brainstorm_app.py`): per-module status section in the Dashboard detail
+    pane (`_update_module_status`, refreshed on load + HEAD change) + the `f` →
+    `action_toggle_deferred` binding (tab-scoped via `check_action`, read-only /
+    `_umbrella` guarded, no git auto-commit per tui_conventions).
+  - Tests: `tests/test_brainstorm_module_status.py` (10 tests).
+- **Deviations from plan:** Surfaced the subgraph tree as a **read-only status
+  section in the existing Dashboard detail pane** rather than (a) rewiring the DAG
+  `_build_graph` layering or (b) using `FuzzyCheckList.set_grouped_items` (a
+  checkbox/multi-select list — wrong semantics for a read-only status render).
+  `_node_module` is consumed by `module_status_rows` for per-subgraph grouping but
+  the load-bearing DAG graph-build path is **left untouched** — this *retires* the
+  medium code-health risk the plan flagged (no change to an existing render path).
+  The deferred toggle targets the **focused node's** subgraph (reusing existing
+  `_current_focused_node_id` focus infra) instead of a new focusable module-row
+  widget — no new navigation surface. Both deviations reduce blast radius while
+  delivering all three §4.7 deliverables (badge, dashboard, deferred marker).
+- **Issues encountered:** None. The `board.task_yaml.parse_frontmatter` helper is
+  not cleanly importable (`board/` is not a package — no `__init__.py`), so
+  `_read_frontmatter_status` uses a small self-contained regex + `yaml.safe_load`
+  (only the `status` string is read, so the `85_2`→int coercion quirk is moot).
+- **Key decisions:** `merged` is the terminal state (overrides implemented/in_design)
+  since a merged subgraph's design was absorbed upstream. `deferred` is an
+  **orthogonal overlay** (separate boolean), not a base state — so a module can be
+  both deferred and e.g. in_design (verified). Status badge colors are a distinct
+  palette from op badges. Map accessors co-located with the other two module maps
+  in `brainstorm_session.py` per the plan.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (D2 / t756_6):**
+  - `module_deferred` is the third `GRAPH_STATE_MODULE_MAPS` entry; read it via
+    `_module_deferred_map(wt)`, write via `_write_module_deferred(wt, module, bool)`.
+  - `brainstorm_status.compute_module_status` / `module_status_rows` are the single
+    source of truth for fluid status — reuse, do not recompute. `MODULE_STATUS_STYLES`
+    (in `brainstorm_dag_display.py`) is the badge palette.
+  - The fast-track preset (D2) sets `module_tasks[module]` at decompose time; once
+    that linkage exists, the status badge auto-advances Ready→in_design,
+    Implementing→in_implementation, Done/archived→implemented with no extra wiring.
+  - `_resolve_task_state(task_id)` resolves a bare task id to `(status, is_archived)`
+    over `aitasks/` (live→archived) — reuse it for any task-status lookup from the TUI.
+
 ## Step 9 (Post-Implementation)
 Follow task-workflow Step 9: review, commit (`feature: … (t756_5)`), consolidate this
 plan with Final Implementation Notes (status-resolution helper shape + notes for
