@@ -5,6 +5,7 @@ depends: []
 issue_type: documentation
 status: Ready
 labels: [macos, bash_scripts]
+implemented_with: claudecode/opus4_8_1m
 created_at: 2026-06-03 17:31
 updated_at: 2026-06-03 17:31
 ---
