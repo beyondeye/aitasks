@@ -1,13 +1,17 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [macos, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8_1m
 created_at: 2026-06-03 11:57
-updated_at: 2026-06-03 17:34
+updated_at: 2026-06-03 23:17
+completed_at: 2026-06-03 23:17
 boardidx: 10
 ---
 
