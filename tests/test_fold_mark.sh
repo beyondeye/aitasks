@@ -27,6 +27,9 @@ CLEANUP_DIRS=()
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
+# shellcheck source=../.aitask-scripts/lib/terminal_compat.sh
+source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
+
 setup_project() {
     local tmpdir
     tmpdir="$(mktemp -d)"
@@ -201,8 +204,7 @@ test_transitive() {
     # duplicate "status: Folded" later in the file is harmless for YAML parsing
     # as long as the first-seen wins; but to be safe, rewrite X/Y status to
     # Folded directly:
-    sed -i 's/^status: Ready$/status: Folded/' aitasks/t70_x.md aitasks/t71_y.md 2>/dev/null || \
-        { sed -i.bak 's/^status: Ready$/status: Folded/' aitasks/t70_x.md aitasks/t71_y.md; rm -f aitasks/t70_x.md.bak aitasks/t71_y.md.bak; }
+    sed_inplace 's/^status: Ready$/status: Folded/' aitasks/t70_x.md aitasks/t71_y.md
 
     git add -A
     git commit -m "Setup transitive" --quiet

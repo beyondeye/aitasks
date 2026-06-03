@@ -22,6 +22,9 @@ CLEANUP_DIRS=()
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
+# shellcheck source=../.aitask-scripts/lib/terminal_compat.sh
+source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
+
 setup_project() {
     local tmpdir
     tmpdir="$(mktemp -d)"
@@ -159,8 +162,7 @@ test_transitive_union() {
     # R was previously folded into Q and has [r.py]
     write_task aitasks/t70_r.md "file_references: [r.py]" "folded_into: 60"
     # Rewrite R's status to Folded (write_task sets Ready first, then extras append)
-    sed -i 's/^status: Ready$/status: Folded/' aitasks/t70_r.md 2>/dev/null || \
-        { sed -i.bak 's/^status: Ready$/status: Folded/' aitasks/t70_r.md; rm -f aitasks/t70_r.md.bak; }
+    sed_inplace 's/^status: Ready$/status: Folded/' aitasks/t70_r.md
 
     git add -A
     git commit -m "Setup transitive" --quiet
