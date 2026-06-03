@@ -3,10 +3,11 @@ priority: low
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [testing, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 11:24
-updated_at: 2026-06-03 11:24
+updated_at: 2026-06-03 11:44
 ---
 
 ## Context
