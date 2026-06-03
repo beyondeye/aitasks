@@ -74,7 +74,7 @@ class NodeActionSelectModalTests(unittest.TestCase):
     def _run(self, coro):
         return asyncio.run(coro)
 
-    def test_three_rows_all_enabled_when_node_has_plan(self):
+    def test_four_rows_all_enabled_when_node_has_plan(self):
         async def runner():
             app = _ModalHost("n001_x", has_plan=True)
             async with app.run_test(size=(120, 40)) as pilot:
@@ -82,7 +82,8 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 await pilot.pause()
                 rows = list(app.screen.query(OperationRow))
                 self.assertEqual(
-                    [r.op_key for r in rows], ["explore", "detail", "patch"]
+                    [r.op_key for r in rows],
+                    ["explore", "detail", "patch", "fast_track"],
                 )
                 self.assertTrue(all(not r.op_disabled for r in rows))
                 self.assertTrue(all(r.can_focus for r in rows))
@@ -100,6 +101,28 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 self.assertFalse(rows["detail"].op_disabled)
                 self.assertTrue(rows["patch"].op_disabled)
                 self.assertFalse(rows["patch"].can_focus)
+                # fast_track (t756_6) is a preset, not a node op — always
+                # enabled regardless of whether the node has a plan.
+                self.assertFalse(rows["fast_track"].op_disabled)
+                self.assertTrue(rows["fast_track"].can_focus)
+
+        self._run(runner())
+
+    def test_fast_track_row_label_and_select(self):
+        async def runner():
+            app = _ModalHost("n7", has_plan=True)
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                rows = {r.op_key: r for r in app.screen.query(OperationRow)}
+                self.assertIn("Fast-track this module", str(rows["fast_track"].render()))
+                # explore -> detail -> patch -> fast_track, then Enter selects.
+                await pilot.press("down")
+                await pilot.press("down")
+                await pilot.press("down")
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertEqual(app.result, "fast_track")
 
         self._run(runner())
 
@@ -145,13 +168,14 @@ class NodeActionSelectModalTests(unittest.TestCase):
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 await pilot.pause()
-                # explore focused -> down: detail -> down: wraps to explore
-                # (patch is disabled and not focusable, so it is skipped).
+                # Focusable rows are explore, detail, fast_track (patch is
+                # disabled and not focusable, so navigation skips it).
+                # explore -> down: detail -> down: fast_track.
                 await pilot.press("down")
                 await pilot.press("down")
                 await pilot.press("enter")
                 await pilot.pause()
-                self.assertEqual(app.result, "explore")
+                self.assertEqual(app.result, "fast_track")
 
         self._run(runner())
 
@@ -349,9 +373,12 @@ class OnNodeActionResultTests(unittest.TestCase):
 
         app.query_one = fake_query_one
         app.notify = lambda msg, **kw: app.notices.append((msg, kw))
+        app._wizard_fast_track = False
+        app._wizard_subgraph = "_umbrella"
         app._actions_show_node_select = (
             lambda: app.calls.append("node_select")
         )
+        app._actions_show_config = lambda: app.calls.append("config")
         app._actions_advance_from_node_select = (
             lambda node: app.calls.append(("advance", node)) or True
         )
@@ -386,6 +413,39 @@ class OnNodeActionResultTests(unittest.TestCase):
         # Tab entry is deferred (call_after_refresh) until the modal pop
         # settles — see _on_node_action_result.
         self.assertIn("after_refresh", app.calls)
+
+    def test_fast_track_seeds_module_decompose_preset(self):
+        # The "Fast-track this module" preset (t756_6 UC-3) seeds a
+        # single-module module_decompose — NOT a new op — with the fast-track
+        # arm set, sourced from the focused node's subgraph, and renders config
+        # directly (module_decompose has no node-select step).
+        self._write_node("n1")
+        app = self._make_app()
+        app._on_node_action_result("n1", "fast_track")
+        self.assertEqual(app._wizard_op, "module_decompose")
+        self.assertTrue(app._wizard_fast_track)
+        from brainstorm.brainstorm_dag import _node_module
+        self.assertEqual(
+            app._wizard_subgraph, _node_module(app.session_path, "n1")
+        )
+        self.assertIn("config", app.calls)
+        self.assertNotIn("node_select", app.calls)
+        self.assertIn("after_refresh", app.calls)
+
+
+class SetTotalStepsResetsFastTrackTests(unittest.TestCase):
+    """`_set_total_steps` is the single op-select funnel; it must clear the
+    transient fast-track arm so the preset's link-to-task pre-check never leaks
+    into a later normal module_decompose (t756_6)."""
+
+    def test_set_total_steps_clears_fast_track_flag(self):
+        app = BrainstormApp.__new__(BrainstormApp)
+        app._wizard_fast_track = True
+        app._wizard_has_sections = True
+        app._cmp_section_checks = {"x": True}
+        app._wizard_subgraph = "some_module"
+        app._set_total_steps()
+        self.assertFalse(app._wizard_fast_track)
 
 
 if __name__ == "__main__":

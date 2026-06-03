@@ -2045,7 +2045,17 @@ class NodeActionSelectModal(ModalScreen):
 
     # Operation keys offered, in display order. Labels/descriptions are
     # pulled from _OP_LABELS so the picker stays in sync with the wizard.
-    _OPS = ["explore", "detail", "patch"]
+    # ``fast_track`` (UC-3 preset, t756_6) is NOT a real op — it seeds a
+    # single-module module_decompose with link-to-task pre-armed — so its
+    # label lives in _LOCAL_LABELS, not _OP_LABELS.
+    _OPS = ["explore", "detail", "patch", "fast_track"]
+
+    _LOCAL_LABELS = {
+        "fast_track": (
+            "Fast-track this module",
+            "Extract one module into a linked aitask in a single pass",
+        ),
+    }
 
     def __init__(self, node_id: str, has_plan: bool):
         super().__init__()
@@ -2064,7 +2074,9 @@ class NodeActionSelectModal(ModalScreen):
             )
             with VerticalScroll(id="node_action_list"):
                 for op_key in self._OPS:
-                    label, desc = _OP_LABELS.get(op_key, (op_key, ""))
+                    label, desc = self._LOCAL_LABELS.get(
+                        op_key, _OP_LABELS.get(op_key, (op_key, ""))
+                    )
                     disabled = (op_key == "patch" and not self.has_plan)
                     if disabled:
                         desc = f"{desc}  [italic](node has no plan)[/]"
@@ -3057,6 +3069,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # dedicated field, NOT _wizard_config, because node-select resets that
         # dict after the selector runs.
         self._wizard_subgraph: str = UMBRELLA_SUBGRAPH
+        # Transient "Fast-track this module" preset flag (UC-3, t756_6). When
+        # set, the module_decompose config step pre-arms link-to-task. Reset by
+        # _set_total_steps (the op-select funnel) so it never leaks across ops.
+        self._wizard_fast_track: bool = False
         self._cmp_section_checks: dict[str, bool] = {}
         self._expanded_groups: set[str] = set()
         self._status_refresh_timer = None
@@ -3665,6 +3681,22 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify(
                 f"Node '{node_id}' no longer exists.", severity="error"
             )
+            return
+        if op_key == "fast_track":
+            # UC-3 preset (t756_6): seed a single-module module_decompose with
+            # link-to-task pre-armed, sourced from the focused node's subgraph.
+            # This reuses the module_decompose config/confirm/execute path
+            # verbatim — it is NOT a new op. module_decompose has no node-select
+            # step and the subgraph is already known, so we render config
+            # directly. _set_total_steps clears _wizard_fast_track, so re-arm
+            # the flag after calling it.
+            self._wizard_op = "module_decompose"
+            self._set_total_steps()
+            self._wizard_fast_track = True
+            self._wizard_subgraph = _node_module(self.session_path, node_id)
+            self._wizard_config = {}
+            self._actions_show_config()
+            self.call_after_refresh(self._enter_actions_tab)
             return
         # Seed wizard state as if Step 1 (operation select) had completed.
         self._wizard_op = op_key
@@ -5957,6 +5989,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._wizard_has_sections = False
         self._cmp_section_checks = {}
         self._wizard_subgraph = UMBRELLA_SUBGRAPH
+        # Clear the fast-track preset arm whenever a new op is selected; the
+        # fast-track branch re-arms it after calling this. Keeps the preset's
+        # link-to-task pre-check from bleeding into a later normal decompose.
+        self._wizard_fast_track = False
 
     def _wizard_ctx(self) -> dict:
         """Context dict consumed by the pure step resolver (no I/O)."""
@@ -6362,14 +6398,29 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         )
 
     def _config_module_decompose(self, container: VerticalScroll) -> None:
-        """Module decompose config: module list + extraction options."""
+        """Module decompose config: module list + extraction options.
+
+        When entered via the "Fast-track this module" preset
+        (``_wizard_fast_track``, t756_6 UC-3), the link-to-task checkbox is
+        pre-armed so naming one module + confirm creates the subgraph root and
+        the linked aitask in a single pass. The op, config-collection, confirm,
+        and execute paths are otherwise identical to the multi-module flow.
+        """
+        fast_track = getattr(self, "_wizard_fast_track", False)
         source = get_head(self.session_path, module=self._wizard_subgraph)
+        if fast_track:
+            container.mount(Label(
+                "[dim]Fast-track: name one module — a linked aitask is "
+                "created in one pass.[/]"
+            ))
         container.mount(Label(f"[bold]Source Subgraph:[/] {self._wizard_subgraph}"))
         container.mount(Label(f"[bold]Source HEAD:[/] {source or '(none)'}"))
         container.mount(Label("[bold]Modules[/]"))
         container.mount(TextArea("", classes="ta_module_decompose_modules"))
         container.mount(Checkbox("Use section markers", classes="chk_from_sections"))
-        container.mount(Checkbox("Create linked child tasks", classes="chk_link_to_task"))
+        link_chk = Checkbox("Create linked child tasks", classes="chk_link_to_task")
+        link_chk.value = bool(fast_track)
+        container.mount(link_chk)
         container.mount(Label("[bold]Decomposition Plan (optional)[/]"))
         container.mount(TextArea("", classes="ta_module_decompose_plan"))
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
