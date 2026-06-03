@@ -6,6 +6,7 @@ set -e
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -15,30 +16,6 @@ FAIL=0
 TOTAL=0
 
 # --- Test helpers ---
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
 assert_symlink() {
     local desc="$1" path="$2"
@@ -59,17 +36,6 @@ assert_not_symlink() {
     else
         FAIL=$((FAIL + 1))
         echo "FAIL: $desc ('$path' should not be a symlink)"
-    fi
-}
-
-assert_dir_exists() {
-    local desc="$1" path="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -d "$path" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (directory '$path' does not exist)"
     fi
 }
 
@@ -148,7 +114,7 @@ mkdir -p "$TMPDIR_1/aitasks/metadata"
 
 pushd "$TMPDIR_1" >/dev/null
 output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
-assert_eq "Legacy mode output" "LEGACY_MODE" "$output"
+assert_eq_trim "Legacy mode output" "LEGACY_MODE" "$output"
 assert_not_symlink "aitasks/ is not a symlink" "aitasks"
 popd >/dev/null
 
@@ -163,7 +129,7 @@ create_data_branch_setup "$TMPDIR_2/local"
 
 pushd "$TMPDIR_2/local" >/dev/null
 output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
-assert_eq "Already init output" "ALREADY_INIT" "$output"
+assert_eq_trim "Already init output" "ALREADY_INIT" "$output"
 assert_symlink "aitasks/ is a symlink" "aitasks"
 assert_symlink "aiplans/ is a symlink" "aiplans"
 popd >/dev/null
@@ -178,7 +144,7 @@ install_script "$TMPDIR_3"
 
 pushd "$TMPDIR_3" >/dev/null
 output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
-assert_eq "No data branch output" "NO_DATA_BRANCH" "$output"
+assert_eq_trim "No data branch output" "NO_DATA_BRANCH" "$output"
 popd >/dev/null
 
 rm -rf "$TMPDIR_3"
@@ -197,11 +163,11 @@ rm -f aitasks aiplans
 
 # Verify branch still exists locally
 branch_exists=$(git show-ref --verify refs/heads/aitask-data >/dev/null 2>&1 && echo "yes" || echo "no")
-assert_eq "aitask-data branch exists locally" "yes" "$branch_exists"
+assert_eq_trim "aitask-data branch exists locally" "yes" "$branch_exists"
 
 # Run init
 output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
-assert_eq "Initialize from local branch output" "INITIALIZED" "$output"
+assert_eq_trim "Initialize from local branch output" "INITIALIZED" "$output"
 assert_symlink "aitasks/ is a symlink after init" "aitasks"
 assert_symlink "aiplans/ is a symlink after init" "aiplans"
 assert_dir_exists ".aitask-data worktree created" ".aitask-data"
@@ -225,12 +191,12 @@ pushd "$TMPDIR_5/clone2" >/dev/null
 # Verify branch is NOT local but IS on remote
 local_branch=$(git show-ref --verify refs/heads/aitask-data 2>/dev/null && echo "yes" || echo "no")
 remote_branch=$(git ls-remote --heads origin aitask-data 2>/dev/null | grep -q aitask-data && echo "yes" || echo "no")
-assert_eq "aitask-data NOT local in clone2" "no" "$local_branch"
-assert_eq "aitask-data IS on remote" "yes" "$remote_branch"
+assert_eq_trim "aitask-data NOT local in clone2" "no" "$local_branch"
+assert_eq_trim "aitask-data IS on remote" "yes" "$remote_branch"
 
 # Run init
 output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
-assert_eq "Initialize from remote branch output" "INITIALIZED" "$output"
+assert_eq_trim "Initialize from remote branch output" "INITIALIZED" "$output"
 assert_symlink "aitasks/ is a symlink in clone2" "aitasks"
 assert_symlink "aiplans/ is a symlink in clone2" "aiplans"
 assert_dir_exists ".aitask-data worktree created in clone2" ".aitask-data"
@@ -253,16 +219,16 @@ git worktree remove .aitask-data --force 2>/dev/null
 assert_symlink "aitasks/ is still a symlink" "aitasks"
 broken="no"
 [[ ! -e "aitasks" ]] && broken="yes"
-assert_eq "aitasks/ symlink is broken" "yes" "$broken"
+assert_eq_trim "aitasks/ symlink is broken" "yes" "$broken"
 
 # Run init
 output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
-assert_eq "Broken symlink repair output" "INITIALIZED" "$output"
+assert_eq_trim "Broken symlink repair output" "INITIALIZED" "$output"
 assert_symlink "aitasks/ is a symlink after repair" "aitasks"
 # Verify symlinks now work (target exists)
 valid="no"
 [[ -e "aitasks" ]] && valid="yes"
-assert_eq "aitasks/ symlink is valid after repair" "yes" "$valid"
+assert_eq_trim "aitasks/ symlink is valid after repair" "yes" "$valid"
 popd >/dev/null
 
 rm -rf "$TMPDIR_6"
@@ -277,8 +243,8 @@ create_data_branch_setup "$TMPDIR_7/local"
 pushd "$TMPDIR_7/local" >/dev/null
 output1=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 output2=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
-assert_eq "First run: ALREADY_INIT" "ALREADY_INIT" "$output1"
-assert_eq "Second run: ALREADY_INIT" "ALREADY_INIT" "$output2"
+assert_eq_trim "First run: ALREADY_INIT" "ALREADY_INIT" "$output1"
+assert_eq_trim "Second run: ALREADY_INIT" "ALREADY_INIT" "$output2"
 popd >/dev/null
 
 rm -rf "$TMPDIR_7"
@@ -299,7 +265,7 @@ assert_dir_exists "Worktree still exists" ".aitask-data"
 
 # Run init
 output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
-assert_eq "Missing symlinks output" "ALREADY_INIT" "$output"
+assert_eq_trim "Missing symlinks output" "ALREADY_INIT" "$output"
 assert_symlink "aitasks/ symlink recreated" "aitasks"
 assert_symlink "aiplans/ symlink recreated" "aiplans"
 popd >/dev/null
