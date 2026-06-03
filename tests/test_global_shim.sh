@@ -14,38 +14,10 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (output should NOT contain '$unexpected')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
 # Generate a shim script into a temp file by calling install_global_shim
 # with a custom SHIM_DIR
@@ -117,8 +89,8 @@ output=$(cd "$TMPDIR_3" && "$SHIM_PATH_3" ls 2>&1)
 rc=$?
 
 assert_eq "Exit code is 1" "1" "$rc"
-assert_contains "Suggests ait setup" "ait setup" "$output"
-assert_contains "Error message present" "no ait project" "$output"
+assert_contains_ci "Suggests ait setup" "ait setup" "$output"
+assert_contains_ci "Error message present" "no ait project" "$output"
 
 rm -rf "$TMPDIR_3"
 
@@ -142,7 +114,7 @@ rc=$?
 
 assert_eq "Exit code is 1 (download fails)" "1" "$rc"
 # It should attempt the download, showing the "Downloading" message
-assert_contains "Attempts download" "downloading" "$output"
+assert_contains_ci "Attempts download" "downloading" "$output"
 
 rm -rf "$TMPDIR_4"
 
@@ -172,7 +144,7 @@ else
     echo "FAIL: Local ait was not dispatched to"
 fi
 
-assert_contains "Local ait received setup command" "setup" "$output"
+assert_contains_ci "Local ait received setup command" "setup" "$output"
 
 rm -rf "$TMPDIR_5"
 
@@ -214,7 +186,7 @@ output=$(cd "$TMPDIR_7" && _AIT_SHIM_ACTIVE=1 "$SHIM_PATH_7" setup 2>&1)
 rc=$?
 
 assert_eq "Exit code is 1 with recursion guard" "1" "$rc"
-assert_contains "Error mentions dispatcher not found" "not found" "$output"
+assert_contains_ci "Error mentions dispatcher not found" "not found" "$output"
 
 rm -rf "$TMPDIR_7"
 
@@ -224,7 +196,7 @@ echo "--- Test 8: Shim contains REPO variable ---"
 TMPDIR_8="$(mktemp -d)"
 SHIM_PATH_8="$(generate_test_shim "$TMPDIR_8/shimbin")"
 
-assert_contains "REPO variable in shim" "beyondeye/aitasks" "$(cat "$SHIM_PATH_8")"
+assert_contains_ci "REPO variable in shim" "beyondeye/aitasks" "$(cat "$SHIM_PATH_8")"
 
 rm -rf "$TMPDIR_8"
 

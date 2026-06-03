@@ -14,63 +14,12 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    # Trim leading/trailing whitespace (macOS wc -l pads with spaces)
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (output should NOT contain '$unexpected')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
-assert_dir_exists() {
-    local desc="$1" dir="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -d "$dir" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (directory '$dir' does not exist)"
-    fi
-}
 
-assert_dir_not_exists() {
-    local desc="$1" dir="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ ! -d "$dir" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (directory '$dir' should not exist)"
-    fi
-}
 
 # Create a minimal fake aitask project structure in a temp directory
 setup_fake_project() {
@@ -107,15 +56,15 @@ TMPDIR_1="$(setup_fake_project)"
 SCRIPT_DIR="$TMPDIR_1/.aitask-scripts"
 output=$(ensure_git_repo 2>&1 </dev/null)
 
-assert_contains "Already initialized prints success" "already initialized" "$output"
+assert_contains_ci "Already initialized prints success" "already initialized" "$output"
 
 # Verify no extra commits were created (files already committed)
 commit_count=$(git -C "$TMPDIR_1" log --oneline 2>/dev/null | wc -l || echo 0)
-assert_eq "No new commits when files already committed" "1" "$commit_count"
+assert_eq_trim "No new commits when files already committed" "1" "$commit_count"
 
 # commit_framework_files should also detect they're already committed
 output2=$(commit_framework_files 2>&1 </dev/null)
-assert_contains "commit_framework_files says already committed" "already committed" "$output2"
+assert_contains_ci "commit_framework_files says already committed" "already committed" "$output2"
 
 rm -rf "$TMPDIR_1"
 
@@ -128,18 +77,18 @@ TMPDIR_1b="$(setup_fake_project)"
 SCRIPT_DIR="$TMPDIR_1b/.aitask-scripts"
 # ensure_git_repo should just report "already initialized" (no commit)
 output=$(ensure_git_repo 2>&1 </dev/null)
-assert_contains "Detects existing repo" "already initialized" "$output"
+assert_contains_ci "Detects existing repo" "already initialized" "$output"
 
 # commit_framework_files should detect and commit untracked files
 output2=$(commit_framework_files 2>&1 </dev/null)
-assert_contains "Detects untracked framework files" "READY TO COMMIT" "$output2"
+assert_contains_ci "Detects untracked framework files" "READY TO COMMIT" "$output2"
 
 # Non-interactive mode auto-accepts, so files should be committed
 commit_count=$(git -C "$TMPDIR_1b" log --oneline 2>/dev/null | wc -l)
-assert_eq "Framework files auto-committed (non-interactive)" "2" "$commit_count"
+assert_eq_trim "Framework files auto-committed (non-interactive)" "2" "$commit_count"
 
 commit_msg=$(git -C "$TMPDIR_1b" log --format='%s' -1 2>/dev/null)
-assert_eq "Commit message correct" "ait: Add aitask framework" "$commit_msg"
+assert_eq_trim "Commit message correct" "ait: Add aitask framework" "$commit_msg"
 
 rm -rf "$TMPDIR_1b"
 
@@ -151,7 +100,7 @@ SCRIPT_DIR="$TMPDIR_2/.aitask-scripts"
 
 output=$(printf 'y\n' | ensure_git_repo 2>&1)
 assert_dir_exists "Git dir created" "$TMPDIR_2/.git"
-assert_contains "Output mentions initialized" "initialized" "$output"
+assert_contains_ci "Output mentions initialized" "initialized" "$output"
 
 # Need git config for commit
 (cd "$TMPDIR_2" && git config user.email "t@t.com" && git config user.name "T")
@@ -159,15 +108,15 @@ assert_contains "Output mentions initialized" "initialized" "$output"
 output2=$(printf 'y\n' | commit_framework_files 2>&1)
 
 commit_count=$(git -C "$TMPDIR_2" log --oneline 2>/dev/null | wc -l)
-assert_eq "Exactly 1 commit" "1" "$commit_count"
+assert_eq_trim "Exactly 1 commit" "1" "$commit_count"
 
 commit_msg=$(git -C "$TMPDIR_2" log --format='%s' -1 2>/dev/null)
-assert_eq "Commit message correct" "ait: Add aitask framework" "$commit_msg"
+assert_eq_trim "Commit message correct" "ait: Add aitask framework" "$commit_msg"
 
 # Verify committed files include key directories
 committed_files=$(git -C "$TMPDIR_2" show --name-only --format='' HEAD 2>/dev/null)
-assert_contains ".aitask-scripts/ committed" ".aitask-scripts/" "$committed_files"
-assert_contains "aitasks/metadata/ committed" "aitasks/metadata/" "$committed_files"
+assert_contains_ci ".aitask-scripts/ committed" ".aitask-scripts/" "$committed_files"
+assert_contains_ci "aitasks/metadata/ committed" "aitasks/metadata/" "$committed_files"
 
 rm -rf "$TMPDIR_2"
 
@@ -181,7 +130,7 @@ SCRIPT_DIR="$TMPDIR_3/.aitask-scripts"
 
 output=$(ensure_git_repo 2>&1 </dev/null)
 assert_dir_exists "Git dir created" "$TMPDIR_3/.git"
-assert_contains "Output mentions auto-accepting" "auto-accepting" "$output"
+assert_contains_ci "Output mentions auto-accepting" "auto-accepting" "$output"
 
 # Need git config for commit
 (cd "$TMPDIR_3" && git config user.email "t@t.com" && git config user.name "T")
@@ -189,7 +138,7 @@ assert_contains "Output mentions auto-accepting" "auto-accepting" "$output"
 output2=$(commit_framework_files 2>&1 </dev/null)
 
 commit_count=$(git -C "$TMPDIR_3" log --oneline 2>/dev/null | wc -l || echo 0)
-assert_eq "1 commit (non-interactive auto-accept)" "1" "$commit_count"
+assert_eq_trim "1 commit (non-interactive auto-accept)" "1" "$commit_count"
 
 rm -rf "$TMPDIR_3"
 
@@ -207,7 +156,7 @@ SCRIPT_DIR="$TMPDIR_5/.aitask-scripts"
 output=$(ensure_git_repo 2>&1 </dev/null)
 
 assert_dir_exists ".git dir created (non-interactive auto-accept)" "$TMPDIR_5/.git"
-assert_contains "Output mentions auto-accepting" "auto-accepting" "$output"
+assert_contains_ci "Output mentions auto-accepting" "auto-accepting" "$output"
 
 rm -rf "$TMPDIR_5"
 
@@ -258,7 +207,7 @@ setup_draft_directory </dev/null >/dev/null 2>&1
 
 # Should only have one 'aitasks/new/' entry in .gitignore
 entry_count=$(grep -cxF "aitasks/new/" "$TMPDIR_8/.gitignore" 2>/dev/null || echo "0")
-assert_eq "Gitignore entry not duplicated" "1" "$entry_count"
+assert_eq_trim "Gitignore entry not duplicated" "1" "$entry_count"
 
 rm -rf "$TMPDIR_8"
 
@@ -294,7 +243,7 @@ SCRIPT_DIR="$TMPDIR_9/local/.aitask-scripts"
 
 # Check branch exists on remote
 branch_exists=$(git -C "$TMPDIR_9/local" ls-remote --heads origin aitask-ids 2>/dev/null | grep -c "aitask-ids")
-assert_eq "ID counter branch created" "1" "$branch_exists"
+assert_eq_trim "ID counter branch created" "1" "$branch_exists"
 
 rm -rf "$TMPDIR_9"
 
@@ -320,11 +269,11 @@ commit_framework_files </dev/null >/dev/null 2>&1
 
 # Verify review guides are committed
 committed_files=$(git -C "$TMPDIR_10" show --name-only --format='' HEAD 2>/dev/null)
-assert_contains "Review guides committed" "aireviewguides/test_mode.md" "$committed_files"
-assert_contains ".gitignore committed" ".gitignore" "$committed_files"
+assert_contains_ci "Review guides committed" "aireviewguides/test_mode.md" "$committed_files"
+assert_contains_ci ".gitignore committed" ".gitignore" "$committed_files"
 
 commit_msg=$(git -C "$TMPDIR_10" log --format='%s' -1 2>/dev/null)
-assert_eq "Commit message for late-stage files" "ait: Add aitask framework" "$commit_msg"
+assert_eq_trim "Commit message for late-stage files" "ait: Add aitask framework" "$commit_msg"
 
 rm -rf "$TMPDIR_10"
 
@@ -339,8 +288,8 @@ commit_count_before=$(git -C "$TMPDIR_11" log --oneline 2>/dev/null | wc -l)
 output=$(commit_framework_files 2>&1 </dev/null)
 commit_count_after=$(git -C "$TMPDIR_11" log --oneline 2>/dev/null | wc -l)
 
-assert_eq "No new commit on idempotent run" "$commit_count_before" "$commit_count_after"
-assert_contains "Says already committed" "already committed" "$output"
+assert_eq_trim "No new commit on idempotent run" "$commit_count_before" "$commit_count_after"
+assert_contains_ci "Says already committed" "already committed" "$output"
 
 rm -rf "$TMPDIR_11"
 
@@ -358,10 +307,10 @@ output=$(commit_framework_files 2>&1 </dev/null)
 
 # Other framework files should still be committed
 commit_count=$(git -C "$TMPDIR_12" log --oneline 2>/dev/null | wc -l)
-assert_eq "Framework files committed without install.sh" "2" "$commit_count"
+assert_eq_trim "Framework files committed without install.sh" "2" "$commit_count"
 
 committed_files=$(git -C "$TMPDIR_12" show --name-only --format='' HEAD 2>/dev/null)
-assert_contains ".aitask-scripts/ committed without install.sh" ".aitask-scripts/" "$committed_files"
+assert_contains_ci ".aitask-scripts/ committed without install.sh" ".aitask-scripts/" "$committed_files"
 
 rm -rf "$TMPDIR_12"
 
@@ -376,7 +325,7 @@ assert_dir_exists ".git created" "$TMPDIR_13/.git"
 
 # Verify NO commits exist (ensure_git_repo does not commit)
 commit_count=$(git -C "$TMPDIR_13" log --oneline 2>/dev/null | wc -l || echo 0)
-assert_eq "No commits from ensure_git_repo" "0" "$commit_count"
+assert_eq_trim "No commits from ensure_git_repo" "0" "$commit_count"
 
 # Verify framework files are still untracked
 untracked=$(cd "$TMPDIR_13" && git ls-files --others --exclude-standard .aitask-scripts/ ait 2>/dev/null)
@@ -413,13 +362,13 @@ echo "bytecode" > "$TMPDIR_14/.aitask-scripts/__pycache__/test.cpython-314.pyc"
 SCRIPT_DIR="$TMPDIR_14/.aitask-scripts"
 output=$(commit_framework_files 2>&1 </dev/null)
 
-assert_not_contains "Pycache not shown in pending framework list" "__pycache__" "$output"
-assert_not_contains "PYC not shown in pending framework list" ".pyc" "$output"
+assert_not_contains_ci "Pycache not shown in pending framework list" "__pycache__" "$output"
+assert_not_contains_ci "PYC not shown in pending framework list" ".pyc" "$output"
 
 committed_files=$(git -C "$TMPDIR_14" show --name-only --format='' HEAD 2>/dev/null)
-assert_contains "Codex skills directory committed" ".agents/skills/aitask-pick/SKILL.md" "$committed_files"
-assert_contains "Codex config committed" ".codex/config.toml" "$committed_files"
-assert_not_contains "Pycache not committed" "__pycache__" "$committed_files"
+assert_contains_ci "Codex skills directory committed" ".agents/skills/aitask-pick/SKILL.md" "$committed_files"
+assert_contains_ci "Codex config committed" ".codex/config.toml" "$committed_files"
+assert_not_contains_ci "Pycache not committed" "__pycache__" "$committed_files"
 
 rm -rf "$TMPDIR_14"
 
@@ -434,10 +383,10 @@ warn_missing_remote_for_branch "aitask-locks" "Test purpose" >"$output_file_15" 
 output=$(cat "$output_file_15")
 rm -f "$output_file_15"
 
-assert_contains "Warns about missing remote" "No git remote 'origin' configured" "$output"
-assert_contains "Tells user the fix command" "git remote add origin" "$output"
-assert_contains "Auto-accepts non-interactively" "auto-accepting acknowledgment" "$output"
-assert_eq "Module-level flag is set after ack" "1" "$_AIT_SETUP_NO_REMOTE_ACKED"
+assert_contains_ci "Warns about missing remote" "No git remote 'origin' configured" "$output"
+assert_contains_ci "Tells user the fix command" "git remote add origin" "$output"
+assert_contains_ci "Auto-accepts non-interactively" "auto-accepting acknowledgment" "$output"
+assert_eq_trim "Module-level flag is set after ack" "1" "$_AIT_SETUP_NO_REMOTE_ACKED"
 
 # --- Test 16: warn_missing_remote_for_branch is idempotent within one run ---
 echo "--- Test 16: warn_missing_remote_for_branch is idempotent ---"
@@ -448,8 +397,8 @@ warn_missing_remote_for_branch "aitask-ids" "Other purpose" >"$output_file_16" 2
 output2=$(cat "$output_file_16")
 rm -f "$output_file_16"
 
-assert_contains "Second call mentions already acknowledged" "already acknowledged" "$output2"
-assert_not_contains "Second call does not re-prompt" "git remote add origin" "$output2"
+assert_contains_ci "Second call mentions already acknowledged" "already acknowledged" "$output2"
+assert_not_contains_ci "Second call does not re-prompt" "git remote add origin" "$output2"
 
 # --- Test 17: setup_lock_branch warns + skips cleanly with no remote ---
 echo "--- Test 17: setup_lock_branch with no remote configured ---"
@@ -467,8 +416,8 @@ rc=$?
 output=$(cat "$output_file_17")
 rm -f "$output_file_17"
 
-assert_eq "setup_lock_branch returns 0 after acknowledgment" "0" "$rc"
-assert_contains "Warning fires for missing remote" "No git remote 'origin' configured" "$output"
+assert_eq_trim "setup_lock_branch returns 0 after acknowledgment" "0" "$rc"
+assert_contains_ci "Warning fires for missing remote" "No git remote 'origin' configured" "$output"
 
 # Verify no aitask-locks ref was created locally
 TOTAL=$((TOTAL + 1))
@@ -515,11 +464,11 @@ fi
 
 # Working tree is clean (the bug — t687)
 porcelain="$(git -C "$TMPDIR_18" status --porcelain)"
-assert_eq "git status is clean after setup_python_cache_gitignore" "" "$porcelain"
+assert_eq_trim "git status is clean after setup_python_cache_gitignore" "" "$porcelain"
 
 # Commit message matches the new pattern
 last_msg="$(git -C "$TMPDIR_18" log -1 --format=%s)"
-assert_contains "Last commit message announces the python cache rule" "Add __pycache__/ to .gitignore" "$last_msg"
+assert_contains_ci "Last commit message announces the python cache rule" "Add __pycache__/ to .gitignore" "$last_msg"
 
 rm -rf "$TMPDIR_18"
 
@@ -545,10 +494,10 @@ commits_after_second="$(git -C "$TMPDIR_19" rev-list --count HEAD)"
 
 # Should only have one '__pycache__/' entry
 entry_count=$(grep -cxF "__pycache__/" "$TMPDIR_19/.gitignore" 2>/dev/null || echo "0")
-assert_eq "Python cache entry not duplicated" "1" "$entry_count"
+assert_eq_trim "Python cache entry not duplicated" "1" "$entry_count"
 
 # Second call must NOT create a new commit
-assert_eq "No second commit on idempotent re-run" "$commits_after_first" "$commits_after_second"
+assert_eq_trim "No second commit on idempotent re-run" "$commits_after_first" "$commits_after_second"
 
 rm -rf "$TMPDIR_19"
 

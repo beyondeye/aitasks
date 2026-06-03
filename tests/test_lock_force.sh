@@ -16,27 +16,9 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
 assert_exit_code() {
     local desc="$1" expected_code="$2"
@@ -130,8 +112,8 @@ output1=$(cd "$TMPDIR_1/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --force
 exit1=$?
 
 assert_eq "Force-lock exits 0" "0" "$exit1"
-assert_contains "Output has FORCE_UNLOCKED" "FORCE_UNLOCKED:alice@test.com" "$output1"
-assert_contains "Output has OWNED" "OWNED:1" "$output1"
+assert_contains_ci "Output has FORCE_UNLOCKED" "FORCE_UNLOCKED:alice@test.com" "$output1"
+assert_contains_ci "Output has OWNED" "OWNED:1" "$output1"
 
 rm -rf "$TMPDIR_1"
 
@@ -148,7 +130,7 @@ output2=$(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email
 exit2=$?
 
 assert_eq "No-force exits non-zero" "1" "$exit2"
-assert_contains "Output has LOCK_FAILED" "LOCK_FAILED:alice@test.com" "$output2"
+assert_contains_ci "Output has LOCK_FAILED" "LOCK_FAILED:alice@test.com" "$output2"
 
 rm -rf "$TMPDIR_2"
 
@@ -163,7 +145,7 @@ output3=$(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --force
 exit3=$?
 
 assert_eq "Force on unlocked exits 0" "0" "$exit3"
-assert_contains "Output has OWNED" "OWNED:1" "$output3"
+assert_contains_ci "Output has OWNED" "OWNED:1" "$output3"
 
 # Should NOT have FORCE_UNLOCKED since lock was not held
 TOTAL=$((TOTAL + 1))
@@ -203,7 +185,7 @@ output5=$(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email
 exit5=$?
 
 assert_eq "LOCK_ERROR exits non-zero" "1" "$exit5"
-assert_contains "Output has LOCK_ERROR" "LOCK_ERROR" "$output5"
+assert_contains_ci "Output has LOCK_ERROR" "LOCK_ERROR" "$output5"
 
 rm -rf "$TMPDIR_5"
 

@@ -18,66 +18,12 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  Expected: $expected"
-        echo "  Actual:   $actual"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$haystack" | grep -qi -- "$needle"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected to contain '$needle')"
-        echo "  Got: $haystack"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$haystack" | grep -qi -- "$needle"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected NOT to contain '$needle')"
-        echo "  Got: $haystack"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
-assert_exit_zero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected exit 0, got $?)"
-    fi
-}
 
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
 assert_line_count() {
     local desc="$1" expected="$2" output="$3"
@@ -234,7 +180,7 @@ output=$(run_in_repo_stderr "$REPO" 2>&1)
 exit_code=$?
 set -e
 assert_eq "No args exits non-zero" 1 "$((exit_code > 0 ? 1 : 0))"
-assert_contains "No args shows mode required" "mode required" "$output"
+assert_contains_ci "No args shows mode required" "mode required" "$output"
 teardown_test_repo
 
 # --- Test 3: --help → usage text ---
@@ -245,9 +191,9 @@ output=$(run_in_repo "$REPO" --help 2>&1)
 exit_code=$?
 set -e
 assert_eq "--help exits zero" 0 "$exit_code"
-assert_contains "--help shows usage" "usage:" "$output"
-assert_contains "--help shows --keywords" "keywords" "$output"
-assert_contains "--help shows --names" "names" "$output"
+assert_contains_ci "--help shows usage" "usage:" "$output"
+assert_contains_ci "--help shows --keywords" "keywords" "$output"
+assert_contains_ci "--help shows --names" "names" "$output"
 teardown_test_repo
 
 # --- Test 4: Unknown flag → error ---
@@ -258,7 +204,7 @@ output=$(run_in_repo_stderr "$REPO" --invalid 2>&1)
 exit_code=$?
 set -e
 assert_eq "Unknown flag exits non-zero" 1 "$((exit_code > 0 ? 1 : 0))"
-assert_contains "Unknown flag mentions the flag" "invalid" "$output"
+assert_contains_ci "Unknown flag mentions the flag" "invalid" "$output"
 teardown_test_repo
 
 # --- Test 5: Keyword search - single term ---
@@ -269,7 +215,7 @@ output=$(run_in_repo "$REPO" --keywords "resolve")
 exit_code=$?
 set -e
 assert_eq "Keyword single term exits zero" 0 "$exit_code"
-assert_contains "Keyword 'resolve' finds task_utils.sh" "task_utils.sh" "$output"
+assert_contains_ci "Keyword 'resolve' finds task_utils.sh" "task_utils.sh" "$output"
 teardown_test_repo
 
 # --- Test 6: Keyword search - multiple terms ---
@@ -280,10 +226,10 @@ output=$(run_in_repo "$REPO" --keywords "resolve task")
 exit_code=$?
 set -e
 assert_eq "Keyword multi-term exits zero" 0 "$exit_code"
-assert_contains "Multi-term finds task_utils.sh" "task_utils.sh" "$output"
+assert_contains_ci "Multi-term finds task_utils.sh" "task_utils.sh" "$output"
 # task_utils.sh should rank higher than changelog.sh (matches both "resolve" and "task" vs just "task")
 first_line=$(echo "$output" | head -1)
-assert_contains "task_utils.sh ranks first" "task_utils.sh" "$first_line"
+assert_contains_ci "task_utils.sh ranks first" "task_utils.sh" "$first_line"
 teardown_test_repo
 
 # --- Test 7: Keyword search - no matches ---
@@ -316,7 +262,7 @@ output=$(run_in_repo "$REPO" --names "task_utils")
 exit_code=$?
 set -e
 assert_eq "Name single term exits zero" 0 "$exit_code"
-assert_contains "Name 'task_utils' finds task_utils.sh" "task_utils.sh" "$output"
+assert_contains_ci "Name 'task_utils' finds task_utils.sh" "task_utils.sh" "$output"
 teardown_test_repo
 
 # --- Test 10: Name search - multiple terms ---
@@ -327,8 +273,8 @@ output=$(run_in_repo "$REPO" --names "task_utils terminal")
 exit_code=$?
 set -e
 assert_eq "Name multi-term exits zero" 0 "$exit_code"
-assert_contains "Multi-term finds task_utils.sh" "task_utils.sh" "$output"
-assert_contains "Multi-term finds terminal_compat.sh" "terminal_compat.sh" "$output"
+assert_contains_ci "Multi-term finds task_utils.sh" "task_utils.sh" "$output"
+assert_contains_ci "Multi-term finds terminal_compat.sh" "terminal_compat.sh" "$output"
 teardown_test_repo
 
 # --- Test 11: Name search - fuzzy match ---
@@ -339,7 +285,7 @@ output=$(run_in_repo "$REPO" --names "tsk_utl")
 exit_code=$?
 set -e
 assert_eq "Fuzzy name exits zero" 0 "$exit_code"
-assert_contains "Fuzzy 'tsk_utl' matches task_utils.sh" "task_utils.sh" "$output"
+assert_contains_ci "Fuzzy 'tsk_utl' matches task_utils.sh" "task_utils.sh" "$output"
 teardown_test_repo
 
 # --- Test 12: Name search - no matches ---

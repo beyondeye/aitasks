@@ -11,29 +11,9 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
 
 # Create a fake project dir with proper SCRIPT_DIR structure
 # setup_git_tui uses $SCRIPT_DIR/.. as project root
@@ -89,10 +69,10 @@ YAML
 _set_git_tui_config "$tmpf" "lazygit"
 
 result=$(grep 'git_tui:' "$tmpf")
-assert_eq "git_tui line updated" "git_tui: lazygit" "$result"
+assert_eq_trim "git_tui line updated" "git_tui: lazygit" "$result"
 
-assert_contains "default_session preserved" "default_session: aitasks" "$(cat "$tmpf")"
-assert_contains "monitor preserved" "refresh_seconds: 3" "$(cat "$tmpf")"
+assert_contains_ci "default_session preserved" "default_session: aitasks" "$(cat "$tmpf")"
+assert_contains_ci "monitor preserved" "refresh_seconds: 3" "$(cat "$tmpf")"
 rm -f "$tmpf"
 
 # --- Test 2: _set_git_tui_config appends tmux section when missing ---
@@ -106,9 +86,9 @@ YAML
 
 _set_git_tui_config "$tmpf" "gitui"
 
-assert_contains "tmux section appended" "tmux:" "$(cat "$tmpf")"
-assert_contains "git_tui set" "git_tui: gitui" "$(cat "$tmpf")"
-assert_contains "original content preserved" "codeagent_coauthor_domain: aitasks.io" "$(cat "$tmpf")"
+assert_contains_ci "tmux section appended" "tmux:" "$(cat "$tmpf")"
+assert_contains_ci "git_tui set" "git_tui: gitui" "$(cat "$tmpf")"
+assert_contains_ci "original content preserved" "codeagent_coauthor_domain: aitasks.io" "$(cat "$tmpf")"
 rm -f "$tmpf"
 
 # --- Test 3: _set_git_tui_config preserves indentation ---
@@ -123,7 +103,7 @@ YAML
 _set_git_tui_config "$tmpf" "tig"
 
 result=$(grep 'git_tui:' "$tmpf")
-assert_eq "Indentation preserved" "  git_tui: tig" "$result"
+assert_eq_trim "Indentation preserved" "  git_tui: tig" "$result"
 rm -f "$tmpf"
 
 # --- Test 4: setup_git_tui skips when already configured ---
@@ -137,10 +117,10 @@ YAML
 
 SCRIPT_DIR="$tmpdir/.aitask-scripts"
 output=$(setup_git_tui 2>&1 </dev/null)
-assert_contains "Reports already configured" "already configured" "$output"
+assert_contains_ci "Reports already configured" "already configured" "$output"
 
 result=$(grep 'git_tui:' "$tmpdir/aitasks/metadata/project_config.yaml")
-assert_eq "Config unchanged" "git_tui: lazygit" "$result"
+assert_eq_trim "Config unchanged" "git_tui: lazygit" "$result"
 rm -rf "$tmpdir"
 
 # --- Test 5: setup_git_tui skips when no config file ---
@@ -151,7 +131,7 @@ rm -f "$tmpdir/aitasks/metadata/project_config.yaml"
 
 SCRIPT_DIR="$tmpdir/.aitask-scripts"
 output=$(setup_git_tui 2>&1 </dev/null)
-assert_contains "Reports skipping" "skipping" "$output"
+assert_contains_ci "Reports skipping" "skipping" "$output"
 rm -rf "$tmpdir"
 
 # --- Test 6: setup_git_tui auto-detects single TUI (non-interactive) ---
@@ -169,8 +149,8 @@ SCRIPT_DIR="$tmpdir/.aitask-scripts"
 output=$(PATH="$rbin" setup_git_tui 2>&1 </dev/null)
 
 result=$(grep 'git_tui:' "$tmpdir/aitasks/metadata/project_config.yaml")
-assert_eq "Config set to lazygit" "  git_tui: lazygit" "$result"
-assert_contains "Reports detected" "Detected git TUI" "$output"
+assert_eq_trim "Config set to lazygit" "  git_tui: lazygit" "$result"
+assert_contains_ci "Reports detected" "Detected git TUI" "$output"
 rm -rf "$tmpdir" "$rbin"
 
 # --- Test 7: setup_git_tui selects first with multiple (non-interactive) ---
@@ -188,8 +168,8 @@ SCRIPT_DIR="$tmpdir/.aitask-scripts"
 output=$(PATH="$rbin" setup_git_tui 2>&1 </dev/null)
 
 result=$(grep 'git_tui:' "$tmpdir/aitasks/metadata/project_config.yaml")
-assert_eq "Selects lazygit (first)" "  git_tui: lazygit" "$result"
-assert_contains "Reports auto-selecting" "auto-selecting" "$output"
+assert_eq_trim "Selects lazygit (first)" "  git_tui: lazygit" "$result"
+assert_contains_ci "Reports auto-selecting" "auto-selecting" "$output"
 rm -rf "$tmpdir" "$rbin"
 
 # --- Test 8: setup_git_tui skips install (non-interactive, no TUIs) ---
@@ -206,10 +186,10 @@ rbin=$(make_restricted_bin)  # no TUI tools
 SCRIPT_DIR="$tmpdir/.aitask-scripts"
 output=$(PATH="$rbin" setup_git_tui 2>&1 </dev/null)
 
-assert_contains "Reports skipping" "skipping" "$output"
+assert_contains_ci "Reports skipping" "skipping" "$output"
 
 result=$(grep 'git_tui:' "$tmpdir/aitasks/metadata/project_config.yaml" | sed 's/.*git_tui:[[:space:]]*//')
-assert_eq "Config still empty" "" "$result"
+assert_eq_trim "Config still empty" "" "$result"
 rm -rf "$tmpdir" "$rbin"
 
 # Restore SCRIPT_DIR

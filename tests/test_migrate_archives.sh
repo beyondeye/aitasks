@@ -14,61 +14,12 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -Fqi "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_file_exists() {
-    local desc="$1" path="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -f "$path" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (missing file '$path')"
-    fi
-}
 
-assert_file_not_exists() {
-    local desc="$1" path="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ ! -f "$path" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (unexpected file '$path')"
-    fi
-}
 
-assert_exit_zero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (command exited non-zero)"
-    fi
-}
 
 setup_test_env() {
     local tmpdir
@@ -120,7 +71,7 @@ assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/.aitask-scripts/ait
 # --- Test 2: Help output ---
 echo "--- Test 2: Help output ---"
 output_2=$("$PROJECT_DIR/.aitask-scripts/aitask_migrate_archives.sh" --help 2>&1)
-assert_contains "Help shows command purpose" "Convert numbered old*.tar.gz archives" "$output_2"
+assert_contains_ci "Help shows command purpose" "Convert numbered old*.tar.gz archives" "$output_2"
 
 # --- Test 3: Dry-run numbered archives ---
 echo "--- Test 3: Dry-run numbered archives ---"
@@ -138,8 +89,8 @@ TMPDIR_3="$(setup_test_env)"
     rm -rf "$stage_plan"
 )
 output_3=$(cd "$TMPDIR_3" && bash ./.aitask-scripts/aitask_migrate_archives.sh --dry-run 2>&1)
-assert_contains "Dry-run shows task numbered conversion" "Would convert numbered archive: aitasks/archived/_b0/old0.tar.gz -> aitasks/archived/_b0/old0.tar.zst" "$output_3"
-assert_contains "Dry-run shows plan numbered conversion" "Would convert numbered archive: aiplans/archived/_b0/old0.tar.gz -> aiplans/archived/_b0/old0.tar.zst" "$output_3"
+assert_contains_ci "Dry-run shows task numbered conversion" "Would convert numbered archive: aitasks/archived/_b0/old0.tar.gz -> aitasks/archived/_b0/old0.tar.zst" "$output_3"
+assert_contains_ci "Dry-run shows plan numbered conversion" "Would convert numbered archive: aiplans/archived/_b0/old0.tar.gz -> aiplans/archived/_b0/old0.tar.zst" "$output_3"
 rm -rf "$TMPDIR_3"
 
 # --- Test 4: Numbered archive conversion ---
@@ -157,8 +108,8 @@ TMPDIR_4="$(setup_test_env)"
 assert_file_exists "Numbered conversion creates tar.zst" "$TMPDIR_4/aitasks/archived/_b0/old0.tar.zst"
 assert_file_exists "Numbered conversion preserves source by default" "$TMPDIR_4/aitasks/archived/_b0/old0.tar.gz"
 contents_4=$(list_tar_zst "$TMPDIR_4/aitasks/archived/_b0/old0.tar.zst")
-assert_contains "Converted numbered archive keeps first file" "t50_old.md" "$contents_4"
-assert_contains "Converted numbered archive keeps second file" "t51_old.md" "$contents_4"
+assert_contains_ci "Converted numbered archive keeps first file" "t50_old.md" "$contents_4"
+assert_contains_ci "Converted numbered archive keeps second file" "t51_old.md" "$contents_4"
 rm -rf "$TMPDIR_4"
 
 # --- Test 5: Delete-old removes converted numbered source ---
@@ -196,9 +147,9 @@ assert_file_exists "Legacy source preserved by default" "$TMPDIR_6/aitasks/archi
 assert_file_not_exists "Legacy rebucketing does not create root tar.zst" "$TMPDIR_6/aitasks/archived/old.tar.zst"
 contents_6a=$(list_tar_zst "$TMPDIR_6/aitasks/archived/_b0/old0.tar.zst")
 contents_6b=$(list_tar_zst "$TMPDIR_6/aitasks/archived/_b0/old1.tar.zst")
-assert_contains "Legacy task 50 moved to bundle 0" "t50_parent.md" "$contents_6a"
-assert_contains "Legacy task 150 moved to bundle 1" "t150_parent.md" "$contents_6b"
-assert_contains "Legacy child preserved under parent dir" "t150/t150_2_child.md" "$contents_6b"
+assert_contains_ci "Legacy task 50 moved to bundle 0" "t50_parent.md" "$contents_6a"
+assert_contains_ci "Legacy task 150 moved to bundle 1" "t150_parent.md" "$contents_6b"
+assert_contains_ci "Legacy child preserved under parent dir" "t150/t150_2_child.md" "$contents_6b"
 rm -rf "$TMPDIR_6"
 
 # --- Test 7: Legacy plan archive rebucketing ---
@@ -218,8 +169,8 @@ assert_file_exists "Legacy plan rebucketing creates bundle 0" "$TMPDIR_7/aiplans
 assert_file_exists "Legacy plan rebucketing creates bundle 1" "$TMPDIR_7/aiplans/archived/_b0/old1.tar.zst"
 contents_7a=$(list_tar_zst "$TMPDIR_7/aiplans/archived/_b0/old0.tar.zst")
 contents_7b=$(list_tar_zst "$TMPDIR_7/aiplans/archived/_b0/old1.tar.zst")
-assert_contains "Legacy plan 50 moved to bundle 0" "p50_parent.md" "$contents_7a"
-assert_contains "Legacy plan child preserved under parent dir" "p150/p150_1_child.md" "$contents_7b"
+assert_contains_ci "Legacy plan 50 moved to bundle 0" "p50_parent.md" "$contents_7a"
+assert_contains_ci "Legacy plan child preserved under parent dir" "p150/p150_1_child.md" "$contents_7b"
 rm -rf "$TMPDIR_7"
 
 # --- Test 8: Rebucketing merges into existing tar.zst bundle ---
@@ -240,8 +191,8 @@ TMPDIR_8="$(setup_test_env)"
 )
 (cd "$TMPDIR_8" && bash ./.aitask-scripts/aitask_migrate_archives.sh >/dev/null 2>&1)
 contents_8=$(list_tar_zst "$TMPDIR_8/aitasks/archived/_b0/old1.tar.zst")
-assert_contains "Merge keeps existing bundle content" "t150_existing.md" "$contents_8"
-assert_contains "Merge adds rebucketed legacy content" "t151_new.md" "$contents_8"
+assert_contains_ci "Merge keeps existing bundle content" "t150_existing.md" "$contents_8"
+assert_contains_ci "Merge adds rebucketed legacy content" "t151_new.md" "$contents_8"
 rm -rf "$TMPDIR_8"
 
 # --- Test 9: Delete-old removes rebucketed legacy source ---
@@ -271,7 +222,7 @@ TMPDIR_10="$(setup_test_env)"
     rm -rf "$stage"
 )
 output_10=$(cd "$TMPDIR_10" && bash ./.aitask-scripts/aitask_migrate_archives.sh --delete-old 2>&1)
-assert_contains "Skip message emitted when tar.zst exists" "Skipping numbered archive (target exists)" "$output_10"
+assert_contains_ci "Skip message emitted when tar.zst exists" "Skipping numbered archive (target exists)" "$output_10"
 assert_file_not_exists "Delete-old removes already-migrated tar.gz" "$TMPDIR_10/aitasks/archived/_b0/old0.tar.gz"
 rm -rf "$TMPDIR_10"
 
@@ -286,7 +237,7 @@ TMPDIR_11="$(setup_test_env)"
     rm -rf "$stage"
 )
 output_11=$(cd "$TMPDIR_11" && bash ./ait migrate-archives --dry-run 2>&1)
-assert_contains "Dispatcher routes to migrate-archives command" "Would convert numbered archive: aitasks/archived/_b0/old0.tar.gz -> aitasks/archived/_b0/old0.tar.zst" "$output_11"
+assert_contains_ci "Dispatcher routes to migrate-archives command" "Would convert numbered archive: aitasks/archived/_b0/old0.tar.gz -> aitasks/archived/_b0/old0.tar.zst" "$output_11"
 rm -rf "$TMPDIR_11"
 
 echo ""

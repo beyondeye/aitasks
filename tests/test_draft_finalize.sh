@@ -16,64 +16,12 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    # Trim leading/trailing whitespace (macOS wc -l pads with spaces)
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_file_exists() {
-    local desc="$1" filepath="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -f "$filepath" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$filepath' does not exist)"
-    fi
-}
 
-assert_file_not_exists() {
-    local desc="$1" filepath="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ ! -f "$filepath" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$filepath' should not exist)"
-    fi
-}
 
-assert_exit_zero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (command exited non-zero)"
-    fi
-}
 
 # Setup a git project with remote and aitask-ids branch initialized
 setup_draft_project() {
@@ -169,7 +117,7 @@ output1=$(cd "$TMPDIR_1/local" && ./.aitask-scripts/aitask_create.sh --batch --n
 
 # Check that a draft file was created in aitasks/new/
 draft_files1=$(ls "$TMPDIR_1/local/aitasks/new"/draft_*_test_task.md 2>/dev/null | wc -l)
-assert_eq "Draft file created in aitasks/new/" "1" "$draft_files1"
+assert_eq_trim "Draft file created in aitasks/new/" "1" "$draft_files1"
 
 rm -rf "$TMPDIR_1"
 
@@ -185,11 +133,11 @@ assert_file_exists "Draft file exists" "$draft_file2"
 
 # Check YAML content
 draft_content2=$(cat "$draft_file2" 2>/dev/null)
-assert_contains "Has draft: true" "draft: true" "$draft_content2"
-assert_contains "Has priority: high" "priority: high" "$draft_content2"
-assert_contains "Has effort: low" "effort: low" "$draft_content2"
-assert_contains "Has issue_type: bug" "issue_type: bug" "$draft_content2"
-assert_contains "Has labels" "ui, backend" "$draft_content2"
+assert_contains_ci "Has draft: true" "draft: true" "$draft_content2"
+assert_contains_ci "Has priority: high" "priority: high" "$draft_content2"
+assert_contains_ci "Has effort: low" "effort: low" "$draft_content2"
+assert_contains_ci "Has issue_type: bug" "issue_type: bug" "$draft_content2"
+assert_contains_ci "Has labels" "ui, backend" "$draft_content2"
 
 rm -rf "$TMPDIR_2"
 
@@ -222,11 +170,11 @@ draft_name4=$(ls "$TMPDIR_4/local/aitasks/new"/ 2>/dev/null | head -1)
 
 # Draft should be gone from aitasks/new/
 draft_remaining4=$(ls "$TMPDIR_4/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
-assert_eq "Draft removed after finalize" "0" "$draft_remaining4"
+assert_eq_trim "Draft removed after finalize" "0" "$draft_remaining4"
 
 # Task file should exist in aitasks/
 final_files4=$(ls "$TMPDIR_4/local/aitasks"/t*_finalize_me.md 2>/dev/null | wc -l)
-assert_eq "Finalized file in aitasks/" "1" "$final_files4"
+assert_eq_trim "Finalized file in aitasks/" "1" "$final_files4"
 
 # Check draft: true was removed
 final_file4=$(ls "$TMPDIR_4/local/aitasks"/t*_finalize_me.md 2>/dev/null | head -1)
@@ -266,8 +214,8 @@ draft_name6=$(ls "$TMPDIR_6/local/aitasks/new"/ 2>/dev/null | head -1)
 
 # Check that git log shows the commit
 last_commit6=$(cd "$TMPDIR_6/local" && git log -1 --format='%s' 2>/dev/null)
-assert_contains "Commit message has task ID" "t3" "$last_commit6"
-assert_contains "Commit message mentions task" "commit test" "$last_commit6"
+assert_contains_ci "Commit message has task ID" "t3" "$last_commit6"
+assert_contains_ci "Commit message mentions task" "commit test" "$last_commit6"
 
 rm -rf "$TMPDIR_6"
 
@@ -283,23 +231,23 @@ sleep 1
 
 # All should be drafts
 draft_count7_before=$(ls "$TMPDIR_7/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
-assert_eq "3 drafts created" "3" "$draft_count7_before"
+assert_eq_trim "3 drafts created" "3" "$draft_count7_before"
 
 # Finalize all
 (cd "$TMPDIR_7/local" && ./.aitask-scripts/aitask_create.sh --batch --finalize-all >/dev/null 2>&1)
 
 # Drafts should be gone
 draft_count7_after=$(ls "$TMPDIR_7/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
-assert_eq "No drafts remaining" "0" "$draft_count7_after"
+assert_eq_trim "No drafts remaining" "0" "$draft_count7_after"
 
 # 3 new task files should exist (t3, t4, t5)
 new_task_count7=$(ls "$TMPDIR_7/local/aitasks"/t[345]_*.md 2>/dev/null | wc -l)
-assert_eq "3 finalized tasks exist" "3" "$new_task_count7"
+assert_eq_trim "3 finalized tasks exist" "3" "$new_task_count7"
 
 # All should have unique IDs
 ids7=$(ls "$TMPDIR_7/local/aitasks"/t*_*.md 2>/dev/null | grep -oE 't[0-9]+' | sort -u | wc -l)
 total_tasks7=$(ls "$TMPDIR_7/local/aitasks"/t*_*.md 2>/dev/null | wc -l)
-assert_eq "All task IDs are unique" "$total_tasks7" "$ids7"
+assert_eq_trim "All task IDs are unique" "$total_tasks7" "$ids7"
 
 rm -rf "$TMPDIR_7"
 
@@ -311,11 +259,11 @@ output8=$(cd "$TMPDIR_8/local" && ./.aitask-scripts/aitask_create.sh --batch --n
 
 # Should NOT create a draft
 draft_count8=$(ls "$TMPDIR_8/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
-assert_eq "No draft created with --commit" "0" "$draft_count8"
+assert_eq_trim "No draft created with --commit" "0" "$draft_count8"
 
 # Should create task directly in aitasks/
 final_count8=$(ls "$TMPDIR_8/local/aitasks"/t*_auto_final.md 2>/dev/null | wc -l)
-assert_eq "Task created directly in aitasks/" "1" "$final_count8"
+assert_eq_trim "Task created directly in aitasks/" "1" "$final_count8"
 
 # Should be committed
 git_clean8=$(cd "$TMPDIR_8/local" && git status --porcelain 2>/dev/null)
@@ -337,13 +285,13 @@ TMPDIR_9="$(setup_draft_project)"
 
 # Draft should exist in aitasks/new/
 draft_count9=$(ls "$TMPDIR_9/local/aitasks/new"/draft_*_child_task.md 2>/dev/null | wc -l)
-assert_eq "Child draft created" "1" "$draft_count9"
+assert_eq_trim "Child draft created" "1" "$draft_count9"
 
 # Draft should have parent field
 draft_file9=$(ls "$TMPDIR_9/local/aitasks/new"/draft_*_child_task.md 2>/dev/null | head -1)
 draft_content9=$(cat "$draft_file9" 2>/dev/null)
-assert_contains "Draft has parent field" "parent: 1" "$draft_content9"
-assert_contains "Draft has draft: true" "draft: true" "$draft_content9"
+assert_contains_ci "Draft has parent field" "parent: 1" "$draft_content9"
+assert_contains_ci "Draft has draft: true" "draft: true" "$draft_content9"
 
 rm -rf "$TMPDIR_9"
 
@@ -358,15 +306,15 @@ draft_name10=$(ls "$TMPDIR_10/local/aitasks/new"/ 2>/dev/null | head -1)
 
 # Child should be in aitasks/t1/
 child_files10=$(ls "$TMPDIR_10/local/aitasks/t1"/t1_*_child_fin.md 2>/dev/null | wc -l)
-assert_eq "Child task finalized to aitasks/t1/" "1" "$child_files10"
+assert_eq_trim "Child task finalized to aitasks/t1/" "1" "$child_files10"
 
 # Draft should be gone
 draft_remaining10=$(ls "$TMPDIR_10/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
-assert_eq "Draft removed after child finalize" "0" "$draft_remaining10"
+assert_eq_trim "Draft removed after child finalize" "0" "$draft_remaining10"
 
 # Parent file should have children_to_implement updated
 parent_content10=$(cat "$TMPDIR_10/local/aitasks/t1_first_task.md" 2>/dev/null)
-assert_contains "Parent updated with child ref" "t1_1" "$parent_content10"
+assert_contains_ci "Parent updated with child ref" "t1_1" "$parent_content10"
 
 rm -rf "$TMPDIR_10"
 
@@ -385,15 +333,15 @@ draft_name11=$(ls "$TMPDIR_11/local/aitasks/new"/ 2>/dev/null | head -1)
 output11=$(cd "$TMPDIR_11/local" && ./.aitask-scripts/aitask_create.sh --batch --finalize "$draft_name11" 2>&1)
 exit_code11=$?
 
-assert_eq "Finalize succeeds without network (local counter)" "0" "$exit_code11"
+assert_eq_trim "Finalize succeeds without network (local counter)" "0" "$exit_code11"
 
 # Draft should be removed (finalization succeeded)
 draft_remaining11=$(ls "$TMPDIR_11/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l | tr -d ' ')
-assert_eq "Draft removed after finalize" "0" "$draft_remaining11"
+assert_eq_trim "Draft removed after finalize" "0" "$draft_remaining11"
 
 # Finalized task file should exist
 finalized_count11=$(ls "$TMPDIR_11/local/aitasks"/t*_no_net.md 2>/dev/null | wc -l | tr -d ' ')
-assert_eq "Finalized task file exists" "1" "$finalized_count11"
+assert_eq_trim "Finalized task file exists" "1" "$finalized_count11"
 
 rm -rf "$TMPDIR_11"
 
@@ -408,12 +356,12 @@ sleep 1
 (cd "$TMPDIR_12/local" && ./.aitask-scripts/aitask_create.sh --batch --name "multi_c" --desc "Draft C" >/dev/null 2>&1)
 
 draft_count12=$(ls "$TMPDIR_12/local/aitasks/new"/draft_*.md 2>/dev/null | wc -l)
-assert_eq "3 drafts coexist" "3" "$draft_count12"
+assert_eq_trim "3 drafts coexist" "3" "$draft_count12"
 
 # Each has a different name suffix
 for name in multi_a multi_b multi_c; do
     count=$(ls "$TMPDIR_12/local/aitasks/new"/draft_*_${name}.md 2>/dev/null | wc -l)
-    assert_eq "Draft $name exists" "1" "$count"
+    assert_eq_trim "Draft $name exists" "1" "$count"
 done
 
 rm -rf "$TMPDIR_12"

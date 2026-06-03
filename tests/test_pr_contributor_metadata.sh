@@ -16,40 +16,10 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (output should NOT contain '$expected')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
 # Setup a git project with remote and aitask-ids branch initialized
 setup_project() {
@@ -109,9 +79,9 @@ TMPDIR_1="$(setup_project)"
 
 draft_file_1=$(ls "$TMPDIR_1/local/aitasks/new"/draft_*_pr_test.md 2>/dev/null | head -1)
 content_1=$(cat "$draft_file_1" 2>/dev/null)
-assert_contains "pull_request in YAML" "pull_request: https://github.com/owner/repo/pull/42" "$content_1"
-assert_contains "contributor in YAML" "contributor: octocat" "$content_1"
-assert_contains "contributor_email in YAML" "contributor_email: 12345+octocat@users.noreply.github.com" "$content_1"
+assert_contains_ci "pull_request in YAML" "pull_request: https://github.com/owner/repo/pull/42" "$content_1"
+assert_contains_ci "contributor in YAML" "contributor: octocat" "$content_1"
+assert_contains_ci "contributor_email in YAML" "contributor_email: 12345+octocat@users.noreply.github.com" "$content_1"
 
 rm -rf "$TMPDIR_1"
 
@@ -127,9 +97,9 @@ TMPDIR_2="$(setup_project)"
 
 task_file_2=$(ls "$TMPDIR_2/local/aitasks"/t*_pr_committed.md 2>/dev/null | head -1)
 content_2=$(cat "$task_file_2" 2>/dev/null)
-assert_contains "pull_request in committed task" "pull_request: https://github.com/owner/repo/pull/99" "$content_2"
-assert_contains "contributor in committed task" "contributor: contributor1" "$content_2"
-assert_contains "contributor_email in committed task" "contributor_email: 789+contributor1@users.noreply.github.com" "$content_2"
+assert_contains_ci "pull_request in committed task" "pull_request: https://github.com/owner/repo/pull/99" "$content_2"
+assert_contains_ci "contributor in committed task" "contributor: contributor1" "$content_2"
+assert_contains_ci "contributor_email in committed task" "contributor_email: 789+contributor1@users.noreply.github.com" "$content_2"
 
 rm -rf "$TMPDIR_2"
 
@@ -141,9 +111,9 @@ TMPDIR_3="$(setup_project)"
 
 draft_file_3=$(ls "$TMPDIR_3/local/aitasks/new"/draft_*_no_pr.md 2>/dev/null | head -1)
 content_3=$(cat "$draft_file_3" 2>/dev/null)
-assert_not_contains "No pull_request field" "pull_request:" "$content_3"
-assert_not_contains "No contributor field" "^contributor:" "$content_3"
-assert_not_contains "No contributor_email field" "contributor_email:" "$content_3"
+assert_not_contains_ci "No pull_request field" "pull_request:" "$content_3"
+assert_not_contains_re "No contributor field" "^contributor:" "$content_3"
+assert_not_contains_ci "No contributor_email field" "contributor_email:" "$content_3"
 
 rm -rf "$TMPDIR_3"
 
@@ -162,9 +132,9 @@ task_num_4=$(basename "$task_file_4" | sed 's/^t\([0-9]*\)_.*/\1/')
     --contributor-email "gitlab_user@example.com" --silent >/dev/null 2>&1)
 
 content_4=$(cat "$task_file_4" 2>/dev/null)
-assert_contains "pull_request after update" "pull_request: https://gitlab.com/group/project/-/merge_requests/5" "$content_4"
-assert_contains "contributor after update" "contributor: gitlab_user" "$content_4"
-assert_contains "contributor_email after update" "contributor_email: gitlab_user@example.com" "$content_4"
+assert_contains_ci "pull_request after update" "pull_request: https://gitlab.com/group/project/-/merge_requests/5" "$content_4"
+assert_contains_ci "contributor after update" "contributor: gitlab_user" "$content_4"
+assert_contains_ci "contributor_email after update" "contributor_email: gitlab_user@example.com" "$content_4"
 
 rm -rf "$TMPDIR_4"
 
@@ -184,8 +154,8 @@ task_num_5=$(basename "$task_file_5" | sed 's/^t\([0-9]*\)_.*/\1/')
 (cd "$TMPDIR_5/local" && bash .aitask-scripts/aitask_update.sh --batch "$task_num_5" --priority high --silent >/dev/null 2>&1)
 
 content_5=$(cat "$task_file_5" 2>/dev/null)
-assert_contains "PR preserved after priority update" "pull_request: https://github.com/o/r/pull/1" "$content_5"
-assert_contains "Contributor preserved after priority update" "contributor: user1" "$content_5"
+assert_contains_ci "PR preserved after priority update" "pull_request: https://github.com/o/r/pull/1" "$content_5"
+assert_contains_ci "Contributor preserved after priority update" "contributor: user1" "$content_5"
 
 rm -rf "$TMPDIR_5"
 
@@ -205,8 +175,8 @@ task_num_6=$(basename "$task_file_6" | sed 's/^t\([0-9]*\)_.*/\1/')
 (cd "$TMPDIR_6/local" && bash .aitask-scripts/aitask_update.sh --batch "$task_num_6" --pull-request "" --silent >/dev/null 2>&1)
 
 content_6=$(cat "$task_file_6" 2>/dev/null)
-assert_not_contains "PR cleared" "pull_request:" "$content_6"
-assert_contains "Contributor still present" "contributor: user1" "$content_6"
+assert_not_contains_ci "PR cleared" "pull_request:" "$content_6"
+assert_contains_ci "Contributor still present" "contributor: user1" "$content_6"
 
 rm -rf "$TMPDIR_6"
 
@@ -233,9 +203,9 @@ pr_7=$(cd "$TMPDIR_7/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/ta
 contrib_7=$(cd "$TMPDIR_7/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/task_utils.sh && extract_contributor "$tmpfile_7")
 email_7=$(cd "$TMPDIR_7/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/task_utils.sh && extract_contributor_email "$tmpfile_7")
 
-assert_eq "extract_pr_url" "https://github.com/owner/repo/pull/42" "$pr_7"
-assert_eq "extract_contributor" "octocat" "$contrib_7"
-assert_eq "extract_contributor_email" "12345+octocat@users.noreply.github.com" "$email_7"
+assert_eq_trim "extract_pr_url" "https://github.com/owner/repo/pull/42" "$pr_7"
+assert_eq_trim "extract_contributor" "octocat" "$contrib_7"
+assert_eq_trim "extract_contributor_email" "12345+octocat@users.noreply.github.com" "$email_7"
 
 rm -f "$tmpfile_7"
 rm -rf "$TMPDIR_7"
@@ -260,9 +230,9 @@ pr_8=$(cd "$TMPDIR_8/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/ta
 contrib_8=$(cd "$TMPDIR_8/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/task_utils.sh && extract_contributor "$tmpfile_8")
 email_8=$(cd "$TMPDIR_8/local" && unset SCRIPT_DIR && source .aitask-scripts/lib/task_utils.sh && extract_contributor_email "$tmpfile_8")
 
-assert_eq "extract_pr_url empty" "" "$pr_8"
-assert_eq "extract_contributor empty" "" "$contrib_8"
-assert_eq "extract_contributor_email empty" "" "$email_8"
+assert_eq_trim "extract_pr_url empty" "" "$pr_8"
+assert_eq_trim "extract_contributor empty" "" "$contrib_8"
+assert_eq_trim "extract_contributor_email empty" "" "$email_8"
 
 rm -f "$tmpfile_8"
 rm -rf "$TMPDIR_8"
@@ -284,9 +254,9 @@ parent_num_9=$(basename "$parent_file_9" | sed 's/^t\([0-9]*\)_.*/\1/')
 
 child_file_9=$(ls "$TMPDIR_9/local/aitasks/t${parent_num_9}"/t${parent_num_9}_*_child_pr.md 2>/dev/null | head -1)
 content_9=$(cat "$child_file_9" 2>/dev/null)
-assert_contains "child pull_request" "pull_request: https://github.com/o/r/pull/55" "$content_9"
-assert_contains "child contributor" "contributor: ext_user" "$content_9"
-assert_contains "child contributor_email" "contributor_email: ext@users.noreply.github.com" "$content_9"
+assert_contains_ci "child pull_request" "pull_request: https://github.com/o/r/pull/55" "$content_9"
+assert_contains_ci "child contributor" "contributor: ext_user" "$content_9"
+assert_contains_ci "child contributor_email" "contributor_email: ext@users.noreply.github.com" "$content_9"
 
 rm -rf "$TMPDIR_9"
 
@@ -300,8 +270,8 @@ TMPDIR_10="$(setup_project)"
     --desc-file - --commit >/dev/null 2>&1)
 
 output_10=$(cd "$TMPDIR_10/local" && bash .aitask-scripts/aitask_ls.sh -v 99 2>&1)
-assert_contains "ls shows PR" "PR: https://github.com/o/r/pull/77" "$output_10"
-assert_contains "ls shows Contributor" "Contributor: visible_user" "$output_10"
+assert_contains_ci "ls shows PR" "PR: https://github.com/o/r/pull/77" "$output_10"
+assert_contains_ci "ls shows Contributor" "Contributor: visible_user" "$output_10"
 
 rm -rf "$TMPDIR_10"
 
@@ -312,8 +282,8 @@ TMPDIR_11="$(setup_project)"
 (cd "$TMPDIR_11/local" && echo "Normal task" | bash .aitask-scripts/aitask_create.sh --batch --name "ls_no_pr" --desc-file - --commit >/dev/null 2>&1)
 
 output_11=$(cd "$TMPDIR_11/local" && bash .aitask-scripts/aitask_ls.sh -v 99 2>&1)
-assert_not_contains "no PR in output" "PR:" "$output_11"
-assert_not_contains "no Contributor in output" "Contributor:" "$output_11"
+assert_not_contains_ci "no PR in output" "PR:" "$output_11"
+assert_not_contains_ci "no Contributor in output" "Contributor:" "$output_11"
 
 rm -rf "$TMPDIR_11"
 

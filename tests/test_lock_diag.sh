@@ -16,27 +16,9 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
 assert_exit_code() {
     local desc="$1" expected_code="$2"
@@ -107,10 +89,10 @@ output2=$(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_lock_diag.sh 2>&1)
 exit2=$?
 
 assert_eq "Diag exits 0 with initialized locks" "0" "$exit2"
-assert_contains "Shows ALL CHECKS PASSED" "ALL CHECKS PASSED" "$output2"
-assert_contains "Git check passes" "PASS.*Git available" "$output2"
-assert_contains "Remote check passes" "PASS.*Origin remote" "$output2"
-assert_contains "Lock branch check passes" "PASS.*Lock branch" "$output2"
+assert_contains_ci "Shows ALL CHECKS PASSED" "ALL CHECKS PASSED" "$output2"
+assert_contains_re "Git check passes" "PASS.*Git available" "$output2"
+assert_contains_re "Remote check passes" "PASS.*Origin remote" "$output2"
+assert_contains_re "Lock branch check passes" "PASS.*Lock branch" "$output2"
 
 rm -rf "$TMPDIR_2"
 
@@ -124,8 +106,8 @@ output3=$(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_lock_diag.sh 2>&1)
 exit3=$?
 
 assert_eq "Diag exits 1 without lock branch" "1" "$exit3"
-assert_contains "Shows SOME CHECKS FAILED" "SOME CHECKS FAILED" "$output3"
-assert_contains "Lock branch check fails" "FAIL.*Lock branch" "$output3"
+assert_contains_ci "Shows SOME CHECKS FAILED" "SOME CHECKS FAILED" "$output3"
+assert_contains_re "Lock branch check fails" "FAIL.*Lock branch" "$output3"
 
 rm -rf "$TMPDIR_3"
 
