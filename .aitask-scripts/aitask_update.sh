@@ -1469,7 +1469,7 @@ run_interactive_mode() {
     read -rp "Commit to git? [Y/n] " commit_choice
     if [[ "$commit_choice" != "n" && "$commit_choice" != "N" ]]; then
         local humanized_name
-        humanized_name=$(basename "$final_path" .md | sed 's/^t[0-9]*_\([0-9]*_\)\?//' | tr '_' ' ')
+        humanized_name=$(basename "$final_path" .md | sed -E 's/^t[0-9]*_([0-9]*_)?//' | tr '_' ' ')
         task_git add "$final_path"
         task_git commit -m "ait: Update task t${task_num}: ${humanized_name}"
         local commit_hash
@@ -1770,7 +1770,7 @@ run_batch_mode() {
     # Git commit if requested
     if [[ "$BATCH_COMMIT" == true ]]; then
         local humanized_name
-        humanized_name=$(basename "$final_path" .md | sed 's/^t[0-9]*_\([0-9]*_\)\?//' | tr '_' ' ')
+        humanized_name=$(basename "$final_path" .md | sed -E 's/^t[0-9]*_([0-9]*_)?//' | tr '_' ' ')
         task_git add "$final_path"
         task_git commit -m "ait: Update task t${BATCH_TASK_NUM}: ${humanized_name}"
     fi

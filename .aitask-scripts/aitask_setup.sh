@@ -1471,7 +1471,7 @@ check_latest_version() {
 
     local latest_version=""
     latest_version="$(curl -sS --max-time 5 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
-        | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/')" || true
+        | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name": *"v?([^"]*)".*/\1/')" || true
 
     if [[ -z "$latest_version" ]]; then
         return

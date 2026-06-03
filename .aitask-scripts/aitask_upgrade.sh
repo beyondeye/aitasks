@@ -53,7 +53,7 @@ resolve_version() {
         local version=""
         version="$(echo "$api_response" \
             | grep '"tag_name"' | head -1 \
-            | sed 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/')" || true
+            | sed -E 's/.*"tag_name": *"v?([^"]*)".*/\1/')" || true
 
         if [[ -z "$version" ]]; then
             die "Could not determine latest version. No releases found at https://github.com/$REPO/releases"
