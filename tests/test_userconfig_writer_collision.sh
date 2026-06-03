@@ -30,38 +30,8 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$haystack" | grep -qF -- "$needle"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (did NOT want '$needle', but it was present)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # assert_yaml_valid <desc> <file>
 assert_yaml_valid() {
