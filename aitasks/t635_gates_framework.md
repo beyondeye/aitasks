@@ -7,7 +7,7 @@ status: Ready
 labels: [gates]
 created_at: 2026-04-23 20:21
 updated_at: 2026-04-23 20:21
-boardidx: 20
+boardidx: 30
 boardcol: now
 ---
 

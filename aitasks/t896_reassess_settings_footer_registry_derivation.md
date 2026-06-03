@@ -7,7 +7,7 @@ status: Ready
 labels: [custom_shortcuts, verification]
 created_at: 2026-06-01 12:45
 updated_at: 2026-06-01 12:45
-boardidx: 40
+boardidx: 20
 ---
 
 ## Reassess: settings tab-switcher footer registry-derivation

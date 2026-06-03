@@ -7,7 +7,7 @@ status: Ready
 labels: [task_workflow, claudeskills]
 created_at: 2026-06-02 13:38
 updated_at: 2026-06-02 13:38
-boardidx: 90
+boardidx: 100
 boardcol: now
 ---
 

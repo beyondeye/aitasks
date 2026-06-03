@@ -8,7 +8,7 @@ labels: [cross_repo, aitask-create]
 created_at: 2026-05-29 18:33
 updated_at: 2026-06-01 11:56
 boardcol: now
-boardidx: 40
+boardidx: 50
 ---
 
 ## Context

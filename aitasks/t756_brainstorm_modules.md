@@ -9,7 +9,8 @@ file_references: [aidocs/brainstorming/module_decomposition_design.md]
 children_to_implement: [t756_5, t756_6, t756_7]
 created_at: 2026-05-06 18:53
 updated_at: 2026-06-02 12:51
-boardidx: 30
+boardidx: 10
+boardcol: now
 ---
 
 in ait brainstrom we want to implement a few new node operations and data model extension to support "modules" se the attached design document. this is very complex task that require child decomposition
