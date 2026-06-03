@@ -33,6 +33,9 @@ skill="$1"
 _extract_default_profile() {
     local file="$1" skill_key="$2"
     [[ -f "$file" ]] || return 0
+    # NOTE: only POSIX awk features here. The 3-argument match(str, re, arr)
+    # capture-array form is a gawk extension and is a hard syntax error under
+    # BSD/macOS awk, so values are extracted with sub()/substr() instead.
     awk -v key="$skill_key" '
         BEGIN { in_block = 0 }
         # Top-level key terminates the block.
@@ -42,14 +45,16 @@ _extract_default_profile() {
         }
         in_block {
             # Match "  <skill>: <value>" (any leading whitespace).
-            if (match($0, "^[[:space:]]+" key ":[[:space:]]*(.*)$", m)) {
-                val = m[1]
+            if ($0 ~ ("^[[:space:]]+" key ":")) {
+                val = $0
+                # Drop the "  <skill>:" prefix, leaving the value.
+                sub("^[[:space:]]+" key ":[[:space:]]*", "", val)
                 # Strip trailing whitespace / inline comments.
                 sub(/[[:space:]]*#.*$/, "", val)
                 sub(/[[:space:]]+$/, "", val)
                 # Strip surrounding single or double quotes.
-                if (match(val, /^"(.*)"$/, q) || match(val, /^'\''(.*)'\''$/, q)) {
-                    val = q[1]
+                if (val ~ /^".*"$/ || val ~ /^'\''.*'\''$/) {
+                    val = substr(val, 2, length(val) - 2)
                 }
                 if (val != "") {
                     print val

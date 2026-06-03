@@ -978,8 +978,18 @@ assemble_aitasks_instructions() {
     local agent_type="${2:-}"
     local shared="$project_dir/aitasks/metadata/aitasks_agent_instructions.seed.md"
 
+    # Fall back to the framework seed when the per-project copy is absent.
+    # Legacy / non-data-branch installs never copy it into aitasks/metadata/,
+    # so without this fallback the function would return 1 — and because
+    # callers capture its output via "$(...)", the warning below would be
+    # swallowed and `set -e` would silently abort setup at the call site.
     if [[ ! -f "$shared" ]]; then
-        warn "Shared instructions seed not found: $shared"
+        shared="$project_dir/seed/aitasks_agent_instructions.seed.md"
+    fi
+
+    if [[ ! -f "$shared" ]]; then
+        # Emit to stderr so the message survives callers' command substitution.
+        warn "Shared instructions seed not found: $shared" >&2
         return 1
     fi
 
@@ -989,6 +999,9 @@ assemble_aitasks_instructions() {
     # Layer 2: agent-specific additions (if requested and file exists)
     if [[ -n "$agent_type" ]]; then
         local specific="$project_dir/aitasks/metadata/${agent_type}_instructions.seed.md"
+        if [[ ! -f "$specific" ]]; then
+            specific="$project_dir/seed/${agent_type}_instructions.seed.md"
+        fi
         if [[ -f "$specific" ]]; then
             echo ""
             # Skip header lines that reference the shared file (lines before first ## heading)
@@ -1038,7 +1051,8 @@ update_claudemd_git_section() {
     local claudemd="$project_dir/CLAUDE.md"
 
     local content
-    content="$(assemble_aitasks_instructions "$project_dir" "claude")" || return
+    # Best-effort: skip (don't abort setup) if instructions can't be assembled.
+    content="$(assemble_aitasks_instructions "$project_dir" "claude")" || return 0
 
     insert_aitasks_instructions "$claudemd" "$content"
 
@@ -1056,7 +1070,8 @@ update_agentsmd() {
     local agentsmd="$project_dir/AGENTS.md"
 
     local content
-    content="$(assemble_aitasks_instructions "$project_dir")" || return
+    # Best-effort: skip (don't abort setup) if instructions can't be assembled.
+    content="$(assemble_aitasks_instructions "$project_dir")" || return 0
 
     insert_aitasks_instructions "$agentsmd" "$content"
 
@@ -1535,7 +1550,9 @@ setup_claude_code() {
     info "The following Claude Code permissions are recommended for aitask skills:"
     info "These allow aitask skills to run without manual approval each time."
     echo ""
-    grep '"Bash(' "$seed_file" | sed 's/^[[:space:]]*/  /' | sed 's/",\?$//' | sed 's/^  "/  /'
+    # Use `sed -E` (ERE): BSD/macOS sed does not support the `\?` quantifier in
+    # BRE, so `s/",\?$//` would leave the trailing `",` un-stripped there.
+    grep '"Bash(' "$seed_file" | sed 's/^[[:space:]]*/  /' | sed -E 's/",?$//' | sed 's/^  "/  /'
     echo ""
 
     if [[ -t 0 ]]; then

@@ -204,6 +204,30 @@ assert_eq "T9: missing agent seed no error" "0" "$exit_code"
 assert_contains "T9: shared content present" "## Git Operations" "$result"
 cleanup_tmpdir
 
+# Test 9b: metadata seed absent but seed/ copy present — falls back, no error.
+# Regression for the silent `set -e` abort in `ait setup`: a legacy install with
+# no aitasks/metadata/ copy must fall back to seed/ instead of returning 1 (which
+# the warn-swallowing `$(...)` callers would turn into a silent setup crash).
+setup_tmpdir
+mkdir -p "$TMPDIR_TEST/seed"
+mv "$TMPDIR_TEST/aitasks/metadata/aitasks_agent_instructions.seed.md" \
+   "$TMPDIR_TEST/seed/aitasks_agent_instructions.seed.md"
+result="$(assemble_aitasks_instructions "$TMPDIR_TEST" 2>&1)" && exit_code=0 || exit_code=$?
+assert_eq "T9b: seed/ fallback no error" "0" "$exit_code"
+assert_contains "T9b: fallback content present" "## Git Operations" "$result"
+cleanup_tmpdir
+
+# Test 9c: agent-specific Layer 2 also falls back to seed/
+setup_tmpdir
+mkdir -p "$TMPDIR_TEST/seed"
+mv "$TMPDIR_TEST/aitasks/metadata/codex_instructions.seed.md" \
+   "$TMPDIR_TEST/seed/codex_instructions.seed.md"
+result="$(assemble_aitasks_instructions "$TMPDIR_TEST" "codex")" && exit_code=0 || exit_code=$?
+assert_eq "T9c: agent seed/ fallback no error" "0" "$exit_code"
+assert_contains "T9c: Layer 1 present" "## Git Operations" "$result"
+assert_contains "T9c: Layer 2 fallback present" "Invoke skills with" "$result"
+cleanup_tmpdir
+
 # ============================================================
 # Tests for update_claudemd_git_section() (refactored)
 # ============================================================
