@@ -125,3 +125,30 @@ Follow **Step 9 (Post-Implementation)** of the shared workflow: review/commit
 - None identified. The corrected scope (effort-setting primary fix, residual
   general nudge, profile-driven-skip distinction) and the target file/sections
   are unambiguous; all acceptance criteria map directly to concrete edits above.
+
+## Final Implementation Notes
+
+- **Actual work done:** Edited `website/content/docs/installation/known-issues.md`
+  with three changes: (1) softened the over-claim in the Codex
+  `#### Interactive checkpoints` note to state availability only, pointing
+  forward to the new subsection; (2) added a new
+  `#### Reasoning effort and workflow compliance` subsection recommending
+  effort ≥ `high` as the primary fix, documenting the plan-mode
+  effort-override prompt, distinguishing legitimate profile-driven skips, and
+  giving the "nudge to continue/finish the workflow" residual workaround;
+  (3) appended a parallel nudge line to the Claude Code
+  `#### Medium-effort models can miss workflow steps` note.
+- **Deviations from plan:** None in substance. During planning the scope was
+  twice corrected by the user mid-review: the root cause was reclassified from a
+  fundamental Codex compliance defect to a **reasoning-effort** issue (high
+  effort largely fixes it; residual nudging is general and also affects Claude),
+  and the skipped-steps description was kept **general** rather than enumerating
+  specific gates. The general "nudge" recommendation was placed as parallel
+  lines in both the Codex and Claude Code sections (user's chosen layout).
+- **Issues encountered:** One minor wording redundancy ("available in Codex's
+  default mode" twice) was introduced and then fixed in a follow-up edit.
+- **Key decisions:** Current-state-only prose (no version history of the t862
+  trim); cross-link between the two sections via auto-generated heading anchors
+  (`#reasoning-effort-and-workflow-compliance`,
+  `#medium-effort-models-can-miss-workflow-steps`).
+- **Upstream defects identified:** None.
