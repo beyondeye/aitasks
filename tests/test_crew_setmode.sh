@@ -29,46 +29,8 @@ _inc_fail() {
 
 # --- Test helpers ---
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qF -- "$expected"; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    if echo "$actual" | grep -qF -- "$unexpected"; then
-        _inc_fail
-        echo "FAIL: $desc (did not expect '$unexpected' in '$actual')"
-    else
-        _inc_pass
-    fi
-}
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    if [[ "$expected" == "$actual" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    if "$@" >/dev/null 2>&1; then
-        _inc_fail
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        _inc_pass
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # --- Setup: create isolated git repo with a crew and a Waiting agent ---
 

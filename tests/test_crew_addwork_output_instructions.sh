@@ -33,25 +33,8 @@ _inc_fail() {
 
 # --- Test helpers ---
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qF -- "$expected"; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
-
-assert_file_exists() {
-    local desc="$1" file="$2"
-    if [[ -f "$file" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (file '$file' does not exist)"
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # --- Setup ---
 

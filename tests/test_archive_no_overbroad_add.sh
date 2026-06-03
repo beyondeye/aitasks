@@ -28,27 +28,8 @@ CLEANUP_DIRS=()
 
 # --- Test helpers ---
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got: $actual)"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output NOT containing '$unexpected', got: $actual)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # --- Setup a test project with archive capabilities ---
 setup_archive_project() {

@@ -22,18 +22,8 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if grep -qF -- "$needle" <<< "$haystack"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  expected substring: $needle"
-        echo "  actual: $haystack"
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 assert_exits_nonzero() {
     local desc="$1" rc="$2"

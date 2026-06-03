@@ -31,31 +31,8 @@ _inc_fail() {
     echo "$p $((f + 1)) $((t + 1))" > "$COUNTER_FILE"
 }
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    if echo "$actual" | grep -qF -- "$unexpected"; then
-        _inc_fail
-        echo "FAIL: $desc (did not expect '$unexpected' in output)"
-        echo "---- output ----"
-        echo "$actual"
-        echo "----------------"
-    else
-        _inc_pass
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qF -- "$expected"; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected output containing '$expected')"
-        echo "---- output ----"
-        echo "$actual"
-        echo "----------------"
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 run_from() {
     local cwd="$1"

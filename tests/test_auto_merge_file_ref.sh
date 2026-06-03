@@ -24,40 +24,8 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$haystack" | grep -qF -- "$needle"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (did NOT want '$needle', but it was present)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # --- Project setup ---
 
@@ -139,8 +107,8 @@ TMPDIR_1="$(setup_project)"
         --desc "second" --file-ref "foo.py" >/dev/null 2>&1)
 a1_file=$(find_task_file "$TMPDIR_1/local" a1)
 b1_file=$(find_task_file "$TMPDIR_1/local" b1)
-assert_eq "T1: a1 still Ready (not folded)" "Ready" "$(get_field "$a1_file" status)"
-assert_eq "T1: b1 has no folded_tasks" "" "$(get_field "$b1_file" folded_tasks)"
+assert_eq_trim "T1: a1 still Ready (not folded)" "Ready" "$(get_field "$a1_file" status)"
+assert_eq_trim "T1: b1 has no folded_tasks" "" "$(get_field "$b1_file" folded_tasks)"
 rm -rf "$TMPDIR_1"
 
 # --- Test 2: --auto-merge folds matching task ---
@@ -156,8 +124,8 @@ a2_id=$(task_num_from_file "$a2_file")
         --desc "second" --file-ref "foo.py" --auto-merge >/dev/null 2>&1)
 b2_file=$(find_task_file "$TMPDIR_2/local" b2)
 b2_id=$(task_num_from_file "$b2_file")
-assert_eq "T2: a2 status is Folded" "Folded" "$(get_field "$a2_file" status)"
-assert_eq "T2: a2 folded_into points to b2" "$b2_id" "$(get_field "$a2_file" folded_into)"
+assert_eq_trim "T2: a2 status is Folded" "Folded" "$(get_field "$a2_file" status)"
+assert_eq_trim "T2: a2 folded_into points to b2" "$b2_id" "$(get_field "$a2_file" folded_into)"
 assert_contains "T2: b2 folded_tasks contains a2" "$a2_id" "$(get_field "$b2_file" folded_tasks)"
 rm -rf "$TMPDIR_2"
 
@@ -172,8 +140,8 @@ TMPDIR_3="$(setup_project)"
         --desc "second" --file-ref "foo.py" --no-auto-merge >/dev/null 2>&1)
 a3_file=$(find_task_file "$TMPDIR_3/local" a3)
 b3_file=$(find_task_file "$TMPDIR_3/local" b3)
-assert_eq "T3: a3 still Ready with explicit --no-auto-merge" "Ready" "$(get_field "$a3_file" status)"
-assert_eq "T3: b3 has no folded_tasks" "" "$(get_field "$b3_file" folded_tasks)"
+assert_eq_trim "T3: a3 still Ready with explicit --no-auto-merge" "Ready" "$(get_field "$a3_file" status)"
+assert_eq_trim "T3: b3 has no folded_tasks" "" "$(get_field "$b3_file" folded_tasks)"
 rm -rf "$TMPDIR_3"
 
 # --- Test 4: Status filter - non-Ready task not folded ---
@@ -190,8 +158,8 @@ a4_id=$(task_num_from_file "$a4_file")
     ./.aitask-scripts/aitask_create.sh --batch --commit --name "d4" \
         --desc "second" --file-ref "foo.py" --auto-merge >/dev/null 2>&1)
 d4_file=$(find_task_file "$TMPDIR_4/local" d4)
-assert_eq "T4: a4 remains Postponed (not folded)" "Postponed" "$(get_field "$a4_file" status)"
-assert_eq "T4: d4 has no folded_tasks" "" "$(get_field "$d4_file" folded_tasks)"
+assert_eq_trim "T4: a4 remains Postponed (not folded)" "Postponed" "$(get_field "$a4_file" status)"
+assert_eq_trim "T4: d4 has no folded_tasks" "" "$(get_field "$d4_file" folded_tasks)"
 rm -rf "$TMPDIR_4"
 
 # --- Test 5: Transitive fold re-points A's folded_into ---
@@ -211,17 +179,17 @@ b5_id=$(task_num_from_file "$b5_file")
 (cd "$TMPDIR_5/local" && \
     ./.aitask-scripts/aitask_fold_mark.sh --commit-mode fresh "$b5_id" "$a5_id" >/dev/null 2>&1)
 # Sanity check pre-fold state
-assert_eq "T5 setup: a5 is Folded" "Folded" "$(get_field "$a5_file" status)"
-assert_eq "T5 setup: a5 folded_into=b5" "$b5_id" "$(get_field "$a5_file" folded_into)"
+assert_eq_trim "T5 setup: a5 is Folded" "Folded" "$(get_field "$a5_file" status)"
+assert_eq_trim "T5 setup: a5 folded_into=b5" "$b5_id" "$(get_field "$a5_file" folded_into)"
 # Now create e5 with --auto-merge; b5 (still Ready, unchanged body) should be folded into e5
 (cd "$TMPDIR_5/local" && \
     ./.aitask-scripts/aitask_create.sh --batch --commit --name "e5" \
         --desc "third" --file-ref "foo.py" --auto-merge >/dev/null 2>&1)
 e5_file=$(find_task_file "$TMPDIR_5/local" e5)
 e5_id=$(task_num_from_file "$e5_file")
-assert_eq "T5: b5 now Folded" "Folded" "$(get_field "$b5_file" status)"
-assert_eq "T5: b5 folded_into=e5" "$e5_id" "$(get_field "$b5_file" folded_into)"
-assert_eq "T5: a5 folded_into transitively re-pointed to e5" "$e5_id" "$(get_field "$a5_file" folded_into)"
+assert_eq_trim "T5: b5 now Folded" "Folded" "$(get_field "$b5_file" status)"
+assert_eq_trim "T5: b5 folded_into=e5" "$e5_id" "$(get_field "$b5_file" folded_into)"
+assert_eq_trim "T5: a5 folded_into transitively re-pointed to e5" "$e5_id" "$(get_field "$a5_file" folded_into)"
 assert_contains "T5: e5 folded_tasks contains b5" "$b5_id" "$(get_field "$e5_file" folded_tasks)"
 assert_contains "T5: e5 folded_tasks contains a5 (transitive)" "$a5_id" "$(get_field "$e5_file" folded_tasks)"
 rm -rf "$TMPDIR_5"
@@ -233,8 +201,8 @@ TMPDIR_6="$(setup_project)"
     ./.aitask-scripts/aitask_create.sh --batch --commit --name "x6" \
         --desc "lone" --file-ref "baz.py" --auto-merge >/dev/null 2>&1)
 x6_file=$(find_task_file "$TMPDIR_6/local" x6)
-assert_eq "T6: x6 created Ready" "Ready" "$(get_field "$x6_file" status)"
-assert_eq "T6: x6 has no folded_tasks" "" "$(get_field "$x6_file" folded_tasks)"
+assert_eq_trim "T6: x6 created Ready" "Ready" "$(get_field "$x6_file" status)"
+assert_eq_trim "T6: x6 has no folded_tasks" "" "$(get_field "$x6_file" folded_tasks)"
 rm -rf "$TMPDIR_6"
 
 # --- Test 7: No --file-ref is a silent no-op ---
@@ -244,8 +212,8 @@ TMPDIR_7="$(setup_project)"
     ./.aitask-scripts/aitask_create.sh --batch --commit --name "y7" \
         --desc "norefs" --auto-merge >/dev/null 2>&1)
 y7_file=$(find_task_file "$TMPDIR_7/local" y7)
-assert_eq "T7: y7 created Ready" "Ready" "$(get_field "$y7_file" status)"
-assert_eq "T7: y7 has no folded_tasks" "" "$(get_field "$y7_file" folded_tasks)"
+assert_eq_trim "T7: y7 created Ready" "Ready" "$(get_field "$y7_file" status)"
+assert_eq_trim "T7: y7 has no folded_tasks" "" "$(get_field "$y7_file" folded_tasks)"
 rm -rf "$TMPDIR_7"
 
 # --- Test 8: Finalize-path auto-merge via --batch --finalize ---
@@ -271,8 +239,8 @@ draft_file=$(ls "$TMPDIR_8/local/aitasks/new"/draft_*_b8.md 2>/dev/null | head -
 b8_file=$(find_task_file "$TMPDIR_8/local" b8)
 b8_id=$(task_num_from_file "$b8_file")
 
-assert_eq "T8: a8 status is Folded (finalize path)" "Folded" "$(get_field "$a8_file" status)"
-assert_eq "T8: a8 folded_into points to b8" "$b8_id" "$(get_field "$a8_file" folded_into)"
+assert_eq_trim "T8: a8 status is Folded (finalize path)" "Folded" "$(get_field "$a8_file" status)"
+assert_eq_trim "T8: a8 folded_into points to b8" "$b8_id" "$(get_field "$a8_file" folded_into)"
 assert_contains "T8: b8 folded_tasks contains a8" "$a8_id" "$(get_field "$b8_file" folded_tasks)"
 rm -rf "$TMPDIR_8"
 

@@ -29,42 +29,8 @@ FAIL=0
 TOTAL=0
 CLEANUP_DIRS=()
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  expected: $expected"
-        echo "  actual:   $actual"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (missing '$expected')"
-        echo "  actual: $actual"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (unexpected '$unexpected' found)"
-        echo "  actual: $actual"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # setup_project creates a bare-remote + local-clone pair, copies the minimal
 # script set needed by aitask_create_manual_verification.sh (and its transitive
