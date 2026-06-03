@@ -295,11 +295,86 @@ _No separate before/after mitigation tasks: the principal code-health risk is
 mitigated in-task by the verification harness, which is this task's own
 deliverable._
 
-## Final Implementation Notes (fill in at completion — siblings depend on this)
+## Final Implementation Notes (siblings 923_2..5 depend on this — read it)
 
-Document the final lib API, the harness invocation, the exact
-block-removal/source-insertion recipe, any pilot file needing a needle audit,
-and any deviation from the draft above.
+### What was built
+
+- **`tests/lib/asserts.sh`** — the canonical shared helpers. Final API (functions
+  only; mutate caller's file-local `PASS`/`FAIL`/`TOTAL`; double-source-guarded
+  with `_AIT_ASSERTS_LOADED`; BSD/bash-3.2-safe; t920 `--` guard on every grep):
+  - `assert_eq(desc, expected, actual)` — exact `[[ == ]]`.
+  - `assert_eq_trim(desc, expected, actual)` — trims both args via
+    `printf '%s' | xargs`. **Use for files whose inline `assert_eq` trimmed
+    (`xargs`/`tr`).** Exists to absorb BSD `wc -l` leading-space padding on macOS.
+  - `assert_contains` / `assert_not_contains` — fixed-string (`grep -qF`).
+  - `assert_contains_ci` / `assert_not_contains_ci` — case-insensitive fixed
+    (`grep -qiF`).
+  - `assert_contains_re` / `assert_not_contains_re` — extended-regex (`grep -qE`).
+  - `assert_exit_zero` / `assert_exit_nonzero` (cmd...).
+  - `assert_file_exists` / `assert_file_not_exists` / `assert_dir_exists` /
+    `assert_dir_not_exists` (desc, path).
+- **`tests/lib/assert_migration_verify.sh`** — the before/after safety net.
+  Invocation:
+  ```
+  tests/lib/assert_migration_verify.sh snapshot <baseline> <file>...   # BEFORE migrating
+  tests/lib/assert_migration_verify.sh check    <baseline> <file>...   # AFTER  migrating
+  ```
+  Records `relpath|PASS|FAIL|TOTAL|EXIT`; **`check` fails only on a FAIL-count or
+  EXIT-status change** (PASS/TOTAL are context-only because summary formats vary —
+  see FINDING 2). Runs each file standalone. Reuse this harness verbatim.
+
+### The migration recipe (per file) — proven on the 10-file pilot
+
+1. `snapshot` the file into a baseline first.
+2. Insert `. "$PROJECT_DIR/tests/lib/asserts.sh"` **immediately after the line
+   that defines/sources `PROJECT_DIR`** (for most files that is right after
+   `. "$PROJECT_DIR/tests/lib/test_scaffold.sh"`; **but many files don't source
+   the scaffold at all** — they compute `PROJECT_DIR` inline. Anchor on
+   `PROJECT_DIR`, not the scaffold line).
+3. Delete the inline defs the lib now provides. **Keep** file-local
+   `PASS=0/FAIL=0/TOTAL=0` and any single-use/domain helpers
+   (`assert_exit_code`, `assert_file_contains`, …) — those stay inline.
+4. Remap call sites to the variant matching the file's **original** flavor:
+   - inline `grep -qi…` → `assert_contains_ci` (after needle audit).
+   - inline `grep -qE` or plain `grep -q` (regex) → `assert_contains_re`.
+   - inline `grep -qF` (fixed) → default `assert_contains` (no remap).
+   - inline `assert_eq` that trimmed → `assert_eq_trim`.
+5. `check` against the baseline — FAIL count + EXIT must be identical.
+
+### Key facts / gotchas for siblings
+
+- **Counts are wording-independent.** Migration is count-neutral as long as each
+  assertion's *match condition* is preserved; the lib's FAIL-message wording need
+  not match the old inline wording (the FAIL branch only runs on failure, which
+  the harness counts). So don't fret over message text — fret over the grep flag
+  and the trim behavior.
+- **Needle audit (BRE vs ERE).** Files using **plain `grep -q`** are BRE; the
+  `_re` variant is `grep -qE` (ERE). They agree **only when needles contain no
+  ERE-only metacharacters** (`+ ? | ( ) { }`). The pilot's plain-`-q` files
+  (`test_sync`, `test_archive_scan`) had only literal needles + `.` wildcards
+  (identical in BRE/ERE), so `_re` was safe. **Audit each plain-`-q` file's
+  needles**; if any use `+?|(){}` literally, escape them or keep that call on a
+  fixed variant. Literal/correct-case needles may also just stay on the default
+  fixed `assert_contains`.
+- **`printf '%s'` vs `echo`/`<<<`.** The lib uses `printf '%s' "$haystack" | grep`
+  (no trailing newline). Inline helpers used `echo …|` or `<<< …` (trailing
+  newline). Immaterial for substring containment; no pilot count shifted.
+- **Parent plan correction:** `test_claim_id.sh` was suggested as a *fixed*
+  exemplar but is actually `-qi` (case-insensitive) → it migrated to
+  `assert_contains_ci`. Real fixed `-qF` exemplars: `test_agent_instructions.sh`,
+  `test_aitask_merge.sh`, `test_aitask_projects_{doctor,remove}.sh`.
+
+### Pilot set migrated (all count-identical before/after)
+
+Fixed: `test_aitask_merge.sh`, `test_agent_instructions.sh`,
+`test_aitask_projects_doctor.sh`, `test_aitask_projects_remove.sh`.
+CI: `test_claim_id.sh`, `test_task_git.sh` (also trim-eq), `test_agent_string.sh`.
+Regex: `test_keybinding_registry.sh` (`-qE`), `test_sync.sh` (plain-`-q` + trim-eq
++ file-helper), `test_archive_scan.sh` (plain-`-q`). Net −143 lines.
+
+### Upstream defects identified
+
+None.
 
 ## Step 9 (Post-Implementation)
 
