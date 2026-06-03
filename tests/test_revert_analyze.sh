@@ -4,6 +4,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 ANALYZE_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_revert_analyze.sh"
 
 PASS=0
@@ -12,48 +13,6 @@ TOTAL=0
 TMPDIR_TEST=""
 
 # --- Test helpers ---
-
-assert_eq() {
-    local label="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$actual" == "$expected" ]]; then
-        echo "  PASS: $label"
-        PASS=$((PASS + 1))
-    else
-        echo "  FAIL: $label"
-        echo "    expected: $expected"
-        echo "    actual:   $actual"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-assert_contains() {
-    local label="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$haystack" == *"$needle"* ]]; then
-        echo "  PASS: $label"
-        PASS=$((PASS + 1))
-    else
-        echo "  FAIL: $label"
-        echo "    expected to contain: $needle"
-        echo "    actual: $haystack"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-assert_not_contains() {
-    local label="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$haystack" != *"$needle"* ]]; then
-        echo "  PASS: $label"
-        PASS=$((PASS + 1))
-    else
-        echo "  FAIL: $label"
-        echo "    should NOT contain: $needle"
-        echo "    actual: $haystack"
-        FAIL=$((FAIL + 1))
-    fi
-}
 
 assert_line_count() {
     local label="$1" expected="$2" output="$3"
@@ -220,8 +179,7 @@ assert_contains "parent commits include child 50_2" "|50_2" "$result"
 echo "=== Test: --task-commits child returns only that child ==="
 result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --task-commits 50_1 2>&1)
 assert_contains "child commits include 50_1" "|50_1" "$result"
-assert_not_contains "child commits exclude parent 50" "|50
-" "$result"
+assert_not_contains_re "child commits exclude parent 50" "\|50$" "$result"
 
 echo "=== Test: --task-commits single task ==="
 result=$(cd "$TMPDIR_TEST" && bash "$SCRIPT" --task-commits 99 2>&1)

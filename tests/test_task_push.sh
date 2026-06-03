@@ -4,6 +4,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -14,30 +15,6 @@ TOTAL=0
 CLEANUP_DIRS=()
 
 # --- Test helpers ---
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
 assert_success() {
     local desc="$1" exit_code="$2"
@@ -138,7 +115,7 @@ push_rc=$?
 
 assert_success "task_push returns 0" "$push_rc"
 remote_count=$(git -C "$TEST_REMOTE" rev-list --count HEAD)
-assert_eq "Remote has 2 commits" "2" "$remote_count"
+assert_eq_trim "Remote has 2 commits" "2" "$remote_count"
 
 popd > /dev/null || exit 1
 
@@ -160,7 +137,7 @@ push_rc=$?
 
 assert_success "task_push returns 0 (branch mode)" "$push_rc"
 remote_count=$(git -C "$TEST_REMOTE" rev-list --count HEAD)
-assert_eq "Remote has 2 commits (branch mode)" "2" "$remote_count"
+assert_eq_trim "Remote has 2 commits (branch mode)" "2" "$remote_count"
 
 popd > /dev/null || exit 1
 
@@ -183,7 +160,7 @@ push_rc=$?
 
 assert_success "task_push returns 0 after rebase" "$push_rc"
 remote_count=$(git -C "$TEST_REMOTE" rev-list --count HEAD)
-assert_eq "Remote has 3 commits after rebase" "3" "$remote_count"
+assert_eq_trim "Remote has 3 commits after rebase" "3" "$remote_count"
 
 popd > /dev/null || exit 1
 
@@ -207,7 +184,7 @@ push_rc=$?
 
 assert_success "task_push returns 0 after rebase (branch mode)" "$push_rc"
 remote_count=$(git -C "$TEST_REMOTE" rev-list --count HEAD)
-assert_eq "Remote has 3 commits after rebase (branch mode)" "3" "$remote_count"
+assert_eq_trim "Remote has 3 commits after rebase (branch mode)" "3" "$remote_count"
 
 popd > /dev/null || exit 1
 
@@ -249,10 +226,10 @@ advance_remote "remote_sync.txt"
 task_sync
 
 local_count=$(git rev-list --count HEAD)
-assert_eq "Local has 3 commits after sync rebase" "3" "$local_count"
+assert_eq_trim "Local has 3 commits after sync rebase" "3" "$local_count"
 
 top_msg=$(git log --format='%s' -1)
-assert_eq "Local commit is on top after rebase" "local unpushed commit" "$top_msg"
+assert_eq_trim "Local commit is on top after rebase" "local unpushed commit" "$top_msg"
 
 popd > /dev/null || exit 1
 
@@ -274,10 +251,10 @@ advance_remote "remote_sync.txt"
 task_sync
 
 local_count=$(git -C .aitask-data rev-list --count HEAD)
-assert_eq "Local has 3 commits after sync rebase (branch mode)" "3" "$local_count"
+assert_eq_trim "Local has 3 commits after sync rebase (branch mode)" "3" "$local_count"
 
 top_msg=$(git -C .aitask-data log --format='%s' -1)
-assert_eq "Local commit on top after rebase (branch mode)" "local unpushed commit" "$top_msg"
+assert_eq_trim "Local commit on top after rebase (branch mode)" "local unpushed commit" "$top_msg"
 
 popd > /dev/null || exit 1
 
@@ -305,7 +282,7 @@ ait_rc=$?
 
 assert_success "ait git push returns 0 after conflict" "$ait_rc"
 remote_count=$(git -C "$TEST_REMOTE" rev-list --count HEAD)
-assert_eq "Remote has 3 commits via ait git push" "3" "$remote_count"
+assert_eq_trim "Remote has 3 commits via ait git push" "3" "$remote_count"
 
 popd > /dev/null || exit 1
 

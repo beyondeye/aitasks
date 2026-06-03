@@ -6,53 +6,12 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 HELPER="$PROJECT_DIR/.aitask-scripts/aitask_add_model.sh"
 
 PASS=0
 FAIL=0
 TOTAL=0
-
-assert_eq() {
-    local label="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$actual" == "$expected" ]]; then
-        echo "  PASS: $label"
-        PASS=$((PASS + 1))
-    else
-        echo "  FAIL: $label"
-        echo "    expected: $expected"
-        echo "    actual:   $actual"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-assert_contains() {
-    local label="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$haystack" == *"$needle"* ]]; then
-        echo "  PASS: $label"
-        PASS=$((PASS + 1))
-    else
-        echo "  FAIL: $label"
-        echo "    expected to contain: $needle"
-        echo "    actual: $haystack"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-assert_not_contains() {
-    local label="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$haystack" != *"$needle"* ]]; then
-        echo "  PASS: $label"
-        PASS=$((PASS + 1))
-    else
-        echo "  FAIL: $label"
-        echo "    expected NOT to contain: $needle"
-        echo "    actual: $haystack"
-        FAIL=$((FAIL + 1))
-    fi
-}
 
 # --- Fixture helpers ---
 

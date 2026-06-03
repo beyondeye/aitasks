@@ -18,6 +18,7 @@ set -u
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 UPDATE_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_update.sh"
 
 # shellcheck source=../.aitask-scripts/lib/task_utils.sh
@@ -28,45 +29,6 @@ source "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh"
 PASS=0
 FAIL=0
 TOTAL=0
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  expected: $expected"
-        echo "  actual:   $actual"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$haystack" == *"$needle"* ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  expected to contain: $needle"
-        echo "  actual:              $haystack"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$haystack" != *"$needle"* ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  expected NOT to contain: $needle"
-        echo "  actual:                  $haystack"
-    fi
-}
 
 # Read a single-line frontmatter field value (bash-written output is never
 # wrapped, so a plain grep is sufficient for reading the *result* files).

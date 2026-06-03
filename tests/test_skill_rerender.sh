@@ -7,32 +7,11 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 PASS=0
 FAIL=0
 TOTAL=0
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got first 200 chars: '${actual:0:200}')"
-    fi
-}
 
 assert_zero_exit() {
     local desc="$1" rc="$2"
@@ -53,17 +32,6 @@ assert_nonzero_exit() {
     else
         FAIL=$((FAIL + 1))
         echo "FAIL: $desc (expected non-zero exit, got 0)"
-    fi
-}
-
-assert_dir_exists() {
-    local desc="$1" path="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -d "$path" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (path missing: $path)"
     fi
 }
 
