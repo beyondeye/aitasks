@@ -136,3 +136,32 @@ Single-task, current-branch: no worktree/branch cleanup. Proceed to archival via
 - Fix targets the documented root cause directly and is confirmed by restoring
   the t778 dash-free workaround to real `--print` needles as a live regression
   assertion. · severity: low · → mitigation: none
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a `--` end-of-options guard to every unguarded
+  assert-grep call across the test suite via a single idempotent sed transform
+  (`grep -q<flags> "$VAR"` → `grep -q<flags> -- "$VAR"`). Result: **70 files
+  changed, 111 assert-grep lines guarded**, 0 double-guards, 91 already-guarded
+  lines untouched. In `tests/test_codeagent.sh` Test 11e, restored the t778
+  dash-free workaround needles to the real `--print` / `--print review-me`
+  forms (and rewrote the explanatory comment) so the test now exercises a
+  `--`-prefixed needle through both `assert_contains` and
+  `assert_not_contains` — a live regression test for this fix.
+- **Deviations from plan:** None. Executed exactly as planned.
+- **Issues encountered:** A first batch-verification pass reported 63 "failed"
+  suites — a false positive in the *detection heuristic*, not the tests: the
+  case-insensitive pattern `FAILED` matched the literal "0 failed" summary line
+  every passing suite prints. Re-ran with an anchored `^FAIL:` detector and a
+  with-vs-baseline (git stash) comparison: both showed an identical **6**
+  batch failures, confirming those 6 are pre-existing cross-contamination from
+  running 70 stateful integration tests sequentially in one shell — unrelated
+  to this change. All representative suites pass in isolation;
+  `test_codeagent.sh` passes 92/92.
+- **Key decisions:** Chose the `--` guard over a pure-bash `[[ == *…* ]]`
+  substring test because many helpers rely on `-i` (case-insensitive) and a
+  few on `-E` (regex) / `-F` (fixed-string); `--` preserves all of those
+  exactly, whereas the bash form would silently drop them. Applied uniformly
+  rather than only to `test_codeagent.sh`, per the task's "fix uniformly"
+  directive.
+- **Upstream defects identified:** None.
