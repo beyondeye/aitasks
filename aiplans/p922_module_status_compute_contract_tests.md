@@ -154,3 +154,26 @@ post-implementation cleanup, archival, and merge.
   `module_status_rows`). Mitigated in-plan by the pilot approach and by
   asserting the precise branch each test targets. · severity: medium · → mitigation: none
 
+## Final Implementation Notes
+
+- **Actual work done:** Added `tests/test_brainstorm_module_status_contract.py`
+  with 14 tests in 6 classes exactly as planned: `MergedPrecisionTests` (2),
+  `LinkedTaskResolutionEdgeTests` (3), `ResolveTaskStateUnitTests` (5),
+  `DeferredOverlayCombinatoricTests` (1), `MultiModuleStatusTests` (1),
+  `ModuleStatusRenderGuardTests` (2, Textual pilot). No production code changed.
+- **Deviations from plan:** None in scope. One implementation detail: the
+  render-guard tests originally read the rendered Label via `label.renderable`,
+  which does not exist in the installed Textual version (`Static.update` stores
+  content in the name-mangled `_Static__content`). Switched to the public,
+  stable `label.render()` (returns the markup-resolved text) — `"no modules"`
+  for the umbrella-only placeholder, the module names for the populated case.
+- **Issues encountered:** Only the `renderable` attribute mismatch above;
+  resolved by probing the live widget API before settling on `render()`.
+- **Key decisions:** Standalone test file (copied seed helpers, not imported),
+  mirroring the sibling precedent `test_brainstorm_module_sync_apply_contract.py`
+  — keeps the in-task suite untouched and avoids cross-file coupling. The
+  render guard uses a real Textual pilot rather than a `__new__`-app direct
+  call: the latter would early-return at `query_one` and never reach
+  `module_status_rows`, defeating the `_node_module`-wiring guard.
+- **Upstream defects identified:** None.
+
