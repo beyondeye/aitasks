@@ -156,12 +156,83 @@ _No separate before/after mitigation tasks: the principal code-health risk is
 mitigated in-task by the verification harness (this task's inherited
 deliverable from 923_1), exactly as in the four prior children._
 
-## Final Implementation Notes (fill in)
+## Final Implementation Notes
 
-Final count of inline helper defs remaining (should be only legitimately
-single-use/domain helpers — e.g. `assert_file_contains`, the expected-code
-`assert_exit_code`, the agentcrew `pass/fail` wrappers); any synonym/pass-fail
-file deliberately left inline (with rationale); whole-suite parity result.
+- **Actual work done:** 29 files changed (+156/−558). `tests/lib/asserts.sh`
+  gained two `assert_exit_*_rc(desc, rc)` helpers. 8 synonym files + 20
+  straggler files migrated; `lock_force`/`lock_diag` deliberately untouched.
+  All four gates pass; whole-suite parity 170/170.
+
+- **Key decision — new `_rc` lib variants (deviation from the literal task):**
+  The task said "rename synonym call sites to canonical `assert_exit_zero` /
+  `assert_exit_nonzero`". On inspection the synonyms (`assert_exits_zero`,
+  `assert_zero_exit`, `assert_nonzero_exit`, `assert_exits_nonzero` across 7
+  files) take **`(desc, rc)`** — a *pre-captured numeric exit code* — whereas
+  the canonical helpers take **`(desc, cmd...)`** and *run a command*. A rename
+  would have made the lib try to execute the rc number as a command — a
+  behavior change, not a rename (exactly the "leave inline if signature differs"
+  caveat in the task). Sized it: 7 files share the captured-rc shape; canonical
+  command-form helpers are already used 72× elsewhere. **User chose** (over
+  leave-inline) to add `assert_exit_zero_rc` / `assert_exit_nonzero_rc` to the
+  lib (parallel to the `_ci`/`_re`/`_trim` named-variant style) and migrate all
+  7. Additive lib change, harness-verified.
+
+- **assert_exit_code handling (task's flagged ambiguity, confirmed):**
+  - `test_lock_diag` / `test_lock_force`: `assert_exit_code(desc, expected_code,
+    cmd...)` — runs a command and checks an *expected* code. Distinct domain
+    helper → **left inline** (these two files have no other change).
+  - `test_aitask_merge`: `assert_exit_code(desc, expected, actual)` was a pure
+    value comparison (`[[ expected == actual ]]`) — i.e. `assert_eq`. Remapped
+    its call sites to `assert_eq`, removed the inline def.
+
+- **Stragglers (20) — correction to the plan's Step 3 framing:** not all were
+  "exit/file/dir-only, no assert_contains". **10 defined `assert_contains`**
+  and were required to pass Gate 1. They escaped 923_2/3/4 because several match
+  via bash glob `[[ "$h" == *"$n"* ]]` (not `grep -q*`) — a flavor the buckets
+  never scanned. Glob and `grep -qF` are both literal substring → all mapped to
+  the **default `assert_contains`** (no `_ci`/`_re`). No file used a trimming
+  `assert_eq`, so no `assert_eq_trim` remaps. `test_tmux_exact_session_targeting`
+  defined command-form `assert_exit_zero`/`assert_exit_nonzero` identical to the
+  canonical lib helpers → dropped to the lib by name.
+
+- **Step 2 (pass/fail files) — no-op, as predicted:**
+  `test_parallel_cross_repo_planning_procedure` already sources the lib (its
+  `pass/fail` are domain wrappers; only `assert_file_contains` stays inline).
+  `test_agentcrew_error_recovery` / `test_agentcrew_terminal_push` use
+  `pass()/fail()` directly and define **no** consolidated helpers — nothing to
+  migrate; **left as-is** (different counter/wrapper model).
+
+- **Final per-file inline-helper census (legitimately single-use, kept):**
+  `assert_file_contains` (parallel proc file), `assert_exit_code` expected-code
+  variant (lock_diag, lock_force), and the `pass()/fail()` wrappers (2 agentcrew
+  files). No consolidatable core helper (`assert_eq`/`assert_contains`/exit/file/
+  dir) is defined inline anywhere anymore.
+
+- **Deviations from plan:** (1) the new `_rc` lib helpers above; (2)
+  `test_opencode_setup` had no `TOTAL` counter and runs under `set -euo
+  pipefail` — added `TOTAL=0` (with a `# shellcheck disable=SC2034` directive,
+  matching the `test_parallel_cross_repo_planning_procedure` precedent, since
+  the lib mutates it via an unfollowable source) plus a self-locating source
+  line (its later `PROJECT_DIR` is a fake-repo path).
+
+- **Issues encountered:** Gate 4 initially flagged one CHANGED file
+  (`test_verified_update_flags.sh`, EXIT 1→0). Root cause: the baseline ran
+  main's copy in a bare `/tmp` worktree lacking this repo's runtime context, so
+  main's copy died mid-test there (EXIT 1). Running main's vs the migrated copy
+  **both from `tests/` in the real repo** gives identical results (`6 passed, 0
+  failed, 6 total, exit 0`). False positive; true parity holds 170/170.
+
+- **Tooling note:** an early `awk > tmp && mv` pass dropped the executable bit on
+  17 files and left 3–4-line blank runs at deletion sites; both were cleaned up
+  (restored +x; squeezed blanks, preserving the 4 files' pre-existing double
+  blanks).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:** This is the terminus — t923 is fully consolidated.
+  Future helper changes happen once in `tests/lib/asserts.sh`. The captured-rc
+  exit pattern now has first-class lib support (`assert_exit_*_rc`); prefer it
+  over re-introducing inline `(desc, rc)` exit helpers.
 
 ## Step 9 (Post-Implementation)
 
