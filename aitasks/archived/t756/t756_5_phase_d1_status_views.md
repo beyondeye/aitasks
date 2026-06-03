@@ -5,13 +5,14 @@ risk_goal_achievement: medium
 effort: high
 depends: [t756_4]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_brainstorm, brainstom_modules, tui]
 risk_mitigation_tasks: [922]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 17:30
-updated_at: 2026-06-03 09:59
+updated_at: 2026-06-03 10:00
+completed_at: 2026-06-03 10:00
 ---
 
 Phase D1 of the `ait brainstorm` **module decomposition** feature (parent t756).
