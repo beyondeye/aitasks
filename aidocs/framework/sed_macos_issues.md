@@ -13,6 +13,15 @@ macOS ships with BSD versions of `sed` and `grep`, not the GNU versions found on
 | Uppercase | `sed 's/^./\U&/'` | Not supported | Bash 4.0+: `${var^}` |
 | Lowercase | `sed 's/./\L&/g'` | Not supported | Bash 4.0+: `${var,,}` |
 | Grouped multi-line commands | `sed -e :a -e '/pat/{ $d; N; ba; }'` | `{` `}` grouping fails across `-e` args | Use `awk` for multi-line processing |
+| BRE quantifiers `\?` `\+` `\|` | `sed 's/ab\?c/x/'` | Treated as literal `?`/`+`/`\|` — the match silently fails | Use `sed -E` with bare `?` `+` `\|` (e.g. `sed -E 's/ab?c/x/'`) |
+
+**`\?` / `\+` / `\|` are the most common silent footgun.** In Basic Regular
+Expressions these are GNU extensions; BSD sed treats the backslashed form as a
+literal character, so the `s/.../.../ ` simply does not match and the input
+passes through unchanged. There is **no error** — the caller just receives the
+raw, un-substituted string, which then surfaces as bad data far downstream (a
+mis-parsed version number, an un-stripped filename prefix, garbled output).
+Always reach for `sed -E` (ERE) and write the quantifier bare: `?`, `+`, `|`.
 
 ## Safe Features (work on both)
 
@@ -26,6 +35,11 @@ These sed features are POSIX-compatible and work on both GNU and BSD sed:
 - Backreferences: `\(group\)` and `\1`
 - Multiple expressions: `sed 's/a/b/;s/c/d/'`
 - Address ranges: `sed '2,5s/foo/bar/'`
+
+> **Note:** backreference *grouping* `\(…\)` is portable, but the `?`/`+`/`|`
+> *quantifiers* are **not** portable in their backslashed BRE form — see the
+> incompatibility row above. Prefer `sed -E` whenever a pattern needs `?`, `+`,
+> `|`, or grouping.
 
 ## The `sed_inplace()` Helper
 
@@ -78,6 +92,43 @@ macOS `grep` does not support PCRE (`-P` flag). This is a common pitfall when wr
 | File | Issue | Fix Applied |
 |------|-------|-------------|
 | `website/new_release_post.sh` | `grep -oP '\*\*\K[^*]+(?=\*\*)'` | `grep -o '\*\*[^*]*\*\*' \| sed 's/\*\*//g'` |
+
+## awk macOS Incompatibilities
+
+This guide repeatedly recommends `awk` as the portable replacement for sed's
+GNU-only features — but `awk` has its own GNU/BSD split. macOS ships BSD/`nawk`,
+not GNU `gawk`, so `gawk`-only extensions are **hard syntax errors** under BSD
+awk (the script fails to parse and exits non-zero), not silent no-ops.
+
+| Feature | gawk (GNU) | BSD awk (macOS) | Portable Alternative |
+|---------|------------|------------------|---------------------|
+| Capture array in `match()` | `match(str, re, arr); v = arr[1]` | Syntax error — 3-arg `match()` is gawk-only | 2-arg `match(str, re)` + `substr($0, RSTART, RLENGTH)`, or `sub()` to strip the prefix, or `split()` |
+| `gensub()` | `gensub(/re/, "x", "g", s)` | Not supported | `gsub()`/`sub()` (in-place on the field/var) |
+| `\<` `\>` word boundaries | supported | Not supported | `[[:<:]]`/`[[:>:]]` (BSD) are non-portable too — match surrounding chars explicitly |
+| `length(arr)` | supported | supported on modern nawk | safe in practice; avoid on very old awk |
+
+**The 2-arg `match()` form is portable and fine:** `match($0, /^[ \t]*/)` then
+reading `RSTART` / `RLENGTH` works on both. Only the **3-argument** capture-array
+form (`match(str, re, arr)`) is the gawk extension that breaks.
+
+**Rule of thumb:** keep awk scripts to POSIX features — `~`, `sub()`, `gsub()`,
+`split()`, `substr()`, `match()` (2-arg) with `RSTART`/`RLENGTH`. Do not use the
+3-arg `match()`, `gensub()`, or `\<`/`\>`.
+
+## After fixing one portability bug, sweep for the whole class
+
+These footguns travel in families. A single `\?` or 3-arg `match()` almost
+always has siblings elsewhere in the tree. After fixing one instance, grep
+`.aitask-scripts/*.sh` (and `tests/`) for the entire class before considering
+the bug closed:
+
+```bash
+# GNU-only sed BRE quantifiers not in -E/-r mode:
+grep -rnE "sed '[^']*\\\\[?+|]" .aitask-scripts --include='*.sh' | grep -vE 'sed -E|sed -r'
+
+# gawk-only 3-arg match() (str, re, arr) — note 2-arg match() is fine:
+grep -rnE "match\([^,]+,[^,]+,[^)]+\)" .aitask-scripts --include='*.sh'
+```
 
 ## The `portable_date()` Helper
 
@@ -227,3 +278,25 @@ Test suite delta (98 bash tests, run on macOS):
 - Post-fix: 77 PASS, 21 FAIL (no regressions; the two fixes above account for the entire delta).
 
 The 21 remaining FAILs are unrelated to macOS portability: missing system-Python dependencies (`yaml`/`textual`/`rich` outside the `~/.aitask/venv/`), missing `codex` CLI, stale hand-curated copy lists in a few test setups (`tests/test_crew_groups.sh`, `tests/test_crew_report.sh`, `tests/test_data_branch_migration.sh` no longer copy `lib/launch_modes_sh.sh` / `lib/archive_scan.sh`), stale skill-count expectations in `test_gemini_setup.sh` / `test_opencode_setup.sh`, and other preexisting issues. They reproduce on Linux too and are out of scope for this audit; track them as separate follow-up tasks if/when needed.
+
+## Files Fixed in t931
+
+Surfaced while running `ait setup` on macOS — the run silently aborted right
+after the Claude permission-merge step (a `set -euo pipefail` exit whose
+warning was swallowed by a `"$(...)"` capture), and the permission list printed
+garbled. The profile resolver also failed to parse under BSD awk.
+
+| File | Issue | Fix Applied |
+|------|-------|-------------|
+| `.aitask-scripts/aitask_setup.sh` | Permission preview used `sed 's/",\?$//'` — BSD sed left the trailing `",` un-stripped | `sed -E 's/",?$//'` |
+| `.aitask-scripts/aitask_skill_resolve_profile.sh` | gawk-only 3-arg `match(str, re, arr)` capture form — hard syntax error under BSD awk, broke every profile-aware skill | Rewrote with POSIX `~` / `sub()` / `substr()` |
+
+## Files Fixed in t932
+
+Sweep for the `sed \?` class after t931 found three more instances (four lines).
+
+| File | Line | Issue | Fix Applied |
+|------|------|-------|-------------|
+| `.aitask-scripts/aitask_setup.sh` | 1474 | `sed 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/'` release-tag parse failed under BSD sed → bogus "Update available" hint | `sed -E 's/.*"tag_name": *"v?([^"]*)".*/\1/'` |
+| `.aitask-scripts/aitask_upgrade.sh` | 56 | Same release-tag parse | Same `sed -E` fix |
+| `.aitask-scripts/aitask_update.sh` | 1472, 1773 | `sed 's/^t[0-9]*_\([0-9]*_\)\?//'` left the `t<N>_<child>_` prefix in humanized commit-message names | `sed -E 's/^t[0-9]*_([0-9]*_)?//'` |

@@ -9,6 +9,15 @@ portability quirks (BSD vs GNU tooling) live in
 - **Shebang:** Always `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system
   bash is 3.2; `env bash` picks up brew-installed bash 5.x from PATH.
 - All scripts use `set -euo pipefail`.
+- **Beware silent `set -e` aborts via `"$(...)"` capture.** A helper that does
+  `warn "..."; return 1` looks loud, but when a caller runs
+  `out="$(helper)" || return`, the warning is captured into `$out` (never shown)
+  and the non-zero status propagates — under `set -e` the whole script exits
+  with no visible error. Emit such diagnostics to **stderr** (`warn "..." >&2`)
+  so they survive command substitution, and make best-effort callers non-fatal
+  (`|| return 0` / `|| true`) so a recoverable failure degrades to a no-op
+  instead of killing the run. (This was the root cause of a silent `ait setup`
+  abort; see `aidocs/framework/sed_macos_issues.md` "Files Fixed in t931".)
 - Error helpers: `die()` (fatal), `warn()`, `info()` from `terminal_compat.sh`.
 - Guard against double-sourcing with `_AIT_*_LOADED` variables.
 - Platform detection: `detect_platform()` returns `github|gitlab|bitbucket`
@@ -37,6 +46,8 @@ portability quirks (BSD vs GNU tooling) live in
   `aidocs/framework/skill_authoring_conventions.md` ("Do not route skill
   invocation through `claude -p`") for the skill-rendering rationale.
 
-> **macOS portability quirks** (BSD sed vs GNU sed, `grep -P` unavailable,
-> `wc -l` padding, `mktemp --suffix`, `base64 -D` vs `-d`): see
-> `aidocs/framework/sed_macos_issues.md`.
+> **macOS portability quirks** (BSD sed vs GNU sed — incl. GNU-only `\?`/`\+`/`\|`
+> BRE quantifiers; gawk-only awk features like 3-arg `match()`; `grep -P`
+> unavailable; `wc -l` padding; `mktemp --suffix`; `base64 -D` vs `-d`): see
+> `aidocs/framework/sed_macos_issues.md`. After fixing one such bug, sweep the
+> tree for the whole class — these footguns travel in families.
