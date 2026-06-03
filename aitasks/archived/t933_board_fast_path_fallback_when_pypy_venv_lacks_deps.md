@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_board, pypy, crash_recovery, ait_setup, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 17:30
-updated_at: 2026-06-03 17:31
+updated_at: 2026-06-03 23:17
+completed_at: 2026-06-03 23:17
 ---
 
 ## Problem
