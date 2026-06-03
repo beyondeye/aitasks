@@ -3,10 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [ait_setup, macos, bash_scripts, execution_profiles]
+implemented_with: claudecode/opus4_8_1m
 created_at: 2026-06-03 16:45
-updated_at: 2026-06-03 16:45
+updated_at: 2026-06-03 16:46
+completed_at: 2026-06-03 16:46
 ---
 
 Fix macOS/BSD portability bugs in framework shell scripts surfaced while running `ait setup`.
