@@ -3,11 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [macos, bash_scripts, testing]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-03 23:15
-updated_at: 2026-06-03 23:18
+updated_at: 2026-06-03 23:20
+completed_at: 2026-06-03 23:20
 ---
 
 Surfaced by the t926 periodic macOS compat audit. **Not a failure** — these work
