@@ -552,7 +552,8 @@
       "notes": "Most capable model, 1M context, complex reasoning + agentic coding, adaptive thinking",
       "verified": {
         "add-model": 100,
-        "wrap": 100
+        "wrap": 100,
+        "pick": 100
       },
       "verifiedstats": {
         "add-model": {
@@ -595,6 +596,27 @@
             "period": "2026-W23",
             "runs": 3,
             "score_sum": 300
+          }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W23",
+            "runs": 1,
+            "score_sum": 100
           }
         }
       },
