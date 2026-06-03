@@ -182,3 +182,46 @@ completes the "wire the dispatch into aitask-explore" follow-up named in
   flow is still confirmed downstream at the §6.1 confirmation gate. · severity: low · → mitigation: None
 
 No mitigations planned (no risk warrants a before/after follow-up task).
+
+## Final Implementation Notes
+
+- **Actual work done:** Wired cross-repo paired-planning into `aitask-explore`
+  by making explore **set `xdeprepo` at task-creation time** (auto-detected),
+  then letting the existing task-workflow handoff drive the design + creation
+  dispatch. Edited only `.claude/skills/aitask-explore/SKILL.md.j2`:
+  (a) a runtime-variable preamble (`cross_repo_scope`, `cross_repo_root`,
+  `cross_repo_files`, `cross_repo_xdeps`); (b) a new **Cross-repo scope
+  detection** sub-step at the end of Step 1 that reads the resolved registry
+  *after* the first prompt and matches the user's free text against registered
+  project names / `<name>#<id>` / `<name>:<path>` notation; (c) Step 2
+  cross-repo-aware exploration (Explore agent rooted in `cross_repo_root` +
+  `cross_repo_files`); (d) a Step 3 proposal option "Create as cross-repo
+  paired task" shown only when `cross_repo_scope` is set, plus the
+  `--xdeprepo`/`--xdeps` append in "Create the task" and an inheritance note.
+  Regenerated the 3 canonical claude goldens; added Test 6 to
+  `tests/test_skill_render_aitask_explore.sh` (detection present,
+  procedures NOT dispatched directly, first prompt precedes the registry read).
+- **Deviations from plan:** None from the approved (revised) plan. Note the
+  approved plan itself deviates from the original task's literal Implementation
+  Plan — explore does NOT dispatch `planning-cross-repo.md` /
+  `cross-repo-child-assignment.md` itself; it sets `xdeprepo` and inherits both
+  dispatches via the `task-workflow/SKILL.md` handoff (Step 3→6 §6.1 design,
+  Step 7 creation). Confirmed with the user before implementation.
+- **Issues encountered:** None. `ait codeagent coauthor` resolved cleanly;
+  `aitask_skill_verify.sh` re-rendered per-agent variants without error.
+- **Key decisions:** (1) Trigger via free-text auto-detection rather than an
+  always-on prompt; registry is NOT read before the first `AskUserQuestion`
+  (latency to first prompt matters — user direction). (2) Runtime context
+  variables threaded across steps in the style of the pre-Jinja
+  execution-profile variables. (3) Change is profile- and agent-invariant
+  (no new `{% if %}`), so codex/opencode auto-render and need no port task.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** The metadata-only `xdeprepo` trigger is the
+  load-bearing contract shared with `/aitask-pick` (t832_5). Any skill that
+  *creates* a task and wants paired planning only needs to set `xdeprepo` at
+  creation — the task-workflow handoff supplies design (`planning.md` §6.1) and
+  creation (`SKILL.md` Step 7); do not duplicate the dispatches. The two
+  cross-repo *procedures* still have separate, already-tracked multi-agent port
+  follow-ups (Codex/agy/OpenCode); this task did not touch them. This completes
+  the "wire the dispatch into aitask-explore" item named in
+  `cross-repo-child-assignment.md` Step 8.
