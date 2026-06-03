@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 09:39
-updated_at: 2026-06-03 09:39
-boardidx: 30
+updated_at: 2026-06-03 10:21
 boardcol: now
+boardidx: 30
 ---
 
 ## Origin
