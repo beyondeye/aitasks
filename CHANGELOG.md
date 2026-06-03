@@ -1,5 +1,56 @@
 # Changelog
 
+## v0.23.0
+
+### Features
+
+- **Brainstorm module decomposition** (t756): Break a brainstorm design into independent module subgraphs. Decompose, merge, and sync modules as first-class brainstorm operations, view per-module fluid status, and use the "Fast-track this module" preset to extract a module into a linked aitask in a single pass.
+- **Risk evaluation in task planning** (t884): Planning now assesses two risk dimensions separately — code-health risk and goal-achievement risk — records them on the task, auto-creates before/after mitigation follow-up tasks, and force re-verifies a plan when a mitigation lands.
+- **Cross-repo paired planning in explore** (t832_11): `aitask-explore` auto-detects cross-repo scope from your description and can create a cross-repo paired task that inherits the cross-repo planning flow.
+- **Brainstorm node action dialog** (t925): The node picker surfaces all node operations — including cascade delete with a casualty preview — each with relevance hints.
+
+### Bug Fixes
+
+- **Explicit agent args beat the env var** (t703): `--agent`/`--cli-id` now take precedence over `AITASK_AGENT_STRING`, which acts only as a default.
+- **macOS/BSD setup crashes fixed** (t931): `ait setup` no longer silently crashes on BSD; added seed fallbacks and POSIX-portable parsing.
+- **Remaining macOS sed portability** (t932): Replaced GNU-only sed quantifiers with portable `-E` forms.
+- **Board fast-path fallback** (t933): venv Python dependencies are validated at install time, with the PyPy fast-path falling back to CPython when deps are missing.
+- **Risk evaluation reaches the verify path** (t909): the risk step now runs on the plan verify path, not just fresh planning.
+- **Config-aware op-help hint** (t921): the brainstorm op-help hint shows the live keybinding instead of a hardcoded key.
+- **Headless prerender freshness** (t894, t907): generalized the skill-verify headless prerender check and repaired git-equalized prerender drift via content diffing.
+- **Drop minijinja from PyPy venv** (t930): removed an unneeded dependency from the PyPy install line.
+- **Harden test assert helpers** (t920): guarded assert-grep calls against dash-prefixed needles.
+
+### Improvements
+
+- **Opt-in headless mode** (t778): `claude` headless `--print` is now gated behind an explicit `--headless` flag to reduce billing surprises.
+- **Redesigned Settings → Execution Profiles tab** (t900): fixed selector, name filter, dirty-state-aware Save/Revert, and keyboard navigation.
+- **Larger board task-detail dialog** (t904): taller dialog with collapsible metadata sections.
+- **Board auto-refresh off by default** (t927): the board no longer auto-refreshes unless you set an interval (existing configured values are preserved).
+- **Single-source level enum** (t911): priority/effort/risk levels now come from one canonical definition shared across bash and Python.
+- **Internal refactors** (t898, t923, t937): declarative brainstorm wizard step machine; consolidated the test assert helpers into one shared library; switched fragile test `sed -i` calls to the `sed_inplace` helper.
+
+### Documentation
+
+- **`ait` command reference completed** (t914): added missing TUI, cross-repo, and maintenance command docs.
+- **aidocs reorganized** (t901): loose docs moved into `framework/`, `packaging/`, and `codeagents/` subjects.
+- **Codex workflow-compliance caveats** (t916): documented reasoning-effort guidance for workflow step compliance.
+- **macOS awk/sed portability class** (t934): documented the BSD/macOS portability bug class for contributors.
+
+### Performance
+
+- **Slimmer CLAUDE.md** (t924): moved on-demand sections into `aidocs/`, cutting always-loaded context by ~30%.
+
+### Tests
+
+- **Brainstorm module-ops coverage** (t906, t913, t922): added apply-hardening, module-sync contract, and module-status compute contract tests.
+
+### Maintenance
+
+- **macOS compatibility audit** (t926): clean periodic audit; filed follow-ups.
+- **pickn/workflown hardening sandbox** (t928): staging copies with stricter fail-closed gates.
+- **Regenerate stale planning renders** (t903): refreshed drifted prerenders and goldens.
+
 ## v0.22.1
 
 ### Enhancements
