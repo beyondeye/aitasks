@@ -16,51 +16,11 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_exit_zero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (command exited non-zero)"
-    fi
-}
 
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
 # Create a paired repo setup: bare "remote" + local clone with task files
 setup_paired_repos() {
@@ -138,7 +98,7 @@ output=$(cd "$TMPDIR_1/local" && ./.aitask-scripts/aitask_lock.sh --init 2>&1)
 branch_exists=$(git -C "$TMPDIR_1/local" ls-remote --heads origin aitask-locks 2>/dev/null | grep -c "aitask-locks")
 assert_eq "Branch exists on remote" "1" "$branch_exists"
 
-assert_contains "Output mentions created" "created" "$output"
+assert_contains_ci "Output mentions created" "created" "$output"
 
 rm -rf "$TMPDIR_1"
 
@@ -149,7 +109,7 @@ TMPDIR_2="$(setup_paired_repos)"
 (cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 output2=$(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_lock.sh --init 2>&1)
 
-assert_contains "Idempotent init says already exists" "already exists" "$output2"
+assert_contains_ci "Idempotent init says already exists" "already exists" "$output2"
 
 rm -rf "$TMPDIR_2"
 
@@ -174,10 +134,10 @@ TMPDIR_4="$(setup_paired_repos)"
 (cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_lock.sh --lock 42 --email "alice@example.com" >/dev/null 2>&1)
 
 lock_content=$(cd "$TMPDIR_4/local" && git fetch origin aitask-locks --quiet 2>/dev/null && git show "origin/aitask-locks:t42_lock.yaml" 2>/dev/null)
-assert_contains "YAML has task_id" "task_id: 42" "$lock_content"
-assert_contains "YAML has locked_by" "locked_by: alice@example.com" "$lock_content"
-assert_contains "YAML has locked_at" "locked_at:" "$lock_content"
-assert_contains "YAML has hostname" "hostname:" "$lock_content"
+assert_contains_ci "YAML has task_id" "task_id: 42" "$lock_content"
+assert_contains_ci "YAML has locked_by" "locked_by: alice@example.com" "$lock_content"
+assert_contains_ci "YAML has locked_at" "locked_at:" "$lock_content"
+assert_contains_ci "YAML has hostname" "hostname:" "$lock_content"
 
 rm -rf "$TMPDIR_4"
 
@@ -192,7 +152,7 @@ assert_exit_zero "Check locked task exits 0" bash -c "cd '$TMPDIR_5/local' && ./
 
 # Also verify it outputs content
 check_output=$(cd "$TMPDIR_5/local" && ./.aitask-scripts/aitask_lock.sh --check 1 2>/dev/null)
-assert_contains "Check outputs lock info" "locked_by: user@test.com" "$check_output"
+assert_contains_ci "Check outputs lock info" "locked_by: user@test.com" "$check_output"
 
 rm -rf "$TMPDIR_5"
 
@@ -253,7 +213,7 @@ TMPDIR_10="$(setup_paired_repos)"
 # Lock with different email should fail
 output10=$(cd "$TMPDIR_10/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "bob@test.com" 2>&1 || true)
 assert_exit_nonzero "Different email lock fails" bash -c "cd '$TMPDIR_10/local' && ./.aitask-scripts/aitask_lock.sh --lock 1 --email 'bob@test.com'"
-assert_contains "Error mentions existing locker" "alice@test.com" "$output10"
+assert_contains_ci "Error mentions existing locker" "alice@test.com" "$output10"
 
 rm -rf "$TMPDIR_10"
 
@@ -319,8 +279,8 @@ TMPDIR_13="$(setup_paired_repos)"
 (cd "$TMPDIR_13/local" && ./.aitask-scripts/aitask_lock.sh --lock 2 --email "bob@test.com" >/dev/null 2>&1)
 
 list_output=$(cd "$TMPDIR_13/local" && ./.aitask-scripts/aitask_lock.sh --list 2>/dev/null)
-assert_contains "List shows task 1" "t1:" "$list_output"
-assert_contains "List shows task 2" "t2:" "$list_output"
+assert_contains_ci "List shows task 1" "t1:" "$list_output"
+assert_contains_ci "List shows task 2" "t2:" "$list_output"
 
 rm -rf "$TMPDIR_13"
 
@@ -347,7 +307,7 @@ assert_exit_zero "Auto-detect email lock succeeds" bash -c "cd '$TMPDIR_15/local
 
 # Verify lock was acquired with the correct email
 check_output_15=$(cd "$TMPDIR_15/local" && ./.aitask-scripts/aitask_lock.sh --check 50 2>/dev/null)
-assert_contains "Auto-detect used userconfig email" "locked_by: autouser@test.com" "$check_output_15"
+assert_contains_ci "Auto-detect used userconfig email" "locked_by: autouser@test.com" "$check_output_15"
 
 rm -rf "$TMPDIR_15"
 
@@ -369,7 +329,7 @@ assert_exit_zero "Fallback email lock succeeds" bash -c "cd '$TMPDIR_16/local' &
 
 # Verify lock was acquired with the fallback email
 check_output_16=$(cd "$TMPDIR_16/local" && ./.aitask-scripts/aitask_lock.sh --check 51 2>/dev/null)
-assert_contains "Fallback used emails.txt email" "locked_by: fallback@test.com" "$check_output_16"
+assert_contains_ci "Fallback used emails.txt email" "locked_by: fallback@test.com" "$check_output_16"
 
 rm -rf "$TMPDIR_16"
 
@@ -387,7 +347,7 @@ TMPDIR_17="$(setup_paired_repos)"
 
 output17=$(cd "$TMPDIR_17/local" && ./.aitask-scripts/aitask_lock.sh --lock 52 2>&1 || true)
 assert_exit_nonzero "No email source fails" bash -c "cd '$TMPDIR_17/local' && ./.aitask-scripts/aitask_lock.sh --lock 52"
-assert_contains "Error mentions no email" "No email provided" "$output17"
+assert_contains_ci "Error mentions no email" "No email provided" "$output17"
 
 rm -rf "$TMPDIR_17"
 
@@ -409,7 +369,7 @@ assert_exit_zero "Bare task ID lock succeeds" bash -c "cd '$TMPDIR_18/local' && 
 
 # Verify lock was acquired
 check_output_18=$(cd "$TMPDIR_18/local" && ./.aitask-scripts/aitask_lock.sh --check 50 2>/dev/null)
-assert_contains "Bare ID used correct email" "locked_by: bare@test.com" "$check_output_18"
+assert_contains_ci "Bare ID used correct email" "locked_by: bare@test.com" "$check_output_18"
 
 rm -rf "$TMPDIR_18"
 
@@ -424,7 +384,7 @@ assert_exit_zero "Bare ID with --email succeeds" bash -c "cd '$TMPDIR_19/local' 
 
 # Verify lock used the explicit email
 check_output_19=$(cd "$TMPDIR_19/local" && ./.aitask-scripts/aitask_lock.sh --check 50 2>/dev/null)
-assert_contains "Bare ID used explicit email" "locked_by: explicit@test.com" "$check_output_19"
+assert_contains_ci "Bare ID used explicit email" "locked_by: explicit@test.com" "$check_output_19"
 
 rm -rf "$TMPDIR_19"
 
@@ -492,7 +452,7 @@ TMPDIR_22="$(mktemp -d)"
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
 list_output_22=$(cd "$TMPDIR_22" && ./.aitask-scripts/aitask_lock.sh --list 2>&1)
-assert_contains "List with no remote mentions no remote" "no remote" "$list_output_22"
+assert_contains_ci "List with no remote mentions no remote" "no remote" "$list_output_22"
 
 rm -rf "$TMPDIR_22"
 
@@ -533,7 +493,7 @@ stderr=$(cat "$stderr_file_24")
 rm -f "$stderr_file_24"
 
 assert_eq "Lock with missing branch exits 10 (LOCK_INFRA_MISSING)" "10" "$rc"
-assert_contains "Stderr explains branch missing" "not found on remote" "$stderr"
+assert_contains_ci "Stderr explains branch missing" "not found on remote" "$stderr"
 
 rm -rf "$TMPDIR_24"
 

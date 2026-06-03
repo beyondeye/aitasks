@@ -22,44 +22,10 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-        echo "  ACTUAL OUTPUT:"
-        echo "$actual" | sed 's/^/    /' | head -20
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (output should NOT contain '$unexpected')"
-        echo "  ACTUAL OUTPUT:"
-        echo "$actual" | sed 's/^/    /' | head -20
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
 echo "=== Integration Test: ait upgrade in branch-mode setup (t644) ==="
 echo "Test root: $TEST_ROOT"
@@ -192,23 +158,23 @@ echo "# new helper for t644 test" > "$TARBALL_BUILD/.aitask-scripts/aitask_t644_
 # Run upgrade (force flag, like ait upgrade does)
 upgrade_output=$(bash "$PROJECT_DIR/install.sh" --force --dir "$PROJECT" --local-tarball "$TARBALL_NEW" </dev/null 2>&1)
 
-assert_not_contains "A1: No 'beyond a symbolic link' error" "beyond a symbolic link" "$upgrade_output"
-assert_contains "A2: Master-branch commit reported" "committed to git" "$upgrade_output"
+assert_not_contains_ci "A1: No 'beyond a symbolic link' error" "beyond a symbolic link" "$upgrade_output"
+assert_contains_ci "A2: Master-branch commit reported" "committed to git" "$upgrade_output"
 
 master_commits_after=$(git -C "$PROJECT" rev-list --count master 2>/dev/null)
 data_commits_after=$(git -C "$PROJECT/.aitask-data" rev-list --count HEAD 2>/dev/null)
 
-assert_eq "A3: Master gained exactly one commit" "$((master_commits_before + 1))" "$master_commits_after"
+assert_eq_trim "A3: Master gained exactly one commit" "$((master_commits_before + 1))" "$master_commits_after"
 
 # Master commit message should reference the new version
 master_msg=$(git -C "$PROJECT" log master --format='%s' -1 2>/dev/null)
-assert_contains "A4: Master commit message references new version" "v${NEW_VERSION}" "$master_msg"
-assert_contains "A5: Master commit message says 'Update aitasks framework'" "Update aitasks framework" "$master_msg"
+assert_contains_ci "A4: Master commit message references new version" "v${NEW_VERSION}" "$master_msg"
+assert_contains_ci "A5: Master commit message says 'Update aitasks framework'" "Update aitasks framework" "$master_msg"
 
 # Master commit should include the new t644 marker file
 master_files=$(git -C "$PROJECT" log master -1 --name-only --format='' 2>/dev/null)
-assert_contains "A6: New marker file in master commit" "aitask_t644_marker.sh" "$master_files"
-assert_contains "A7: ait dispatcher in master commit" "ait" "$master_files"
+assert_contains_ci "A6: New marker file in master commit" "aitask_t644_marker.sh" "$master_files"
+assert_contains_ci "A7: ait dispatcher in master commit" "ait" "$master_files"
 
 # Master commit should NOT include any aitasks/ or aiplans/ paths (those live on data branch)
 TOTAL=$((TOTAL + 1))
@@ -224,7 +190,7 @@ fi
 master_dirty=$(cd "$PROJECT" && git ls-files --others --exclude-standard \
     .aitask-scripts/ ait .claude/skills/ 2>/dev/null \
     | grep -Ev '(^|/)__pycache__/|\.py[co]$|\.pyd$' || true)
-assert_eq "A9: No untracked framework files on master after upgrade" "" "$master_dirty"
+assert_eq_trim "A9: No untracked framework files on master after upgrade" "" "$master_dirty"
 
 echo ""
 
@@ -239,8 +205,8 @@ bash "$PROJECT_DIR/install.sh" --force --dir "$PROJECT" --local-tarball "$TARBAL
 master_commits_idem=$(git -C "$PROJECT" rev-list --count master 2>/dev/null)
 data_commits_idem=$(git -C "$PROJECT/.aitask-data" rev-list --count HEAD 2>/dev/null)
 
-assert_eq "B1: No new master commit on idempotent re-run" "$master_commits_after" "$master_commits_idem"
-assert_eq "B2: No new data commit on idempotent re-run" "$data_commits_after" "$data_commits_idem"
+assert_eq_trim "B1: No new master commit on idempotent re-run" "$master_commits_after" "$master_commits_idem"
+assert_eq_trim "B2: No new data commit on idempotent re-run" "$data_commits_after" "$data_commits_idem"
 
 echo ""
 
@@ -278,11 +244,11 @@ legacy_before=$(git -C "$LEGACY" rev-list --count master 2>/dev/null)
 legacy_output=$(bash "$PROJECT_DIR/install.sh" --force --dir "$LEGACY" --local-tarball "$TARBALL_NEW" </dev/null 2>&1)
 legacy_after=$(git -C "$LEGACY" rev-list --count master 2>/dev/null)
 
-assert_not_contains "C1: No symlink error in legacy mode" "beyond a symbolic link" "$legacy_output"
-assert_eq "C2: Legacy mode gained exactly one commit" "$((legacy_before + 1))" "$legacy_after"
+assert_not_contains_ci "C1: No symlink error in legacy mode" "beyond a symbolic link" "$legacy_output"
+assert_eq_trim "C2: Legacy mode gained exactly one commit" "$((legacy_before + 1))" "$legacy_after"
 
 legacy_msg=$(git -C "$LEGACY" log --format='%s' -1 2>/dev/null)
-assert_contains "C3: Legacy commit references new version" "v${NEW_VERSION}" "$legacy_msg"
+assert_contains_ci "C3: Legacy commit references new version" "v${NEW_VERSION}" "$legacy_msg"
 
 echo ""
 

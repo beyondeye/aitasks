@@ -16,27 +16,9 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
 # --- Resolve Python interpreter (framework venv) ---
 
@@ -139,7 +121,7 @@ if [[ $RC -ne 0 ]]; then
 else
     FAIL=$((FAIL + 1)); echo "FAIL: strict undefined should exit non-zero (got rc=$RC, output: $ERR_OUTPUT)"
 fi
-assert_contains "strict-undefined error names the template file" "t_missing.j2" "$ERR_OUTPUT"
+assert_contains_ci "strict-undefined error names the template file" "t_missing.j2" "$ERR_OUTPUT"
 
 # --- 5. aitask_skill_resolve_profile.sh — precedence ---
 
@@ -220,20 +202,20 @@ for r in discover_refs(text, current, repo_root):
 
 # Full-path ref
 OUT="$(disco_call 'see .claude/skills/_t777_22_test_unit_a/SKILL.md for details' "$UNIT_B/SKILL.md")"
-assert_contains "discover_refs: full-path matched" "full" "$OUT"
-assert_contains "discover_refs: full-path resolved" ".claude/skills/_t777_22_test_unit_a/SKILL.md" "$OUT"
+assert_contains_ci "discover_refs: full-path matched" "full" "$OUT"
+assert_contains_ci "discover_refs: full-path resolved" ".claude/skills/_t777_22_test_unit_a/SKILL.md" "$OUT"
 
 # Cross-agent-root full-path ref (says .agents/skills/... but resolves under .claude/skills/)
 OUT="$(disco_call 'see .agents/skills/_t777_22_test_unit_a/SKILL.md here' "$UNIT_B/SKILL.md")"
-assert_contains "discover_refs: cross-agent-root full-path normalised to .claude/" ".claude/skills/_t777_22_test_unit_a/SKILL.md" "$OUT"
+assert_contains_ci "discover_refs: cross-agent-root full-path normalised to .claude/" ".claude/skills/_t777_22_test_unit_a/SKILL.md" "$OUT"
 
 # Sibling ref (B references its own dir's SKILL.md = self)
 OUT="$(disco_call 'see SKILL.md for context' "$UNIT_B/SKILL.md")"
-assert_contains "discover_refs: sibling matched as sibling kind" "sibling" "$OUT"
+assert_contains_ci "discover_refs: sibling matched as sibling kind" "sibling" "$OUT"
 
 # Skill-relative ref
 OUT="$(disco_call 'see _t777_22_test_unit_a/SKILL.md' "$UNIT_B/SKILL.md")"
-assert_contains "discover_refs: skill-relative matched" "skill_relative" "$OUT"
+assert_contains_ci "discover_refs: skill-relative matched" "skill_relative" "$OUT"
 
 # Non-existent ref → filtered (no output)
 OUT="$(disco_call 'edit the imaginary.md file please' "$UNIT_B/SKILL.md")"
@@ -294,8 +276,8 @@ from skill_template import AGENT_ROOTS
 for k, v in AGENT_ROOTS.items():
     print(k, v)
 ")"
-assert_contains "AGENT_ROOTS claude maps to .claude/skills" "claude .claude/skills" "$AR_OUT"
-assert_contains "AGENT_ROOTS opencode maps to .opencode/skills" "opencode .opencode/skills" "$AR_OUT"
+assert_contains_ci "AGENT_ROOTS claude maps to .claude/skills" "claude .claude/skills" "$AR_OUT"
+assert_contains_ci "AGENT_ROOTS opencode maps to .opencode/skills" "opencode .opencode/skills" "$AR_OUT"
 
 # --- Summary ---
 

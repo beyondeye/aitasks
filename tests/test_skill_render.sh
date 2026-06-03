@@ -14,27 +14,9 @@ FAIL=0
 SKIP=0
 TOTAL=0
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
 assert_nonzero_exit() {
     local desc="$1" rc="$2"
@@ -102,8 +84,8 @@ else
     FAIL=$((FAIL + 1)); echo "FAIL: basic render did not produce $TARGET1"
 fi
 RENDERED1="$(cat "$TARGET1" 2>/dev/null || echo "")"
-assert_contains "basic render: profile.name substituted"            "Smoke (fast/claude)"           "$RENDERED1"
-assert_contains "basic render: skip_task_confirmation substituted"  "skip_task_confirmation: true"  "$RENDERED1"
+assert_contains_ci "basic render: profile.name substituted"            "Smoke (fast/claude)"           "$RENDERED1"
+assert_contains_ci "basic render: skip_task_confirmation substituted"  "skip_task_confirmation: true"  "$RENDERED1"
 
 # --- Test 2: Skip-if-fresh — second run no-op ---
 
@@ -207,7 +189,7 @@ else
     FAIL=$((FAIL + 1)); echo "FAIL: dep-walker did not render A leaf: $TARGET_A"
 fi
 B_OUT="$(cat "$TARGET_B" 2>/dev/null || echo "")"
-assert_contains "B's full-path ref rewritten to per-profile dir" \
+assert_contains_ci "B's full-path ref rewritten to per-profile dir" \
     ".claude/skills/${SK_A}-fast-/SKILL.md" "$B_OUT"
 
 # --- Test 7: Same-skill include is inlined, not rendered as separate skill ---
@@ -226,7 +208,7 @@ EOF
 
 TARGET_S=".claude/skills/${SK_S}-fast-/SKILL.md"
 RENDERED_S="$(cat "$TARGET_S" 2>/dev/null || echo "")"
-assert_contains "same-skill include inlined into parent output" "PARTIAL_CONTENT" "$RENDERED_S"
+assert_contains_ci "same-skill include inlined into parent output" "PARTIAL_CONTENT" "$RENDERED_S"
 # No spurious "_partial" skill dir should be created.
 TOTAL=$((TOTAL + 1))
 if [[ ! -d ".claude/skills/_partial-fast-" && ! -d ".claude/skills/_partial" ]]; then
@@ -264,7 +246,7 @@ ERR_OUT="$("$RENDER" "${TEST_SKILL_PREFIX}_does_not_exist" --profile fast --agen
 RC=$?
 set -e
 assert_nonzero_exit "missing template exits non-zero" "$RC"
-assert_contains "missing template error names the path" "template not found" "$ERR_OUT"
+assert_contains_ci "missing template error names the path" "template not found" "$ERR_OUT"
 
 # --- Test 10: Unknown profile — non-zero exit + stderr ---
 
@@ -273,8 +255,8 @@ ERR_OUT="$("$RENDER" "$SK1" --profile "_t777_2_test_no_such_profile" --agent cla
 RC=$?
 set -e
 assert_nonzero_exit "unknown profile exits non-zero" "$RC"
-assert_contains "unknown profile error" "profile" "$ERR_OUT"
-assert_contains "unknown profile error names the value" "not found" "$ERR_OUT"
+assert_contains_ci "unknown profile error" "profile" "$ERR_OUT"
+assert_contains_ci "unknown profile error names the value" "not found" "$ERR_OUT"
 
 # --- Test 11: Missing --profile arg — non-zero exit + usage ---
 
@@ -283,7 +265,7 @@ ERR_OUT="$("$RENDER" "$SK1" --agent claude 2>&1)"
 RC=$?
 set -e
 assert_nonzero_exit "missing --profile exits non-zero" "$RC"
-assert_contains "missing --profile usage message" "Usage" "$ERR_OUT"
+assert_contains_ci "missing --profile usage message" "Usage" "$ERR_OUT"
 
 # --- Test 12: Unknown agent — non-zero exit (propagated from agent_skill_root) ---
 

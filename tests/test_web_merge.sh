@@ -16,50 +16,11 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (output should NOT contain '$unexpected', got '$actual')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
-assert_exit_zero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (command exited non-zero)"
-    fi
-}
 
 # --- Setup helpers ---
 
@@ -164,7 +125,7 @@ echo "--- Test 2: Single completed branch ---"
 TMPDIR_2="$(setup_paired_repos)"
 create_web_branch "$TMPDIR_2/local" "claude-web/t42" "42" "aitasks/t42_implement_auth.md"
 output=$(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_web_merge.sh 2>&1)
-assert_contains "Detects completed branch" "COMPLETED:claude-web/t42:completed_t42.json" "$output"
+assert_contains_ci "Detects completed branch" "COMPLETED:claude-web/t42:completed_t42.json" "$output"
 rm -rf "$TMPDIR_2"
 
 # --- Test 3: Multiple completed branches ---
@@ -173,8 +134,8 @@ TMPDIR_3="$(setup_paired_repos)"
 create_web_branch "$TMPDIR_3/local" "claude-web/t42" "42" "aitasks/t42_implement_auth.md"
 create_web_branch "$TMPDIR_3/local" "claude-web/t50" "50" "aitasks/t50_add_logging.md"
 output=$(cd "$TMPDIR_3/local" && ./.aitask-scripts/aitask_web_merge.sh 2>&1)
-assert_contains "Detects first branch" "COMPLETED:claude-web/t42:completed_t42.json" "$output"
-assert_contains "Detects second branch" "COMPLETED:claude-web/t50:completed_t50.json" "$output"
+assert_contains_ci "Detects first branch" "COMPLETED:claude-web/t42:completed_t42.json" "$output"
+assert_contains_ci "Detects second branch" "COMPLETED:claude-web/t50:completed_t50.json" "$output"
 # Count COMPLETED lines
 count=$(echo "$output" | grep -c "^COMPLETED:" | tr -d ' ')
 assert_eq "Exactly 2 completions found" "2" "$count"
@@ -186,8 +147,8 @@ TMPDIR_4="$(setup_paired_repos)"
 create_plain_branch "$TMPDIR_4/local" "feature/no-marker"
 create_web_branch "$TMPDIR_4/local" "claude-web/t42" "42" "aitasks/t42_implement_auth.md"
 output=$(cd "$TMPDIR_4/local" && ./.aitask-scripts/aitask_web_merge.sh 2>&1)
-assert_contains "Detects web branch" "COMPLETED:claude-web/t42" "$output"
-assert_not_contains "Does not detect plain branch" "feature/no-marker" "$output"
+assert_contains_ci "Detects web branch" "COMPLETED:claude-web/t42" "$output"
+assert_not_contains_ci "Does not detect plain branch" "feature/no-marker" "$output"
 rm -rf "$TMPDIR_4"
 
 # --- Test 5: Known branches skipped ---
@@ -213,7 +174,7 @@ echo "--- Test 6: --fetch flag works ---"
 TMPDIR_6="$(setup_paired_repos)"
 create_web_branch "$TMPDIR_6/local" "claude-web/t42" "42" "aitasks/t42_implement_auth.md"
 output=$(cd "$TMPDIR_6/local" && ./.aitask-scripts/aitask_web_merge.sh --fetch 2>&1)
-assert_contains "Fetch flag detects branch" "COMPLETED:claude-web/t42:completed_t42.json" "$output"
+assert_contains_ci "Fetch flag detects branch" "COMPLETED:claude-web/t42:completed_t42.json" "$output"
 rm -rf "$TMPDIR_6"
 
 # --- Test 7: Child task marker ---
@@ -221,7 +182,7 @@ echo "--- Test 7: Child task marker detected ---"
 TMPDIR_7="$(setup_paired_repos)"
 create_web_branch "$TMPDIR_7/local" "claude-web/t10_2" "10_2" "aitasks/t10/t10_2_add_login.md" "true" "10"
 output=$(cd "$TMPDIR_7/local" && ./.aitask-scripts/aitask_web_merge.sh 2>&1)
-assert_contains "Detects child task branch" "COMPLETED:claude-web/t10_2:completed_t10_2.json" "$output"
+assert_contains_ci "Detects child task branch" "COMPLETED:claude-web/t10_2:completed_t10_2.json" "$output"
 rm -rf "$TMPDIR_7"
 
 # --- Summary ---

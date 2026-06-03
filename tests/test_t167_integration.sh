@@ -15,41 +15,10 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    # Trim leading/trailing whitespace (macOS wc -l pads with spaces)
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (output should NOT contain '$unexpected')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
 echo "=== Integration Test: Framework File Commit Fix (t167) ==="
 echo "Test directory: $TEST_DIR"
@@ -111,11 +80,11 @@ install_output=$(bash "$PROJECT_DIR/install.sh" --dir "$TEST_DIR" --local-tarbal
 
 # install.sh emits a "skipping auto-commit of framework update" notice when
 # the sentinel is missing. Verify that path was taken.
-assert_contains "A1: install.sh announces sentinel-skip" "skipping auto-commit" "$install_output"
+assert_contains_ci "A1: install.sh announces sentinel-skip" "skipping auto-commit" "$install_output"
 
 # Files should be EXTRACTED but NOT committed yet — only the initial commit exists.
 commit_count=$(git -C "$TEST_DIR" log --oneline 2>/dev/null | wc -l | tr -d ' ')
-assert_eq "A2: Only the initial commit exists post-install" "1" "$commit_count"
+assert_eq_trim "A2: Only the initial commit exists post-install" "1" "$commit_count"
 
 # But the framework files must exist on disk
 TOTAL=$((TOTAL + 1))
@@ -133,11 +102,11 @@ SCRIPT_DIR="$TEST_DIR/.aitask-scripts"
 setup_output=$(commit_framework_files 2>&1 </dev/null)
 
 tracked_files=$(git -C "$TEST_DIR" ls-files 2>/dev/null)
-assert_contains "A4: After ait setup, .aitask-scripts/ is tracked" ".aitask-scripts/" "$tracked_files"
-assert_contains "A5: After ait setup, ait is tracked" "ait" "$tracked_files"
+assert_contains_ci "A4: After ait setup, .aitask-scripts/ is tracked" ".aitask-scripts/" "$tracked_files"
+assert_contains_ci "A5: After ait setup, ait is tracked" "ait" "$tracked_files"
 
 setup_commit_msg=$(git -C "$TEST_DIR" log --format='%s' -1 2>/dev/null)
-assert_eq "A6: ait setup commit message" "ait: Add aitask framework" "$setup_commit_msg"
+assert_eq_trim "A6: ait setup commit message" "ait: Add aitask framework" "$setup_commit_msg"
 
 echo ""
 
@@ -170,14 +139,14 @@ output=$(commit_framework_files 2>&1 </dev/null)
 # Verify late-stage files are now committed
 untracked=$(cd "$TEST_DIR" && git ls-files --others --exclude-standard \
     .aitask-scripts/ aitasks/metadata/ ait .claude/skills/ .gitignore 2>/dev/null)
-assert_contains "B1: Only pycache remains untracked after commit_framework_files" "__pycache__/test.cpython-314.pyc" "$untracked"
+assert_contains_ci "B1: Only pycache remains untracked after commit_framework_files" "__pycache__/test.cpython-314.pyc" "$untracked"
 
 # Verify review guide was committed
 tracked_files=$(git -C "$TEST_DIR" ls-files 2>/dev/null)
-assert_contains "B2: Review guide file is tracked" "aireviewguides/test_mode.md" "$tracked_files"
-assert_contains "B3: Codex wrapper file is tracked" ".agents/skills/aitask-pick/SKILL.md" "$tracked_files"
-assert_contains "B4: Codex config file is tracked" ".codex/config.toml" "$tracked_files"
-assert_not_contains "B5: Pycache file is not tracked" "__pycache__/test.cpython-314.pyc" "$tracked_files"
+assert_contains_ci "B2: Review guide file is tracked" "aireviewguides/test_mode.md" "$tracked_files"
+assert_contains_ci "B3: Codex wrapper file is tracked" ".agents/skills/aitask-pick/SKILL.md" "$tracked_files"
+assert_contains_ci "B4: Codex config file is tracked" ".codex/config.toml" "$tracked_files"
+assert_not_contains_ci "B5: Pycache file is not tracked" "__pycache__/test.cpython-314.pyc" "$tracked_files"
 
 echo ""
 
@@ -190,8 +159,8 @@ commit_count_before=$(git -C "$TEST_DIR" log --oneline 2>/dev/null | wc -l)
 output=$(commit_framework_files 2>&1 </dev/null)
 commit_count_after=$(git -C "$TEST_DIR" log --oneline 2>/dev/null | wc -l)
 
-assert_eq "C1: No new commits on re-run" "$commit_count_before" "$commit_count_after"
-assert_contains "C2: Says already committed" "already committed" "$output"
+assert_eq_trim "C1: No new commits on re-run" "$commit_count_before" "$commit_count_after"
+assert_contains_ci "C2: Says already committed" "already committed" "$output"
 
 echo ""
 
@@ -214,10 +183,10 @@ TARBALL_NEW="/tmp/aitasks_test_t167_new.tar.gz"
 
 upgrade_output=$(bash "$PROJECT_DIR/install.sh" --force --dir "$TEST_DIR" --local-tarball "$TARBALL_NEW" </dev/null 2>&1)
 
-assert_contains "D1: Upgrade run reports a commit" "committed to git" "$upgrade_output"
+assert_contains_ci "D1: Upgrade run reports a commit" "committed to git" "$upgrade_output"
 
 upgrade_commit_msg=$(git -C "$TEST_DIR" log --format='%s' -1 2>/dev/null)
-assert_contains "D2: Upgrade commit message references new version" "v${NEW_VERSION}" "$upgrade_commit_msg"
+assert_contains_ci "D2: Upgrade commit message references new version" "v${NEW_VERSION}" "$upgrade_commit_msg"
 
 rm -f "$TARBALL_NEW"
 rm -rf "$TARBALL_BUILD"
@@ -236,7 +205,7 @@ mkdir -p "$NON_GIT_DIR"
 output=$(bash "$PROJECT_DIR/install.sh" --dir "$NON_GIT_DIR" --local-tarball "$TARBALL" </dev/null 2>&1)
 
 # Should NOT contain any git commit messages
-assert_not_contains "E1: No git commit in non-git dir" "committed to git" "$output"
+assert_not_contains_ci "E1: No git commit in non-git dir" "committed to git" "$output"
 
 # But files should still be installed
 TOTAL=$((TOTAL + 1))

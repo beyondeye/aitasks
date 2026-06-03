@@ -16,83 +16,14 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (output should NOT contain '$unexpected', but it does)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
-assert_exit_zero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (command exited non-zero)"
-    fi
-}
 
-assert_file_exists() {
-    local desc="$1" file="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -f "$file" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$file' does not exist)"
-    fi
-}
 
-assert_file_not_exists() {
-    local desc="$1" file="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ ! -f "$file" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$file' should not exist but does)"
-    fi
-}
 
-assert_dir_not_exists() {
-    local desc="$1" dir="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ ! -d "$dir" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (directory '$dir' should not exist but does)"
-    fi
-}
 
 # Create a mock task file with frontmatter
 create_task_file() {
@@ -158,7 +89,7 @@ assert_exit_zero "Syntax check passes" bash -n "$PROJECT_DIR/.aitask-scripts/ait
 echo "--- Test 2: Empty archived dirs ---"
 TMPDIR_2="$(setup_test_env)"
 output_2=$(cd "$TMPDIR_2" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_contains "Empty dirs: reports no files" "no files to archive" "$output_2"
+assert_contains_ci "Empty dirs: reports no files" "no files to archive" "$output_2"
 rm -rf "$TMPDIR_2"
 
 # --- Test 3: All parent tasks archived, no active children — all get archived ---
@@ -172,10 +103,10 @@ TMPDIR_3="$(setup_test_env)"
     create_archived_file aiplans/archived/p51_another_task.md
 )
 output_3=$(cd "$TMPDIR_3" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_contains "Test 3: t50 listed" "t50_old_task.md" "$output_3"
-assert_contains "Test 3: t51 listed" "t51_another_task.md" "$output_3"
-assert_contains "Test 3: p50 listed" "p50_old_task.md" "$output_3"
-assert_contains "Test 3: p51 listed" "p51_another_task.md" "$output_3"
+assert_contains_ci "Test 3: t50 listed" "t50_old_task.md" "$output_3"
+assert_contains_ci "Test 3: t51 listed" "t51_another_task.md" "$output_3"
+assert_contains_ci "Test 3: p50 listed" "p50_old_task.md" "$output_3"
+assert_contains_ci "Test 3: p51 listed" "p51_another_task.md" "$output_3"
 rm -rf "$TMPDIR_3"
 
 # --- Test 4: Active parent skips its archived children ---
@@ -195,11 +126,11 @@ TMPDIR_4="$(setup_test_env)"
     create_archived_file aitasks/archived/t5_unrelated.md
 )
 output_4=$(cd "$TMPDIR_4" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_not_contains "Test 4: t10_1 NOT listed" "t10_1_done_child" "$output_4"
-assert_not_contains "Test 4: t10_2 NOT listed" "t10_2_done_child" "$output_4"
-assert_not_contains "Test 4: p10_1 NOT listed" "p10_1_done_child" "$output_4"
-assert_not_contains "Test 4: p10_2 NOT listed" "p10_2_done_child" "$output_4"
-assert_contains "Test 4: t5 IS listed" "t5_unrelated" "$output_4"
+assert_not_contains_ci "Test 4: t10_1 NOT listed" "t10_1_done_child" "$output_4"
+assert_not_contains_ci "Test 4: t10_2 NOT listed" "t10_2_done_child" "$output_4"
+assert_not_contains_ci "Test 4: p10_1 NOT listed" "p10_1_done_child" "$output_4"
+assert_not_contains_ci "Test 4: p10_2 NOT listed" "p10_2_done_child" "$output_4"
+assert_contains_ci "Test 4: t5 IS listed" "t5_unrelated" "$output_4"
 rm -rf "$TMPDIR_4"
 
 # --- Test 5: Archived parent with all children done gets archived ---
@@ -213,9 +144,9 @@ TMPDIR_5="$(setup_test_env)"
     create_archived_file aitasks/archived/t20/t20_2_child.md
 )
 output_5=$(cd "$TMPDIR_5" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_contains "Test 5: parent listed" "t20_done_parent" "$output_5"
-assert_contains "Test 5: child 1 listed" "t20_1_child" "$output_5"
-assert_contains "Test 5: child 2 listed" "t20_2_child" "$output_5"
+assert_contains_ci "Test 5: parent listed" "t20_done_parent" "$output_5"
+assert_contains_ci "Test 5: child 1 listed" "t20_1_child" "$output_5"
+assert_contains_ci "Test 5: child 2 listed" "t20_2_child" "$output_5"
 rm -rf "$TMPDIR_5"
 
 # --- Test 6: Inactive parent's children get archived ---
@@ -228,8 +159,8 @@ TMPDIR_6="$(setup_test_env)"
     create_archived_file aitasks/archived/t30/t30_2_child.md
 )
 output_6=$(cd "$TMPDIR_6" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_contains "Test 6: child 1 listed" "t30_1_child" "$output_6"
-assert_contains "Test 6: child 2 listed" "t30_2_child" "$output_6"
+assert_contains_ci "Test 6: child 1 listed" "t30_1_child" "$output_6"
+assert_contains_ci "Test 6: child 2 listed" "t30_2_child" "$output_6"
 rm -rf "$TMPDIR_6"
 
 # --- Test 7: Plan files follow same logic ---
@@ -246,8 +177,8 @@ TMPDIR_7="$(setup_test_env)"
     create_archived_file aiplans/archived/p40/p40_1_done.md
 )
 output_7=$(cd "$TMPDIR_7" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_not_contains "Test 7: p15_1 NOT listed" "p15_1_done" "$output_7"
-assert_contains "Test 7: p40_1 IS listed" "p40_1_done" "$output_7"
+assert_not_contains_ci "Test 7: p15_1 NOT listed" "p15_1_done" "$output_7"
+assert_contains_ci "Test 7: p40_1 IS listed" "p40_1_done" "$output_7"
 rm -rf "$TMPDIR_7"
 
 # --- Test 8: Mixed scenario ---
@@ -269,12 +200,12 @@ TMPDIR_8="$(setup_test_env)"
     create_archived_file aiplans/archived/p50_standalone.md
 )
 output_8=$(cd "$TMPDIR_8" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_not_contains "Test 8: t10_1 NOT listed" "t10_1_done" "$output_8"
-assert_not_contains "Test 8: p10_1 NOT listed" "p10_1_done" "$output_8"
-assert_contains "Test 8: t20_1 IS listed" "t20_1_done" "$output_8"
-assert_contains "Test 8: p20_1 IS listed" "p20_1_done" "$output_8"
-assert_contains "Test 8: t50 IS listed" "t50_standalone" "$output_8"
-assert_contains "Test 8: p50 IS listed" "p50_standalone" "$output_8"
+assert_not_contains_ci "Test 8: t10_1 NOT listed" "t10_1_done" "$output_8"
+assert_not_contains_ci "Test 8: p10_1 NOT listed" "p10_1_done" "$output_8"
+assert_contains_ci "Test 8: t20_1 IS listed" "t20_1_done" "$output_8"
+assert_contains_ci "Test 8: p20_1 IS listed" "p20_1_done" "$output_8"
+assert_contains_ci "Test 8: t50 IS listed" "t50_standalone" "$output_8"
+assert_contains_ci "Test 8: p50 IS listed" "p50_standalone" "$output_8"
 rm -rf "$TMPDIR_8"
 
 # --- Test 9: Actual archive creation ---
@@ -295,8 +226,8 @@ assert_file_not_exists "Test 9: t51 removed" "$TMPDIR_9/aitasks/archived/t51_old
 assert_file_not_exists "Test 9: p50 removed" "$TMPDIR_9/aiplans/archived/p50_old.md"
 # Verify tar.gz contents
 tar_contents_9=$(zstd -dc "$TMPDIR_9/aitasks/archived/_b0/old0.tar.zst" 2>/dev/null | tar -tf -)
-assert_contains "Test 9: tar contains t50" "t50_old.md" "$tar_contents_9"
-assert_contains "Test 9: tar contains t51" "t51_old.md" "$tar_contents_9"
+assert_contains_ci "Test 9: tar contains t50" "t50_old.md" "$tar_contents_9"
+assert_contains_ci "Test 9: tar contains t51" "t51_old.md" "$tar_contents_9"
 rm -rf "$TMPDIR_9"
 
 # --- Test 10: Cumulative archiving ---
@@ -314,8 +245,8 @@ TMPDIR_10="$(setup_test_env)"
 )
 (cd "$TMPDIR_10" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
 tar_contents_10=$(zstd -dc "$TMPDIR_10/aitasks/archived/_b0/old0.tar.zst" 2>/dev/null | tar -tf -)
-assert_contains "Test 10: tar still has first batch" "t50_first.md" "$tar_contents_10"
-assert_contains "Test 10: tar has second batch" "t51_second.md" "$tar_contents_10"
+assert_contains_ci "Test 10: tar still has first batch" "t50_first.md" "$tar_contents_10"
+assert_contains_ci "Test 10: tar has second batch" "t51_second.md" "$tar_contents_10"
 rm -rf "$TMPDIR_10"
 
 # --- Test 11: Git commit message ---
@@ -333,7 +264,7 @@ TMPDIR_11="$(setup_test_env)"
 )
 (cd "$TMPDIR_11" && bash .aitask-scripts/aitask_zip_old.sh 2>&1 >/dev/null)
 commit_msg_11=$(cd "$TMPDIR_11" && git log -1 --pretty=%B)
-assert_contains "Test 11: commit mentions archive" "ait: Archive old files" "$commit_msg_11"
+assert_contains_ci "Test 11: commit mentions archive" "ait: Archive old files" "$commit_msg_11"
 rm -rf "$TMPDIR_11"
 
 # --- Test 12: Empty child dirs cleaned up ---
@@ -375,8 +306,8 @@ TMPDIR_14="$(setup_test_env)"
     create_archived_file aitasks/archived/t50_old.md
 )
 output_14=$(cd "$TMPDIR_14" && bash .aitask-scripts/aitask_zip_old.sh --dry-run -v 2>&1)
-assert_contains "Test 14: shows active parents" "Active parents:" "$output_14"
-assert_contains "Test 14: shows skipping msg" "Skipping (active siblings)" "$output_14"
+assert_contains_ci "Test 14: shows active parents" "Active parents:" "$output_14"
+assert_contains_ci "Test 14: shows skipping msg" "Skipping (active siblings)" "$output_14"
 rm -rf "$TMPDIR_14"
 
 # --- Test 15: Dependency keeps archived task ---
@@ -390,8 +321,8 @@ TMPDIR_15="$(setup_test_env)"
     create_archived_file aitasks/archived/t31_not_depended.md
 )
 output_15=$(cd "$TMPDIR_15" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_not_contains "Test 15: t30 NOT listed (kept as dependency)" "t30_depended_on" "$output_15"
-assert_contains "Test 15: t31 IS listed" "t31_not_depended" "$output_15"
+assert_not_contains_ci "Test 15: t30 NOT listed (kept as dependency)" "t30_depended_on" "$output_15"
+assert_contains_ci "Test 15: t31 IS listed" "t31_not_depended" "$output_15"
 rm -rf "$TMPDIR_15"
 
 # --- Test 16: Dependency keeps archived plan ---
@@ -404,8 +335,8 @@ TMPDIR_16="$(setup_test_env)"
     create_archived_file aiplans/archived/p31_not_depended.md
 )
 output_16=$(cd "$TMPDIR_16" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_not_contains "Test 16: p30 NOT listed (kept as dependency)" "p30_depended_on" "$output_16"
-assert_contains "Test 16: p31 IS listed" "p31_not_depended" "$output_16"
+assert_not_contains_ci "Test 16: p30 NOT listed (kept as dependency)" "p30_depended_on" "$output_16"
+assert_contains_ci "Test 16: p31 IS listed" "p31_not_depended" "$output_16"
 rm -rf "$TMPDIR_16"
 
 # --- Test 17: Dependency keeps archived child task ---
@@ -420,8 +351,8 @@ TMPDIR_17="$(setup_test_env)"
     create_archived_file aitasks/archived/t30/t30_2_is_dep.md
 )
 output_17=$(cd "$TMPDIR_17" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_not_contains "Test 17: t30_2 NOT listed (kept as dep)" "t30_2_is_dep" "$output_17"
-assert_contains "Test 17: t30_1 IS listed" "t30_1_not_dep" "$output_17"
+assert_not_contains_ci "Test 17: t30_2 NOT listed (kept as dep)" "t30_2_is_dep" "$output_17"
+assert_contains_ci "Test 17: t30_1 IS listed" "t30_1_not_dep" "$output_17"
 rm -rf "$TMPDIR_17"
 
 # --- Test 18: No dependency — archived task gets archived ---
@@ -433,7 +364,7 @@ TMPDIR_18="$(setup_test_env)"
     create_archived_file aitasks/archived/t30_no_dep.md
 )
 output_18=$(cd "$TMPDIR_18" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_contains "Test 18: t30 IS listed" "t30_no_dep" "$output_18"
+assert_contains_ci "Test 18: t30 IS listed" "t30_no_dep" "$output_18"
 rm -rf "$TMPDIR_18"
 
 # --- Test 19: Multiple depends formats parsed correctly ---
@@ -462,13 +393,13 @@ TMPDIR_19="$(setup_test_env)"
     create_archived_file aitasks/archived/t36_nodep.md
 )
 output_19=$(cd "$TMPDIR_19" && bash .aitask-scripts/aitask_zip_old.sh --dry-run 2>&1)
-assert_not_contains "Test 19: t30 kept (quoted)" "t30_dep" "$output_19"
-assert_not_contains "Test 19: t31 kept (plain)" "t31_dep" "$output_19"
-assert_not_contains "Test 19: t32 kept (t-prefix)" "t32_dep" "$output_19"
-assert_not_contains "Test 19: t33_2 kept (child ref)" "t33_2_dep" "$output_19"
-assert_not_contains "Test 19: t34_1 kept (mixed t-prefix)" "t34_1_dep" "$output_19"
-assert_not_contains "Test 19: t35 kept (mixed plain)" "t35_dep" "$output_19"
-assert_contains "Test 19: t36 IS listed (no dep)" "t36_nodep" "$output_19"
+assert_not_contains_ci "Test 19: t30 kept (quoted)" "t30_dep" "$output_19"
+assert_not_contains_ci "Test 19: t31 kept (plain)" "t31_dep" "$output_19"
+assert_not_contains_ci "Test 19: t32 kept (t-prefix)" "t32_dep" "$output_19"
+assert_not_contains_ci "Test 19: t33_2 kept (child ref)" "t33_2_dep" "$output_19"
+assert_not_contains_ci "Test 19: t34_1 kept (mixed t-prefix)" "t34_1_dep" "$output_19"
+assert_not_contains_ci "Test 19: t35 kept (mixed plain)" "t35_dep" "$output_19"
+assert_contains_ci "Test 19: t36 IS listed (no dep)" "t36_nodep" "$output_19"
 rm -rf "$TMPDIR_19"
 
 # ============================================================
@@ -493,13 +424,13 @@ TMPDIR_20="$(setup_test_env)"
     git add -A && git commit -m "Setup" --quiet
 )
 output_20=$(cd "$TMPDIR_20" && bash .aitask-scripts/aitask_zip_old.sh unpack 50 2>&1)
-assert_contains "Test 20: reports unpacked task" "UNPACKED_TASK:" "$output_20"
-assert_contains "Test 20: correct filename" "t50_old_feature.md" "$output_20"
+assert_contains_ci "Test 20: reports unpacked task" "UNPACKED_TASK:" "$output_20"
+assert_contains_ci "Test 20: correct filename" "t50_old_feature.md" "$output_20"
 assert_file_exists "Test 20: file extracted to filesystem" "$TMPDIR_20/aitasks/archived/t50_old_feature.md"
 # Verify tar.zst still has the other task
 tar_contents_20=$(zstd -dc "$TMPDIR_20/aitasks/archived/old.tar.zst" 2>/dev/null | tar -tf -)
-assert_contains "Test 20: tar still has t51" "t51_other.md" "$tar_contents_20"
-assert_not_contains "Test 20: tar no longer has t50" "t50_old_feature" "$tar_contents_20"
+assert_contains_ci "Test 20: tar still has t51" "t51_other.md" "$tar_contents_20"
+assert_not_contains_ci "Test 20: tar no longer has t50" "t50_old_feature" "$tar_contents_20"
 rm -rf "$TMPDIR_20"
 
 # --- Test 21: Unpack parent + children ---
@@ -540,8 +471,8 @@ TMPDIR_22="$(setup_test_env)"
     git add -A && git commit -m "Setup" --quiet
 )
 output_22=$(cd "$TMPDIR_22" && bash .aitask-scripts/aitask_zip_old.sh unpack 50 2>&1)
-assert_contains "Test 22: unpacked task" "UNPACKED_TASK:" "$output_22"
-assert_contains "Test 22: unpacked plan" "UNPACKED_PLAN:" "$output_22"
+assert_contains_ci "Test 22: unpacked task" "UNPACKED_TASK:" "$output_22"
+assert_contains_ci "Test 22: unpacked plan" "UNPACKED_PLAN:" "$output_22"
 assert_file_exists "Test 22: task file extracted" "$TMPDIR_22/aitasks/archived/t50_feature.md"
 assert_file_exists "Test 22: plan file extracted" "$TMPDIR_22/aiplans/archived/p50_feature.md"
 rm -rf "$TMPDIR_22"
@@ -596,7 +527,7 @@ TMPDIR_26="$(setup_test_env)"
     git add -A && git commit -m "Setup" --quiet
 )
 output_26=$(cd "$TMPDIR_26" && bash .aitask-scripts/aitask_zip_old.sh unpack t50 2>&1)
-assert_contains "Test 26: t prefix works" "UNPACKED_TASK:" "$output_26"
+assert_contains_ci "Test 26: t prefix works" "UNPACKED_TASK:" "$output_26"
 assert_file_exists "Test 26: file extracted with t prefix" "$TMPDIR_26/aitasks/archived/t50_prefix_test.md"
 rm -rf "$TMPDIR_26"
 

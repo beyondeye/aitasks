@@ -17,27 +17,9 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output NOT containing '$unexpected', got '$actual')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
 run_dry() {
     # $1 = skill, rest = skill args
@@ -48,25 +30,25 @@ run_dry() {
 # --- Analysis skills launch directly in default mode (no plan helper) ---
 echo "--- qa launches directly in Codex default mode ---"
 out=$(run_dry qa 42)
-assert_not_contains "skillrun qa bypasses plan helper" "aitask_codex_plan_invoke" "$out"
-assert_contains "skillrun qa prompts aitask-qa" "aitask-qa" "$out"
-assert_contains "skillrun qa is a codex launch" "codex -m gpt-5.4" "$out"
+assert_not_contains_ci "skillrun qa bypasses plan helper" "aitask_codex_plan_invoke" "$out"
+assert_contains_ci "skillrun qa prompts aitask-qa" "aitask-qa" "$out"
+assert_contains_ci "skillrun qa is a codex launch" "codex -m gpt-5.4" "$out"
 
 echo "--- explain launches directly in Codex default mode ---"
 out=$(run_dry explain src/main.py)
-assert_not_contains "skillrun explain bypasses plan helper" "aitask_codex_plan_invoke" "$out"
-assert_contains "skillrun explain prompts aitask-explain" "aitask-explain" "$out"
+assert_not_contains_ci "skillrun explain bypasses plan helper" "aitask_codex_plan_invoke" "$out"
+assert_contains_ci "skillrun explain prompts aitask-explain" "aitask-explain" "$out"
 
 # --- Planning skills go through the /plan PTY helper ---
 echo "--- pick uses the plan-mode helper ---"
 out=$(run_dry pick 42)
-assert_contains "skillrun pick uses plan helper" "aitask_codex_plan_invoke" "$out"
-assert_contains "skillrun pick prompts aitask-pick" "aitask-pick" "$out"
+assert_contains_ci "skillrun pick uses plan helper" "aitask_codex_plan_invoke" "$out"
+assert_contains_ci "skillrun pick prompts aitask-pick" "aitask-pick" "$out"
 
 echo "--- explore uses the plan-mode helper ---"
 out=$(bash "$SKILLRUN" explore --profile fast --agent-string codex/gpt5_4 --dry-run 2>&1)
-assert_contains "skillrun explore uses plan helper" "aitask_codex_plan_invoke" "$out"
-assert_contains "skillrun explore prompts aitask-explore" "aitask-explore" "$out"
+assert_contains_ci "skillrun explore uses plan helper" "aitask_codex_plan_invoke" "$out"
+assert_contains_ci "skillrun explore prompts aitask-explore" "aitask-explore" "$out"
 
 # --- Summary ---
 echo ""

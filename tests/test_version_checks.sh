@@ -14,27 +14,9 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
 
 # Source setup script for function access
 source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
@@ -53,10 +35,10 @@ rc=$?
 
 if [[ "${BASH_VERSINFO[0]}" -ge 4 ]]; then
     assert_eq "check_bash_version returns 0 on bash 4+" "0" "$rc"
-    assert_contains "Reports meets minimum" "meets minimum" "$output"
+    assert_contains_ci "Reports meets minimum" "meets minimum" "$output"
 else
     # If somehow running under bash 3.2, it should warn
-    assert_contains "Warns about old bash" "requires 4.0" "$output"
+    assert_contains_ci "Warns about old bash" "requires 4.0" "$output"
 fi
 
 # --- Summary ---

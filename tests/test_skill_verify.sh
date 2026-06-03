@@ -13,27 +13,9 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got first 200 chars: '${actual:0:200}')"
-    fi
-}
 
 assert_nonzero_exit() {
     local desc="$1" rc="$2"
@@ -144,7 +126,7 @@ OUT="$("$VERIFY" 2>&1)"
 RC=$?
 set -e
 assert_zero_exit "test 1: baseline templates → exit 0" "$RC"
-assert_contains "test 1: stdout reports verifier OK" "aitask_skill_verify.sh: OK" "$OUT"
+assert_contains_ci "test 1: stdout reports verifier OK" "aitask_skill_verify.sh: OK" "$OUT"
 
 # --- Test 2: broken .j2 (strict-undefined) → exit non-zero, stderr contains VERIFY_FAIL ---
 
@@ -161,8 +143,8 @@ OUT="$("$VERIFY" 2>&1)"
 RC=$?
 set -e
 assert_nonzero_exit "test 2: broken .j2 → exit non-zero" "$RC"
-assert_contains "test 2: stderr contains VERIFY_FAIL" "VERIFY_FAIL" "$OUT"
-assert_contains "test 2: failure names the broken skill" "$SK_BROKEN" "$OUT"
+assert_contains_ci "test 2: stderr contains VERIFY_FAIL" "VERIFY_FAIL" "$OUT"
+assert_contains_ci "test 2: failure names the broken skill" "$SK_BROKEN" "$OUT"
 
 # Clean up scratch from test 2 before the next case.
 cleanup
@@ -178,9 +160,9 @@ OUT="$("$VERIFY" 2>&1)"
 RC=$?
 set -e
 assert_nonzero_exit "test 3: no stubs → exit non-zero" "$RC"
-assert_contains "test 3: missing claude stub" ".claude/skills/$SK_NOSTUB/SKILL.md: missing stub for claude" "$OUT"
-assert_contains "test 3: missing codex stub"  ".agents/skills/$SK_NOSTUB/SKILL.md: missing stub for codex" "$OUT"
-assert_contains "test 3: missing opencode stub" ".opencode/commands/$SK_NOSTUB.md: missing stub for opencode" "$OUT"
+assert_contains_ci "test 3: missing claude stub" ".claude/skills/$SK_NOSTUB/SKILL.md: missing stub for claude" "$OUT"
+assert_contains_ci "test 3: missing codex stub"  ".agents/skills/$SK_NOSTUB/SKILL.md: missing stub for codex" "$OUT"
+assert_contains_ci "test 3: missing opencode stub" ".opencode/commands/$SK_NOSTUB.md: missing stub for opencode" "$OUT"
 
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
@@ -196,7 +178,7 @@ OUT="$("$VERIFY" 2>&1)"
 RC=$?
 set -e
 assert_zero_exit "test 4: happy path → exit 0" "$RC"
-assert_contains "test 4: stdout reports 'OK'" "aitask_skill_verify.sh: OK" "$OUT"
+assert_contains_ci "test 4: stdout reports 'OK'" "aitask_skill_verify.sh: OK" "$OUT"
 
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
@@ -221,7 +203,7 @@ OUT="$("$VERIFY" 2>&1)"
 RC=$?
 set -e
 assert_nonzero_exit "test 5: missing resolver call → exit non-zero" "$RC"
-assert_contains "test 5: STUB_FAIL names missing resolver call" "missing resolver call" "$OUT"
+assert_contains_ci "test 5: STUB_FAIL names missing resolver call" "missing resolver call" "$OUT"
 
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
@@ -245,7 +227,7 @@ OUT="$("$VERIFY" 2>&1)"
 RC=$?
 set -e
 assert_nonzero_exit "test 6: missing render call → exit non-zero" "$RC"
-assert_contains "test 6: STUB_FAIL names missing render call" "missing render call" "$OUT"
+assert_contains_ci "test 6: STUB_FAIL names missing render call" "missing render call" "$OUT"
 
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
@@ -270,7 +252,7 @@ OUT="$("$VERIFY" 2>&1)"
 RC=$?
 set -e
 assert_nonzero_exit "test 7: missing Read path → exit non-zero" "$RC"
-assert_contains "test 7: STUB_FAIL names missing trailing-hyphen Read path" "missing trailing-hyphen Read path" "$OUT"
+assert_contains_ci "test 7: STUB_FAIL names missing trailing-hyphen Read path" "missing trailing-hyphen Read path" "$OUT"
 
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
@@ -299,7 +281,7 @@ OUT="$("$VERIFY" 2>&1)"
 RC=$?
 set -e
 assert_nonzero_exit "test 8: prerender marker + missing committed prerender → exit non-zero" "$RC"
-assert_contains "test 8: PRERENDER_FAIL names the scratch skill" "PRERENDER_FAIL: .claude/skills/$SK_PRERENDER-remote-" "$OUT"
+assert_contains_ci "test 8: PRERENDER_FAIL names the scratch skill" "PRERENDER_FAIL: .claude/skills/$SK_PRERENDER-remote-" "$OUT"
 
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
