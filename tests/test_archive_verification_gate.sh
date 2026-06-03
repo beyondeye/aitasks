@@ -19,6 +19,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -29,63 +30,6 @@ TOTAL=0
 CLEANUP_DIRS=()
 
 # --- Test helpers ---
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got: $actual)"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (did NOT expect '$unexpected' in output, got: $actual)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
-
-assert_file_exists() {
-    local desc="$1" filepath="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -f "$filepath" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$filepath' does not exist)"
-    fi
-}
-
-assert_file_not_exists() {
-    local desc="$1" filepath="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ ! -f "$filepath" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$filepath' should not exist)"
-    fi
-}
 
 # Stub aitask_create.sh for carry-over tests. Builds a minimal task file
 # with the frontmatter fields the gate needs, captures --name and --verifies,
@@ -251,7 +195,7 @@ test_pending_blocks_archival() {
     rc=$?
     set -e
 
-    assert_eq "Exits 2 when pending" "2" "$rc"
+    assert_eq_trim "Exits 2 when pending" "2" "$rc"
     assert_contains "PENDING count emitted" "PENDING:1" "$output"
     assert_contains "VERIFICATION_PENDING marker emitted" "VERIFICATION_PENDING:" "$output"
     assert_not_contains "No COMMITTED line on blocked gate" "COMMITTED:" "$output"
@@ -278,7 +222,7 @@ test_deferred_without_flag_blocks() {
     rc=$?
     set -e
 
-    assert_eq "Exits 2 when deferred without flag" "2" "$rc"
+    assert_eq_trim "Exits 2 when deferred without flag" "2" "$rc"
     assert_contains "DEFERRED count emitted" "DEFERRED:1" "$output"
     assert_contains "VERIFICATION_DEFERRED marker emitted" "VERIFICATION_DEFERRED:" "$output"
     assert_file_exists "Task file still in aitasks/" "aitasks/t101_verify.md"
@@ -305,7 +249,7 @@ test_all_terminal_archives_normally() {
     rc=$?
     set -e
 
-    assert_eq "Exits 0 when all terminal" "0" "$rc"
+    assert_eq_trim "Exits 0 when all terminal" "0" "$rc"
     assert_not_contains "No VERIFICATION_PENDING on success" "VERIFICATION_PENDING:" "$output"
     assert_not_contains "No VERIFICATION_DEFERRED on success" "VERIFICATION_DEFERRED:" "$output"
     assert_contains "ARCHIVED_TASK emitted" "ARCHIVED_TASK:" "$output"
@@ -332,7 +276,7 @@ test_non_manual_verification_is_noop() {
     rc=$?
     set -e
 
-    assert_eq "Exits 0 for feature task" "0" "$rc"
+    assert_eq_trim "Exits 0 for feature task" "0" "$rc"
     assert_not_contains "No VERIFICATION_PENDING on feature task" "VERIFICATION_PENDING:" "$output"
     assert_contains "ARCHIVED_TASK emitted" "ARCHIVED_TASK:" "$output"
 
@@ -368,7 +312,7 @@ TASK
     rc=$?
     set -e
 
-    assert_eq "Exits 0 when no checklist" "0" "$rc"
+    assert_eq_trim "Exits 0 when no checklist" "0" "$rc"
     assert_not_contains "No VERIFICATION_PENDING when empty" "VERIFICATION_PENDING:" "$output"
     assert_contains "ARCHIVED_TASK emitted" "ARCHIVED_TASK:" "$output"
 
@@ -393,7 +337,7 @@ test_deferred_with_flag_creates_carryover() {
     rc=$?
     set -e
 
-    assert_eq "Exits 0 with flag + deferred" "0" "$rc"
+    assert_eq_trim "Exits 0 with flag + deferred" "0" "$rc"
     assert_contains "CARRYOVER_CREATED emitted" "CARRYOVER_CREATED:" "$output"
     assert_contains "ARCHIVED_TASK emitted" "ARCHIVED_TASK:" "$output"
     assert_file_not_exists "Original task archived" "aitasks/t105_verify.md"
@@ -412,7 +356,7 @@ test_deferred_with_flag_creates_carryover() {
         # Carry-over must contain ONLY the deferred item, as a fresh `- [ ]`.
         local checklist
         checklist=$(grep '^- \[' "$carryover_file" || true)
-        assert_contains "Carry-over has a checklist entry" "\[ \]" "$checklist"
+        assert_contains_re "Carry-over has a checklist entry" "\[ \]" "$checklist"
         assert_contains "Carry-over item text preserved" "needs follow-up review" "$checklist"
         assert_not_contains "Carry-over excludes the non-deferred item" "confirmed working" "$checklist"
 
@@ -462,7 +406,7 @@ TASK
     rc=$?
     set -e
 
-    assert_eq "Child gate exits 2 when pending" "2" "$rc"
+    assert_eq_trim "Child gate exits 2 when pending" "2" "$rc"
     assert_contains "Child gate emits PENDING" "PENDING:1" "$output"
     assert_contains "Child gate emits VERIFICATION_PENDING" "VERIFICATION_PENDING:" "$output"
     assert_file_exists "Child task still in aitasks/" "aitasks/t106/t106_1_child_verify.md"

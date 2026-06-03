@@ -6,6 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -15,50 +16,6 @@ FAIL=0
 TOTAL=0
 
 # --- Test helpers ---
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
-
-assert_dir_exists() {
-    local desc="$1" dir="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -d "$dir" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (directory '$dir' does not exist)"
-    fi
-}
-
-assert_dir_not_exists() {
-    local desc="$1" dir="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ ! -d "$dir" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (directory '$dir' still exists)"
-    fi
-}
 
 # --- Setup / Teardown ---
 
@@ -127,7 +84,7 @@ test_help_flag() {
 
     assert_contains "help shows usage" "Usage:" "$output"
     assert_contains "help shows --dry-run" "dry-run" "$output"
-    assert_contains "help shows --all" "[-][-]all" "$output"
+    assert_contains_re "help shows --all" "[-][-]all" "$output"
 
     cleanup_test_env "$tmpdir"
 }
@@ -140,7 +97,7 @@ test_no_aitask_explain_dir() {
     local output
     output=$(./.aitask-scripts/aitask_explain_cleanup.sh 2>&1)
 
-    assert_contains "missing dir reports not found" "not found\|CLEANED: 0" "$output"
+    assert_contains_re "missing dir reports not found" "not found|CLEANED: 0" "$output"
     assert_contains "reports zero cleaned" "CLEANED: 0" "$output"
 
     cleanup_test_env "$tmpdir"

@@ -13,6 +13,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -23,41 +24,6 @@ TOTAL=0
 CLEANUP_DIRS=()
 
 # --- Test helpers ---
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$expected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output NOT containing '$expected')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
 # --- Setup a test project with archive capabilities ---
 setup_archive_project() {
@@ -134,7 +100,7 @@ TASK
     output=$(extract_related_issues "$tmpdir/multi.md")
     local count
     count=$(echo "$output" | grep -c "https://" || true)
-    assert_eq "Multiple URLs: count" "2" "$count"
+    assert_eq_trim "Multiple URLs: count" "2" "$count"
     assert_contains "Multiple URLs: first URL" "https://github.com/o/r/issues/1" "$output"
     assert_contains "Multiple URLs: second URL" "https://github.com/o/r/issues/2" "$output"
 
@@ -152,7 +118,7 @@ TASK
 
     output=$(extract_related_issues "$tmpdir/single.md")
     count=$(echo "$output" | grep -c "https://" || true)
-    assert_eq "Single URL: count" "1" "$count"
+    assert_eq_trim "Single URL: count" "1" "$count"
     assert_contains "Single URL: URL present" "https://github.com/o/r/issues/5" "$output"
 
     # A3: Empty array
@@ -168,7 +134,7 @@ Task with empty related issues
 TASK
 
     output=$(extract_related_issues "$tmpdir/empty.md")
-    assert_eq "Empty array: no output" "" "$output"
+    assert_eq_trim "Empty array: no output" "" "$output"
 
     # A4: Missing field
     cat > "$tmpdir/missing.md" << 'TASK'
@@ -182,7 +148,7 @@ Task without related_issues field
 TASK
 
     output=$(extract_related_issues "$tmpdir/missing.md")
-    assert_eq "Missing field: no output" "" "$output"
+    assert_eq_trim "Missing field: no output" "" "$output"
 }
 
 # --- Test B: Parent archival emits RELATED_ISSUE: lines ---

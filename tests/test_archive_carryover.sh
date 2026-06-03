@@ -17,6 +17,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -27,63 +28,6 @@ TOTAL=0
 CLEANUP_DIRS=()
 
 # --- Test helpers (mirrors test_archive_verification_gate.sh) ---
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got: $actual)"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (did NOT expect '$unexpected' in output, got: $actual)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
-
-assert_file_exists() {
-    local desc="$1" filepath="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -f "$filepath" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$filepath' does not exist)"
-    fi
-}
-
-assert_file_not_exists() {
-    local desc="$1" filepath="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ ! -f "$filepath" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$filepath' should not exist)"
-    fi
-}
 
 # --- Strict stub aitask_create.sh ---
 # Unlike the forgiving stub in test_archive_verification_gate.sh, this one
@@ -263,7 +207,7 @@ test_archive_passes_desc_to_create() {
     rc=$?
     set -e
 
-    assert_eq "Archive exits 0 when --desc is supplied" "0" "$rc"
+    assert_eq_trim "Archive exits 0 when --desc is supplied" "0" "$rc"
     assert_contains "CARRYOVER_CREATED emitted" "CARRYOVER_CREATED:" "$output"
     assert_contains "ARCHIVED_TASK emitted" "ARCHIVED_TASK:" "$output"
     assert_file_not_exists "Original task moved out of aitasks/" "aitasks/t200_verify.md"
@@ -271,7 +215,7 @@ test_archive_passes_desc_to_create() {
     # The specific regression assertion: introspect the stub's arg log.
     local arg_log_contents
     arg_log_contents="$(cat "$STUB_ARG_LOG")"
-    assert_contains "Stub received --desc flag" "^--desc$" "$arg_log_contents"
+    assert_contains_re "Stub received --desc flag" "^--desc$" "$arg_log_contents"
 
     # And the --desc value must be non-empty (the line after --desc).
     local desc_value
@@ -308,7 +252,7 @@ test_carryover_seeds_only_deferred() {
     rc=$?
     set -e
 
-    assert_eq "Archive exits 0" "0" "$rc"
+    assert_eq_trim "Archive exits 0" "0" "$rc"
 
     local carryover_file
     carryover_file="$(ls aitasks/t*_verify_carryover.md 2>/dev/null | head -1 || true)"
@@ -322,7 +266,7 @@ test_carryover_seeds_only_deferred() {
 
         local checklist
         checklist="$(grep '^- \[' "$carryover_file" || true)"
-        assert_contains "Carry-over has fresh [ ] item" "\[ \]" "$checklist"
+        assert_contains_re "Carry-over has fresh [ ] item" "\[ \]" "$checklist"
         assert_contains "Deferred item text preserved" "still pending review" "$checklist"
         assert_not_contains "Terminal item excluded" "already confirmed working" "$checklist"
 
