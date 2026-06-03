@@ -5,9 +5,9 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [testing, bash_scripts]
-children_to_implement: [t923_2, t923_3, t923_4, t923_5]
+children_to_implement: [t923_3, t923_4, t923_5]
 created_at: 2026-06-03 10:51
-updated_at: 2026-06-03 12:28
+updated_at: 2026-06-03 13:20
 boardcol: now
 boardidx: 20
 ---

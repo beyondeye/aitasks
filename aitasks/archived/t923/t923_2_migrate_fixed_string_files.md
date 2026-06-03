@@ -1,13 +1,17 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: high
 depends: [t923_1]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [testing, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-03 11:25
-updated_at: 2026-06-03 12:41
+updated_at: 2026-06-03 13:20
+completed_at: 2026-06-03 13:20
 ---
 
 ## Context
