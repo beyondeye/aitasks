@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t756_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, brainstom_modules, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 17:30
-updated_at: 2026-06-01 17:30
+updated_at: 2026-06-03 09:12
 ---
 
 Phase D1 of the `ait brainstorm` **module decomposition** feature (parent t756).

@@ -7,7 +7,8 @@ status: Ready
 labels: [testing]
 created_at: 2026-04-28 15:54
 updated_at: 2026-04-28 15:54
-boardidx: 10
+boardidx: 90
+boardcol: now
 ---
 
 ## Origin

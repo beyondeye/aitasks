@@ -7,6 +7,8 @@ status: Ready
 labels: [documentation]
 created_at: 2026-06-02 16:57
 updated_at: 2026-06-02 16:57
+boardidx: 80
+boardcol: now
 ---
 
 ## Context
