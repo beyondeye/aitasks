@@ -148,3 +148,37 @@ No before/after risk-mitigation tasks needed (both axes low).
 Commit the doc update (code) and any created task files (`./ait git`), then
 archive t926 via `aitask_archive.sh 926`. No branch/worktree to clean up
 (working on current branch).
+
+## Final Implementation Notes
+
+- **Actual work done:** Ran the full audit on macOS arm64 (Darwin 24.6, bash 5.3
+  brew, BSD awk/sed). (1) Static sweep of all documented footgun classes across
+  111 `.sh` + 113 `.py` + 172 bash tests — **clean**, no production-code
+  portability bug. (2) Ran all 172 top-level bash tests via a gtimeout-180 capture
+  harness: **162 PASS / 10 FAIL**, no hangs. (3) Triaged every failure — all 10
+  are environmental, zero macOS-attributable. (4) Filed 3 follow-up tasks (t935,
+  t936, t937). (5) Appended a `## Files Audited in t926` record to
+  `aidocs/framework/sed_macos_issues.md`.
+- **Failure triage:** 2 failures (`run_all_python_tests.sh`, `test_crew_report.sh`)
+  use bare `python3` instead of `resolve_python` → miss venv `yaml`/`textual` (the
+  venv itself is present & complete) → **t935**. 8 tmux/multi-session tests
+  aborted (exit 2) on their intentional "refuses to run while other tmux sessions
+  are alive" guard (a live `aitasks` session was present) → not bugs → **t936**.
+  Two fragile bare-`sed -i`+`.bak`-fallback test setups noted (work today, but
+  brittle) → low-priority cleanup **t937**.
+- **Deviations from plan:** None substantive. Plan anticipated possibly-zero
+  macOS findings (clean audit) and that's what happened. Per the user's mid-plan
+  instruction, non-macOS test failures got their own follow-up tasks (t935/t936)
+  rather than being only documented.
+- **Issues encountered:** The background test runner's launch wrapper reported
+  "completed" immediately (it was the `nohup &` wrapper, not the runner); used a
+  status-file sentinel + a blocking waiter to detect true completion. The 8 tmux
+  tests could not be exercised in this environment due to the live-session guard
+  (inconclusive, not failing) — captured as t936.
+- **Key decisions:** Followed the task's "create follow-up tasks to fix found
+  issues" directive — no inline fixes; all findings filed as tasks. Grouped
+  failures by root cause (python-venv vs tmux-socket) into separate tasks per the
+  approved plan.
+- **Upstream defects identified:** None. (This is an audit task whose purpose is
+  to surface issues; every issue found was filed as a dedicated follow-up task —
+  t935/t936/t937 — so there is no separate unfiled upstream defect to offer.)
