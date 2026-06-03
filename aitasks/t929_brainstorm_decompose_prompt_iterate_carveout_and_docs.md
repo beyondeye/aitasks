@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [ait_brainstorm]
 folded_tasks: [776]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 14:06
-updated_at: 2026-06-03 14:06
+updated_at: 2026-06-03 15:05
 boardcol: now
 boardidx: 10
 ---
