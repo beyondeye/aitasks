@@ -15,52 +15,10 @@ FAIL=0
 TOTAL=0
 
 # --- Test helpers ---
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
-
-assert_exit_zero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (command exited non-zero)"
-    fi
-}
-
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
+# Core helpers (assert_eq, assert_contains[_ci], assert_exit_zero/nonzero) live
+# in tests/lib/asserts.sh. This file's original assert_contains was
+# case-insensitive (grep -qi); its call sites are remapped to assert_contains_ci.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # Create a paired repo setup: bare "remote" + local clone with task files
 setup_paired_repos() {
@@ -145,7 +103,7 @@ assert_eq "Branch exists on remote" "1" "$branch_exists"
 counter_val=$(cd "$TMPDIR_1/local" && git fetch origin aitask-ids --quiet 2>/dev/null && git show origin/aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
 assert_eq "Counter initialized to max+1" "6" "$counter_val"
 
-assert_contains "Output mentions counter value" "6" "$output"
+assert_contains_ci "Output mentions counter value" "6" "$output"
 
 rm -rf "$TMPDIR_1"
 
@@ -156,7 +114,7 @@ TMPDIR_2="$(setup_paired_repos)"
 (cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
 output2=$(cd "$TMPDIR_2/local" && ./.aitask-scripts/aitask_claim_id.sh --init 2>&1)
 
-assert_contains "Idempotent init says already exists" "already exists" "$output2"
+assert_contains_ci "Idempotent init says already exists" "already exists" "$output2"
 
 rm -rf "$TMPDIR_2"
 

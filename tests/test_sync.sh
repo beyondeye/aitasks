@@ -12,41 +12,10 @@ FAIL=0
 TOTAL=0
 
 # --- Test helpers ---
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
-
-assert_file_exists() {
-    local desc="$1" file="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -f "$file" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$file' does not exist)"
-    fi
-}
+# Core helpers live in tests/lib/asserts.sh. This file's original assert_eq
+# trimmed whitespace (xargs) and assert_contains was regex (grep -q, case-
+# sensitive); call sites are remapped to assert_eq_trim / assert_contains_re.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # --- Setup helpers ---
 
@@ -128,7 +97,7 @@ echo "--- Test 1: NOTHING - no changes anywhere ---"
 TMPDIR_1="$(setup_sync_repos)"
 
 output=$(cd "$TMPDIR_1/local" && ./ait sync --batch 2>/dev/null)
-assert_eq "Clean repo returns NOTHING" "NOTHING" "$output"
+assert_eq_trim "Clean repo returns NOTHING" "NOTHING" "$output"
 
 rm -rf "$TMPDIR_1"
 
@@ -141,11 +110,11 @@ TMPDIR_2="$(setup_sync_repos)"
 echo "updated" >> "$TMPDIR_2/local/aitasks/t1_sample.md"
 
 output=$(cd "$TMPDIR_2/local" && ./ait sync --batch 2>/dev/null)
-assert_eq "Local uncommitted changes return PUSHED" "PUSHED" "$output"
+assert_eq_trim "Local uncommitted changes return PUSHED" "PUSHED" "$output"
 
 # Verify the change reached the remote
 git clone --quiet "$TMPDIR_2/remote.git" "$TMPDIR_2/verify" 2>/dev/null
-assert_contains "Remote has updated content" "updated" "$(cat "$TMPDIR_2/verify/aitasks/t1_sample.md")"
+assert_contains_re "Remote has updated content" "updated" "$(cat "$TMPDIR_2/verify/aitasks/t1_sample.md")"
 
 rm -rf "$TMPDIR_2"
 
@@ -164,7 +133,7 @@ TMPDIR_3="$(setup_sync_repos)"
 )
 
 output=$(cd "$TMPDIR_3/local" && ./ait sync --batch 2>/dev/null)
-assert_eq "Remote-only changes return PULLED" "PULLED" "$output"
+assert_eq_trim "Remote-only changes return PULLED" "PULLED" "$output"
 assert_file_exists "Pulled file exists locally" "$TMPDIR_3/local/aitasks/t2_from_pc2.md"
 
 rm -rf "$TMPDIR_3"
@@ -187,7 +156,7 @@ TMPDIR_4="$(setup_sync_repos)"
 echo "local-change" > "$TMPDIR_4/local/aitasks/t4_local.md"
 
 output=$(cd "$TMPDIR_4/local" && ./ait sync --batch 2>/dev/null)
-assert_eq "Both changes return SYNCED" "SYNCED" "$output"
+assert_eq_trim "Both changes return SYNCED" "SYNCED" "$output"
 assert_file_exists "Remote file pulled" "$TMPDIR_4/local/aitasks/t3_remote.md"
 assert_file_exists "Local file still exists" "$TMPDIR_4/local/aitasks/t4_local.md"
 
@@ -228,8 +197,8 @@ Modified locally" > aitasks/t1_sample.md
 )
 
 output=$(cd "$TMPDIR_5/local" && ./ait sync --batch 2>/dev/null)
-assert_contains "Conflict returns CONFLICT prefix" "CONFLICT:" "$output"
-assert_contains "Conflict mentions the file" "t1_sample" "$output"
+assert_contains_re "Conflict returns CONFLICT prefix" "CONFLICT:" "$output"
+assert_contains_re "Conflict mentions the file" "t1_sample" "$output"
 
 # Verify rebase was aborted (no rebase in progress)
 TOTAL=$((TOTAL + 1))
@@ -248,7 +217,7 @@ echo "--- Test 6: NO_REMOTE - no remote configured ---"
 TMPDIR_6="$(setup_no_remote_repo)"
 
 output=$(cd "$TMPDIR_6" && ./ait sync --batch 2>/dev/null)
-assert_eq "No remote returns NO_REMOTE" "NO_REMOTE" "$output"
+assert_eq_trim "No remote returns NO_REMOTE" "NO_REMOTE" "$output"
 
 rm -rf "$TMPDIR_6"
 
@@ -269,7 +238,7 @@ fi
 # Make a change and sync
 echo "legacy-change" > "$TMPDIR_7/local/aitasks/t5_legacy.md"
 output=$(cd "$TMPDIR_7/local" && ./ait sync --batch 2>/dev/null)
-assert_eq "Legacy mode sync returns PUSHED" "PUSHED" "$output"
+assert_eq_trim "Legacy mode sync returns PUSHED" "PUSHED" "$output"
 
 rm -rf "$TMPDIR_7"
 
@@ -283,11 +252,11 @@ echo "uncommitted-task" > "$TMPDIR_8/local/aitasks/t6_uncommitted.md"
 echo "uncommitted-plan" > "$TMPDIR_8/local/aiplans/p6_uncommitted.md"
 
 output=$(cd "$TMPDIR_8/local" && ./ait sync --batch 2>/dev/null)
-assert_eq "Auto-commit + push returns PUSHED" "PUSHED" "$output"
+assert_eq_trim "Auto-commit + push returns PUSHED" "PUSHED" "$output"
 
 # Verify both files are committed (working tree clean)
 dirty=$(cd "$TMPDIR_8/local" && git status --porcelain -- aitasks/ aiplans/ 2>/dev/null)
-assert_eq "Working tree clean after auto-commit" "" "$dirty"
+assert_eq_trim "Working tree clean after auto-commit" "" "$dirty"
 
 # Verify files reached remote
 git clone --quiet "$TMPDIR_8/remote.git" "$TMPDIR_8/verify" 2>/dev/null
@@ -319,7 +288,7 @@ TMPDIR_9="$(setup_sync_repos)"
 )
 
 output=$(cd "$TMPDIR_9/local" && ./ait sync --batch 2>/dev/null)
-assert_eq "Rebase + push returns SYNCED" "SYNCED" "$output"
+assert_eq_trim "Rebase + push returns SYNCED" "SYNCED" "$output"
 
 # Verify both files exist locally and remotely
 assert_file_exists "Remote file pulled locally" "$TMPDIR_9/local/aitasks/t7_pc2.md"
@@ -339,7 +308,7 @@ else
     FAIL=$((FAIL + 1))
     echo "FAIL: --help should exit 0"
 fi
-assert_contains "--help mentions batch" "batch" "$help_output"
+assert_contains_re "--help mentions batch" "batch" "$help_output"
 
 # --- Test 11: Syntax check + shellcheck ---
 echo "--- Test 11: Syntax check ---"
@@ -426,13 +395,13 @@ TASKEOF
 )
 
 output=$(cd "$TMPDIR_12/local" && ./ait sync --batch 2>/dev/null)
-assert_eq "Frontmatter-only conflict returns AUTOMERGED" "AUTOMERGED" "$output"
+assert_eq_trim "Frontmatter-only conflict returns AUTOMERGED" "AUTOMERGED" "$output"
 
 # Verify merged content
 merged=$(cat "$TMPDIR_12/local/aitasks/t1_sample.md")
-assert_contains "Merged file keeps local boardcol" "boardcol: backlog" "$merged"
-assert_contains "Merged file has merged labels" "api" "$merged"
-assert_contains "Merged file has merged labels" "ui" "$merged"
+assert_contains_re "Merged file keeps local boardcol" "boardcol: backlog" "$merged"
+assert_contains_re "Merged file has merged labels" "api" "$merged"
+assert_contains_re "Merged file has merged labels" "ui" "$merged"
 
 rm -rf "$TMPDIR_12"
 
@@ -492,11 +461,11 @@ TASKEOF
 )
 
 output=$(cd "$TMPDIR_13/local" && ./ait sync --batch 2>/dev/null)
-assert_eq "Priority conflict returns AUTOMERGED" "AUTOMERGED" "$output"
+assert_eq_trim "Priority conflict returns AUTOMERGED" "AUTOMERGED" "$output"
 
 # Verify remote value was kept (batch default)
 merged=$(cat "$TMPDIR_13/local/aitasks/t1_sample.md")
-assert_contains "Priority uses remote value in batch" "priority: low" "$merged"
+assert_contains_re "Priority uses remote value in batch" "priority: low" "$merged"
 
 rm -rf "$TMPDIR_13"
 
@@ -556,7 +525,7 @@ TASKEOF
 )
 
 output=$(cd "$TMPDIR_14/local" && ./ait sync --batch 2>/dev/null)
-assert_contains "Body conflict returns CONFLICT" "CONFLICT:" "$output"
+assert_contains_re "Body conflict returns CONFLICT" "CONFLICT:" "$output"
 
 rm -rf "$TMPDIR_14"
 

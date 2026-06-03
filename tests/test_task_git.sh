@@ -12,52 +12,10 @@ FAIL=0
 TOTAL=0
 
 # --- Test helpers ---
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (output should NOT contain '$unexpected')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
-
-assert_file_exists() {
-    local desc="$1" file="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -f "$file" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$file' does not exist)"
-    fi
-}
+# Core helpers live in tests/lib/asserts.sh. This file's original assert_eq
+# trimmed whitespace (xargs) and assert_contains was case-insensitive (grep -qi),
+# so call sites are remapped to assert_eq_trim / assert_contains_ci below.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # --- Setup helpers ---
 
@@ -116,7 +74,7 @@ TMPDIR_1="$(setup_local_repo)"
 _AIT_DATA_WORKTREE=""
 pushd "$TMPDIR_1" >/dev/null
 _ait_detect_data_worktree
-assert_eq "Legacy mode: _AIT_DATA_WORKTREE is '.'" "." "$_AIT_DATA_WORKTREE"
+assert_eq_trim "Legacy mode: _AIT_DATA_WORKTREE is '.'" "." "$_AIT_DATA_WORKTREE"
 popd >/dev/null
 
 rm -rf "$TMPDIR_1"
@@ -132,7 +90,7 @@ echo "gitdir: ../.git/worktrees/.aitask-data" > "$TMPDIR_2/.aitask-data/.git"
 _AIT_DATA_WORKTREE=""
 pushd "$TMPDIR_2" >/dev/null
 _ait_detect_data_worktree
-assert_eq "Branch mode (.git file): _AIT_DATA_WORKTREE is '.aitask-data'" ".aitask-data" "$_AIT_DATA_WORKTREE"
+assert_eq_trim "Branch mode (.git file): _AIT_DATA_WORKTREE is '.aitask-data'" ".aitask-data" "$_AIT_DATA_WORKTREE"
 popd >/dev/null
 
 rm -rf "$TMPDIR_2"
@@ -147,7 +105,7 @@ mkdir -p "$TMPDIR_3/.aitask-data/.git"
 _AIT_DATA_WORKTREE=""
 pushd "$TMPDIR_3" >/dev/null
 _ait_detect_data_worktree
-assert_eq "Branch mode (.git dir): _AIT_DATA_WORKTREE is '.aitask-data'" ".aitask-data" "$_AIT_DATA_WORKTREE"
+assert_eq_trim "Branch mode (.git dir): _AIT_DATA_WORKTREE is '.aitask-data'" ".aitask-data" "$_AIT_DATA_WORKTREE"
 popd >/dev/null
 
 rm -rf "$TMPDIR_3"
@@ -161,7 +119,7 @@ _AIT_DATA_WORKTREE=""
 pushd "$TMPDIR_4" >/dev/null
 tg_toplevel=$(task_git rev-parse --show-toplevel 2>/dev/null)
 g_toplevel=$(git rev-parse --show-toplevel 2>/dev/null)
-assert_eq "task_git toplevel matches git toplevel" "$g_toplevel" "$tg_toplevel"
+assert_eq_trim "task_git toplevel matches git toplevel" "$g_toplevel" "$tg_toplevel"
 popd >/dev/null
 
 rm -rf "$TMPDIR_4"
@@ -179,8 +137,8 @@ _AIT_DATA_WORKTREE=""
 pushd "$TMPDIR_5/local" >/dev/null
 tg_branch=$(task_git branch --show-current 2>/dev/null)
 g_branch=$(git branch --show-current 2>/dev/null)
-assert_eq "task_git on aitask-data branch" "aitask-data" "$tg_branch"
-assert_eq "git on default branch" "$DEFAULT_BRANCH" "$g_branch"
+assert_eq_trim "task_git on aitask-data branch" "aitask-data" "$tg_branch"
+assert_eq_trim "git on default branch" "$DEFAULT_BRANCH" "$g_branch"
 popd >/dev/null
 
 rm -rf "$TMPDIR_5"
@@ -209,7 +167,7 @@ else
 fi
 
 output=$(cd "$TMPDIR_6/local" && ./ait git branch --show-current 2>/dev/null)
-assert_eq "ait git shows default branch (legacy)" "$DEFAULT_BRANCH" "$output"
+assert_eq_trim "ait git shows default branch (legacy)" "$DEFAULT_BRANCH" "$output"
 
 rm -rf "$TMPDIR_6"
 
@@ -235,15 +193,15 @@ echo "test content" > "$TMPDIR_7/local/.aitask-data/aitasks/test_untracked.md"
 
 # ait git should see changes in the data worktree
 ait_output=$(cd "$TMPDIR_7/local" && ./ait git status --porcelain 2>/dev/null)
-assert_contains "ait git sees data worktree changes" "aitasks" "$ait_output"
+assert_contains_ci "ait git sees data worktree changes" "aitasks" "$ait_output"
 
 # plain git should NOT see it (gitignored)
 git_output=$(cd "$TMPDIR_7/local" && git status --porcelain 2>/dev/null)
-assert_not_contains "plain git does NOT see data worktree file" "test_untracked" "$git_output"
+assert_not_contains_ci "plain git does NOT see data worktree file" "test_untracked" "$git_output"
 
 # ait git branch should show data branch
 ait_branch=$(cd "$TMPDIR_7/local" && ./ait git branch --show-current 2>/dev/null)
-assert_eq "ait git on aitask-data branch" "aitask-data" "$ait_branch"
+assert_eq_trim "ait git on aitask-data branch" "aitask-data" "$ait_branch"
 
 rm -rf "$TMPDIR_7"
 
@@ -306,7 +264,7 @@ pushd "$TMPDIR_10" >/dev/null
 
 # First detection: no .aitask-data, should be legacy
 _ait_detect_data_worktree
-assert_eq "First detect: legacy mode" "." "$_AIT_DATA_WORKTREE"
+assert_eq_trim "First detect: legacy mode" "." "$_AIT_DATA_WORKTREE"
 
 # Now create .aitask-data/.git (would trigger branch mode on fresh detection)
 mkdir -p ".aitask-data"
@@ -314,7 +272,7 @@ echo "gitdir: fake" > ".aitask-data/.git"
 
 # Second detection: should still return cached "." value
 _ait_detect_data_worktree
-assert_eq "Second detect: still cached as legacy" "." "$_AIT_DATA_WORKTREE"
+assert_eq_trim "Second detect: still cached as legacy" "." "$_AIT_DATA_WORKTREE"
 
 popd >/dev/null
 

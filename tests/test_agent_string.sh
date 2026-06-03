@@ -14,27 +14,9 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
+# Core helpers live in tests/lib/asserts.sh. This file's original assert_contains
+# was case-insensitive (grep -qi); its call site is remapped to assert_contains_ci.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 cd "$PROJECT_DIR"
 
@@ -86,7 +68,7 @@ assert_eq "double-source guard preserves caller state" "42" "$out"
 
 # --- Test 13: DEFAULT_AGENT_STRING constant is set ---
 out="$(bash -c "source '$LIB'; echo \"\$DEFAULT_AGENT_STRING\"")"
-assert_contains "DEFAULT_AGENT_STRING non-empty" "/" "$out"
+assert_contains_ci "DEFAULT_AGENT_STRING non-empty" "/" "$out"
 
 # --- Test 14: get_cli_model_id resolves a real model from models_claudecode.json ---
 # Smoke test that the JSON-loading path still works after extraction.

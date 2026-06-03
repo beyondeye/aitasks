@@ -17,31 +17,9 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  expected: $expected"
-        echo "  actual:   $actual"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if grep -qE -- "$needle" <<< "$haystack"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  expected match (regex): $needle"
-        echo "  actual: $haystack"
-    fi
-}
+# Core helpers live in tests/lib/asserts.sh. This file's original assert_contains
+# was extended-regex (grep -qE); its call sites are remapped to assert_contains_re.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # --- Setup --------------------------------------------------------------
 
@@ -122,7 +100,7 @@ warnings = kr.coherence_lint()
 assert len(warnings) == 1, warnings
 print(warnings[0])
 ')
-assert_contains "case3: lint reports divergent quit binding" "quit.*q.*x" "$OUT"
+assert_contains_re "case3: lint reports divergent quit binding" "quit.*q.*x" "$OUT"
 
 # --- Case 4: coherence_lint silent when shared action agrees -----------
 

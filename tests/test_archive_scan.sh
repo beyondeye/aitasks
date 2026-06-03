@@ -12,28 +12,11 @@ FAIL=0
 TOTAL=0
 
 # --- Test helpers ---
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
+# Core helpers live in tests/lib/asserts.sh. This file's original assert_contains
+# was regex (grep -q, case-sensitive — needles use '.' as a wildcard); its call
+# sites are remapped to assert_contains_re (grep -qE; BRE and ERE agree for the
+# needles here, which contain no ERE-only metacharacters).
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # --- Setup helpers ---
 
@@ -185,9 +168,9 @@ create_numbered_archive "$TMPDIR_8" "aitasks/archived" 150 "$staging"
 rm -rf "$staging"
 source_scan
 result=$(search_archived_task "150" "$TMPDIR_8/aitasks/archived")
-assert_contains "Search found in numbered" "ARCHIVED_TASK_ARCHIVE:" "$result"
-assert_contains "Search result has old1" "old1.tar.zst" "$result"
-assert_contains "Search result has t150" "t150_searchable.md" "$result"
+assert_contains_re "Search found in numbered" "ARCHIVED_TASK_ARCHIVE:" "$result"
+assert_contains_re "Search result has old1" "old1.tar.zst" "$result"
+assert_contains_re "Search result has t150" "t150_searchable.md" "$result"
 rm -rf "$TMPDIR_8"
 
 # --- Test 9: search_archived_task -- found in legacy ---
@@ -199,9 +182,9 @@ create_test_archive_gz "$TMPDIR_9/aitasks/archived/old.tar.gz" "$staging"
 rm -rf "$staging"
 source_scan
 result=$(search_archived_task "150" "$TMPDIR_9/aitasks/archived")
-assert_contains "Search found in legacy" "ARCHIVED_TASK_ARCHIVE:" "$result"
-assert_contains "Search result has old.tar.gz" "old.tar.gz" "$result"
-assert_contains "Search result has t150" "t150_legacy_search.md" "$result"
+assert_contains_re "Search found in legacy" "ARCHIVED_TASK_ARCHIVE:" "$result"
+assert_contains_re "Search result has old.tar.gz" "old.tar.gz" "$result"
+assert_contains_re "Search result has t150" "t150_legacy_search.md" "$result"
 rm -rf "$TMPDIR_9"
 
 # --- Test 10: search_archived_task -- not found ---
@@ -231,8 +214,8 @@ fi
 source_scan
 # Search should succeed without old0 existing (O(1) direct lookup)
 result=$(search_archived_task "150" "$TMPDIR_11/aitasks/archived")
-assert_contains "O(1) lookup succeeds without old0" "ARCHIVED_TASK_ARCHIVE:" "$result"
-assert_contains "O(1) lookup finds t150" "t150_o1_test.md" "$result"
+assert_contains_re "O(1) lookup succeeds without old0" "ARCHIVED_TASK_ARCHIVE:" "$result"
+assert_contains_re "O(1) lookup finds t150" "t150_o1_test.md" "$result"
 rm -rf "$TMPDIR_11"
 
 # --- Test 12: iter_all_archived_files -- collects from multiple archives ---
@@ -268,11 +251,11 @@ _test_iter_callback() {
 iter_all_archived_files "$TMPDIR_12/aitasks/archived" _test_iter_callback
 # 5 files total across all archives
 assert_eq "Iter collected correct count" "5" "$_test_iter_count"
-assert_contains "Iter has t50" "t50_iter1.md" "$_test_iter_files"
-assert_contains "Iter has t51" "t51_iter2.md" "$_test_iter_files"
-assert_contains "Iter has t150" "t150_iter3.md" "$_test_iter_files"
-assert_contains "Iter has t250" "t250_iter4.md" "$_test_iter_files"
-assert_contains "Iter has t400" "t400_iter5.md" "$_test_iter_files"
+assert_contains_re "Iter has t50" "t50_iter1.md" "$_test_iter_files"
+assert_contains_re "Iter has t51" "t51_iter2.md" "$_test_iter_files"
+assert_contains_re "Iter has t150" "t150_iter3.md" "$_test_iter_files"
+assert_contains_re "Iter has t250" "t250_iter4.md" "$_test_iter_files"
+assert_contains_re "Iter has t400" "t400_iter5.md" "$_test_iter_files"
 rm -rf "$TMPDIR_12"
 
 # --- Results ---
