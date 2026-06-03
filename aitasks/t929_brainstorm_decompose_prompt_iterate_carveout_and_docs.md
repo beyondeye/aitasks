@@ -5,7 +5,7 @@ depends: []
 issue_type: enhancement
 status: Implementing
 labels: [ait_brainstorm]
-children_to_implement: [t929_1, t929_2]
+children_to_implement: [t929_1, t929_2, t929_3]
 folded_tasks: [776]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 14:06
