@@ -300,3 +300,50 @@ Sweep for the `sed \?` class after t931 found three more instances (four lines).
 | `.aitask-scripts/aitask_setup.sh` | 1474 | `sed 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/'` release-tag parse failed under BSD sed → bogus "Update available" hint | `sed -E 's/.*"tag_name": *"v?([^"]*)".*/\1/'` |
 | `.aitask-scripts/aitask_upgrade.sh` | 56 | Same release-tag parse | Same `sed -E` fix |
 | `.aitask-scripts/aitask_update.sh` | 1472, 1773 | `sed 's/^t[0-9]*_\([0-9]*_\)\?//'` left the `t<N>_<child>_` prefix in humanized commit-message names | `sed -E 's/^t[0-9]*_([0-9]*_)?//'` |
+
+## Files Audited in t926
+
+Periodic full-repo audit (June 2026) on macOS arm64 (Darwin 24.6, bash 5.3 from
+brew, BSD awk `20200816`, BSD sed). Inventory scanned: 111 `.sh` in
+`.aitask-scripts/` (94 top-level), 113 `.py`, and 172 top-level bash tests in
+`tests/`.
+
+**Static sweep — clean (no fixes needed).** Every footgun class above was
+re-swept across bash + Python; all results were either absent or already
+guarded/portable:
+
+- GNU-only `sed` BRE quantifiers (`\?`/`\+`/`\|`), gawk 3-arg `match()`,
+  `grep -P`/`-oP`, `mktemp --suffix`, `sed \U`/`\L`: **none**.
+- All `date -d` call sites in production scripts (`aitask_verified_update.sh`,
+  `aitask_usage_update.sh`, `aitask_explain_context.sh`,
+  `aitask_plan_verified.sh`, `lib/verified_update_lib.sh`) are **guarded** with a
+  `date --version` / probe and a BSD `date -j`/`-v` fallback. Correct.
+- `base64 -d` appears only in the Linux branch of `lib/repo_fetch.sh`'s
+  `_rf_base64_decode` (Darwin branch uses `-D`). Correct.
+- `#!/bin/bash` hits in `tests/test_find_files.sh` are heredoc **test fixtures**,
+  not the test's own shebang. The new shared `tests/lib/asserts.sh` (from t923_5)
+  is portability-aware — it explicitly trims BSD `wc -l` leading-space padding.
+- Python: no GNU-only shell-outs (`readlink -f`, `stat -c`, `sed -i`, etc.).
+
+**Test suite — 162 PASS / 10 FAIL, zero macOS-attributable.** All 10 failures
+are environmental and reproduce on Linux too:
+
+- 2 (`run_all_python_tests.sh`, `test_crew_report.sh`) shell out via bare
+  `python3` instead of `resolve_python` (`lib/python_resolve.sh`), so they miss
+  the `~/.aitask/venv/` `yaml`/`textual` deps → `ModuleNotFoundError`. The venv
+  itself is present and complete. → follow-up **t935**.
+- 8 tmux/multi-session tests (`test_kill_agent_pane_smart.sh`,
+  `test_multi_session_monitor.sh`, `test_multi_session_primitives.sh`,
+  `test_tmux_control.sh`, `test_tmux_control_resilience.sh`,
+  `test_tmux_exact_session_targeting.sh`, `test_tmux_run_parity.sh`,
+  `test_tui_switcher_multi_session.sh`) aborted (exit 2) on their intentional
+  "refuses to run while other tmux sessions are alive" self-protection guard (a
+  live `aitasks` session was present). Not bugs. → follow-up **t936**.
+
+**Follow-up tasks created:** t935 (use `resolve_python` in test harnesses, not
+bare `python3`), t936 (let tmux tests run alongside a live session via isolated
+socket), t937 (low-priority cleanup: switch the two fragile bare-`sed -i` +
+`sed -i.bak`-fallback test setups in `test_fold_mark.sh:204` /
+`test_fold_file_refs_union.sh:162` to `sed_inplace`). No production-code
+portability bug was found — the prior audits (t186/t209/t211/t213/t658/t931/t932)
+have absorbed the platform-specific patterns.
