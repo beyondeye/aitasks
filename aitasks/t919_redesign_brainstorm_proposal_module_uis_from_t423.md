@@ -7,6 +7,8 @@ status: Ready
 labels: [brainstorming, tui, ait_brainstorm, brainstom_modules]
 created_at: 2026-06-03 09:30
 updated_at: 2026-06-03 09:30
+boardcol: now
+boardidx: 110
 ---
 
 Redesign and port **all** salvageable UI/library ideas from the now-obsolete
