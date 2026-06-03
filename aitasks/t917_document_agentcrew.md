@@ -8,7 +8,7 @@ labels: [documentation]
 created_at: 2026-06-02 16:57
 updated_at: 2026-06-02 16:57
 boardcol: now
-boardidx: 100
+boardidx: 80
 ---
 
 ## Context

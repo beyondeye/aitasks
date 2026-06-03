@@ -10,7 +10,7 @@ children_to_implement: [t756_7]
 created_at: 2026-05-06 18:53
 updated_at: 2026-06-03 11:19
 boardcol: now
-boardidx: 50
+boardidx: 30
 ---
 
 in ait brainstrom we want to implement a few new node operations and data model extension to support "modules" se the attached design document. this is very complex task that require child decomposition

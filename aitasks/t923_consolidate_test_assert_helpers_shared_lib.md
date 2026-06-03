@@ -8,6 +8,8 @@ labels: [testing, bash_scripts]
 children_to_implement: [t923_1, t923_2, t923_3, t923_4, t923_5]
 created_at: 2026-06-03 10:51
 updated_at: 2026-06-03 11:27
+boardcol: now
+boardidx: 20
 ---
 
 ## Context
