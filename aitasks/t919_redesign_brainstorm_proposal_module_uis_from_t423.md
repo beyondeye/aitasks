@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [756, 891]
 issue_type: feature
 status: Ready
 labels: [brainstorming, tui, ait_brainstorm, brainstom_modules]
