@@ -5,10 +5,11 @@ depends: []
 issue_type: enhancement
 status: Implementing
 labels: [ait_brainstorm]
+children_to_implement: [t929_1]
 folded_tasks: [776]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 14:06
-updated_at: 2026-06-03 15:05
+updated_at: 2026-06-03 15:52
 boardcol: now
 boardidx: 10
 ---
