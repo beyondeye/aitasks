@@ -161,11 +161,58 @@ _No before/after mitigation tasks: the principal risk (semantic drift across a
 wide blast radius) is mitigated in-task by 923_1's verification harness, re-run
 on every migrated file. This mirrors 923_1's own risk framing._
 
-## Notes for sibling tasks (fill in at completion)
+## Final Implementation Notes
 
-Count of clean vs `assert_eq_trim`-remapped files; any file that resisted the
-mechanical recipe; harness refinements. 923_3/923_4 reuse this recipe with
-`_ci`/`_re` call-site remapping.
+- **Actual work done:** Migrated **61 of the 62** fixed-string files to source
+  `tests/lib/asserts.sh`, in 4 harness-verified batches (commits
+  `26834e81`, `db9a8f1b`, `4adbd718`, `85aba234`). Removed the inline
+  `assert_eq` / `assert_contains` / `assert_not_contains` (and any inline
+  `assert_exit_*` / `assert_file_*` / `assert_dir_*`) definitions; kept
+  file-local `PASS/FAIL/TOTAL` and all domain helpers
+  (`assert_exit_code`, `setup_*`, etc.). Net **−1,825 lines** (207 ins /
+  2032 del). Every batch passed `assert_migration_verify.sh check` (FAIL-count
+  + exit identical before vs after); `shellcheck` introduced no new
+  warnings/errors (each pre-existing note confirmed via HEAD~1 comparison).
+- **assert_eq_trim remap (923_1 FINDING 4 — applied):** the 4 trimming-`assert_eq`
+  files had **all** their `assert_eq` call sites remapped to `assert_eq_trim`
+  (verified: 0 bare `assert_eq` calls remain):
+  `test_auto_merge_file_ref.sh` (19), `test_file_references.sh` (9),
+  `test_issue_import_contributor.sh` (51), `test_merge_issues.sh` (6).
+  The other 57 files kept the default `assert_eq`. This was the key gap in the
+  original plan, surfaced during plan verification.
+- **Insertion anchor (FINDING B — applied):** followed 923_1's pilot convention —
+  replaced the inline helper block in-place with a comment +
+  `. "$PROJECT_DIR/tests/lib/asserts.sh"`, rather than anchoring on the
+  scaffold source line (42/62 files don't source `test_scaffold.sh`). This
+  works because the source lands after `PROJECT_DIR` is defined in all
+  clean files.
+- **Deviations from plan — 1 file deferred to 923_5:**
+  **`test_opencode_setup.sh`** is a straggler, NOT migrated here. It (a) defines
+  its helpers *before* `PROJECT_DIR` is computed and (b) runs `set -euo pipefail`
+  with **no `TOTAL` counter init** and echoes `PASS:` on success — a different
+  helper shape. Naively migrating it broke it (`PROJECT_DIR: unbound variable`,
+  caught by the harness on batch 2). Cleanly migrating it needs two special
+  fixes (source after the dir def + add `TOTAL=0`), which is outside 923_2's
+  clean-default scope. **923_5 (synonyms/stragglers/final gates) should handle
+  it.**
+- **Issues encountered:** only the straggler above; the harness caught it
+  immediately. All other 61 files migrated mechanically with no count drift.
+- **Key decisions:** used a portable Python migration helper (not committed;
+  avoids BSD `sed -i` per 923_1) that removes the consolidated-helper blocks by
+  column-0 `}` boundary and, for trim files, remaps `\bassert_eq\b` →
+  `assert_eq_trim` (the `\b` won't touch `assert_eq_trim` — trailing `_` is a
+  word char). The before/after harness was the correctness gate per batch.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** 57/61 migrated cleanly with the default helpers;
+  4 needed the `assert_eq_trim` remap (above). The **non-standard helper shape**
+  (no `TOTAL`, echoes `PASS:`, `set -u`) is the thing to watch for in 923_3/923_4
+  too — before migrating a file, confirm `PROJECT_DIR` (or its dir var) is
+  defined *before* the insertion point and that a `set -u` file initializes
+  `TOTAL`. 923_3/923_4 reuse this exact recipe with `_ci`/`_re` call-site
+  remapping (this bucket needed none — no per-file flavor mismatch exists in the
+  current suite). The session's `/tmp/migrate_asserts.py` can be adapted (add a
+  flavor-rename mode). One straggler (`test_opencode_setup.sh`) is left for
+  923_5.
 
 ## Step 9 (Post-Implementation)
 
