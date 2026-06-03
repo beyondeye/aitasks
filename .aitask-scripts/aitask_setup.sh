@@ -570,7 +570,7 @@ setup_pypy_venv() {
 
     info "Installing/upgrading Python deps into PyPy venv..."
     "$PYPY_VENV_DIR/bin/pip" install --quiet --upgrade pip
-    "$PYPY_VENV_DIR/bin/pip" install --quiet 'textual>=8.2.7,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3' 'minijinja>=2.0,<3' 'pexpect>=4.9,<5'
+    "$PYPY_VENV_DIR/bin/pip" install --quiet 'textual>=8.2.7,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3' 'pexpect>=4.9,<5'
 
     success "PyPy venv ready at $PYPY_VENV_DIR — TUIs will auto-use it (set AIT_USE_PYPY=0 to override)."
 }
