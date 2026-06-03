@@ -145,3 +145,40 @@ profile works on current branch).
 - Each relocation has a confirmed destination and the two structural forks
   (shell-conventions home; manual-verification handling) are already decided with
   the user. · severity: low · → mitigation: none
+
+## Final Implementation Notes
+- **Actual work done:** All 5 relocations implemented as planned. (1) Created
+  `aidocs/framework/shell_conventions.md` with the full Shell Conventions block;
+  CLAUDE.md pointer + fixed 2 stale cross-refs (`code_conventions.md` and the
+  CLAUDE.md code-conventions pointer). (2) Merged Documentation Writing prose into
+  `documentation_conventions.md` under a new "## Current-state-only" section;
+  removed the self-referential "Companion to CLAUDE.md" line; CLAUDE.md collapsed
+  to one pointer. (3) Folded the model-attribution nuance (mid-session `/model`
+  switch detection + `[1m]` 1M-suffix caveat) into `model-self-detection.md` step
+  2's Claude Code bullet; removed the `## Model Attribution` section from CLAUDE.md;
+  redirected `model_reference_locations.md:51`. (4) Confirmed the skill-templating
+  subsection content already lived in `skill_authoring_conventions.md` /
+  `stub-skill-pattern.md` / `adding_a_new_codeagent.md` — migrated only the unique
+  invocation-paths bit (`ait skillrun … --profile-override/--dry-run`) into
+  `skill_authoring_conventions.md`, collapsed CLAUDE.md to pointers, fixed the
+  dangling "see…below" Codex-bullet ref. (5) Removed the Manual-verification bullet
+  from CLAUDE.md Project-Specific Notes; enriched the existing aitask-pick
+  `SKILL.md.j2` note. CLAUDE.md went 398 → 279 lines (−30%).
+- **Deviations from plan:** None in substance. Discovered (not in the plan's
+  file list) that the **remote** profile's prerendered `model-self-detection.md`
+  variants are committed (`.claude/skills/task-workflow-remote-/`,
+  `.agents/skills/task-workflow-remote-codex-/`,
+  `.opencode/skills/task-workflow-remote-/`) — these are headless prerenders and
+  were regenerated via `aitask_skill_rerender.sh` and land in the same commit as
+  the source edit (the fast/default variants are gitignored, rendered on
+  invocation).
+- **Issues encountered:** None. `aitask_skill_verify.sh` OK;
+  `test_skill_render_aitask_pick.sh` 88/88; `test_skill_render_task_workflow.sh`
+  91/91 (model-self-detection has no golden, so its edit is covered by the
+  profile/agent byte-invariance assertions, which passed).
+- **Key decisions:** Per the user's two plan-time choices — dedicated
+  `shell_conventions.md` (not a merge into `code_conventions.md`), and
+  remove-CLAUDE.md-note + enrich-skill for manual verification. Treated item 4 as
+  cross-reference consolidation (per `documentation_conventions.md` "read Y first")
+  rather than bulk migration, since the targets already covered the content.
+- **Upstream defects identified:** None.
