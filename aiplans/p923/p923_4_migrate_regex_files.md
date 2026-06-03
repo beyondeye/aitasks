@@ -188,12 +188,81 @@ _No before/after mitigation tasks: the principal risk (semantic drift across the
 bucket) is mitigated in-task by the needle audit + 923_1's verification harness,
 re-run on every migrated file. Mirrors 923_1/923_2/923_3's framing._
 
-## Final Implementation Notes (fill in at Step 8)
+## Final Implementation Notes
 
-Classification of the 3 named files; the genuine-regex needle(s) mapped to `_re`;
-the 6 trim-eq remaps; any latent bug surfaced (→ "Upstream defects identified");
-and **the 10 files deferred to 923_5** (3 fixed stragglers + 7 glob newcomers) so
-923_5's final gate has them enumerated.
+- **Actual work done:** Migrated all **27** in-scope files (24 regex bucket + the
+  3 named-literal trio) to source `tests/lib/asserts.sh` in 3 harness-verified
+  batches (commits `30645d75`, `85cdd11f`, `b307aec5`). Removed inline
+  `assert_eq` / `assert_contains` / `assert_not_contains` and any duplicated
+  `assert_exit_zero` / `assert_exit_nonzero` / `assert_file_exists` /
+  `assert_file_not_exists` / `assert_dir_exists` / `assert_dir_not_exists`; kept
+  file-local `PASS/FAIL/TOTAL` and all domain/single-use helpers
+  (`assert_line_count`, `assert_match`, `assert_symlink`, `assert_file_missing`,
+  the synonym `assert_zero_exit`/`assert_nonzero_exit` — 923_5's job, `setup_*`,
+  `make_*`, etc.). Net **−965 lines** (69 ins / 1034 del). Every batch passed
+  `assert_migration_verify.sh check` (FAIL-count + EXIT identical before vs
+  after); `shellcheck --severity=warning` added no new warnings (only the benign
+  SC1091 *info* note from the new dynamic `source` line — all SC2034/SC2069
+  warnings confirmed pre-existing on HEAD).
+- **3 named files classified — all literal.** `test_add_model.sh`,
+  `test_update_multiline_yaml.sh`, `test_yaml_utils.sh` use the glob form
+  `[[ "$h" == *"$n"* ]]` (literal substring), not grep → mapped to the **default
+  fixed `assert_contains`**. Harness-confirmed count-neutral; no embedded-newline
+  or empty needles (the glob caveat) surfaced.
+- **6 genuine-regex needles remapped to `_re`** (the rest stayed on default fixed —
+  literal needles, which is behavior-equivalent and often more correct):
+  - `test_archive_carryover.sh:218` `^--desc$` and `:269` `\[ \]` → `assert_contains_re`.
+  - `test_archive_verification_gate.sh:359` `\[ \]` → `assert_contains_re`.
+  - `test_explain_cleanup.sh:87` `[-][-]all` → `assert_contains_re`; `:100`
+    `not found\|CLEANED: 0` → `assert_contains_re` **with BRE→ERE needle rewrite**
+    `\|` → `|` (BRE alternation becomes ERE alternation).
+  - `test_revert_analyze.sh:182` — the needle was `"|50\n"` (trailing newline used
+    as a line-end anchor to exclude parent `|50` while keeping child `|50_1`).
+    Under `grep -qF` the embedded newline becomes an empty fixed-string
+    alternative that matches everything (would falsely fail). Preserved intent
+    with **`assert_not_contains_re "\|50$"`** (literal pipe + end-anchor). Verified
+    by reading the remap, not just the green harness (923_3 FINDING-D blind spot
+    for `assert_not_contains` regex needles).
+- **6 trim-eq remaps (`assert_eq` → `assert_eq_trim`).** The Step-1 probe (re-run
+  per 923_3's "do not assume zero" warning) found 6 files in this bucket whose
+  inline `assert_eq` trimmed via `xargs` (the macOS BSD `wc -l` padding absorber):
+  `test_archive_carryover.sh`, `test_archive_folded.sh`,
+  `test_archive_related_issues.sh`, `test_archive_verification_gate.sh`,
+  `test_init_data.sh`, `test_task_push.sh`. All remapped.
+- **`grep -qE` (ERE) files:** the 2 ERE-origin files were benign —
+  `test_extract_auto_naming.sh` **defines** `assert_contains` but never **calls**
+  it (def stripped, zero call sites); `test_setup_find_modern_python.sh`'s 3
+  needles are literal paths / a literal `python3.13` (the `.` is present literally
+  in the output, so fixed matches identically). Both default to fixed,
+  count-neutral.
+- **Deviation from the thin plan:** the plan body said nothing about trim files;
+  the probe surfaced 6 (matching 923_3's experience). Also two genuine-regex
+  needles (`\[ \]` in carryover/verification_gate, the char-class/`\|` pair in
+  explain_cleanup, the line-anchor in revert_analyze) were NOT in the plan's
+  single pre-identified `^--desc$` — the before/after harness caught them as
+  FAIL-count deltas, exactly as the recipe intends.
+- **Issues encountered:** None beyond the regex deltas above (all resolved via
+  `_re` remaps and re-verified). The throwaway migrator (`/tmp/migrate_regex.py`,
+  not committed — per 923_2/923_3 convention) stripped helper blocks by column-0
+  `}` boundary, inserted the `source` after the `PROJECT_DIR=` anchor, applied
+  the trim rename (`\bassert_eq\b` → `assert_eq_trim`), and applied the 6 `_re`
+  remaps from an explicit table.
+- **Upstream defects identified:** None.
+- **Notes for sibling task 923_5 (terminus — synonyms / stragglers / final gates):**
+  After 923_4, exactly **10 files still define `assert_contains()` inline**, all
+  out of 923_4's scope and waiting for 923_5's final gate:
+  - **3 `grep -qF` fixed stragglers** (newcomers, fixed flavor):
+    `test_opencode_setup.sh`, `test_skill_render_aitask_pickn.sh`,
+    `test_skill_render_task_workflown.sh`.
+  - **7 glob-form (`[[ ==*…* ]]`, literal) newcomers:**
+    `test_multi_session_minimonitor.sh`, `test_multi_session_monitor.sh`,
+    `test_multi_session_primitives.sh`, `test_resolve_detected_agent.sh`,
+    `test_tui_switcher_footer_fit.sh`, `test_tui_switcher_multi_session.sh`,
+    `test_verified_update_flags.sh`.
+  All 10 map to the **default fixed `assert_contains`** (literal semantics).
+  Re-run the trim probe for 923_5 too (do not assume zero). 923_5 also handles the
+  synonym exit-helpers (`assert_zero_exit`/`assert_nonzero_exit`/`assert_exit_code`)
+  and the whole-suite parity gates.
 
 ## Step 9 (Post-Implementation)
 
