@@ -3,13 +3,13 @@ priority: medium
 effort: high
 depends: [t826_1]
 issue_type: feature
-status: Ready
+status: Done
 labels: [brainstorming, cross_repo, aitask_query, aitask_create]
-children_to_implement: [t832_11]
 created_at: 2026-05-25 22:30
-updated_at: 2026-06-01 13:32
-boardidx: 10
+updated_at: 2026-06-03 11:17
+completed_at: 2026-06-03 11:17
 boardcol: now
+boardidx: 10
 ---
 
 Brainstorm and scope: teach framework skills and helper scripts to use the
