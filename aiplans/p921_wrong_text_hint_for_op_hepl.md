@@ -115,3 +115,28 @@ separate branch/worktree to clean up (fast profile, current branch).
 - Directly addresses the stale `(? for details)` hint with the documented
   dynamic-shortcut resolver; the footer fix is an in-scope correctness bonus.
   · severity: low · → mitigation: None needed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, plus three stale-comment
+  cleanups discovered during implementation. In `brainstorm_app.py`:
+  (1) imported `resolve_key` from `keybinding_registry`;
+  (2) `_mount_op_context_header` now resolves the live `op_help` key
+  (`resolve_key(self._shortcuts_scope, "op_help", "H") or "H"`) and interpolates
+  it into the hint → `({help_key} for details)`;
+  (3) `OperationHelpModal` footer changed from `Esc / H close` to `Esc close`;
+  (4) three `?`-shortcut references in a module comment and two docstrings
+  re-worded to the key-agnostic "op-help shortcut".
+- **Deviations from plan:** None functional. Added the docstring/comment
+  cleanups (items 4) beyond the original 3 changes — same staleness class
+  (hardcoded `?`), no behavior impact.
+- **Issues encountered:** None. `python3 -m py_compile` passes; a sys.path
+  import smoke test confirms `resolve_key` imports and its `"H"` fallback
+  resolves. No tests reference the changed strings.
+- **Key decisions:** Used the inline-string `resolve_key` primitive rather than
+  `ShortcutsMixin.label()` / `render_label`, which wrap a key into a mnemonic
+  label (`E(X)port`) — the wrong shape for an inline `(H for details)` hint.
+  Footer reworded to `Esc close` (not a config-aware `Esc / <key> close`)
+  because `H` never closed the modal — `action_op_help` raises `SkipAction`
+  when a `ModalScreen` is on screen, so only `Esc` closes it.
+- **Upstream defects identified:** None.
