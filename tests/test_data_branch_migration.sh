@@ -13,51 +13,11 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (output should NOT contain '$unexpected')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
-assert_file_exists() {
-    local desc="$1" file="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -f "$file" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$file' does not exist)"
-    fi
-}
 
 assert_symlink() {
     local desc="$1" path="$2"
@@ -209,8 +169,8 @@ echo "--- Test 2: ait git targets data branch ---"
 
 ait_branch=$(cd "$LOCAL" && ./ait git branch --show-current 2>/dev/null)
 git_branch=$(cd "$LOCAL" && git branch --show-current 2>/dev/null)
-assert_eq "ait git on aitask-data branch" "aitask-data" "$ait_branch"
-assert_eq "git on default branch" "$DEFAULT_BRANCH" "$git_branch"
+assert_eq_trim "ait git on aitask-data branch" "aitask-data" "$ait_branch"
+assert_eq_trim "git on default branch" "$DEFAULT_BRANCH" "$git_branch"
 
 # --- Test 3: Modify task + ait git add/commit ---
 echo "--- Test 3: Modify task + ait git commit ---"
@@ -226,15 +186,15 @@ echo "Modified by test" >> "$LOCAL/aitasks/t1_existing_task.md"
 data_log=$(git -C "$LOCAL/.aitask-data" log --oneline -1 2>/dev/null)
 main_log=$(git -C "$LOCAL" log --oneline 2>/dev/null)
 
-assert_contains "Commit on data branch" "test: Modify task t1" "$data_log"
-assert_not_contains "Commit NOT on main" "test: Modify task t1" "$main_log"
+assert_contains_ci "Commit on data branch" "test: Modify task t1" "$data_log"
+assert_not_contains_ci "Commit NOT on main" "test: Modify task t1" "$main_log"
 
 # --- Test 4: aitask_ls.sh works after migration ---
 echo "--- Test 4: aitask_ls.sh works ---"
 
 ls_output=$(cd "$LOCAL" && ./.aitask-scripts/aitask_ls.sh -s all 10 2>/dev/null)
-assert_contains "ls shows t1_existing_task" "t1_existing_task" "$ls_output"
-assert_contains "ls shows t2_second_task" "t2_second_task" "$ls_output"
+assert_contains_ci "ls shows t1_existing_task" "t1_existing_task" "$ls_output"
+assert_contains_ci "ls shows t2_second_task" "t2_second_task" "$ls_output"
 
 # --- Test 5: aitask_create.sh --batch --commit in branch mode ---
 echo "--- Test 5: aitask_create.sh --batch --commit ---"
@@ -259,8 +219,8 @@ fi
 data_log_create=$(git -C "$LOCAL/.aitask-data" log --oneline -1 2>/dev/null)
 main_log_create=$(git -C "$LOCAL" log --oneline 2>/dev/null)
 
-assert_contains "Create commit on data branch" "branch mode task" "$data_log_create"
-assert_not_contains "Create commit NOT on main" "branch mode task" "$main_log_create"
+assert_contains_ci "Create commit on data branch" "branch mode task" "$data_log_create"
+assert_not_contains_ci "Create commit NOT on main" "branch mode task" "$main_log_create"
 
 # --- Test 6: aitask_update.sh --batch --commit in branch mode ---
 echo "--- Test 6: aitask_update.sh --batch --commit ---"
@@ -275,8 +235,8 @@ assert_file_contains "Task t1 status updated" "$LOCAL/aitasks/t1_existing_task.m
 data_log_update=$(git -C "$LOCAL/.aitask-data" log --oneline -1 2>/dev/null)
 main_log_update=$(git -C "$LOCAL" log --oneline 2>/dev/null)
 
-assert_contains "Update commit on data branch" "Update task t1" "$data_log_update"
-assert_not_contains "Update commit NOT on main" "Update task t1" "$main_log_update"
+assert_contains_ci "Update commit on data branch" "Update task t1" "$data_log_update"
+assert_not_contains_ci "Update commit NOT on main" "Update task t1" "$main_log_update"
 
 # --- Test 7: Syntax check on both new test files ---
 echo "--- Test 7: Syntax check ---"

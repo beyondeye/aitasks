@@ -29,45 +29,11 @@ _inc_fail() {
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    if [[ "$expected" == "$actual" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$expected"; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        _inc_fail
-        echo "FAIL: $desc (output should NOT contain '$unexpected')"
-    else
-        _inc_pass
-    fi
-}
 
-assert_file_exists() {
-    local desc="$1" file="$2"
-    if [[ -f "$file" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (file '$file' does not exist)"
-    fi
-}
 
 # --- Setup: create isolated git repo ---
 
@@ -135,11 +101,11 @@ EOF
     source "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh"
 
     result="$(cat "$TMPDIR_T1/templates/main.md" | resolve_template_includes "$TMPDIR_T1/templates")"
-    assert_contains "include resolved" "Section Format" "$result"
-    assert_contains "include content present" "HTML comment markers" "$result"
-    assert_not_contains "directive removed" "<!-- include:" "$result"
-    assert_contains "surrounding content preserved" "Rest of template" "$result"
-    assert_contains "header preserved" "# Main Template" "$result"
+    assert_contains_ci "include resolved" "Section Format" "$result"
+    assert_contains_ci "include content present" "HTML comment markers" "$result"
+    assert_not_contains_ci "directive removed" "<!-- include:" "$result"
+    assert_contains_ci "surrounding content preserved" "Rest of template" "$result"
+    assert_contains_ci "header preserved" "# Main Template" "$result"
 )
 rm -rf "$TMPDIR_T1"
 
@@ -166,9 +132,9 @@ EOF
     source "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh"
 
     result="$(cat "$TMPDIR_T2/templates/main.md" | resolve_template_includes "$TMPDIR_T2/templates")"
-    assert_contains "first include resolved" "HEADER CONTENT" "$result"
-    assert_contains "second include resolved" "FOOTER CONTENT" "$result"
-    assert_contains "middle preserved" "Middle section" "$result"
+    assert_contains_ci "first include resolved" "HEADER CONTENT" "$result"
+    assert_contains_ci "second include resolved" "FOOTER CONTENT" "$result"
+    assert_contains_ci "middle preserved" "Middle section" "$result"
 )
 rm -rf "$TMPDIR_T2"
 
@@ -186,8 +152,8 @@ EOF
     source "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh"
 
     result="$(cat "$TMPDIR_T3/plain.md" | resolve_template_includes "$TMPDIR_T3")"
-    assert_contains "content preserved" "No include directives" "$result"
-    assert_contains "all lines present" "Just plain content" "$result"
+    assert_contains_ci "content preserved" "No include directives" "$result"
+    assert_contains_ci "all lines present" "Just plain content" "$result"
 )
 rm -rf "$TMPDIR_T3"
 
@@ -205,12 +171,12 @@ EOF
     source "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh"
 
     result="$(cat "$TMPDIR_T4/broken.md" | resolve_template_includes "$TMPDIR_T4" 2>/dev/null)"
-    assert_contains "directive preserved" "<!-- include: _nonexistent.md -->" "$result"
-    assert_contains "subsequent content preserved" "After missing include" "$result"
+    assert_contains_ci "directive preserved" "<!-- include: _nonexistent.md -->" "$result"
+    assert_contains_ci "subsequent content preserved" "After missing include" "$result"
 
     # Verify warning is emitted to stderr
     stderr="$(cat "$TMPDIR_T4/broken.md" | resolve_template_includes "$TMPDIR_T4" 2>&1 1>/dev/null || true)"
-    assert_contains "warning emitted" "not found" "$stderr"
+    assert_contains_ci "warning emitted" "not found" "$stderr"
 )
 rm -rf "$TMPDIR_T4"
 
@@ -236,12 +202,12 @@ Do the rest.
 EOF
 
     output=$(bash .aitask-scripts/aitask_crew_addwork.sh --crew incl --name resolver --work2do /tmp/ait_test_templates/work.md --type impl --batch 2>&1)
-    assert_contains "addwork succeeds" "ADDED:resolver" "$output"
+    assert_contains_ci "addwork succeeds" "ADDED:resolver" "$output"
 
     work2do_content="$(cat .aitask-crews/crew-incl/resolver_work2do.md)"
-    assert_contains "include resolved in work2do" "SHARED PARTIAL CONTENT" "$work2do_content"
-    assert_not_contains "directive absent in work2do" "<!-- include:" "$work2do_content"
-    assert_contains "surrounding content in work2do" "Do the rest" "$work2do_content"
+    assert_contains_ci "include resolved in work2do" "SHARED PARTIAL CONTENT" "$work2do_content"
+    assert_not_contains_ci "directive absent in work2do" "<!-- include:" "$work2do_content"
+    assert_contains_ci "surrounding content in work2do" "Do the rest" "$work2do_content"
 
     rm -rf /tmp/ait_test_templates
 )
@@ -255,10 +221,10 @@ TMPDIR_T6="$(setup_test_repo)"
     bash .aitask-scripts/aitask_crew_init.sh --id stdin --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
 
     output=$(echo '<!-- include: _nonexistent.md -->' | bash .aitask-scripts/aitask_crew_addwork.sh --crew stdin --name raw --work2do - --type impl --batch 2>&1)
-    assert_contains "addwork succeeds" "ADDED:raw" "$output"
+    assert_contains_ci "addwork succeeds" "ADDED:raw" "$output"
 
     work2do_content="$(cat .aitask-crews/crew-stdin/raw_work2do.md)"
-    assert_contains "directive preserved for stdin" "<!-- include:" "$work2do_content"
+    assert_contains_ci "directive preserved for stdin" "<!-- include:" "$work2do_content"
 )
 cleanup_test_repo "$TMPDIR_T6"
 
@@ -283,11 +249,11 @@ EOF
     source "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh"
 
     result="$(cat "$TMPDIR_T7/templates/agent.md" | resolve_template_includes "$TMPDIR_T7/templates")"
-    assert_contains "section format heading present" "### Section Format" "$result"
-    assert_contains "section opening syntax present" "<!-- section: name" "$result"
-    assert_contains "section closing syntax present" "<!-- /section: name -->" "$result"
-    assert_contains "snake_case instruction present" "lowercase_snake_case" "$result"
-    assert_not_contains "include directive removed" "<!-- include: _section_format" "$result"
+    assert_contains_ci "section format heading present" "### Section Format" "$result"
+    assert_contains_ci "section opening syntax present" "<!-- section: name" "$result"
+    assert_contains_ci "section closing syntax present" "<!-- /section: name -->" "$result"
+    assert_contains_ci "snake_case instruction present" "lowercase_snake_case" "$result"
+    assert_not_contains_ci "include directive removed" "<!-- include: _section_format" "$result"
 )
 rm -rf "$TMPDIR_T7"
 
@@ -324,26 +290,26 @@ EOF
     source "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh"
 
     result="$(cat "$TMPDIR_T8/primary/agent.md" | resolve_template_includes "$TMPDIR_T8/primary" "$TMPDIR_T8/fallback")"
-    assert_contains "primary-dir include resolved" "PRIMARY_ONLY_CONTENT" "$result"
-    assert_contains "fallback-dir include resolved" "FALLBACK_ONLY_CONTENT" "$result"
-    assert_not_contains "no residual directives" "<!-- include:" "$result"
-    assert_contains "middle preserved" "Middle." "$result"
-    assert_contains "end preserved" "End." "$result"
+    assert_contains_ci "primary-dir include resolved" "PRIMARY_ONLY_CONTENT" "$result"
+    assert_contains_ci "fallback-dir include resolved" "FALLBACK_ONLY_CONTENT" "$result"
+    assert_not_contains_ci "no residual directives" "<!-- include:" "$result"
+    assert_contains_ci "middle preserved" "Middle." "$result"
+    assert_contains_ci "end preserved" "End." "$result"
 
     # First-hit-wins: place a same-named file in the fallback dir; primary still wins.
     cat > "$TMPDIR_T8/fallback/_primary_only.md" <<'EOF'
 FALLBACK_SHADOW_CONTENT
 EOF
     result2="$(cat "$TMPDIR_T8/primary/agent.md" | resolve_template_includes "$TMPDIR_T8/primary" "$TMPDIR_T8/fallback")"
-    assert_contains "primary wins over fallback (same name)" "PRIMARY_ONLY_CONTENT" "$result2"
-    assert_not_contains "shadowed fallback content not used" "FALLBACK_SHADOW_CONTENT" "$result2"
+    assert_contains_ci "primary wins over fallback (same name)" "PRIMARY_ONLY_CONTENT" "$result2"
+    assert_not_contains_ci "shadowed fallback content not used" "FALLBACK_SHADOW_CONTENT" "$result2"
 
     # Missing-in-all-dirs path: directive preserved + warning emitted.
     cat > "$TMPDIR_T8/primary/missing.md" <<'EOF'
 <!-- include: _nowhere.md -->
 EOF
     stderr_missing="$(cat "$TMPDIR_T8/primary/missing.md" | resolve_template_includes "$TMPDIR_T8/primary" "$TMPDIR_T8/fallback" 2>&1 1>/dev/null || true)"
-    assert_contains "missing-in-all-dirs warns" "not found in any base_dir" "$stderr_missing"
+    assert_contains_ci "missing-in-all-dirs warns" "not found in any base_dir" "$stderr_missing"
 )
 rm -rf "$TMPDIR_T8"
 
@@ -366,36 +332,36 @@ echo "Test 9: production bridge — detailer.md → skill_templates/_detailer_ru
         | resolve_template_includes \
             "$PROJECT_DIR/.aitask-scripts/brainstorm/templates" \
             "$PROJECT_DIR/.aitask-scripts/skill_templates" 2>/dev/null)"
-    assert_contains "rules fragment resolved (rule 1 prose)" \
+    assert_contains_ci "rules fragment resolved (rule 1 prose)" \
         "Be maximally specific" "$resolved"
-    assert_contains "rules fragment resolved (rule 3 prose)" \
+    assert_contains_ci "rules fragment resolved (rule 3 prose)" \
         "Every assumption from the node's YAML" "$resolved"
-    assert_contains "rules fragment resolved (rule 5 prose)" \
+    assert_contains_ci "rules fragment resolved (rule 5 prose)" \
         "Do not include architectural discussion" "$resolved"
-    assert_not_contains "rules include directive removed" \
+    assert_not_contains_ci "rules include directive removed" \
         "<!-- include: _detailer_rules.md -->" "$resolved"
 
     # Brainstorm section markers MUST remain in their original positions —
     # the bash resolver only touches `<!-- include: -->` directives, never
     # `<!-- section: -->` markers. If a future change relocates a marker
     # into a fragment, brainstorm's section parser breaks silently.
-    assert_contains "section marker 'prerequisites' preserved" \
+    assert_contains_ci "section marker 'prerequisites' preserved" \
         "<!-- section: prerequisites -->" "$resolved"
     # `[...]` in grep BRE is a character class; check the bare section name
     # plus the closing marker and rely on Test 9's overall resolved-output
     # diff for full-fidelity dimension-attribute coverage.
-    assert_contains "section marker 'step_by_step' opening preserved" \
+    assert_contains_ci "section marker 'step_by_step' opening preserved" \
         "section: step_by_step " "$resolved"
-    assert_contains "section marker 'step_by_step' closing preserved" \
+    assert_contains_ci "section marker 'step_by_step' closing preserved" \
         "/section: step_by_step" "$resolved"
-    assert_contains "section marker 'verification' opening preserved" \
+    assert_contains_ci "section marker 'verification' opening preserved" \
         "section: verification " "$resolved"
-    assert_contains "section marker 'verification' closing preserved" \
+    assert_contains_ci "section marker 'verification' closing preserved" \
         "/section: verification" "$resolved"
     # Spot-check the dimension attribute survives (escape brackets via word match).
-    assert_contains "step_by_step dimensions attribute present" \
+    assert_contains_ci "step_by_step dimensions attribute present" \
         "dimensions: component_" "$resolved"
-    assert_contains "verification dimensions attribute present" \
+    assert_contains_ci "verification dimensions attribute present" \
         "dimensions: assumption_" "$resolved"
 
     # WITHOUT the skill_templates fallback: the include cannot be resolved
@@ -404,9 +370,9 @@ echo "Test 9: production bridge — detailer.md → skill_templates/_detailer_ru
     stderr_only_primary="$(cat "$PROJECT_DIR/.aitask-scripts/brainstorm/templates/detailer.md" \
         | resolve_template_includes "$PROJECT_DIR/.aitask-scripts/brainstorm/templates" \
             2>&1 1>/dev/null || true)"
-    assert_contains "warn when skill_templates fallback omitted" \
+    assert_contains_ci "warn when skill_templates fallback omitted" \
         "_detailer_rules.md" "$stderr_only_primary"
-    assert_contains "warn message is the missing-include path" \
+    assert_contains_ci "warn message is the missing-include path" \
         "not found in any base_dir" "$stderr_only_primary"
 )
 

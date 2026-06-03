@@ -29,46 +29,11 @@ _inc_fail() {
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    if [[ "$expected" == "$actual" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$expected"; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_file_exists() {
-    local desc="$1" file="$2"
-    if [[ -f "$file" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (file '$file' does not exist)"
-    fi
-}
 
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    if "$@" >/dev/null 2>&1; then
-        _inc_fail
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        _inc_pass
-    fi
-}
 
 # --- Setup: create isolated git repo ---
 
@@ -123,7 +88,7 @@ TMPDIR_T1="$(setup_test_repo)"
 (
     cd "$TMPDIR_T1"
     output=$(bash .aitask-scripts/aitask_crew_init.sh --id testcrew --batch 2>&1)
-    assert_contains "init outputs CREATED" "CREATED:testcrew" "$output"
+    assert_contains_ci "init outputs CREATED" "CREATED:testcrew" "$output"
 
     if git show-ref --verify refs/heads/crew-testcrew &>/dev/null; then
         _inc_pass
@@ -149,7 +114,7 @@ TMPDIR_T2="$(setup_test_repo)"
 (
     cd "$TMPDIR_T2"
     output=$(bash .aitask-scripts/aitask_crew_init.sh --id typed --add-type impl:claudecode/opus4_6 --add-type review:claudecode/sonnet4_6 --batch 2>&1)
-    assert_contains "init outputs CREATED" "CREATED:typed" "$output"
+    assert_contains_ci "init outputs CREATED" "CREATED:typed" "$output"
 
     if grep -q "^  impl:" .aitask-crews/crew-typed/_crew_meta.yaml; then
         _inc_pass
@@ -197,7 +162,7 @@ TMPDIR_T5="$(setup_test_repo)"
     echo "# Do this thing" > /tmp/test_work2do.md
 
     output=$(bash .aitask-scripts/aitask_crew_addwork.sh --crew files --name agent_a --work2do /tmp/test_work2do.md --type impl --batch 2>&1)
-    assert_contains "addwork outputs ADDED" "ADDED:agent_a" "$output"
+    assert_contains_ci "addwork outputs ADDED" "ADDED:agent_a" "$output"
 
     WT=".aitask-crews/crew-files"
     assert_file_exists "work2do file" "$WT/agent_a_work2do.md"
@@ -215,7 +180,7 @@ TMPDIR_T5="$(setup_test_repo)"
     assert_eq "agent status is Waiting" "Waiting" "$agent_status"
 
     meta_agents=$(grep '^agents:' "$WT/_crew_meta.yaml" | sed 's/^agents: *//')
-    assert_contains "agent in meta agents list" "agent_a" "$meta_agents"
+    assert_contains_ci "agent in meta agents list" "agent_a" "$meta_agents"
 
     rm -f /tmp/test_work2do.md
 )
@@ -250,10 +215,10 @@ TMPDIR_T8="$(setup_test_repo)"
     bash .aitask-scripts/aitask_crew_init.sh --id deps --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     bash .aitask-scripts/aitask_crew_addwork.sh --crew deps --name upstream --work2do /dev/null --type impl --batch >/dev/null 2>&1
     output=$(bash .aitask-scripts/aitask_crew_addwork.sh --crew deps --name downstream --work2do /dev/null --type impl --depends upstream --batch 2>&1)
-    assert_contains "addwork with deps succeeds" "ADDED:downstream" "$output"
+    assert_contains_ci "addwork with deps succeeds" "ADDED:downstream" "$output"
 
     deps_yaml=$(grep '^depends_on:' .aitask-crews/crew-deps/downstream_status.yaml | sed 's/^depends_on: *//')
-    assert_contains "depends_on contains upstream" "upstream" "$deps_yaml"
+    assert_contains_ci "depends_on contains upstream" "upstream" "$deps_yaml"
 )
 cleanup_test_repo "$TMPDIR_T8"
 
@@ -276,7 +241,7 @@ TMPDIR_T10="$(setup_test_repo)"
     bash .aitask-scripts/aitask_crew_addwork.sh --crew dag --name a --work2do /dev/null --type impl --batch >/dev/null 2>&1
     bash .aitask-scripts/aitask_crew_addwork.sh --crew dag --name b --work2do /dev/null --type impl --depends a --batch >/dev/null 2>&1
     output=$(bash .aitask-scripts/aitask_crew_addwork.sh --crew dag --name c --work2do /dev/null --type impl --depends a,b --batch 2>&1)
-    assert_contains "valid DAG accepted" "ADDED:c" "$output"
+    assert_contains_ci "valid DAG accepted" "ADDED:c" "$output"
 )
 cleanup_test_repo "$TMPDIR_T10"
 
@@ -287,7 +252,7 @@ TMPDIR_T11="$(setup_test_repo)"
     cd "$TMPDIR_T11"
     bash .aitask-scripts/aitask_crew_init.sh --id devnull --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     output=$(bash .aitask-scripts/aitask_crew_addwork.sh --crew devnull --name empty_agent --work2do /dev/null --type impl --batch 2>&1)
-    assert_contains "addwork with /dev/null succeeds" "ADDED:empty_agent" "$output"
+    assert_contains_ci "addwork with /dev/null succeeds" "ADDED:empty_agent" "$output"
 
     wc_lines=$(wc -l < ".aitask-crews/crew-devnull/empty_agent_work2do.md" | tr -d ' ')
     assert_eq "work2do is empty" "1" "$wc_lines"

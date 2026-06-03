@@ -11,51 +11,11 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
 
-assert_file_exists() {
-    local desc="$1" file="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -f "$file" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (file '$file' does not exist)"
-    fi
-}
 
-assert_dir_exists() {
-    local desc="$1" dir="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ -d "$dir" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (directory '$dir' does not exist)"
-    fi
-}
 
 assert_symlink() {
     local desc="$1" path="$2"
@@ -157,7 +117,7 @@ cp "$PROJECT_DIR/seed/project_config.yaml" "$TMPDIR_1/local/seed/"
 
 # Check branch exists on remote
 branch_on_remote=$(git -C "$TMPDIR_1/local" ls-remote --heads origin aitask-data 2>/dev/null | grep -c "aitask-data")
-assert_eq "aitask-data branch on remote" "1" "$branch_on_remote"
+assert_eq_trim "aitask-data branch on remote" "1" "$branch_on_remote"
 
 # Check worktree exists
 assert_dir_exists "Worktree directory exists" "$TMPDIR_1/local/.aitask-data"
@@ -197,7 +157,7 @@ assert_file_contains ".gitignore has .aitask-data/" "$TMPDIR_1/local/.gitignore"
 # as untracked entries (t699). Filter porcelain to just those two paths
 # so unrelated test-fixture untracked files (e.g. seed/) do not confound.
 symlink_porcelain="$(git -C "$TMPDIR_1/local" status --porcelain | grep -E '^\?\? (aitasks|aiplans)$' || true)"
-assert_eq "aitasks/aiplans symlinks ignored after setup_data_branch" "" "$symlink_porcelain"
+assert_eq_trim "aitasks/aiplans symlinks ignored after setup_data_branch" "" "$symlink_porcelain"
 
 # Check skeleton directories
 assert_dir_exists "aitasks/metadata skeleton" "$TMPDIR_1/local/.aitask-data/aitasks/metadata"
@@ -257,7 +217,7 @@ else
 fi
 
 task_content=$(cat "$TMPDIR_2/local/aitasks/t1_test.md" 2>/dev/null)
-assert_contains "Task content preserved" "Test task content" "$task_content"
+assert_contains_ci "Task content preserved" "Test task content" "$task_content"
 
 TOTAL=$((TOTAL + 1))
 if [[ -f "$TMPDIR_2/local/aiplans/p1_test.md" ]]; then
@@ -281,11 +241,11 @@ assert_file_exists "Labels.txt preserved" "$TMPDIR_2/local/aitasks/metadata/labe
 
 # Check data branch has the file
 data_branch_has_file=$(git -C "$TMPDIR_2/local/.aitask-data" show HEAD:aitasks/t1_test.md 2>/dev/null | grep -c "Test task content")
-assert_eq "Data branch has task file" "1" "$data_branch_has_file"
+assert_eq_trim "Data branch has task file" "1" "$data_branch_has_file"
 
 # Check main no longer tracks aitasks/
 main_tracks_aitasks=$(git -C "$TMPDIR_2/local" ls-tree HEAD -- aitasks/ 2>/dev/null | wc -l | tr -d ' ')
-assert_eq "Main no longer tracks aitasks/" "0" "$main_tracks_aitasks"
+assert_eq_trim "Main no longer tracks aitasks/" "0" "$main_tracks_aitasks"
 
 rm -rf "$TMPDIR_2"
 
@@ -314,9 +274,9 @@ output=$(cd "$TMPDIR_3/local" && setup_data_branch </dev/null 2>&1)
 commits_after=$(git -C "$TMPDIR_3/local" log --oneline 2>/dev/null | wc -l | tr -d ' ')
 data_commits_after=$(git -C "$TMPDIR_3/local/.aitask-data" log --oneline 2>/dev/null | wc -l | tr -d ' ')
 
-assert_contains "Second run says already configured" "already configured" "$output"
-assert_eq "No extra commits on main" "$commits_before" "$commits_after"
-assert_eq "No extra commits on data branch" "$data_commits_before" "$data_commits_after"
+assert_contains_ci "Second run says already configured" "already configured" "$output"
+assert_eq_trim "No extra commits on main" "$commits_before" "$commits_after"
+assert_eq_trim "No extra commits on data branch" "$data_commits_before" "$data_commits_after"
 assert_file_contains "Customized coauthor domain preserved on rerun" \
     "$TMPDIR_3/local/aitasks/metadata/project_config.yaml" \
     "codeagent_coauthor_domain: company.example"
@@ -442,7 +402,7 @@ update_claudemd_git_section "$TMPDIR_8" 2>/dev/null
 update_claudemd_git_section "$TMPDIR_8" 2>/dev/null
 
 section_count=$(grep -c "## Git Operations on Task/Plan Files" "$TMPDIR_8/CLAUDE.md" 2>/dev/null || echo "0")
-assert_eq "Section appears exactly once" "1" "$section_count"
+assert_eq_trim "Section appears exactly once" "1" "$section_count"
 
 rm -rf "$TMPDIR_8"
 
@@ -532,7 +492,7 @@ cp -r "$PROJECT_DIR/.aitask-scripts/lib" "$SCRIPT_DIR/"
 counter_val=$(git -C "$TMPDIR_11/pc2" fetch origin aitask-ids --quiet 2>/dev/null \
     && git -C "$TMPDIR_11/pc2" show origin/aitask-ids:next_id.txt 2>/dev/null \
     | tr -d '[:space:]')
-assert_eq "Counter seeded to max(existing)+1 on fresh clone" "11" "$counter_val"
+assert_eq_trim "Counter seeded to max(existing)+1 on fresh clone" "11" "$counter_val"
 
 # Static check: regardless of how the helpers behave in isolation, main() must
 # call setup_data_branch BEFORE setup_id_counter or the fresh-clone scenario
@@ -610,19 +570,19 @@ fi
 # No duplication: exactly one bare 'aitasks' / 'aiplans' line.
 aitasks_count=$(grep -cxF "aitasks" "$TMPDIR_12/local/.gitignore" 2>/dev/null | tr -d ' ')
 aiplans_count=$(grep -cxF "aiplans" "$TMPDIR_12/local/.gitignore" 2>/dev/null | tr -d ' ')
-assert_eq "No duplicate bare 'aitasks' line" "1" "$aitasks_count"
-assert_eq "No duplicate bare 'aiplans' line" "1" "$aiplans_count"
+assert_eq_trim "No duplicate bare 'aitasks' line" "1" "$aitasks_count"
+assert_eq_trim "No duplicate bare 'aiplans' line" "1" "$aiplans_count"
 
 # Symlinks must now be ignored: legacy trailing-slash entries no longer
 # match them, the migration rewrote them to the bare form. Filter to the
 # two paths under test so unrelated fixture untracked files don't confound.
 symlink_porcelain="$(git -C "$TMPDIR_12/local" status --porcelain | grep -E '^\?\? (aitasks|aiplans)$' || true)"
-assert_eq "aitasks/aiplans symlinks ignored after gitignore migration" "" "$symlink_porcelain"
+assert_eq_trim "aitasks/aiplans symlinks ignored after gitignore migration" "" "$symlink_porcelain"
 
 # Migration commit was created — staged change for .gitignore did not leak
 # into a dirty index.
 gitignore_status="$(git -C "$TMPDIR_12/local" status --porcelain -- .gitignore)"
-assert_eq ".gitignore committed by migration (not left dirty)" "" "$gitignore_status"
+assert_eq_trim ".gitignore committed by migration (not left dirty)" "" "$gitignore_status"
 
 rm -rf "$TMPDIR_12"
 

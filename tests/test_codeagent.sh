@@ -16,62 +16,12 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output not to contain '$unexpected', got '$actual')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
-assert_exit_zero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (command exited non-zero)"
-    fi
-}
 
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
 # --- Test environment setup ---
 
@@ -134,21 +84,21 @@ CODEAGENT="$TMPDIR_TEST/.aitask-scripts/aitask_codeagent.sh"
 # Test 2: list-agents outputs all 3 agents
 echo "--- Test 2: list-agents ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" list-agents 2>&1)
-assert_contains "list-agents shows claudecode" "AGENT:claudecode" "$output"
-assert_contains "list-agents shows codex" "AGENT:codex" "$output"
-assert_contains "list-agents shows opencode" "AGENT:opencode" "$output"
+assert_contains_ci "list-agents shows claudecode" "AGENT:claudecode" "$output"
+assert_contains_ci "list-agents shows codex" "AGENT:codex" "$output"
+assert_contains_ci "list-agents shows opencode" "AGENT:opencode" "$output"
 
 # Test 3: list-models claudecode shows expected models
 echo "--- Test 3: list-models claudecode ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" list-models claudecode 2>&1)
-assert_contains "list-models shows opus4_6" "MODEL:opus4_6" "$output"
-assert_contains "list-models shows sonnet4_6" "MODEL:sonnet4_6" "$output"
-assert_contains "list-models shows haiku4_5" "MODEL:haiku4_5" "$output"
-assert_contains "list-models shows opus4_7" "MODEL:opus4_7" "$output"
-assert_contains "list-models shows opus4_7_1m" "MODEL:opus4_7_1m" "$output"
-assert_contains "list-models shows cli_id" "CLI_ID:claude-opus-4-6" "$output"
-assert_contains "list-models shows notes" "NOTES:" "$output"
-assert_contains "list-models shows verified" "VERIFIED:" "$output"
+assert_contains_ci "list-models shows opus4_6" "MODEL:opus4_6" "$output"
+assert_contains_ci "list-models shows sonnet4_6" "MODEL:sonnet4_6" "$output"
+assert_contains_ci "list-models shows haiku4_5" "MODEL:haiku4_5" "$output"
+assert_contains_ci "list-models shows opus4_7" "MODEL:opus4_7" "$output"
+assert_contains_ci "list-models shows opus4_7_1m" "MODEL:opus4_7_1m" "$output"
+assert_contains_ci "list-models shows cli_id" "CLI_ID:claude-opus-4-6" "$output"
+assert_contains_ci "list-models shows notes" "NOTES:" "$output"
+assert_contains_ci "list-models shows verified" "VERIFIED:" "$output"
 
 # Test 4: list-models with invalid agent
 echo "--- Test 4: list-models invalid agent ---"
@@ -157,16 +107,16 @@ assert_exit_nonzero "list-models with invalid agent" bash -c "cd '$TMPDIR_TEST' 
 # Test 5: resolve pick returns claudecode/opus4_8 (current default)
 echo "--- Test 5: resolve pick ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve pick 2>&1)
-assert_contains "resolve returns opus4_8 for pick" "AGENT_STRING:claudecode/opus4_8" "$output"
-assert_contains "resolve returns agent" "AGENT:claudecode" "$output"
-assert_contains "resolve returns model" "MODEL:opus4_8" "$output"
-assert_contains "resolve returns cli_id" "CLI_ID:claude-opus-4-8" "$output"
+assert_contains_ci "resolve returns opus4_8 for pick" "AGENT_STRING:claudecode/opus4_8" "$output"
+assert_contains_ci "resolve returns agent" "AGENT:claudecode" "$output"
+assert_contains_ci "resolve returns model" "MODEL:opus4_8" "$output"
+assert_contains_ci "resolve returns cli_id" "CLI_ID:claude-opus-4-8" "$output"
 
 # Test 6: resolve with --agent-string override
 echo "--- Test 6: resolve with --agent-string override ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 resolve pick 2>&1)
-assert_contains "override agent string" "AGENT_STRING:codex/gpt5_4" "$output"
-assert_contains "override resolves codex" "AGENT:codex" "$output"
+assert_contains_ci "override agent string" "AGENT_STRING:codex/gpt5_4" "$output"
+assert_contains_ci "override resolves codex" "AGENT:codex" "$output"
 
 # Test 7: resolve with local config overrides project config
 echo "--- Test 7: resolve with local config ---"
@@ -178,7 +128,7 @@ cat > "$TMPDIR_TEST/aitasks/metadata/codeagent_config.local.json" << 'LOCALEOF'
 }
 LOCALEOF
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve pick 2>&1)
-assert_contains "local config overrides project config" "AGENT_STRING:codex/gpt5_4" "$output"
+assert_contains_ci "local config overrides project config" "AGENT_STRING:codex/gpt5_4" "$output"
 # Clean up local config
 rm "$TMPDIR_TEST/aitasks/metadata/codeagent_config.local.json"
 
@@ -186,11 +136,11 @@ rm "$TMPDIR_TEST/aitasks/metadata/codeagent_config.local.json"
 echo "--- Test 8: check valid agent string ---"
 if command -v claude &>/dev/null; then
     output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" check "claudecode/sonnet4_6" 2>&1)
-    assert_contains "check shows OK" "OK" "$output"
+    assert_contains_ci "check shows OK" "OK" "$output"
 else
     # claude not in PATH - check should fail with binary-not-found, not format error
     output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" check "claudecode/sonnet4_6" 2>&1) || true
-    assert_contains "check reports binary not found" "not found" "$output"
+    assert_contains_ci "check reports binary not found" "not found" "$output"
     TOTAL=$((TOTAL + 1))
     PASS=$((PASS + 1))  # This is expected behavior
 fi
@@ -207,53 +157,53 @@ assert_exit_nonzero "check rejects unknown model" bash -c "cd '$TMPDIR_TEST' && 
 # Test 11: --dry-run invoke
 echo "--- Test 11: --dry-run invoke ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke pick 42 2>&1)
-assert_contains "dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
-assert_contains "dry-run contains claude" "claude" "$output"
-assert_contains "dry-run contains model flag" "claude-opus-4-8" "$output"
-assert_contains "dry-run contains aitask-pick" "aitask-pick" "$output"
-assert_contains "dry-run contains task number" "42" "$output"
+assert_contains_ci "dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
+assert_contains_ci "dry-run contains claude" "claude" "$output"
+assert_contains_ci "dry-run contains model flag" "claude-opus-4-8" "$output"
+assert_contains_ci "dry-run contains aitask-pick" "aitask-pick" "$output"
+assert_contains_ci "dry-run contains task number" "42" "$output"
 
 # Test 11b: Codex interactive skill invokes plan-mode helper
 echo "--- Test 11b: Codex pick dry-run uses plan helper ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke pick 42 2>&1)
-assert_contains "codex pick dry-run uses helper" "aitask_codex_plan_invoke" "$output"
-assert_contains "codex pick dry-run contains prompt flag" "prompt" "$output"
-assert_contains "codex pick dry-run contains aitask-pick" "aitask-pick" "$output"
-assert_contains "codex pick dry-run contains task number" "42" "$output"
-assert_contains "codex pick dry-run contains codex binary" "codex" "$output"
-assert_contains "codex pick dry-run contains codex model" "gpt-5.4" "$output"
+assert_contains_ci "codex pick dry-run uses helper" "aitask_codex_plan_invoke" "$output"
+assert_contains_ci "codex pick dry-run contains prompt flag" "prompt" "$output"
+assert_contains_ci "codex pick dry-run contains aitask-pick" "aitask-pick" "$output"
+assert_contains_ci "codex pick dry-run contains task number" "42" "$output"
+assert_contains_ci "codex pick dry-run contains codex binary" "codex" "$output"
+assert_contains_ci "codex pick dry-run contains codex model" "gpt-5.4" "$output"
 
 # Test 11c: Codex explore (a planning skill) also uses the plan-mode helper
 echo "--- Test 11c: Codex explore dry-run uses plan helper ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke explore 2>&1)
-assert_contains "codex explore dry-run uses helper" "aitask_codex_plan_invoke" "$output"
-assert_contains "codex explore dry-run contains aitask-explore" "aitask-explore" "$output"
+assert_contains_ci "codex explore dry-run uses helper" "aitask_codex_plan_invoke" "$output"
+assert_contains_ci "codex explore dry-run contains aitask-explore" "aitask-explore" "$output"
 
 # Test 11c2: Codex analysis skills (qa, explain) launch directly in default mode
 echo "--- Test 11c2: Codex qa/explain dry-runs bypass the plan helper ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke explain src/main.py 2>&1)
-assert_not_contains "codex explain bypasses plan helper" "aitask_codex_plan_invoke" "$output"
-assert_contains "codex explain dry-run contains aitask-explain" "aitask-explain" "$output"
-assert_contains "codex explain dry-run contains path" "src/main.py" "$output"
-assert_contains "codex explain dry-run contains codex binary" "codex" "$output"
+assert_not_contains_ci "codex explain bypasses plan helper" "aitask_codex_plan_invoke" "$output"
+assert_contains_ci "codex explain dry-run contains aitask-explain" "aitask-explain" "$output"
+assert_contains_ci "codex explain dry-run contains path" "src/main.py" "$output"
+assert_contains_ci "codex explain dry-run contains codex binary" "codex" "$output"
 
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke qa 42 2>&1)
-assert_not_contains "codex qa bypasses plan helper" "aitask_codex_plan_invoke" "$output"
-assert_contains "codex qa dry-run contains aitask-qa" "aitask-qa" "$output"
-assert_contains "codex qa dry-run contains task number" "42" "$output"
-assert_contains "codex qa dry-run contains codex binary" "codex" "$output"
+assert_not_contains_ci "codex qa bypasses plan helper" "aitask_codex_plan_invoke" "$output"
+assert_contains_ci "codex qa dry-run contains aitask-qa" "aitask-qa" "$output"
+assert_contains_ci "codex qa dry-run contains task number" "42" "$output"
+assert_contains_ci "codex qa dry-run contains codex binary" "codex" "$output"
 
 # Test 11d: Codex passthrough operations do not use plan-mode helper
 echo "--- Test 11d: Codex passthrough dry-runs stay direct ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke raw hello 2>&1)
-assert_not_contains "codex raw bypasses plan helper" "aitask_codex_plan_invoke" "$output"
-assert_contains "codex raw stays direct" "codex" "$output"
-assert_contains "codex raw keeps raw argument" "hello" "$output"
+assert_not_contains_ci "codex raw bypasses plan helper" "aitask_codex_plan_invoke" "$output"
+assert_contains_ci "codex raw stays direct" "codex" "$output"
+assert_contains_ci "codex raw keeps raw argument" "hello" "$output"
 
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke batch-review review-me 2>&1)
-assert_not_contains "codex batch-review bypasses plan helper" "aitask_codex_plan_invoke" "$output"
-assert_contains "codex batch-review stays direct" "codex" "$output"
-assert_contains "codex batch-review keeps argument" "review-me" "$output"
+assert_not_contains_ci "codex batch-review bypasses plan helper" "aitask_codex_plan_invoke" "$output"
+assert_contains_ci "codex batch-review stays direct" "codex" "$output"
+assert_contains_ci "codex batch-review keeps argument" "review-me" "$output"
 
 # Test 11e: claudecode batch-review is interactive by default; --headless opts
 # into headless --print (Claude Code bills print mode at a higher rate).
@@ -261,16 +211,16 @@ echo "--- Test 11e: claudecode batch-review --headless gating ---"
 # Needles use the literal "--print" flag; the assert helpers guard grep with
 # `--`, so a dash-prefixed needle is matched correctly (regression test for t920).
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string claudecode/opus4_8 --dry-run invoke batch-review review-me 2>&1)
-assert_not_contains "claudecode batch-review interactive by default (no --print)" "--print" "$output"
-assert_contains "claudecode batch-review keeps argument" "review-me" "$output"
+assert_not_contains_ci "claudecode batch-review interactive by default (no --print)" "--print" "$output"
+assert_contains_ci "claudecode batch-review keeps argument" "review-me" "$output"
 
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string claudecode/opus4_8 --headless --dry-run invoke batch-review review-me 2>&1)
-assert_contains "claudecode --headless batch-review adds --print" "--print review-me" "$output"
+assert_contains_ci "claudecode --headless batch-review adds --print" "--print review-me" "$output"
 
 # Test 12: coauthor-domain reads configured domain
 echo "--- Test 12: coauthor-domain configured ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor-domain 2>&1)
-assert_contains "coauthor-domain returns configured domain" "COAUTHOR_DOMAIN:aitasks.io" "$output"
+assert_contains_ci "coauthor-domain returns configured domain" "COAUTHOR_DOMAIN:aitasks.io" "$output"
 
 # Test 13: coauthor-domain falls back when field is missing
 echo "--- Test 13: coauthor-domain fallback on missing field ---"
@@ -278,7 +228,7 @@ cat > "$TMPDIR_TEST/aitasks/metadata/project_config.yaml" << 'YAMLEOF'
 verify_build:
 YAMLEOF
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor-domain 2>&1)
-assert_contains "coauthor-domain falls back to default" "COAUTHOR_DOMAIN:aitasks.io" "$output"
+assert_contains_ci "coauthor-domain falls back to default" "COAUTHOR_DOMAIN:aitasks.io" "$output"
 
 # Test 14: coauthor-domain falls back on empty field
 echo "--- Test 14: coauthor-domain fallback on empty field ---"
@@ -287,7 +237,7 @@ codeagent_coauthor_domain:
 verify_build:
 YAMLEOF
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor-domain 2>&1)
-assert_contains "coauthor-domain empty field falls back" "COAUTHOR_DOMAIN:aitasks.io" "$output"
+assert_contains_ci "coauthor-domain empty field falls back" "COAUTHOR_DOMAIN:aitasks.io" "$output"
 
 # Restore project config for remaining tests
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
@@ -295,10 +245,10 @@ cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/met
 # Test 15: coauthor returns Codex metadata
 echo "--- Test 15: coauthor Codex metadata ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor codex/gpt5_4 2>&1)
-assert_contains "coauthor returns agent string" "AGENT_STRING:codex/gpt5_4" "$output"
-assert_contains "coauthor returns name" "AGENT_COAUTHOR_NAME:Codex/GPT5.4" "$output"
-assert_contains "coauthor returns email" "AGENT_COAUTHOR_EMAIL:codex@aitasks.io" "$output"
-assert_contains "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Codex/GPT5.4 <codex@aitasks.io>" "$output"
+assert_contains_ci "coauthor returns agent string" "AGENT_STRING:codex/gpt5_4" "$output"
+assert_contains_ci "coauthor returns name" "AGENT_COAUTHOR_NAME:Codex/GPT5.4" "$output"
+assert_contains_ci "coauthor returns email" "AGENT_COAUTHOR_EMAIL:codex@aitasks.io" "$output"
+assert_contains_ci "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Codex/GPT5.4 <codex@aitasks.io>" "$output"
 
 # Test 16: coauthor uses configured custom domain
 echo "--- Test 16: coauthor custom domain ---"
@@ -307,13 +257,13 @@ codeagent_coauthor_domain: codex.example
 verify_build:
 YAMLEOF
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor codex/gpt5_3codex 2>&1)
-assert_contains "coauthor uses custom domain for email" "AGENT_COAUTHOR_EMAIL:codex@codex.example" "$output"
-assert_contains "coauthor uses model-aware trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Codex/GPT5.3-Codex <codex@codex.example>" "$output"
+assert_contains_ci "coauthor uses custom domain for email" "AGENT_COAUTHOR_EMAIL:codex@codex.example" "$output"
+assert_contains_ci "coauthor uses model-aware trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Codex/GPT5.3-Codex <codex@codex.example>" "$output"
 
 # Test 17: coauthor falls back to raw model token when model is unknown
 echo "--- Test 17: coauthor unknown model fallback ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor codex/custom_model 2>&1)
-assert_contains "coauthor falls back to raw model token" "AGENT_COAUTHOR_NAME:Codex/custom_model" "$output"
+assert_contains_ci "coauthor falls back to raw model token" "AGENT_COAUTHOR_NAME:Codex/custom_model" "$output"
 
 # Restore project config before Claude coauthor tests
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
@@ -321,10 +271,10 @@ cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/met
 # Test 18: coauthor returns Claude Code metadata
 echo "--- Test 18: coauthor Claude Code metadata ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor claudecode/opus4_6 2>&1)
-assert_contains "coauthor returns agent string" "AGENT_STRING:claudecode/opus4_6" "$output"
-assert_contains "coauthor returns name" "AGENT_COAUTHOR_NAME:Claude Code/Opus 4.6" "$output"
-assert_contains "coauthor returns email" "AGENT_COAUTHOR_EMAIL:claudecode@aitasks.io" "$output"
-assert_contains "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Claude Code/Opus 4.6 <claudecode@aitasks.io>" "$output"
+assert_contains_ci "coauthor returns agent string" "AGENT_STRING:claudecode/opus4_6" "$output"
+assert_contains_ci "coauthor returns name" "AGENT_COAUTHOR_NAME:Claude Code/Opus 4.6" "$output"
+assert_contains_ci "coauthor returns email" "AGENT_COAUTHOR_EMAIL:claudecode@aitasks.io" "$output"
+assert_contains_ci "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Claude Code/Opus 4.6 <claudecode@aitasks.io>" "$output"
 
 # Test 19: coauthor Claude Code uses configured custom domain
 echo "--- Test 19: coauthor Claude Code custom domain ---"
@@ -333,28 +283,28 @@ codeagent_coauthor_domain: claude.example
 verify_build:
 YAMLEOF
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor claudecode/sonnet4_6 2>&1)
-assert_contains "coauthor uses custom domain for email" "AGENT_COAUTHOR_EMAIL:claudecode@claude.example" "$output"
-assert_contains "coauthor uses model-aware trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Claude Code/Sonnet 4.6 <claudecode@claude.example>" "$output"
+assert_contains_ci "coauthor uses custom domain for email" "AGENT_COAUTHOR_EMAIL:claudecode@claude.example" "$output"
+assert_contains_ci "coauthor uses model-aware trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Claude Code/Sonnet 4.6 <claudecode@claude.example>" "$output"
 
 # Test 20: coauthor Claude Code falls back to raw model token when unknown
 echo "--- Test 20: coauthor Claude Code unknown model fallback ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor claudecode/unknown_model 2>&1)
-assert_contains "coauthor falls back to raw model token" "AGENT_COAUTHOR_NAME:Claude Code/unknown_model" "$output"
+assert_contains_ci "coauthor falls back to raw model token" "AGENT_COAUTHOR_NAME:Claude Code/unknown_model" "$output"
 
 # Test 21: coauthor Claude Code handles haiku model with date suffix in cli_id
 echo "--- Test 21: coauthor Claude Code haiku model ---"
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor claudecode/haiku4_5 2>&1)
-assert_contains "coauthor strips date suffix from haiku" "AGENT_COAUTHOR_NAME:Claude Code/Haiku 4.5" "$output"
+assert_contains_ci "coauthor strips date suffix from haiku" "AGENT_COAUTHOR_NAME:Claude Code/Haiku 4.5" "$output"
 
 # Test 22: coauthor returns OpenCode metadata (Claude model via opencode)
 echo "--- Test 22: coauthor OpenCode metadata ---"
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/opencode_claude_opus_4_6 2>&1)
-assert_contains "coauthor returns agent string" "AGENT_STRING:opencode/opencode_claude_opus_4_6" "$output"
-assert_contains "coauthor returns name" "AGENT_COAUTHOR_NAME:OpenCode/Claude Opus 4.6" "$output"
-assert_contains "coauthor returns email" "AGENT_COAUTHOR_EMAIL:opencode@aitasks.io" "$output"
-assert_contains "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: OpenCode/Claude Opus 4.6 <opencode@aitasks.io>" "$output"
+assert_contains_ci "coauthor returns agent string" "AGENT_STRING:opencode/opencode_claude_opus_4_6" "$output"
+assert_contains_ci "coauthor returns name" "AGENT_COAUTHOR_NAME:OpenCode/Claude Opus 4.6" "$output"
+assert_contains_ci "coauthor returns email" "AGENT_COAUTHOR_EMAIL:opencode@aitasks.io" "$output"
+assert_contains_ci "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: OpenCode/Claude Opus 4.6 <opencode@aitasks.io>" "$output"
 
 # Test 23: coauthor OpenCode uses configured custom domain
 echo "--- Test 23: coauthor OpenCode custom domain ---"
@@ -363,24 +313,24 @@ codeagent_coauthor_domain: opencode.example
 verify_build:
 YAMLEOF
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/opencode_gpt_5_4 2>&1)
-assert_contains "coauthor uses custom domain for email" "AGENT_COAUTHOR_EMAIL:opencode@opencode.example" "$output"
-assert_contains "coauthor uses model-aware trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: OpenCode/GPT 5.4 <opencode@opencode.example>" "$output"
+assert_contains_ci "coauthor uses custom domain for email" "AGENT_COAUTHOR_EMAIL:opencode@opencode.example" "$output"
+assert_contains_ci "coauthor uses model-aware trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: OpenCode/GPT 5.4 <opencode@opencode.example>" "$output"
 
 # Test 24: coauthor OpenCode falls back to raw model token when unknown
 echo "--- Test 24: coauthor OpenCode unknown model fallback ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/custom_model 2>&1)
-assert_contains "coauthor falls back to raw model token" "AGENT_COAUTHOR_NAME:OpenCode/custom_model" "$output"
+assert_contains_ci "coauthor falls back to raw model token" "AGENT_COAUTHOR_NAME:OpenCode/custom_model" "$output"
 
 # Test 25: coauthor OpenCode with GPT-style model (openai provider prefix)
 echo "--- Test 25: coauthor OpenCode GPT model ---"
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/openai_gpt_5_1_codex 2>&1)
-assert_contains "coauthor returns GPT name" "AGENT_COAUTHOR_NAME:OpenCode/GPT 5.1 Codex" "$output"
+assert_contains_ci "coauthor returns GPT name" "AGENT_COAUTHOR_NAME:OpenCode/GPT 5.1 Codex" "$output"
 
 # Test 25b: coauthor OpenCode with GPT 5.4 openai provider entry
 echo "--- Test 25b: coauthor OpenCode GPT 5.4 openai provider ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/openai_gpt_5_4 2>&1)
-assert_contains "coauthor returns GPT 5.4 name" "AGENT_COAUTHOR_NAME:OpenCode/GPT 5.4" "$output"
+assert_contains_ci "coauthor returns GPT 5.4 name" "AGENT_COAUTHOR_NAME:OpenCode/GPT 5.4" "$output"
 
 # Restore project config before help and remaining tests
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
@@ -388,17 +338,17 @@ cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/met
 # Test 27: --help shows usage
 echo "--- Test 27: --help ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --help 2>&1)
-assert_contains "help shows Usage" "Usage:" "$output"
-assert_contains "help shows list-agents" "list-agents" "$output"
-assert_contains "help shows list-models" "list-models" "$output"
-assert_contains "help shows coauthor" "coauthor <agent-string>" "$output"
-assert_contains "help shows coauthor-domain" "coauthor-domain" "$output"
-assert_contains "help shows resolution chain" "Resolution chain" "$output"
+assert_contains_ci "help shows Usage" "Usage:" "$output"
+assert_contains_ci "help shows list-agents" "list-agents" "$output"
+assert_contains_ci "help shows list-models" "list-models" "$output"
+assert_contains_ci "help shows coauthor" "coauthor <agent-string>" "$output"
+assert_contains_ci "help shows coauthor-domain" "coauthor-domain" "$output"
+assert_contains_ci "help shows resolution chain" "Resolution chain" "$output"
 
 # Test 28: resolve explain uses sonnet
 echo "--- Test 28: resolve explain uses sonnet ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve explain 2>&1)
-assert_contains "resolve explain returns sonnet4_6" "AGENT_STRING:claudecode/sonnet4_6" "$output"
+assert_contains_ci "resolve explain returns sonnet4_6" "AGENT_STRING:claudecode/sonnet4_6" "$output"
 
 # Test 29: resolve with unknown operation
 echo "--- Test 29: resolve unknown operation ---"
@@ -407,7 +357,7 @@ assert_exit_nonzero "resolve rejects unknown operation" bash -c "cd '$TMPDIR_TES
 # Test 30: no command shows help
 echo "--- Test 30: no command shows help ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" 2>&1)
-assert_contains "no command shows usage" "Usage:" "$output"
+assert_contains_ci "no command shows usage" "Usage:" "$output"
 
 # Test 31: unknown command fails
 echo "--- Test 31: unknown command ---"

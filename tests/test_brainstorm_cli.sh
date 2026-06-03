@@ -29,56 +29,12 @@ _inc_fail() {
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    if [[ "$expected" == "$actual" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$expected"; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_file_exists() {
-    local desc="$1" file="$2"
-    if [[ -f "$file" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (file '$file' does not exist)"
-    fi
-}
 
-assert_dir_exists() {
-    local desc="$1" dir="$2"
-    if [[ -d "$dir" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (directory '$dir' does not exist)"
-    fi
-}
 
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    if "$@" >/dev/null 2>&1; then
-        _inc_fail
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        _inc_pass
-    fi
-}
 
 # --- Setup: create isolated git repo ---
 
@@ -186,7 +142,7 @@ TMPDIR_T1="$(setup_test_repo)"
 (
     cd "$TMPDIR_T1"
     output=$(bash .aitask-scripts/aitask_brainstorm_init.sh 999 2>&1)
-    assert_contains "init outputs INITIALIZED" "INITIALIZED:999" "$output"
+    assert_contains_ci "init outputs INITIALIZED" "INITIALIZED:999" "$output"
 
     WT=".aitask-crews/crew-brainstorm-999"
     assert_file_exists "br_session.yaml created" "$WT/br_session.yaml"
@@ -231,8 +187,8 @@ TMPDIR_T4="$(setup_test_repo)"
     cd "$TMPDIR_T4"
     bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
     output=$(bash .aitask-scripts/aitask_brainstorm_status.sh 999 2>&1)
-    assert_contains "status shows task_id" "999" "$output"
-    assert_contains "status shows status" "init" "$output"
+    assert_contains_ci "status shows task_id" "999" "$output"
+    assert_contains_ci "status shows status" "init" "$output"
 )
 cleanup_test_repo "$TMPDIR_T4"
 
@@ -243,8 +199,8 @@ TMPDIR_T5="$(setup_test_repo)"
     cd "$TMPDIR_T5"
     bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
     output=$(bash .aitask-scripts/aitask_brainstorm_status.sh --list 2>&1)
-    assert_contains "list shows task num" "999" "$output"
-    assert_contains "list shows status" "init" "$output"
+    assert_contains_ci "list shows task num" "999" "$output"
+    assert_contains_ci "list shows status" "init" "$output"
 )
 cleanup_test_repo "$TMPDIR_T5"
 
@@ -279,8 +235,8 @@ TMPDIR_T8="$(setup_test_repo)"
 (
     cd "$TMPDIR_T8"
     output=$(bash .aitask-scripts/aitask_brainstorm_init.sh --help 2>&1)
-    assert_contains "help shows usage" "Usage" "$output"
-    assert_contains "help shows task_num" "task_num" "$output"
+    assert_contains_ci "help shows usage" "Usage" "$output"
+    assert_contains_ci "help shows task_num" "task_num" "$output"
 )
 cleanup_test_repo "$TMPDIR_T8"
 
@@ -296,7 +252,7 @@ TMPDIR_T9="$(setup_test_repo)"
 
     # Delete with --yes to skip confirmation
     output=$(bash .aitask-scripts/aitask_brainstorm_delete.sh 999 --yes 2>&1)
-    assert_contains "delete outputs DELETED" "DELETED:999" "$output"
+    assert_contains_ci "delete outputs DELETED" "DELETED:999" "$output"
 
     # Verify session is gone
     output=$("$PYTHON" .aitask-scripts/brainstorm/brainstorm_cli.py exists --task-num 999 2>&1)
@@ -326,8 +282,8 @@ TMPDIR_T9B="$(setup_test_repo)"
     fi
 
     output=$(bash .aitask-scripts/aitask_brainstorm_delete.sh 999 --yes 2>&1)
-    assert_contains "delete outputs DELETED" "DELETED:999" "$output"
-    assert_contains "delete reports branch cleanup" "Cleaned: stale crew-brainstorm-999 branch removed" "$output"
+    assert_contains_ci "delete outputs DELETED" "DELETED:999" "$output"
+    assert_contains_ci "delete reports branch cleanup" "Cleaned: stale crew-brainstorm-999 branch removed" "$output"
 
     # Branch should be gone after delete (regression guard for t662).
     if git show-ref --verify --quiet "refs/heads/crew-brainstorm-999"; then
@@ -365,8 +321,8 @@ TMPDIR_T11="$(setup_test_repo)"
     bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
     # Archive without generating any plan — HEAD node has no plan_file
     output=$(bash .aitask-scripts/aitask_brainstorm_archive.sh 999 2>&1)
-    assert_contains "archive outputs NO_PLAN warning" "NO_PLAN" "$output"
-    assert_contains "archive outputs ARCHIVED" "ARCHIVED:999" "$output"
+    assert_contains_ci "archive outputs NO_PLAN warning" "NO_PLAN" "$output"
+    assert_contains_ci "archive outputs ARCHIVED" "ARCHIVED:999" "$output"
 )
 cleanup_test_repo "$TMPDIR_T11"
 

@@ -26,67 +26,13 @@ _inc_fail() {
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    if [[ "$expected" == "$actual" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$expected"; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" not_expected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$not_expected"; then
-        _inc_fail
-        echo "FAIL: $desc (did NOT expect '$not_expected' in output)"
-    else
-        _inc_pass
-    fi
-}
 
-assert_file_exists() {
-    local desc="$1" file="$2"
-    if [[ -f "$file" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (file '$file' does not exist)"
-    fi
-}
 
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    if "$@" >/dev/null 2>&1; then
-        _inc_fail
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        _inc_pass
-    fi
-}
 
-assert_exit_zero() {
-    local desc="$1"
-    shift
-    if "$@" >/dev/null 2>&1; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected zero exit, got non-zero)"
-    fi
-}
 
 # --- Setup: create isolated git repo with crew worktree ---
 
@@ -189,10 +135,10 @@ TMPDIR_T2="$(setup_test_repo)"
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --batch 2>&1)
 
-    assert_contains "agent_a is ready" "agent_a" "$output"
-    assert_not_contains "agent_b not ready yet" "Would launch agent 'agent_b'" "$output"
-    assert_not_contains "agent_c not ready yet" "Would launch agent 'agent_c'" "$output"
-    assert_contains "dry run completes" "ONCE_COMPLETE" "$output"
+    assert_contains_ci "agent_a is ready" "agent_a" "$output"
+    assert_not_contains_ci "agent_b not ready yet" "Would launch agent 'agent_b'" "$output"
+    assert_not_contains_ci "agent_c not ready yet" "Would launch agent 'agent_c'" "$output"
+    assert_contains_ci "dry run completes" "ONCE_COMPLETE" "$output"
 )
 cleanup_test_repo "$TMPDIR_T2"
 
@@ -215,8 +161,8 @@ update_yaml_field('$wt/agent_a_status.yaml', 'status', 'Completed')
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --batch 2>&1)
 
-    assert_contains "agent_b becomes ready" "agent_b" "$output"
-    assert_not_contains "agent_c not ready yet (needs B)" "Would launch agent 'agent_c'" "$output"
+    assert_contains_ci "agent_b becomes ready" "agent_b" "$output"
+    assert_not_contains_ci "agent_c not ready yet (needs B)" "Would launch agent 'agent_c'" "$output"
 )
 cleanup_test_repo "$TMPDIR_T3"
 
@@ -245,7 +191,7 @@ update_yaml_field('$wt/agent_b_status.yaml', 'status', 'Completed')
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --batch 2>&1)
 
-    assert_contains "agent_c becomes ready" "agent_c" "$output"
+    assert_contains_ci "agent_c becomes ready" "agent_c" "$output"
 )
 cleanup_test_repo "$TMPDIR_T4"
 
@@ -348,7 +294,7 @@ TMPDIR_T7="$(setup_test_repo)"
 
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --check --batch 2>&1 || true)
-    assert_contains "check reports not_running" "RUNNER_STATUS:not_running" "$output"
+    assert_contains_ci "check reports not_running" "RUNNER_STATUS:not_running" "$output"
 
     # Write alive file for a running runner
     $PYTHON -c "
@@ -370,9 +316,9 @@ write_yaml('$wt/_runner_alive.yaml', {
 
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --check --batch 2>&1 || true)
-    assert_contains "check reports running" "RUNNER_STATUS:running" "$output"
-    assert_contains "check reports hostname" "RUNNER_HOSTNAME:" "$output"
-    assert_contains "check reports alive" "RUNNER_ALIVE:" "$output"
+    assert_contains_ci "check reports running" "RUNNER_STATUS:running" "$output"
+    assert_contains_ci "check reports hostname" "RUNNER_HOSTNAME:" "$output"
+    assert_contains_ci "check reports alive" "RUNNER_ALIVE:" "$output"
 )
 cleanup_test_repo "$TMPDIR_T7"
 
@@ -395,12 +341,12 @@ YAML
     #  but we can verify it doesn't crash when reading the config)
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --batch 2>&1)
-    assert_contains "runner works with config file" "ONCE_COMPLETE" "$output"
+    assert_contains_ci "runner works with config file" "ONCE_COMPLETE" "$output"
 
     # CLI args should override config
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --batch --interval 10 --max-concurrent 1 2>&1)
-    assert_contains "runner works with CLI overrides" "ONCE_COMPLETE" "$output"
+    assert_contains_ci "runner works with CLI overrides" "ONCE_COMPLETE" "$output"
 
     # Only 1 agent should launch with max-concurrent=1
     launch_count=$(echo "$output" | grep -c "DRY_RUN: Would launch" || true)
@@ -428,7 +374,7 @@ update_yaml_field('$wt/${agent}_status.yaml', 'status', 'Completed')
 
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --batch 2>&1)
-    assert_contains "detects all terminal" "ALL_TERMINAL" "$output"
+    assert_contains_ci "detects all terminal" "ALL_TERMINAL" "$output"
 )
 cleanup_test_repo "$TMPDIR_T9"
 
@@ -460,7 +406,7 @@ write_yaml('$wt/_runner_alive.yaml', {
     # Should succeed (stale runner, take over)
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --batch 2>&1)
-    assert_contains "takes over stale runner" "ONCE_COMPLETE" "$output"
+    assert_contains_ci "takes over stale runner" "ONCE_COMPLETE" "$output"
 )
 cleanup_test_repo "$TMPDIR_T10"
 
@@ -486,11 +432,11 @@ update_yaml_field('$wt/${agent}_status.yaml', 'error_message', 'Heartbeat timeou
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --reset-errors --batch 2>&1)
 
-    assert_contains "dry-run reset agent_a" "RESET_DRY:agent_a" "$output"
-    assert_contains "dry-run reset agent_b" "RESET_DRY:agent_b" "$output"
-    assert_contains "dry-run reset agent_c" "RESET_DRY:agent_c" "$output"
+    assert_contains_ci "dry-run reset agent_a" "RESET_DRY:agent_a" "$output"
+    assert_contains_ci "dry-run reset agent_b" "RESET_DRY:agent_b" "$output"
+    assert_contains_ci "dry-run reset agent_c" "RESET_DRY:agent_c" "$output"
     # In dry-run mode agents stay Error, so ALL_TERMINAL is expected
-    assert_contains "dry-run still shows ALL_TERMINAL" "ALL_TERMINAL" "$output"
+    assert_contains_ci "dry-run still shows ALL_TERMINAL" "ALL_TERMINAL" "$output"
 )
 cleanup_test_repo "$TMPDIR_T11"
 
@@ -514,7 +460,7 @@ update_yaml_field('$wt/${agent}_status.yaml', 'status', 'Error')
 
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --batch 2>&1)
-    assert_contains "all-Error triggers ALL_TERMINAL" "ALL_TERMINAL" "$output"
+    assert_contains_ci "all-Error triggers ALL_TERMINAL" "ALL_TERMINAL" "$output"
 )
 cleanup_test_repo "$TMPDIR_T12"
 
@@ -527,11 +473,11 @@ TMPDIR_T13="$(setup_test_repo)"
 
     output=$(bash .aitask-scripts/aitask_crew_command.sh send --crew testcrew \
         --agent agent_a --command reset 2>&1)
-    assert_contains "reset command accepted" "COMMAND_SENT:reset" "$output"
+    assert_contains_ci "reset command accepted" "COMMAND_SENT:reset" "$output"
 
     output=$(bash .aitask-scripts/aitask_crew_command.sh list --crew testcrew \
         --agent agent_a 2>&1)
-    assert_contains "reset command listed" "reset" "$output"
+    assert_contains_ci "reset command listed" "reset" "$output"
 )
 cleanup_test_repo "$TMPDIR_T13"
 
@@ -564,7 +510,7 @@ write_yaml('$wt/agent_a_commands.yaml', {
     # Use --dry-run to prevent agent launch after reset
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --batch 2>&1)
-    assert_contains "runner resets agent_a via command" "CMD_RESET:agent_a" "$output"
+    assert_contains_ci "runner resets agent_a via command" "CMD_RESET:agent_a" "$output"
 
     # Verify status is now Waiting (process_pending_commands modifies even in dry-run)
     status=$($PYTHON -c "

@@ -26,46 +26,11 @@ _inc_fail() {
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    if [[ "$expected" == "$actual" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$expected"; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$expected"; then
-        _inc_fail
-        echo "FAIL: $desc (expected output NOT containing '$expected', got '$actual')"
-    else
-        _inc_pass
-    fi
-}
 
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    if "$@" >/dev/null 2>&1; then
-        _inc_fail
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        _inc_pass
-    fi
-}
 
 # --- Setup: create isolated git repo with crew ---
 
@@ -151,11 +116,11 @@ TMPDIR_T1="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T1"
     export PYTHONPATH=".aitask-scripts"
     output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py --batch summary --crew rptcrew 2>&1)
-    assert_contains "batch has CREW_ID" "CREW_ID:rptcrew" "$output"
-    assert_contains "batch has CREW_STATUS" "CREW_STATUS:" "$output"
-    assert_contains "batch has agent_a" "AGENT:agent_a" "$output"
-    assert_contains "batch has agent_b" "AGENT:agent_b" "$output"
-    assert_contains "batch has agent_c" "AGENT:agent_c" "$output"
+    assert_contains_ci "batch has CREW_ID" "CREW_ID:rptcrew" "$output"
+    assert_contains_ci "batch has CREW_STATUS" "CREW_STATUS:" "$output"
+    assert_contains_ci "batch has agent_a" "AGENT:agent_a" "$output"
+    assert_contains_ci "batch has agent_b" "AGENT:agent_b" "$output"
+    assert_contains_ci "batch has agent_c" "AGENT:agent_c" "$output"
 )
 cleanup_test_repo "$TMPDIR_T1"
 
@@ -167,9 +132,9 @@ TMPDIR_T2="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T2"
     export PYTHONPATH=".aitask-scripts"
     output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py summary --crew rptcrew 2>&1)
-    assert_contains "interactive has crew name" "rptcrew" "$output"
-    assert_contains "interactive has agent_a" "agent_a" "$output"
-    assert_contains "interactive has Completed" "Completed" "$output"
+    assert_contains_ci "interactive has crew name" "rptcrew" "$output"
+    assert_contains_ci "interactive has agent_a" "agent_a" "$output"
+    assert_contains_ci "interactive has Completed" "Completed" "$output"
 )
 cleanup_test_repo "$TMPDIR_T2"
 
@@ -181,10 +146,10 @@ TMPDIR_T3="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T3"
     export PYTHONPATH=".aitask-scripts"
     output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py --batch detail --crew rptcrew --agent agent_a 2>&1)
-    assert_contains "detail has AGENT" "AGENT:agent_a" "$output"
-    assert_contains "detail has STATUS" "STATUS:Completed" "$output"
-    assert_contains "detail has HAS_WORK2DO" "HAS_WORK2DO:true" "$output"
-    assert_contains "detail has HAS_OUTPUT" "HAS_OUTPUT:true" "$output"
+    assert_contains_ci "detail has AGENT" "AGENT:agent_a" "$output"
+    assert_contains_ci "detail has STATUS" "STATUS:Completed" "$output"
+    assert_contains_ci "detail has HAS_WORK2DO" "HAS_WORK2DO:true" "$output"
+    assert_contains_ci "detail has HAS_OUTPUT" "HAS_OUTPUT:true" "$output"
 )
 cleanup_test_repo "$TMPDIR_T3"
 
@@ -199,8 +164,8 @@ TMPDIR_T4="$(setup_test_repo)"
 
     export PYTHONPATH=".aitask-scripts"
     output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py --batch output --crew rptcrew 2>&1)
-    assert_contains "output has agent_a section" "OUTPUT_AGENT:agent_a" "$output"
-    assert_contains "output has agent_b section" "OUTPUT_AGENT:agent_b" "$output"
+    assert_contains_ci "output has agent_a section" "OUTPUT_AGENT:agent_a" "$output"
+    assert_contains_ci "output has agent_b section" "OUTPUT_AGENT:agent_b" "$output"
     # agent_a should come before agent_b (it has no deps)
     pos_a=$(echo "$output" | grep -n "OUTPUT_AGENT:agent_a" | head -1 | cut -d: -f1)
     pos_b=$(echo "$output" | grep -n "OUTPUT_AGENT:agent_b" | head -1 | cut -d: -f1)
@@ -221,8 +186,8 @@ TMPDIR_T5="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T5"
     export PYTHONPATH=".aitask-scripts"
     output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py --batch list 2>&1)
-    assert_contains "list has CREW" "CREW:rptcrew" "$output"
-    assert_contains "list has AGENTS" "AGENTS:3" "$output"
+    assert_contains_ci "list has CREW" "CREW:rptcrew" "$output"
+    assert_contains_ci "list has AGENTS" "AGENTS:3" "$output"
 )
 cleanup_test_repo "$TMPDIR_T5"
 
@@ -248,7 +213,7 @@ TMPDIR_T7="$(setup_test_repo)"
     mv "$tmp_status" ".aitask-crews/crew-cleanme/_crew_status.yaml"
 
     output=$(bash .aitask-scripts/aitask_crew_cleanup.sh --crew cleanme --batch 2>&1)
-    assert_contains "cleanup outputs CLEANED" "CLEANED:cleanme" "$output"
+    assert_contains_ci "cleanup outputs CLEANED" "CLEANED:cleanme" "$output"
 
     if [[ -d ".aitask-crews/crew-cleanme" ]]; then
         _inc_fail
@@ -267,7 +232,7 @@ TMPDIR_T8="$(setup_test_repo)"
     bash .aitask-scripts/aitask_crew_init.sh --id running --batch >/dev/null 2>&1
     # Status is Initializing (non-terminal) by default
     output=$(bash .aitask-scripts/aitask_crew_cleanup.sh --crew running --batch 2>&1) || true
-    assert_contains "cleanup outputs NOT_TERMINAL" "NOT_TERMINAL:running" "$output"
+    assert_contains_ci "cleanup outputs NOT_TERMINAL" "NOT_TERMINAL:running" "$output"
 
     if [[ -d ".aitask-crews/crew-running" ]]; then
         _inc_pass
@@ -292,8 +257,8 @@ TMPDIR_T9="$(setup_test_repo)"
     mv "$tmp_status" ".aitask-crews/crew-done1/_crew_status.yaml"
 
     output=$(bash .aitask-scripts/aitask_crew_cleanup.sh --all-completed --batch 2>&1)
-    assert_contains "cleaned done1" "CLEANED:done1" "$output"
-    assert_contains "refused active1" "NOT_TERMINAL:active1" "$output"
+    assert_contains_ci "cleaned done1" "CLEANED:done1" "$output"
+    assert_contains_ci "refused active1" "NOT_TERMINAL:active1" "$output"
 
     if [[ -d ".aitask-crews/crew-active1" ]]; then
         _inc_pass
@@ -317,7 +282,7 @@ TMPDIR_T10="$(setup_test_repo)"
     mv "$tmp_status" ".aitask-crews/crew-delbranch/_crew_status.yaml"
 
     output=$(bash .aitask-scripts/aitask_crew_cleanup.sh --crew delbranch --delete-branch --batch 2>&1)
-    assert_contains "cleanup outputs CLEANED" "CLEANED:delbranch" "$output"
+    assert_contains_ci "cleanup outputs CLEANED" "CLEANED:delbranch" "$output"
 
     if git show-ref --verify refs/heads/crew-delbranch &>/dev/null; then
         _inc_fail
@@ -335,7 +300,7 @@ TMPDIR_T11="$(setup_test_repo)"
     cd "$TMPDIR_T11"
     export PYTHONPATH=".aitask-scripts"
     output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py --batch list 2>&1)
-    assert_contains "no crews" "NO_CREWS" "$output"
+    assert_contains_ci "no crews" "NO_CREWS" "$output"
 )
 cleanup_test_repo "$TMPDIR_T11"
 

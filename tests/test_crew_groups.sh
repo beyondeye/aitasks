@@ -26,55 +26,12 @@ _inc_fail() {
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    if [[ "$expected" == "$actual" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$expected"; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" not_expected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$not_expected"; then
-        _inc_fail
-        echo "FAIL: $desc (did NOT expect '$not_expected' in output)"
-    else
-        _inc_pass
-    fi
-}
 
-assert_file_exists() {
-    local desc="$1" file="$2"
-    if [[ -f "$file" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (file '$file' does not exist)"
-    fi
-}
 
-assert_file_not_exists() {
-    local desc="$1" file="$2"
-    if [[ ! -f "$file" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (file '$file' should not exist)"
-    fi
-}
 
 # --- Setup ---
 
@@ -165,8 +122,8 @@ TMPDIR_T2="$(setup_test_repo)"
 
     wt=".aitask-crews/crew-testcrew"
     assert_file_exists "_groups.yaml created" "$wt/_groups.yaml"
-    assert_contains "_groups.yaml has explore_001" "explore_001" "$(cat "$wt/_groups.yaml")"
-    assert_contains "_groups.yaml has sequence 1" "sequence: 1" "$(cat "$wt/_groups.yaml")"
+    assert_contains_ci "_groups.yaml has explore_001" "explore_001" "$(cat "$wt/_groups.yaml")"
+    assert_contains_ci "_groups.yaml has sequence 1" "sequence: 1" "$(cat "$wt/_groups.yaml")"
 )
 cleanup_test_repo "$TMPDIR_T2"
 
@@ -188,9 +145,9 @@ TMPDIR_T3="$(setup_test_repo)"
 
     wt=".aitask-crews/crew-testcrew"
     groups_content="$(cat "$wt/_groups.yaml")"
-    assert_contains "has explore_001" "explore_001" "$groups_content"
-    assert_contains "has compare_002" "compare_002" "$groups_content"
-    assert_contains "has sequence 2" "sequence: 2" "$groups_content"
+    assert_contains_ci "has explore_001" "explore_001" "$groups_content"
+    assert_contains_ci "has compare_002" "compare_002" "$groups_content"
+    assert_contains_ci "has sequence 2" "sequence: 2" "$groups_content"
 )
 cleanup_test_repo "$TMPDIR_T3"
 
@@ -251,8 +208,8 @@ write_yaml('$wt/_crew_meta.yaml', meta)
         --crew testcrew --once --dry-run --batch 2>&1)
 
     # Only agent_a (alpha_001, seq 1) should be launched
-    assert_contains "agent_a is launched" "Would launch agent 'agent_a'" "$output"
-    assert_not_contains "agent_b not launched" "Would launch agent 'agent_b'" "$output"
+    assert_contains_ci "agent_a is launched" "Would launch agent 'agent_a'" "$output"
+    assert_not_contains_ci "agent_b not launched" "Would launch agent 'agent_b'" "$output"
 )
 cleanup_test_repo "$TMPDIR_T5"
 
@@ -273,8 +230,8 @@ TMPDIR_T6="$(setup_test_repo)"
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
         --crew testcrew --once --dry-run --batch 2>&1)
 
-    assert_contains "agent_a is ready" "agent_a" "$output"
-    assert_contains "dry run completes" "ONCE_COMPLETE" "$output"
+    assert_contains_ci "agent_a is ready" "agent_a" "$output"
+    assert_contains_ci "dry run completes" "ONCE_COMPLETE" "$output"
 )
 cleanup_test_repo "$TMPDIR_T6"
 
@@ -311,15 +268,15 @@ update_yaml_field('$wt/${a}_status.yaml', 'status', 'Running')
         --crew testcrew --group explore_001 --command pause 2>&1)
 
     # agent_a and agent_b should get the command
-    assert_contains "agent_a got command" "COMMAND_SENT:pause" "$output"
+    assert_contains_ci "agent_a got command" "COMMAND_SENT:pause" "$output"
 
     # Check agent_c did NOT get a command
     cmd_c_content=$(cat "$wt/agent_c_commands.yaml")
-    assert_not_contains "agent_c no command" "pause" "$cmd_c_content"
+    assert_not_contains_ci "agent_c no command" "pause" "$cmd_c_content"
 
     # Check agent_a DID get a command
     cmd_a_content=$(cat "$wt/agent_a_commands.yaml")
-    assert_contains "agent_a has pause" "pause" "$cmd_a_content"
+    assert_contains_ci "agent_a has pause" "pause" "$cmd_a_content"
 )
 cleanup_test_repo "$TMPDIR_T7"
 
@@ -342,8 +299,8 @@ TMPDIR_T8="$(setup_test_repo)"
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_status.py \
         --crew testcrew list --group explore_001 2>&1)
 
-    assert_contains "agent_a shown" "agent_a" "$output"
-    assert_not_contains "agent_b not shown" "agent_b" "$output"
+    assert_contains_ci "agent_a shown" "agent_a" "$output"
+    assert_not_contains_ci "agent_b not shown" "agent_b" "$output"
 )
 cleanup_test_repo "$TMPDIR_T8"
 
@@ -366,8 +323,8 @@ TMPDIR_T9="$(setup_test_repo)"
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_report.py \
         --batch summary --crew testcrew --group explore_001 2>&1)
 
-    assert_contains "agent_a shown" "agent_a" "$output"
-    assert_not_contains "agent_b not shown" "agent_b" "$output"
+    assert_contains_ci "agent_a shown" "agent_a" "$output"
+    assert_not_contains_ci "agent_b not shown" "agent_b" "$output"
 )
 cleanup_test_repo "$TMPDIR_T9"
 

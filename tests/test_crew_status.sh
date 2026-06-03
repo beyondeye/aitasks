@@ -26,46 +26,11 @@ _inc_fail() {
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    if [[ "$expected" == "$actual" ]]; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
+# Shared assertion helpers (see tests/lib/asserts.sh)
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$expected"; then
-        _inc_pass
-    else
-        _inc_fail
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
 
-assert_not_contains() {
-    local desc="$1" unexpected="$2" actual="$3"
-    if echo "$actual" | grep -qi -- "$unexpected"; then
-        _inc_fail
-        echo "FAIL: $desc (output should NOT contain '$unexpected')"
-    else
-        _inc_pass
-    fi
-}
 
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    if "$@" >/dev/null 2>&1; then
-        _inc_fail
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        _inc_pass
-    fi
-}
 
 # --- Find Python ---
 find_python() {
@@ -260,7 +225,7 @@ print(sorted(cycle))
 " 2>&1)
     assert_eq "topo sort order" "a,b,c" "$(echo "$result" | sed -n '1p')"
     assert_eq "no cycle in valid DAG" "None" "$(echo "$result" | sed -n '2p')"
-    assert_contains "cycle detected" "a" "$(echo "$result" | sed -n '3p')"
+    assert_contains_ci "cycle detected" "a" "$(echo "$result" | sed -n '3p')"
 else
     echo "SKIP: Python not available"
     for _ in $(seq 3); do _inc_pass; done
@@ -351,13 +316,13 @@ if [[ -n "$PYTHON" ]]; then
         cd "$TMPDIR_T7"
         export PYTHONPATH=".aitask-scripts"
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew get 2>&1)
-        assert_contains "crew status shown" "CREW_STATUS:" "$output"
-        assert_contains "crew progress shown" "CREW_PROGRESS:" "$output"
+        assert_contains_ci "crew status shown" "CREW_STATUS:" "$output"
+        assert_contains_ci "crew progress shown" "CREW_PROGRESS:" "$output"
 
         # Get agent status
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner get 2>&1)
-        assert_contains "agent status shown" "AGENT_STATUS:Waiting" "$output"
-        assert_contains "agent progress shown" "AGENT_PROGRESS:0" "$output"
+        assert_contains_ci "agent status shown" "AGENT_STATUS:Waiting" "$output"
+        assert_contains_ci "agent progress shown" "AGENT_PROGRESS:0" "$output"
     )
     cleanup_test_repo "$TMPDIR_T7"
 else
@@ -376,19 +341,19 @@ if [[ -n "$PYTHON" ]]; then
 
         # Waiting -> Ready
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Ready 2>&1)
-        assert_contains "set Waiting->Ready" "STATUS_SET:planner:Waiting:Ready" "$output"
+        assert_contains_ci "set Waiting->Ready" "STATUS_SET:planner:Waiting:Ready" "$output"
 
         # Ready -> Running
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Running 2>&1)
-        assert_contains "set Ready->Running" "STATUS_SET:planner:Ready:Running" "$output"
+        assert_contains_ci "set Ready->Running" "STATUS_SET:planner:Ready:Running" "$output"
 
         # Running -> Completed
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Completed 2>&1)
-        assert_contains "set Running->Completed" "STATUS_SET:planner:Running:Completed" "$output"
+        assert_contains_ci "set Running->Completed" "STATUS_SET:planner:Running:Completed" "$output"
 
         # Verify crew status recomputed (planner Completed, coder Waiting -> Running)
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew get 2>&1)
-        assert_contains "crew status recomputed" "CREW_STATUS:Running" "$output"
+        assert_contains_ci "crew status recomputed" "CREW_STATUS:Running" "$output"
     )
     cleanup_test_repo "$TMPDIR_T8"
 else
@@ -425,7 +390,7 @@ if [[ -n "$PYTHON" ]]; then
         export PYTHONPATH=".aitask-scripts"
 
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner heartbeat --message "working on it" 2>&1)
-        assert_contains "heartbeat updated" "HEARTBEAT_UPDATED:planner" "$output"
+        assert_contains_ci "heartbeat updated" "HEARTBEAT_UPDATED:planner" "$output"
 
         # Verify alive file updated
         alive_file=".aitask-crews/crew-testcrew/planner_alive.yaml"
@@ -452,9 +417,9 @@ if [[ -n "$PYTHON" ]]; then
         export PYTHONPATH=".aitask-scripts"
 
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew list 2>&1)
-        assert_contains "planner listed" "AGENT:planner" "$output"
-        assert_contains "coder listed" "AGENT:coder" "$output"
-        assert_contains "ready agents shown" "READY_AGENTS:" "$output"
+        assert_contains_ci "planner listed" "AGENT:planner" "$output"
+        assert_contains_ci "coder listed" "AGENT:coder" "$output"
+        assert_contains_ci "ready agents shown" "READY_AGENTS:" "$output"
     )
     cleanup_test_repo "$TMPDIR_T11"
 else
@@ -471,12 +436,12 @@ setup_crew_with_agents "$TMPDIR_T12"
 
     # Send a kill command
     output=$(bash .aitask-scripts/aitask_crew_command.sh send --crew testcrew --agent planner --command kill 2>&1)
-    assert_contains "command sent" "COMMAND_SENT:kill" "$output"
+    assert_contains_ci "command sent" "COMMAND_SENT:kill" "$output"
 
     # List commands
     output=$(bash .aitask-scripts/aitask_crew_command.sh list --crew testcrew --agent planner 2>&1)
-    assert_contains "kill command listed" "kill" "$output"
-    assert_not_contains "not empty" "NO_COMMANDS" "$output"
+    assert_contains_ci "kill command listed" "kill" "$output"
+    assert_not_contains_ci "not empty" "NO_COMMANDS" "$output"
 )
 cleanup_test_repo "$TMPDIR_T12"
 
@@ -492,11 +457,11 @@ setup_crew_with_agents "$TMPDIR_T13"
 
     # Ack
     output=$(bash .aitask-scripts/aitask_crew_command.sh ack --crew testcrew --agent planner 2>&1)
-    assert_contains "commands acked" "COMMANDS_ACKED:planner" "$output"
+    assert_contains_ci "commands acked" "COMMANDS_ACKED:planner" "$output"
 
     # Verify empty
     output=$(bash .aitask-scripts/aitask_crew_command.sh list --crew testcrew --agent planner 2>&1)
-    assert_contains "no commands after ack" "NO_COMMANDS" "$output"
+    assert_contains_ci "no commands after ack" "NO_COMMANDS" "$output"
 )
 cleanup_test_repo "$TMPDIR_T13"
 
@@ -526,11 +491,11 @@ if [[ -n "$PYTHON" ]]; then
 
         # MissedHeartbeat is no longer accepted — the CLI must reject it.
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status MissedHeartbeat 2>&1 || true)
-        assert_contains "MissedHeartbeat rejected as unknown status" "Invalid status" "$output"
+        assert_contains_ci "MissedHeartbeat rejected as unknown status" "Invalid status" "$output"
 
         # Running -> Error (genuine self-reported failure)
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Error 2>&1)
-        assert_contains "set Running->Error self-reported" "STATUS_SET:planner:Running:Error" "$output"
+        assert_contains_ci "set Running->Error self-reported" "STATUS_SET:planner:Running:Error" "$output"
 
         # completed_at must be stamped on terminal self-report (Error included).
         completed_at_err=$($PYTHON -c "
@@ -542,7 +507,7 @@ print(bool(read_yaml('.aitask-crews/crew-testcrew/planner_status.yaml').get('com
 
         # Error -> Completed (direct recovery — preserved from prior behavior)
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner set --status Completed 2>&1)
-        assert_contains "set Error->Completed (direct recovery)" "STATUS_SET:planner:Error:Completed" "$output"
+        assert_contains_ci "set Error->Completed (direct recovery)" "STATUS_SET:planner:Error:Completed" "$output"
 
         # Verify completed_at was stamped on the Error->Completed transition
         completed_at=$($PYTHON -c "
