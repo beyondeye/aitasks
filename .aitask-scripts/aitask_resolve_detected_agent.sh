@@ -9,7 +9,8 @@
 #   AGENT_STRING:<agent>/<name>            — suffix match found (opencode only)
 #   AGENT_STRING_FALLBACK:<agent>/<cli_id> — no match, raw cli_id used
 #
-# If AITASK_AGENT_STRING env var is set, outputs it directly (fast path).
+# AITASK_AGENT_STRING env var acts as a default only when neither --agent nor
+# --cli-id is passed; explicit args always win for deterministic resolution.
 
 set -euo pipefail
 
@@ -21,12 +22,6 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 
 METADATA_DIR="${TASK_DIR:-aitasks}/metadata"
 SUPPORTED_AGENTS=(claudecode codex opencode)
-
-# --- Fast path: env var override ---
-if [[ -n "${AITASK_AGENT_STRING:-}" ]]; then
-    echo "AGENT_STRING:${AITASK_AGENT_STRING}"
-    exit 0
-fi
 
 # --- Argument parsing ---
 agent=""
@@ -47,6 +42,14 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# --- Fast path: env var default (only when no explicit args) ---
+# Explicit --agent/--cli-id always win for deterministic resolution; the env var
+# acts only as a default when the caller passes neither.
+if [[ -z "$agent" && -z "$cli_id" && -n "${AITASK_AGENT_STRING:-}" ]]; then
+    echo "AGENT_STRING:${AITASK_AGENT_STRING}"
+    exit 0
+fi
 
 if [[ -z "$agent" ]]; then
     die "Missing required argument: --agent"

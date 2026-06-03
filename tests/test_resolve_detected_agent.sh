@@ -48,9 +48,13 @@ echo "=== Test: env var fast path ==="
 result=$(AITASK_AGENT_STRING="claudecode/opus4_6" bash "$RESOLVE_SCRIPT" 2>&1)
 assert_eq "env var returns AGENT_STRING" "AGENT_STRING:claudecode/opus4_6" "$result"
 
-echo "=== Test: env var overrides args ==="
+echo "=== Test: explicit args override env var ==="
 result=$(AITASK_AGENT_STRING="custom/model" bash "$RESOLVE_SCRIPT" --agent codex --cli-id gpt-5.4 2>&1)
-assert_eq "env var overrides --agent/--cli-id" "AGENT_STRING:custom/model" "$result"
+assert_eq "explicit --agent/--cli-id beats env var" "AGENT_STRING:codex/gpt5_4" "$result"
+
+echo "=== Test: explicit cli-id wins over env var (t703 regression) ==="
+result=$(AITASK_AGENT_STRING="claudecode/opus4_7_1m" bash "$RESOLVE_SCRIPT" --agent claudecode --cli-id claude-opus-4-6 2>&1)
+assert_eq "t703: explicit claude-opus-4-6 resolves despite env var" "AGENT_STRING:claudecode/opus4_6" "$result"
 
 echo "=== Test: exact match claudecode ==="
 result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent claudecode --cli-id claude-opus-4-6 2>&1)
