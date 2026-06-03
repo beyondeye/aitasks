@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t749_8]
 issue_type: documentation
-status: Ready
+status: Folded
 labels: [ait_brainstorm]
+folded_into: 929
 created_at: 2026-05-16 22:28
-updated_at: 2026-05-16 22:28
+updated_at: 2026-06-03 14:06
 boardidx: 110
 ---
 
