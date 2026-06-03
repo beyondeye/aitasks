@@ -4,7 +4,7 @@ Rules for code authoring in the aitasks framework. **Language-agnostic** —
 the rules below apply equally to bash, Python, and any other language used in
 the project. (Shell-specific portability quirks live in
 `aidocs/framework/sed_macos_issues.md`; general shell style — shebang, `set -euo
-pipefail`, error helpers — lives directly in `CLAUDE.md`.)
+pipefail`, error helpers — lives in `aidocs/framework/shell_conventions.md`.)
 
 ## Source-trace comments for help text condensed from other files
 

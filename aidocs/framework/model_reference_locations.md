@@ -48,7 +48,9 @@ Self-Detection / Agent Attribution, the system-message "exact model ID" for the
 `aitask_resolve_detected_agent.sh --cli-id` **verbatim**. Stripping `[1m]`
 resolves to `claudecode/opus4_7` instead of `claudecode/opus4_7_1m`,
 mis-attributing `implemented_with` and skewing per-model verified/usage scores.
-(See CLAUDE.md "Model Attribution" for the detection-time rule.)
+(See the Model Self-Detection Sub-Procedure,
+`.claude/skills/task-workflow/model-self-detection.md`, for the detection-time
+rule.)
 
 ### 2. Operational defaults (per-op agent strings)
 

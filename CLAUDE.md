@@ -94,42 +94,12 @@ flags for automation) modes. Example: `aitask_create.sh --batch --name "task"
 > editing `aitask_setup.sh` or anything in the install flow, fixing an
 > OS-specific bug, or touching framework PATH / binary shimming.
 
-## Shell Conventions
-
-- **Shebang:** Always `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system
-  bash is 3.2; `env bash` picks up brew-installed bash 5.x from PATH.
-- All scripts use `set -euo pipefail`.
-- Error helpers: `die()` (fatal), `warn()`, `info()` from `terminal_compat.sh`.
-- Guard against double-sourcing with `_AIT_*_LOADED` variables.
-- Platform detection: `detect_platform()` returns `github|gitlab|bitbucket`
-  from git remote URL.
-- Task/plan resolution functions live in `task_utils.sh`.
-- **Platform-specific CLIs (gh/glab/bitbucket):** encapsulate in bash scripts
-  that route via `detect_platform()`. `SKILL.md` must call a script
-  subcommand, never `gh`, `glab`, or the Bitbucket API directly.
-- **Archive format details (tar.gz/tar.zst/zstd):** encapsulate in bash
-  scripts. `SKILL.md` must call a script subcommand — never raw archive
-  tooling. Format migrations then happen in one place.
-- Use `sed_inplace()` from `terminal_compat.sh` — never `sed -i`.
-- **System libs added to `./ait`'s source-on-startup chain must also be added
-  to `tests/lib/test_scaffold.sh::setup_fake_aitask_repo()` in the same PR.**
-  43 tests scaffold a fake `.aitask-scripts/lib/` via that helper; a missing
-  entry crashes every one of them with `No such file or directory` the next
-  time `./ait` (or a helper that learns to source the new lib) is invoked
-  from the fake repo. Current baseline: `aitask_path.sh`, `terminal_compat.sh`,
-  `python_resolve.sh`, `yaml_utils.sh`, `cross_repo_reexec.sh`.
-- **Avoid `claude -p` / `claude --print` (headless print mode) in scripts and
-  skills.** Claude Code bills headless print mode at a higher per-token rate
-  than interactive invocations against an existing session. Default to
-  interactive mode; gate any genuinely non-interactive need (e.g. CI) behind an
-  explicit opt-in flag (as `ait codeagent --headless` does for `batch-review`).
-  This applies to skill `.md` files too. See
-  `aidocs/framework/skill_authoring_conventions.md` ("Do not route skill
-  invocation through `claude -p`") for the skill-rendering rationale.
-
-> **macOS portability quirks** (BSD sed vs GNU sed, `grep -P` unavailable,
-> `wc -l` padding, `mktemp --suffix`, `base64 -D` vs `-d`): see
-> `aidocs/framework/sed_macos_issues.md`.
+> **Read `aidocs/framework/shell_conventions.md`** when writing or editing any
+> shell script under `.aitask-scripts/` — shebang (`#!/usr/bin/env bash`),
+> `set -euo pipefail`, error helpers, `sed_inplace()`, platform/archive CLI
+> encapsulation, the source-on-startup ↔ test-scaffold rule, and the
+> `claude -p` headless-mode caveat. macOS portability quirks (BSD vs GNU sed,
+> `grep -P`, etc.) live in `aidocs/framework/sed_macos_issues.md`.
 
 ## CLI Conventions
 
@@ -163,53 +133,12 @@ lives on a separate branch.
 
 In legacy mode (no separate branch), `ait git` passes through to plain `git`.
 
-## Documentation Writing
-
-User-facing docs (website, README-level content) describe the **current state
-only**.
-
-- No "earlier versions of this page said…", "previously we recommended…",
-  "this used to be wrong", "this corrects an earlier mistake".
-- State correct behavior positively. Version history belongs in git and PR
-  descriptions, not in doc bodies.
-- Internal plan files (`aiplans/`) may still record deviations from earlier
-  plans — the rule applies to user-facing content.
-- **"Delete X, eventually integrate into Y" means redirect cross-refs now,
-  defer content migration.** Read Y first. If Y already covers the essential
-  content, "integrate" collapses to updating cross-references from X to Y —
-  do not wholesale-migrate X's prose into Y in the same task. Defer the
-  richer integration as a follow-up task and surface cross-reference
-  redirects explicitly in Post-Review Changes (they break silently if
-  missed).
-
-> **Read `aidocs/framework/documentation_conventions.md`** when writing user-facing doc
-> prose — especially manual-verification auto-mode descriptions (say
-> "autonomous", not "auto-execution") or any passage that names the supported
-> coding agents (genericize the list).
-
-## Model Attribution
-
-When running the Model Self-Detection sub-procedure in Claude Code, scan the
-conversation for **mid-session `/model` switches before** falling back to the
-initial system message.
-
-- The system message's "exact model ID" is frozen at session start. A
-  `/model` command does **not** update it, so using the system-message value
-  after a switch records the wrong model.
-- Search for the most recent `<local-command-stdout>Set model to
-  …</local-command-stdout>` line. If found, map the human-readable name (e.g.,
-  "Opus 4.7 (1M context)") to the cli_id via
-  `./.aitask-scripts/aitask_resolve_detected_agent.sh --agent claudecode
-  --cli-id <id>`.
-- Only fall back to the system-message model ID if no mid-session switch is
-  visible.
-- **When you do fall back to the system-message exact ID, pass it verbatim.**
-  The 1M-context Opus variant's exact ID carries a bracketed `[1m]` suffix
-  (e.g. `claude-opus-4-7[1m]`); stripping it resolves to the non-1M entry
-  (`claudecode/opus4_7` instead of `claudecode/opus4_7_1m`) and mis-attributes
-  the model. See `aidocs/framework/model_reference_locations.md`.
-- If the human name is ambiguous (e.g., "Opus 4.7" without the `1M` suffix),
-  ask the user which variant.
+> **Read `aidocs/framework/documentation_conventions.md`** when writing user-facing
+> doc prose — the current-state-only rule (no version history in doc bodies),
+> the "delete X / integrate into Y means redirect cross-refs now" rule,
+> manual-verification auto-mode descriptions (say "autonomous", not
+> "auto-execution"), and genericizing any passage that names the supported
+> coding agents.
 
 ## Working on Skills / Custom Commands
 
@@ -217,8 +146,8 @@ The **source of truth** for skills and custom commands is the Claude Code
 implementation in `.claude/skills/`.
 
 The framework also supports Codex CLI and OpenCode:
-- **Codex CLI:** `.agents/skills/` (shared with future `agy` agent — see
-  "Skill templating and per-profile dispatch" below); `.codex/` holds
+- **Codex CLI:** `.agents/skills/` (shared root with the future `agy` agent —
+  see `aidocs/framework/skill_authoring_conventions.md`); `.codex/` holds
   only `config.toml` and `instructions.md`
 - **OpenCode:** `.opencode/skills/<name>/SKILL.md` and `.opencode/commands/`
 
@@ -248,57 +177,16 @@ in the other supported coding agents.
 > to the framework (skill discovery / rendering, shared-root semantics,
 > rerender driver, headless variants, goldens regeneration).
 
-### Skill templating and per-profile dispatch
-
-Profile-aware skills are authored as `.claude/skills/<skill>/SKILL.md.j2` (Claude
-is the single source of truth). Each agent has a thin profile-agnostic **stub**
-at its discovery surface. At invocation time the stub resolves the active
-profile (default OR `--profile <name>` override on `ARGUMENTS`), runs
-`./.aitask-scripts/aitask_skill_render.sh`, then Read-and-follows the rendered
-variant. Rendered files are autogenerated; never edit them by hand.
-
-Per-agent stub surface and rendered-variant location:
-
-| Agent | Stub location | Rendered variant location |
-|-------|---------------|---------------------------|
-| Claude | `.claude/skills/<skill>/SKILL.md` | `.claude/skills/<skill>-<profile>-/SKILL.md` |
-| Codex | `.agents/skills/<skill>/SKILL.md` | `.agents/skills/<skill>-<profile>-codex-/SKILL.md` |
-| OpenCode | `.opencode/commands/<skill>.md` | `.opencode/skills/<skill>-<profile>-/SKILL.md` |
-
-Rendered dir names end with a hyphen so each agent root has a single `*-/`
-`.gitignore` glob. Authoring dir names MUST NOT end with `-`. Shared roots
-(currently `.agents/skills/` for codex; +`agy` later) carry an extra
-`-<agent>-` segment to prevent collisions — the predicate is declared in
-`agent_skill_root` / `agent_shared_skills_root` in
-`.aitask-scripts/lib/agent_skills_paths.sh` (Python mirror:
-`AGENT_SHARED_SKILLS_ROOT` in `lib/skill_template.py`).
-
-Invocation paths:
-- From inside an agent session: `/aitask-pick --profile fast 42`.
-- From the shell: `ait skillrun pick --profile fast 42`
-  (honors `--profile-override <yaml|->` for ad-hoc YAML merges, `--dry-run`
-  to preview the launch command).
-
-Jinja conditional patterns inside `.md.j2` and closure procedures:
-- `{% if profile.<key> %}` — branch on profile keys
-  (`default_email`, `create_worktree`, `plan_preference`, …).
-- `{% if agent == "<name>" %}` — gate per-agent content
-  (currently `aitask-wrap` Step 1b; remaining call-sites tracked in
-  `aidocs/framework/agent_runtime_guards_audit.md`).
-- `{% raw %} … {% endraw %}` for literal `{{` / `{%` that must not be
-  evaluated.
-
-`./.aitask-scripts/aitask_skill_verify.sh` (referenced above) enforces stub
-markers, dep-closure render cleanliness, and headless prerender freshness.
-After **any** `.md.j2` or closure-`.md` edit, regenerate the affected goldens
-under `tests/golden/skills/<skill>/` and `tests/golden/procs/<scope>/` in the
-same commit — see "Regenerate goldens after any `.md.j2` or closure edit"
-in `aidocs/framework/skill_authoring_conventions.md`.
-
 > **Read `aidocs/framework/agent_runtime_guards_audit.md`** when introducing a new
 > `{% if agent %}` gate or moving an existing "If running in Claude Code"
 > runtime guard into a Jinja gate — the audit catalogs the cross-skill
 > cascade impact (Test 1b agent-invariance) before any such move.
+
+The per-profile dispatch model (stub + `.md.j2` pair, per-agent surface table,
+rendered-variant naming, invocation paths, Jinja patterns, goldens) is
+documented in full in `aidocs/framework/skill_authoring_conventions.md` and
+`aidocs/framework/stub-skill-pattern.md` — read those when actually editing
+skill files.
 
 ## TUI Development
 
@@ -335,8 +223,8 @@ in `aidocs/framework/skill_authoring_conventions.md`.
 > **Read `aidocs/framework/code_conventions.md`** when adding a constant or dict that
 > holds user-facing help text condensed from another canonical file
 > (language-agnostic — bash, Python, etc.). Shell-specific portability
-> quirks live in `aidocs/framework/sed_macos_issues.md`; general shell style stays in
-> the Shell Conventions section above.
+> quirks live in `aidocs/framework/sed_macos_issues.md`; general shell style lives in
+> `aidocs/framework/shell_conventions.md`.
 
 ## Reusable Helpers
 
@@ -371,13 +259,6 @@ the existing helper (add a flag) over forking the scan logic.
   settings, brainstorm). Keep `diffviewer` in `KNOWN_TUIS` inside
   `.aitask-scripts/lib/tui_switcher.py` — it must remain switchable via `j`
   until the brainstorm integration lands.
-- **Manual verification.** Tasks with `issue_type: manual_verification`
-  dispatch through a dedicated Pass/Fail/Skip/Defer loop in `/aitask-pick`
-  (Step 3 Check 3 → `.claude/skills/task-workflow/manual-verification.md`).
-  Aggregate-sibling tasks are offered during parent-task planning when ≥2
-  children are created; single-task follow-ups are offered at Step 8c after
-  "Commit changes". See `website/content/docs/workflows/manual-verification.md`
-  for the end-to-end workflow.
 - **Cross-repo coordination.** When a task / plan / commit needs to
   reach into a sibling aitasks project, reference it by logical name —
   never by sibling-directory path (`../aitasks/`). The `ait projects`

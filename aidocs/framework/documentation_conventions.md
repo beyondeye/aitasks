@@ -2,8 +2,25 @@
 
 Conventions for writing aitasks **user-facing** documentation prose (README,
 `website/content/docs/`, CLAUDE.md prose, changelog entries for new changes).
-Companion to CLAUDE.md's "Documentation Writing" section (current-state-only: no
-"previously…", no "this used to be wrong" — version history lives in git / PRs).
+
+## Current-state-only: no version history in doc bodies
+
+User-facing docs (website, README-level content) describe the **current state
+only**.
+
+- No "earlier versions of this page said…", "previously we recommended…",
+  "this used to be wrong", "this corrects an earlier mistake".
+- State correct behavior positively. Version history belongs in git and PR
+  descriptions, not in doc bodies.
+- Internal plan files (`aiplans/`) may still record deviations from earlier
+  plans — the rule applies to user-facing content.
+- **"Delete X, eventually integrate into Y" means redirect cross-refs now,
+  defer content migration.** Read Y first. If Y already covers the essential
+  content, "integrate" collapses to updating cross-references from X to Y —
+  do not wholesale-migrate X's prose into Y in the same task. Defer the
+  richer integration as a follow-up task and surface cross-reference
+  redirects explicitly in Post-Review Changes (they break silently if
+  missed).
 
 ## "Autonomous", not "auto-execution", for manual-verification prose
 
