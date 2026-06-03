@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
+from keybinding_registry import resolve_key  # noqa: E402
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -241,7 +242,7 @@ _OP_LABELS: dict[str, tuple[str, str]] = {
 # When those sources change, update the per-entry source comments below
 # AND the corresponding "summary"/"reads_from_parent"/"produces" fields.
 # Surfaced inline on Step 2+ (one-line header via _mount_op_context_header)
-# and via the "?" shortcut on every wizard step (OperationHelpModal).
+# and via the op-help shortcut on every wizard step (OperationHelpModal).
 _OPERATION_HELP: dict[str, dict] = {
     # Source: .aitask-scripts/brainstorm/templates/explorer.md
     # I/O contract derived from "## Input" (reads parent YAML metadata,
@@ -1503,7 +1504,7 @@ class LogDetailModal(ModalScreen):
 class OperationHelpModal(ModalScreen):
     """Modal showing summary, I/O contract, and use cases for an operation.
 
-    Triggered by the `?` shortcut from any Actions wizard step. On Step 1
+    Triggered by the op-help shortcut from any Actions wizard step. On Step 1
     the op_key comes from the focused `OperationRow`; on Step 2+ it comes
     from `BrainstormApp._wizard_op`. Content is sourced from
     `_OPERATION_HELP` (see the source-trace comments above each entry).
@@ -1526,7 +1527,7 @@ class OperationHelpModal(ModalScreen):
                 Markdown(self._render_markdown(info), id="op_help_content"),
                 id="op_help_scroll",
             )
-            yield Label("[dim]Esc / H close[/]", id="op_help_footer")
+            yield Label("[dim]Esc close[/]", id="op_help_footer")
 
     def _render_markdown(self, info: dict | None) -> str:
         if not info:
@@ -5911,15 +5912,16 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         Called from step 2 onwards so the user remembers which operation
         they're configuring. Full description stays in OperationHelpModal,
-        reachable via the `?` shortcut.
+        reachable via the op-help shortcut.
         """
         info = _OP_LABELS.get(self._wizard_op)
         if not info:
             return
         label_text, desc = info
+        help_key = resolve_key(self._shortcuts_scope, "op_help", "H") or "H"
         container.mount(
             Label(
-                f"[dim]{label_text} — {desc}  (? for details)[/dim]",
+                f"[dim]{label_text} — {desc}  ({help_key} for details)[/dim]",
                 classes="actions_op_context",
             )
         )
