@@ -11,7 +11,7 @@ assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-02 13:47
 updated_at: 2026-06-02 22:39
-boardidx: 140
+boardidx: 150
 boardcol: now
 ---
 
