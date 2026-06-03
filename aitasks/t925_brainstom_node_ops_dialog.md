@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
@@ -7,7 +9,7 @@ status: Implementing
 labels: [ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 11:51
-updated_at: 2026-06-03 11:52
+updated_at: 2026-06-03 12:17
 boardcol: now
 boardidx: 10
 ---
