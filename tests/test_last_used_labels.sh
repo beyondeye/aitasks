@@ -25,7 +25,7 @@ assert_eq() {
 assert_contains() {
     local desc="$1" expected="$2" actual="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF "$expected"; then
+    if echo "$actual" | grep -qF -- "$expected"; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))
@@ -36,7 +36,7 @@ assert_contains() {
 assert_not_contains() {
     local desc="$1" needle="$2" haystack="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$haystack" | grep -qF "$needle"; then
+    if echo "$haystack" | grep -qF -- "$needle"; then
         FAIL=$((FAIL + 1))
         echo "FAIL: $desc (did NOT want '$needle', but it was present)"
     else

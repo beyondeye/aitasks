@@ -45,7 +45,7 @@ assert_not_capable() {
 assert_output_contains() {
     local desc="$1" expected="$2" output="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$output" | grep -qi "$expected"; then
+    if echo "$output" | grep -qi -- "$expected"; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))

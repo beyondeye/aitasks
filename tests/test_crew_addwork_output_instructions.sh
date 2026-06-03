@@ -35,7 +35,7 @@ _inc_fail() {
 
 assert_contains() {
     local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qF "$expected"; then
+    if echo "$actual" | grep -qF -- "$expected"; then
         _inc_pass
     else
         _inc_fail

@@ -38,7 +38,7 @@ assert_eq() {
 
 assert_contains() {
     local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qi "$expected"; then
+    if echo "$actual" | grep -qi -- "$expected"; then
         _inc_pass
     else
         _inc_fail
@@ -48,7 +48,7 @@ assert_contains() {
 
 assert_not_contains() {
     local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qi "$expected"; then
+    if echo "$actual" | grep -qi -- "$expected"; then
         _inc_fail
         echo "FAIL: $desc (expected output NOT containing '$expected', got '$actual')"
     else

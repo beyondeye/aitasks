@@ -41,7 +41,7 @@ assert_eq() {
 
 assert_contains() {
     local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -qi "$expected"; then
+    if echo "$actual" | grep -qi -- "$expected"; then
         _inc_pass
     else
         _inc_fail

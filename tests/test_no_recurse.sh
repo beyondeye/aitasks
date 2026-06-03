@@ -52,7 +52,7 @@ assert_not_contains() {
 assert_match() {
     local desc="$1" pattern="$2" actual="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qE "$pattern"; then
+    if echo "$actual" | grep -qE -- "$pattern"; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))

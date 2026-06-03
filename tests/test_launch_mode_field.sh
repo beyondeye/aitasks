@@ -31,7 +31,7 @@ _inc_fail() {
 
 assert_contains() {
     local desc="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -q "$expected"; then
+    if echo "$actual" | grep -q -- "$expected"; then
         _inc_pass
     else
         _inc_fail
@@ -41,7 +41,7 @@ assert_contains() {
 
 assert_not_contains() {
     local desc="$1" unexpected="$2" actual="$3"
-    if echo "$actual" | grep -q "$unexpected"; then
+    if echo "$actual" | grep -q -- "$unexpected"; then
         _inc_fail
         echo "FAIL: $desc (did not expect '$unexpected' in '$actual')"
     else

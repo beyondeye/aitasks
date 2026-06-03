@@ -29,7 +29,7 @@ assert_eq() {
 assert_contains() {
     local desc="$1" expected="$2" actual="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi "$expected"; then
+    if echo "$actual" | grep -qi -- "$expected"; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))
@@ -40,7 +40,7 @@ assert_contains() {
 assert_not_contains() {
     local desc="$1" unexpected="$2" actual="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qi "$unexpected"; then
+    if echo "$actual" | grep -qi -- "$unexpected"; then
         FAIL=$((FAIL + 1))
         echo "FAIL: $desc (output should NOT contain '$unexpected')"
     else
@@ -73,7 +73,7 @@ assert_symlink() {
 assert_file_contains() {
     local desc="$1" file="$2" pattern="$3"
     TOTAL=$((TOTAL + 1))
-    if [[ -f "$file" ]] && grep -qF "$pattern" "$file"; then
+    if [[ -f "$file" ]] && grep -qF -- "$pattern" "$file"; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))

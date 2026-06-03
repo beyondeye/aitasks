@@ -24,7 +24,7 @@ TOTAL=0
 assert_no_match() {
     local desc="$1" pattern="$2" haystack="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$haystack" | grep -qE "$pattern"; then
+    if echo "$haystack" | grep -qE -- "$pattern"; then
         FAIL=$((FAIL + 1))
         echo "FAIL: $desc"
         echo "  expected NOT to contain: $pattern"
@@ -38,7 +38,7 @@ assert_no_match() {
 assert_match() {
     local desc="$1" pattern="$2" haystack="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$haystack" | grep -qE "$pattern"; then
+    if echo "$haystack" | grep -qE -- "$pattern"; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))

@@ -29,7 +29,7 @@ assert_eq() {
 assert_contains() {
     local desc="$1" expected="$2" actual="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -q "$expected"; then
+    if echo "$actual" | grep -q -- "$expected"; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))
