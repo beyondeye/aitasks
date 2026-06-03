@@ -159,3 +159,39 @@ required.
   · severity: low · → mitigation: none
 
 None of the identified risks warrant before/after mitigation tasks.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all 5 planned changes exactly as designed:
+  1. `.aitask-scripts/aitask_codeagent.sh` — added global `OPT_HEADLESS=false`
+     default, `--headless` parsing in `main()` (mirrors `--dry-run`), gated the
+     `claudecode batch-review` `--print` behind `OPT_HEADLESS`, and updated
+     `show_help()` Options + Examples.
+  2. `aidocs/codeagents/extract_claudecode_tools.sh` — `claude -p` → `claude`
+     (interactive paste-and-go) with an explanatory comment.
+  3. `CLAUDE.md` — added a guard bullet under Shell Conventions discouraging new
+     `claude -p` / `claude --print` usage, pointing at the `--headless` opt-in
+     pattern and the skill-authoring rationale.
+  4. `tests/test_codeagent.sh` — Test 11e asserts the gating both ways.
+  5. `website/content/docs/commands/codeagent.md` — documented `--headless`.
+- **Deviations from plan:** None to the design. One test-mechanics fix: the
+  `assert_contains` helper greps without `--`, so a `--print` needle is parsed
+  as a grep option and errors. Switched the test needles to dash-free forms
+  (`print` / `print review-me`), which remain unambiguous since `print` appears
+  in the dry-run output only inside `--print`.
+- **Issues encountered:** Task line numbers were stale (written 2026-05-17);
+  re-located all call sites against the live tree before editing.
+- **Key decisions:** (a) `--headless` opt-in flag rather than dropping `--print`
+  outright — keeps `batch-review` distinct from `raw` and preserves a CI path
+  (user-confirmed). (b) Kept the extract script runnable but interactive
+  (user-confirmed). (c) The task's literal acceptance grep ("zero matches") is
+  now stale — two intentional prohibition references (skill_authoring_conventions.md,
+  aitask_skillrun.sh comment) postdate the task and must remain. Reinterpreted
+  acceptance as "no actual `claude -p`/`claude --print` invocations remain, and
+  batch-review no longer emits `--print` by default" — both verified.
+- **Upstream defects identified:** aitask_codeagent.sh — None directly caused by
+  this task. Noted but out of scope: `tests/test_codeagent.sh:30` `assert_contains`
+  greps without a `--` guard, so any needle beginning with `-`/`--` is silently
+  misparsed as a grep option (a false PASS for `assert_not_contains`, false FAIL
+  for `assert_contains`). Worked around in this task's test; the helper itself is
+  not hardened. Listed as a candidate follow-up, not fixed here.
