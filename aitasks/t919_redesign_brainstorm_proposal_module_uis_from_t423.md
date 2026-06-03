@@ -10,7 +10,8 @@ updated_at: 2026-06-03 09:30
 ---
 
 Redesign and port **all** salvageable UI/library ideas from the now-obsolete
-t423 ("design and finalize the brainstorm TUI") into the **proposal-only +
+t423 ("design and finalize the brainstorm TUI") **and the unbuilt diffviewer
+child t417_11** ("inline edit mode for main plan") into the **proposal-only +
 modules** world that lands with t756 (module operations) and t891 (retire
 plans, make `ait brainstorm` proposal-only).
 
@@ -113,6 +114,22 @@ agent against the node's `br_proposals/<id>.md`, write the refined proposal
 back, optionally trigger a reconcile. Replaces the retired Detailer flow with a
 proposal-phase interactive refiner.
 
+### From t417_11 — inline edit→re-diff loop, re-scoped to proposals
+t417_11 (active, unbuilt — the only remaining child of t417, whose diffviewer
+itself already shipped) adds an in-TUI markdown editor to the diffviewer: press
+`e` → edit the **main plan** in a `TextArea(language="markdown")` modal
+(`edit_screen.py`, not yet created) → `ctrl+s` saves and **automatically
+recomputes the diff** (`_compute_diffs()` → `_on_diffs_ready()` →
+`_load_current_view()`). The value is the **tight edit→save→re-diff feedback
+loop**, not the plan scope. **Port:** make the editable target the node's
+**proposal** (`br_proposals/<id>.md`), keep "only the main side is editable,
+comparison sides read-only", and re-diff against the comparison proposal(s) on
+save. This composes directly with the t423_8 proposal diff/merge component and
+the t423_10 annotation editor (the inline editor is the free-form counterpart to
+annotation-driven edits). Reference patterns: `aitask_board.py`'s
+`CommitMessageScreen(ModalScreen)` for the modal-with-text-input shape;
+`diff_viewer_screen.py` for the edit-keybinding + return-and-refresh wiring.
+
 ### Relationship to the existing (built) Compare tab
 t423_5 already shipped a **dimension-matrix** compare tab (structured DataTable
 over requirements/assumptions/components/tradeoffs). The diffviewer port adds the
@@ -140,13 +157,19 @@ selection UX.
   proposal/`module_*` surfaces are the targets).
 - `ait brainstorm` is unshipped — no back-compat / migration concerns.
 
-## Cleanup of t423 (do this as the FINAL step of THIS task, after the redesign lands)
-Once the redesign is implemented, remove the superseded t423 source (its ideas
-now live here):
+## Cleanup of t423 + t417_11 (do this as the FINAL step of THIS task, after the redesign lands)
+Once the redesign is implemented, remove the superseded sources (their ideas now
+live here):
 - `./ait git rm aitasks/t423_design_and_finalize_brainstorm_tui.md`
 - `./ait git rm aitasks/t423/t423_8_*.md aitasks/t423/t423_9_*.md aitasks/t423/t423_10_*.md aitasks/t423/t423_11_*.md`
 - `./ait git rm aiplans/p423/p423_8_*.md aiplans/p423/p423_9_*.md aiplans/p423/p423_10_*.md aiplans/p423/p423_11_*.md`
-- Leave the **archived** t423_1–t423_7 tasks and `aiplans/archived/p423/` untouched
-  (they are completed, already-built history).
+- `./ait git rm aitasks/t417/t417_11_inline_edit_mode_for_main_plan.md` (no plan
+  file exists for it). Then update the **t417 parent**
+  (`aitasks/t417_diff_viewer_tui_for_brainstorming.md`): t417_11 is its only
+  entry in `children_to_implement` — clear it and close/assess the parent (the
+  diffviewer itself already shipped). Treat the rest of t417 as out of scope for
+  this task beyond that bookkeeping.
+- Leave the **archived** t423_1–t423_7 tasks and `aiplans/archived/p423/`
+  untouched (they are completed, already-built history).
 - Before removing, re-check that no other active task gained a `depends` on t423
-  in the meantime.
+  or t417_11 in the meantime.
