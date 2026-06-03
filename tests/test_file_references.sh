@@ -20,52 +20,8 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected', got '$actual')"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$haystack" | grep -qF -- "$needle"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (did NOT want '$needle', but it was present)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
-
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected non-zero exit)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # --- Project setup ---
 
@@ -136,7 +92,7 @@ TMPDIR_1="$(setup_project)"
         --file-ref "foo.py" >/dev/null 2>&1)
 draft1=$(draft_path "$TMPDIR_1/local" t1)
 refs_line1=$(read_file_refs_line "$draft1")
-assert_eq "Single ref in frontmatter" "file_references: [foo.py]" "$refs_line1"
+assert_eq_trim "Single ref in frontmatter" "file_references: [foo.py]" "$refs_line1"
 rm -rf "$TMPDIR_1"
 
 # --- Test 2: Multiple --file-ref mixed flags ---
@@ -147,7 +103,7 @@ TMPDIR_2="$(setup_project)"
         --file-ref "a.py" --file-ref "b.py:10-20" >/dev/null 2>&1)
 draft2=$(draft_path "$TMPDIR_2/local" t2)
 refs_line2=$(read_file_refs_line "$draft2")
-assert_eq "Mixed refs preserve order" "file_references: [a.py, b.py:10-20]" "$refs_line2"
+assert_eq_trim "Mixed refs preserve order" "file_references: [a.py, b.py:10-20]" "$refs_line2"
 rm -rf "$TMPDIR_2"
 
 # --- Test 3: Compact multi-range preserved verbatim ---
@@ -158,7 +114,7 @@ TMPDIR_3="$(setup_project)"
         --file-ref "foo.py:10-20^30-40^89-100" >/dev/null 2>&1)
 draft3=$(draft_path "$TMPDIR_3/local" t3)
 refs_line3=$(read_file_refs_line "$draft3")
-assert_eq "Compact multi-range kept as single entry" \
+assert_eq_trim "Compact multi-range kept as single entry" \
     "file_references: [foo.py:10-20^30-40^89-100]" "$refs_line3"
 rm -rf "$TMPDIR_3"
 
@@ -170,7 +126,7 @@ TMPDIR_4="$(setup_project)"
         --file-ref "foo.py:10-20" --file-ref "foo.py:10-20" >/dev/null 2>&1)
 draft4=$(draft_path "$TMPDIR_4/local" t4)
 refs_line4=$(read_file_refs_line "$draft4")
-assert_eq "Duplicate exact-string ref deduped" \
+assert_eq_trim "Duplicate exact-string ref deduped" \
     "file_references: [foo.py:10-20]" "$refs_line4"
 rm -rf "$TMPDIR_4"
 
@@ -183,7 +139,7 @@ TMPDIR_5="$(setup_project)"
         --file-ref "foo.py:30-40^10-20" >/dev/null 2>&1)
 draft5=$(draft_path "$TMPDIR_5/local" t5)
 refs_line5=$(read_file_refs_line "$draft5")
-assert_eq "Reordered ranges are NOT deduped" \
+assert_eq_trim "Reordered ranges are NOT deduped" \
     "file_references: [foo.py:10-20^30-40, foo.py:30-40^10-20]" "$refs_line5"
 rm -rf "$TMPDIR_5"
 
@@ -199,7 +155,7 @@ task6_num=$(basename "$task6" | grep -oE '^t[0-9]+' | sed 's/t//')
     ./.aitask-scripts/aitask_update.sh --batch "$task6_num" \
         --file-ref "c.py" >/dev/null 2>&1)
 refs_line6=$(read_file_refs_line "$task6")
-assert_eq "Update appends new ref" \
+assert_eq_trim "Update appends new ref" \
     "file_references: [a.py, c.py]" "$refs_line6"
 rm -rf "$TMPDIR_6"
 
@@ -215,7 +171,7 @@ task7_num=$(basename "$task7" | grep -oE '^t[0-9]+' | sed 's/t//')
     ./.aitask-scripts/aitask_update.sh --batch "$task7_num" \
         --remove-file-ref "a.py" >/dev/null 2>&1)
 refs_line7=$(read_file_refs_line "$task7")
-assert_eq "Update removes named ref" \
+assert_eq_trim "Update removes named ref" \
     "file_references: [b.py:10]" "$refs_line7"
 rm -rf "$TMPDIR_7"
 
@@ -234,7 +190,7 @@ assert_contains "Round-trip includes a.py" "a.py" "$helper_out"
 assert_contains "Round-trip includes b.py:10-20" "b.py:10-20" "$helper_out"
 assert_contains "Round-trip includes c.py:5^15-25" "c.py:5^15-25" "$helper_out"
 line_count8=$(echo "$helper_out" | grep -c .)
-assert_eq "Three entries parsed back" "3" "$line_count8"
+assert_eq_trim "Three entries parsed back" "3" "$line_count8"
 rm -rf "$TMPDIR_8"
 
 # --- Test 9: aitask_find_by_file.sh path-only match ---
@@ -254,7 +210,7 @@ assert_contains "find1 matched (compact range)" "find1.md" "$find_out9"
 assert_contains "find2 matched (bare path)" "find2.md" "$find_out9"
 assert_not_contains "find3 not matched" "find3.md" "$find_out9"
 match_count9=$(echo "$find_out9" | grep -c '^TASK:')
-assert_eq "Exactly 2 matches for a.py" "2" "$match_count9"
+assert_eq_trim "Exactly 2 matches for a.py" "2" "$match_count9"
 rm -rf "$TMPDIR_9"
 
 # --- Test 10: aitask_find_by_file.sh excludes non-Ready/Editing ---

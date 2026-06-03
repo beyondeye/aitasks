@@ -16,40 +16,8 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF -- "$expected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (output should NOT contain '$expected')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # --- Unit test: parse_contribute_metadata directly ---
 # Source the script functions without running main
@@ -135,8 +103,8 @@ based_on_version: 0.9.2
 -->"
 
 parse_contribute_metadata "$body_1"
-assert_eq "contributor parsed" "testuser" "$CONTRIBUTE_CONTRIBUTOR"
-assert_eq "contributor_email parsed" "12345+testuser@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
+assert_eq_trim "contributor parsed" "testuser" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq_trim "contributor_email parsed" "12345+testuser@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
 
 rm -rf "$FUNC_DIR"
 
@@ -150,8 +118,8 @@ body_2="Just a regular issue body.
 No metadata here."
 
 parse_contribute_metadata "$body_2"
-assert_eq "no contributor" "" "$CONTRIBUTE_CONTRIBUTOR"
-assert_eq "no contributor_email" "" "$CONTRIBUTE_EMAIL"
+assert_eq_trim "no contributor" "" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq_trim "no contributor_email" "" "$CONTRIBUTE_EMAIL"
 
 rm -rf "$FUNC_DIR"
 
@@ -168,8 +136,8 @@ based_on_version: 0.9.0
 -->"
 
 parse_contribute_metadata "$body_3"
-assert_eq "contributor parsed (no email)" "someuser" "$CONTRIBUTE_CONTRIBUTOR"
-assert_eq "no email" "" "$CONTRIBUTE_EMAIL"
+assert_eq_trim "contributor parsed (no email)" "someuser" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq_trim "no email" "" "$CONTRIBUTE_EMAIL"
 
 rm -rf "$FUNC_DIR"
 
@@ -186,8 +154,8 @@ based_on_version: 0.9.0
 -->"
 
 parse_contribute_metadata "$body_4"
-assert_eq "contributor correct" "myuser" "$CONTRIBUTE_CONTRIBUTOR"
-assert_eq "contributor_email correct" "999+myuser@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
+assert_eq_trim "contributor correct" "myuser" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq_trim "contributor_email correct" "999+myuser@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
 
 rm -rf "$FUNC_DIR"
 
@@ -262,8 +230,8 @@ based_on_version: 0.9.0
 -->"
 
 parse_contribute_metadata "$body_7"
-assert_eq "contributor with spaces stripped" "spacey_user" "$CONTRIBUTE_CONTRIBUTOR"
-assert_eq "email with spaces stripped" "spacey@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
+assert_eq_trim "contributor with spaces stripped" "spacey_user" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq_trim "email with spaces stripped" "spacey@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
 
 rm -rf "$FUNC_DIR"
 
@@ -280,8 +248,8 @@ contributor_email: wrong@example.com
 Regular content here."
 
 parse_contribute_metadata "$body_8"
-assert_eq "no contributor from wrong block" "" "$CONTRIBUTE_CONTRIBUTOR"
-assert_eq "no email from wrong block" "" "$CONTRIBUTE_EMAIL"
+assert_eq_trim "no contributor from wrong block" "" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq_trim "no email from wrong block" "" "$CONTRIBUTE_EMAIL"
 
 rm -rf "$FUNC_DIR"
 
@@ -309,8 +277,8 @@ based_on_version: 0.9.0
 This text comes after."
 
 parse_contribute_metadata "$body_9"
-assert_eq "contributor from mid-body block" "miduser" "$CONTRIBUTE_CONTRIBUTOR"
-assert_eq "email from mid-body block" "mid@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
+assert_eq_trim "contributor from mid-body block" "miduser" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq_trim "email from mid-body block" "mid@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
 
 rm -rf "$FUNC_DIR"
 
@@ -336,14 +304,14 @@ auto_labels: area:scripts,scope:enhancement
 -->"
 
 parse_contribute_metadata "$body_10a"
-assert_eq "10a contributor" "fpuser" "$CONTRIBUTE_CONTRIBUTOR"
-assert_eq "10a email" "fp@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
-assert_eq "10a fingerprint_version" "1" "$CONTRIBUTE_FINGERPRINT_VERSION"
-assert_eq "10a areas" "scripts,claude-skills" "$CONTRIBUTE_AREAS"
-assert_eq "10a file_paths" ".aitask-scripts/foo.sh,.aitask-scripts/bar.sh" "$CONTRIBUTE_FILE_PATHS"
-assert_eq "10a file_dirs" ".aitask-scripts" "$CONTRIBUTE_FILE_DIRS"
-assert_eq "10a change_type" "enhancement" "$CONTRIBUTE_CHANGE_TYPE"
-assert_eq "10a auto_labels" "area:scripts,scope:enhancement" "$CONTRIBUTE_AUTO_LABELS"
+assert_eq_trim "10a contributor" "fpuser" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq_trim "10a email" "fp@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
+assert_eq_trim "10a fingerprint_version" "1" "$CONTRIBUTE_FINGERPRINT_VERSION"
+assert_eq_trim "10a areas" "scripts,claude-skills" "$CONTRIBUTE_AREAS"
+assert_eq_trim "10a file_paths" ".aitask-scripts/foo.sh,.aitask-scripts/bar.sh" "$CONTRIBUTE_FILE_PATHS"
+assert_eq_trim "10a file_dirs" ".aitask-scripts" "$CONTRIBUTE_FILE_DIRS"
+assert_eq_trim "10a change_type" "enhancement" "$CONTRIBUTE_CHANGE_TYPE"
+assert_eq_trim "10a auto_labels" "area:scripts,scope:enhancement" "$CONTRIBUTE_AUTO_LABELS"
 
 rm -rf "$FUNC_DIR"
 
@@ -359,14 +327,14 @@ based_on_version: 0.9.0
 -->"
 
 parse_contribute_metadata "$body_10b"
-assert_eq "10b contributor" "olduser" "$CONTRIBUTE_CONTRIBUTOR"
-assert_eq "10b email" "old@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
-assert_eq "10b fingerprint_version empty" "" "$CONTRIBUTE_FINGERPRINT_VERSION"
-assert_eq "10b areas empty" "" "$CONTRIBUTE_AREAS"
-assert_eq "10b file_paths empty" "" "$CONTRIBUTE_FILE_PATHS"
-assert_eq "10b file_dirs empty" "" "$CONTRIBUTE_FILE_DIRS"
-assert_eq "10b change_type empty" "" "$CONTRIBUTE_CHANGE_TYPE"
-assert_eq "10b auto_labels empty" "" "$CONTRIBUTE_AUTO_LABELS"
+assert_eq_trim "10b contributor" "olduser" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq_trim "10b email" "old@users.noreply.github.com" "$CONTRIBUTE_EMAIL"
+assert_eq_trim "10b fingerprint_version empty" "" "$CONTRIBUTE_FINGERPRINT_VERSION"
+assert_eq_trim "10b areas empty" "" "$CONTRIBUTE_AREAS"
+assert_eq_trim "10b file_paths empty" "" "$CONTRIBUTE_FILE_PATHS"
+assert_eq_trim "10b file_dirs empty" "" "$CONTRIBUTE_FILE_DIRS"
+assert_eq_trim "10b change_type empty" "" "$CONTRIBUTE_CHANGE_TYPE"
+assert_eq_trim "10b auto_labels empty" "" "$CONTRIBUTE_AUTO_LABELS"
 
 rm -rf "$FUNC_DIR"
 
@@ -385,14 +353,14 @@ auto_labels: area:backend,scope:bugfix
 -->"
 
 parse_contribute_metadata "$body_10c"
-assert_eq "10c contributor empty" "" "$CONTRIBUTE_CONTRIBUTOR"
-assert_eq "10c email empty" "" "$CONTRIBUTE_EMAIL"
-assert_eq "10c fingerprint_version" "1" "$CONTRIBUTE_FINGERPRINT_VERSION"
-assert_eq "10c areas" "backend" "$CONTRIBUTE_AREAS"
-assert_eq "10c file_paths" "src/main.py" "$CONTRIBUTE_FILE_PATHS"
-assert_eq "10c file_dirs" "src" "$CONTRIBUTE_FILE_DIRS"
-assert_eq "10c change_type" "bugfix" "$CONTRIBUTE_CHANGE_TYPE"
-assert_eq "10c auto_labels" "area:backend,scope:bugfix" "$CONTRIBUTE_AUTO_LABELS"
+assert_eq_trim "10c contributor empty" "" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq_trim "10c email empty" "" "$CONTRIBUTE_EMAIL"
+assert_eq_trim "10c fingerprint_version" "1" "$CONTRIBUTE_FINGERPRINT_VERSION"
+assert_eq_trim "10c areas" "backend" "$CONTRIBUTE_AREAS"
+assert_eq_trim "10c file_paths" "src/main.py" "$CONTRIBUTE_FILE_PATHS"
+assert_eq_trim "10c file_dirs" "src" "$CONTRIBUTE_FILE_DIRS"
+assert_eq_trim "10c change_type" "bugfix" "$CONTRIBUTE_CHANGE_TYPE"
+assert_eq_trim "10c auto_labels" "area:backend,scope:bugfix" "$CONTRIBUTE_AUTO_LABELS"
 
 rm -rf "$FUNC_DIR"
 
@@ -412,13 +380,13 @@ auto_labels:
 -->"
 
 parse_contribute_metadata "$body_10d"
-assert_eq "10d contributor" "emptytest" "$CONTRIBUTE_CONTRIBUTOR"
-assert_eq "10d fingerprint_version empty val" "" "$CONTRIBUTE_FINGERPRINT_VERSION"
-assert_eq "10d areas empty val" "" "$CONTRIBUTE_AREAS"
-assert_eq "10d file_paths empty val" "" "$CONTRIBUTE_FILE_PATHS"
-assert_eq "10d file_dirs empty val" "" "$CONTRIBUTE_FILE_DIRS"
-assert_eq "10d change_type empty val" "" "$CONTRIBUTE_CHANGE_TYPE"
-assert_eq "10d auto_labels empty val" "" "$CONTRIBUTE_AUTO_LABELS"
+assert_eq_trim "10d contributor" "emptytest" "$CONTRIBUTE_CONTRIBUTOR"
+assert_eq_trim "10d fingerprint_version empty val" "" "$CONTRIBUTE_FINGERPRINT_VERSION"
+assert_eq_trim "10d areas empty val" "" "$CONTRIBUTE_AREAS"
+assert_eq_trim "10d file_paths empty val" "" "$CONTRIBUTE_FILE_PATHS"
+assert_eq_trim "10d file_dirs empty val" "" "$CONTRIBUTE_FILE_DIRS"
+assert_eq_trim "10d change_type empty val" "" "$CONTRIBUTE_CHANGE_TYPE"
+assert_eq_trim "10d auto_labels empty val" "" "$CONTRIBUTE_AUTO_LABELS"
 
 rm -rf "$FUNC_DIR"
 
@@ -438,12 +406,12 @@ auto_labels: area:scripts
 -->"
 
 parse_contribute_metadata "$body_10e"
-assert_eq "10e areas trimmed" "scripts,tests" "$CONTRIBUTE_AREAS"
-assert_eq "10e file_paths trimmed" "a.sh,b.sh" "$CONTRIBUTE_FILE_PATHS"
-assert_eq "10e file_dirs trimmed" "src,lib" "$CONTRIBUTE_FILE_DIRS"
-assert_eq "10e auto_labels trimmed" "area:scripts" "$CONTRIBUTE_AUTO_LABELS"
-assert_eq "10e fingerprint_version" "1" "$CONTRIBUTE_FINGERPRINT_VERSION"
-assert_eq "10e change_type" "enhancement" "$CONTRIBUTE_CHANGE_TYPE"
+assert_eq_trim "10e areas trimmed" "scripts,tests" "$CONTRIBUTE_AREAS"
+assert_eq_trim "10e file_paths trimmed" "a.sh,b.sh" "$CONTRIBUTE_FILE_PATHS"
+assert_eq_trim "10e file_dirs trimmed" "src,lib" "$CONTRIBUTE_FILE_DIRS"
+assert_eq_trim "10e auto_labels trimmed" "area:scripts" "$CONTRIBUTE_AUTO_LABELS"
+assert_eq_trim "10e fingerprint_version" "1" "$CONTRIBUTE_FINGERPRINT_VERSION"
+assert_eq_trim "10e change_type" "enhancement" "$CONTRIBUTE_CHANGE_TYPE"
 
 rm -rf "$FUNC_DIR"
 

@@ -13,40 +13,8 @@ TOTAL=0
 
 # --- Test helpers ---
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    expected="$(echo "$expected" | xargs)"
-    actual="$(echo "$actual" | xargs)"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected output containing '$expected')"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if echo "$actual" | grep -qF -- "$expected"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (output should NOT contain '$expected')"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # --- Setup: source helper functions from the script ---
 
@@ -132,7 +100,7 @@ body_1='Some text
 ```'
 
 result_1=$(count_diff_lines "$body_1")
-assert_eq "count diff lines with additions and removals" "4" "$result_1"
+assert_eq_trim "count diff lines with additions and removals" "4" "$result_1"
 rm -rf "$FUNC_DIR"
 
 echo "--- Test 2: count_diff_lines with no diffs ---"
@@ -144,7 +112,7 @@ body_2="Just a regular issue body.
 No diffs here."
 
 result_2=$(count_diff_lines "$body_2")
-assert_eq "count diff lines with no diffs" "0" "$result_2"
+assert_eq_trim "count diff lines with no diffs" "0" "$result_2"
 rm -rf "$FUNC_DIR"
 
 echo "--- Test 3: count_diff_lines excludes --- and +++ headers ---"
@@ -159,7 +127,7 @@ body_3='--- a/old_file.sh
 +++ another/file.txt'
 
 result_3=$(count_diff_lines "$body_3")
-assert_eq "count diff lines excluding headers" "2" "$result_3"
+assert_eq_trim "count diff lines excluding headers" "2" "$result_3"
 rm -rf "$FUNC_DIR"
 
 # ============================================================
@@ -225,7 +193,7 @@ content_5=$(cat "$tmpfile_5")
 assert_contains "related_issues after issue line" "related_issues:" "$content_5"
 line_issue=$(grep -n '^issue:' "$tmpfile_5" | head -1 | cut -d: -f1)
 line_ri5=$(grep -n '^related_issues:' "$tmpfile_5" | head -1 | cut -d: -f1)
-assert_eq "related_issues right after issue" "$((line_issue + 1))" "$line_ri5"
+assert_eq_trim "related_issues right after issue" "$((line_issue + 1))" "$line_ri5"
 rm -f "$tmpfile_5"
 rm -rf "$FUNC_DIR"
 
@@ -404,8 +372,8 @@ body_13b='+singleline'
 count_a=$(count_diff_lines "$body_13a")
 count_b=$(count_diff_lines "$body_13b")
 
-assert_eq "issue A has 6 diff lines" "6" "$count_a"
-assert_eq "issue B has 1 diff line" "1" "$count_b"
+assert_eq_trim "issue A has 6 diff lines" "6" "$count_a"
+assert_eq_trim "issue B has 1 diff line" "1" "$count_b"
 
 # Verify A would be selected as primary (larger count)
 TOTAL=$((TOTAL + 1))

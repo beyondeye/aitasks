@@ -24,41 +24,8 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if grep -qF -- "$needle" <<< "$haystack"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  expected substring: $needle"
-        echo "  actual: $haystack"
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if grep -qF -- "$needle" <<< "$haystack"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (unexpected substring present)"
-        echo "  forbidden: $needle"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
-
-assert_exit_nonzero() {
-    local desc="$1"; shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 assert_exists() {
     local desc="$1" pattern="$2"
