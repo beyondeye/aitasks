@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [macos, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 11:57
-updated_at: 2026-06-03 11:57
+updated_at: 2026-06-03 17:34
 boardidx: 10
 ---
 
