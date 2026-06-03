@@ -19,7 +19,7 @@ depth: [intermediate]
 ait stats-tui
 ```
 
-The Stats TUI requires the shared Python virtual environment (installed by `ait setup`) with the `textual` and `pyyaml` packages. Interactive chart panes additionally need the optional `plotext` package — `ait setup` prompts `Install plotext for 'ait stats-tui' chart panes? [y/N]` in the Python venv step. Without `plotext`, the TUI still launches but chart panes render placeholders instead of charts.
+The Stats TUI requires the shared Python virtual environment (installed by `ait setup`) with the `textual`, `pyyaml`, and `plotext` packages. All three are installed and version-pinned by `ait setup`, so the interactive chart panes work out of the box.
 
 Inside tmux you can also reach the TUI via the [TUI switcher](../monitor/how-to/#how-to-jump-to-another-tui) — press **`j`** in any other aitasks TUI and pick Stats.
 

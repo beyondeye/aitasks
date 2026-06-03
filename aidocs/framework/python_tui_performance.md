@@ -25,7 +25,7 @@ Investigation of options to speed up the aitasks Python TUIs (board, codebrowser
 
 - **Interpreter:** CPython 3.14.3 in `~/.aitask/venv/`. JIT *available* (`sys._jit`) but **disabled** (this build was not compiled with `--enable-experimental-jit`). Free-threading off (`Py_GIL_DISABLED: 0`).
 - **Frameworks:** `textual==8.1.1` + `rich==14.3.2` — both pure-Python, no native extensions.
-- **Other deps:** `pyyaml==6.0.3`, `linkify-it-py==2.1.0`, `tomli>=2.4.0,<3`, optional `plotext==5.3.2`.
+- **Other deps:** `pyyaml==6.0.3`, `linkify-it-py==2.1.0`, `tomli>=2.4.0,<3`, `plotext==5.3.2` (CPython venv only).
 - **Codebase:** ~87 `.py` files, **~40K LOC** total.
   - Board (`aitask_board.py`): **5200 LOC**.
   - Codebrowser app + helpers: ~3500 LOC.

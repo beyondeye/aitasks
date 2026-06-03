@@ -26,7 +26,7 @@ ait setup
 4. **Git repo** — Verifies you are inside a git repository. If no `.git/` is found, explains that aitasks is tightly integrated with git and asks to confirm this is the correct project directory before offering to run `git init`
 5. **Draft directory** — Creates `aitasks/new/` for local draft tasks and adds it to `.gitignore` so drafts stay local-only
 6. **Task ID counter** — Initializes the `aitask-ids` counter branch on the remote for atomic task numbering. This prevents duplicate task IDs when multiple PCs create tasks against the same repo
-7. **Python venv** — Creates virtual environment at `~/.aitask/venv/` and installs `textual` (>=8.1), `pyyaml`, `linkify-it-py`, `tomli` with pinned versions. This is also where optional stats-TUI chart support is enabled: setup prompts `Install plotext for 'ait stats-tui' chart panes? [y/N]`. Choosing `y` installs `plotext`; choosing `N` keeps setup complete but leaves `ait stats-tui` running without the chart panes (text stats via `ait stats` still work). Recreates the venv if existing Python is too old. For an opt-in PyPy 3.11 venv that speeds up `ait board` (`ait setup --with-pypy`), see [PyPy Runtime]({{< relref "/docs/installation/pypy" >}}).
+7. **Python venv** — Creates virtual environment at `~/.aitask/venv/` and installs `textual` (>=8.1), `pyyaml`, `linkify-it-py`, `tomli`, `plotext` (for `ait stats-tui` chart panes), and other dependencies with pinned versions. After installing, setup validates that every dependency imports and matches its pinned version range, repairing the venv if not. Recreates the venv if existing Python is too old. For an opt-in PyPy 3.11 venv that speeds up `ait board` (`ait setup --with-pypy`), see [PyPy Runtime]({{< relref "/docs/installation/pypy" >}}).
 8. **Global shim** — Installs `ait` shim at `~/.local/bin/ait` that finds the nearest project-local `ait` dispatcher by walking up the directory tree. Warns if `~/.local/bin` is not in PATH
 9. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
 10. **Version check** — Compares local version against latest GitHub release and suggests update if newer
@@ -45,8 +45,6 @@ When you run `ait setup`, it offers to install default Claude Code permissions i
 The default permissions are defined in `seed/claude_settings.local.json` and stored at `aitasks/metadata/claude_settings.seed.json` during installation. If a `.claude/settings.local.json` already exists, the setup merges permissions (union of both allow-lists, preserving any existing entries). You can decline the permissions prompt and configure them manually later.
 
 Re-run `ait setup` at any time to add the default permissions if you skipped them initially.
-
-To enable optional chart rendering for `ait stats-tui` later, re-run `ait setup` and answer `y` to the `plotext` prompt in the Python venv step.
 
 ---
 
