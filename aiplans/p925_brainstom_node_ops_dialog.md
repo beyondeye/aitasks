@@ -205,3 +205,69 @@ Then proceed to **Step 9 (Post-Implementation)** for cleanup/archival.
   single node, so such an agent reading an affected node is **not** treated as a
   casualty (conservative, documented) — a deliberate scope limit, not a miss ·
   severity: low · → mitigation: none needed (documented scope limit)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-03)
+- **Requested by user:** In the delete confirmation dialog the message "These
+  nodes (and their proposals/plans)…" was truncated.
+- **Changes made:** Textual `Label`s size to content and truncate rather than
+  wrap; added `#delete_node_dialog > Label { width: 100%; }` to
+  `DeleteNodeModal.DEFAULT_CSS` so the dialog's direct-child prose labels span
+  the full width and wrap (verified: the intro label now lays out at width 64,
+  height 2). Closure-list rows live inside `#delete_node_closure` and keep their
+  auto width.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`
+
+### Change Request 2 (2026-06-03)
+- **Requested by user:** In the node-action picker, the "(reason)" explaining
+  why an op is unavailable (and long op descriptions) were truncated.
+- **Changes made:** The global `OperationRow { height: 1 }` forces single-line
+  rows. Added a scoped override `#node_action_list OperationRow { height: auto; }`
+  so only the picker's rows wrap — long descriptions and the disabled-op reason
+  suffix are now fully visible (verified at the real 56-col content width: long
+  rows lay out at height 2, short rows stay height 1). The Actions-wizard rows
+  keep their single-line layout.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`
+
+### Change Request 3 (2026-06-03)
+- **Requested by user:** The node-action picker's operation list was too short
+  (capped at 12 rows, scrolling) and didn't fill the dialog's available vertical
+  space.
+- **Changes made:** Raised `#node_action_list` `max-height` 12 → 24 (with
+  `height: auto`) so the list grows to its content, and bumped
+  `#node_action_dialog` `max-height` 70% → 90%. With 8 ops (some wrapped) the
+  list now lays out all rows without inner scroll and the dialog uses the
+  available height (verified: list region grows to fit content, no scroll).
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned. `brainstorm_dag.py`
+  gained `node_descendants_closure`, `_first_surviving_parent`, and
+  `delete_node_cascade` (pure, unit-tested). `brainstorm_app.py`:
+  `NodeActionSelectModal` now surfaces all 8 ops with an `op_states` relevance
+  map (+ `has_plan` patch fallback); `_node_action_op_states` computes relevance;
+  `_on_node_action_result` routes module ops (seeded from the node's subgraph)
+  and delete; new `DeleteNodeModal` + `_delete_agent_casualties` guard +
+  `_on_delete_node_result`; the `A` binding relabelled "Node op" → "Node action".
+- **Deviations from plan:** (1) The plan-agent draft computed `module_merge`
+  availability via `_ancestor_subgraphs(source_head)` — wrong: that helper takes
+  a subgraph **name**, not a head node id (matches `_config_module_merge`). Fixed
+  to `_ancestor_subgraphs(module)` before implementing. (2) The agent guard reads
+  `_status.yaml` files directly (status + agent_name) rather than also calling
+  `get_all_agent_processes`; the status files are the authoritative lifecycle
+  source and what that helper itself reads — simpler, same result.
+- **Issues encountered:** Three post-review UI fixes (all CSS, logged above):
+  delete-dialog prose truncation (Labels size-to-content → added
+  `#delete_node_dialog > Label { width: 100% }`); picker reason/description
+  truncation (global `OperationRow { height: 1 }` → scoped
+  `#node_action_list OperationRow { height: auto }` override); and the picker
+  list being too short (raised `max-height` and dialog `max-height`). Each
+  verified via a Pilot layout probe at the real dialog width.
+- **Key decisions:** Mutation logic lives in the pure `brainstorm_dag.py`
+  (unit-tested on synthetic dummy-data sessions — the agreed risk mitigation);
+  the TUI only routes/renders. Cascade is child-transitive (intentional
+  over-delete of multi-parent synthesize nodes; full casualty list shown in the
+  confirm modal). The relevance map is computed in the caller so the modal stays
+  session-free and testable.
+- **Upstream defects identified:** None.
