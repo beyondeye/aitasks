@@ -5,7 +5,7 @@ depends: []
 issue_type: refactor
 status: Implementing
 labels: [testing, bash_scripts]
-children_to_implement: [t923_1, t923_2]
+children_to_implement: [t923_1, t923_2, t923_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 10:51
 updated_at: 2026-06-03 11:25
