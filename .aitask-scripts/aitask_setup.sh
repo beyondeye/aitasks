@@ -17,6 +17,59 @@ source "$SCRIPT_DIR/lib/python_resolve.sh"
 # Preferred is the version we install when no modern python is found.
 AIT_VENV_PYTHON_PREFERRED="${AIT_VENV_PYTHON_PREFERRED:-3.13}"
 
+# Python dependency specs — single source of truth (previously duplicated inline
+# at the two pip-install sites). The PyPy venv (board-only fast path) installs
+# COMMON; the CPython venv installs COMMON + CPYTHON_EXTRA. The parallel
+# *_IMPORTS arrays list the import names to verify after install (the import name
+# differs from the distribution name for some: pyyaml->yaml, linkify-it-py->linkify_it).
+AIT_PIP_SPECS_COMMON=('textual>=8.2.7,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3' 'pexpect>=4.9,<5')
+AIT_PIP_SPECS_CPYTHON_EXTRA=('minijinja>=2.0,<3' 'segno>=1.5,<2' 'plotext==5.3.2')
+AIT_IMPORTS_COMMON=(textual yaml linkify_it tomli pexpect)
+AIT_IMPORTS_CPYTHON_EXTRA=(minijinja segno plotext)
+
+# verify_venv_imports <python> <module>... — populate global `missing_imports`
+# with the modules that fail to import under the given interpreter. Catches the
+# "package directory present but not importable" failure mode directly.
+verify_venv_imports() {
+    local py="$1"; shift
+    missing_imports=()
+    local mod
+    for mod in "$@"; do
+        "$py" -c "import $mod" 2>/dev/null || missing_imports+=("$mod")
+    done
+    return 0  # never fail the caller (set -e); result is in $missing_imports
+}
+
+# verify_venv_specs <python> <pip-spec>... — populate global `bad_specs` with
+# distributions that are missing OR whose installed version violates the spec.
+# Uses pip's vendored packaging (no extra dependency — pip is in every venv);
+# importlib.metadata.version() resolves the distribution name from each spec
+# (e.g. pyyaml, linkify-it-py), independent of the import name.
+verify_venv_specs() {
+    local py="$1"; shift
+    bad_specs=()
+    local out
+    out="$("$py" - "$@" <<'PY' 2>/dev/null
+import sys
+try:
+    from packaging.requirements import Requirement
+except ImportError:
+    from pip._vendor.packaging.requirements import Requirement
+from importlib.metadata import version, PackageNotFoundError
+for spec in sys.argv[1:]:
+    req = Requirement(spec)
+    try:
+        inst = version(req.name)
+    except PackageNotFoundError:
+        print(f"{req.name} (missing)"); continue
+    if not req.specifier.contains(inst, prereleases=True):
+        print(f"{req.name} {inst} (need {req.specifier})")
+PY
+)" || out=""
+    [[ -n "$out" ]] && while IFS= read -r line; do bad_specs+=("$line"); done <<< "$out"
+    return 0  # never fail the caller (set -e); result is in $bad_specs
+}
+
 # --- Color helpers ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()    { echo -e "${BLUE}[ait]${NC} $1"; }
@@ -540,37 +593,53 @@ _install_pypy_linux() {
 # CPython venv. Idempotent: skips recreation if the venv already exists and
 # reports `sys.implementation.name == 'pypy'`.
 setup_pypy_venv() {
-    local pypy_cmd
-    pypy_cmd="$(find_pypy)"
-    if [[ -z "$pypy_cmd" ]]; then
-        info "No PyPy $AIT_PYPY_PREFERRED found. Installing one..."
-        install_pypy
-        pypy_cmd="$(find_pypy)"
-        [[ -z "$pypy_cmd" ]] && \
-            die "PyPy install completed but interpreter still not found."
-    fi
-    info "Using PyPy for venv: $pypy_cmd ($("$pypy_cmd" --version 2>&1 | head -1))"
-
-    if [[ -d "$PYPY_VENV_DIR" ]]; then
-        local impl=""
+    # Reuse an existing, valid PyPy venv as-is (the revalidate-on-every-setup
+    # path must be cheap — no find_pypy/install_pypy when the venv is already a
+    # PyPy interpreter). Only resolve/install a PyPy interpreter when we actually
+    # need to create or recreate the venv.
+    local pypy_cmd="" have_valid_venv=false impl=""
+    if [[ -x "$PYPY_VENV_DIR/bin/python" ]]; then
         impl="$("$PYPY_VENV_DIR/bin/python" -c 'import sys; print(sys.implementation.name)' 2>/dev/null)" || impl=""
-        if [[ "$impl" == "pypy" ]]; then
-            info "PyPy virtual environment already exists at $PYPY_VENV_DIR"
-        else
-            warn "Existing $PYPY_VENV_DIR is not a PyPy venv (impl=$impl). Recreating..."
-            rm -rf "$PYPY_VENV_DIR"
-            mkdir -p "$(dirname "$PYPY_VENV_DIR")"
-            "$pypy_cmd" -m venv "$PYPY_VENV_DIR"
-        fi
+        [[ "$impl" == "pypy" ]] && have_valid_venv=true
+    fi
+
+    if [[ "$have_valid_venv" == true ]]; then
+        info "PyPy virtual environment already exists at $PYPY_VENV_DIR"
     else
-        info "Creating PyPy virtual environment at $PYPY_VENV_DIR..."
+        pypy_cmd="$(find_pypy)"
+        if [[ -z "$pypy_cmd" ]]; then
+            info "No PyPy $AIT_PYPY_PREFERRED found. Installing one..."
+            install_pypy
+            pypy_cmd="$(find_pypy)"
+            [[ -z "$pypy_cmd" ]] && \
+                die "PyPy install completed but interpreter still not found."
+        fi
+        info "Using PyPy for venv: $pypy_cmd ($("$pypy_cmd" --version 2>&1 | head -1))"
+        rm -rf "$PYPY_VENV_DIR"
         mkdir -p "$(dirname "$PYPY_VENV_DIR")"
         "$pypy_cmd" -m venv "$PYPY_VENV_DIR"
     fi
 
     info "Installing/upgrading Python deps into PyPy venv..."
     "$PYPY_VENV_DIR/bin/pip" install --quiet --upgrade pip
-    "$PYPY_VENV_DIR/bin/pip" install --quiet 'textual>=8.2.7,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3' 'pexpect>=4.9,<5'
+    "$PYPY_VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_COMMON[@]}"
+
+    # Validate importability + version ranges; retry once, then give up on PyPy
+    # by removing the venv so the fast-path resolver falls back to the CPython
+    # venv (resolve_pypy_python returns empty when the venv dir is gone).
+    verify_venv_imports "$PYPY_VENV_DIR/bin/python" "${AIT_IMPORTS_COMMON[@]}"
+    verify_venv_specs   "$PYPY_VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}"
+    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
+        warn "PyPy venv deps need repair (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Retrying..."
+        "$PYPY_VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_COMMON[@]}"
+        verify_venv_imports "$PYPY_VENV_DIR/bin/python" "${AIT_IMPORTS_COMMON[@]}"
+        verify_venv_specs   "$PYPY_VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}"
+    fi
+    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
+        warn "PyPy venv deps could not be installed (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Removing $PYPY_VENV_DIR so the board uses the CPython venv. Re-run 'ait setup --with-pypy' to retry."
+        rm -rf "$PYPY_VENV_DIR"
+        return 0
+    fi
 
     success "PyPy venv ready at $PYPY_VENV_DIR — TUIs will auto-use it (set AIT_USE_PYPY=0 to override)."
 }
@@ -632,16 +701,6 @@ setup_python_venv() {
         "$python_cmd" -m venv "$VENV_DIR"
     fi
 
-    local install_plotext=false
-    if [[ -t 0 ]]; then
-        info "Optional dependency: stats TUI chart panes (plotext)"
-        printf "  Install plotext for 'ait stats-tui' chart panes? [y/N] "
-        read -r answer
-        case "${answer:-N}" in
-            [Yy]*) install_plotext=true ;;
-        esac
-    fi
-
     info "Installing/upgrading Python dependencies..."
     "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 
@@ -651,7 +710,7 @@ setup_python_venv() {
     textual_before=$("$VENV_DIR/bin/pip" show textual 2>/dev/null \
         | awk '/^Version:/ {print $2}') || true
 
-    "$VENV_DIR/bin/pip" install --quiet 'textual>=8.2.7,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3' 'minijinja>=2.0,<3' 'pexpect>=4.9,<5' 'segno>=1.5,<2'
+    "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
 
     local textual_after=""
     textual_after=$("$VENV_DIR/bin/pip" show textual 2>/dev/null \
@@ -659,11 +718,18 @@ setup_python_venv() {
     if [[ -n "$textual_before" && -n "$textual_after" && "$textual_before" != "$textual_after" ]]; then
         info "Upgraded textual: $textual_before → $textual_after"
     fi
-    if [[ "$install_plotext" == true ]]; then
-        "$VENV_DIR/bin/pip" install --quiet 'plotext==5.3.2'
-        info "Installed optional stats graph dependency: plotext"
-    else
-        info "Skipped optional stats graph dependency (plotext)"
+
+    # Validate importability + version ranges; retry once, then die — the
+    # framework cannot run without its core CPython venv deps.
+    verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_COMMON[@]}" "${AIT_IMPORTS_CPYTHON_EXTRA[@]}"
+    verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
+    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
+        warn "CPython venv deps need repair (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Retrying..."
+        "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
+        verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_COMMON[@]}" "${AIT_IMPORTS_CPYTHON_EXTRA[@]}"
+        verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
+        [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]] && \
+            die "CPython venv still bad (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Check pip/network and re-run 'ait setup'."
     fi
 
     # Expose venv-Python via stable wrapper scripts (t706, replacing the t695_3
@@ -3002,7 +3068,11 @@ main() {
     setup_python_venv
     echo ""
 
-    if [[ "$INSTALL_PYPY" == "1" ]] || prompt_install_pypy_if_tty; then
+    # Revalidate/repair an existing PyPy venv on every `ait setup` (the
+    # `-d "$PYPY_VENV_DIR"` clause). The fresh-install TTY prompt only fires when
+    # no venv exists — prompt_install_pypy_if_tty returns 1 if the dir exists, so
+    # it is not reached when the dir clause is already true (no double prompt).
+    if [[ "$INSTALL_PYPY" == "1" ]] || [[ -d "$PYPY_VENV_DIR" ]] || prompt_install_pypy_if_tty; then
         setup_pypy_venv
         echo ""
     fi
