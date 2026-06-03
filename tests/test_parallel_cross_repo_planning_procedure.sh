@@ -36,26 +36,8 @@ TOTAL=0
 pass() { PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1)); }
 fail() { FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1)); echo "FAIL: $1"; }
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    if [[ "$expected" == "$actual" ]]; then
-        pass
-    else
-        fail "$desc"
-        echo "  expected: [$expected]"
-        echo "  actual:   [$actual]"
-    fi
-}
-
-assert_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    if grep -qF -- "$needle" <<< "$haystack"; then
-        pass
-    else
-        fail "$desc"
-        echo "  expected substring: $needle"
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 assert_file_contains() {
     local desc="$1" needle="$2" file="$3"

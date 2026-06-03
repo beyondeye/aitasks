@@ -46,31 +46,8 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_contains() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if printf '%s' "$actual" | grep -qF -- "$expected"; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  expected (substring): $expected"
-        echo "  rendered head (60 lines):"
-        printf '%s\n' "$actual" | head -60 | sed 's/^/    /'
-    fi
-}
-
-assert_not_contains() {
-    local desc="$1" forbidden="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if printf '%s' "$actual" | grep -qF -- "$forbidden"; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  forbidden (substring): $forbidden"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
+# Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 
 cd "$PROJECT_DIR"
 
