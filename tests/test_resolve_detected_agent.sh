@@ -6,6 +6,10 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Shared assertion helpers (see tests/lib/asserts.sh).
+# shellcheck source=lib/asserts.sh
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 RESOLVE_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_resolve_detected_agent.sh"
 
 PASS=0
@@ -13,34 +17,6 @@ FAIL=0
 TOTAL=0
 
 # --- Test helpers ---
-
-assert_eq() {
-    local label="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$actual" == "$expected" ]]; then
-        echo "  PASS: $label"
-        PASS=$((PASS + 1))
-    else
-        echo "  FAIL: $label"
-        echo "    expected: $expected"
-        echo "    actual:   $actual"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-assert_contains() {
-    local label="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$haystack" == *"$needle"* ]]; then
-        echo "  PASS: $label"
-        PASS=$((PASS + 1))
-    else
-        echo "  FAIL: $label"
-        echo "    expected to contain: $needle"
-        echo "    actual: $haystack"
-        FAIL=$((FAIL + 1))
-    fi
-}
 
 # --- Tests ---
 

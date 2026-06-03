@@ -23,16 +23,6 @@ TOTAL=0
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_exits_zero() {
-    local desc="$1" rc="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$rc" -eq 0 ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (exit code was $rc)"
-    fi
-}
 
 # --- Setup --------------------------------------------------------------
 
@@ -77,7 +67,7 @@ OUT=$(cd "$LOCAL_ROOT" && "$CREATE" --batch --name "intent_only" --desc "Coordin
     --xdeprepo "sister" 2>&1)
 RC=$?
 set -e
-assert_exits_zero "intent-only create succeeds" "$RC"
+assert_exit_zero_rc "intent-only create succeeds" "$RC"
 
 DRAFT=$(ls "$LOCAL_ROOT/aitasks/new/"*.md 2>/dev/null | head -1)
 TOTAL=$((TOTAL + 1))
@@ -104,7 +94,7 @@ set +e
     --xdeprepo "sister" >/dev/null 2>&1)
 RC2=$?
 set -e
-assert_exits_zero "second intent-only create succeeds" "$RC2"
+assert_exit_zero_rc "second intent-only create succeeds" "$RC2"
 
 DRAFT2=$(ls "$LOCAL_ROOT/aitasks/new/"*.md 2>/dev/null | head -1)
 if [[ -n "$DRAFT2" ]]; then

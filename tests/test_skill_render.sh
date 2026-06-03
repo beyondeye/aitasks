@@ -17,18 +17,6 @@ TOTAL=0
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
-
-assert_nonzero_exit() {
-    local desc="$1" rc="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$rc" -ne 0 ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    fi
-}
-
 # --- Resolve Python interpreter ---
 
 cd "$PROJECT_DIR"
@@ -245,7 +233,7 @@ set +e
 ERR_OUT="$("$RENDER" "${TEST_SKILL_PREFIX}_does_not_exist" --profile fast --agent claude 2>&1)"
 RC=$?
 set -e
-assert_nonzero_exit "missing template exits non-zero" "$RC"
+assert_exit_nonzero_rc "missing template exits non-zero" "$RC"
 assert_contains_ci "missing template error names the path" "template not found" "$ERR_OUT"
 
 # --- Test 10: Unknown profile — non-zero exit + stderr ---
@@ -254,7 +242,7 @@ set +e
 ERR_OUT="$("$RENDER" "$SK1" --profile "_t777_2_test_no_such_profile" --agent claude 2>&1)"
 RC=$?
 set -e
-assert_nonzero_exit "unknown profile exits non-zero" "$RC"
+assert_exit_nonzero_rc "unknown profile exits non-zero" "$RC"
 assert_contains_ci "unknown profile error" "profile" "$ERR_OUT"
 assert_contains_ci "unknown profile error names the value" "not found" "$ERR_OUT"
 
@@ -264,7 +252,7 @@ set +e
 ERR_OUT="$("$RENDER" "$SK1" --agent claude 2>&1)"
 RC=$?
 set -e
-assert_nonzero_exit "missing --profile exits non-zero" "$RC"
+assert_exit_nonzero_rc "missing --profile exits non-zero" "$RC"
 assert_contains_ci "missing --profile usage message" "Usage" "$ERR_OUT"
 
 # --- Test 12: Unknown agent — non-zero exit (propagated from agent_skill_root) ---
@@ -273,7 +261,7 @@ set +e
 ERR_OUT="$("$RENDER" "$SK1" --profile fast --agent _bogus_agent_ 2>&1)"
 RC=$?
 set -e
-assert_nonzero_exit "unknown agent exits non-zero" "$RC"
+assert_exit_nonzero_rc "unknown agent exits non-zero" "$RC"
 
 # --- Test 13: Sanity — _t_mtime helper returns a positive integer ---
 # Post-t777_22 the bash-side skip-if-fresh moved to Python (closure-aware), so

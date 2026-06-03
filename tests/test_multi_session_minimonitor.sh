@@ -19,6 +19,10 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Shared assertion helpers (see tests/lib/asserts.sh).
+# shellcheck source=lib/asserts.sh
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 LIB_DIR="$PROJECT_DIR/.aitask-scripts/lib"
 MONITOR_DIR="$PROJECT_DIR/.aitask-scripts/monitor"
 BOARD_DIR="$PROJECT_DIR/.aitask-scripts/board"
@@ -31,16 +35,6 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$haystack" == *"$needle"* ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected to contain '$needle', got '$haystack')"
-    fi
-}
 
 # --- Tier 1a: BINDINGS + action presence ---
 

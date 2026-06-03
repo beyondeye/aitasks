@@ -25,28 +25,6 @@ TOTAL=0
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_exits_nonzero() {
-    local desc="$1" rc="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$rc" -ne 0 ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (exit code was 0)"
-    fi
-}
-
-assert_exits_zero() {
-    local desc="$1" rc="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$rc" -eq 0 ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (exit code was $rc)"
-    fi
-}
-
 # --- Setup --------------------------------------------------------------
 
 TMPROOT=$(mktemp -d)
@@ -124,14 +102,14 @@ run_create() {
 
 # --- Case 1: only --xdeps → fails -----------------------------------------
 run_create --xdeps "1"
-assert_exits_nonzero "only --xdeps fails"          "$LAST_RC"
+assert_exit_nonzero_rc "only --xdeps fails"          "$LAST_RC"
 assert_contains    "xdeps-without-xdeprepo error surfaces" \
     "--xdeps requires --xdeprepo" "$LAST_OUT"
 
 # --- Case 2: only --xdeprepo → succeeds (intent-only mode, t832_10) ------
 rm -f "$LOCAL_ROOT/aitasks/new/"*.md
 run_create --xdeprepo sister
-assert_exits_zero  "only --xdeprepo succeeds (intent-only)" "$LAST_RC"
+assert_exit_zero_rc  "only --xdeprepo succeeds (intent-only)" "$LAST_RC"
 
 # Inspect the draft: xdeprepo line present, xdeps line absent.
 draft_only_xdeprepo=$(ls "$LOCAL_ROOT/aitasks/new/"*.md 2>/dev/null | head -1)
@@ -148,23 +126,23 @@ fi
 
 # --- Case 3: --xdeprepo not registered → die with hint --------------------
 run_create --xdeps "1" --xdeprepo "not_registered_xxx"
-assert_exits_nonzero "unregistered project fails"   "$LAST_RC"
+assert_exit_nonzero_rc "unregistered project fails"   "$LAST_RC"
 assert_contains    "NOT_FOUND hint emitted"         "is not registered" "$LAST_OUT"
 
 # --- Case 4: --xdeprepo stale → die with stale hint ----------------------
 run_create --xdeps "1" --xdeprepo "stale_one"
-assert_exits_nonzero "stale project fails"          "$LAST_RC"
+assert_exit_nonzero_rc "stale project fails"          "$LAST_RC"
 assert_contains    "STALE hint emitted"             "stale" "$LAST_OUT"
 
 # --- Case 5: --xdeps id not in sister → fails -----------------------------
 run_create --xdeps "999" --xdeprepo "sister"
-assert_exits_nonzero "missing cross-repo id fails"  "$LAST_RC"
+assert_exit_nonzero_rc "missing cross-repo id fails"  "$LAST_RC"
 assert_contains    "missing id surfaced"            "999" "$LAST_OUT"
 
 # --- Case 6: valid pair → succeeds, frontmatter includes xdeps/xdeprepo ---
 rm -f "$LOCAL_ROOT/aitasks/new/"*.md
 run_create --xdeps "1,2" --xdeprepo "sister"
-assert_exits_zero    "valid pair succeeds" "$LAST_RC"
+assert_exit_zero_rc    "valid pair succeeds" "$LAST_RC"
 
 # Inspect the created draft and verify emission.
 draft=$(ls "$LOCAL_ROOT/aitasks/new/"*.md 2>/dev/null | head -1)
@@ -180,7 +158,7 @@ fi
 # --- Case 7: neither set → succeeds without emitting fields --------------
 rm -f "$LOCAL_ROOT/aitasks/new/"*.md
 run_create
-assert_exits_zero "no xdeps/xdeprepo still creates" "$LAST_RC"
+assert_exit_zero_rc "no xdeps/xdeprepo still creates" "$LAST_RC"
 
 draft=$(ls "$LOCAL_ROOT/aitasks/new/"*.md 2>/dev/null | head -1)
 TOTAL=$((TOTAL + 1))

@@ -19,6 +19,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Shared assertion helpers (see tests/lib/asserts.sh).
+# shellcheck source=lib/asserts.sh
+. "$PROJECT_DIR/tests/lib/asserts.sh"
+
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
 
@@ -27,16 +31,6 @@ FAIL=0
 TOTAL=0
 CLEANUP_DIRS=()
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
 
 assert_true() {
     local desc="$1" cond_rc="$2"

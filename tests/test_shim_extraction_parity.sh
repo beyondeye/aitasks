@@ -7,22 +7,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Shared assertion helpers (see tests/lib/asserts.sh).
+# shellcheck source=lib/asserts.sh
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 cd "$PROJECT_DIR"
 
 PASS=0
 FAIL=0
 TOTAL=0
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
 
 # Sandbox SHIM_DIR so the test does not touch ~/.local/bin.
 TMPROOT="$(mktemp -d "${TMPDIR:-/tmp}/ait_shim_parity_XXXXXX")"

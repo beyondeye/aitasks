@@ -32,15 +32,6 @@ assert_file_absent() {
     fi
 }
 
-assert_nonzero_exit() {
-    local desc="$1" rc="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$rc" -ne 0 ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1)); echo "FAIL: $desc (expected non-zero exit, got 0)"
-    fi
-}
 
 cd "$PROJECT_DIR"
 # shellcheck source=.aitask-scripts/lib/python_resolve.sh
@@ -363,7 +354,7 @@ set +e
     "aitasks/metadata/profiles/default.yaml" claude "$PROJECT_DIR" 2>/dev/null
 RC=$?
 set -e
-assert_nonzero_exit "Test11: walk-check surfaces bad-Jinja leaf as non-zero" "$RC"
+assert_exit_nonzero_rc "Test11: walk-check surfaces bad-Jinja leaf as non-zero" "$RC"
 
 # ============================================================================
 # Test 12 — Procedure file mentions the skill's own SKILL.md in prose:

@@ -35,16 +35,6 @@ TMPDIR_TEST=""
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
-assert_exit_code() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected exit code $expected, got $actual)"
-    fi
-}
 
 setup_tmpdir() {
     TMPDIR_TEST=$(mktemp -d)
@@ -147,7 +137,7 @@ CONFLICT
     set -e
 
     assert_eq "T1: stdout is RESOLVED" "RESOLVED" "$stdout"
-    assert_exit_code "T1: exit code 0" "0" "$exit_code"
+    assert_eq "T1: exit code 0" "0" "$exit_code"
 
     # Verify merged content
     local content
@@ -200,7 +190,7 @@ CONFLICT
     set -e
 
     assert_eq "T2: stdout is PARTIAL:status" "PARTIAL:status" "$stdout"
-    assert_exit_code "T2: exit code 2" "2" "$exit_code"
+    assert_eq "T2: exit code 2" "2" "$exit_code"
 
     cleanup_tmpdir
 }
@@ -235,7 +225,7 @@ CONFLICT
     set -e
 
     assert_eq "T3: stdout is RESOLVED" "RESOLVED" "$stdout"
-    assert_exit_code "T3: exit code 0" "0" "$exit_code"
+    assert_eq "T3: exit code 0" "0" "$exit_code"
 
     local content
     content=$(cat "$f")
@@ -276,7 +266,7 @@ CONFLICT
     set -e
 
     assert_eq "T4: stdout is PARTIAL:body" "PARTIAL:body" "$stdout"
-    assert_exit_code "T4: exit code 2" "2" "$exit_code"
+    assert_eq "T4: exit code 2" "2" "$exit_code"
 
     local content
     content=$(cat "$f")
@@ -309,7 +299,7 @@ EOF
     set -e
 
     assert_eq "T5: stdout is SKIPPED" "SKIPPED" "$stdout"
-    assert_exit_code "T5: exit code 1" "1" "$exit_code"
+    assert_eq "T5: exit code 1" "1" "$exit_code"
 
     cleanup_tmpdir
 }
@@ -336,7 +326,7 @@ CONFLICT
     set -e
 
     assert_eq "T6: stdout is SKIPPED" "SKIPPED" "$stdout"
-    assert_exit_code "T6: exit code 1" "1" "$exit_code"
+    assert_eq "T6: exit code 1" "1" "$exit_code"
 
     cleanup_tmpdir
 }
@@ -387,7 +377,7 @@ CONFLICT
     set -e
 
     assert_eq "T7: stdout is RESOLVED" "RESOLVED" "$stdout"
-    assert_exit_code "T7: exit code 0" "0" "$exit_code"
+    assert_eq "T7: exit code 0" "0" "$exit_code"
 
     local content
     content=$(cat "$f")
@@ -435,7 +425,7 @@ CONFLICT
     set -e
 
     assert_eq "T8: stdout is RESOLVED" "RESOLVED" "$stdout"
-    assert_exit_code "T8: exit code 0" "0" "$exit_code"
+    assert_eq "T8: exit code 0" "0" "$exit_code"
 
     local content
     content=$(cat "$f")

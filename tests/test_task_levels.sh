@@ -14,22 +14,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.aitask-scripts" && pwd)"
 # shellcheck source=../.aitask-scripts/lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
 
+# Shared assertion helpers (see tests/lib/asserts.sh). SCRIPT_DIR points at
+# .aitask-scripts here, so tests/lib is one level up from it.
+# shellcheck source=lib/asserts.sh
+. "$SCRIPT_DIR/../tests/lib/asserts.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
 
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc"
-        echo "  expected: $expected"
-        echo "  actual:   $actual"
-    fi
-}
 
 assert_valid() {
     local val="$1"

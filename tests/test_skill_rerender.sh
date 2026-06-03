@@ -13,28 +13,6 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-assert_zero_exit() {
-    local desc="$1" rc="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$rc" -eq 0 ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected zero exit, got $rc)"
-    fi
-}
-
-assert_nonzero_exit() {
-    local desc="$1" rc="$2"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$rc" -ne 0 ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    fi
-}
-
 cd "$PROJECT_DIR"
 
 HELPER="$PROJECT_DIR/.aitask-scripts/aitask_skill_rerender.sh"
@@ -98,7 +76,7 @@ set +e
 output=$("$HELPER" 2>&1)
 rc=$?
 set -e
-assert_nonzero_exit "no-arg invocation exits non-zero" "$rc"
+assert_exit_nonzero_rc "no-arg invocation exits non-zero" "$rc"
 assert_contains "no-arg invocation prints usage" "usage:" "$output"
 
 # --- Test 3: Empty state is a no-op ---
@@ -108,7 +86,7 @@ set +e
 output=$("$HELPER" "$TEST_PROFILE" 2>&1)
 rc=$?
 set -e
-assert_zero_exit "empty-state invocation succeeds" "$rc"
+assert_exit_zero_rc "empty-state invocation succeeds" "$rc"
 assert_contains "empty-state reports RERENDERED:0" "RERENDERED:0" "$output"
 
 # --- Test 4: Skips orphaned rendered dirs (no authoring template) ---
@@ -122,7 +100,7 @@ set +e
 output=$("$HELPER" "$TEST_PROFILE" 2>&1)
 rc=$?
 set -e
-assert_zero_exit "orphan-only invocation succeeds" "$rc"
+assert_exit_zero_rc "orphan-only invocation succeeds" "$rc"
 assert_contains "orphan-only invocation reports RERENDERED:0" "RERENDERED:0" "$output"
 # Orphaned rendered dirs are intentionally LEFT IN PLACE — the helper does
 # not touch them (it neither re-renders nor deletes). They survive.
@@ -141,7 +119,7 @@ set +e
 output=$("$HELPER" "no_such_profile_xyz_abc_123" 2>&1)
 rc=$?
 set -e
-assert_zero_exit "unknown-profile invocation succeeds" "$rc"
+assert_exit_zero_rc "unknown-profile invocation succeeds" "$rc"
 assert_contains "unknown-profile reports RERENDERED:0" "RERENDERED:0" "$output"
 
 # --- Test 6: Skips missing agent roots gracefully ---
@@ -155,7 +133,7 @@ set +e
 output=$("$HELPER" "$TEST_PROFILE" 2>&1)
 rc=$?
 set -e
-assert_zero_exit "succeeds with one agent root missing" "$rc"
+assert_exit_zero_rc "succeeds with one agent root missing" "$rc"
 assert_contains "still reports RERENDERED summary" "RERENDERED:" "$output"
 if [[ -d "$OPENCODE_ROOT_BAK" ]]; then
     mv "$OPENCODE_ROOT_BAK" "$PROJECT_DIR/.opencode/skills"
@@ -183,7 +161,7 @@ if [[ -f .claude/skills/aitask-pick/SKILL.md.j2 \
         output=$("$HELPER" fast 2>&1)
         rc=$?
         set -e
-        assert_zero_exit "real-skill rerender exits zero" "$rc"
+        assert_exit_zero_rc "real-skill rerender exits zero" "$rc"
         assert_contains "real-skill rerender output mentions RERENDERED" "RERENDERED:" "$output"
         after=$(stat -c %Y "$rendered_file" 2>/dev/null || stat -f %m "$rendered_file")
         TOTAL=$((TOTAL + 1))

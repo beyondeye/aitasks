@@ -15,6 +15,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Shared assertion helpers (see tests/lib/asserts.sh).
+# shellcheck source=lib/asserts.sh
+. "$PROJECT_DIR/tests/lib/asserts.sh"
+
 # shellcheck source=lib/require_no_tmux.sh
 . "$SCRIPT_DIR/lib/require_no_tmux.sh"
 require_no_tmux
@@ -22,41 +26,6 @@ require_no_tmux
 PASS=0
 FAIL=0
 TOTAL=0
-
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    TOTAL=$((TOTAL + 1))
-    if [[ "$expected" == "$actual" ]]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected '$expected', got '$actual')"
-    fi
-}
-
-assert_exit_zero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected exit 0, got non-zero)"
-    fi
-}
-
-assert_exit_nonzero() {
-    local desc="$1"
-    shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $desc (expected non-zero exit, got 0)"
-    else
-        PASS=$((PASS + 1))
-    fi
-}
 
 # --- Tier 1: Python helpers (always run) ---
 

@@ -153,6 +153,32 @@ assert_exit_nonzero() {
     fi
 }
 
+# Captured-return-code variants. Where the assert_exit_zero/_nonzero pair above
+# RUNS a command, these assert on a numeric exit code the caller already
+# captured (e.g. `cmd; rc=$?` after also grabbing stdout). Used by tests that
+# need the command's output and its status separately. desc + rc, not a command.
+assert_exit_zero_rc() {
+    local desc="$1" rc="$2"
+    TOTAL=$((TOTAL + 1))
+    if [[ "$rc" -eq 0 ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: $desc (expected zero exit, got $rc)"
+    fi
+}
+
+assert_exit_nonzero_rc() {
+    local desc="$1" rc="$2"
+    TOTAL=$((TOTAL + 1))
+    if [[ "$rc" -ne 0 ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: $desc (expected non-zero exit, got 0)"
+    fi
+}
+
 # --- filesystem ------------------------------------------------------------
 
 assert_file_exists() {

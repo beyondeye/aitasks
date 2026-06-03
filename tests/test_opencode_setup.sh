@@ -5,30 +5,13 @@ set -euo pipefail
 
 PASS=0
 FAIL=0
-assert_eq() {
-    local desc="$1" expected="$2" actual="$3"
-    if [[ "$expected" == "$actual" ]]; then
-        echo "PASS: $desc"; PASS=$((PASS + 1))
-    else
-        echo "FAIL: $desc (expected: '$expected', got: '$actual')"; FAIL=$((FAIL + 1))
-    fi
-}
-assert_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    if echo "$haystack" | grep -qF -- "$needle"; then
-        echo "PASS: $desc"; PASS=$((PASS + 1))
-    else
-        echo "FAIL: $desc — '$needle' not found"; FAIL=$((FAIL + 1))
-    fi
-}
-assert_not_contains() {
-    local desc="$1" needle="$2" haystack="$3"
-    if ! echo "$haystack" | grep -qF -- "$needle"; then
-        echo "PASS: $desc"; PASS=$((PASS + 1))
-    else
-        echo "FAIL: $desc — '$needle' found but shouldn't be"; FAIL=$((FAIL + 1))
-    fi
-}
+# shellcheck disable=SC2034  # TOTAL is mutated by the sourced asserts.sh helpers.
+TOTAL=0
+
+# Shared assertion helpers (see tests/lib/asserts.sh). Resolve tests/lib via
+# the script dir up-front (later code reassigns PROJECT_DIR to a fake repo).
+# shellcheck source=lib/asserts.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/asserts.sh"
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_DIR="$(mktemp -d)"
