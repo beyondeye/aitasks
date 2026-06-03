@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [macos, bash_scripts, testing]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 23:15
-updated_at: 2026-06-03 23:15
+updated_at: 2026-06-03 23:18
 ---
 
 Surfaced by the t926 periodic macOS compat audit. **Not a failure** — these work
