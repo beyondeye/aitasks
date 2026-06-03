@@ -222,6 +222,154 @@ def get_children(session_path: Path, node_id: str) -> list[str]:
     return children
 
 
+def node_descendants_closure(session_path: Path, node_id: str) -> list[str]:
+    """Return ``node_id`` plus all its transitive descendants (child-closure).
+
+    Breadth-first over ``get_children`` (which finds any node listing the
+    current id among its ``parents``), starting from ``node_id`` (always first
+    in the result). The closure is **child-transitive**: a multi-parent
+    ``synthesize`` / ``module_merge`` node that lists an affected node among its
+    parents is pulled in, so the closure never leaves a dangling parent ref
+    behind. Shared by the delete-confirm modal (casualty list + agent guard) and
+    ``delete_node_cascade``.
+    """
+    closure: list[str] = []
+    seen: set[str] = set()
+    queue: deque[str] = deque([node_id])
+    while queue:
+        nid = queue.popleft()
+        if nid in seen:
+            continue
+        seen.add(nid)
+        closure.append(nid)
+        for child in get_children(session_path, nid):
+            if child not in seen:
+                queue.append(child)
+    return closure
+
+
+def _first_surviving_parent(
+    session_path: Path, node_id: str, closure: set[str]
+) -> str | None:
+    """Return the nearest ancestor of ``node_id`` not in ``closure`` (or None).
+
+    Climbs the ``parents`` graph breadth-first, skipping members of ``closure``
+    (the to-be-deleted set), and returns the first surviving ancestor found.
+    Used to re-point a subgraph HEAD when the HEAD node is being deleted; yields
+    ``None`` when the deleted subtree root has no surviving ancestor.
+    """
+    seen: set[str] = set()
+    queue: deque[str] = deque(get_parents(session_path, node_id))
+    while queue:
+        pid = queue.popleft()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        if pid not in closure:
+            return pid
+        queue.extend(get_parents(session_path, pid))
+    return None
+
+
+def delete_node_cascade(session_path: Path, node_id: str) -> dict:
+    """Delete ``node_id`` and all its descendants, repointing affected HEADs.
+
+    Cascade-deletes the child-transitive closure of ``node_id`` (see
+    ``node_descendants_closure``): removes each node's ``br_nodes/<id>.yaml``,
+    ``br_proposals/<id>.md``, and plan file, and rewrites
+    ``br_graph_state.yaml``:
+
+    - Any subgraph HEAD (``current_heads[module]`` or the legacy
+      ``current_head`` alias) in the closure is re-pointed to the nearest
+      surviving ancestor of ``node_id`` (or cleared when none survives).
+    - Closure ids are pruned from every per-module ``history`` list.
+    - ``module_tasks``, ``last_synced_at``, and ``module_deferred`` are left
+      untouched — a linked aitask is never deleted by this operation.
+
+    Returns a report dict::
+
+        {"deleted": [...], "head_repoints": {module: new_head_or_None},
+         "history_pruned": {module: [removed_id, ...]}, "missing_root": bool}
+    """
+    if node_id not in list_nodes(session_path):
+        return {
+            "deleted": [],
+            "head_repoints": {},
+            "history_pruned": {},
+            "missing_root": True,
+        }
+
+    closure_list = node_descendants_closure(session_path, node_id)
+    closure = set(closure_list)
+
+    # Snapshot plan_file paths before the node YAMLs are removed.
+    plan_files: dict[str, str] = {}
+    for nid in closure_list:
+        try:
+            data = read_node(session_path, nid)
+        except Exception:
+            continue
+        pf = data.get("plan_file")
+        if pf:
+            plan_files[nid] = str(pf)
+
+    gs = _read_graph_state(session_path)
+
+    # --- HEAD repoints ---
+    head_repoints: dict[str, str | None] = {}
+    repoint_target = _first_surviving_parent(session_path, node_id, closure)
+
+    heads = gs.get("current_heads")
+    if isinstance(heads, dict):
+        for module, head in list(heads.items()):
+            if head in closure:
+                head_repoints[module] = repoint_target
+                if repoint_target is None:
+                    heads.pop(module, None)
+                else:
+                    heads[module] = repoint_target
+
+    # Legacy alias: keep current_head in sync with the _umbrella HEAD.
+    legacy_head = gs.get("current_head")
+    if legacy_head and legacy_head in closure:
+        head_repoints.setdefault(UMBRELLA_SUBGRAPH, repoint_target)
+        gs["current_head"] = repoint_target
+
+    # --- History prune ---
+    history = gs.get("history")
+    if isinstance(history, list):
+        # Legacy linear list — treat as the _umbrella subgraph history.
+        history = {UMBRELLA_SUBGRAPH: history}
+    history_pruned: dict[str, list[str]] = {}
+    if isinstance(history, dict):
+        for module, ids in list(history.items()):
+            if not isinstance(ids, list):
+                continue
+            removed = [i for i in ids if i in closure]
+            if removed:
+                history[module] = [i for i in ids if i not in closure]
+                history_pruned[module] = removed
+        gs["history"] = history
+
+    _write_graph_state(session_path, gs)
+
+    # --- Delete files (best-effort) ---
+    for nid in closure_list:
+        (session_path / NODES_DIR / f"{nid}.yaml").unlink(missing_ok=True)
+        (session_path / PROPOSALS_DIR / f"{nid}.md").unlink(missing_ok=True)
+        (session_path / PLANS_DIR / f"{nid}_plan.md").unlink(missing_ok=True)
+        pf = plan_files.get(nid)
+        if pf and pf != f"{PLANS_DIR}/{nid}_plan.md":
+            (session_path / pf).unlink(missing_ok=True)
+
+    return {
+        "deleted": closure_list,
+        "head_repoints": head_repoints,
+        "history_pruned": history_pruned,
+        "missing_root": False,
+    }
+
+
 def _node_module(session_path: Path, node_id: str) -> str:
     """Return a node's subgraph membership (``module_label``, default _umbrella).
 

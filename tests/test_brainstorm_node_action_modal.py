@@ -50,10 +50,11 @@ from brainstorm.brainstorm_app import (  # noqa: E402
 class _ModalHost(App):
     """Minimal host App that pushes a NodeActionSelectModal on mount."""
 
-    def __init__(self, node_id: str, has_plan: bool) -> None:
+    def __init__(self, node_id: str, has_plan: bool, op_states=None) -> None:
         super().__init__()
         self._node_id = node_id
         self._has_plan = has_plan
+        self._op_states = op_states
         self.result = "UNSET"
 
     def compose(self) -> ComposeResult:
@@ -61,7 +62,7 @@ class _ModalHost(App):
 
     def on_mount(self) -> None:
         self.push_screen(
-            NodeActionSelectModal(self._node_id, self._has_plan),
+            NodeActionSelectModal(self._node_id, self._has_plan, self._op_states),
             self._record,
         )
 
@@ -74,8 +75,11 @@ class NodeActionSelectModalTests(unittest.TestCase):
     def _run(self, coro):
         return asyncio.run(coro)
 
-    def test_four_rows_all_enabled_when_node_has_plan(self):
+    def test_all_ops_listed_and_enabled_without_op_states(self):
         async def runner():
+            # No op_states + has_plan=True -> every op renders enabled (patch via
+            # the has_plan fallback, module ops/delete default-enabled). The
+            # relevance filtering itself is unit-tested separately.
             app = _ModalHost("n001_x", has_plan=True)
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
@@ -83,10 +87,37 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 rows = list(app.screen.query(OperationRow))
                 self.assertEqual(
                     [r.op_key for r in rows],
-                    ["explore", "detail", "patch", "fast_track"],
+                    ["explore", "detail", "patch", "fast_track",
+                     "module_decompose", "module_merge", "module_sync",
+                     "delete"],
                 )
                 self.assertTrue(all(not r.op_disabled for r in rows))
                 self.assertTrue(all(r.can_focus for r in rows))
+
+        self._run(runner())
+
+    def test_op_states_disable_module_sync_with_reason(self):
+        async def runner():
+            states = {
+                "module_decompose": (False, ""),
+                "module_merge": (True, "no ancestor subgraph"),
+                "module_sync": (True, "module has no linked task"),
+            }
+            app = _ModalHost("n001_x", has_plan=True, op_states=states)
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                rows = {r.op_key: r for r in app.screen.query(OperationRow)}
+                self.assertFalse(rows["module_decompose"].op_disabled)
+                self.assertTrue(rows["module_merge"].op_disabled)
+                self.assertTrue(rows["module_sync"].op_disabled)
+                self.assertIn(
+                    "module has no linked task",
+                    str(rows["module_sync"].render()),
+                )
+                # delete has no op_states entry -> default enabled + focusable.
+                self.assertFalse(rows["delete"].op_disabled)
+                self.assertTrue(rows["delete"].can_focus)
 
         self._run(runner())
 

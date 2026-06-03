@@ -49,12 +49,14 @@ from brainstorm.brainstorm_dag import (
     UMBRELLA_SUBGRAPH,
     _node_module,
     _read_graph_state,
+    delete_node_cascade,
     get_active_dimensions,
     get_dimension_fields,
     get_head,
     is_ancestor_subgraph,
     list_nodes,
     list_subgraphs,
+    node_descendants_closure,
     read_node,
     read_plan,
     read_proposal,
@@ -741,6 +743,133 @@ class DeleteSessionModal(ModalScreen):
             self.dismiss(True)
 
     @on(Button.Pressed, "#btn_delete_cancel")
+    def cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
+class DeleteNodeModal(ModalScreen):
+    """Double-confirmation modal for cascade-deleting a DAG node + descendants.
+
+    Lists every node in the deletion closure, warns (does not block) when an
+    affected module has a linked aitask, and blocks the delete entirely when a
+    running/waiting agent operates on an affected node. Returns True (confirmed)
+    or False (cancelled) via dismiss(). Carries its own DEFAULT_CSS so it is
+    self-contained (per tui_conventions).
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    DEFAULT_CSS = """
+    DeleteNodeModal {
+        align: center middle;
+    }
+    #delete_node_dialog {
+        width: 70;
+        height: auto;
+        max-height: 80%;
+        background: $surface;
+        border: thick $error;
+        padding: 1 2;
+    }
+    #delete_node_title {
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+    }
+    /* Direct-child labels span the full dialog so prose wraps instead of
+       truncating (closure-list rows live inside #delete_node_closure and are
+       short ids, so they keep their auto width). */
+    #delete_node_dialog > Label {
+        width: 100%;
+    }
+    #delete_node_closure {
+        height: auto;
+        max-height: 12;
+        margin-bottom: 1;
+    }
+    #delete_node_buttons {
+        height: 3;
+        align: center middle;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, node_id, closure, linked_modules, agent_casualties):
+        super().__init__()
+        self.node_id = node_id
+        self.closure = closure  # list[str], includes node_id (root first)
+        self.linked_modules = linked_modules  # list[(module, task_id)]
+        self.agent_casualties = agent_casualties  # list[(node, agent, status)]
+        self._confirmed_once = False
+
+    def compose(self) -> ComposeResult:
+        n_desc = max(0, len(self.closure) - 1)
+        with Container(id="delete_node_dialog"):
+            yield Label(
+                f"Delete node [bold]{self.node_id}[/] and "
+                f"{n_desc} descendant(s)?",
+                id="delete_node_title",
+            )
+            yield Label(
+                "[dim]These nodes (and their proposals/plans) will be "
+                "permanently removed:[/dim]",
+            )
+            with VerticalScroll(id="delete_node_closure"):
+                for nid in self.closure:
+                    marker = "  ▸ " if nid == self.node_id else "  • "
+                    yield Label(f"{marker}{nid}")
+            if self.linked_modules:
+                lines = "\n".join(
+                    f"  • module '{m}' → linked aitask t{t}"
+                    for m, t in self.linked_modules
+                )
+                yield Label(
+                    "[bold yellow]Warning — affected module(s) have a linked "
+                    "aitask:[/]\n" + lines +
+                    "\n[yellow]The linked aitask itself is left untouched.[/]",
+                )
+            if self.agent_casualties:
+                lines = "\n".join(
+                    f"  • {nid} — {agent} ({status})"
+                    for nid, agent, status in self.agent_casualties
+                )
+                yield Label(
+                    "[bold red]Blocked — running agent(s) operate on affected "
+                    "node(s):[/]\n" + lines +
+                    "\n[red]Stop these agents before deleting.[/]",
+                )
+            yield Label(
+                "[dim]Enter/Delete to confirm  Esc to cancel[/dim]",
+            )
+            with Horizontal(id="delete_node_buttons"):
+                yield Button(
+                    "Delete", variant="error", id="btn_delete_node",
+                    disabled=bool(self.agent_casualties),
+                )
+                yield Button(
+                    "Cancel", variant="default", id="btn_delete_node_cancel"
+                )
+
+    @on(Button.Pressed, "#btn_delete_node")
+    def on_delete(self) -> None:
+        if self.agent_casualties:
+            return
+        if not self._confirmed_once:
+            self._confirmed_once = True
+            self.query_one("#delete_node_title", Label).update(
+                "Are you sure? This cannot be undone."
+            )
+            self.query_one("#btn_delete_node", Button).label = (
+                "Yes, delete permanently"
+            )
+        else:
+            self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_delete_node_cancel")
     def cancel(self) -> None:
         self.dismiss(False)
 
@@ -2031,11 +2160,14 @@ class OperationRow(Static):
 
 
 class NodeActionSelectModal(ModalScreen):
-    """Modal to pick a single-node operation for a focused DAG node.
+    """Modal to pick an operation for a focused DAG node.
 
     Surfaced via the `A` keybinding on the Graph and Dashboard tabs. Offers
-    the wizard's three single-node operations — explore, detail, patch.
-    Patch is shown disabled when the node has no implementation plan.
+    every operation that can run from a focused node — the single-node ops
+    (explore, detail, patch), the fast-track preset, the module ops
+    (module_decompose / module_merge / module_sync, seeded from the node's
+    subgraph), and delete. Each op is shown disabled with a reason when it does
+    not apply to this node (per the ``op_states`` map passed by the caller).
     Returns the chosen op_key string via dismiss(), or None on cancel.
     """
 
@@ -2045,22 +2177,32 @@ class NodeActionSelectModal(ModalScreen):
 
     # Operation keys offered, in display order. Labels/descriptions are
     # pulled from _OP_LABELS so the picker stays in sync with the wizard.
-    # ``fast_track`` (UC-3 preset, t756_6) is NOT a real op — it seeds a
-    # single-module module_decompose with link-to-task pre-armed — so its
-    # label lives in _LOCAL_LABELS, not _OP_LABELS.
-    _OPS = ["explore", "detail", "patch", "fast_track"]
+    # ``fast_track`` (UC-3 preset, t756_6) and ``delete`` are NOT wizard ops in
+    # _OP_LABELS — fast_track seeds a single-module module_decompose, delete is
+    # handled inline via DeleteNodeModal — so their labels live in _LOCAL_LABELS.
+    _OPS = [
+        "explore", "detail", "patch", "fast_track",
+        "module_decompose", "module_merge", "module_sync", "delete",
+    ]
 
     _LOCAL_LABELS = {
         "fast_track": (
             "Fast-track this module",
             "Extract one module into a linked aitask in a single pass",
         ),
+        "delete": (
+            "Delete this node",
+            "Remove this node and all its descendants",
+        ),
     }
 
-    def __init__(self, node_id: str, has_plan: bool):
+    def __init__(self, node_id: str, has_plan: bool, op_states: dict | None = None):
         super().__init__()
         self.node_id = node_id
         self.has_plan = has_plan
+        # op_states[op_key] = (disabled: bool, reason: str). Computed by the
+        # caller (action_node_action) so the modal stays session-free/testable.
+        self.op_states = op_states or {}
 
     def compose(self) -> ComposeResult:
         with Container(id="node_action_dialog"):
@@ -2077,9 +2219,17 @@ class NodeActionSelectModal(ModalScreen):
                     label, desc = self._LOCAL_LABELS.get(
                         op_key, _OP_LABELS.get(op_key, (op_key, ""))
                     )
-                    disabled = (op_key == "patch" and not self.has_plan)
-                    if disabled:
-                        desc = f"{desc}  [italic](node has no plan)[/]"
+                    # op_states (computed by the caller) is authoritative; patch
+                    # falls back to has_plan when no map was supplied; all other
+                    # ops default to enabled.
+                    if op_key in self.op_states:
+                        disabled, reason = self.op_states[op_key]
+                    elif op_key == "patch":
+                        disabled, reason = (not self.has_plan, "node has no plan")
+                    else:
+                        disabled, reason = (False, "")
+                    if disabled and reason:
+                        desc = f"{desc}  [italic]({reason})[/]"
                     yield OperationRow(op_key, label, desc, disabled=disabled)
             with Horizontal(id="node_action_buttons"):
                 yield Button(
@@ -2593,7 +2743,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     #node_action_dialog {
         width: 64;
         height: auto;
-        max-height: 70%;
+        max-height: 90%;
         background: $surface;
         border: thick $primary;
         padding: 1 2;
@@ -2613,8 +2763,16 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     }
 
     #node_action_list {
-        max-height: 12;
+        height: auto;
+        max-height: 24;
         padding: 0 1;
+    }
+
+    /* Picker rows wrap (height: auto overrides the global single-line
+       OperationRow) so long descriptions and the disabled-op "(reason)"
+       suffix are fully visible instead of truncating. */
+    #node_action_list OperationRow {
+        height: auto;
     }
 
     #node_action_buttons {
@@ -3024,7 +3182,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("enter", "open_node_detail", "Open detail"),
         Binding("r", "compare_regenerate", "Regenerate"),
         Binding("D", "compare_diff", "Diff"),
-        Binding("A", "node_action", "Node op"),
+        Binding("A", "node_action", "Node action"),
         Binding("f", "toggle_deferred", "Defer module"),
         Binding("H", "op_help", "Op help"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
@@ -3586,11 +3744,45 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         self.query_one(TabbedContent).active = "tab_dag"
 
+    def _node_action_op_states(self, node_id: str) -> dict:
+        """Compute the disabled/reason map for the node-action picker.
+
+        Returns ``{op_key: (disabled, reason)}`` for the relevance-filtered ops
+        offered by ``NodeActionSelectModal``. Module ops are seeded from the
+        node's subgraph (like the fast_track preset), so they are disabled on
+        the ``_umbrella`` root and when their per-op precondition is unmet
+        (merge needs an ancestor subgraph; sync needs a linked task). Ops not
+        in the map default to enabled in the modal.
+        """
+        module = _node_module(self.session_path, node_id)
+        is_umbrella = module == UMBRELLA_SUBGRAPH
+        gs = _read_graph_state(self.session_path)
+        tasks = gs.get("module_tasks")
+        has_linked_task = bool(isinstance(tasks, dict) and tasks.get(module))
+        # _ancestor_subgraphs takes a subgraph NAME (matches _config_module_merge,
+        # which passes self._wizard_subgraph). The _umbrella root has none.
+        ancestors = [] if is_umbrella else self._ancestor_subgraphs(module)
+        return {
+            "patch": (not self._node_has_plan(node_id), "node has no plan"),
+            "module_decompose": (is_umbrella, "no module on the root design"),
+            "module_merge": (
+                is_umbrella or not ancestors,
+                "no module on the root design" if is_umbrella
+                else "no ancestor subgraph",
+            ),
+            "module_sync": (
+                is_umbrella or not has_linked_task,
+                "no module on the root design" if is_umbrella
+                else "module has no linked task",
+            ),
+        }
+
     def action_node_action(self) -> None:
-        """Open the single-node operation picker for the focused node.
+        """Open the node-action operation picker for the focused node.
 
         Bound to `A` on the Dashboard and Graph tabs. On pick, the dismiss
-        callback seeds the operation wizard and switches to the Actions tab.
+        callback seeds the operation wizard and switches to the Actions tab
+        (or, for delete, opens the cascade-delete confirmation modal).
         """
         if isinstance(self.screen, ModalScreen):
             return
@@ -3623,8 +3815,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             )
             return
         has_plan = self._node_has_plan(node_id)
+        op_states = self._node_action_op_states(node_id)
         self.push_screen(
-            NodeActionSelectModal(node_id, has_plan),
+            NodeActionSelectModal(node_id, has_plan, op_states),
             lambda result, nid=node_id: self._on_node_action_result(
                 nid, result
             ),
@@ -3698,6 +3891,24 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._actions_show_config()
             self.call_after_refresh(self._enter_actions_tab)
             return
+        if op_key == "delete":
+            # Cascade-delete this node and its descendants. Handled inline via a
+            # dedicated confirmation modal (like the session-level delete op) —
+            # synchronous, no agent dispatch, no wizard tab switch.
+            self._open_delete_node_modal(node_id)
+            return
+        if op_key in ("module_decompose", "module_merge", "module_sync"):
+            # Seed the module op from the focused node's subgraph, mirroring the
+            # fast_track preset but WITHOUT arming _wizard_fast_track. Module ops
+            # have no node-select step, so render config directly. Set
+            # _wizard_subgraph after _set_total_steps (which resets it).
+            self._wizard_op = op_key
+            self._set_total_steps()
+            self._wizard_subgraph = _node_module(self.session_path, node_id)
+            self._wizard_config = {}
+            self._actions_show_config()
+            self.call_after_refresh(self._enter_actions_tab)
+            return
         # Seed wizard state as if Step 1 (operation select) had completed.
         self._wizard_op = op_key
         self._set_total_steps()
@@ -3724,6 +3935,93 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # TabbedContent reveals the Actions tab and (being the last focus
         # change) it sticks.
         self.call_after_refresh(self._enter_actions_tab)
+
+    def _delete_agent_casualties(self, closure: set) -> list:
+        """Return running/waiting agents operating on an affected node.
+
+        Reads the crew worktree's ``_status.yaml`` files; for each agent whose
+        status is Running or Waiting, recovers its source/target node from
+        ``<agent>_input.md`` (``_recover_node_id_from_input``) and flags it when
+        that node is in ``closure``. Agents whose node cannot be recovered
+        (compare / synthesize / module ops operate at subgraph/HEAD scope, not a
+        single node) are treated as non-blocking. Returns a list of
+        ``(node_id, agent_name, status)`` tuples.
+        """
+        casualties = []
+        try:
+            status_files = list_agent_files(str(self.session_path), "_status.yaml")
+        except Exception:
+            return casualties
+        for sf in status_files:
+            try:
+                data = read_yaml(sf)
+            except Exception:
+                continue
+            status = data.get("status", "")
+            name = data.get("agent_name", "")
+            if status not in ("Running", "Waiting") or not name:
+                continue
+            node = self._recover_node_id_from_input(name)
+            if node and node in closure:
+                casualties.append((node, name, status))
+        return casualties
+
+    def _open_delete_node_modal(self, node_id: str) -> None:
+        """Build and push the cascade-delete confirmation modal for ``node_id``.
+
+        Computes the deletion closure, the affected linked-task modules (warn),
+        and the blocking running-agent casualties, then pushes DeleteNodeModal.
+        """
+        closure_list = node_descendants_closure(self.session_path, node_id)
+        closure = set(closure_list)
+        # Affected modules with a linked aitask — warn-only.
+        gs = _read_graph_state(self.session_path)
+        tasks = gs.get("module_tasks")
+        tasks = tasks if isinstance(tasks, dict) else {}
+        affected_modules = {
+            _node_module(self.session_path, nid) for nid in closure_list
+        }
+        linked_modules = [
+            (m, tasks[m]) for m in sorted(affected_modules) if tasks.get(m)
+        ]
+        casualties = self._delete_agent_casualties(closure)
+        self.push_screen(
+            DeleteNodeModal(node_id, closure_list, linked_modules, casualties),
+            lambda confirmed, nid=node_id: self._on_delete_node_result(
+                nid, confirmed
+            ),
+        )
+
+    def _on_delete_node_result(self, node_id: str, confirmed) -> None:
+        """Callback from DeleteNodeModal: run the cascade delete on confirm."""
+        if not confirmed:
+            return
+        # Re-check the node still exists and the agent guard still holds — the
+        # DAG / agents may have changed while the modal was open.
+        if node_id not in list_nodes(self.session_path):
+            self.notify(
+                f"Node '{node_id}' no longer exists.", severity="error"
+            )
+            return
+        closure = set(node_descendants_closure(self.session_path, node_id))
+        if self._delete_agent_casualties(closure):
+            self.notify(
+                "Delete blocked — a running agent now operates on an affected "
+                "node.",
+                severity="error",
+            )
+            return
+        report = delete_node_cascade(self.session_path, node_id)
+        if report.get("missing_root"):
+            self.notify(
+                f"Node '{node_id}' no longer exists.", severity="error"
+            )
+            return
+        deleted = report.get("deleted", [])
+        if self._current_focused_node_id in deleted:
+            self._current_focused_node_id = None
+        self.notify(f"Deleted {len(deleted)} node(s).")
+        self._load_existing_session()
 
     def _enter_actions_tab(self) -> None:
         """Activate the Actions tab and focus its wizard content.
