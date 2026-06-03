@@ -8,6 +8,8 @@ labels: [ait_brainstorm]
 folded_tasks: [776]
 created_at: 2026-06-03 14:06
 updated_at: 2026-06-03 14:06
+boardcol: now
+boardidx: 10
 ---
 
 ## Context
