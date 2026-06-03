@@ -43,9 +43,14 @@ GRAPH_STATE_REQUIRED = ["current_head", "history", "next_node_id", "active_dimen
 #                     alias of current_heads["_umbrella"].
 #   module_tasks    — map <module>:<task_id> (optional fast-track linkage).
 #   last_synced_at  — map <module>:<timestamp> (sync scan horizon).
+#   module_deferred — map <module>:<bool> (UC-2 fluid-status "deferred" marker,
+#                     t756_5); orthogonal to the computed base status. Absent /
+#                     falsy means the module is active.
 # ``history`` is repurposed from the legacy linear list into a per-module map
 # (<module> -> [node_id, ...]); validate_graph_state accepts either shape.
-GRAPH_STATE_MODULE_MAPS = ["current_heads", "module_tasks", "last_synced_at"]
+GRAPH_STATE_MODULE_MAPS = [
+    "current_heads", "module_tasks", "last_synced_at", "module_deferred",
+]
 
 # ---------------------------------------------------------------------------
 # Session schema (br_session.yaml)

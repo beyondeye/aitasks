@@ -71,6 +71,19 @@ OP_BADGE_STYLES = {
 }
 UNKNOWN_OP_STYLE = Style(color="#6272A4", italic=True)
 
+# Per-module fluid-status badge colors (UC-2, §4.7, t756_5). Status is a
+# *render*, not an op — kept separate from OP_BADGE_STYLES so the two vocabularies
+# never collide. Dracula palette; ``deferred`` is an orthogonal overlay marker.
+MODULE_STATUS_STYLES = {
+    "unstarted":         Style(color="#6272A4"),          # dim grey
+    "in_design":         Style(color="#8BE9FD"),          # cyan
+    "in_implementation": Style(color="#F1FA8C"),          # yellow
+    "implemented":       Style(color="#50FA7B", bold=True),  # green
+    "merged":            Style(color="#FFB86C", bold=True),  # orange
+    "deferred":          Style(color="#FF5555", italic=True),  # red (overlay)
+}
+UNKNOWN_STATUS_STYLE = Style(color="#6272A4", italic=True)
+
 
 # ---------------------------------------------------------------------------
 # Layout algorithm

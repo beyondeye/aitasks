@@ -131,6 +131,7 @@ def init_session(
         "active_dimensions": [],
         "module_tasks": {},
         "last_synced_at": {},
+        "module_deferred": {},
     }
     write_yaml(str(wt / GRAPH_STATE_FILE), graph_state)
 
@@ -1255,6 +1256,34 @@ def _write_last_synced(wt: Path, module: str, timestamp: str) -> None:
         synced = {}
     synced[module] = timestamp
     gs["last_synced_at"] = synced
+    write_yaml(str(path), gs)
+
+
+def _module_deferred_map(wt: Path) -> dict:
+    """Return the ``module_deferred`` map (<module>:<bool>); {} when unset.
+
+    The UC-2 fluid-status "deferred" marker (t756_5). Mirrors
+    ``_module_tasks_map`` so all three module maps read the same way.
+    """
+    path = wt / GRAPH_STATE_FILE
+    gs = read_yaml(str(path))
+    deferred = gs.get("module_deferred")
+    return deferred if isinstance(deferred, dict) else {}
+
+
+def _write_module_deferred(wt: Path, module: str, deferred: bool) -> None:
+    """Set ``module_deferred[module]`` (UC-2 deferred marker, t756_5).
+
+    Persisted to ``br_graph_state.yaml`` so the marker survives a TUI reload.
+    Mirrors ``_write_last_synced`` / ``_write_module_task``.
+    """
+    path = wt / GRAPH_STATE_FILE
+    gs = read_yaml(str(path))
+    deferred_map = gs.get("module_deferred")
+    if not isinstance(deferred_map, dict):
+        deferred_map = {}
+    deferred_map[module] = bool(deferred)
+    gs["module_deferred"] = deferred_map
     write_yaml(str(path), gs)
 
 

@@ -68,9 +68,12 @@ from brainstorm.brainstorm_sections import (
 )
 from brainstorm.brainstorm_dag_display import (
     DAGDisplay,
+    MODULE_STATUS_STYLES,
     OP_BADGE_STYLES,
     UNKNOWN_OP_STYLE,
+    UNKNOWN_STATUS_STYLE,
 )
+from brainstorm.brainstorm_status import module_status_rows
 from brainstorm.brainstorm_op_refs import (
     OpDataRef,
     list_op_inputs,
@@ -78,6 +81,8 @@ from brainstorm.brainstorm_op_refs import (
 )
 from brainstorm.polling_indicator import PollingIndicator
 from brainstorm.brainstorm_session import (
+    _module_deferred_map,
+    _write_module_deferred,
     archive_session,
     crew_worktree,
     finalize_session,
@@ -2637,6 +2642,16 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         margin-bottom: 2;
     }
 
+    #module_status_title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #module_status_info {
+        height: auto;
+        margin-bottom: 2;
+    }
+
     #dash_node_title {
         text-style: bold;
         margin-bottom: 1;
@@ -2997,6 +3012,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("r", "compare_regenerate", "Regenerate"),
         Binding("D", "compare_diff", "Diff"),
         Binding("A", "node_action", "Node op"),
+        Binding("f", "toggle_deferred", "Defer module"),
         Binding("H", "op_help", "Op help"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+r", "retry_patcher_apply",
@@ -3108,7 +3124,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if tabbed.active != "tab_actions" or self._wizard_step < 1:
                 return None
             return True
-        if action == "node_action":
+        if action in ("node_action", "toggle_deferred"):
             try:
                 tabbed = self.query_one(TabbedContent)
             except Exception:
@@ -3170,6 +3186,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     yield VerticalScroll(
                         Label("Session Status", id="session_status_title"),
                         Label("Loading...", id="session_status_info"),
+                        Label("Modules", id="module_status_title"),
+                        Label("", id="module_status_info"),
                         Label("", id="dash_node_title"),
                         Container(id="dash_node_info"),
                         id="detail_pane",
@@ -3595,6 +3613,43 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             ),
         )
 
+    def action_toggle_deferred(self) -> None:
+        """Toggle the focused node's module ``deferred`` marker (§4.7, t756_5).
+
+        Bound to `f` on the Dashboard / Graph tabs. The target module is the
+        subgraph of the currently-focused node; the `_umbrella` root has no
+        module to defer. Persists ``module_deferred[module]`` so the marker
+        survives a TUI reload, then refreshes the status view. ``deferred`` is
+        orthogonal to the computed base status (a module can be both).
+        """
+        if isinstance(self.screen, ModalScreen):
+            return
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active not in ("tab_dashboard", "tab_dag"):
+            return
+        node_id = self._current_focused_node_id
+        if not node_id:
+            self.notify("Focus a node first", severity="warning")
+            return
+        if self.read_only:
+            self.notify(
+                "Session is read-only — cannot change deferral.",
+                severity="warning",
+            )
+            return
+        module = _node_module(self.session_path, node_id)
+        if module == UMBRELLA_SUBGRAPH:
+            self.notify(
+                "The root design has no module to defer.", severity="warning"
+            )
+            return
+        current = bool(_module_deferred_map(self.session_path).get(module, False))
+        _write_module_deferred(self.session_path, module, not current)
+        self.notify(
+            f"Module '{module}' marked {'deferred' if not current else 'active'}."
+        )
+        self._update_module_status()
+
     def _on_node_action_result(self, node_id: str, op_key) -> None:
         """Callback from NodeActionSelectModal: enter the Actions wizard.
 
@@ -4006,6 +4061,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if status in ("completed", "archived"):
             self.read_only = True
         self._update_session_status()
+        self._update_module_status()
         self._populate_node_list()
         self.query_one(DAGDisplay).load_dag(self.session_path)
         self._actions_show_step1()
@@ -5321,6 +5377,43 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         self.query_one("#session_status_info", Label).update("\n".join(info_lines))
 
+    def _update_module_status(self) -> None:
+        """Render the per-module fluid-status view (§4.7, UC-2, t756_5).
+
+        A read-only subgraph tree: one line per subgraph with its computed
+        status badge, the orthogonal ``deferred`` overlay, and sync/link
+        context. Sessions with only the ``_umbrella`` root show a placeholder so
+        the common single-subgraph case stays uncluttered.
+        """
+        try:
+            label = self.query_one("#module_status_info", Label)
+        except Exception:
+            return
+        rows = module_status_rows(self.session_path)
+        if not any(not r["is_umbrella"] for r in rows):
+            label.update("[dim]— no modules —[/]")
+            return
+        lines: list[str] = []
+        for r in rows:
+            status = r["status"]
+            style = MODULE_STATUS_STYLES.get(status, UNKNOWN_STATUS_STYLE)
+            color = style.color
+            hex_c = color.name if color else "#888888"
+            name = "root" if r["is_umbrella"] else r["module"]
+            extra: list[str] = []
+            if r["deferred"]:
+                extra.append("[#FF5555 italic]deferred[/]")
+            if r["task_id"]:
+                extra.append(f"[dim]t{r['task_id']}[/]")
+            if r["last_synced"]:
+                extra.append(f"[dim]synced {r['last_synced']}[/]")
+            suffix = ("  " + "  ".join(extra)) if extra else ""
+            lines.append(
+                f"[{hex_c} bold]{status}[/]  {name} "
+                f"[dim]({r['node_count']})[/]{suffix}"
+            )
+        label.update("\n".join(lines))
+
     def _populate_node_list(self) -> None:
         """Clear and repopulate the left pane with NodeRow widgets."""
         pane = self.query_one("#node_list_pane", VerticalScroll)
@@ -5526,6 +5619,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             set_head(self.session_path, event.node_id)
             self._populate_node_list()
             self._update_session_status()
+            self._update_module_status()
             self.query_one(DAGDisplay).load_dag(self.session_path)
 
     @on(DAGDisplay.OperationOpened)
