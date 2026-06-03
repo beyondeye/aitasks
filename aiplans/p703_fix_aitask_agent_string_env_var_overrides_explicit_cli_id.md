@@ -137,3 +137,26 @@ After implementation, Step 9 handles archival/merge per the task-workflow.
 - None identified. The fix is exactly the task's preferred Option 1 and matches
   its stated verification output; all callers were audited to confirm none rely
   on the env var winning over explicit args.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented Option 1 exactly as planned. In
+  `aitask_resolve_detected_agent.sh`, relocated the `AITASK_AGENT_STRING`
+  fast-path from before the argument-parsing loop to after it, and gated it on
+  `[[ -z "$agent" && -z "$cli_id" && -n "${AITASK_AGENT_STRING:-}" ]]` so the
+  env var is honored only when the caller passes neither explicit arg. Updated
+  the header comment. In `tests/test_resolve_detected_agent.sh`, flipped the
+  former "env var overrides args" case to "explicit args override env var"
+  (expects `codex/gpt5_4`) and added a t703 regression test matching the task's
+  exact verification command.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. The working tree contained unrelated concurrent
+  changes (brainstorm/*, settings.local.json, website docs); only the two
+  task-owned files were staged and committed, leaving the rest untouched.
+- **Key decisions:** Gate the env-var default on *both* args being absent (not
+  just cli-id). Partial args (e.g. `--agent` without `--cli-id`) fall through to
+  the existing "missing required argument" `die` — treated as a usage error,
+  consistent with the no-env behavior. The no-arg env-var-as-default path
+  (test line 48) is preserved, so the wrapper-injection use case is unaffected
+  (and `model-self-detection.md` Step 1 reads the env var directly anyway,
+  never depending on the resolver fast-path).
+- **Upstream defects identified:** None.
