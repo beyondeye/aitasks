@@ -5,11 +5,12 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Done
 labels: [task_workflow, aitask_pick, testing]
 implemented_with: codex/gpt-5
 created_at: 2026-06-03 12:26
-updated_at: 2026-06-03 13:47
+updated_at: 2026-06-03 13:59
+completed_at: 2026-06-03 13:59
 ---
 
 Create an experimental workflow-hardening sandbox by duplicating the current aitask-pick and task-workflow definitions into new pickn/workflown variants, then apply the proposed enforcement changes there first.
