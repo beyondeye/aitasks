@@ -1,13 +1,17 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-04-28 15:54
-updated_at: 2026-06-03 09:45
+updated_at: 2026-06-03 10:11
+completed_at: 2026-06-03 10:11
 boardcol: now
 boardidx: 90
 ---
