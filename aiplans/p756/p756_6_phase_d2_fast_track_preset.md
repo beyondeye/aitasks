@@ -206,6 +206,58 @@ preset rides that surface instead of inventing a new binding or a fake op:
 existing aggregate manual-verification sibling **t756_7**, which runs after this
 task per the parent's `children_to_implement: [t756_6, t756_7]`.)
 
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the "Fast-track this module" preset (UC-3)
+  exactly as designed — five edits, all in
+  `.aitask-scripts/brainstorm/brainstorm_app.py`:
+  1. `BrainstormApp.__init__` — added the transient `_wizard_fast_track = False`
+     default alongside the other `_wizard_*` fields.
+  2. `_set_total_steps()` — resets `_wizard_fast_track = False` (the single
+     op-select funnel), so the preset's arm can never leak into a later op.
+  3. `NodeActionSelectModal` — added `"fast_track"` to `_OPS` and a local
+     `_LOCAL_LABELS` map ("Fast-track this module" / "Extract one module into a
+     linked aitask in a single pass"); `compose()` now reads `_LOCAL_LABELS`
+     first, then falls back to `_OP_LABELS`. Always enabled (not gated on
+     `has_plan`).
+  4. `_on_node_action_result()` — new early `op_key == "fast_track"` branch:
+     sets `_wizard_op = "module_decompose"`, calls `_set_total_steps()`, re-arms
+     `_wizard_fast_track = True`, sets `_wizard_subgraph` from the focused node's
+     module (`_node_module`), clears `_wizard_config`, renders config directly,
+     and defers the Actions-tab entry. The node-select branch is unchanged.
+  5. `_config_module_decompose()` — when `_wizard_fast_track`, pre-arms the
+     "Create linked child tasks" checkbox (`link_chk.value = True`) and shows a
+     one-line dim hint. The confirm (`6746`) and execute (`7044`) paths are
+     untouched — the preset reaches the identical
+     `register_module_decomposer(..., link_to_task=True, ...)` call.
+- **Deviations from plan:** None. The design held verbatim. The checkbox
+  pre-arm was implemented by building the `Checkbox` and setting `.value`
+  before `mount()` (the cleanest way to pre-check a Textual `Checkbox`).
+- **Issues encountered:** None.
+- **Key decisions:** `fast_track` is intentionally **not** a real op — `op`
+  stays `"module_decompose"` end to end (no new op-key / agent-type / template /
+  `_OP_LABELS` / `GROUP_OPERATIONS` / execute branch). Its label therefore lives
+  in the modal-local `_LOCAL_LABELS`, not `_OP_LABELS`. Leak-safety is enforced
+  structurally: the flag is reset in the one `_set_total_steps` funnel every
+  op-select routes through, and re-armed only on the fast-track branch.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (t756_7, manual verification):**
+  - The live flow to verify: on the Dashboard/Graph tab, focus a node, press
+    `A`, choose "Fast-track this module" → the Actions wizard opens on the
+    module_decompose **config** step with "Create linked child tasks" already
+    ticked and a fast-track hint shown. Type one module name → Next → Confirm →
+    a per-module subgraph root is created and (link-to-task) a child aitask is
+    created with `module_tasks[<module>]` written.
+  - Regression to eyeball: after using fast-track, open the normal Module
+    Decompose op from Step 1 — its link-to-task checkbox must be **unchecked**
+    (flag did not leak).
+  - Unit coverage added in `tests/test_brainstorm_node_action_modal.py`
+    (4-row modal incl. enabled `fast_track`; `_on_node_action_result` seeding;
+    `_set_total_steps` flag reset). Full BrainstormApp boot remains
+    manual-verification territory.
+- **Tests:** `tests/test_brainstorm_node_action_modal.py` (20 pass);
+  full brainstorm python + shell suites green.
+
 ## Step 9 (Post-Implementation)
 Follow task-workflow Step 9: review, commit (`feature: … (t756_6)`), consolidate
 this plan with Final Implementation Notes, archive via
