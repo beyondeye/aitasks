@@ -5,14 +5,14 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [docs, codex]
-assigned_to: ''
+assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-02 13:47
-updated_at: 2026-06-03 11:53
-boardidx: 130
+updated_at: 2026-06-03 15:03
 boardcol: now
+boardidx: 130
 ---
 
 ## Goal
