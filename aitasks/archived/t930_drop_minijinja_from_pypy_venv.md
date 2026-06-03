@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: []
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 16:24
-updated_at: 2026-06-03 16:25
+updated_at: 2026-06-03 16:28
+completed_at: 2026-06-03 16:28
 ---
 
 ## Problem
