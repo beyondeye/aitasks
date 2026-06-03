@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
 status: Implementing
 labels: [claudeskills]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-03 09:39
-updated_at: 2026-06-03 10:21
+updated_at: 2026-06-03 10:30
 boardcol: now
 boardidx: 40
 ---
