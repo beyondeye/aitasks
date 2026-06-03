@@ -3,11 +3,11 @@ priority: low
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Done
 labels: [testing, bash_scripts]
-children_to_implement: [t923_5]
 created_at: 2026-06-03 10:51
-updated_at: 2026-06-03 16:16
+updated_at: 2026-06-03 18:04
+completed_at: 2026-06-03 18:04
 boardcol: now
 boardidx: 20
 ---

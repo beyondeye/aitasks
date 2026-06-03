@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: [t923_4]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [testing, bash_scripts]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-03 11:27
-updated_at: 2026-06-03 17:16
+updated_at: 2026-06-03 18:03
+completed_at: 2026-06-03 18:03
 ---
 
 ## Context
