@@ -3,11 +3,12 @@ priority: low
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Done
 labels: [macos, bash_scripts]
 implemented_with: claudecode/opus4_8_1m
 created_at: 2026-06-03 17:31
 updated_at: 2026-06-03 17:31
+completed_at: 2026-06-03 17:31
 ---
 
 Document the BSD/macOS shell portability bug-class lessons from t931 and t932 in
