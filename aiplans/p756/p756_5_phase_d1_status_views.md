@@ -137,7 +137,7 @@ an op** — it does **not** go in `OP_BADGE_STYLES`; it is a separate status ind
   `brainstorm_session.py`, `brainstorm_dag.py`, `brainstorm_app.py`,
   `brainstorm_dag_display.py`); wiring the previously-unused `_node_module()` into
   the core graph-build path for the dashboard is the one change that touches an
-  existing render path rather than purely adding alongside it · severity: medium · → mitigation: module_status_compute_contract_tests
+  existing render path rather than purely adding alongside it · severity: medium · → mitigation: t922
 - Net-new subgraph-tree dashboard view (reuses `FuzzyCheckList`, but the
   module-grouped tree is new UI with no prior analog in the display layer) ·
   severity: low · → mitigation: TBD
@@ -146,12 +146,12 @@ an op** — it does **not** go in `OP_BADGE_STYLES`; it is a separate status ind
 - The `merged` (cross-subgraph `parents` walk) and `implemented` (live-vs-archived
   task-file resolution) computations are the two states most likely to be subtly
   wrong, and both are new cross-reference logic; a mis-scoped walk or a missed
-  archived-path case yields a silently-wrong badge · severity: medium · → mitigation: module_status_compute_contract_tests
+  archived-path case yields a silently-wrong badge · severity: medium · → mitigation: t922
 - Live TUI wizard/binding/reload cycle is not exercised this session (static +
   unit checks only) · severity: medium · → mitigation: t756_7
 
 ### Planned mitigations
-- timing: after | name: module_status_compute_contract_tests | type: test | priority: medium | effort: medium | addresses: goal-achievement (merged/implemented status correctness) + code-health (_node_module graph-build wiring regression guard) | desc: Contract/unit coverage for compute_module_status across all 6 states over seeded graph state — cross-subgraph merged parents-walk, live-vs-archived implemented resolution, deferred overlay + module_deferred round-trip. Parallels t756_4's t913.
+- timing: after | name: module_status_compute_contract_tests | created: t922 | type: test | priority: medium | effort: medium | addresses: goal-achievement (merged/implemented status correctness) + code-health (_node_module graph-build wiring regression guard) | desc: Contract/unit coverage for compute_module_status across all 6 states over seeded graph state — cross-subgraph merged parents-walk, live-vs-archived implemented resolution, deferred overlay + module_deferred round-trip. Parallels t756_4's t913. (In-task suite test_brainstorm_module_status.py already covers the core; t922 hardens edge/combinatoric cases + a render-layer regression guard.)
 
 ## Final Implementation Notes
 
