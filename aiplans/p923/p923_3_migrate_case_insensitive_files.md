@@ -183,12 +183,63 @@ _No before/after mitigation tasks: the principal risk (regex/casing semantic dri
 across the bucket) is mitigated in-task by the two-dimensional audit + 923_1's
 verification harness, re-run on every migrated file. Mirrors 923_1/923_2's framing._
 
-## Final Implementation Notes (fill in)
+## Final Implementation Notes
 
-Record: which files genuinely needed `_ci` vs were flavor-agnostic (default) vs
-needed `_re`; the resolution of the `test_lock_diag.sh` / `test_pr_contributor_metadata.sh`
-regex calls; any latent casing/regex bug surfaced; any ci+regex "both matter" call
-deferred to 923_5.
+- **Actual work done:** Migrated all **30** CI-bucket files to source
+  `tests/lib/asserts.sh` in 3 harness-verified batches (commits `40c25534`,
+  `0b6a4070`, `83e05e7f`). Removed inline `assert_eq` / `assert_contains` /
+  `assert_not_contains` (and any inline `assert_exit_*` / `assert_file_*` /
+  `assert_dir_*`); kept file-local `PASS/FAIL/TOTAL` and all domain helpers
+  (`assert_symlink`, `assert_exit_code`, `setup_*`, etc.). Net **−1,051 lines**
+  (618 ins / 1,669 del). Every batch passed `assert_migration_verify.sh check`
+  (FAIL-count + exit identical before vs after); `shellcheck --severity=warning`
+  introduced **no** new warnings/errors (only the benign SC1091 *info* note from
+  the new dynamic `source` line, confirmed against HEAD per file).
+- **Call-site mapping outcome:**
+  - **Blanket `_ci`** for all literal-needle `assert_contains` /
+    `assert_not_contains` calls (28 of 30 files are purely literal; preserves the
+    original `-qi` case-insensitivity exactly).
+  - **`_re` (case-sensitive regex) for the 5 genuine regex-needle calls** (FINDING
+    E, confirmed): `test_lock_diag.sh` — 4 `assert_contains_re` for the `PASS.*…`
+    / `FAIL.*…` wildcards (lines 93–95, 110); `test_pr_contributor_metadata.sh` —
+    1 `assert_not_contains_re` for the `^contributor:` anchor (line 115). In both
+    files the needle casing already matched the output, so `-qi` was not
+    load-bearing for casing and `_re` preserves behavior. Verified passing
+    standalone (lock_diag 9/9, pr_contributor 30/30) — not just harness-green,
+    per FINDING D's blind-spot caveat for the `assert_not_contains` regex case.
+- **Deviation from plan — 8 trim files, not 0 (plan said "expected empty").** The
+  Step 1 `assert_eq_trim` probe surfaced **8** files in this bucket whose inline
+  `assert_eq` trims via `echo | xargs` (the macOS BSD `wc -l` padding absorber,
+  923_1 FINDING 4). All had their `assert_eq` call sites remapped to
+  `assert_eq_trim`: `test_data_branch_migration.sh`, `test_data_branch_setup.sh`,
+  `test_draft_finalize.sh`, `test_pr_contributor_metadata.sh`, `test_setup_git.sh`,
+  `test_setup_git_tui.sh`, `test_t167_integration.sh`,
+  `test_t644_branch_mode_upgrade.sh`. The plan's "regenerate, don't trust a
+  hardcoded list" instruction is what caught this — the probe was run, not assumed.
+- **`grep -qi` (regex) vs `grep -Fqi` (fixed) split (FINDING C):** 29/30 files used
+  plain `grep -qi`; only `test_migrate_archives.sh` used `grep -Fqi`. All map
+  cleanly (literal needles → `_ci` is behavior-equivalent; the harness confirmed
+  count-neutrality on every file).
+- **FINDING F ("both case-insensitivity AND regex load-bearing") — did not occur.**
+  No call in the bucket needed a case-insensitive *regex*; every regex-needle call
+  had matching casing, so `_re` sufficed. The lib still has no ci+regex variant —
+  if 923_5's "other" bucket surfaces one, escape the needle or add a variant.
+- **Issues encountered:** None beyond the trim-count deviation. The blanket
+  Python migration helper (throwaway `/tmp/migrate_ci.py`, not committed — per
+  923_2's convention) removed helper blocks by column-0 `}` boundary and applied
+  `\bassert_*\b` renames; the 5 `_re` remaps were applied by hand afterward
+  (the helper only emits `_ci`). FINDING G held: all 30 files define `PROJECT_DIR`
+  before the first helper block, so the source line landed safely with no
+  `set -u`/`TOTAL` straggler (unlike 923_2's `test_opencode_setup.sh`).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (923_4 regex, 923_5 synonyms/stragglers/final gates):**
+  923_4's regex bucket (`grep -qE` / plain `grep -q`) maps to `_re` directly
+  (case-sensitive) and should reuse 923_1's BRE-vs-ERE needle audit. The
+  **two-dimensional audit lesson generalizes**: always decide casing × fixed/regex
+  per call, and **never trust the harness alone for `assert_not_contains` regex
+  needles** (vacuous-pass blind spot, FINDING D) — read those remaps. The trim
+  (`assert_eq_trim`) probe must be re-run for 923_4/923_5 too; do not assume zero.
+  `/tmp/migrate_ci.py` is adaptable (swap the `_ci` rename for `_re`).
 
 ## Step 9 (Post-Implementation)
 
