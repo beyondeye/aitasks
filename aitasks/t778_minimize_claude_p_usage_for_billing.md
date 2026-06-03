@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-17 10:48
-updated_at: 2026-05-17 10:48
+updated_at: 2026-06-03 09:13
 boardidx: 160
 ---
 
