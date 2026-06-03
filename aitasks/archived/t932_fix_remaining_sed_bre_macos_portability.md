@@ -3,10 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [macos, bash_scripts, ait_setup]
+implemented_with: claudecode/opus4_8_1m
 created_at: 2026-06-03 17:22
 updated_at: 2026-06-03 17:22
+completed_at: 2026-06-03 17:22
 ---
 
 Fix 3 remaining instances of the GNU-only `sed` BRE `\?` quantifier in framework
