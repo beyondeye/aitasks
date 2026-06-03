@@ -8,7 +8,7 @@ labels: [ait_bridge]
 children_to_implement: [t822_3, t822_4, t822_5]
 created_at: 2026-05-24 08:40
 updated_at: 2026-05-25 18:03
-boardidx: 110
+boardidx: 120
 boardcol: now
 ---
 

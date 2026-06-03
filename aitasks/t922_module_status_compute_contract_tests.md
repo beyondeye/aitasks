@@ -7,6 +7,8 @@ status: Ready
 labels: [ait_brainstorm, brainstom_modules]
 created_at: 2026-06-03 09:59
 updated_at: 2026-06-03 09:59
+boardidx: 10
+boardcol: now
 ---
 
 ## Origin

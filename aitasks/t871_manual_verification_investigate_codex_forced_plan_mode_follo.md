@@ -9,7 +9,7 @@ verifies: [866]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-31 11:32
 updated_at: 2026-06-03 10:12
-boardidx: 60
+boardidx: 70
 ---
 
 ## Manual Verification Task
