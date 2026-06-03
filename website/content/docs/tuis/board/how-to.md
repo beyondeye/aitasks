@@ -286,7 +286,7 @@ The board can periodically reload task files from disk so that changes made exte
 
 Changes take effect immediately — the timer is restarted (or stopped) as soon as you save. The setting is persisted to `aitasks/metadata/board_config.json`, so it survives restarts.
 
-The default interval is **5 minutes**.
+The default interval is **off** (`0` minutes).
 
 > **Note:** Auto-refresh is skipped when a modal dialog is open (e.g., task detail, column editor). The refresh will occur at the next interval after the modal is closed. You can always press **r** to refresh manually at any time.
 

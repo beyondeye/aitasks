@@ -391,7 +391,7 @@ class ConfigManager:
         defaults = {
             "columns": [],
             "column_order": [],
-            "settings": {"auto_refresh_minutes": 5},
+            "settings": {"auto_refresh_minutes": 0},
         }
         self.board = load_layered_config(str(BOARD_CONFIG), defaults=defaults)
         self.board_project = _load_json(BOARD_CONFIG)
@@ -2052,9 +2052,9 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         container.mount(Label("User Settings", classes="section-header"))
 
         settings = self.config_mgr.board.get("settings", {})
-        current_refresh = str(settings.get("auto_refresh_minutes", 5))
+        current_refresh = str(settings.get("auto_refresh_minutes", 0))
         if current_refresh not in DEFAULT_REFRESH_OPTIONS:
-            current_refresh = "5"
+            current_refresh = "0"
         container.mount(CycleField("Auto-refresh (min)", DEFAULT_REFRESH_OPTIONS,
                                    current_refresh, "auto_refresh_minutes",
                                    id=f"board_cf_refresh_{rc}"))

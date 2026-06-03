@@ -254,12 +254,12 @@ class TaskManager:
         defaults = {
             "columns": DEFAULT_COLUMNS,
             "column_order": DEFAULT_ORDER,
-            "settings": {"auto_refresh_minutes": 5},
+            "settings": {"auto_refresh_minutes": 0},
         }
         config = load_layered_config(str(METADATA_FILE), defaults=defaults)
         self.columns = config.get("columns", DEFAULT_COLUMNS)
         self.column_order = config.get("column_order", DEFAULT_ORDER)
-        self.settings = config.get("settings", {"auto_refresh_minutes": 5})
+        self.settings = config.get("settings", {"auto_refresh_minutes": 0})
         if not METADATA_FILE.exists():
             self.save_metadata()
 
@@ -276,7 +276,7 @@ class TaskManager:
 
     @property
     def auto_refresh_minutes(self) -> int:
-        return self.settings.get("auto_refresh_minutes", 5)
+        return self.settings.get("auto_refresh_minutes", 0)
 
     @auto_refresh_minutes.setter
     def auto_refresh_minutes(self, value: int):

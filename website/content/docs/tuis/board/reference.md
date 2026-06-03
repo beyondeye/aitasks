@@ -163,7 +163,7 @@ Columns are stored in `aitasks/metadata/board_config.json`:
   ],
   "column_order": ["now", "next", "backlog"],
   "settings": {
-    "auto_refresh_minutes": 5,
+    "auto_refresh_minutes": 0,
     "sync_on_refresh": false
   }
 }
@@ -173,7 +173,7 @@ Columns are stored in `aitasks/metadata/board_config.json`:
 - **title** — Display name (can include emojis)
 - **color** — Hex color code for the column header and border
 - **column_order** — Controls left-to-right display order
-- **settings.auto_refresh_minutes** — Interval in minutes for periodic board refresh (0 to disable, default 5)
+- **settings.auto_refresh_minutes** — Interval in minutes for periodic board refresh (0 to disable, default 0)
 - **settings.sync_on_refresh** — Enable automatic sync with remote on each auto-refresh interval (default false). Requires `.aitask-data` worktree (data branch mode). When enabled, the board subtitle shows "+ sync"
 - **settings.collapsed_columns** — List of column IDs that are currently collapsed (default: empty). Collapsed columns show only their title and task count in a narrow strip. Tasks in collapsed columns are not rendered, which improves performance for boards with many tasks
 

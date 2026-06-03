@@ -27,7 +27,7 @@ DEFAULT_COLUMNS = [
     {"id": "backlog", "title": "Backlog", "color": "#BD93F9"},
 ]
 DEFAULT_ORDER = ["now", "next", "backlog"]
-DEFAULT_SETTINGS = {"auto_refresh_minutes": 5}
+DEFAULT_SETTINGS = {"auto_refresh_minutes": 0}
 _PROJECT_KEYS = {"columns", "column_order"}
 _USER_KEYS = {"settings"}
 

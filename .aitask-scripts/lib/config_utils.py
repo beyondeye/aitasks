@@ -9,7 +9,7 @@ Usage:
 
     config = load_layered_config(
         "aitasks/metadata/board_config.json",
-        defaults={"auto_refresh_minutes": 5},
+        defaults={"auto_refresh_minutes": 0},
     )
 """
 from __future__ import annotations
