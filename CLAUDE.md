@@ -118,6 +118,14 @@ flags for automation) modes. Example: `aitask_create.sh --batch --name "task"
   time `./ait` (or a helper that learns to source the new lib) is invoked
   from the fake repo. Current baseline: `aitask_path.sh`, `terminal_compat.sh`,
   `python_resolve.sh`, `yaml_utils.sh`, `cross_repo_reexec.sh`.
+- **Avoid `claude -p` / `claude --print` (headless print mode) in scripts and
+  skills.** Claude Code bills headless print mode at a higher per-token rate
+  than interactive invocations against an existing session. Default to
+  interactive mode; gate any genuinely non-interactive need (e.g. CI) behind an
+  explicit opt-in flag (as `ait codeagent --headless` does for `batch-review`).
+  This applies to skill `.md` files too. See
+  `aidocs/framework/skill_authoring_conventions.md` ("Do not route skill
+  invocation through `claude -p`") for the skill-rendering rationale.
 
 > **macOS portability quirks** (BSD sed vs GNU sed, `grep -P` unavailable,
 > `wc -l` padding, `mktemp --suffix`, `base64 -D` vs `-d`): see

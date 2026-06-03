@@ -158,6 +158,7 @@ When the resolved agent is Codex CLI, the planning skills (`pick` and `explore`)
 |--------|-------------|
 | `--agent-string STR` | Override agent string for this invocation |
 | `--dry-run` | Print the command that would be executed without running it |
+| `--headless` | Run `claudecode batch-review` non-interactively (adds `--print`). No-op for other agents/operations. Defaults to interactive mode, since Claude Code bills headless print mode at a higher per-token rate. |
 
 ### Configuration
 

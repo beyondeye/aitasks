@@ -31,6 +31,10 @@ SUPPORTED_OPERATIONS=(pick explain batch-review qa explore raw)
 
 OPT_AGENT_STRING=""
 OPT_DRY_RUN=false
+# Opt-in headless mode. Only affects `claudecode batch-review` (appends
+# `--print`); a no-op for every other agent/operation. Default interactive,
+# because Claude Code bills headless print mode at a higher per-token rate.
+OPT_HEADLESS=false
 
 # Resolve the agent string for an operation using the resolution chain:
 # 1. --agent-string flag
@@ -424,7 +428,13 @@ build_invoke_command() {
                     CMD+=("/aitask-explore")
                     ;;
                 batch-review)
-                    CMD+=("--print" "${args[@]}")
+                    # Interactive by default (no billing surcharge); opt into
+                    # headless `--print` only when --headless was passed.
+                    if [[ "$OPT_HEADLESS" == true ]]; then
+                        CMD+=("--print" "${args[@]}")
+                    else
+                        CMD+=("${args[@]}")
+                    fi
                     ;;
                 raw)
                     CMD+=("${args[@]}")
@@ -529,6 +539,10 @@ Commands:
 Options:
   --agent-string STR     Override agent string (e.g., claudecode/opus4_6)
   --dry-run              Print command without executing (for invoke)
+  --headless             Run claudecode batch-review non-interactively (adds
+                         --print). No-op for other agents/operations. Default
+                         is interactive (avoids Claude Code's headless billing
+                         surcharge).
   -h, --help             Show this help
 
 Operations: pick, explain, batch-review, qa, explore, raw
@@ -550,6 +564,7 @@ Examples:
   ait codeagent invoke pick 42
   ait codeagent --agent-string codex/gpt5_4 invoke explain src/
   ait codeagent --dry-run invoke pick 42
+  ait codeagent --headless invoke batch-review src/
 EOF
 }
 
@@ -569,6 +584,10 @@ main() {
                 ;;
             --dry-run)
                 OPT_DRY_RUN=true
+                shift
+                ;;
+            --headless)
+                OPT_HEADLESS=true
                 shift
                 ;;
             -h|--help)

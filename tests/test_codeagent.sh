@@ -255,6 +255,18 @@ assert_not_contains "codex batch-review bypasses plan helper" "aitask_codex_plan
 assert_contains "codex batch-review stays direct" "codex" "$output"
 assert_contains "codex batch-review keeps argument" "review-me" "$output"
 
+# Test 11e: claudecode batch-review is interactive by default; --headless opts
+# into headless --print (Claude Code bills print mode at a higher rate).
+echo "--- Test 11e: claudecode batch-review --headless gating ---"
+# Note: needles avoid a leading "--" because assert_contains greps without `--`;
+# "print" appears in the output only as part of "--print".
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string claudecode/opus4_8 --dry-run invoke batch-review review-me 2>&1)
+assert_not_contains "claudecode batch-review interactive by default (no --print)" "print" "$output"
+assert_contains "claudecode batch-review keeps argument" "review-me" "$output"
+
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string claudecode/opus4_8 --headless --dry-run invoke batch-review review-me 2>&1)
+assert_contains "claudecode --headless batch-review adds --print" "print review-me" "$output"
+
 # Test 12: coauthor-domain reads configured domain
 echo "--- Test 12: coauthor-domain configured ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor-domain 2>&1)

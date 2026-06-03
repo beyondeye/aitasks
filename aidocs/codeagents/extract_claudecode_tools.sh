@@ -20,7 +20,9 @@ PROMPT_EOF
 mkdir -p "${ROOT_DIR}/aidocs/codeagents"
 
 cd "${ROOT_DIR}"
-claude -p \
+# Interactive paste-and-go (NOT `claude -p`): headless print mode is billed at a
+# higher per-token rate. The session runs the prompt, then exits when you quit.
+claude \
   --dangerously-skip-permissions \
   "${PROMPT}"
 
