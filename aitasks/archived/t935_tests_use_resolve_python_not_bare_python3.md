@@ -1,13 +1,17 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, python]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-03 23:15
-updated_at: 2026-06-04 11:04
+updated_at: 2026-06-04 11:29
+completed_at: 2026-06-04 11:29
 ---
 
 Surfaced by the t926 periodic macOS compat audit (test suite run on macOS,
