@@ -55,7 +55,7 @@ run_merge() {
 run_merge_with_stderr() {
     local file="$1"
     shift
-    (cd "$PROJECT_DIR/.aitask-scripts/board" && python3 aitask_merge.py "$file" "$@") 2>&1
+    (cd "$PROJECT_DIR/.aitask-scripts/board" && "$TEST_PYTHON" aitask_merge.py "$file" "$@") 2>&1
 }
 
 # --- Test 1: Full auto-resolve (batch) ---

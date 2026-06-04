@@ -8,6 +8,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ORIG_DIR="$(pwd)"
 
+# Resolve the framework interpreter (prefers the aitask venv, which has the
+# yaml dependency agentcrew_report.py pulls in) instead of bare python3 (t935).
+# shellcheck source=.aitask-scripts/lib/python_resolve.sh
+source "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"
+PY="$(require_ait_python)"
+
 # File-based counters (work across subshells)
 COUNTER_FILE="$(mktemp "${TMPDIR:-/tmp}/ait_test_counters_XXXXXX")"
 echo "0 0 0" > "$COUNTER_FILE"
@@ -115,7 +121,7 @@ TMPDIR_T1="$(setup_test_repo)"
     cd "$TMPDIR_T1"
     setup_crew_with_agents "$TMPDIR_T1"
     export PYTHONPATH=".aitask-scripts"
-    output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py --batch summary --crew rptcrew 2>&1)
+    output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py --batch summary --crew rptcrew 2>&1)
     assert_contains_ci "batch has CREW_ID" "CREW_ID:rptcrew" "$output"
     assert_contains_ci "batch has CREW_STATUS" "CREW_STATUS:" "$output"
     assert_contains_ci "batch has agent_a" "AGENT:agent_a" "$output"
@@ -131,7 +137,7 @@ TMPDIR_T2="$(setup_test_repo)"
     cd "$TMPDIR_T2"
     setup_crew_with_agents "$TMPDIR_T2"
     export PYTHONPATH=".aitask-scripts"
-    output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py summary --crew rptcrew 2>&1)
+    output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py summary --crew rptcrew 2>&1)
     assert_contains_ci "interactive has crew name" "rptcrew" "$output"
     assert_contains_ci "interactive has agent_a" "agent_a" "$output"
     assert_contains_ci "interactive has Completed" "Completed" "$output"
@@ -145,7 +151,7 @@ TMPDIR_T3="$(setup_test_repo)"
     cd "$TMPDIR_T3"
     setup_crew_with_agents "$TMPDIR_T3"
     export PYTHONPATH=".aitask-scripts"
-    output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py --batch detail --crew rptcrew --agent agent_a 2>&1)
+    output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py --batch detail --crew rptcrew --agent agent_a 2>&1)
     assert_contains_ci "detail has AGENT" "AGENT:agent_a" "$output"
     assert_contains_ci "detail has STATUS" "STATUS:Completed" "$output"
     assert_contains_ci "detail has HAS_WORK2DO" "HAS_WORK2DO:true" "$output"
@@ -163,7 +169,7 @@ TMPDIR_T4="$(setup_test_repo)"
     echo "Agent B output here." > .aitask-crews/crew-rptcrew/agent_b_output.md
 
     export PYTHONPATH=".aitask-scripts"
-    output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py --batch output --crew rptcrew 2>&1)
+    output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py --batch output --crew rptcrew 2>&1)
     assert_contains_ci "output has agent_a section" "OUTPUT_AGENT:agent_a" "$output"
     assert_contains_ci "output has agent_b section" "OUTPUT_AGENT:agent_b" "$output"
     # agent_a should come before agent_b (it has no deps)
@@ -185,7 +191,7 @@ TMPDIR_T5="$(setup_test_repo)"
     cd "$TMPDIR_T5"
     setup_crew_with_agents "$TMPDIR_T5"
     export PYTHONPATH=".aitask-scripts"
-    output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py --batch list 2>&1)
+    output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py --batch list 2>&1)
     assert_contains_ci "list has CREW" "CREW:rptcrew" "$output"
     assert_contains_ci "list has AGENTS" "AGENTS:3" "$output"
 )
@@ -197,7 +203,7 @@ TMPDIR_T6="$(setup_test_repo)"
 (
     cd "$TMPDIR_T6"
     export PYTHONPATH=".aitask-scripts"
-    assert_exit_nonzero "summary for nonexistent crew" python3 .aitask-scripts/agentcrew/agentcrew_report.py summary --crew nosuch
+    assert_exit_nonzero "summary for nonexistent crew" "$PY" .aitask-scripts/agentcrew/agentcrew_report.py summary --crew nosuch
 )
 cleanup_test_repo "$TMPDIR_T6"
 
@@ -299,7 +305,7 @@ TMPDIR_T11="$(setup_test_repo)"
 (
     cd "$TMPDIR_T11"
     export PYTHONPATH=".aitask-scripts"
-    output=$(python3 .aitask-scripts/agentcrew/agentcrew_report.py --batch list 2>&1)
+    output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py --batch list 2>&1)
     assert_contains_ci "no crews" "NO_CREWS" "$output"
 )
 cleanup_test_repo "$TMPDIR_T11"

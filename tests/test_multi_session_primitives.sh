@@ -22,6 +22,12 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 LIB_DIR="$PROJECT_DIR/.aitask-scripts/lib"
 
+# Resolve the framework interpreter (prefers the aitask venv, which has the
+# yaml dependency agent_launch_utils pulls in) instead of bare python3 (t935).
+# shellcheck source=../.aitask-scripts/lib/python_resolve.sh
+source "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"
+PY="$(require_ait_python)"
+
 # shellcheck source=lib/require_no_tmux.sh
 . "$SCRIPT_DIR/lib/require_no_tmux.sh"
 require_no_tmux
@@ -32,7 +38,7 @@ TOTAL=0
 
 # --- Tier 1: Python helpers (always run) ---
 
-out=$(PYTHONPATH="$LIB_DIR" python3 -c "
+out=$(PYTHONPATH="$LIB_DIR" "$PY" -c "
 import inspect
 import agent_launch_utils as u
 from dataclasses import fields
@@ -54,7 +60,7 @@ assert_eq "switch_to_pane_anywhere signature" "SWITCH_PARAMS:pane_id" "${lines[4
 
 # --- Tier 1b: switch_to_pane_anywhere call ordering (mock-based, no tmux) ---
 
-out=$(PYTHONPATH="$LIB_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR" "$PY" <<'PY'
 import subprocess
 from unittest.mock import patch, MagicMock
 import agent_launch_utils as u
@@ -100,7 +106,7 @@ assert_contains "call 3 is select-window"            "select-window -t =mysess:2
 assert_contains "call 4 is select-pane"              "select-pane -t %42" "${lines[6]:-}"
 
 # switch_to_pane_anywhere returns False cleanly when tmux is unavailable.
-out=$(PYTHONPATH="$LIB_DIR" python3 <<'PY'
+out=$(PYTHONPATH="$LIB_DIR" "$PY" <<'PY'
 import subprocess
 from unittest.mock import patch
 import agent_launch_utils as u
@@ -147,7 +153,7 @@ else
         tmux new-session -d -s "$PFX_B" -c /tmp -n stub 'sleep 300'
 
         # Case 1: Pane-cwd walk-up detects PFX_A; PFX_B is excluded.
-        out=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$LIB_DIR" python3 -c "
+        out=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$LIB_DIR" "$PY" -c "
 import agent_launch_utils as u
 sessions = u.discover_aitasks_sessions()
 for s in sessions:
@@ -173,7 +179,7 @@ print('COUNT:' + str(len(sessions)))
         # Case 2: Registry fallback — register PFX_B as aitasks-like.
         tmux set-environment -g "AITASKS_PROJECT_${PFX_B}" "$FAKE_PROJ"
 
-        out=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$LIB_DIR" python3 -c "
+        out=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$LIB_DIR" "$PY" -c "
 import agent_launch_utils as u
 sessions = u.discover_aitasks_sessions()
 for s in sessions:
@@ -186,7 +192,7 @@ print('COUNT:' + str(len(sessions)))
         assert_contains "both sessions now discovered" "COUNT:2" "$out"
 
         # Case 3: Sorted by session name (PFX_A < PFX_B lexicographically).
-        first_line=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$LIB_DIR" python3 -c "
+        first_line=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$LIB_DIR" "$PY" -c "
 import agent_launch_utils as u
 print(u.discover_aitasks_sessions()[0].session)
 ")
@@ -197,7 +203,7 @@ print(u.discover_aitasks_sessions()[0].session)
         BOGUS_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ait_bogus_XXXXXX")
         tmux set-environment -g "AITASKS_PROJECT_${PFX_B}" "$BOGUS_DIR"
 
-        out=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$LIB_DIR" python3 -c "
+        out=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$LIB_DIR" "$PY" -c "
 import agent_launch_utils as u
 sessions = u.discover_aitasks_sessions()
 print('COUNT:' + str(len(sessions)))

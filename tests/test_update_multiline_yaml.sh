@@ -18,6 +18,13 @@ set -u
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
+
+# Resolve the framework interpreter (prefers the aitask venv, which has the
+# yaml dependency the board task_yaml serializer needs) instead of bare python3.
+# Without it Test 7 silently SKIPs on a venv-less system (t935).
+# shellcheck source=.aitask-scripts/lib/python_resolve.sh
+source "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"
+PY="$(require_ait_python)"
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 UPDATE_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_update.sh"
 
@@ -193,8 +200,8 @@ assert_contains "read_yaml_field: continuation entry present" \
 
 # --- Test 7: board (task_yaml.py) serializes long lists on one line --------
 
-if python3 -c 'import yaml' >/dev/null 2>&1; then
-    board_out=$(python3 - "$PROJECT_DIR" <<'PYEOF'
+if "$PY" -c 'import yaml' >/dev/null 2>&1; then
+    board_out=$("$PY" - "$PROJECT_DIR" <<'PYEOF'
 import sys
 sys.path.insert(0, sys.argv[1] + "/.aitask-scripts/board")
 import task_yaml
@@ -208,7 +215,7 @@ PYEOF
     assert_eq "board: long flow list stays on a single physical line" \
         "OK" "$board_out"
 else
-    echo "SKIP: board serializer test (python3/yaml unavailable)"
+    echo "SKIP: board serializer test (yaml unavailable in resolved Python)"
 fi
 
 # --- Syntax checks for the touched libraries -------------------------------

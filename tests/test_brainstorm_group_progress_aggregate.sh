@@ -18,6 +18,13 @@ THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$THIS_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Resolve the framework interpreter (prefers the aitask venv, which has textual
+# and the yaml dependency brainstorm_session pulls in) instead of bare python3,
+# which may skip cases 1/2 and fail case 3 on a venv-less system (t935).
+# shellcheck source=.aitask-scripts/lib/python_resolve.sh
+source "$REPO_ROOT/.aitask-scripts/lib/python_resolve.sh"
+PY="$(require_ait_python)"
+
 PASS=0
 FAIL=0
 
@@ -25,7 +32,7 @@ FAIL=0
 # Case 1: _format_progress_bar() — pure function, run in-process.
 # ---------------------------------------------------------------------------
 
-format_test_out=$(python3 - <<'PY'
+format_test_out=$("$PY" - <<'PY'
 import sys
 sys.path.insert(0, '.aitask-scripts')
 
@@ -77,7 +84,7 @@ fi
 # values the GroupRow surfaces. Keeps the test independent of Textual.
 # ---------------------------------------------------------------------------
 
-agg_test_out=$(python3 - <<'PY'
+agg_test_out=$("$PY" - <<'PY'
 def mean_round(progresses):
     if not progresses:
         return None
@@ -138,7 +145,7 @@ status: Running
 progress: 15
 EOF
 
-integ_test_out=$(python3 - "$CREW" <<'PY'
+integ_test_out=$("$PY" - "$CREW" <<'PY'
 import sys
 sys.path.insert(0, '.aitask-scripts')
 
@@ -182,7 +189,7 @@ trap - EXIT
 # plus the unresolved case.
 # ---------------------------------------------------------------------------
 
-resolve_test_out=$(python3 - <<'PY'
+resolve_test_out=$("$PY" - <<'PY'
 import sys
 sys.path.insert(0, '.aitask-scripts')
 
