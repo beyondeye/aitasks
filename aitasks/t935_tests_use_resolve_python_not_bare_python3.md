@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, python]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 23:15
-updated_at: 2026-06-03 23:15
+updated_at: 2026-06-04 11:04
 ---
 
 Surfaced by the t926 periodic macOS compat audit (test suite run on macOS,
