@@ -810,7 +810,20 @@ install_global_shim() {
         mkdir -p "$SHIM_DIR"
 
         local shim_src="$SCRIPT_DIR/../packaging/shim/ait"
-        [[ -f "$shim_src" ]] || die "Cannot locate shim source ($shim_src)"
+        if [[ ! -f "$shim_src" ]]; then
+            # The in-project shim source is shipped only to seed the global
+            # launcher. install.sh deletes packaging/ after the first consume,
+            # so on any later run (e.g. the post-install `ait setup`) the source
+            # is gone but the global shim already exists — that is the steady
+            # state, not an error. Only a true first-time install with no global
+            # shim yet is fatal.
+            if [[ -f "$SHIM_DIR/ait" ]]; then
+                info "Shim source absent; global shim already present at $SHIM_DIR/ait — skipping refresh."
+                ensure_path_in_profile "$SHIM_DIR"
+                return 0
+            fi
+            die "Cannot locate shim source ($shim_src)"
+        fi
         cp "$shim_src" "$SHIM_DIR/ait"
 
         chmod +x "$SHIM_DIR/ait"

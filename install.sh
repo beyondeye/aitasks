@@ -46,6 +46,13 @@ while [[ $# -gt 0 ]]; do
             FORCE=true
             shift
             ;;
+        --source-only)
+            # Sourced for tests (to reach functions like
+            # cleanup_packaging_leftover) — stop parsing here. Function
+            # definitions below still load; the guard before `main "$@"`
+            # returns before the installer runs. Leave $1 set so that guard matches.
+            break
+            ;;
         --dir)
             [[ $# -ge 2 ]] || die "--dir requires a path argument"
             INSTALL_DIR="$2"
@@ -892,6 +899,25 @@ commit_installed_data_files() {
     fi
 }
 
+# Remove the framework-release packaging/ tooling left behind after the shim is
+# consumed. The release tarball bundles packaging/ only so install_global_shim
+# can copy packaging/shim/ait; nothing under it has a runtime role in a consumer
+# project. Mirrors the `rm -rf "$INSTALL_DIR/seed"` cleanup.
+#
+# Blast-radius guard: the aitasks framework repo IS an aitasks project and tracks
+# packaging/ as source. `ait upgrade` runs install.sh over that working tree, so
+# an unguarded rm would delete the framework's own build tooling. Only remove an
+# UNTRACKED packaging/ (tracked => this is the framework source repo; leave it).
+cleanup_packaging_leftover() {
+    local dir="$1"
+    [[ -d "$dir/packaging" ]] || return 0
+    if git -C "$dir" ls-files --error-unmatch packaging >/dev/null 2>&1; then
+        info "packaging/ is git-tracked (framework source repo) — leaving it in place."
+        return 0
+    fi
+    rm -rf "$dir/packaging"
+}
+
 # --- Main ---
 main() {
     echo ""
@@ -989,6 +1015,9 @@ main() {
     source "$INSTALL_DIR/.aitask-scripts/aitask_setup.sh" --source-only
     install_global_shim
 
+    # Drop the framework-release packaging/ tooling now that the shim is copied.
+    cleanup_packaging_leftover "$INSTALL_DIR"
+
     commit_installed_files
     commit_installed_data_files
 
@@ -1011,5 +1040,9 @@ main() {
     echo "Claude Code skills installed to .claude/skills/"
     echo ""
 }
+
+# When sourced with --source-only (tests), return before running the installer.
+# Outside a sourced context `return` fails harmlessly (|| true).
+[[ "${1:-}" == "--source-only" ]] && return 0 2>/dev/null || true
 
 main "$@"

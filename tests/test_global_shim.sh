@@ -222,6 +222,52 @@ assert_eq "Guard variable not leaked to child ait" "0" "$guard_count"
 
 rm -rf "$TMPDIR_9"
 
+# --- Test 10: Shim source absent but global shim present → skip, not die (t938) ---
+echo "--- Test 10: Source absent + global shim present → skip ---"
+
+TMPDIR_10="$(mktemp -d)"
+mkdir -p "$TMPDIR_10/home" "$TMPDIR_10/scriptdir" "$TMPDIR_10/shimbin"
+# Pre-existing global shim with recognizable content
+printf '#!/usr/bin/env bash\necho EXISTING_SHIM\n' > "$TMPDIR_10/shimbin/ait"
+chmod +x "$TMPDIR_10/shimbin/ait"
+
+# Run in a subshell so that any die (exit 1) only kills the subshell. The
+# command-prefix env vars apply to the install_global_shim call itself:
+# SCRIPT_DIR points at a dir with no ../packaging/shim/ait (source genuinely
+# absent), and HOME is sandboxed so ensure_path_in_profile can't touch real rc.
+out_10=$(
+    source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
+    set +euo pipefail
+    HOME="$TMPDIR_10/home" SCRIPT_DIR="$TMPDIR_10/scriptdir" SHIM_DIR="$TMPDIR_10/shimbin" \
+        install_global_shim 2>&1
+)
+rc_10=$?
+
+assert_exit_zero_rc "Skip path returns success when global shim present" "$rc_10"
+assert_contains_ci "Emits skip-refresh info" "skipping refresh" "$out_10"
+assert_contains "Existing shim preserved (not overwritten)" "EXISTING_SHIM" "$(cat "$TMPDIR_10/shimbin/ait")"
+
+rm -rf "$TMPDIR_10"
+
+# --- Test 11: Shim source absent AND no global shim → still fatal (t938) ---
+echo "--- Test 11: Source absent + no global shim → fatal ---"
+
+TMPDIR_11="$(mktemp -d)"
+mkdir -p "$TMPDIR_11/home" "$TMPDIR_11/scriptdir" "$TMPDIR_11/shimbin"
+# Note: no ait in shimbin → genuine first-time install with missing source
+
+(
+    source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
+    set +euo pipefail
+    HOME="$TMPDIR_11/home" SCRIPT_DIR="$TMPDIR_11/scriptdir" SHIM_DIR="$TMPDIR_11/shimbin" \
+        install_global_shim
+) >/dev/null 2>&1
+rc_11=$?
+
+assert_exit_nonzero_rc "Missing source with no global shim is fatal" "$rc_11"
+
+rm -rf "$TMPDIR_11"
+
 # --- Summary ---
 echo ""
 echo "==============================="
