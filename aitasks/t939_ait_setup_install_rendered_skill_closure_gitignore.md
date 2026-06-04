@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: []
 file_references: [.aitask-scripts/aitask_setup.sh:1347-1390, .gitignore:28-57, .aitask-scripts/aitask_skill_render.sh]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-04 11:57
-updated_at: 2026-06-04 11:57
+updated_at: 2026-06-04 11:58
 ---
 
 ## Problem
