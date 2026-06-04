@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.23.1
+
+### Bug Fixes
+
+- **Cleaner installs and repeatable setup** (t938): Re-running the installer no longer aborts when the global `ait` shim is already present, and an untracked `packaging/` directory left behind by the installer is now removed automatically (a git-tracked `packaging/` is preserved).
+- **Reliable test Python resolution** (t935): The test suite now invokes the project's resolved virtual-environment Python instead of a bare `python3`, preventing spurious `ModuleNotFoundError` failures when the system Python is missing `yaml`/`textual`.
+
+### Enhancements
+
+- **Rendered skill-closure ignore rules installed by setup** (t939): `ait setup` now writes gitignore rules that hide locally rendered skill-closure directories under `.claude`, `.agents`, and `.opencode` while still tracking the committed headless prerenders — so generated skill variants no longer show up as untracked clutter.
+
 ## v0.23.0
 
 ### Features

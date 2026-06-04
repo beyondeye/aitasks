@@ -1,5 +1,19 @@
 # Releases
 
+## v0.23.1
+
+v0.23.1 is a small housekeeping release that smooths out installs and setup.
+
+## Installs that just re-run cleanly
+
+Running the installer again won't trip over itself anymore. If the global `ait` shim is already in place, setup quietly moves on instead of bailing out — and any stray `packaging/` directory the installer used to leave behind now gets cleaned up on its own.
+
+## Less untracked clutter from generated skills
+
+`ait setup` now lays down the right gitignore rules so the skill variants your tools render locally stay out of your way, while the committed headless prerenders are still tracked. Your `git status` stays clean.
+
+---
+
 ## v0.23.0
 
 v0.23.0 is a big one — two major new capabilities land, plus a pile of macOS/portability fixes and UI polish.
