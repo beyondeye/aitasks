@@ -1389,6 +1389,41 @@ setup_data_branch() {
         gitignore_changed=true
     fi
 
+    # Install per-profile rendered-skill-closure ignore patterns so a consumer's
+    # `git status` stays clean of on-demand rendered closures
+    # (.claude/skills/<skill>-<profile>-/ etc.). Mirrors the canonical block in
+    # this repo's own .gitignore, minus .gemini (no longer a required agent
+    # root). The `!` negations re-include the committed headless prerenders so
+    # they stay tracked for Claude Code Web where `ait setup` has not run; they
+    # MUST come after the broad `*-/` patterns. Keep this list in sync with the
+    # repo .gitignore until t777_29 unifies both via
+    # aitask_regen_gitignore_prerender.sh.
+    if [[ ! -f "$gitignore" ]] || ! grep -qF ".claude/skills/*-/" "$gitignore" 2>/dev/null; then
+        {
+            echo ""
+            echo "# Per-profile rendered skill variants (on-demand, not committed)"
+            echo "# Convention: rendered dirs end with a trailing hyphen; authoring"
+            echo "# dirs never do. See .claude/skills/task-workflow/stub-skill-pattern.md."
+            echo ".claude/skills/*-/"
+            echo ".agents/skills/*-/"
+            echo ".opencode/skills/*-/"
+            echo ""
+            echo "# Pre-rendered headless variants, committed so the skill works where"
+            echo "# 'ait setup' has not run (e.g. Claude Code Web). Negations win only"
+            echo "# when they follow the broad patterns above."
+            echo "!.claude/skills/aitask-pickrem-remote-/"
+            echo "!.agents/skills/aitask-pickrem-remote-codex-/"
+            echo "!.opencode/skills/aitask-pickrem-remote-/"
+            echo "!.claude/skills/aitask-pickweb-remote-/"
+            echo "!.agents/skills/aitask-pickweb-remote-codex-/"
+            echo "!.opencode/skills/aitask-pickweb-remote-/"
+            echo "!.claude/skills/task-workflow-remote-/"
+            echo "!.agents/skills/task-workflow-remote-codex-/"
+            echo "!.opencode/skills/task-workflow-remote-/"
+        } >> "$gitignore"
+        gitignore_changed=true
+    fi
+
     # --- Step 8: Update CLAUDE.md ---
     update_claudemd_git_section "$project_dir"
 

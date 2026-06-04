@@ -31,7 +31,6 @@ aiplans
 # .claude/skills/task-workflow/stub-skill-pattern.md for the full design.
 .claude/skills/*-/
 .agents/skills/*-/
-.gemini/skills/*-/
 .opencode/skills/*-/
 
 # TODO(t777_29): replace the block below with an auto-generated section managed
@@ -45,13 +44,10 @@ aiplans
 # an extra -<agent>- segment in their rendered-dir name.
 !.claude/skills/aitask-pickrem-remote-/
 !.agents/skills/aitask-pickrem-remote-codex-/
-!.gemini/skills/aitask-pickrem-remote-/
 !.opencode/skills/aitask-pickrem-remote-/
 !.claude/skills/aitask-pickweb-remote-/
 !.agents/skills/aitask-pickweb-remote-codex-/
-!.gemini/skills/aitask-pickweb-remote-/
 !.opencode/skills/aitask-pickweb-remote-/
 !.claude/skills/task-workflow-remote-/
 !.agents/skills/task-workflow-remote-codex-/
-!.gemini/skills/task-workflow-remote-/
 !.opencode/skills/task-workflow-remote-/

@@ -152,6 +152,27 @@ else
 fi
 assert_file_contains ".gitignore has .aitask-data/" "$TMPDIR_1/local/.gitignore" ".aitask-data/"
 
+# Rendered-skill-closure ignore block (t939): consumers must receive the
+# broad `*-/` patterns plus the headless-prerender negations so on-demand
+# rendered closures stay out of `git status` while committed prerenders stay
+# tracked. Mirrors this repo's own .gitignore, minus .gemini.
+assert_file_contains ".gitignore ignores claude rendered closures" \
+    "$TMPDIR_1/local/.gitignore" ".claude/skills/*-/"
+assert_file_contains ".gitignore ignores agents rendered closures" \
+    "$TMPDIR_1/local/.gitignore" ".agents/skills/*-/"
+assert_file_contains ".gitignore ignores opencode rendered closures" \
+    "$TMPDIR_1/local/.gitignore" ".opencode/skills/*-/"
+assert_file_contains ".gitignore re-includes committed prerender" \
+    "$TMPDIR_1/local/.gitignore" "!.claude/skills/task-workflow-remote-/"
+# No .gemini lines — .gemini is no longer a required agent root (t939).
+TOTAL=$((TOTAL + 1))
+if grep -q "\.gemini/skills" "$TMPDIR_1/local/.gitignore" 2>/dev/null; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: .gitignore should not contain any .gemini/skills lines"
+else
+    PASS=$((PASS + 1))
+fi
+
 # Regression: aitasks/aiplans symlinks must be ignored. Trailing-slash
 # gitignore patterns match directories only and would leave the symlinks
 # as untracked entries (t699). Filter porcelain to just those two paths
@@ -276,6 +297,10 @@ data_commits_after=$(git -C "$TMPDIR_3/local/.aitask-data" log --oneline 2>/dev/
 
 assert_contains_ci "Second run says already configured" "already configured" "$output"
 assert_eq_trim "No extra commits on main" "$commits_before" "$commits_after"
+# t939: the rendered-closure ignore block must be idempotent — exactly one
+# occurrence after a second setup run.
+closure_block_count=$(grep -cF ".claude/skills/*-/" "$TMPDIR_3/local/.gitignore" 2>/dev/null | tr -d ' ')
+assert_eq_trim "Rendered-closure ignore block not duplicated on rerun" "1" "$closure_block_count"
 assert_eq_trim "No extra commits on data branch" "$data_commits_before" "$data_commits_after"
 assert_file_contains "Customized coauthor domain preserved on rerun" \
     "$TMPDIR_3/local/aitasks/metadata/project_config.yaml" \
