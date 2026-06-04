@@ -199,3 +199,48 @@ commit: run `verify_build` if configured, then archive via
   a dedicated test. · severity: low · → mitigation: None
 
 No mitigations required (both axes low).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned.
+  - `.aitask-scripts/aitask_setup.sh::install_global_shim` — replaced the
+    unconditional `[[ -f "$shim_src" ]] || die` with a three-way branch: refresh
+    when source present; skip (info + `ensure_path_in_profile` + `return 0`) when
+    source absent but `$SHIM_DIR/ait` exists; `die` only when source absent AND no
+    global shim yet.
+  - `install.sh` — added guarded `cleanup_packaging_leftover()` (removes an
+    UNTRACKED `packaging/`, preserves a git-tracked one via
+    `git ls-files --error-unmatch packaging`), called right after
+    `install_global_shim` in `main()`. Added a `--source-only` sourcing path.
+  - Tests: `tests/test_global_shim.sh` +2 cases (Test 10 skip-not-die, Test 11
+    still-fatal); new `tests/test_packaging_cleanup.sh` (5 cases incl. guard).
+- **Deviations from plan:** One adjustment to the `--source-only` mechanism for
+  `install.sh`. The plan assumed a single bottom guard like `aitask_setup.sh:3120`,
+  but `install.sh` parses args at the **top level** (before any function is
+  defined) and `die`s on unknown flags. A bottom-only guard is unreachable (the
+  arg loop dies first); a top guard would return before the function defs load.
+  Final approach: a `--source-only)` case in the arg loop that `break`s (leaving
+  `$1` set) so function defs still load, plus the bottom `[[ … ]] && return 0`
+  guard which then matches and returns before `main`.
+- **Issues encountered:** First test run hit `Unknown option: --source-only`
+  (top-level arg loop), then `command not found` (top guard returned before
+  function defs). Resolved by the break-in-arg-loop + bottom-guard combination
+  above. Also rewrote the new `test_global_shim.sh` cases to use command-prefix
+  env assignments (`HOME=… SCRIPT_DIR=… SHIM_DIR=… install_global_shim`) — this
+  sandboxes `HOME` during the call (so `ensure_path_in_profile` can't touch the
+  real `~/.bashrc`) and avoids a spurious SC2034 on a standalone `SHIM_DIR=`.
+- **Key decisions:** `ensure_path_in_profile` is still called on the skip path
+  (idempotent) so PATH stays correct even if the shim pre-existed but PATH was
+  never configured. Guard uses `git ls-files --error-unmatch packaging` (exit 0
+  only if tracked) — also covers the "not a git repo at all" consumer case (exits
+  non-zero → delete).
+- **Upstream defects identified:** None.
+
+## Verification
+
+- `shellcheck .aitask-scripts/aitask_setup.sh` — no new findings from this change.
+- `bash -n install.sh && shellcheck install.sh` — clean (only pre-existing infos).
+- `bash tests/test_global_shim.sh` — 20 passed, 0 failed.
+- `bash tests/test_packaging_cleanup.sh` — 6 passed, 0 failed.
+- Regression: `tests/test_shim_extraction_parity.sh` (3/3),
+  `tests/test_install_merge.sh` (20/20).
