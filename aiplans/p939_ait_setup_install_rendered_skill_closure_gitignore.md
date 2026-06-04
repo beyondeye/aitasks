@@ -137,3 +137,31 @@ remove). Commit code (`aitask_setup.sh`, `.gitignore`, test) with
   negations, minus `.gemini`, idempotent, negations-after-broad,
   `gitignore_changed=true`). Verification mirrors the task's own checklist.
   None material. · severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** Added an idempotent rendered-skill-closure ignore block
+  to `aitask_setup.sh` Step 7 (`setup_data_branch()`), placed right after the
+  existing `.aitask-data/` append and before Step 8. It writes the broad `*-/`
+  patterns for `.claude`, `.agents`, `.opencode` plus the `!`-negations for the
+  committed `*-remote-` / `*-remote-codex-` headless prerenders, guarded by a
+  `grep -qF ".claude/skills/*-/"` sentinel and setting `gitignore_changed=true`.
+  Dropped the 4 stale `.gemini` lines from this repo's `.gitignore`. Extended
+  `tests/test_data_branch_setup.sh` (Test 1: block present + `.gemini` absent;
+  Test 3: idempotency via `grep -c == 1`).
+- **Deviations from plan:** One addition beyond the plan — dropping the
+  `.gemini/skills/*-/` ignore line exposed ~40 dead, untracked `.gemini/skills/*-/`
+  rendered-closure dirs (confirmed `.gemini` is no longer referenced anywhere in
+  the render pipeline, so they never regenerate). With the user's explicit
+  confirmation, deleted the whole untracked `.gemini/` directory as cleanup. The
+  task had not anticipated the on-disk leftovers.
+- **Issues encountered:** None. All 66 assertions in
+  `test_data_branch_setup.sh` pass. `shellcheck` reports only pre-existing
+  info/style findings elsewhere in the file — the new block is clean.
+- **Key decisions:** Block embedded directly in `aitask_setup.sh` (not a `seed/`
+  file) because `install.sh` deletes `seed/` post-install, so a seed file would
+  be unreadable when a consumer runs `ait setup`. Kept this as interim option 1
+  (two in-sync hardcoded copies with a `TODO(t777_29)` pointer) rather than
+  building the `aitask_regen_gitignore_prerender.sh` unifier, which stays in
+  t777_29's scope.
+- **Upstream defects identified:** None
