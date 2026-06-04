@@ -1,14 +1,18 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: []
 file_references: [.aitask-scripts/aitask_setup.sh:1347-1390, .gitignore:28-57, .aitask-scripts/aitask_skill_render.sh]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-04 11:57
-updated_at: 2026-06-04 11:58
+updated_at: 2026-06-04 12:16
+completed_at: 2026-06-04 12:16
 ---
 
 ## Problem
