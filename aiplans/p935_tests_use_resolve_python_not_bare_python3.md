@@ -154,3 +154,35 @@ See **Step 9 (Post-Implementation)** for cleanup, archival, and merge.
 - Cannot reproduce the original `ModuleNotFoundError` locally (this box's
   `python3` has the deps); verified instead by asserting the venv interpreter is
   selected · severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** Applied the established `source python_resolve.sh; PY="$(require_ait_python)"`
+  idiom to six harnesses and replaced their bare `python3` invocations with `"$PY"`:
+  `run_all_python_tests.sh` (3 sites), `test_crew_report.sh` (7 sites, `replace_all`),
+  `test_multi_session_primitives.sh` (7 sites), `test_brainstorm_group_progress_aggregate.sh`
+  (4 sites), `test_update_multiline_yaml.sh` (Test 7 guard + body + SKIP message).
+  `test_aitask_merge.sh` was a one-liner — line 58 leaked a bare `python3` despite the
+  file already defining a venv-preferring `TEST_PYTHON`; fixed to use that existing var.
+- **Deviations from plan:** None in scope. One mechanical correction during editing:
+  a `replace_all` of `python3 - ` → `"$PY" -` in the brainstorm test collapsed the space
+  before the heredoc/`"$CREW"` arg (`"$PY" -"$CREW"`); re-fixed all four sites to
+  `"$PY" - …` with correct spacing. Verified by re-running the test (4/4 pass).
+- **Issues encountered:** Could not reproduce the original `ModuleNotFoundError` on this
+  Arch machine — both `~/.aitask/bin/python3` (wrapper) and `/usr/bin/python3` already
+  have `yaml`/`textual`. Verified the fix by asserting the resolver selects
+  `~/.aitask/venv/bin/python` and that each harness still passes.
+  `test_multi_session_primitives.sh` cannot run in this session (its `require_no_tmux`
+  guard refuses to run inside tmux — a pre-existing safety guard, unrelated to this
+  change); validated the edited Tier-1 invocation standalone instead.
+- **Key decisions:** (1) Used `require_ait_python` (not bare `resolve_python`) to match
+  the dominant test idiom and fail with a clear `Run 'ait setup'` message rather than a
+  cryptic `ModuleNotFoundError`. (2) Deliberately LEFT a large set of `python3` matches
+  unchanged — resolver/setup/fallback tests (bare `python3` is by design), stdlib-only
+  targets (`stats`, `task_levels`, `explain`, `opencode`, the tmux harnesses), files
+  already preferring the venv (`test_crew_*`, `test_brainstorm_cli`), and non-invocation
+  string matches. The leave-list with per-file reasons is in the Scope section above.
+- **Upstream defects identified:** None. (Two unrelated working-tree changes —
+  `tests/test_global_shim.sh` modified and `tests/test_packaging_cleanup.sh` untracked —
+  appeared during the session from another process; they were deliberately excluded from
+  this task's commit, not authored here.)
