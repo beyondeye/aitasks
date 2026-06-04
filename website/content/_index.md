@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.23.1: Installs that just re-run cleanly, and Less untracked clutter from generated skills](blog/v0231-installs-that-just-re-run-cleanly-less-untracked-clutter-from-generated-sk/)** -- Jun 4, 2026
 - **[v0.23.0: Brainstorm module decomposition, Risk evaluation in planning, Cross-repo planning, and  straight from explore](blog/v0230-brainstorm-module-decomposition-risk-evaluation-in-planning-cross-repo-pla/)** -- Jun 3, 2026
 - **[v0.22.1: Track risk on your tasks, Risk evaluation, and  when you want it](blog/v0221-track-risk-on-your-tasks-risk-evaluation-when-you-want-it/)** -- Jun 1, 2026
-- **[v0.22.0: Tasks that span multiple repos, Make every shortcut your own, and Manual verification that runs itself](blog/v0220-tasks-that-span-multiple-repos-make-every-shortcut-your-own-manual-verific/)** -- May 31, 2026
 
 [All releases &rarr;](blog/)
 
