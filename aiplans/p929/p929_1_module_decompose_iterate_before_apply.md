@@ -172,3 +172,61 @@ See parent task **Step 9 (Post-Implementation)** for cleanup, archival, merge.
 
 ### Goal-achievement risk: low
 - None identified — approach shape matches parent intent; every cited API/pattern (ModalScreen, config-dict threading, `instructions` carrier) verified present; the steering composition rule is now explicit on both the assembled-input and agent-template sides.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all five planned steps plus the explicit
+  steering composition rule.
+  - `brainstorm_session.py`: extracted pure `parse_module_decomposer_output()`
+    (no graph/fs mutation) and refactored `apply_module_decomposer_output()` to
+    consume it; added `module_decomposer_review_enabled()` (reads persisted
+    `review_before_apply`) and `discard_module_decomposer_output()` (renames
+    `_output.md` aside so `_module_decomposer_needs_apply` goes False — durable
+    cancel/supersede with the graph untouched).
+  - `brainstorm_crew.py`: added a `steer: list[str] | None` param to
+    `_assemble_input_module_decomposer()` / `register_module_decomposer()`; new
+    `_steer_section_lines()` renders the `## Steering` override section
+    (`_STEER_PREAMBLE` states the composition rule). Output is byte-identical
+    when steer is empty.
+  - `brainstorm_app.py`: `ModulePreviewScreen` modal (Accept / Re-run / Cancel);
+    "Review before apply" checkbox (default on) in `_config_module_decompose`;
+    persisted `review_before_apply`/`instructions`/`launch_mode` into
+    `operation_extra`; gated `_try_apply_module_agent_if_needed`; review-gate
+    methods (`_module_review_enabled`, `_open_module_preview`,
+    `_on_module_preview_result`, `_module_cancel_decomposer`, threaded
+    `_module_rerun_decomposer`); state containers `_module_review_pending` /
+    `_module_review_accepted` / `_module_steer`.
+  - `templates/module_decomposer.md`: documents the optional `## Steering`
+    section and the override rule as a numbered Rule.
+- **Deviations from plan:** (1) `steer` was implemented as an ordered
+  `list[str]` of revision notes rather than the plan's nominal `str`, to keep
+  the accumulate-and-number logic in one place and make "later revisions
+  override earlier" structural. (2) Re-run creates a **new group** (via
+  `_next_group_name`) rather than re-registering the same agent name — safer
+  than relying on addwork re-registration semantics for an existing agent;
+  revisions are carried forward keyed by group name.
+- **Issues encountered:** Inserting `ModulePreviewScreen` after
+  `NodeActionSelectModal._navigate` split that class — its trailing
+  `_on_row_activated` / `_on_cancel_pressed` / `action_cancel` got reparented to
+  the new class (and the orphan `action_cancel` shadowed the new one). Caught by
+  `test_brainstorm_node_action_*` failing in the full sweep; fixed by moving the
+  three methods back into `NodeActionSelectModal`.
+- **Key decisions:** Durable cancel/supersede via output-file rename (so the
+  poller's `needs_apply` gate and a post-restart scan both stop tracking the
+  proposal) instead of an in-memory-only flag. Legacy groups (no
+  `review_before_apply`) default to auto-apply, preserving prior behavior.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - `parse_module_decomposer_output()` returns rich dicts
+    (`module_name`, `node_yaml`, `node_data`, `proposal_text`,
+    `proposal_excerpt`, `node_id`) — t929_2 renders agent-proposed names from
+    these in the same `ModulePreviewScreen`.
+  - The steering composition rule (plan preserved; steering overrides on
+    conflict; later revisions win) is the contract for any future iterate
+    surface on module ops; reuse `_steer_section_lines` rather than re-inventing.
+  - **Known limitation:** re-run revisions are in-memory (`_module_steer`), so a
+    re-run *across* a TUI reload sends only the new revision; the prior
+    revisions persist in the superseded `_input.md` but are not reconstructed.
+  - The `from_sections` decompose path applies inline (no agent) and is **not**
+    gated by review — the checkbox is collected but only the agent path honors
+    it. If a sibling wants reviewable section-slicing, that is new work.
