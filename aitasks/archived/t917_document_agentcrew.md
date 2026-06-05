@@ -1,13 +1,17 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-02 16:57
-updated_at: 2026-06-05 09:36
+updated_at: 2026-06-05 10:03
+completed_at: 2026-06-05 10:03
 boardcol: now
 boardidx: 80
 ---
