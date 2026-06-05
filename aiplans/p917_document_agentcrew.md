@@ -206,3 +206,34 @@ and (since we work on the current branch) the commit/merge steps.
   · severity: low · → mitigation: none
 
 No mitigations needed (documentation task, both axes low).
+
+## Final Implementation Notes
+
+- **Actual work done:** Created the two planned pages and wired both indexes,
+  exactly as scoped.
+  - `website/content/docs/concepts/agentcrews.md` — concept page (what it is /
+    why it exists / how to use / see-also), `maturity: [experimental]`,
+    `weight: 75` (Workflow primitives). Surfaces the "engine under multi-agent
+    flows; brainstorm built on it" framing the user asked for.
+  - `website/content/docs/commands/crew.md` — full `ait crew` reference for all
+    ten subcommands with examples + options tables, an `## On-disk layout`
+    section, and the `dashboard`/`logview` TUIs documented inline (no separate
+    TUIs subdirectory, per scope). `maturity: [experimental]`, `weight: 50`.
+  - `commands/_index.md` — new "Agent Orchestration" category + `ait crew` row,
+    plus one `ait crew init` usage-example line.
+  - `concepts/_index.md` — bullet under "Workflow primitives".
+- **Deviations from plan:** None of substance. Every flag/option was re-verified
+  against live `./ait crew <sub> --help` and the Python argparse rather than the
+  exploration summary — this corrected one detail: the exploration report listed
+  `reset` as a valid `ait crew command` value, but the actual valid set is
+  `kill, pause, resume, update_instructions`. Documented the verified set. Also
+  documented runner's `--reset-errors` flag (present in argparse, absent from the
+  thin `--help`).
+- **Issues encountered:** None. `hugo build --gc --minify` succeeded (exit 0);
+  only pre-existing `.Language.LanguageDirection` / `.Site.AllPages` deprecation
+  warnings, unrelated to this change.
+- **Key decisions:** Placed `ait crew` in its own new "Agent Orchestration"
+  command-reference category (cleanest home for a 10-subcommand command);
+  documented the two crew TUIs inline in the command page instead of creating a
+  `tuis/crew-dashboard/` subdirectory, per the user's explicit scope.
+- **Upstream defects identified:** None.
