@@ -2295,6 +2295,84 @@ class NodeActionSelectModal(ModalScreen):
         self.dismiss(None)
 
 
+class ModulePreviewScreen(ModalScreen):
+    """Review gate for ``module_decompose`` (t929_1: iterate-before-apply).
+
+    Shows the module roots a decomposer proposed and lets the operator:
+      - **Accept** — apply the proposal to the graph.
+      - **Re-run** — discard this attempt and dispatch a revised one, steered by
+        free-text instructions that OVERRIDE the original Decomposition Plan.
+      - **Cancel** — discard the proposal; the graph is left untouched.
+
+    Returns ``{"action": "accept"|"rerun"|"cancel", "steer": <str>}`` via
+    ``dismiss``; escape dismisses as cancel. The screen is session-free (it
+    receives already-parsed blocks) so it stays testable.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, agent_name: str, blocks: list[dict]):
+        super().__init__()
+        self.agent_name = agent_name
+        self.blocks = blocks
+
+    def compose(self) -> ComposeResult:
+        with Container(id="module_preview_dialog"):
+            yield Label(
+                f"Review module decomposition "
+                f"([bold]{len(self.blocks)}[/] module(s))",
+                id="module_preview_title",
+            )
+            yield Label(
+                "[dim]Review the proposed modules before they are applied to "
+                "the graph.[/dim]",
+                id="module_preview_hint",
+            )
+            with VerticalScroll(id="module_preview_list"):
+                for blk in self.blocks:
+                    yield Label(
+                        f"[bold]{blk.get('module_name', '?')}[/]  "
+                        f"[dim]{blk.get('node_id', '')}[/]"
+                    )
+                    yield Static(
+                        blk.get("proposal_excerpt", ""),
+                        classes="module_preview_excerpt",
+                    )
+            yield Label("Steering for Re-run (overrides the plan on conflict):")
+            yield TextArea("", id="ta_module_preview_steer")
+            with Horizontal(id="module_preview_buttons"):
+                yield Button(
+                    "Accept", variant="success", id="btn_module_preview_accept"
+                )
+                yield Button(
+                    "Re-run", variant="primary", id="btn_module_preview_rerun"
+                )
+                yield Button(
+                    "Cancel", variant="default", id="btn_module_preview_cancel"
+                )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        bid = event.button.id
+        if bid == "btn_module_preview_accept":
+            self.dismiss({"action": "accept", "steer": ""})
+        elif bid == "btn_module_preview_rerun":
+            steer = self.query_one("#ta_module_preview_steer", TextArea).text.strip()
+            if not steer:
+                self.notify(
+                    "Enter steering text to re-run, or choose Accept / Cancel.",
+                    severity="warning",
+                )
+                return
+            self.dismiss({"action": "rerun", "steer": steer})
+        else:
+            self.dismiss({"action": "cancel", "steer": ""})
+
+    def action_cancel(self) -> None:
+        self.dismiss({"action": "cancel", "steer": ""})
+
+
 class CycleField(Static):
     """Minimal cycle widget for numeric option selection (left/right keys)."""
 
@@ -3275,6 +3353,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._applying_module_agent: set[str] = set()
         self._module_apply_errors: dict[str, str] = {}
         self._module_poll_timer = None
+        # Review gate (t929_1): decomposer agents whose proposal is awaiting the
+        # operator's preview decision, and those already accepted (so the poller
+        # applies them on the next tick without re-prompting). ``_module_steer``
+        # carries the ordered Re-run revision notes forward, keyed by group name.
+        self._module_review_pending: set[str] = set()
+        self._module_review_accepted: set[str] = set()
+        self._module_steer: dict[str, list[str]] = {}
         self._current_focused_node_id: str | None = None
         # Remembered for the lifetime of the app; pre-fills the export modal's
         # directory input so repeated exports default to the previous choice.
@@ -4897,6 +4982,20 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if not force and not self._module_agent_needs_apply(agent_name):
             self._module_agents.discard(agent_name)
             return
+        # Review gate (t929_1): for module_decompose, pause before applying so
+        # the operator can preview / steer / accept. Only decomposer ops gate;
+        # merge and sync auto-apply as before. ``force`` and an already-accepted
+        # proposal bypass the gate.
+        if (
+            not force
+            and agent_name.startswith("module_decomposer_")
+            and agent_name not in self._module_review_accepted
+            and self._module_review_enabled(agent_name)
+        ):
+            if agent_name not in self._module_review_pending:
+                self._module_review_pending.add(agent_name)
+                self._open_module_preview(agent_name)
+            return
         from brainstorm.brainstorm_session import (
             apply_module_decomposer_output,
             apply_module_merger_output,
@@ -4920,11 +5019,168 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 return
             self._module_apply_errors.pop(agent_name, None)
             self._module_agents.discard(agent_name)
+            self._module_review_pending.discard(agent_name)
+            self._module_review_accepted.discard(agent_name)
             self._clear_apply_banner()
             self.notify(f"Module agent {agent_name} applied → {result}.")
             self._load_existing_session()
         finally:
             self._applying_module_agent.discard(agent_name)
+
+    # ------------------------------------------------------------------
+    # Module decompose review gate (t929_1: iterate-before-apply)
+    # ------------------------------------------------------------------
+
+    def _module_review_enabled(self, agent_name: str) -> bool:
+        from brainstorm.brainstorm_session import module_decomposer_review_enabled
+        try:
+            return module_decomposer_review_enabled(self.task_num, agent_name)
+        except Exception:
+            return False
+
+    def _open_module_preview(self, agent_name: str) -> None:
+        """Parse the decomposer output and push the preview modal.
+
+        On a parse failure, fall through to the apply path (which records the
+        same error and banners it) instead of blocking on a broken preview.
+        """
+        from brainstorm.brainstorm_session import parse_module_decomposer_output
+        out_path = Path(self.session_path) / f"{agent_name}_output.md"
+        try:
+            blocks = parse_module_decomposer_output(
+                out_path.read_text(encoding="utf-8")
+            )
+        except Exception:
+            self._module_review_pending.discard(agent_name)
+            self._module_review_accepted.add(agent_name)
+            self._try_apply_module_agent_if_needed(agent_name)
+            return
+        self.push_screen(
+            ModulePreviewScreen(agent_name, blocks),
+            lambda result, a=agent_name: self._on_module_preview_result(a, result),
+        )
+
+    def _on_module_preview_result(self, agent_name: str, result) -> None:
+        """Handle the operator's Accept / Re-run / Cancel choice."""
+        self._module_review_pending.discard(agent_name)
+        action = result.get("action") if isinstance(result, dict) else None
+        if action == "accept":
+            self._module_review_accepted.add(agent_name)
+            self._try_apply_module_agent_if_needed(agent_name)
+        elif action == "rerun":
+            steer = result.get("steer", "") if isinstance(result, dict) else ""
+            self._module_rerun_decomposer(agent_name, steer)
+        else:
+            # Cancel or escape-dismiss: discard the proposal, graph untouched.
+            self._module_cancel_decomposer(agent_name)
+
+    def _module_cancel_decomposer(self, agent_name: str) -> None:
+        from brainstorm.brainstorm_session import discard_module_decomposer_output
+        discard_module_decomposer_output(
+            self.task_num, agent_name, suffix="cancelled"
+        )
+        self._module_agents.discard(agent_name)
+        self._module_review_accepted.discard(agent_name)
+        self._module_review_pending.discard(agent_name)
+        self.notify(
+            f"Discarded module decomposition {agent_name}; graph unchanged."
+        )
+
+    @work(thread=True)
+    def _module_rerun_decomposer(self, agent_name: str, steer_text: str) -> None:
+        """Re-dispatch a decomposer with accumulated steering (t929_1).
+
+        Neutralizes the reviewed proposal (graph untouched), then registers a
+        fresh decomposer in a new group carrying the ordered revision notes. The
+        composition rule (Steering overrides the Decomposition Plan on conflict;
+        later revisions win) lives in ``_assemble_input_module_decomposer``.
+        """
+        from brainstorm.brainstorm_session import (
+            _agent_to_group_name,
+            _read_groups_file,
+            discard_module_decomposer_output,
+            record_operation,
+        )
+        wt = Path(self.session_path)
+        old_group = _agent_to_group_name(agent_name)
+        groups = _read_groups_file(str(wt / GROUPS_FILE)).get("groups", {})
+        info = groups.get(old_group, {}) if isinstance(groups, dict) else {}
+        modules = info.get("modules") or []
+        subgraph = (
+            info.get("source_subgraph")
+            or info.get("subgraph")
+            or UMBRELLA_SUBGRAPH
+        )
+        source_node = info.get("head_at_creation") or get_head(
+            self.session_path, module=subgraph
+        )
+        if not modules or not source_node:
+            self.call_from_thread(
+                self.notify,
+                "Cannot re-run: module configuration is missing.",
+                severity="error",
+            )
+            return
+        from_sections = bool(info.get("from_sections"))
+        link_to_task = bool(info.get("link_to_task"))
+        instructions = info.get("instructions", "") or ""
+        launch_mode = info.get("launch_mode") or DEFAULT_LAUNCH_MODE
+
+        # Neutralize the reviewed proposal (durable; graph untouched).
+        discard_module_decomposer_output(
+            self.task_num, agent_name, suffix="superseded"
+        )
+        self._module_agents.discard(agent_name)
+        self._module_review_accepted.discard(agent_name)
+
+        # Accumulate revisions, carried forward to the new group.
+        revisions = list(self._module_steer.get(old_group, []))
+        if steer_text and steer_text.strip():
+            revisions.append(steer_text.strip())
+
+        crew_id = self.session_data.get(
+            "crew_id", f"brainstorm-{self.task_num}"
+        )
+        new_group = self._next_group_name("module_decompose")
+        self._module_steer[new_group] = revisions
+        try:
+            new_agent = register_module_decomposer(
+                self.session_path,
+                crew_id,
+                source_node,
+                modules,
+                new_group,
+                from_sections=from_sections,
+                link_to_task=link_to_task,
+                instructions=instructions,
+                steer=revisions,
+                launch_mode=launch_mode,
+            )
+        except Exception as exc:
+            self.call_from_thread(
+                self.notify, f"Re-run failed: {exc}", severity="error",
+            )
+            return
+        record_operation(
+            self.task_num,
+            group_name=new_group,
+            operation="module_decompose",
+            agents=[new_agent],
+            head_at_creation=source_node,
+            subgraph=subgraph,
+            modules=modules,
+            from_sections=from_sections,
+            link_to_task=link_to_task,
+            source_subgraph=subgraph,
+            review_before_apply=True,
+            instructions=instructions,
+            launch_mode=launch_mode,
+        )
+        self.call_from_thread(self._register_module_agent, new_agent)
+        self.call_from_thread(
+            self.notify,
+            f"Re-running module decomposer (revision {len(revisions)}): {new_agent}",
+        )
 
     def _pick_completed_agent_for_retry(self, role: str) -> str | None:
         """Walk the session worktree and return the agent name with the
@@ -6721,6 +6977,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         container.mount(link_chk)
         container.mount(Label("[bold]Decomposition Plan (optional)[/]"))
         container.mount(TextArea("", classes="ta_module_decompose_plan"))
+        review_chk = Checkbox(
+            "Review before apply", classes="chk_review_before_apply"
+        )
+        review_chk.value = True
+        container.mount(review_chk)
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
 
     def _ancestor_subgraphs(self, source: str) -> list[str]:
@@ -6955,6 +7216,12 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             config["instructions"] = container.query_one(
                 ".ta_module_decompose_plan", TextArea
             ).text.strip()
+            try:
+                config["review_before_apply"] = bool(
+                    container.query_one(".chk_review_before_apply", Checkbox).value
+                )
+            except Exception:
+                config["review_before_apply"] = True
 
         elif op == "module_merge":
             config["source_subgraph"] = self._wizard_subgraph
@@ -7396,6 +7663,12 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     "from_sections": cfg["from_sections"],
                     "link_to_task": cfg["link_to_task"],
                     "source_subgraph": cfg["subgraph"],
+                    # Persisted so the review gate / re-run (t929_1) survive a
+                    # TUI reload — the poller reads review_before_apply, and the
+                    # Re-run path replays modules/instructions/launch_mode.
+                    "review_before_apply": cfg.get("review_before_apply", True),
+                    "instructions": cfg.get("instructions", ""),
+                    "launch_mode": launch_mode,
                 }
                 if cfg["from_sections"]:
                     from brainstorm.brainstorm_session import (

@@ -507,6 +507,42 @@ def _module_node_id_lines(module_node_ids: dict[str, str]) -> list[str]:
     return lines
 
 
+_STEER_PREAMBLE = (
+    "A previous decomposition was already produced from the inputs above "
+    "(including the Decomposition Plan, if any). The operator reviewed that "
+    "attempt and is requesting the revisions below.\n\n"
+    "Composition rule: the Decomposition Plan above still applies, EXCEPT where "
+    "these steering instructions contradict it. On any conflict, the steering "
+    "instructions WIN. Treat this as a correction of the previous attempt, not a "
+    "fresh unrelated request. Where multiple revisions are listed, a later "
+    "revision overrides an earlier one."
+)
+
+
+def _steer_section_lines(steer: list[str] | None) -> list[str]:
+    """Render the ``## Steering`` override section for a re-run.
+
+    ``steer`` is the ordered list of operator revision notes accumulated across
+    re-runs (Revision 1, 2, …). Returns ``[]`` when there is nothing to steer,
+    so the assembled input is byte-identical to a first run. The composition
+    rule (Decomposition Plan applies except where Steering contradicts it; on
+    conflict Steering wins; later revisions override earlier ones) is stated
+    once here and mirrored in ``templates/module_decomposer.md``.
+    """
+    revisions = [r for r in (steer or []) if r and r.strip()]
+    if not revisions:
+        return []
+    lines = [
+        "",
+        "## Steering (latest revision OVERRIDES the Decomposition Plan above)",
+        "",
+        _STEER_PREAMBLE,
+    ]
+    for i, rev in enumerate(revisions, start=1):
+        lines.extend(["", f"### Revision {i}", rev.strip()])
+    return lines
+
+
 def _assemble_input_module_decomposer(
     session_path: Path,
     source_node_id: str,
@@ -515,6 +551,7 @@ def _assemble_input_module_decomposer(
     from_sections: bool,
     link_to_task: bool,
     instructions: str,
+    steer: list[str] | None = None,
 ) -> str:
     source_data = read_node(session_path, source_node_id)
     source_module = _node_module(session_path, source_node_id)
@@ -549,6 +586,7 @@ def _assemble_input_module_decomposer(
         lines.extend(["", "## Reference Files", _format_reference_files(ref_files)])
     if instructions:
         lines.extend(["", "## Decomposition Plan", instructions])
+    lines.extend(_steer_section_lines(steer))
     return "\n".join(lines) + "\n"
 
 
@@ -855,9 +893,16 @@ def register_module_decomposer(
     from_sections: bool = False,
     link_to_task: bool = False,
     instructions: str = "",
+    steer: list[str] | None = None,
     launch_mode: str = DEFAULT_LAUNCH_MODE,
 ) -> str:
-    """Register a Module Decomposer agent that creates one root per module."""
+    """Register a Module Decomposer agent that creates one root per module.
+
+    ``steer`` is the ordered list of operator revision notes from the
+    review-gate Re-run loop (t929_1). When non-empty, the assembled input gains
+    a ``## Steering`` section that overrides the original Decomposition Plan on
+    conflict; see ``_steer_section_lines``.
+    """
     seq = _group_seq(group_name)
     agent_name = f"module_decomposer_{seq}"
 
@@ -875,6 +920,7 @@ def register_module_decomposer(
         from_sections,
         link_to_task,
         instructions,
+        steer,
     )
 
     work2do_path = TEMPLATE_DIR / "module_decomposer.md"

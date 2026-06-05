@@ -1216,6 +1216,44 @@ def _module_decomposer_needs_apply(
     return False
 
 
+def module_decomposer_review_enabled(
+    task_num: int | str, agent_name: str,
+) -> bool:
+    """True iff the decomposer's group requested review-before-apply (t929_1).
+
+    Read from the persisted group entry so the answer survives a TUI reload.
+    Absent flag (groups created before this feature) defaults to ``False`` to
+    preserve the legacy auto-apply behavior.
+    """
+    wt = crew_worktree(task_num)
+    group_name = _agent_to_group_name(agent_name)
+    groups = _read_groups_file(str(wt / GROUPS_FILE)).get("groups", {})
+    group_info = groups.get(group_name, {}) if isinstance(groups, dict) else {}
+    return bool(group_info.get("review_before_apply", False))
+
+
+def discard_module_decomposer_output(
+    task_num: int | str, agent_name: str, suffix: str = "cancelled",
+) -> None:
+    """Move a decomposer's ``_output.md`` aside so it is no longer applied.
+
+    Used by the review gate's Cancel / Re-run paths (t929_1) to neutralize a
+    superseded proposal **without mutating the graph**. After the rename
+    ``_module_decomposer_needs_apply`` returns ``False`` (the output file is
+    gone), so neither the poll timer nor a later session-scan re-applies or
+    re-prompts for it. The renamed file is kept for forensics. No-op if the
+    output is missing.
+    """
+    wt = crew_worktree(task_num)
+    out_path = wt / f"{agent_name}_output.md"
+    if not out_path.is_file():
+        return
+    try:
+        out_path.replace(wt / f"{agent_name}_output.{suffix}.md")
+    except Exception:
+        pass
+
+
 def _module_merger_needs_apply(
     task_num: int | str, agent_name: str,
 ) -> bool:
@@ -1410,6 +1448,69 @@ def apply_module_decompose_from_sections(
     return created
 
 
+def _proposal_excerpt(proposal_text: str, max_lines: int = 12) -> str:
+    """First ``max_lines`` non-empty-trimmed lines of a proposal, for preview.
+
+    Used by the review-gate preview to show the operator what each proposed
+    module looks like before it is applied. Purely cosmetic — never parsed.
+    """
+    lines = proposal_text.strip().splitlines()
+    head = lines[:max_lines]
+    excerpt = "\n".join(head)
+    if len(lines) > max_lines:
+        excerpt += "\n…"
+    return excerpt
+
+
+def parse_module_decomposer_output(output_text: str) -> list[dict]:
+    """Parse module decomposer output into structured proposed blocks.
+
+    **Pure function** — performs NO graph mutation and NO filesystem access. It
+    is the parse-only half of ``apply_module_decomposer_output``: the review
+    gate (t929_1) calls it to preview the proposed modules before they commit,
+    and ``apply_module_decomposer_output`` consumes its result before mutating
+    the graph.
+
+    Each returned dict has:
+      ``module_name``      - module name exactly as given
+      ``node_yaml``        - raw NODE_YAML block text
+      ``node_data``        - parsed NODE_YAML mapping
+      ``proposal_text``    - full PROPOSAL block text
+      ``proposal_excerpt`` - first lines of the proposal, for preview display
+      ``node_id``          - assigned node id (from NODE_YAML)
+
+    Raises ``ValueError`` if the output has no blocks or a block is malformed
+    (mirrors the parse-time errors ``apply_module_decomposer_output`` raised).
+    """
+    blocks = [m.group(1) for m in _MODULE_NODE_BLOCK_RE.finditer(output_text)]
+    if not blocks:
+        raise ValueError("module decomposer output has no MODULE_NODE blocks")
+    parsed: list[dict] = []
+    for block in blocks:
+        module = _extract_block(
+            block, "MODULE_NAME_START", "MODULE_NAME_END"
+        ).strip()
+        if not module:
+            raise ValueError("MODULE_NAME block cannot be empty")
+        meta_text = _extract_block(block, "NODE_YAML_START", "NODE_YAML_END")
+        proposal_text = _extract_block(block, "PROPOSAL_START", "PROPOSAL_END")
+        node_data = _tolerant_yaml_load(meta_text)
+        if not isinstance(node_data, dict):
+            raise ValueError("module NODE_YAML block did not parse as a dict")
+        new_node_id = node_data.get("node_id")
+        if not new_node_id:
+            raise ValueError("module NODE_YAML missing node_id")
+        parsed.append({
+            "module_name": module,
+            "node_yaml": meta_text,
+            "node_data": node_data,
+            "proposal_text": proposal_text,
+            "proposal_excerpt": _proposal_excerpt(proposal_text),
+            "node_id": new_node_id,
+        })
+    return parsed
+
+
 def apply_module_decomposer_output(
     task_num: int | str, agent_name: str,
 ) -> list[str]:
@@ -1422,9 +1523,7 @@ def apply_module_decomposer_output(
     err_log = wt / f"{agent_name}_apply_error.log"
     try:
         text = out_path.read_text(encoding="utf-8")
-        blocks = [m.group(1) for m in _MODULE_NODE_BLOCK_RE.finditer(text)]
-        if not blocks:
-            raise ValueError("module decomposer output has no MODULE_NODE blocks")
+        parsed = parse_module_decomposer_output(text)
 
         group_name = _agent_to_group_name(agent_name)
         groups = _read_groups_file(str(wt / GROUPS_FILE)).get("groups", {})
@@ -1437,21 +1536,11 @@ def apply_module_decomposer_output(
         link_to_task = bool(group_info.get("link_to_task"))
 
         created: list[str] = []
-        for block in blocks:
-            module = _extract_block(
-                block, "MODULE_NAME_START", "MODULE_NAME_END"
-            ).strip()
-            if not module:
-                raise ValueError("MODULE_NAME block cannot be empty")
-            meta_text = _extract_block(block, "NODE_YAML_START", "NODE_YAML_END")
-            proposal_text = _extract_block(block, "PROPOSAL_START", "PROPOSAL_END")
-            node_data = _tolerant_yaml_load(meta_text)
-            if not isinstance(node_data, dict):
-                raise ValueError("module NODE_YAML block did not parse as a dict")
-
-            new_node_id = node_data.get("node_id")
-            if not new_node_id:
-                raise ValueError("module NODE_YAML missing node_id")
+        for block in parsed:
+            module = block["module_name"]
+            proposal_text = block["proposal_text"]
+            node_data = block["node_data"]
+            new_node_id = block["node_id"]
             if (wt / NODES_DIR / f"{new_node_id}.yaml").exists():
                 raise ValueError(f"node {new_node_id} already exists")
 

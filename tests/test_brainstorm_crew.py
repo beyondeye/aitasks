@@ -34,6 +34,7 @@ from brainstorm.brainstorm_crew import (
     _assemble_input_comparator,
     _assemble_input_detailer,
     _assemble_input_explorer,
+    _assemble_input_module_decomposer,
     _assemble_input_patcher,
     _assemble_input_synthesizer,
     _format_reference_files,
@@ -621,6 +622,70 @@ class TestRegisterParallelExplorers(BrainstormCrewTestBase):
         )
         self.assertIn(name_a, nid_a)
         self.assertIn(name_b, nid_b)
+
+
+class TestAssembleInputModuleDecomposerSteer(BrainstormCrewTestBase):
+    """Re-run steering composition for module_decompose (t929_1)."""
+
+    def _assemble(self, instructions="", steer=None):
+        self._init_session()
+        self._create_test_node(
+            "n000_init",
+            description="Umbrella",
+            dimensions={"component_core": "Core"},
+        )
+        return _assemble_input_module_decomposer(
+            self.wt_path,
+            "n000_init",
+            ["parser", "cache"],
+            {
+                "parser": "n001_module_decomposer_001_parser",
+                "cache": "n002_module_decomposer_001_cache",
+            },
+            from_sections=False,
+            link_to_task=False,
+            instructions=instructions,
+            steer=steer,
+        )
+
+    def test_no_steer_is_byte_identical(self):
+        """steer=None / [] / whitespace-only all produce the same output as a
+        first run (no Steering section, no behavior change)."""
+        base = self._assemble(instructions="Original plan", steer=None)
+        self.assertNotIn("## Steering", base)
+        self.assertIn("## Decomposition Plan", base)
+        self.assertIn("Original plan", base)
+        self.assertEqual(base, self._assemble(instructions="Original plan", steer=[]))
+        self.assertEqual(
+            base, self._assemble(instructions="Original plan", steer=["   "])
+        )
+
+    def test_steer_preserves_plan_and_adds_override_section(self):
+        out = self._assemble(instructions="Original plan", steer=["Split parser"])
+        # Original Decomposition Plan is preserved verbatim …
+        self.assertIn("## Decomposition Plan", out)
+        self.assertIn("Original plan", out)
+        # … and the Steering override section is appended after it.
+        self.assertLess(out.index("## Decomposition Plan"), out.index("## Steering"))
+        self.assertIn("OVERRIDES", out)
+        self.assertIn("the steering instructions WIN", out)
+        self.assertIn("### Revision 1", out)
+        self.assertIn("Split parser", out)
+
+    def test_steer_without_instructions_still_emits_section(self):
+        out = self._assemble(instructions="", steer=["Just steer"])
+        self.assertNotIn("## Decomposition Plan", out)
+        self.assertIn("## Steering", out)
+        self.assertIn("### Revision 1", out)
+        self.assertIn("Just steer", out)
+
+    def test_multiple_revisions_render_in_order(self):
+        out = self._assemble(steer=["first change", "second change"])
+        self.assertIn("### Revision 1", out)
+        self.assertIn("### Revision 2", out)
+        self.assertLess(out.index("### Revision 1"), out.index("### Revision 2"))
+        self.assertLess(out.index("first change"), out.index("second change"))
+        self.assertIn("later revision overrides an earlier one", out)
 
 
 if __name__ == "__main__":

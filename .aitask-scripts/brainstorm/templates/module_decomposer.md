@@ -10,7 +10,9 @@ Read your `_input.md`. It contains:
 - The module names to create.
 - Exact assigned node IDs for each module.
 - Whether `from_sections` and `link_to_task` were requested.
-- Optional decomposition instructions.
+- Optional decomposition instructions (the `## Decomposition Plan` section).
+- An optional `## Steering` section. It is present only when the operator
+  reviewed a previous attempt and is requesting revisions to it.
 
 Use existing proposal section markers and `component_*` dimensions as boundary
 hints. If `from_sections: true`, keep the slice deterministic from the source
@@ -63,3 +65,7 @@ the module label when applying output. Keep `parents: []` in the YAML.
 4. Preserve relevant dimensions from the source node and add module-specific
    dimensions only when justified.
 5. Do not merge modules together or update the umbrella proposal.
+6. If a `## Steering` section is present, the Decomposition Plan still applies
+   except where the Steering contradicts it; on conflict, Steering wins, and a
+   later revision overrides an earlier one. Treat the steering as a correction
+   of the previous attempt, not a fresh unrelated request.

@@ -46,6 +46,7 @@ from brainstorm.brainstorm_dag import (  # noqa: E402
     read_node,
     set_head,
 )
+from brainstorm.brainstorm_dag import list_nodes  # noqa: E402
 from brainstorm.brainstorm_session import (  # noqa: E402
     GROUPS_FILE,
     _create_linked_module_task,
@@ -55,6 +56,9 @@ from brainstorm.brainstorm_session import (  # noqa: E402
     apply_module_decompose_from_sections,
     apply_module_decomposer_output,
     apply_module_merger_output,
+    discard_module_decomposer_output,
+    module_decomposer_review_enabled,
+    parse_module_decomposer_output,
     record_operation,
 )
 
@@ -563,6 +567,93 @@ class LinkedTaskCreationTests(unittest.TestCase):
             self.assertEqual(_module_tasks_map(wt), {"parser": "756_1"})
             self.assertIn("--parent", argv)
             self.assertIn("756", argv)
+
+
+# --------------------------------------------------------------------------- #
+# Group E — review-gate parse + helpers (t929_1: iterate-before-apply)
+# --------------------------------------------------------------------------- #
+class ReviewGateTests(unittest.TestCase):
+    def test_parse_is_pure_and_returns_structured_blocks(self):
+        """parse_module_decomposer_output yields structured blocks and mutates
+        neither the graph nor the filesystem."""
+        with tempfile.TemporaryDirectory() as td:
+            wt = Path(td)
+            _seed_base(wt)
+            text = (
+                _module_block("parser", "n001_module_decomposer_001_parser")
+                + _module_block("cache", "n002_module_decomposer_001_cache")
+            )
+            before = set(list_nodes(wt))
+            blocks = parse_module_decomposer_output(text)
+            after = set(list_nodes(wt))
+
+            self.assertEqual(after, before)  # no graph mutation
+            self.assertEqual([b["module_name"] for b in blocks], ["parser", "cache"])
+            self.assertEqual(
+                [b["node_id"] for b in blocks],
+                [
+                    "n001_module_decomposer_001_parser",
+                    "n002_module_decomposer_001_cache",
+                ],
+            )
+            for b in blocks:
+                self.assertIn("proposal_excerpt", b)
+                self.assertTrue(b["proposal_excerpt"])
+                self.assertIsInstance(b["node_data"], dict)
+
+    def test_parse_no_blocks_raises(self):
+        with self.assertRaises(ValueError):
+            parse_module_decomposer_output("nothing to see here\n")
+
+    def test_review_enabled_reads_persisted_flag(self):
+        """module_decomposer_review_enabled reflects the group's persisted flag;
+        absent (legacy groups) defaults to False."""
+        with tempfile.TemporaryDirectory() as td:
+            wt = Path(td)
+            _seed_base(wt)
+            with patch(
+                "brainstorm.brainstorm_session.crew_worktree", return_value=wt
+            ):
+                _record_decompose(["parser"], review_before_apply=True)
+                self.assertTrue(
+                    module_decomposer_review_enabled(TASK, "module_decomposer_001")
+                )
+                _record_decompose(["parser"], review_before_apply=False)
+                self.assertFalse(
+                    module_decomposer_review_enabled(TASK, "module_decomposer_001")
+                )
+                _record_decompose(["parser"])  # no flag → legacy default
+                self.assertFalse(
+                    module_decomposer_review_enabled(TASK, "module_decomposer_001")
+                )
+
+    def test_discard_output_neutralizes_needs_apply(self):
+        """Cancelling/superseding a proposal renames its output aside so the
+        poller's needs-apply gate goes False — and the graph is untouched."""
+        with tempfile.TemporaryDirectory() as td:
+            wt = Path(td)
+            _seed_base(wt)
+            with patch(
+                "brainstorm.brainstorm_session.crew_worktree", return_value=wt
+            ):
+                _write_decomposer_output(
+                    wt, _module_block("parser", "n001_module_decomposer_001_parser")
+                )
+                _record_decompose(["parser"], review_before_apply=True)
+                self.assertTrue(
+                    _module_decomposer_needs_apply(TASK, "module_decomposer_001")
+                )
+                nodes_before = set(list_nodes(wt))
+                discard_module_decomposer_output(
+                    TASK, "module_decomposer_001", suffix="cancelled"
+                )
+                self.assertFalse(
+                    _module_decomposer_needs_apply(TASK, "module_decomposer_001")
+                )
+                self.assertEqual(set(list_nodes(wt)), nodes_before)  # graph intact
+                self.assertTrue(
+                    (wt / "module_decomposer_001_output.cancelled.md").is_file()
+                )
 
 
 if __name__ == "__main__":
