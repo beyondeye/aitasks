@@ -430,8 +430,8 @@
       "verifiedstats": {
         "pick": {
           "all_time": {
-            "runs": 100,
-            "score_sum": 9940
+            "runs": 101,
+            "score_sum": 10040
           },
           "prev_month": {
             "period": "2026-05",
@@ -440,13 +440,13 @@
           },
           "month": {
             "period": "2026-06",
-            "runs": 64,
-            "score_sum": 6360
+            "runs": 65,
+            "score_sum": 6460
           },
           "week": {
             "period": "2026-W23",
-            "runs": 64,
-            "score_sum": 6360
+            "runs": 65,
+            "score_sum": 6460
           }
         },
         "explore": {
