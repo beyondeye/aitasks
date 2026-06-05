@@ -25,6 +25,7 @@ The building blocks that shape how skills and code agents behave.
 - **[Skill templating]({{< relref "/docs/concepts/skill-templating" >}})** — How profile-aware skills materialize per-(skill, profile, agent) variants on demand via templated dispatch.
 - **[Verified scores]({{< relref "/docs/concepts/verified-scores" >}})** — How user satisfaction ratings accumulate into per-model, per-operation reliability scores.
 - **[Agent attribution]({{< relref "/docs/concepts/agent-attribution" >}})** — How each task records which code agent and model implemented it.
+- **[Agentcrews]({{< relref "/docs/concepts/agentcrews" >}})** — The multi-agent orchestration engine that runs a team of agents as a dependency-ordered crew; the foundation under flows like brainstorm.
 - **[Locks]({{< relref "/docs/concepts/locks" >}})** — How concurrent agents avoid stepping on each other's tasks.
 
 ## Lifecycle and infrastructure

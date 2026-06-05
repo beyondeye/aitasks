@@ -45,6 +45,12 @@ description: "Complete CLI reference for all ait subcommands"
 |---------|-------------|
 | [`ait projects`](../workflows/multi_project/#the-ait-projects-command) | Manage the linked-project registry (`list`, `add`, `remove`, `update`, `prune`, `doctor`, `resolve`, `exec`) — see [Multi-Project](../workflows/multi_project/) and [Cross-Project Dependencies](../workflows/cross_project_dependencies/) |
 
+### Agent Orchestration
+
+| Command | Description |
+|---------|-------------|
+| [`ait crew`](crew/) | Initialize and run multi-agent crews — `init`, `addwork`, `setmode`, `status`, `command`, `runner`, `report`, `cleanup`, `dashboard`, `logview` (see [Agentcrews](../concepts/agentcrews/)) |
+
 ### Reporting
 
 | Command | Description |
@@ -85,6 +91,7 @@ ait codebrowser                         # Open code browser TUI
 ait monitor                             # Dashboard of all agent/TUI panes
 ait projects list                       # List registered linked projects
 ait skillrun pick --profile fast 42     # Launch a code agent on task 42
+ait crew init --id sprint1 --batch      # Initialize a multi-agent crew
 ait git-health                          # Diagnose the .aitask-data worktree
 ait issue-import                        # Import issues from issue tracker
 ait lock 42                             # Pre-lock a task before Claude Web
