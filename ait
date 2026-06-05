@@ -59,7 +59,6 @@ Tools:
   skillrun       Launch a code agent with a profile-aware aitask skill
   explain-runs     Manage aitask-explain run directories
   explain-cleanup  Remove stale aitask-explain run directories
-  migrate-archives Convert tar.gz archives to tar.zst / rebucket legacy archives
   zip-old        Archive old completed tasks
 
 AgentCrew:
@@ -201,6 +200,9 @@ case "${1:-help}" in
     changelog)    shift; exec "$SCRIPTS_DIR/aitask_changelog.sh" "$@" ;;
     explain-runs)    shift; exec "$SCRIPTS_DIR/aitask_explain_runs.sh" "$@" ;;
     explain-cleanup) shift; exec "$SCRIPTS_DIR/aitask_explain_cleanup.sh" "$@" ;;
+    # migrate-archives: intentionally omitted from `ait help` (t918) — a one-time,
+    # upgrade-only maintenance command for pre-2026-03-29 tar.gz repos. Still
+    # invocable directly; `ait migrate-archives --help` documents its usage.
     migrate-archives) shift; exec "$SCRIPTS_DIR/aitask_migrate_archives.sh" "$@" ;;
     lock)         shift; exec "$SCRIPTS_DIR/aitask_lock.sh" "$@" ;;
     sync)         shift; exec "$SCRIPTS_DIR/aitask_sync.sh" "$@" ;;
