@@ -1,13 +1,17 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [documentation]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-02 16:57
-updated_at: 2026-06-05 09:37
+updated_at: 2026-06-05 10:05
+completed_at: 2026-06-05 10:05
 boardcol: now
 boardidx: 90
 ---
