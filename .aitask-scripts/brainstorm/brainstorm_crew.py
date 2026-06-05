@@ -507,6 +507,29 @@ def _module_node_id_lines(module_node_ids: dict[str, str]) -> list[str]:
     return lines
 
 
+def _module_infer_directive_lines() -> list[str]:
+    """Infer-mode directive for when no module names were supplied (t929_2).
+
+    Replaces the ``## Modules`` + ``## Assigned Module Node IDs`` sections: the
+    agent proposes the module set itself and omits ``node_id`` (the orchestrator
+    assigns IDs after the names come back — see
+    ``assign_inferred_module_node_ids``).
+    """
+    return [
+        "",
+        "## Decomposition Mode: infer",
+        "",
+        "No module names were supplied. Identify the module set yourself from "
+        "the source proposal's `<!-- section: -->` markers, its `component_*` "
+        "dimensions, and the `## Decomposition Plan` below. Choose a concise, "
+        "distinct name for each module and emit it as that block's "
+        "`MODULE_NAME`.",
+        "",
+        "Do NOT include a `node_id` in any NODE_YAML block — the orchestrator "
+        "assigns each module's node id after you propose the names.",
+    ]
+
+
 _STEER_PREAMBLE = (
     "A previous decomposition was already produced from the inputs above "
     "(including the Decomposition Plan, if any). The operator reviewed that "
@@ -570,15 +593,21 @@ def _assemble_input_module_decomposer(
         "## Source Node Files",
         f"- Metadata: {session_path}/{NODES_DIR}/{source_node_id}.yaml",
         f"- Proposal: {session_path}/{PROPOSALS_DIR}/{source_node_id}.md",
-        "",
-        "## Modules",
-        *[f"- {module}" for module in modules],
+    ]
+    if modules:
+        lines.extend(["", "## Modules", *[f"- {module}" for module in modules]])
+    lines.extend([
         "",
         "## Options",
         f"from_sections: {str(from_sections).lower()}",
         f"link_to_task: {str(link_to_task).lower()}",
-    ]
-    lines.extend(_module_node_id_lines(module_node_ids))
+    ])
+    # Names given → tell the agent the exact assigned IDs; no names → infer mode,
+    # the agent proposes the module set and IDs are assigned later (t929_2).
+    if modules:
+        lines.extend(_module_node_id_lines(module_node_ids))
+    else:
+        lines.extend(_module_infer_directive_lines())
     if dims:
         lines.extend(["", "## Dimension Keys"])
         lines.extend(f"- {k}" for k in sorted(dims.keys()))

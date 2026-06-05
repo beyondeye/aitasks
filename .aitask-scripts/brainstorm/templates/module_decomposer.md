@@ -7,12 +7,18 @@ subgraph roots.
 
 Read your `_input.md`. It contains:
 - Source subgraph and source node files.
-- The module names to create.
-- Exact assigned node IDs for each module.
+- The module names to create **and** their exact assigned node IDs — **unless**
+  a `## Decomposition Mode: infer` section is present instead (see below).
 - Whether `from_sections` and `link_to_task` were requested.
 - Optional decomposition instructions (the `## Decomposition Plan` section).
 - An optional `## Steering` section. It is present only when the operator
   reviewed a previous attempt and is requesting revisions to it.
+
+If a `## Decomposition Mode: infer` section is present, no module names were
+given: **you** identify the module set (from the section markers, `component_*`
+dimensions, and the `## Decomposition Plan`), choose each module's name, and
+**omit `node_id`** from every NODE_YAML block — the orchestrator assigns the IDs
+after you propose the names.
 
 Use existing proposal section markers and `component_*` dimensions as boundary
 hints. If `from_sections: true`, keep the slice deterministic from the source
@@ -31,7 +37,7 @@ Each block must use this exact delimiter structure:
 <module name exactly as given>
 --- MODULE_NAME_END ---
 --- NODE_YAML_START ---
-node_id: <assigned node id for this module>
+node_id: <assigned node id for this module — OMIT this line entirely in infer mode>
 parents: []
 description: "<one-line module root summary>"
 proposal_file: br_proposals/<node_id>.md
@@ -58,8 +64,10 @@ the module label when applying output. Keep `parents: []` in the YAML.
 
 ## Rules
 
-1. Produce exactly one block for every requested module.
-2. Use the assigned node IDs verbatim.
+1. Produce exactly one block for every requested module (names-given mode), or
+   one block per module you identify (infer mode).
+2. Names-given mode: use the assigned node IDs verbatim. Infer mode: omit
+   `node_id` from every block — do not invent ids.
 3. Keep each proposal scoped to that module while preserving enough umbrella
    context to refine it independently.
 4. Preserve relevant dimensions from the source node and add module-specific

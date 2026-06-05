@@ -31,6 +31,8 @@ from textual.widgets import (
     Label,
     LoadingIndicator,
     Markdown,
+    RadioButton,
+    RadioSet,
     Static,
     Tabs,
     TabbedContent,
@@ -5044,7 +5046,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         On a parse failure, fall through to the apply path (which records the
         same error and banners it) instead of blocking on a broken preview.
         """
-        from brainstorm.brainstorm_session import parse_module_decomposer_output
+        from brainstorm.brainstorm_session import (
+            assign_inferred_module_node_ids,
+            parse_module_decomposer_output,
+        )
+        # Assign deferred IDs for infer-mode output so the preview shows the
+        # proposed names + their node ids (t929_2). No-op for names-given output.
+        assign_inferred_module_node_ids(self.task_num, agent_name)
         out_path = Path(self.session_path) / f"{agent_name}_output.md"
         try:
             blocks = parse_module_decomposer_output(
@@ -6969,9 +6977,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             ))
         container.mount(Label(f"[bold]Source Subgraph:[/] {self._wizard_subgraph}"))
         container.mount(Label(f"[bold]Source HEAD:[/] {source or '(none)'}"))
-        container.mount(Label("[bold]Modules[/]"))
+        container.mount(Label("[bold]Decompose mode[/]"))
+        container.mount(RadioSet(
+            RadioButton("Manual — I type the names", value=True),
+            RadioButton("Agent-proposed — infer from the Plan"),
+            RadioButton("From section markers"),
+            classes="rs_decompose_mode",
+        ))
+        container.mount(Label("[bold]Modules (used by Manual / From-sections)[/]"))
         container.mount(TextArea("", classes="ta_module_decompose_modules"))
-        container.mount(Checkbox("Use section markers", classes="chk_from_sections"))
         link_chk = Checkbox("Create linked child tasks", classes="chk_link_to_task")
         link_chk.value = bool(fast_track)
         container.mount(link_chk)
@@ -7192,6 +7206,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if not config["source_node"]:
                 self.notify("Selected subgraph has no HEAD", severity="warning")
                 return False
+            # Decompose mode: 0=Manual, 1=Agent-proposed (infer), 2=From sections.
+            mode = container.query_one(
+                ".rs_decompose_mode", RadioSet
+            ).pressed_index
             module_text = container.query_one(
                 ".ta_module_decompose_modules", TextArea
             ).text
@@ -7200,22 +7218,33 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 for m in re.split(r"[,\n]+", module_text)
                 if m.strip()
             ]
-            if not modules:
-                self.notify("Enter at least one module name", severity="warning")
-                return False
-            if len(set(modules)) != len(modules):
-                self.notify("Module names must be unique", severity="warning")
-                return False
+            instructions = container.query_one(
+                ".ta_module_decompose_plan", TextArea
+            ).text.strip()
+            if mode == 1:
+                # Infer: the agent proposes the module set; names field is
+                # ignored, but a Decomposition Plan is required to infer from.
+                if not instructions:
+                    self.notify(
+                        "Agent-proposed mode needs a Decomposition Plan "
+                        "to infer from",
+                        severity="warning",
+                    )
+                    return False
+                modules = []
+            else:
+                if not modules:
+                    self.notify("Enter at least one module name", severity="warning")
+                    return False
+                if len(set(modules)) != len(modules):
+                    self.notify("Module names must be unique", severity="warning")
+                    return False
             config["modules"] = modules
-            config["from_sections"] = bool(
-                container.query_one(".chk_from_sections", Checkbox).value
-            )
+            config["from_sections"] = (mode == 2)
             config["link_to_task"] = bool(
                 container.query_one(".chk_link_to_task", Checkbox).value
             )
-            config["instructions"] = container.query_one(
-                ".ta_module_decompose_plan", TextArea
-            ).text.strip()
+            config["instructions"] = instructions
             try:
                 config["review_before_apply"] = bool(
                     container.query_one(".chk_review_before_apply", Checkbox).value

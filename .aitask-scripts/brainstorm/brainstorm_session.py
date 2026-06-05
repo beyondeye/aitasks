@@ -1511,6 +1511,76 @@ def parse_module_decomposer_output(output_text: str) -> list[dict]:
     return parsed
 
 
+def assign_inferred_module_node_ids(
+    task_num: int | str, agent_name: str,
+) -> None:
+    """Assign deferred node IDs to an infer-mode decomposer output (t929_2).
+
+    In agent-proposed ("infer") mode the decomposer chooses the module names
+    itself, so the orchestrator cannot pre-generate node IDs the way it does for
+    the names-given path (``register_module_decomposer``). The agent emits each
+    ``MODULE_NODE`` block with a ``MODULE_NAME`` but **no** ``node_id`` in its
+    ``NODE_YAML``. This step assigns each such block an
+    ``n{num:03d}_{agent_name}_{safe_module}`` id (the same scheme as the
+    names-given path) and injects it into the output file, so the downstream
+    pure parser, review preview, and ``apply_module_decomposer_output`` all see a
+    names-given-shaped output and need no infer-specific branching.
+
+    Only fires for a group that is genuinely in **infer** mode (no module names
+    were supplied — persisted ``modules: []``). In the names-given path a block
+    that omits ``node_id`` is an agent error and must still surface as the strict
+    ``missing node_id`` parse failure, so this is a no-op there.
+
+    Idempotent: a block that already carries a ``node_id`` (a re-entrant call on
+    an already-normalized infer output) is left untouched, so the file is
+    byte-identical when there is nothing to assign. Malformed/nameless blocks are
+    left for the parser to reject. No-op if the output file is missing.
+    """
+    wt = crew_worktree(task_num)
+    out_path = wt / f"{agent_name}_output.md"
+    if not out_path.is_file():
+        return
+    group_name = _agent_to_group_name(agent_name)
+    groups = _read_groups_file(str(wt / GROUPS_FILE)).get("groups", {})
+    group_info = groups.get(group_name, {}) if isinstance(groups, dict) else {}
+    persisted_modules = group_info.get("modules")
+    # Infer mode ⇔ the group recorded an explicitly empty module list. A
+    # non-empty list (names-given) or an absent key (legacy group) is left to the
+    # strict parser, so a dropped node_id there still errors as before.
+    if not (isinstance(persisted_modules, list) and not persisted_modules):
+        return
+    text = out_path.read_text(encoding="utf-8")
+
+    def _assign(match: "re.Match") -> str:
+        block = match.group(1)
+        try:
+            module = _extract_block(
+                block, "MODULE_NAME_START", "MODULE_NAME_END"
+            ).strip()
+            meta_text = _extract_block(block, "NODE_YAML_START", "NODE_YAML_END")
+        except ValueError:
+            return match.group(0)  # malformed — leave for the parser to reject
+        meta = _tolerant_yaml_load(meta_text)
+        if isinstance(meta, dict) and meta.get("node_id"):
+            return match.group(0)  # already has an id (names-given / re-entrant)
+        if not module:
+            return match.group(0)  # empty name — leave for the parser to reject
+        node_num = next_node_id(wt)
+        safe_module = "".join(
+            ch if ch.isalnum() else "_" for ch in module
+        ).strip("_")
+        new_node_id = f"n{node_num:03d}_{agent_name}_{safe_module}"
+        start_tag = "--- NODE_YAML_START ---"
+        injected = block.replace(
+            start_tag, f"{start_tag}\nnode_id: {new_node_id}", 1
+        )
+        return match.group(0).replace(block, injected, 1)
+
+    new_text = _MODULE_NODE_BLOCK_RE.sub(_assign, text)
+    if new_text != text:
+        out_path.write_text(new_text, encoding="utf-8")
+
+
 def apply_module_decomposer_output(
     task_num: int | str, agent_name: str,
 ) -> list[str]:
@@ -1522,6 +1592,9 @@ def apply_module_decomposer_output(
 
     err_log = wt / f"{agent_name}_apply_error.log"
     try:
+        # Assign deferred IDs for infer-mode output before parsing (t929_2).
+        # No-op for the names-given path (blocks already carry node_id).
+        assign_inferred_module_node_ids(task_num, agent_name)
         text = out_path.read_text(encoding="utf-8")
         parsed = parse_module_decomposer_output(text)
 

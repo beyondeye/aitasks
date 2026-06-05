@@ -56,6 +56,7 @@ from brainstorm.brainstorm_session import (  # noqa: E402
     apply_module_decompose_from_sections,
     apply_module_decomposer_output,
     apply_module_merger_output,
+    assign_inferred_module_node_ids,
     discard_module_decomposer_output,
     module_decomposer_review_enabled,
     parse_module_decomposer_output,
@@ -654,6 +655,93 @@ class ReviewGateTests(unittest.TestCase):
                 self.assertTrue(
                     (wt / "module_decomposer_001_output.cancelled.md").is_file()
                 )
+
+
+# --------------------------------------------------------------------------- #
+# Group E — prompt-driven module-set inference / deferred node IDs (t929_2)
+# --------------------------------------------------------------------------- #
+def _infer_block(name: str) -> str:
+    """A MODULE_NODE block as an infer-mode agent emits it: MODULE_NAME set,
+    NODE_YAML deliberately WITHOUT a node_id (the orchestrator assigns it)."""
+    return _module_block_custom(
+        name,
+        f'parents: []\ndescription: "{name} root"\ncomponent_{name}: "{name} c"\n',
+    )
+
+
+class InferModeNodeIdTests(unittest.TestCase):
+    def test_infer_output_gets_unique_ids_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as td:
+            wt = Path(td)
+            _seed_base(wt)
+            _write_decomposer_output(
+                wt, _infer_block("parser") + _infer_block("cache")
+            )
+            with patch(
+                "brainstorm.brainstorm_session.crew_worktree", return_value=wt
+            ):
+                _record_decompose([])  # infer mode ⇔ persisted empty module list
+                assign_inferred_module_node_ids(TASK, "module_decomposer_001")
+                first = (wt / "module_decomposer_001_output.md").read_text(
+                    encoding="utf-8"
+                )
+                # The strict parser now succeeds: agent-proposed names + new ids.
+                blocks = parse_module_decomposer_output(first)
+                self.assertEqual(
+                    [b["module_name"] for b in blocks], ["parser", "cache"]
+                )
+                ids = [b["node_id"] for b in blocks]
+                self.assertEqual(len(set(ids)), 2)  # unique, non-colliding
+                for nid in ids:
+                    self.assertRegex(
+                        nid, r"^n\d{3}_module_decomposer_001_\w+$"
+                    )
+                # Idempotent: a second pass leaves the file byte-identical.
+                assign_inferred_module_node_ids(TASK, "module_decomposer_001")
+                second = (wt / "module_decomposer_001_output.md").read_text(
+                    encoding="utf-8"
+                )
+                self.assertEqual(first, second)
+
+    def test_names_given_dropped_id_is_left_untouched(self):
+        """In names-given mode a missing node_id is an agent error, NOT infer —
+        normalization is gated out so the strict parser still rejects it."""
+        with tempfile.TemporaryDirectory() as td:
+            wt = Path(td)
+            _seed_base(wt)
+            body = _infer_block("parser")  # MODULE_NAME but no node_id
+            _write_decomposer_output(wt, body)
+            with patch(
+                "brainstorm.brainstorm_session.crew_worktree", return_value=wt
+            ):
+                _record_decompose(["parser"])  # non-empty modules = names-given
+                assign_inferred_module_node_ids(TASK, "module_decomposer_001")
+                after = (wt / "module_decomposer_001_output.md").read_text(
+                    encoding="utf-8"
+                )
+            self.assertEqual(after, body)  # untouched — no auto-fill
+
+    def test_infer_apply_commits_proposed_modules(self):
+        """End-to-end: apply normalizes infer output then commits the nodes."""
+        with tempfile.TemporaryDirectory() as td:
+            wt = Path(td)
+            _seed_base(wt)
+            _write_decomposer_output(
+                wt, _infer_block("parser") + _infer_block("cache")
+            )
+            with patch(
+                "brainstorm.brainstorm_session.crew_worktree", return_value=wt
+            ):
+                _record_decompose([])  # infer mode
+                created = apply_module_decomposer_output(
+                    TASK, "module_decomposer_001"
+                )
+            self.assertEqual(len(created), 2)
+            labels = {read_node(wt, nid)["module_label"] for nid in created}
+            self.assertEqual(labels, {"parser", "cache"})
+            for nid in created:
+                self.assertEqual(read_node(wt, nid)["parents"], ["n000_init"])
+            self.assertEqual(get_head(wt), "n000_init")  # umbrella HEAD untouched
 
 
 if __name__ == "__main__":

@@ -688,5 +688,52 @@ class TestAssembleInputModuleDecomposerSteer(BrainstormCrewTestBase):
         self.assertIn("later revision overrides an earlier one", out)
 
 
+class TestAssembleInputModuleDecomposerInfer(BrainstormCrewTestBase):
+    """Prompt-driven module-set inference assembly (t929_2)."""
+
+    def _assemble(self, modules, module_node_ids, instructions=""):
+        self._init_session()
+        self._create_test_node(
+            "n000_init",
+            description="Umbrella",
+            dimensions={"component_core": "Core"},
+        )
+        return _assemble_input_module_decomposer(
+            self.wt_path,
+            "n000_init",
+            modules,
+            module_node_ids,
+            from_sections=False,
+            link_to_task=False,
+            instructions=instructions,
+        )
+
+    def test_infer_mode_omits_names_and_emits_directive(self):
+        out = self._assemble([], {}, instructions="Split into parser + renderer")
+        # No module names / no pre-assigned IDs in infer mode …
+        self.assertNotIn("## Modules", out)
+        self.assertNotIn("## Assigned Module Node IDs", out)
+        # … instead the infer directive + the operator's plan to infer from.
+        self.assertIn("## Decomposition Mode: infer", out)
+        self.assertIn("MODULE_NAME", out)
+        self.assertIn("Do NOT include a `node_id`", out)
+        self.assertIn("## Decomposition Plan", out)
+        self.assertIn("Split into parser + renderer", out)
+
+    def test_names_given_path_unchanged(self):
+        out = self._assemble(
+            ["parser", "cache"],
+            {
+                "parser": "n001_module_decomposer_001_parser",
+                "cache": "n002_module_decomposer_001_cache",
+            },
+        )
+        self.assertIn("## Modules", out)
+        self.assertIn("- parser", out)
+        self.assertIn("## Assigned Module Node IDs", out)
+        self.assertIn("- parser: n001_module_decomposer_001_parser", out)
+        self.assertNotIn("## Decomposition Mode: infer", out)
+
+
 if __name__ == "__main__":
     unittest.main()
