@@ -95,3 +95,25 @@ still works for the upgraders who need it), but **drop the listing line from
 
 Single-task chore → Step 9 archival (status → Done, move task + this plan to
 archived, commit, push). No build verification configured beyond the checks above.
+
+## Final Implementation Notes
+
+- **Actual work done:** Resolved t918 with the user-selected decision **Hide**.
+  Two edits to `ait`: (1) removed the `migrate-archives` listing line from the
+  `usage()` "Tools:" block; (2) added a 3-line maintainer comment above the
+  dispatcher route documenting the intentional omission (prevents a future editor
+  from re-adding the help line unaware of this decision). Script
+  (`aitask_migrate_archives.sh`), test (`tests/test_migrate_archives.sh`), the
+  dispatcher route, and all read-side `tar.gz` fallbacks left untouched.
+- **Deviations from plan:** None. Implemented exactly as planned.
+- **Issues encountered:** None.
+- **Key decisions:** Hide (not Remove) because the tar.gz→tar.zst switch is only
+  ~2 months old (2026-03-29, t470 series) and pre-switch repos can still hold
+  `tar.gz`; not added to the command index because it is a one-time, upgrade-only
+  tool that fresh installs never need. No command-reference doc entry added
+  (consistent with "hide").
+- **Verification:** `bash -n ait` OK; `migrate-archives` absent from `ait --help`;
+  `ait migrate-archives --help` still prints usage (route intact);
+  `bash tests/test_migrate_archives.sh` → 28/28 pass; `shellcheck ait` shows only
+  pre-existing SC1091 info findings (unrelated).
+- **Upstream defects identified:** None.
