@@ -150,3 +150,27 @@ _No before/after risk-mitigation tasks warranted (both axes low)._
 ## Post-implementation
 Per the shared task-workflow: Step 8 user review → commit
 (`bug: <desc> (t940)`) → Step 9 archival of t940 and its plan.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned. Added
+  `_CONTROL_CHAR_TRANSLATION` (module-level dict) and `_sanitize_control_chars`
+  helper to `.aitask-scripts/codebrowser/code_viewer.py`, and inserted a single
+  `content = _sanitize_control_chars(content)` call in `load_file` after the
+  empty-file guard and before `expandtabs`. Added
+  `tests/test_code_viewer_control_chars.py` (7 unittest cases: sanitizer
+  mappings + a SIGALRM-guarded render-does-not-hang regression).
+- **Deviations from plan:** None functional. The regression test uses
+  `io.StringIO()` as the Console sink instead of `open("/dev/null")` to avoid a
+  `ResourceWarning` for an unclosed file under Python 3.14.
+- **Issues encountered:** None. The original hang was reproduced before the fix
+  (indefinite, traced to `rich/cells.py split_graphemes` via `text.py truncate`)
+  and confirmed gone after (~2 ms render of the exact repro content).
+- **Key decisions:** Used Unicode "control picture" glyphs (`U+2400+code`, DEL →
+  `U+2421`) rather than stripping or `�`, so the viewer faithfully shows the
+  file's literal control bytes (e.g. `␛[48;2;40;42;54m`). Tab/newline are kept
+  out of the table so existing indentation/line-splitting behavior is unchanged;
+  `str.translate` is a no-op for normal control-char-free source.
+- **Upstream defects identified:** None. The triggering defect is upstream in
+  the third-party Rich library (`set_cell_size`/`split_graphemes` on Python
+  3.14), not in a separate aitasks script/helper; it is handled at our display
+  boundary. No separate broken module in this repo was found.
