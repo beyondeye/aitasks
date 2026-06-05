@@ -25,6 +25,30 @@ ANNOTATION_COLORS = [
 CURSOR_STYLE = Style(bgcolor="grey27")
 SELECTION_STYLE = Style(bgcolor="dark_blue")
 
+# C0 control chars (except tab/newline) and DEL mapped to printable Unicode
+# "control picture" glyphs. Rich's line truncation (set_cell_size /
+# split_graphemes) can hang on long lines that embed raw control bytes such as
+# ESC (0x1b) — e.g. captured-ANSI files. Converting them to printable glyphs
+# keeps the file viewable (showing its literal bytes) and avoids the hang.
+# Tab/newline are preserved: tabs are expanded downstream; newlines delimit
+# lines.
+_CONTROL_CHAR_TRANSLATION = {
+    code: 0x2400 + code
+    for code in range(0x20)
+    if code not in (0x09, 0x0A)  # keep tab and newline
+}
+_CONTROL_CHAR_TRANSLATION[0x7F] = 0x2421  # DEL -> ␡
+
+
+def _sanitize_control_chars(text: str) -> str:
+    """Replace non-printable control characters with visible glyphs.
+
+    Prevents a Rich rendering hang when viewing files that embed raw terminal
+    control bytes (see _CONTROL_CHAR_TRANSLATION). A no-op for normal source
+    files, which contain no such characters.
+    """
+    return text.translate(_CONTROL_CHAR_TRANSLATION)
+
 
 class CodeViewer(VerticalScroll):
     """Displays source code with syntax highlighting, line numbers, and annotation gutter."""
@@ -148,6 +172,10 @@ class CodeViewer(VerticalScroll):
         if not content:
             self._show_message("(empty file)")
             return
+
+        # Replace control characters Rich cannot truncate safely (e.g. ESC
+        # bytes in captured-ANSI files), which otherwise hang the viewer.
+        content = _sanitize_control_chars(content)
 
         # Normalize tabs to spaces
         content = content.expandtabs(4)
