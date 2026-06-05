@@ -218,3 +218,48 @@ See parent task **Step 9 (Post-Implementation)** for cleanup, archival, merge.
   infer mode · severity: low · → mitigation: template-driven contract +
   integration test; if the agent emits a node_id anyway, normalization no-ops
   and apply uses it (still correct).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all five planned steps.
+  - `brainstorm_app.py`: replaced the `chk_from_sections` checkbox with a
+    `rs_decompose_mode` RadioSet (Manual / Agent-proposed / From section markers,
+    default Manual; imported `RadioSet`/`RadioButton`); relabelled the Modules
+    field; restructured `_actions_collect_config` to read `pressed_index` and
+    validate per-mode (infer requires a Plan and forces `modules=[]`); added an
+    `assign_inferred_module_node_ids` call before the preview parse in
+    `_open_module_preview`.
+  - `brainstorm_crew.py`: added `_module_infer_directive_lines()` and branched
+    `_assemble_input_module_decomposer` — names-given output is byte-identical;
+    empty `modules` emits `## Decomposition Mode: infer` instead of
+    `## Modules` + `## Assigned Module Node IDs`.
+  - `brainstorm_session.py`: new idempotent `assign_inferred_module_node_ids()`
+    that injects `n{num:03d}_{agent}_{safe_module}` IDs into infer output before
+    parse; called at the top of `apply_module_decomposer_output`. The pure
+    parser and apply stay strict/unchanged.
+  - `templates/module_decomposer.md`: documents the infer path + "omit node_id"
+    rule.
+  - Tests: +3 crew assembly tests, +3 integration tests (Group E).
+- **Deviations from plan:** One correctness tightening beyond the written plan:
+  `assign_inferred_module_node_ids` is **gated on the persisted group being in
+  infer mode** (`modules: []`), not merely on "a block lacks node_id". Without
+  the gate, a names-given run where the agent buggily dropped a `node_id` would
+  be silently auto-filled instead of erroring — the existing
+  `test_missing_node_id_raises` caught this. The gate preserves the strict
+  names-given guard while enabling infer-mode deferral.
+- **Issues encountered:** `test_missing_node_id_raises` initially failed for the
+  reason above; resolved by the infer-mode gate (read group `modules` via
+  `_read_groups_file` + `_agent_to_group_name`, assign only when it is an
+  explicitly empty list).
+- **Key decisions:** normalize-before-parse (keep the pure/strict parser and
+  apply untouched; preview shows proposed names + assigned IDs for free) over
+  making the parser tolerate missing IDs. Infer signal = persisted `modules: []`
+  (no new mode field; re-runs recover it naturally).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (t929_3 docs):** Three decompose modes now exist —
+  Manual (names typed), Agent-proposed (infer, the new path), and From section
+  markers (deterministic, no agent). Node IDs in infer mode are assigned by
+  `assign_inferred_module_node_ids` (orchestrator), not by the agent; the agent
+  omits `node_id`. The review preview (t929_1) renders the proposed names + the
+  assigned IDs unchanged. The `from_sections` inline path is still not review-
+  gated (t929_1 limitation, unchanged here).
