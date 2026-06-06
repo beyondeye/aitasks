@@ -3,11 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitor, tmux]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-06 23:04
-updated_at: 2026-06-06 23:09
+updated_at: 2026-06-06 23:53
+completed_at: 2026-06-06 23:53
 ---
 
 ## Problem
