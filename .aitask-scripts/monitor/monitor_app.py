@@ -52,6 +52,20 @@ from textual.timer import Timer  # noqa: E402
 from textual.widgets import Button, Footer, Header, Label, Static  # noqa: E402
 
 
+def _rename_window_argv(pane: str | None) -> list[str]:
+    """Build the ``tmux rename-window monitor`` argv, pinned to *pane* when known.
+
+    Targeting the monitor's own pane (via $TMUX_PANE) prevents tmux from
+    resolving the untargeted default to the attached client's *active* window —
+    which, with automatic-rename off, would permanently mislabel an unrelated
+    window (e.g. a board) as ``monitor``. See t941.
+    """
+    argv = ["tmux", "rename-window"]
+    if pane:
+        argv += ["-t", pane]
+    argv.append("monitor")
+    return argv
+
 
 # -- Zone model ---------------------------------------------------------------
 
@@ -672,7 +686,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # use raw subprocess rather than `self._monitor.tmux_run`.
         try:
             subprocess.run(
-                ["tmux", "rename-window", "monitor"],
+                _rename_window_argv(os.environ.get("TMUX_PANE")),
                 capture_output=True, timeout=5,
             )
         except Exception:
