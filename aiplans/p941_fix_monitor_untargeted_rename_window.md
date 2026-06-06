@@ -210,3 +210,26 @@ existing style; keep the helper consistent with surrounding code.
 
 Standard task-workflow archival: commit code (`bug: ... (t941)`) and plan
 separately, then archive t941 via `aitask_archive.sh 941`. No folded tasks.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added module-level pure helper `_rename_window_argv(pane)`
+  to `.aitask-scripts/monitor/monitor_app.py` (after imports, before the Zone
+  model) and changed `on_mount` to call
+  `_rename_window_argv(os.environ.get("TMUX_PANE"))` instead of the untargeted
+  `["tmux", "rename-window", "monitor"]`. Added
+  `tests/test_monitor_rename_window_target.sh` (3 assertions: pane→targeted,
+  None→fallback, ""→fallback). Exactly matches the approved plan.
+- **Deviations from plan:** None of substance. Test exit line uses bare
+  `[[ $FAIL -eq 0 ]]` instead of `exit $(...)` to avoid shellcheck SC2046 —
+  cleaner than the `test_tmux_exact_session_targeting.sh` reference, which trips
+  SC2046/SC2329.
+- **Issues encountered:** None. Helper imports cleanly via file-path load
+  (monitor_app self-bootstraps its sys.path); `py_compile` passes; test passes
+  3/3; shellcheck emits only the benign SC1091 (sourced file not followed),
+  same as existing tests.
+- **Upstream defects identified:** None. The defect was in the task's own target
+  (`monitor_app.py` `on_mount`); diagnosis explicitly checked other tmux
+  window/pane mutations (`grep -rn "rename-window\|respawn"`, `new-window`,
+  `select-window`, the session-rename at `monitor_app.py:237`) and all already
+  pass explicit targets — no separate pre-existing bug surfaced.
