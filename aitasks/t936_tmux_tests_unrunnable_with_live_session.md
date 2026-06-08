@@ -7,6 +7,7 @@ status: Ready
 labels: [testing, tmux]
 created_at: 2026-06-03 23:15
 updated_at: 2026-06-03 23:15
+boardidx: 20
 ---
 
 Surfaced by the t926 periodic macOS compat audit (full test suite run on macOS).
