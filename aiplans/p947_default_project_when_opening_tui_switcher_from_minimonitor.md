@@ -126,3 +126,25 @@ add matching `assert_contains` lines alongside the existing Tier 1g asserts.
 
 Follow Step 9 (Post-Implementation) of the task-workflow: commit code and plan
 separately, then archive task t947.
+
+## Final Implementation Notes
+
+- **Actual work done:** Rewrote `MiniMonitorApp._switcher_selected_session()`
+  (`.aitask-scripts/monitor/minimonitor_app.py`) to resolve the switcher's
+  default session from `_find_own_agent_snapshot()` (the followed/docked agent)
+  instead of `_get_focused_pane_id()` (the focused general-list card). Dropped
+  the now-redundant `PaneCategory.AGENT` check since the helper already filters
+  on it. Added a "Tier 1h" test block to
+  `tests/test_multi_session_minimonitor.sh` asserting the default keys off the
+  followed agent (independent of focus) and returns `None` when no followed
+  agent exists.
+- **Deviations from plan:** None. Implemented exactly as planned.
+- **Issues encountered:** None. The value flow (`_switcher_selected_session` →
+  `selected_session` → `TuiSwitcherOverlay._session` →
+  `_project_root_for_session`) was confirmed during planning; no switcher-side
+  change was needed.
+- **Key decisions:** Reused the existing `_find_own_agent_snapshot()` helper
+  rather than introducing new resolution logic, keeping the switcher default
+  consistent with the docked-panel agent shown by `_maybe_build_own_agent_panel`
+  and the `k`/`n` actions.
+- **Upstream defects identified:** None.
