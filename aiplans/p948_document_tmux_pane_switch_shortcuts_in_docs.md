@@ -122,3 +122,32 @@ push per the shared workflow Step 9.
 - None identified. Requirements are explicit (exact pages, shortcuts, and
   placement named in the task); target files and anchors already verified to
   exist.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-08)
+- **Requested by user:** Clarify that `j` does not switch tmux windows
+  directly — it opens the TUI switcher, which then jumps to TUIs that each
+  live in a separate tmux window.
+- **Changes made:** Reworded the added passages in both pages so `j` is
+  described as "the `j` TUI switcher" / "the TUI switcher (press `j`)" rather
+  than "`j` switches between tmux windows".
+- **Files affected:** `website/content/docs/getting-started.md`,
+  `website/content/docs/tuis/minimonitor/how-to.md`.
+
+## Final Implementation Notes
+- **Actual work done:** Added a short paragraph to getting-started.md §2
+  introducing native tmux pane shortcuts (`Ctrl-b o`, `Ctrl-b`+arrow) and
+  framing them as mostly-minimonitor-relevant; added a new "How to Focus
+  Minimonitor from the Agent Pane (native tmux)" subsection to the
+  minimonitor how-to plus a clearly-labeled note row in its Key Bindings
+  Quick Reference table.
+- **Deviations from plan:** None of substance. Wording for `j` was refined
+  during review (it opens the TUI switcher rather than "switching windows").
+- **Issues encountered:** None. Hugo build passes (only pre-existing
+  deprecation warnings unrelated to this change).
+- **Key decisions:** Native tmux keys are marked in the keybindings table as
+  "*(native tmux, not a minimonitor key)*" to avoid implying they are
+  minimonitor keybindings. No new cross-reference to the monitor `s`-key
+  section was added (different mechanism: cross-window switch).
+- **Upstream defects identified:** None
