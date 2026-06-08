@@ -242,3 +242,62 @@ is mitigated inline by running the existing monitor test suite + import-smoke._
 Follows shared workflow Step 8 (user review) → Step 9 (post-implementation,
 archival via `aitask_archive.sh 944`). No branch/worktree cleanup (working on
 current branch).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-08)
+- **Requested by user:** The docked followed-agent panel still behaved like a
+  general-list entry — it refreshed every cycle and showed live status
+  (idle/prompt/active). The followed agent's identity is fixed and does not
+  need refreshing or status badges.
+- **Changes made:**
+  - The docked panel is now built **once** (`_maybe_build_own_agent_panel`,
+    guarded by `self._own_panel_built`); `_refresh_data` no longer rebuilds it
+    each cycle. Retries only until the own-agent snapshot first resolves
+    (tmux window-index detection can lag the first refresh).
+  - The followed agent now renders via `_own_agent_identity_text` — window name
+    (bold) + optional task title only, with **no** dot, status badge, or
+    idle-detection glyph.
+  - The followed-agent entry is a plain non-focusable `Static` (not a
+    `MiniPaneCard`), so it no longer behaves like a list row. Reverted the
+    nav/focus changes (`_all_cards` removed; `_nav`/`_restore_focus`/
+    `_auto_select_own_window` are list-only again). The followed agent remains
+    excluded from the general list.
+- **Files affected:** `.aitask-scripts/monitor/minimonitor_app.py`,
+  `tests/test_multi_session_minimonitor.sh`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Moved `NextSiblingDialog`, `_SiblingRow`, `ChooseSiblingModal` from
+    `monitor_app.py` into `monitor_shared.py` (joining `KillConfirmDialog`);
+    `monitor_app.py` now imports them from shared.
+  - Added `k` (kill) and `n` (next sibling) to the minimonitor, scoped to the
+    followed agent only: `action_kill_own_agent` / `_on_own_kill_confirmed`
+    (via `KillConfirmDialog` + `kill_agent_pane_smart`) and
+    `action_pick_next_for_own` / `_on_own_next_result` / `_launch_pick_for_own`
+    (via `NextSiblingDialog`/`ChooseSiblingModal`). The next-sibling launch
+    inverts the full monitor's order (launch first, then kill) because the
+    minimonitor shares the followed agent's window.
+  - Added a docked, build-once, status-free followed-agent panel and excluded
+    that agent from the general list. New helpers: `_find_own_agent_snapshot`,
+    `_root_for_snap`, `_agent_card_text` (list cards),
+    `_own_agent_identity_text` + `_maybe_build_own_agent_panel` (panel).
+  - Extended `tests/test_multi_session_minimonitor.sh` (37/37 pass): k/n
+    binding+action presence, own-agent resolution (own vs cross-session),
+    list exclusion, and the static build-once/status-free docked panel.
+- **Deviations from plan:** The docked panel was reworked after review from a
+  refreshing `MiniPaneCard` (with status) to a build-once, status-free
+  non-focusable `Static` (see Post-Review Changes). Consequently the nav/focus
+  changes were reverted to list-only.
+- **Issues encountered:** None blocking. The minimonitor unit test bypasses
+  `__init__`, so the new `_own_window_index` / `_own_panel_built` dependencies
+  required stubbing in the test harness.
+- **Key decisions:** Followed-agent identity is static (fixed for the
+  minimonitor's lifetime) → build once. Kill/next always target the followed
+  agent regardless of list focus, per the task requirement.
+- **Upstream defects identified:** None.
+- **Build verification:** `test_shortcuts_registry_coverage.sh` and
+  `test_multi_session_minimonitor.sh` pass; all three modules import-smoke
+  cleanly. The tmux-server tests (`test_kill_agent_pane_smart.sh`,
+  `test_multi_session_monitor.sh`) cannot run inside a tmux session (data-loss
+  guard) and exercise untouched code (kill helper / TmuxMonitor aggregation).
