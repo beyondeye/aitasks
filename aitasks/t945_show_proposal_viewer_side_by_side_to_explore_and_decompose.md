@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [ait_brainstorm, brainstorm_explore]
-children_to_implement: [t945_2, t945_3]
+children_to_implement: [t945_3]
 created_at: 2026-06-08 09:05
-updated_at: 2026-06-08 11:19
+updated_at: 2026-06-08 12:48
 ---
 
 in ait brainstorm, in the wizards for the explore and module decompose operation it would be very useful to show the current proposal (with minimap
