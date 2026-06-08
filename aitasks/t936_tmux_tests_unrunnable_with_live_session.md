@@ -3,10 +3,11 @@ priority: low
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [testing, tmux]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-03 23:15
-updated_at: 2026-06-03 23:15
+updated_at: 2026-06-08 09:57
 boardidx: 20
 ---
 
