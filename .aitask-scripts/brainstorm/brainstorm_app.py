@@ -905,6 +905,103 @@ class _InlineSectionMinimap:
         return cls._cache
 
 
+class ProposalPreviewPane(VerticalScroll):
+    """Reusable side-by-side proposal viewer with an inline navigable minimap.
+
+    Mirrors ``NodeDetailModal``'s Proposal tab: a scrollable ``Markdown`` with a
+    Tab-binding-free ``SectionMinimap`` mounted *before* it. Built for the
+    explore / module-decompose wizard config steps (t945), mounted via
+    ``BrainstormApp._mount_config_with_preview``.
+
+    IMPORTANT: the pane mounts only a ``Markdown`` + a minimap ``VerticalScroll``
+    — never a ``TextArea`` / ``CycleField`` / ``RadioSet``. The config-step
+    collectors in ``_actions_collect_config`` query ``#actions_content``
+    recursively with single-match ``query_one(TextArea)`` /
+    ``query_one(CycleField)``; adding any such widget here would make those
+    queries ambiguous.
+    """
+
+    DEFAULT_CSS = """
+    ProposalPreviewPane {
+        height: 1fr;
+        border-left: solid $primary;
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._parsed = None
+        self._text = ""
+
+    def compose(self) -> ComposeResult:
+        yield Markdown(id="preview_proposal_content")
+
+    def populate(self, proposal_text: str) -> None:
+        """Render *proposal_text* and (re)build the section minimap."""
+        text = proposal_text if proposal_text else "*No proposal found.*"
+        self._text = text
+        self.query_one("#preview_proposal_content", Markdown).update(text)
+        # Drop any minimap left over from a previous populate() before re-mount.
+        for mm in list(self.query(".preview_proposal_minimap")):
+            mm.remove()
+        parsed = parse_sections(text)
+        if parsed.sections:
+            self._parsed = parsed
+            minimap = _InlineSectionMinimap.cls()(
+                classes="preview_proposal_minimap"
+            )
+            self.mount(minimap, before="#preview_proposal_content")
+            minimap.populate(parsed)
+        else:
+            self._parsed = None
+
+    def scroll_to_section(self, section_name: str) -> None:
+        """Scroll the proposal so *section_name* sits near the top.
+
+        Reuses NodeDetailModal's correction: the section's line ratio maps to
+        the scrollable range *below* the minimap (``max_scroll_y`` minus the
+        minimap's outer height), not the markdown's full virtual height.
+        """
+        from section_viewer import estimate_section_y
+        if self._parsed is None:
+            return
+        minimaps = list(self.query(".preview_proposal_minimap"))
+        minimap_height = (
+            float(minimaps[0].outer_size.height) if minimaps else 0.0
+        )
+        total = self._text.count("\n") + 1
+        max_scroll = float(getattr(self, "max_scroll_y", 0) or 0)
+        body_scroll_range = max(0.0, max_scroll - minimap_height)
+        y_in_body = estimate_section_y(
+            self._parsed, section_name, total, body_scroll_range
+        )
+        if y_in_body is not None:
+            self.scroll_to(y=minimap_height + y_in_body, animate=False)
+
+    def on_ratio_change(self) -> None:
+        """Keep the currently-top source line at the top across a width reflow.
+
+        Call this *before* swapping the pane's width class: ``scroll_offset.y``
+        still reflects the pre-reflow geometry, so the top line is captured now
+        and re-applied once Textual has re-laid-out at the new width
+        (``call_after_refresh``).
+        """
+        total = self._text.count("\n") + 1
+        max_scroll = float(getattr(self, "max_scroll_y", 0) or 0)
+        if total <= 0 or max_scroll <= 0:
+            return
+        top_line = round(self.scroll_offset.y / max_scroll * total)
+
+        def _restore() -> None:
+            new_max = float(getattr(self, "max_scroll_y", 0) or 0)
+            if new_max <= 0:
+                return
+            self.scroll_to(y=(top_line / total) * new_max, animate=False)
+
+        self.call_after_refresh(_restore)
+
+
 class NodeDetailModal(ModalScreen):
     """Modal for viewing node details with tabbed content (Metadata, Proposal, Plan)."""
 
@@ -2883,6 +2980,28 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         padding: 1 2;
     }
 
+    /* Config-step side-by-side preview (t945): input left, proposal right.
+       The ratio-cycle action (ctrl+b) toggles three width splits by adding a
+       ratio_* class to BOTH panes; compound selectors give each its width. */
+    .config_preview_split {
+        height: 1fr;
+    }
+
+    .config_preview_left {
+        width: 50%;
+        height: 1fr;
+        padding: 0 1;
+    }
+
+    .config_preview_pane {
+        width: 50%;
+    }
+
+    .config_preview_left.ratio_input_wide { width: 70%; }
+    .config_preview_pane.ratio_input_wide { width: 30%; }
+    .config_preview_left.ratio_proposal_wide { width: 30%; }
+    .config_preview_pane.ratio_proposal_wide { width: 70%; }
+
     #session_status_title {
         text-style: bold;
         margin-bottom: 1;
@@ -3265,6 +3384,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("A", "node_action", "Node action"),
         Binding("f", "toggle_deferred", "Defer module"),
         Binding("H", "op_help", "Op help"),
+        Binding("ctrl+b", "cycle_preview_ratio", "Preview width"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+r", "retry_patcher_apply",
                 "Retry patcher apply", show=False),
@@ -3396,6 +3516,16 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if not self._current_focused_node_id:
                 return None
             return True
+        if action == "cycle_preview_ratio":
+            try:
+                tabbed = self.query_one(TabbedContent)
+            except Exception:
+                return None
+            if tabbed.active != "tab_actions" or not self.query(
+                ProposalPreviewPane
+            ):
+                return None
+            return True
         required_tab = self._TAB_SCOPED_ACTIONS.get(action)
         if required_tab is None:
             return True
@@ -3484,6 +3614,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if isinstance(self.screen, ModalScreen):
             return
         tabbed = self.query_one(TabbedContent)
+
+        # Tab on the Actions tab → focus the side-by-side preview minimap (t945),
+        # mirroring NodeDetailModal. No-op (falls through to default Tab) when no
+        # preview pane is mounted or focus is already inside the minimap.
+        if event.key == "tab" and tabbed.active == "tab_actions":
+            if self._focus_preview_minimap():
+                event.prevent_default()
+                event.stop()
+                return
 
         # Down from tab bar: focus first row in active tab
         if event.key == "down":
@@ -6809,6 +6948,102 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             fcl.query_one(Input).focus()
         except Exception:
             pass
+
+    # --- Side-by-side proposal preview (t945) ---------------------------------
+
+    def _mount_config_with_preview(self, container, left_builder, proposal_text):
+        """Lay out a config step as input-left / proposal-preview-right.
+
+        *left_builder* receives the left ``VerticalScroll`` and mounts the op's
+        own widgets into it verbatim, so the existing ``_actions_collect_config``
+        collectors keep resolving them via the recursive ``#actions_content``
+        query. The right :class:`ProposalPreviewPane` shows *proposal_text* with
+        a navigable minimap. The pane adds no input widgets, so explore's
+        single-match ``query_one(TextArea)`` / ``query_one(CycleField)`` stay
+        unambiguous.
+        """
+        left = VerticalScroll(classes="config_preview_left")
+        pane = ProposalPreviewPane(classes="config_preview_pane")
+        split = Horizontal(left, pane, classes="config_preview_split")
+        container.mount(split)
+        self._preview_ratio = 0
+
+        def _fill() -> None:
+            left_builder(left)
+            pane.populate(proposal_text)
+
+        # Defer nested mounts until the split has settled (mirrors the
+        # call_after_refresh pattern used by the compare/synthesize configs).
+        self.call_after_refresh(_fill)
+
+    def _apply_preview_ratio(self, left, pane, ratio: int) -> None:
+        """Set the width split by swapping the ratio_* class on both panes.
+
+        ratio 0 = balanced (50/50, no class), 1 = proposal-wide, 2 = input-wide.
+        """
+        ratio_classes = {1: "ratio_proposal_wide", 2: "ratio_input_wide"}
+        for w in (left, pane):
+            w.remove_class("ratio_proposal_wide")
+            w.remove_class("ratio_input_wide")
+        cls = ratio_classes.get(ratio)
+        if cls:
+            left.add_class(cls)
+            pane.add_class(cls)
+
+    def action_cycle_preview_ratio(self) -> None:
+        """Cycle the config-step preview split: balanced → proposal → input."""
+        from textual.actions import SkipAction
+        panes = self.query(ProposalPreviewPane)
+        splits = self.query(".config_preview_split")
+        if not panes or not splits:
+            raise SkipAction()
+        pane = panes.first()
+        lefts = splits.first().query(".config_preview_left")
+        if not lefts:
+            raise SkipAction()
+        left = lefts.first()
+        # Capture the current top line BEFORE the width reflow, then restore it.
+        pane.on_ratio_change()
+        self._preview_ratio = (getattr(self, "_preview_ratio", 0) + 1) % 3
+        self._apply_preview_ratio(left, pane, self._preview_ratio)
+
+    def on_section_minimap_section_selected(self, event) -> None:
+        """Route an Actions-tab preview minimap selection to its pane.
+
+        NodeDetailModal handles its own minimap (it is a separate ModalScreen);
+        only the config-step preview pane's minimap bubbles up to the App. The
+        ``preview_proposal_minimap`` class guards against any other source.
+        """
+        ctrl = getattr(event, "control", None)
+        if ctrl is None or not ctrl.has_class("preview_proposal_minimap"):
+            return
+        panes = self.query(ProposalPreviewPane)
+        if not panes:
+            return
+        panes.first().scroll_to_section(event.section_name)
+        event.stop()
+
+    def _focus_preview_minimap(self) -> bool:
+        """Tab on the Actions tab → focus the preview pane's minimap.
+
+        Returns True if focus was moved (caller stops the event); False when
+        there is no preview pane or focus is already inside the minimap (so the
+        default Tab traversal runs).
+        """
+        panes = self.query(ProposalPreviewPane)
+        if not panes:
+            return False
+        minimaps = list(panes.first().query(".preview_proposal_minimap"))
+        if not minimaps:
+            return False
+        minimap = minimaps[0]
+        walker = self.screen.focused
+        while walker is not None:
+            if walker is minimap:
+                return False  # already on the minimap → default Tab
+            walker = walker.parent
+        minimap.focus_first_row()
+        return True
 
     def _config_explore_no_node(self, container: VerticalScroll) -> None:
         """Explore config (node already selected): mandate, parallel count."""
