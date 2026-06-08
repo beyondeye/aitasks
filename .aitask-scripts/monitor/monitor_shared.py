@@ -566,3 +566,195 @@ class KillConfirmDialog(ModalScreen):
 
     def action_dismiss_dialog(self) -> None:
         self.dismiss(False)
+
+
+class NextSiblingDialog(ModalScreen):
+    """Dialog for picking next sibling task."""
+
+    BINDINGS = [Binding("escape", "dismiss_dialog", "Close", show=False)]
+
+    DEFAULT_CSS = """
+    NextSiblingDialog { align: center middle; }
+    #next-sib-dialog { width: 70%; height: auto; background: $surface; border: thick $warning; padding: 1 2; }
+    #next-sib-header { text-style: bold; color: $warning; margin: 0 0 1 0; }
+    #next-sib-details { margin: 0 0 1 0; }
+    #next-sib-buttons { width: 100%; height: auto; layout: horizontal; }
+    #next-sib-buttons Button { margin: 0 1; }
+    """
+
+    def __init__(
+        self,
+        current_task_id: str,
+        current_title: str,
+        current_status: str,
+        suggested_id: str,
+        suggested_title: str,
+        parent_id: str,
+    ) -> None:
+        super().__init__()
+        self._current_task_id = current_task_id
+        self._current_title = current_title
+        self._current_status = current_status
+        self._suggested_id = suggested_id
+        self._suggested_title = suggested_title
+        self._parent_id = parent_id
+
+    def compose(self) -> ComposeResult:
+        is_parent_with_children = "_" not in self._current_task_id
+        will_kill = self._current_status == "Done" or is_parent_with_children
+        with Container(id="next-sib-dialog"):
+            yield Static("[bold yellow]Pick Next Sibling[/]", id="next-sib-header")
+            lines = [
+                f"Current:   [bold]t{self._current_task_id}[/]: {self._current_title}  (Status: {self._current_status})",
+                f"Suggested: [bold]t{self._suggested_id}[/]: {self._suggested_title}",
+            ]
+            if will_kill:
+                if is_parent_with_children:
+                    lines.append("\n[yellow]Parent agent pane will be killed (parent is split into children)[/]")
+                else:
+                    lines.append("\n[yellow]Current agent pane will be killed (task is Done)[/]")
+            yield Static("\n".join(lines), id="next-sib-details")
+            with Container(id="next-sib-buttons"):
+                yield Button(f"Pick t{self._suggested_id}", variant="warning", id="btn-pick-suggested")
+                yield Button("Choose sibling", variant="primary", id="btn-choose-sibling")
+                yield Button("Cancel", variant="default", id="btn-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-pick-suggested":
+            self.dismiss(("pick", self._suggested_id))
+        elif event.button.id == "btn-choose-sibling":
+            self.dismiss(("choose", self._parent_id))
+        else:
+            self.dismiss(None)
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(None)
+
+
+class _SiblingRow(Static):
+    """A focusable sibling row inside ChooseSiblingModal."""
+
+    can_focus = True
+
+    DEFAULT_CSS = """
+    _SiblingRow {
+        height: 1;
+        padding: 0 1;
+    }
+    _SiblingRow:focus {
+        background: $accent 30%;
+    }
+    """
+
+    def __init__(self, sib_id: str, title: str, blocking_ids: list[str], **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._sib_id = sib_id
+        self._title = title
+        self._blocking_ids = blocking_ids
+
+    @property
+    def sib_id(self) -> str:
+        return self._sib_id
+
+    def render(self) -> str:
+        base = f"  [bold #7aa2f7]t{self._sib_id}[/]  {self._title}"
+        if self._blocking_ids:
+            blockers = " ".join(f"t{b}" for b in self._blocking_ids)
+            base += f"  [bold red]⛔ blocked by {blockers}[/]"
+        return base
+
+    def on_key(self, event) -> None:
+        if event.key == "enter":
+            self.screen.dismiss(self._sib_id)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "down":
+            self._focus_neighbor(1)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "up":
+            self._focus_neighbor(-1)
+            event.prevent_default()
+            event.stop()
+
+    def _focus_neighbor(self, delta: int) -> None:
+        parent = self.parent
+        if parent is None:
+            return
+        rows = [w for w in parent.children if isinstance(w, _SiblingRow)]
+        try:
+            idx = rows.index(self)
+        except ValueError:
+            return
+        new_idx = max(0, min(len(rows) - 1, idx + delta))
+        if new_idx != idx:
+            rows[new_idx].focus()
+            rows[new_idx].scroll_visible()
+
+
+class ChooseSiblingModal(ModalScreen):
+    """Modal dialog letting the user pick a Ready sibling task by name."""
+
+    BINDINGS = [Binding("escape", "dismiss_dialog", "Close", show=False)]
+
+    DEFAULT_CSS = """
+    ChooseSiblingModal { align: center middle; }
+    #choose-sib-dialog {
+        width: 70%;
+        max-height: 80%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #choose-sib-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
+    #choose-sib-context { color: $text-muted; margin: 0 0 1 0; }
+    #choose-sib-list { height: 1fr; min-height: 3; margin: 0 0 1 0; }
+    #choose-sib-help { color: $text-muted; margin: 0 0 1 0; }
+    #choose-sib-buttons { width: 100%; height: auto; layout: horizontal; }
+    #choose-sib-buttons Button { margin: 0 1; }
+    """
+
+    def __init__(self, parent_id: str, siblings: list[tuple[str, str, list[str]]]) -> None:
+        super().__init__()
+        self._parent_id = parent_id
+        self._siblings = siblings
+
+    def compose(self) -> ComposeResult:
+        with Container(id="choose-sib-dialog"):
+            yield Static("[bold]Choose Sibling[/]", id="choose-sib-header")
+            yield Static(
+                f"Parent: [bold]t{self._parent_id}[/]  ·  {len(self._siblings)} Ready sibling(s)",
+                id="choose-sib-context",
+            )
+            with VerticalScroll(id="choose-sib-list"):
+                for sib_id, title, blocking_ids in self._siblings:
+                    yield _SiblingRow(sib_id, title, blocking_ids)
+            yield Static(
+                "[dim]\\[↑/↓] navigate  \\[Enter/OK] select  \\[Esc] cancel[/]",
+                id="choose-sib-help",
+            )
+            with Container(id="choose-sib-buttons"):
+                yield Button("OK", variant="primary", id="btn-ok")
+                yield Button("Cancel", variant="default", id="btn-cancel")
+
+    def on_mount(self) -> None:
+        rows = list(self.query(_SiblingRow))
+        if rows:
+            rows[0].focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-ok":
+            focused = self.focused
+            if isinstance(focused, _SiblingRow):
+                self.dismiss(focused.sib_id)
+                return
+            rows = list(self.query(_SiblingRow))
+            if rows:
+                self.dismiss(rows[0].sib_id)
+            else:
+                self.dismiss(None)
+        else:
+            self.dismiss(None)
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(None)

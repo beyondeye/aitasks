@@ -50,12 +50,20 @@ for b in mm.MiniMonitorApp.BINDINGS:
 print("M_IN_BINDINGS:" + str("M" in keys))
 print("LOWER_M_PRESERVED:" + str("m" in keys))
 print("HAS_ACTION:" + str(hasattr(mm.MiniMonitorApp, "action_toggle_multi_session")))
+print("K_IN_BINDINGS:" + str("k" in keys))
+print("N_IN_BINDINGS:" + str("n" in keys))
+print("HAS_KILL:" + str(hasattr(mm.MiniMonitorApp, "action_kill_own_agent")))
+print("HAS_NEXT:" + str(hasattr(mm.MiniMonitorApp, "action_pick_next_for_own")))
 PY
 )
 assert_contains "MiniMonitorApp has M binding registered" "M_IN_BINDINGS:True" "$out"
 assert_contains "MiniMonitorApp preserves lowercase m binding" "LOWER_M_PRESERVED:True" "$out"
 assert_contains "MiniMonitorApp has action_toggle_multi_session handler" \
     "HAS_ACTION:True" "$out"
+assert_contains "MiniMonitorApp has k (kill) binding" "K_IN_BINDINGS:True" "$out"
+assert_contains "MiniMonitorApp has n (next) binding" "N_IN_BINDINGS:True" "$out"
+assert_contains "MiniMonitorApp has action_kill_own_agent handler" "HAS_KILL:True" "$out"
+assert_contains "MiniMonitorApp has action_pick_next_for_own handler" "HAS_NEXT:True" "$out"
 
 # --- Tier 1b: action flips state + invalidates cache ---
 
@@ -179,9 +187,13 @@ container = FakeContainer()
 
 app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
 app.query_one = lambda *a, **k: container
+# No followed agent in this scenario — _rebuild_pane_list resolves the own
+# agent via _find_own_agent_snapshot (which reads _own_window_index/_session).
+app._own_window_index = None
+app._session = "sA"
 app._task_cache = SimpleNamespace(
     get_task_id=lambda w: None,
-    get_task_info=lambda t: None,
+    get_task_info=lambda t, s=None: None,
 )
 app._monitor = SimpleNamespace(
     multi_session=True,
@@ -274,6 +286,117 @@ PY
 assert_contains "multi-mode bar leads with 'multi:'"     "MULTI_BAR:multi: 2s" "$out"
 assert_contains "multi-mode bar shows idle count"        "1 idle"              "$out"
 assert_contains "single-mode bar shows raw session name" "SINGLE_BAR:aitasks"  "$out"
+
+# --- Tier 1g: followed-agent resolution, list exclusion, static docked panel (t944) ---
+# The minimonitor shows the agent sharing its own tmux window in a dedicated
+# docked panel and excludes it from the general list. The panel is STATIC: it
+# is built once (no per-refresh status) and carries no live status badge.
+
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+import asyncio
+from types import SimpleNamespace
+
+from monitor import minimonitor_app as mm
+from textual.widgets import Static
+
+class FakeContainer:
+    async def remove_children(self):
+        pass
+    async def mount_all(self, widgets):
+        self.mounted = list(widgets)
+
+def mk_snap(sess, wi, pi, pid, name):
+    pane = SimpleNamespace(
+        category=mm.PaneCategory.AGENT,
+        session_name=sess, window_index=wi, pane_index=pi,
+        pane_id=pid, window_name=name,
+    )
+    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0)
+
+def make_app(containers):
+    app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
+    # Route query_one by selector to the right fake container.
+    app.query_one = lambda sel, *a, **k: containers[sel]
+    app._session = "sA"
+    app._own_window_index = "1"   # we live in window 1 of session sA
+    app._own_panel_built = False
+    app._task_cache = SimpleNamespace(
+        get_task_id=lambda w: None,
+        get_task_info=lambda t, s=None: None,
+    )
+    app._monitor = SimpleNamespace(
+        multi_session=False,
+        get_compare_mode=lambda pid: "stripped",
+        is_compare_mode_overridden=lambda pid: False,
+    )
+    # Own agent in window 1 (session sA); another agent in window 2.
+    app._snapshots = {
+        "%1": mk_snap("sA", "1", "0", "%1", "agent-own"),
+        "%2": mk_snap("sA", "2", "0", "%2", "agent-other"),
+    }
+    return app
+
+# _find_own_agent_snapshot resolves the own-window agent.
+app = make_app({})
+own = app._find_own_agent_snapshot()
+print("OWN_RESOLVED:" + str(own is not None and own.pane.pane_id == "%1"))
+
+# Cross-session agent at the same window index is NOT resolved.
+app._snapshots["%3"] = mk_snap("sB", "1", "0", "%3", "agent-cross")
+own = app._find_own_agent_snapshot()
+print("OWN_NOT_CROSS:" + str(own.pane.pane_id == "%1"))
+del app._snapshots["%3"]
+
+# Identity text carries the window name but NO live status / idle glyph.
+text = app._own_agent_identity_text(app._snapshots["%1"])
+print("IDENTITY_NAME:" + str("agent-own" in text))
+print("IDENTITY_NO_STATUS:" + str(
+    all(tok not in text for tok in ("IDLE", "Active", "PROMPT", "●", "≈"))
+))
+
+# _rebuild_pane_list excludes the own agent (only %2 remains, no dividers).
+list_box = FakeContainer()
+app = make_app({"#mini-pane-list": list_box})
+asyncio.run(app._rebuild_pane_list())
+ids = [w.pane_id for w in list_box.mounted if isinstance(w, mm.MiniPaneCard)]
+print("LIST_EXCLUDES_OWN:" + str(ids == ["%2"]))
+
+# _maybe_build_own_agent_panel mounts header + identity Static (NOT a card).
+panel = FakeContainer()
+app = make_app({"#mini-own-agent": panel})
+asyncio.run(app._maybe_build_own_agent_panel())
+all_static_no_card = (
+    len(panel.mounted) == 2
+    and all(isinstance(w, Static) and not isinstance(w, mm.MiniPaneCard)
+            for w in panel.mounted)
+)
+print("PANEL_STATIC_NO_CARD:" + str(all_static_no_card))
+print("PANEL_BUILT_FLAG:" + str(app._own_panel_built is True))
+
+# Built ONCE: a second call is a no-op (does not re-mount).
+panel.mounted = "SENTINEL"
+asyncio.run(app._maybe_build_own_agent_panel())
+print("PANEL_BUILD_ONCE:" + str(panel.mounted == "SENTINEL"))
+
+# No followed agent → panel is not built (nothing mounted, flag stays False).
+panel2 = FakeContainer()
+app = make_app({"#mini-own-agent": panel2})
+app._own_window_index = None
+asyncio.run(app._maybe_build_own_agent_panel())
+print("PANEL_NOT_BUILT:" + str(
+    not hasattr(panel2, "mounted") and app._own_panel_built is False
+))
+PY
+)
+assert_contains "own-window agent is resolved"                  "OWN_RESOLVED:True"      "$out"
+assert_contains "cross-session same-index agent not resolved"   "OWN_NOT_CROSS:True"     "$out"
+assert_contains "followed-agent identity shows the window name" "IDENTITY_NAME:True"     "$out"
+assert_contains "followed-agent identity omits live status"     "IDENTITY_NO_STATUS:True" "$out"
+assert_contains "general list excludes the followed agent"      "LIST_EXCLUDES_OWN:True" "$out"
+assert_contains "docked panel is static (header + non-card)"    "PANEL_STATIC_NO_CARD:True" "$out"
+assert_contains "docked panel build sets the built flag"        "PANEL_BUILT_FLAG:True"  "$out"
+assert_contains "docked panel is built only once"               "PANEL_BUILD_ONCE:True"  "$out"
+assert_contains "no followed agent → panel not built"           "PANEL_NOT_BUILT:True"   "$out"
 
 echo
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"

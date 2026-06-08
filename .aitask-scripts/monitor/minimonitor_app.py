@@ -31,16 +31,23 @@ from monitor.tmux_monitor import (  # noqa: E402
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
-    _TASK_ID_RE, TaskInfoCache, TaskDetailDialog, format_compare_mode_glyph,
+    _TASK_ID_RE, TaskInfoCache, TaskDetailDialog, KillConfirmDialog,
+    NextSiblingDialog, ChooseSiblingModal, format_compare_mode_glyph,
     format_pane_status,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
+    resolve_dry_run_command,
+    resolve_agent_string,
+    TmuxLaunchConfig,
+    launch_in_tmux,
+    maybe_spawn_minimonitor,
     tmux_session_target,
     tmux_window_target,
 )
+from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # noqa: E402
 
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
@@ -79,6 +86,26 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         text-style: bold;
     }
 
+    #mini-own-agent {
+        dock: top;
+        height: auto;
+        background: $boost;
+        border-bottom: solid $primary;
+        padding: 0;
+    }
+
+    .mini-own-header {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+        text-style: bold;
+    }
+
+    .mini-own-card {
+        height: auto;
+        padding: 0 1;
+    }
+
     #mini-pane-list {
         height: 1fr;
     }
@@ -112,6 +139,8 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("tab", "focus_sibling_pane", "Focus agent", show=False),
         Binding("enter", "send_enter_to_sibling", "Send Enter", show=False),
+        Binding("k", "kill_own_agent", "Kill", show=False),
+        Binding("n", "pick_next_for_own", "Next", show=False),
         Binding("j", "tui_switcher", "TUI switcher", show=False),
         Binding("q", "quit", "Quit", show=False),
         Binding("s", "switch_to", "Switch", show=False),
@@ -146,18 +175,24 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._focused_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
         self._refresh_timer: Timer | None = None
+        self._project_root = project_root
         self._task_cache = TaskInfoCache(project_root)
         self._mount_time: float = 0.0
         self._own_window_id: str | None = None
         self._own_window_index: str | None = None
         self._own_window_name: str | None = None
+        # The followed-agent docked panel is built once (static identity, no
+        # per-cycle status refresh) — see _maybe_build_own_agent_panel.
+        self._own_panel_built: bool = False
 
     def compose(self) -> ComposeResult:
         yield Static(id="mini-session-bar")
+        yield VerticalScroll(id="mini-own-agent")
         yield VerticalScroll(id="mini-pane-list")
         yield Static(
             "tab:agent  s/\u2191\u2193:switch  i:info\n"
-            "j:jump     r:refresh  q:quit  enter:send\n"
+            "k:kill  n:next  enter:send\n"
+            "j:jump  r:refresh  q:quit\n"
             "m:full monitor  d:detect (\u2248 strip, = raw)",
             id="mini-key-hints",
         )
@@ -293,9 +328,12 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._check_auto_close()
 
         self._rebuild_session_bar()
-        # Await the rebuild so remove_children/mount_all complete before
-        # focus restoration — Textual's remove/mount/focus are all deferred,
+        # Build the followed-agent panel once (static identity — it does not
+        # refresh with the general list), then rebuild the list (which excludes
+        # the followed agent). Await both so remove_children/mount_all complete
+        # before focus restoration — Textual's remove/mount/focus are deferred,
         # so a direct call into _restore_focus would race the DOM updates.
+        await self._maybe_build_own_agent_panel()
         await self._rebuild_pane_list()
 
         self._restore_focus(saved_pane_id)
@@ -331,6 +369,37 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if len(parts) >= 3:
             self._own_window_name = parts[2]
 
+    def _find_own_agent_snapshot(self) -> PaneSnapshot | None:
+        """Return the snapshot of the AGENT pane sharing this minimonitor's
+        tmux window (the agent it follows), or None if not detected.
+
+        Matches on window_index scoped to the own session — the same match
+        used to auto-select the followed agent. Multi-session: two sessions
+        could both have a pane at the same window_index, so the session scope
+        prevents resolving a cross-session agent. Empty session_name is
+        preserved to cover legacy snapshot paths.
+        """
+        if not self._own_window_index:
+            return None
+        for snap in self._snapshots.values():
+            if (
+                snap.pane.category == PaneCategory.AGENT
+                and snap.pane.window_index == self._own_window_index
+                and snap.pane.session_name in ("", self._session)
+            ):
+                return snap
+        return None
+
+    def _root_for_snap(self, snap: PaneSnapshot) -> Path:
+        """Project root that owns the given pane's tmux session, falling back to
+        this minimonitor's project root. Mirrors MonitorApp._root_for_snap."""
+        sess = snap.pane.session_name
+        if sess and self._monitor is not None:
+            mapping = self._monitor.get_session_to_project_mapping()
+            if sess in mapping:
+                return mapping[sess]
+        return self._project_root
+
     def _restore_focus(self, pane_id: str | None) -> None:
         """Re-focus the previously focused card after a rebuild."""
         if pane_id is not None:
@@ -342,26 +411,19 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     # avoid a stale saved_pane_id on the next tick.
                     self._focused_pane_id = card.pane_id
                     return
-        # Fallback: auto-select the card matching this window's agent
+        # Fallback: select the first general-list agent (the followed agent
+        # lives in its own static docked panel and is not focusable).
         self._auto_select_own_window()
 
     def _auto_select_own_window(self) -> None:
-        """Focus the card whose agent shares this minimonitor's window."""
-        if not self._own_window_index:
-            return
-        for card in self.query("#mini-pane-list MiniPaneCard"):
-            snap = self._snapshots.get(card.pane_id)
-            if (
-                snap
-                and snap.pane.window_index == self._own_window_index
-                # Multi-session: two sessions could both have a pane at the
-                # same window_index. Scope the match to the own session so
-                # we don't auto-focus a cross-session agent. Empty
-                # session_name is preserved to cover legacy snapshot paths.
-                and snap.pane.session_name in ("", self._session)
-            ):
-                card.focus()
-                return
+        """Focus the first general-list agent card, if any.
+
+        The followed agent is shown in the static, non-focusable docked panel
+        (``#mini-own-agent``), so there is nothing to auto-select there.
+        """
+        list_cards = list(self.query("#mini-pane-list MiniPaneCard"))
+        if list_cards:
+            list_cards[0].focus()
 
     def on_app_focus(self) -> None:
         """Auto-select own window's agent when this pane regains terminal focus.
@@ -411,19 +473,103 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 f"{self._session}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{idle_str}{desync}{state_badge}"
             )
 
+    def _agent_card_text(self, snap: PaneSnapshot) -> str:
+        """Build the compact card text (status line + optional task title) for
+        an agent snapshot.
+
+        Shared by the docked followed-agent panel (``_rebuild_own_agent_panel``)
+        and the general pane list (``_rebuild_pane_list``).
+        """
+        if getattr(snap, "awaiting_input", False):
+            dot = "[bold magenta]●[/]"
+        elif snap.is_idle:
+            dot = "[yellow]●[/]"
+        else:
+            dot = "[green]●[/]"
+        status = format_pane_status(snap)
+
+        glyph = "?"
+        if self._monitor is not None:
+            mode = self._monitor.get_compare_mode(snap.pane.pane_id)
+            is_override = self._monitor.is_compare_mode_overridden(snap.pane.pane_id)
+            glyph = format_compare_mode_glyph(mode, is_override)
+
+        # Truncate long window names for narrow display
+        name = snap.pane.window_name
+        max_name = 22
+        if len(name) > max_name:
+            name = name[:max_name - 1] + "…"
+
+        line1 = f"{dot} {glyph} {name}  {status}"
+
+        # Optional task title line
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if task_id:
+            info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
+            if info:
+                title = info.title
+                if len(title) > 30:
+                    title = title[:29] + "…"
+                line1 += f"\n  [dim]{title}[/]"
+        return line1
+
+    def _own_agent_identity_text(self, snap: PaneSnapshot) -> str:
+        """Static identity line for the followed agent: window name + optional
+        task title. Deliberately omits live status (idle/prompt/active) and the
+        idle-detection glyph — the docked panel is built once and is not a
+        refreshing status card like the general-list entries.
+        """
+        name = snap.pane.window_name
+        line = f"[bold]{name}[/]"
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if task_id:
+            info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
+            if info:
+                title = info.title
+                if len(title) > 30:
+                    title = title[:29] + "…"
+                line += f"\n  [dim]{title}[/]"
+        return line
+
+    async def _maybe_build_own_agent_panel(self) -> None:
+        """Populate the docked panel for the agent this minimonitor follows —
+        ONCE. The followed agent is fixed for the minimonitor's lifetime, so its
+        identity panel is static: it is not rebuilt on each refresh cycle and
+        carries no live status badge (per the followed-agent UX).
+
+        Retries each cycle only until the own-agent snapshot first resolves
+        (tmux window-index detection can lag the first data refresh).
+        """
+        if self._own_panel_built:
+            return
+        own_snap = self._find_own_agent_snapshot()
+        if own_snap is None:
+            return  # not resolved yet — try again next cycle
+        panel = self.query_one("#mini-own-agent", VerticalScroll)
+        await panel.remove_children()
+        await panel.mount_all([
+            Static("[dim]── this agent ──[/]", classes="mini-own-header"),
+            Static(self._own_agent_identity_text(own_snap), classes="mini-own-card"),
+        ])
+        self._own_panel_built = True
+
     async def _rebuild_pane_list(self) -> None:
         container = self.query_one("#mini-pane-list", VerticalScroll)
         # Clear existing content and wait for the prune to complete before
         # mounting new cards — otherwise focus restoration can race removal.
         await container.remove_children()
 
-        # Only show AGENT panes. Sort by (session_name, window_index,
+        # Show AGENT panes EXCEPT the followed agent (it lives in the docked
+        # #mini-own-agent panel). Sort by (session_name, window_index,
         # pane_index) so session grouping is stable across refreshes;
         # single-session mode degrades to the legacy (window_index,
         # pane_index) order because every snapshot shares the same session.
+        own_snap = self._find_own_agent_snapshot()
+        own_pane_id = own_snap.pane.pane_id if own_snap else None
         agents = [
             s for s in self._snapshots.values()
             if s.pane.category == PaneCategory.AGENT
+            and s.pane.pane_id != own_pane_id
         ]
         agents.sort(
             key=lambda s: (s.pane.session_name, s.pane.window_index, s.pane.pane_index)
@@ -442,38 +588,9 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     classes="mini-session-divider",
                 ))
 
-            if getattr(snap, "awaiting_input", False):
-                dot = "[bold magenta]\u25cf[/]"
-            elif snap.is_idle:
-                dot = "[yellow]\u25cf[/]"
-            else:
-                dot = "[green]\u25cf[/]"
-            status = format_pane_status(snap)
-
-            mode = self._monitor.get_compare_mode(snap.pane.pane_id)
-            is_override = self._monitor.is_compare_mode_overridden(snap.pane.pane_id)
-            glyph = format_compare_mode_glyph(mode, is_override)
-
-            # Build compact card text
-            name = snap.pane.window_name
-            # Truncate long window names for narrow display
-            max_name = 22
-            if len(name) > max_name:
-                name = name[:max_name - 1] + "\u2026"
-
-            line1 = f"{dot} {glyph} {name}  {status}"
-
-            # Optional task title line
-            task_id = self._task_cache.get_task_id(snap.pane.window_name)
-            if task_id:
-                info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
-                if info:
-                    title = info.title
-                    if len(title) > 30:
-                        title = title[:29] + "\u2026"
-                    line1 += f"\n  [dim]{title}[/]"
-
-            widgets.append(MiniPaneCard(snap.pane.pane_id, line1))
+            widgets.append(
+                MiniPaneCard(snap.pane.pane_id, self._agent_card_text(snap))
+            )
 
         if widgets:
             await container.mount_all(widgets)
@@ -510,7 +627,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             event.prevent_default()
 
     def _nav(self, direction: int) -> None:
-        """Move focus up/down within the pane list."""
+        """Move focus up/down within the general pane list."""
         cards = list(self.query("#mini-pane-list MiniPaneCard"))
         if not cards:
             return
@@ -606,6 +723,177 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def action_send_enter_to_sibling(self) -> None:
         """No-op — Enter is handled in on_key. Exists for Binding registration."""
+
+    # -- Followed-agent kill / next (own agent only) ---------------------------
+
+    def action_kill_own_agent(self) -> None:
+        """Kill the agent this minimonitor follows (its own-window agent).
+
+        Scoped to the followed agent regardless of which general-list card is
+        focused. Because the minimonitor is a companion pane in that agent's
+        window, killing the last non-companion pane collapses the whole window
+        — which also tears down this minimonitor.
+        """
+        if self._monitor is None:
+            self.notify("Monitor not ready", severity="warning")
+            return
+        snap = self._find_own_agent_snapshot()
+        if snap is None:
+            self.notify("No followed agent in this window", severity="warning")
+            return
+        task_info = None
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if task_id:
+            task_info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
+        pane_id = snap.pane.pane_id
+        self.push_screen(
+            KillConfirmDialog(snap, task_info),
+            callback=lambda ok: self._on_own_kill_confirmed(ok, pane_id),
+        )
+
+    def _on_own_kill_confirmed(self, confirmed: bool | None, pane_id: str) -> None:
+        if not confirmed or self._monitor is None:
+            return
+        snap = self._snapshots.get(pane_id)
+        name = snap.pane.window_name if snap else pane_id
+        ok, killed_window = self._monitor.kill_agent_pane_smart(pane_id)
+        if ok:
+            self._focused_pane_id = None
+            # If the window collapsed, this minimonitor pane is being torn down
+            # with it — the notify/refresh may never render. Otherwise drop the
+            # killed card on the next refresh.
+            if not killed_window:
+                self.notify(f"Killed {name}")
+                self.call_later(self._refresh_data)
+        else:
+            self.notify(f"Failed to kill {name}", severity="error")
+
+    def action_pick_next_for_own(self) -> None:
+        """Find and launch the next sibling task for the followed agent.
+
+        Scoped to the followed agent (own-window), mirroring the full monitor's
+        ``action_pick_next_sibling`` but resolving the target from the docked
+        agent rather than the focused list card.
+        """
+        if self._monitor is None:
+            self.notify("Monitor not ready", severity="warning")
+            return
+        snap = self._find_own_agent_snapshot()
+        if snap is None:
+            self.notify("No followed agent in this window", severity="warning")
+            return
+        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        if not task_id:
+            self.notify("No task ID in window name", severity="warning")
+            return
+        sess = snap.pane.session_name
+        self._task_cache.invalidate(task_id, sess)
+        current_info = self._task_cache.get_task_info(task_id, sess)
+        # If the task file is gone it was likely archived (Done) — still allow.
+        current_title = current_info.title if current_info else f"(archived t{task_id})"
+        current_status = current_info.status if current_info else "Done"
+
+        result = self._task_cache.find_next_sibling(task_id, sess)
+        if not result:
+            self.notify("No ready siblings or children found", severity="warning")
+            return
+        suggested_id, suggested_title = result
+        parent_id = self._task_cache.get_parent_id(task_id) or task_id
+
+        pane_id = snap.pane.pane_id
+        self.push_screen(
+            NextSiblingDialog(
+                task_id, current_title, current_status,
+                suggested_id, suggested_title, parent_id,
+            ),
+            callback=lambda r: self._on_own_next_result(r, pane_id, task_id, sess),
+        )
+
+    def _on_own_next_result(
+        self, result: tuple[str, str] | None, pane_id: str, task_id: str, sess: str
+    ) -> None:
+        if result is None:
+            return
+        action, payload = result
+        if action == "pick":
+            self._launch_pick_for_own(payload, pane_id, task_id, sess)
+            return
+        # action == "choose": payload is parent_id; open the sibling picker.
+        siblings = self._task_cache.find_ready_siblings(task_id, sess)
+        if not siblings:
+            self.notify("No Ready siblings to choose from", severity="warning")
+            return
+
+        def _on_picked(sib_id: str | None) -> None:
+            if sib_id:
+                self._launch_pick_for_own(sib_id, pane_id, task_id, sess)
+
+        self.push_screen(ChooseSiblingModal(payload, siblings), callback=_on_picked)
+
+    def _launch_pick_for_own(
+        self, target_id: str, pane_id: str, task_id: str, sess: str
+    ) -> None:
+        """Launch ``/aitask-pick <target_id>`` for the followed agent's session.
+
+        Unlike the full monitor (which kills the current pane *before* launching
+        because it lives in a separate window), the minimonitor shares the
+        followed agent's window — killing it would tear down this minimonitor.
+        So launch the next agent FIRST, then kill the current window per the
+        same heuristic (parent-split-into-children / archived / Done).
+        """
+        if self._monitor is None:
+            return
+        snap = self._snapshots.get(pane_id)
+        if snap is None:
+            self.notify("Followed agent no longer exists", severity="warning")
+            return
+        current_info = self._task_cache.get_task_info(task_id, sess)
+
+        target_root = self._root_for_snap(snap)
+        full_cmd = resolve_dry_run_command(target_root, "pick", target_id)
+        if not full_cmd:
+            self.notify(
+                f"Failed to resolve pick command for t{target_id}", severity="error"
+            )
+            return
+
+        prompt_str = f"/aitask-pick {target_id}"
+        window_name = f"agent-pick-{target_id}"
+        agent_string = resolve_agent_string(target_root, "pick")
+        screen = AgentCommandScreen(
+            f"Pick Task t{target_id}", full_cmd, prompt_str,
+            default_window_name=window_name,
+            project_root=target_root,
+            operation="pick",
+            operation_args=[target_id],
+            default_agent_string=agent_string,
+            skill_name="pick",
+            default_profile=resolve_skill_profile("pick", target_root),
+        )
+
+        def on_pick_result(pick_result):
+            if isinstance(pick_result, TmuxLaunchConfig):
+                # 1. Launch the next sibling FIRST (new window) so it survives
+                #    even if killing the current window tears down this app.
+                _, err = launch_in_tmux(screen.full_command, pick_result)
+                if err:
+                    self.notify(f"Launch failed: {err}", severity="error")
+                    return
+                if pick_result.new_window:
+                    maybe_spawn_minimonitor(pick_result.session, pick_result.window)
+                self.notify(f"Launched agent for t{target_id}")
+                # 2. Kill the current window per the full-monitor heuristic.
+                is_parent_with_children = "_" not in task_id
+                if (
+                    is_parent_with_children
+                    or not current_info
+                    or current_info.status == "Done"
+                ):
+                    self._monitor.kill_agent_pane_smart(pane_id)
+                    self._focused_pane_id = None
+            self.call_later(self._refresh_data)
+
+        self.push_screen(screen, on_pick_result)
 
     def action_switch_to(self) -> None:
         """Switch tmux focus to the focused pane's window (prefer minimonitor pane)."""
