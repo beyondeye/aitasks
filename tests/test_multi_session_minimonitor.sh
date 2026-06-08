@@ -398,6 +398,44 @@ assert_contains "docked panel build sets the built flag"        "PANEL_BUILT_FLA
 assert_contains "docked panel is built only once"               "PANEL_BUILD_ONCE:True"  "$out"
 assert_contains "no followed agent → panel not built"           "PANEL_NOT_BUILT:True"   "$out"
 
+# --- Tier 1h: TUI-switcher default project keys off the followed agent (t947) ---
+# Opening the switcher from the minimonitor should default to the FOLLOWED
+# agent's session (the docked, unselectable panel) — not whichever general-list
+# card is focused. _switcher_selected_session resolves via
+# _find_own_agent_snapshot, so it is independent of focus.
+
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+from types import SimpleNamespace
+from monitor import minimonitor_app as mm
+
+def mk_snap(sess, wi, pid):
+    pane = SimpleNamespace(
+        category=mm.PaneCategory.AGENT,
+        session_name=sess, window_index=wi, pane_index=0,
+        pane_id=pid, window_name="agent-" + pid,
+    )
+    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0)
+
+app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
+app._session = "sA"
+app._own_window_index = "1"            # followed agent lives in window 1 of sA
+app._snapshots = {
+    "%1": mk_snap("sA", "1", "%1"),    # the followed agent
+    "%2": mk_snap("sA", "2", "%2"),    # a general-list agent
+}
+# Even if a *different* card were "focused", the result must be the followed
+# agent's session — the method no longer consults focus at all.
+app._get_focused_pane_id = lambda: "%2"
+print("DEFAULT_FOLLOWED:" + str(app._switcher_selected_session() == "sA"))
+
+# No followed agent → None (switcher falls back to the attached session).
+app._own_window_index = None
+print("DEFAULT_NONE:" + str(app._switcher_selected_session() is None))
+PY
+)
+assert_contains "switcher defaults to the followed agent's session" "DEFAULT_FOLLOWED:True" "$out"
+assert_contains "no followed agent → switcher default is None"      "DEFAULT_NONE:True"     "$out"
+
 echo
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"
 if [[ $FAIL -eq 0 ]]; then

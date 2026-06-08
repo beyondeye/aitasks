@@ -700,19 +700,20 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return None
 
     def _switcher_selected_session(self) -> str | None:
-        """Pre-select the focused agent pane's session in the TUI switcher.
+        """Pre-select the followed agent's session in the TUI switcher.
 
-        When the focused row is a code-agent card belonging to a non-attached
-        tmux session, the switcher opens with that session already selected
-        — saving the user a Left/Right cycle (t836). Minimonitor only ever
-        shows AGENT panes (see ``_rebuild_pane_list``), so the category
-        check is defensive.
+        The minimonitor follows one specific agent — the one sharing its tmux
+        window, shown in the static, unselectable docked panel
+        (``#mini-own-agent``). The switcher should open with *that* agent's
+        project as the default, not whichever general-list card happens to be
+        focused: the focused card cycles as the user navigates and is an agent
+        the user is only glancing at, so keying the default project off it gave
+        an unpredictable initial selection (t947). Returns ``None`` (attached
+        session) when no followed agent is detected. ``_find_own_agent_snapshot``
+        already filters on ``PaneCategory.AGENT``, so no category check is needed.
         """
-        pid = self._get_focused_pane_id()
-        if not pid:
-            return None
-        snap = self._snapshots.get(pid)
-        if snap is None or snap.pane.category != PaneCategory.AGENT:
+        snap = self._find_own_agent_snapshot()
+        if snap is None:
             return None
         return snap.pane.session_name or None
 
