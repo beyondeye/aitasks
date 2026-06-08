@@ -158,3 +158,67 @@ dedicated follow-up. No spike/characterization task warranted._
 
 ## Reference to parent workflow
 On completion follow task-workflow Step 8 (review) → Step 9 (archival).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-08) — separate-pane minimap + two bug fixes
+- **Requested by user:** After Part A (explore wiring) was implemented, live
+  review surfaced three issues in the underlying t945_1 component: (1) the
+  minimap scrolls out of view because it is mounted inside the scrollable pane —
+  it should be a fixed sibling pane, "in all places where the minimap is
+  currently inlined"; (2) the ratio-cycle shortcut `ctrl+b` does not fire (key
+  collision); (3) clicking a minimap row overshoots the scroll target. User
+  sequenced: refactor the minimap to a separate pane first, then address
+  overshoot.
+- **Scope decision (user):** Fix these for the explore `ProposalPreviewPane`
+  under t945_2; split the identical `NodeDetailModal` refactor into a separate
+  follow-up task (→ **t946**).
+- **Changes made (Part B):**
+  - `ProposalPreviewPane` rebased from `VerticalScroll` (inline minimap) to a
+    `Horizontal` with a fixed-width `_InlineSectionMinimap` sibling + a
+    scrollable `SectionAwareMarkdown` (id `#preview_proposal_content`),
+    converging on the `SectionViewerScreen` layout. `populate()` now
+    `update_content()`s the markdown and `populate()`s the minimap (toggling
+    `display` when there are no sections). `scroll_to_section()` delegates to
+    `SectionAwareMarkdown.request_scroll_to_section` (exact rendered-heading
+    scroll → overshoot gone; the `estimate_section_y`/`minimap_height` math is
+    deleted). `on_ratio_change()` retargeted to the inner content scroll.
+  - Ratio-cycle binding `ctrl+b` → `ctrl+shift+b` (+ CSS comment + test
+    docstring updated).
+  - Pilot test `tests/test_brainstorm_proposal_preview.py` rewritten for the new
+    layout (minimap composed once + toggled via `display`; scroll assertions on
+    the inner content widget).
+  - Created follow-up task **t946** (NodeDetailModal Proposal/Plan tabs → same
+    separate-pane refactor).
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`,
+  `tests/test_brainstorm_proposal_preview.py`, new task
+  `aitasks/t946_nodedetailmodal_separate_minimap_pane.md`.
+
+## Final Implementation Notes
+- **Actual work done:** Part A — `_config_explore_no_node` refactored to mount
+  the mandate/parallel/Next widgets via a `left_builder` closure into
+  `_mount_config_with_preview`, with the base node's `read_proposal` shown in the
+  right preview pane. Part B — separate-pane minimap refactor of
+  `ProposalPreviewPane` + overshoot fix (via `SectionAwareMarkdown` reuse) +
+  `ctrl+b`→`ctrl+shift+b` keybinding fix + pilot-test rewrite. Tests: 7/7 preview
+  pilot, 18/18 apply_explorer, `py_compile` clean.
+- **Deviations from plan:** Plan §Part B step "populate" hid the minimap on the
+  no-sections branch but did not clear stale rows on re-populate — corrected to
+  always call `minimap.populate(parsed)` (clears rows; adds none when empty) and
+  then toggle `display`. Caught by the repopulate pilot test.
+- **Issues encountered:** None blocking.
+- **Key decisions:** Reused the existing `SectionViewerScreen` /
+  `SectionAwareMarkdown` pattern rather than writing new fixed-pane/scroll-math
+  code — this fixed the overshoot "for free" (exact heading anchors) and deleted
+  the bespoke `estimate_section_y`/`minimap_height` correction. Kept
+  `_InlineSectionMinimap` (no Tab) so the app-level Tab focus routing is
+  unchanged. Chose `ctrl+shift+b` (a shift+ctrl combo the focused `TextArea`
+  does not consume; consistent with existing `ctrl+shift+*` retry bindings).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t945_3 (decompose):** reuses `ProposalPreviewPane` — it now has the fixed
+    minimap pane + exact-heading scroll automatically; call
+    `_mount_config_with_preview` the same way Part A does for explore.
+  - **t946 (NodeDetailModal):** mirror this exact `ProposalPreviewPane` refactor
+    on the Proposal/Plan tabs; the design is captured in t946's description and
+    references `SectionViewerScreen` as the model.
