@@ -149,3 +149,63 @@ _No separate before/after mitigation tasks: both dimensions are medium and
 bounded, with risks addressed inside this task's own implementation and
 verification (and the parent's manual-verification flow). No spike or
 characterization-test task is warranted._
+
+## Final Implementation Notes
+
+- **Actual work done:** Added everything to `.aitask-scripts/brainstorm/brainstorm_app.py`
+  (+235 lines) and a new pilot test `tests/test_brainstorm_proposal_preview.py`:
+  - `ProposalPreviewPane(VerticalScroll)` — a `Markdown` (`#preview_proposal_content`)
+    with a Tab-free `_InlineSectionMinimap` (class `preview_proposal_minimap`)
+    mounted `before` it. `populate(text)` parses sections, updates the markdown,
+    removes any old minimap and re-mounts a fresh one (hidden when no sections).
+    `scroll_to_section(name)` reuses `estimate_section_y` with the
+    `max_scroll_y − minimap_height` correction. `on_ratio_change()` captures the
+    current top source line and re-applies it after the width reflow via
+    `call_after_refresh`.
+  - `_mount_config_with_preview(container, left_builder, proposal_text)` — mounts
+    a `Horizontal.config_preview_split` with a left `VerticalScroll.config_preview_left`
+    and the pane (`.config_preview_pane`); `left_builder` fills the left pane.
+    Nested mounts are deferred via `call_after_refresh` (the compare/synthesize
+    config pattern) for reliable mounting order.
+  - Ratio cycling: `action_cycle_preview_ratio` (bound to `ctrl+b`) +
+    `_apply_preview_ratio` toggle ratio_* classes on both panes (balanced /
+    proposal-wide / input-wide). `check_action` shows the binding only on the
+    Actions tab while a pane is mounted; off-tab presses `SkipAction` to no-op.
+  - App-level `on_section_minimap_section_selected` routes only events whose
+    control has the `preview_proposal_minimap` class to the pane (NodeDetailModal
+    is a separate ModalScreen, so no collision). Tab on the Actions tab focuses
+    the pane minimap via `_focus_preview_minimap()` inside `on_key` (falls
+    through to default Tab when no pane / already on the minimap).
+- **Deviations from plan:** (1) No `.aitask-scripts/lib/shortcut_scopes.py` edit
+  was needed — `brainstorm_app` is already a `KNOWN_BINDING_SOURCES` entry
+  (scope `brainstorm`), so the new `Binding` in `BrainstormApp.BINDINGS` is
+  auto-registered by the manifest sweep. (2) Tab-to-minimap is handled in the
+  app's existing `on_key` (matching this file's key-handling style) rather than
+  a global priority `Binding` + `SkipAction`, which keeps it surgically scoped to
+  the Actions tab and avoids intercepting Tab focus traversal app-wide.
+- **Issues encountered:** None blocking. Ratio key choice: verified Textual's
+  `TextArea.BINDINGS` do NOT bind `ctrl+b`, so it bubbles to the app and works
+  even while the left mandate input is focused.
+- **Key decisions:** Tested the reusable widget standalone in a host `App` (the
+  "internal harness") — populate/minimap/scroll/reflow/ratio-class toggling — so
+  the shared infra has automated coverage without needing a full `BrainstormApp`
+  session. App-glue (handler routing, Tab, ratio binding) is thin and is
+  verified manually + for real when t945_2 wires the pane into explore.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks (t945_2 explore, t945_3 decompose):**
+  - Call `self._mount_config_with_preview(container, left_builder, proposal)`
+    from the op's config builder. `left_builder(left)` must mount the op's
+    existing widgets into `left` **verbatim** (mandate `TextArea`, `CycleField`,
+    `Next ▶`, etc.) — `_actions_collect_config` queries `#actions_content`
+    recursively, so they still resolve. Do **not** add a second `TextArea` /
+    `CycleField` / `RadioSet` anywhere in the right pane.
+  - Read the proposal with `read_proposal(self.session_path, node_id)` where
+    `node_id = self._wizard_config.get("_selected_node")` (explore) or the chosen
+    source node (decompose).
+  - `_mount_config_with_preview` defers the `left_builder` + `populate` to
+    `call_after_refresh`; if a config step also wants to focus its first input,
+    schedule that focus with a *later* `call_after_refresh` (or inside the builder)
+    so it runs after the widgets exist.
+  - The minimap/markdown ids are `preview_proposal_minimap` (class) and
+    `#preview_proposal_content` (id) — distinct from NodeDetailModal's
+    `#proposal_minimap` / `#proposal_content`. Don't reuse those ids.
