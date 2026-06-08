@@ -6,124 +6,155 @@ Archived Sibling Plans: aiplans/archived/p945/p945_*_*.md
 Worktree: aiwork/t945_2_wire_preview_into_explore_wizard
 Branch: aitask/t945_2_wire_preview_into_explore_wizard
 Base branch: main
-plan_verified:
-  - claudecode/opus4_8 @ 2026-06-08 11:48
 ---
 
 # t945_2 — Wire the preview pane into the explore wizard
 
 ## Context
 
-Second child of t945. The explore wizard's config step collects a free-text
-**Exploration Mandate** but shows no view of the proposal the user is writing
-against. Use the reusable proposal-preview component built in t945_1
-(`ProposalPreviewPane` + `_mount_config_with_preview`) to show the selected base
-node's proposal side-by-side (input left / proposal+minimap right) with the
-mandate input.
+Second child of t945: show the selected base node's proposal side-by-side with
+the Exploration Mandate input in the explore wizard config step, reusing the
+t945_1 component.
 
-Depends on t945_1 (now landed — read its archived plan
-`aiplans/archived/p945/p945_1_reusable_proposal_preview_pane.md`, esp. the
-"Notes for sibling tasks" section, for the API contract).
+**Part A (done — original wiring):** `_config_explore_no_node`
+(`brainstorm_app.py:7048`) was refactored to lay out input-left /
+proposal-preview-right via `_mount_config_with_preview`, with the mandate
+`TextArea`, `CycleField`, and `Next ▶` built in a `left_builder` closure and the
+base node's proposal (`read_proposal`) shown in the right pane. Collector
+invariance verified.
 
-## Plan verification (2026-06-08, verify path)
+**Part B (this revision — review feedback):** Live testing surfaced three issues
+in the underlying preview component delivered by t945_1:
+1. The minimap is mounted *inside* the scrollable pane, so it scrolls out of
+   view when the proposal scrolls. It should be a **fixed sibling pane** that
+   stays visible — "in all places where the minimap is currently inlined."
+2. The ratio-cycle shortcut (`ctrl+b`) **does not fire** — it collides with a
+   preexisting Textual binding.
+3. Clicking a minimap row **overshoots** the scroll target slightly.
 
-Re-checked all cited references against the current code after t945_1 landed
-(+235 lines). Approach and API unchanged; only line numbers drifted:
-- `_config_explore_no_node` → **`brainstorm_app.py:7048-7055`** (was 6813). Mounts
-  `Base Node:` label, `Exploration Mandate` label, `TextArea("")`,
-  `CycleField("Parallel explorers", ["1","2","3","4"], initial="2")`, and the
-  `Next ▶` button (`classes="btn_actions_next"`) directly into `container`.
-- `_mount_config_with_preview(container, left_builder, proposal_text)` →
-  **`brainstorm_app.py:6954`** — mounts a `Horizontal.config_preview_split`
-  (left `VerticalScroll.config_preview_left` + `ProposalPreviewPane`), defers
-  `left_builder(left)` + `pane.populate(proposal_text)` via `call_after_refresh`.
-  **No config step calls it yet** — this task is its first caller.
-- `_actions_collect_config` explore branch → **`brainstorm_app.py:7383-7392`**
-  (was 7148-7157): reads `container.query_one(TextArea)` (mandate) and
-  `container.query_one(CycleField)` (parallel) against `#actions_content`
-  recursively.
-- `read_proposal` is **already imported** in `brainstorm_app.py` (line 64, from
-  `brainstorm.brainstorm_dag`) and used throughout — no new import needed.
-  Definition at `brainstorm_dag.py:514`.
+Per the scope decision, **t945_2 fixes these for the explore preview pane
+(`ProposalPreviewPane`)**; the identical refactor of `NodeDetailModal`'s
+Proposal/Plan tabs is split into a **separate follow-up task** (created during
+implementation) to keep this task focused. Fixing `ProposalPreviewPane` also
+benefits t945_3 (decompose), which reuses the same component.
 
-## Existing pieces to reuse
-- `_mount_config_with_preview` + `ProposalPreviewPane` (from t945_1,
-  `brainstorm_app.py:6954` / `:908`).
-- `read_proposal` (already imported; `brainstorm_dag.py:514`).
-- Current explore config: `_config_explore_no_node` (`brainstorm_app.py:7048`).
+## Key insight — reuse the proven fullscreen pattern
 
-## Implementation steps
+`SectionViewerScreen` (`lib/section_viewer.py:474`) already lays a minimap beside
+scrollable content the right way: a `Horizontal` with a fixed-width
+`SectionMinimap` sibling + a `SectionAwareMarkdown` content pane. Crucially,
+`SectionAwareMarkdown.scroll_to_section` (`section_viewer.py:448`) scrolls to the
+section's **actual rendered heading** (via Textual's table-of-contents anchors,
+with a settle loop in `_apply_pending_scroll`) instead of the crude
+`estimate_section_y` line-ratio math the inline panes use. Adopting it:
+- makes the minimap a fixed sibling (fixes #1),
+- **fixes the overshoot for free** (#3) — exact heading anchors, no
+  `±minimap_height` correction,
+- deletes the duplicated scroll math in `ProposalPreviewPane`.
 
-1. **Refactor `_config_explore_no_node` (`brainstorm_app.py:7048`):** move the
-   existing mounts — the `Exploration Mandate` label + `TextArea`, the
-   `CycleField("Parallel explorers", …)`, and the `Next ▶` button — into a
-   `left_builder(left)` closure that mounts them into the left pane (verbatim,
-   so `_actions_collect_config`'s recursive `query_one(TextArea)` /
-   `query_one(CycleField)` against `#actions_content` keep resolving).
-2. Keep the `Base Node:` label in the left-pane header for context (mount it
-   first inside `left_builder`).
-3. Resolve the base node and its proposal, then call the helper:
-   ```python
-   node_id = self._wizard_config.get("_selected_node", "?")
-   try:
-       proposal = read_proposal(self.session_path, node_id)
-   except Exception:
-       proposal = "*No proposal found.*"
+## Implementation steps (Part B)
 
-   def left_builder(left):
-       left.mount(Label(f"[bold]Base Node:[/] {node_id}"))
-       left.mount(Label("[bold]Exploration Mandate[/]"))
-       left.mount(TextArea(""))
-       left.mount(CycleField("Parallel explorers", ["1", "2", "3", "4"], initial="2"))
-       left.mount(Button("Next ▶", variant="primary", classes="btn_actions_next"))
+### 1. Refactor `ProposalPreviewPane` (`brainstorm_app.py:908-1003`)
+Change the base class from `VerticalScroll` to **`Horizontal`** and compose a
+fixed minimap sibling + a scrollable `SectionAwareMarkdown`:
 
-   self._mount_config_with_preview(container, left_builder, proposal)
-   ```
-   (Mirror the `read_proposal` try/except guard already used at
-   `brainstorm_app.py:6300`/`6375`/`7350` so a missing proposal degrades to a
-   placeholder rather than raising.)
+- `compose()`: lazily import and yield `_InlineSectionMinimap.cls()(classes="preview_proposal_minimap")`
+  then `SectionAwareMarkdown(id="preview_proposal_content")` (lazy
+  `from section_viewer import SectionAwareMarkdown`, matching the existing
+  lazy-import pattern). Keep `_InlineSectionMinimap` (no Tab binding) so the
+  existing app-level Tab focus routing (`_focus_preview_minimap`) is unchanged.
+- `populate(text)`: `parsed = parse_sections(text)`;
+  `content.update_content(text, parsed)`; if `parsed.sections`,
+  `minimap.populate(parsed)` and `minimap.display = True`, else
+  `minimap.display = False`. (No more mount/remove churn — both children exist
+  from `compose`; just toggle `display`.)
+- `scroll_to_section(name)`: delegate to
+  `content.request_scroll_to_section(name)` (drops the `estimate_section_y` +
+  `minimap_height` correction entirely → fixes overshoot).
+- `on_ratio_change()`: capture/restore the top source line on the **inner
+  `SectionAwareMarkdown`** scroll (it is itself a `VerticalScroll`), not on
+  `self`. Same line-ratio capture-before-reflow / restore-after-`call_after_refresh`
+  logic, retargeted to the content widget.
+- `DEFAULT_CSS`: give the minimap a fixed full-height column, e.g.
+  `ProposalPreviewPane > .preview_proposal_minimap { width: 28; max-width: 28; height: 1fr; }`
+  and `ProposalPreviewPane > #preview_proposal_content { width: 1fr; }`. Drop the
+  old `border-left/padding` block (or move to the content side) as appropriate.
 
-## Collector invariance (must verify, do not regress)
-`_actions_collect_config` explore branch (`brainstorm_app.py:7383-7392`) reads
-`container.query_one(TextArea)` (mandate) and `container.query_one(CycleField)`
-(parallel) against `#actions_content`. These are single-match queries — they
-raise if a second `TextArea`/`CycleField` appears. t945_1 guarantees
-`ProposalPreviewPane` adds neither (only `Markdown` + minimap `VerticalScroll`),
-so the queries stay unambiguous. Confirm by running an explore through to the
-confirm step.
+The app-level message handler `on_section_minimap_section_selected`
+(`brainstorm_app.py:7010`, gated on `.has_class("preview_proposal_minimap")`) and
+`_focus_preview_minimap` (`:7026`) need no logic change — the minimap is still a
+descendant with the same class.
+
+### 2. Fix the ratio-cycle keybinding collision
+- Change `Binding("ctrl+b", "cycle_preview_ratio", "Preview width")`
+  (`brainstorm_app.py:3387`) to a combo Textual/TextArea does not consume —
+  **`ctrl+shift+b`** (consistent with the existing `ctrl+shift+*` retry
+  bindings; a shift+ctrl letter is not swallowed by the focused mandate
+  `TextArea`). Update the two references to the old key: the CSS-region comment
+  at `:2984` and the `action_cycle_preview_ratio` docstring at `:6994`. The
+  `check_action`/`on_key` mapping keys off the **action name**
+  (`cycle_preview_ratio`, `:3519`), so no change there.
+- Verify the new key fires while the mandate `TextArea` is focused (manual).
+
+### 3. Update the pilot test (`tests/test_brainstorm_proposal_preview.py`)
+The test drives `ProposalPreviewPane` directly. Update its structural
+assumptions to the new layout: content is a `SectionAwareMarkdown`
+(`#preview_proposal_content`) sibling of the minimap; the minimap is present
+from `compose` and toggled via `display` (not mounted/removed); section
+navigation now routes through `request_scroll_to_section`. Keep coverage for
+populate / minimap-rows / ratio-class toggling; adapt the scroll-to-section and
+reflow assertions to the delegated `SectionAwareMarkdown` behavior (the
+TOC-anchor scroll is async — assert via the same `request_scroll_to_section` +
+`call_after_refresh` settle the widget already supports, or assert the target
+section was requested).
+
+### 4. Create the NodeDetailModal follow-up task (post-approval, Step 7)
+Create a standalone task: *"Refactor NodeDetailModal Proposal/Plan tabs to the
+separate-pane minimap layout"*. Description captures the same design: wrap each
+tab's content in a `Horizontal` with a fixed `SectionMinimap` sibling +
+`SectionAwareMarkdown`, drop the inline `mount(before=...)` and the
+`estimate_section_y`/`minimap_height` correction in
+`on_section_minimap_section_selected` (`brainstorm_app.py:1111-1155`), keep
+`action_focus_minimap`. Reference this plan and `SectionViewerScreen` as the
+model. (labels: `ait_brainstorm`; issue_type: refactor.)
 
 ## Verification
-- Launch `ait brainstorm`; run explore → select a node → config step. Confirm:
-  the selected node's proposal renders on the right with a working minimap (Tab
-  focus, Enter/↑↓ section jump); the ratio-cycle key (`ctrl+b`) cycles the split
-  width; submitting the mandate (`Next ▶`) proceeds to confirm exactly as
-  before.
-- Confirm `_actions_collect_config` collects mandate + parallel without
-  `query_one` ambiguity errors (drive an explore through to the confirm step).
-- Run any touched brainstorm tests under `tests/` (e.g.
-  `tests/test_brainstorm_proposal_preview.py`).
+- Launch `ait brainstorm`; explore → select a node → config step. Confirm:
+  - the minimap stays **fixed/visible** while scrolling the proposal markdown;
+  - clicking/activating a minimap row scrolls the proposal so the section's
+    heading lands at the top **without overshooting**;
+  - `ctrl+shift+b` cycles the split width (balanced → proposal-wide →
+    input-wide) **even while the mandate input is focused**, and the previously
+    top line stays put across the reflow;
+  - submitting the mandate (`Next ▶`) proceeds to confirm exactly as before, and
+    `_actions_collect_config` still collects mandate + parallel without
+    `query_one` ambiguity.
+- `python tests/test_brainstorm_proposal_preview.py` passes.
+- `python -m py_compile .aitask-scripts/brainstorm/brainstorm_app.py`.
 
 ## Risk
 
-### Code-health risk: low
-- None identified. The change is a localized refactor of a single method
-  (`_config_explore_no_node`, ~8 lines) that reuses the purpose-built,
-  already-landed-and-tested `_mount_config_with_preview` helper. Blast radius is
-  one method; the pattern is exactly what the helper was designed for; the one
-  contract to preserve (no second `TextArea`/`CycleField` in the collected
-  container) is guaranteed by t945_1 and re-checked in this plan's Collector
-  invariance section.
+### Code-health risk: medium
+- Part B rewrites a **shared, already-tested widget** (`ProposalPreviewPane`,
+  reused by t945_3) and changes its base class + public child structure, and
+  rewrites its pilot test. · severity: medium · → mitigation: handled in-task —
+  the refactor *converges on* the proven `SectionViewerScreen` /
+  `SectionAwareMarkdown` pattern (less bespoke code, not more), the pilot test
+  is updated in the same commit, and the explore flow is manually verified.
+- Keybinding change touches a shared `BINDINGS` entry + two stale references. ·
+  severity: low · → mitigation: grep-verified the three sites; action name
+  (the real coupling point) is unchanged.
 
 ### Goal-achievement risk: low
-- None identified. The goal (proposal side-by-side with the mandate input) maps
-  directly onto t945_1's documented sibling-task API, which was verified
-  standalone. Requirement coverage is complete; the only behavior needing a
-  human eye (minimap nav / ratio cycle / focus inside a live TUI) is covered by
-  this task's Verification steps and the parent's manual-verification flow.
+- None material. The separate-pane layout and exact-heading scroll are exactly
+  what the user asked for and are already proven in `SectionViewerScreen`; the
+  one runtime-only unknown (does `ctrl+shift+b` reach the app past the focused
+  `TextArea`) is called out as an explicit manual verification step.
 
-_No separate before/after mitigation tasks: both dimensions are low with no
-identified risk, and the one invariant is verified inline. No spike or
-characterization-test task is warranted._
+_No separate before/after mitigation tasks: the medium code-health risk is
+bounded and covered by the updated pilot test + manual verification; the
+NodeDetailModal blast radius is removed from this task by the split into a
+dedicated follow-up. No spike/characterization task warranted._
 
 ## Reference to parent workflow
 On completion follow task-workflow Step 8 (review) → Step 9 (archival).
