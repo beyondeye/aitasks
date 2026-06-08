@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [docs]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-08 17:38
-updated_at: 2026-06-08 17:38
+updated_at: 2026-06-08 17:40
 ---
 
 Document the native tmux pane-switching shortcuts — **`Ctrl-b o`** (cycle to the next pane) and **`Ctrl-b` + arrow keys** (move focus directionally) — and explain how to use them, in two website doc pages:
