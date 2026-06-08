@@ -1,0 +1,12 @@
+---
+priority: medium
+effort: low
+depends: []
+issue_type: bug
+status: Ready
+labels: [aitask_monitormini]
+created_at: 2026-06-08 12:51
+updated_at: 2026-06-08 12:51
+---
+
+in ait minimonitor when we open the TUI switcher we autoselect the inital selected project repo tmux context based on the current selected codeagent in the minimonitor. this does not work well for the minimonitor, instead we should choose as default project the one of the associated codeagent (that is now outside of the list, it is shown in a separate unselectable pane) ask me questions if you need clarifications
