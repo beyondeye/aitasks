@@ -68,6 +68,17 @@ Minimonitor is designed to live beside an agent pane in the same tmux window. Pr
 
 If minimonitor is the only pane in its window (no sibling to target), Tab shows a notification and does nothing.
 
+### How to Focus Minimonitor from the Agent Pane (native tmux)
+
+**Tab** only goes one way: minimonitor → agent pane. There is no built-in shortcut for the opposite direction. Because minimonitor lives as a second pane inside the agent's tmux **window**, you move focus the other way (agent pane → minimonitor) with tmux's own pane-switching keys — the same keys you would use to move between any two panes in one window:
+
+- **`Ctrl-b o`** — cycle tmux focus to the next pane in the window.
+- **`Ctrl-b` + an arrow key** — move focus directionally to the adjacent pane.
+
+This also saves you from clicking the minimonitor pane to activate it. `Ctrl-b` is the default tmux prefix; if you remapped your prefix, substitute your own. Once you are comfortable with these native shortcuts you can use them for **both** directions instead of Tab if you prefer.
+
+This intra-window pane switching is specific to the minimonitor split — the other ait TUIs each occupy their own full tmux window, which you reach with the [TUI switcher](#how-to-jump-to-another-tui) (press **`j`**).
+
 ### How to Send Enter to the Sibling Agent
 
 When a code agent is waiting for you to press Enter (for example, it just asked a clarifying question), you can unblock it without moving tmux focus:
@@ -160,6 +171,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 |-----|--------|
 | `Up` / `Down` | Move focus between agent cards |
 | `Tab` | Move tmux focus to the sibling pane in this window |
+| `Ctrl-b o` / `Ctrl-b` + arrow | *(native tmux, not a minimonitor key)* Move tmux focus between the panes in this window — works in both directions |
 | `Enter` | Send an `Enter` keystroke to the sibling pane |
 | `s` | Switch tmux focus to the selected agent's window |
 | `i` | Show task info for the selected agent |

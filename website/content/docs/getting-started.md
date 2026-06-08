@@ -34,6 +34,8 @@ ait ide
 
 Press **`j`** inside any main TUI to open the **TUI switcher** dialog and jump directly to `ait board`, `ait monitor`, `ait codebrowser`, `ait settings`, or a running code agent window without leaving tmux.
 
+The `j` TUI switcher moves you between TUIs that each live in their own tmux **window**. To move focus **between panes inside a single tmux window**, use the native tmux shortcuts **`Ctrl-b o`** (cycle to the next pane) or **`Ctrl-b` + an arrow key** (move directionally). This mostly matters for the **minimonitor** sidebar, which splits an agent window into an agent pane and a minimonitor pane — every other ait TUI (board, monitor, codebrowser, settings, brainstorm) fills its whole tmux window, so you move between those with the `j` switcher instead. `Ctrl-b` is the default tmux prefix; if you remapped your prefix, substitute your own.
+
 > Can't use tmux? See the [minimal / non-tmux workflow](../installation/terminal-setup/#minimal--non-tmux-workflow) in the Terminal Setup page for the fallback path.
 
 ## 3. Review Settings
