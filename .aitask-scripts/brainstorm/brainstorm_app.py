@@ -905,16 +905,23 @@ class _InlineSectionMinimap:
         return cls._cache
 
 
-class ProposalPreviewPane(VerticalScroll):
-    """Reusable side-by-side proposal viewer with an inline navigable minimap.
+class ProposalPreviewPane(Horizontal):
+    """Reusable side-by-side proposal viewer: a fixed minimap pane beside a
+    scrollable Markdown.
 
-    Mirrors ``NodeDetailModal``'s Proposal tab: a scrollable ``Markdown`` with a
-    Tab-binding-free ``SectionMinimap`` mounted *before* it. Built for the
-    explore / module-decompose wizard config steps (t945), mounted via
+    Adopts ``SectionViewerScreen``'s layout (minimap left, content right) so the
+    minimap stays visible while the proposal scrolls, and delegates
+    section-navigation to ``SectionAwareMarkdown.request_scroll_to_section`` —
+    which scrolls to the section's actual rendered heading (exact, no overshoot)
+    rather than a line-ratio estimate. Built for the explore / module-decompose
+    wizard config steps (t945), mounted via
     ``BrainstormApp._mount_config_with_preview``.
 
-    IMPORTANT: the pane mounts only a ``Markdown`` + a minimap ``VerticalScroll``
-    — never a ``TextArea`` / ``CycleField`` / ``RadioSet``. The config-step
+    The minimap is Tab-binding-free (``_InlineSectionMinimap``) so the app-level
+    Tab focus routing (``_focus_preview_minimap``) owns Tab on the Actions tab.
+
+    IMPORTANT: the pane mounts only a minimap + a ``SectionAwareMarkdown`` —
+    never a ``TextArea`` / ``CycleField`` / ``RadioSet``. The config-step
     collectors in ``_actions_collect_config`` query ``#actions_content``
     recursively with single-match ``query_one(TextArea)`` /
     ``query_one(CycleField)``; adding any such widget here would make those
@@ -925,6 +932,16 @@ class ProposalPreviewPane(VerticalScroll):
     ProposalPreviewPane {
         height: 1fr;
         border-left: solid $primary;
+    }
+    ProposalPreviewPane > .preview_proposal_minimap {
+        width: 28;
+        max-width: 28;
+        height: 1fr;
+        max-height: 100%;
+    }
+    ProposalPreviewPane > #preview_proposal_content {
+        width: 1fr;
+        height: 1fr;
         padding: 0 1;
     }
     """
@@ -935,71 +952,70 @@ class ProposalPreviewPane(VerticalScroll):
         self._text = ""
 
     def compose(self) -> ComposeResult:
-        yield Markdown(id="preview_proposal_content")
+        from section_viewer import SectionAwareMarkdown
+        yield _InlineSectionMinimap.cls()(classes="preview_proposal_minimap")
+        yield SectionAwareMarkdown(id="preview_proposal_content")
+
+    def _content(self):
+        from section_viewer import SectionAwareMarkdown
+        return self.query_one("#preview_proposal_content", SectionAwareMarkdown)
+
+    def _minimap(self):
+        return self.query_one(".preview_proposal_minimap")
 
     def populate(self, proposal_text: str) -> None:
         """Render *proposal_text* and (re)build the section minimap."""
         text = proposal_text if proposal_text else "*No proposal found.*"
         self._text = text
-        self.query_one("#preview_proposal_content", Markdown).update(text)
-        # Drop any minimap left over from a previous populate() before re-mount.
-        for mm in list(self.query(".preview_proposal_minimap")):
-            mm.remove()
         parsed = parse_sections(text)
+        self._content().update_content(text, parsed)
+        minimap = self._minimap()
+        # populate() clears any stale rows and adds one per section (none when
+        # there are no sections), so this also resets the minimap on re-populate.
+        minimap.populate(parsed)
         if parsed.sections:
             self._parsed = parsed
-            minimap = _InlineSectionMinimap.cls()(
-                classes="preview_proposal_minimap"
-            )
-            self.mount(minimap, before="#preview_proposal_content")
-            minimap.populate(parsed)
+            minimap.display = True
         else:
             self._parsed = None
+            # No sections → hide the (now-empty) minimap so the proposal takes
+            # the full pane width.
+            minimap.display = False
 
     def scroll_to_section(self, section_name: str) -> None:
-        """Scroll the proposal so *section_name* sits near the top.
+        """Scroll the proposal so *section_name*'s heading sits at the top.
 
-        Reuses NodeDetailModal's correction: the section's line ratio maps to
-        the scrollable range *below* the minimap (``max_scroll_y`` minus the
-        minimap's outer height), not the markdown's full virtual height.
+        Delegates to ``SectionAwareMarkdown.request_scroll_to_section``, which
+        targets the section's actual rendered heading (exact, no overshoot)
+        and defers until the markdown has finished its async render.
         """
-        from section_viewer import estimate_section_y
         if self._parsed is None:
             return
-        minimaps = list(self.query(".preview_proposal_minimap"))
-        minimap_height = (
-            float(minimaps[0].outer_size.height) if minimaps else 0.0
-        )
-        total = self._text.count("\n") + 1
-        max_scroll = float(getattr(self, "max_scroll_y", 0) or 0)
-        body_scroll_range = max(0.0, max_scroll - minimap_height)
-        y_in_body = estimate_section_y(
-            self._parsed, section_name, total, body_scroll_range
-        )
-        if y_in_body is not None:
-            self.scroll_to(y=minimap_height + y_in_body, animate=False)
+        self._content().request_scroll_to_section(section_name)
 
     def on_ratio_change(self) -> None:
         """Keep the currently-top source line at the top across a width reflow.
 
-        Call this *before* swapping the pane's width class: ``scroll_offset.y``
-        still reflects the pre-reflow geometry, so the top line is captured now
-        and re-applied once Textual has re-laid-out at the new width
+        Operates on the inner ``SectionAwareMarkdown`` scroll (the markdown is
+        what scrolls now that the minimap is a fixed sibling). Capture the top
+        line *before* the width class swaps — ``scroll_offset.y`` still reflects
+        the pre-reflow geometry — then re-apply after re-layout
         (``call_after_refresh``).
         """
+        content = self._content()
         total = self._text.count("\n") + 1
-        max_scroll = float(getattr(self, "max_scroll_y", 0) or 0)
+        max_scroll = float(getattr(content, "max_scroll_y", 0) or 0)
         if total <= 0 or max_scroll <= 0:
             return
-        top_line = round(self.scroll_offset.y / max_scroll * total)
+        top_line = round(content.scroll_offset.y / max_scroll * total)
 
         def _restore() -> None:
-            new_max = float(getattr(self, "max_scroll_y", 0) or 0)
+            new_max = float(getattr(content, "max_scroll_y", 0) or 0)
             if new_max <= 0:
                 return
-            self.scroll_to(y=(top_line / total) * new_max, animate=False)
+            content.scroll_to(y=(top_line / total) * new_max, animate=False)
 
-        self.call_after_refresh(_restore)
+        content.call_after_refresh(_restore)
 
 
 class NodeDetailModal(ModalScreen):
@@ -2981,7 +2997,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     }
 
     /* Config-step side-by-side preview (t945): input left, proposal right.
-       The ratio-cycle action (ctrl+b) toggles three width splits by adding a
+       The ratio-cycle action (ctrl+shift+b) toggles three width splits by adding a
        ratio_* class to BOTH panes; compound selectors give each its width. */
     .config_preview_split {
         height: 1fr;
@@ -3384,7 +3400,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("A", "node_action", "Node action"),
         Binding("f", "toggle_deferred", "Defer module"),
         Binding("H", "op_help", "Op help"),
-        Binding("ctrl+b", "cycle_preview_ratio", "Preview width"),
+        Binding("ctrl+shift+b", "cycle_preview_ratio", "Preview width"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+r", "retry_patcher_apply",
                 "Retry patcher apply", show=False),
@@ -7046,13 +7062,26 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return True
 
     def _config_explore_no_node(self, container: VerticalScroll) -> None:
-        """Explore config (node already selected): mandate, parallel count."""
+        """Explore config (node already selected): mandate, parallel count.
+
+        Lays out input-left / proposal-preview-right via the shared
+        :meth:`_mount_config_with_preview` helper (t945_1) so the selected base
+        node's proposal is visible beside the Exploration Mandate input.
+        """
         node_id = self._wizard_config.get("_selected_node", "?")
-        container.mount(Label(f"[bold]Base Node:[/] {node_id}"))
-        container.mount(Label("[bold]Exploration Mandate[/]"))
-        container.mount(TextArea(""))
-        container.mount(CycleField("Parallel explorers", ["1", "2", "3", "4"], initial="2"))
-        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+        try:
+            proposal = read_proposal(self.session_path, node_id)
+        except Exception:
+            proposal = "*No proposal found.*"
+
+        def left_builder(left: VerticalScroll) -> None:
+            left.mount(Label(f"[bold]Base Node:[/] {node_id}"))
+            left.mount(Label("[bold]Exploration Mandate[/]"))
+            left.mount(TextArea(""))
+            left.mount(CycleField("Parallel explorers", ["1", "2", "3", "4"], initial="2"))
+            left.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+        self._mount_config_with_preview(container, left_builder, proposal)
 
     def _config_compare(self, container: VerticalScroll) -> None:
         """Compare config: multi-node checkboxes + dimension checkboxes + sections."""

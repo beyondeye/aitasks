@@ -1,11 +1,18 @@
-"""Pilot tests for the reusable ProposalPreviewPane (t945_1).
+"""Pilot tests for the reusable ProposalPreviewPane (t945_1, t945_2).
 
 The pane is the shared side-by-side proposal viewer that the explore (t945_2)
 and module-decompose (t945_3) wizard config steps mount next to their free-text
-input. This is the "internal harness" for t945_1: it drives the widget directly
+input. This is the "internal harness": it drives the widget directly
 (populate / minimap build / scroll-to-section / reflow-stable scroll / ratio
-class toggling) without wiring it into a wizard. End-to-end in-TUI behavior is
-verified manually and exercised for real once t945_2 lands.
+class toggling) without wiring it into a wizard.
+
+t945_2 refactored the pane from an inline minimap (mounted inside the scroll)
+to a **fixed minimap pane beside a scrollable SectionAwareMarkdown** — the
+minimap stays visible while the proposal scrolls, and section navigation routes
+through ``SectionAwareMarkdown.request_scroll_to_section`` (exact rendered-heading
+scroll, no overshoot). The tests below assert against that layout: the minimap
+is composed once and toggled via ``display``; scrolling happens on the inner
+``#preview_proposal_content`` content widget.
 """
 
 from __future__ import annotations
@@ -23,7 +30,7 @@ from textual.app import App, ComposeResult  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
 
 from brainstorm.brainstorm_app import ProposalPreviewPane  # noqa: E402
-from section_viewer import SectionRow  # noqa: E402
+from section_viewer import SectionRow, SectionAwareMarkdown  # noqa: E402
 
 
 PROPOSAL_WITH_SECTIONS = """\
@@ -43,6 +50,10 @@ PROPOSAL_WITH_SECTIONS = """\
 """
 
 PROPOSAL_NO_SECTIONS = "# Proposal\n\nJust prose, no section markers.\n"
+
+
+def _content(pane: ProposalPreviewPane) -> SectionAwareMarkdown:
+    return pane.query_one("#preview_proposal_content", SectionAwareMarkdown)
 
 
 class _HostApp(App):
@@ -68,10 +79,13 @@ class ProposalPreviewPaneTests(unittest.TestCase):
                     [r.section_name for r in rows],
                     ["auth", "storage", "telemetry"],
                 )
+                # Minimap is a visible sibling pane (not inlined in the scroll).
+                minimap = pane.query_one(".preview_proposal_minimap")
+                self.assertTrue(minimap.display)
 
         self._run(runner())
 
-    def test_populate_without_sections_mounts_no_minimap(self):
+    def test_populate_without_sections_hides_minimap(self):
         async def runner():
             app = _HostApp()
             async with app.run_test(size=(80, 24)) as pilot:
@@ -79,14 +93,15 @@ class ProposalPreviewPaneTests(unittest.TestCase):
                 pane.populate(PROPOSAL_NO_SECTIONS)
                 await pilot.pause()
                 self.assertEqual(len(list(pane.query(SectionRow))), 0)
-                self.assertEqual(
-                    len(list(pane.query(".preview_proposal_minimap"))), 0
-                )
+                # The minimap widget still exists (composed once) but is hidden
+                # so the proposal takes the full pane width.
+                minimap = pane.query_one(".preview_proposal_minimap")
+                self.assertFalse(minimap.display)
                 self.assertIsNone(pane._parsed)
 
         self._run(runner())
 
-    def test_repopulate_replaces_minimap(self):
+    def test_repopulate_toggles_minimap_visibility(self):
         async def runner():
             app = _HostApp()
             async with app.run_test(size=(80, 24)) as pilot:
@@ -94,12 +109,16 @@ class ProposalPreviewPaneTests(unittest.TestCase):
                 pane.populate(PROPOSAL_WITH_SECTIONS)
                 await pilot.pause()
                 self.assertEqual(len(list(pane.query(SectionRow))), 3)
-                # Re-populate with section-less content drops the old minimap.
+                self.assertTrue(
+                    pane.query_one(".preview_proposal_minimap").display
+                )
+                # Re-populate with section-less content hides the minimap and
+                # clears its rows.
                 pane.populate(PROPOSAL_NO_SECTIONS)
                 await pilot.pause()
                 self.assertEqual(len(list(pane.query(SectionRow))), 0)
-                self.assertEqual(
-                    len(list(pane.query(".preview_proposal_minimap"))), 0
+                self.assertFalse(
+                    pane.query_one(".preview_proposal_minimap").display
                 )
 
         self._run(runner())
@@ -111,14 +130,16 @@ class ProposalPreviewPaneTests(unittest.TestCase):
             async with app.run_test(size=(40, 12)) as pilot:
                 pane = app.query_one(ProposalPreviewPane)
                 pane.populate(PROPOSAL_WITH_SECTIONS)
-                for _ in range(4):
+                content = _content(pane)
+                # Let the markdown render (async) so it becomes scrollable.
+                for _ in range(8):
                     await pilot.pause()
-                self.assertGreater(pane.max_scroll_y, 0)
-                start = pane.scroll_offset.y
+                self.assertGreater(content.max_scroll_y, 0)
+                start = content.scroll_offset.y
                 pane.scroll_to_section("telemetry")
-                for _ in range(3):
+                for _ in range(6):
                     await pilot.pause()
-                self.assertGreater(pane.scroll_offset.y, start)
+                self.assertGreater(content.scroll_offset.y, start)
 
         self._run(runner())
 
@@ -128,12 +149,14 @@ class ProposalPreviewPaneTests(unittest.TestCase):
             async with app.run_test(size=(40, 12)) as pilot:
                 pane = app.query_one(ProposalPreviewPane)
                 pane.populate(PROPOSAL_WITH_SECTIONS)
-                for _ in range(4):
+                content = _content(pane)
+                for _ in range(8):
                     await pilot.pause()
-                start = pane.scroll_offset.y
+                start = content.scroll_offset.y
                 pane.scroll_to_section("does_not_exist")  # must not raise
-                await pilot.pause()
-                self.assertEqual(pane.scroll_offset.y, start)
+                for _ in range(3):
+                    await pilot.pause()
+                self.assertEqual(content.scroll_offset.y, start)
 
         self._run(runner())
 
@@ -143,25 +166,26 @@ class ProposalPreviewPaneTests(unittest.TestCase):
             async with app.run_test(size=(40, 12)) as pilot:
                 pane = app.query_one(ProposalPreviewPane)
                 pane.populate(PROPOSAL_WITH_SECTIONS)
-                for _ in range(4):
+                content = _content(pane)
+                for _ in range(8):
                     await pilot.pause()
-                self.assertGreater(pane.max_scroll_y, 0)
-                # Scroll roughly to the middle.
-                mid = pane.max_scroll_y // 2
-                pane.scroll_to(y=mid, animate=False)
+                self.assertGreater(content.max_scroll_y, 0)
+                # Scroll roughly to the middle of the content pane.
+                mid = content.max_scroll_y // 2
+                content.scroll_to(y=mid, animate=False)
                 await pilot.pause()
                 total = pane._text.count("\n") + 1
                 top_line_before = round(
-                    pane.scroll_offset.y / pane.max_scroll_y * total
+                    content.scroll_offset.y / content.max_scroll_y * total
                 )
-                # Capture, then force a reflow by widening the pane.
+                # Capture, then force a reflow by widening the whole pane.
                 pane.on_ratio_change()
                 pane.styles.width = 90
-                for _ in range(4):
+                for _ in range(6):
                     await pilot.pause()
-                if pane.max_scroll_y > 0:
+                if content.max_scroll_y > 0:
                     top_line_after = round(
-                        pane.scroll_offset.y / pane.max_scroll_y * total
+                        content.scroll_offset.y / content.max_scroll_y * total
                     )
                     # Reflow changes wrapping/heights; allow a small tolerance.
                     self.assertLessEqual(
@@ -172,7 +196,7 @@ class ProposalPreviewPaneTests(unittest.TestCase):
 
 
 class ApplyPreviewRatioTests(unittest.TestCase):
-    """Exercise the ratio_* class toggling used by ctrl+b (cycle width)."""
+    """Exercise the ratio_* class toggling used by ctrl+shift+b (cycle width)."""
 
     def _run(self, coro):
         return asyncio.run(coro)
