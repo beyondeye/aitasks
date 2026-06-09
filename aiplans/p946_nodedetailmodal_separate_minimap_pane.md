@@ -219,3 +219,29 @@ test + manual verification cover it._
 
 ## Reference to parent workflow
 On completion follow task-workflow Step 8 (review) → Step 9 (archival).
+
+## Final Implementation Notes
+- **Actual work done:** Refactored `NodeDetailModal` (`brainstorm_app.py`) exactly
+  per the plan. `compose()` now lays out the Proposal and Plan tabs as a
+  `Horizontal` pane (`#proposal_pane` / `#plan_pane`) holding a fixed-width
+  `_InlineSectionMinimap` sibling (`#proposal_minimap` / `#plan_minimap`, class
+  `node_detail_minimap`) + a `SectionAwareMarkdown` content widget. `on_mount()`
+  drops the inline `mount(minimap, before=…)` and instead `update_content()`s the
+  markdown + `populate()`s the minimap, toggling `display` when there are no
+  sections. `on_section_minimap_section_selected()` now delegates to
+  `SectionAwareMarkdown.request_scroll_to_section` (deleting the
+  `estimate_section_y` import + `minimap_height`/`body_scroll_range` overshoot
+  math). CSS: narrowed the shared scroll rule to `#metadata_scroll` and added the
+  pane / fixed-minimap-column / content rules. Added pilot test
+  `tests/test_brainstorm_node_detail_minimap.py` (3 tests).
+- **Deviations from plan:** None. Implemented as designed.
+- **Issues encountered:** None.
+- **Key decisions:** Kept `content.focus()` after a section selection (preserves the
+  pre-refactor behavior of focusing the scrollable so up/down scrolls the content;
+  `Tab` returns to the minimap via the unchanged `action_focus_minimap`). The pilot
+  test asserts delegation via `SectionAwareMarkdown._active_scroll_section` rather
+  than the async TOC-anchor scroll landing pixel (that stays manual-verification).
+- **Upstream defects identified:** None
+- **Tests:** `python -m py_compile` clean; new pilot test 3/3 pass; sibling
+  `tests/test_brainstorm_proposal_preview.py` 12/12 still pass; no stale
+  `proposal_scroll` / `plan_scroll` / `estimate_section_y` references remain.
