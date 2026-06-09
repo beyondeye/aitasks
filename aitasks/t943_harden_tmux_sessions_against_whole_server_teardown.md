@@ -3,11 +3,10 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Ready
 labels: [tmux, resilience]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-07 17:17
-updated_at: 2026-06-09 10:06
+updated_at: 2026-06-09 14:44
 ---
 
 ## Problem
