@@ -137,3 +137,33 @@ Bubble Tea port is underway (out of scope here).
   (e.g. wish's exact middleware set) drifts from upstream, mitigated by framing
   the doc as an evaluation/recommendation rather than an implementation spec.
   · severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `aidocs/applink/wish_ssh_evaluation.md` (250
+  lines) with all 8 planned sections — overview, what wish is, core contrast
+  with applink, per-use-case recommendation (3 verdicts), deployment topologies
+  + public-exposure hardening, tmux integration (two layers + nested-tmux trap +
+  clean integration), the unifying `monitor_core` three-front-ends table/rule,
+  cross-references, and out-of-scope. Wired two cross-references: a pointer from
+  `aidocs/applink/protocol.md` "Transport choice" section, and an extension of
+  the `aidocs/applink/` pointer in `CLAUDE.md`.
+- **Deviations from plan:** None of substance. Added an explicit "Verdict:" line
+  to use case 3 (hosted) during verification so all three use-case subsections
+  carry a parallel explicit verdict (the plan called for explicit verdicts; the
+  first draft left use case 3's verdict implicit in bold bullets).
+- **Issues encountered:** During ownership claim (Step 4) the email was first
+  set from the system context (`daelyasy@hotmail.com`) instead of the userconfig
+  email; corrected via `--force` re-claim to `dario-e@beyond-eye.com` per the
+  'fast' profile's `default_email: userconfig`.
+- **Key decisions:** Framed wish and applink as *complementary* rather than
+  competing — wish for terminal clients / hosted access, applink for the native
+  mobile companion — anchored on the `monitor_core` extraction seam (t822_3) so
+  all front-ends share one headless core with tmux demoted to backend when
+  remote. Kept the doc as an evaluation/recommendation, not an implementation
+  spec; the Go/Bubble Tea port and a public-exposure security spec are explicitly
+  out of scope.
+- **Upstream defects identified:** None
+- **Follow-up suggestion:** Mirror this analysis into `aitasks_go` planning once
+  the Bubble Tea TUI port is underway (out of scope here; not yet created as a
+  task).
