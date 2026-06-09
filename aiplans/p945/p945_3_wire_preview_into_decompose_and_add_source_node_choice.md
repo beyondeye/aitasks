@@ -208,6 +208,72 @@ special-casing; noted for the reviewer.
   wiring; both deliverables (source-node choice + preview) are concretely
   addressed against verified call sites. · severity: low · → mitigation: TBD
 
+## Post-Review Changes
+
+### Change Request 1 (2026-06-08 18:21)
+- **Requested by user:** Tab should cycle focus across *all* the config
+  editboxes, the section minimap, **and** the proposal markdown pane (the
+  markdown was previously unreachable by Tab — only the minimap was). Same
+  behavior for the explore wizard's proposal step.
+- **Changes made:** Replaced the minimap-only `_focus_preview_minimap` with an
+  explicit focus ring. `_preview_focus_ring()` builds the ordered ring (left
+  input widgets in DOM order → minimap when shown → `#preview_proposal_content`
+  markdown), deduping nested focusables (e.g. RadioSet vs its RadioButtons).
+  `_cycle_preview_focus(forward)` steps the ring and wraps; the Actions-tab key
+  handler routes `tab`/`shift+tab` through it for the inputs and the markdown
+  pane. The minimap needed a separate fix: Textual *merges* `BINDINGS` across
+  the MRO, so the old `_InlineSectionMinimap` (`BINDINGS = []`) still inherited
+  `SectionMinimap`'s priority `tab → toggle_focus` binding — Tab on a minimap
+  row was consumed before the app router and focus stuck. Added a dedicated
+  `_PreviewMinimap` subclass that *overrides* Tab/Shift+Tab with priority
+  bindings whose **synchronous actions** call `_cycle_preview_focus` (a posted
+  ToggleFocus-message handler was tried first but the new focus didn't stick).
+  `ProposalPreviewPane` now composes `_PreviewMinimap`. Because both wizards
+  mount the same pane, the fix applies to explore and decompose alike; the
+  markdown pane is a focusable `SectionAwareMarkdown(VerticalScroll)`, so once
+  focused its arrow keys scroll the proposal.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`,
+  `tests/test_brainstorm_proposal_preview.py` (+5 pilot tests: ring order,
+  forward cycle + wrap, reverse cycle, minimap-absent-when-no-sections, and a
+  real-Tab-on-minimap-row → proposal regression test).
+- **Note (reported decompose crash):** A one-off crash entering the decompose
+  proposal step after exiting explore could not be reproduced afterward (8
+  faithful booted-app scenarios all mounted cleanly) and did not recur for the
+  user on retry — likely transient pre-fix state, since `_PreviewMinimap`
+  reworked the pane's minimap. No code change made for it; watch for recurrence.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented both planned deliverables in
+  `brainstorm_app.py` exactly as designed — source-node-select step for
+  module-decompose via the new `_NODE_SELECT_STEP_OPS` set (HEAD pre-focused),
+  section-select correctly excluded, collector using the chosen node, and the
+  config refactored to the `_mount_config_with_preview` split layout. Then, per
+  the user's review, added a full Tab focus ring across inputs/minimap/proposal
+  (`_preview_focus_ring` + `_cycle_preview_focus`) and the `_PreviewMinimap`
+  binding override. Tests added in `test_brainstorm_wizard_steps.py` (+4 step
+  cases) and `test_brainstorm_proposal_preview.py` (+5 focus-ring/Tab cases).
+- **Deviations from plan:** The plan floated approaches (a)/(b) for the
+  blast-radius; the shipped solution is the cleaner hybrid — a new
+  `_NODE_SELECT_STEP_OPS` set for the node-select sites while `section_select`
+  stays on the narrower `_NODE_SELECT_OPS`. The Tab focus ring + minimap
+  rebinding were added scope beyond the original plan (user review request).
+- **Issues encountered:** (1) A posted-`ToggleFocus`-message handler did not
+  make the new focus stick; moving the focus call into a synchronous binding
+  action (`_PreviewMinimap`) fixed it. (2) Textual merges `BINDINGS` across the
+  MRO, so a `BINDINGS = []` subclass does not drop inherited bindings — the fix
+  must *override* the key, not clear the list.
+- **Key decisions:** Express decompose entry paths (fast-track, node-context)
+  left unchanged — they fall back to HEAD via the collector; only a cosmetic
+  step-count bump, documented inline.
+- **Upstream defects identified:** `.aitask-scripts/brainstorm/brainstorm_app.py:886 — _InlineSectionMinimap documents itself as "Tab-binding-free" (BINDINGS = []) but Textual merges BINDINGS across the MRO, so it still inherits SectionMinimap's priority tab→toggle_focus binding; its sole remaining consumer (NodeDetailModal) masks this with its own screen-level tab binding, so it is not visibly broken, but the docstring claim is false and the inherited binding is latent/misleading.`
+- **Notes for sibling tasks:** All three t945 children are now complete. The
+  shared `ProposalPreviewPane` is mounted by explore (`_config_explore_no_node`)
+  and decompose (`_config_module_decompose`) via `_mount_config_with_preview`;
+  the `_PreviewMinimap` Tab-ring behavior is common to both. Reuse this pane for
+  any future side-by-side proposal step rather than re-rolling minimap/focus
+  logic.
+
 ## Post-implementation
 Follow task-workflow Step 8 (review) → Step 9 (archival). When this child
 archives, all three t945 children are complete and parent t945 auto-archives.
