@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [ait_brainstorm, brainstorm_explore]
-children_to_implement: [t945_3]
 created_at: 2026-06-08 09:05
-updated_at: 2026-06-08 12:48
+updated_at: 2026-06-09 09:27
+completed_at: 2026-06-09 09:27
 ---
 
 in ait brainstorm, in the wizards for the explore and module decompose operation it would be very useful to show the current proposal (with minimap
