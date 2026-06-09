@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [ait_bridge]
+assigned_to: daelyasy@hotmail.com
 created_at: 2026-06-09 12:25
-updated_at: 2026-06-09 12:25
+updated_at: 2026-06-09 12:39
 ---
 
 Write a design / analysis doc at `aidocs/applink/wish_ssh_evaluation.md` that
