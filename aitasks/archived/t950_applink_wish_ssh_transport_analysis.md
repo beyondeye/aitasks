@@ -3,11 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-09 12:25
-updated_at: 2026-06-09 12:39
+updated_at: 2026-06-09 13:19
+completed_at: 2026-06-09 13:19
 ---
 
 Write a design / analysis doc at `aidocs/applink/wish_ssh_evaluation.md` that
