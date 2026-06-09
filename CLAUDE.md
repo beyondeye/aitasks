@@ -277,3 +277,6 @@ Multiplatform) over a paired, QR-bootstrapped LAN WebSocket. The wire
 protocol, pairing flow, connection state machine, and permission profiles
 are documented under `aidocs/applink/` — see
 `aidocs/applink/protocol.md` and `aidocs/applink/permissions.md`.
+`aidocs/applink/wish_ssh_evaluation.md` evaluates SSH-based serving
+(charmbracelet/wish) as a complementary terminal-client / hosted-deployment
+access path alongside the native-mobile transport.

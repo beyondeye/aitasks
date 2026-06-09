@@ -22,6 +22,8 @@ Parent task: [t822](../../aitasks/t822_new_ait_bridge_tui.md). Sibling design do
 
 Three transports were evaluated. The **default** is LAN WebSocket; the other two are documented as deferred alternatives.
 
+An SSH-based alternative ([charmbracelet/wish](https://github.com/charmbracelet/wish)) and the hosted-deployment topology are evaluated separately in [wish_ssh_evaluation.md](wish_ssh_evaluation.md). The conclusion there is that `wish` is a *complementary terminal-client access path* (and an excellent fit for hosted deployments), **not** a replacement for the native styled-span data plane this document and [content_transport.md](content_transport.md) define.
+
 | Transport | Latency | Firewall resilience | Infra cost | Battery | Cross-network |
 |-----------|---------|---------------------|------------|---------|---------------|
 | **LAN WebSocket** (chosen) | ~5 ms | Same-LAN only | None | Lowest | No |
