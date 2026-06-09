@@ -155,6 +155,10 @@ AGENT_STATUS_COLORS = {
 }
 
 _NODE_SELECT_OPS = {"explore", "detail", "patch"}
+# Ops that get a source-node-select step. module_decompose picks a source node
+# too, but — unlike the ops above — must NOT trigger the section_select step
+# (which stays gated on the narrower _NODE_SELECT_OPS).
+_NODE_SELECT_STEP_OPS = _NODE_SELECT_OPS | {"module_decompose"}
 _SUBGRAPH_SELECT_OPS = _NODE_SELECT_OPS | {
     "module_decompose", "module_merge", "module_sync",
 }
@@ -905,6 +909,48 @@ class _InlineSectionMinimap:
         return cls._cache
 
 
+class _PreviewMinimap:
+    """Lazily-built SectionMinimap subclass for the config-step preview pane.
+
+    Rebinds Tab / Shift+Tab to step the app-level preview focus ring
+    (``BrainstormApp._cycle_preview_focus``: inputs → minimap → proposal
+    markdown → wrap). SectionMinimap's stock ``tab → toggle_focus`` *priority*
+    binding cannot simply be cleared (Textual merges BINDINGS across the MRO, so
+    a ``BINDINGS = []`` subclass still inherits it), so we override it here with
+    our own priority binding. Doing the focus move from a synchronous binding
+    *action* (rather than a posted ToggleFocus message) is what makes the new
+    focus stick.
+    """
+
+    _cache = None
+
+    @classmethod
+    def cls(cls):
+        if cls._cache is None:
+            from section_viewer import SectionMinimap as _Base
+
+            class _PreviewMM(_Base):
+                BINDINGS = [
+                    Binding("tab", "preview_focus_advance", "Next", priority=True),
+                    Binding(
+                        "shift+tab", "preview_focus_retreat", "Prev", priority=True
+                    ),
+                ]
+
+                def action_preview_focus_advance(self) -> None:
+                    app = self.app
+                    if hasattr(app, "_cycle_preview_focus"):
+                        app._cycle_preview_focus(forward=True)
+
+                def action_preview_focus_retreat(self) -> None:
+                    app = self.app
+                    if hasattr(app, "_cycle_preview_focus"):
+                        app._cycle_preview_focus(forward=False)
+
+            cls._cache = _PreviewMM
+        return cls._cache
+
+
 class ProposalPreviewPane(Horizontal):
     """Reusable side-by-side proposal viewer: a fixed minimap pane beside a
     scrollable Markdown.
@@ -917,8 +963,11 @@ class ProposalPreviewPane(Horizontal):
     wizard config steps (t945), mounted via
     ``BrainstormApp._mount_config_with_preview``.
 
-    The minimap is Tab-binding-free (``_InlineSectionMinimap``) so the app-level
-    Tab focus routing (``_focus_preview_minimap``) owns Tab on the Actions tab.
+    The minimap (``_PreviewMinimap``) rebinds Tab / Shift+Tab to drive the
+    app-level focus ring (``_cycle_preview_focus``), cycling inputs → minimap →
+    proposal markdown. Inputs and the markdown pane are routed by the app's
+    ``on_key``; the minimap's own priority Tab binding hands back to the same
+    ring so focus never sticks on the minimap.
 
     IMPORTANT: the pane mounts only a minimap + a ``SectionAwareMarkdown`` —
     never a ``TextArea`` / ``CycleField`` / ``RadioSet``. The config-step
@@ -953,7 +1002,7 @@ class ProposalPreviewPane(Horizontal):
 
     def compose(self) -> ComposeResult:
         from section_viewer import SectionAwareMarkdown
-        yield _InlineSectionMinimap.cls()(classes="preview_proposal_minimap")
+        yield _PreviewMinimap.cls()(classes="preview_proposal_minimap")
         yield SectionAwareMarkdown(id="preview_proposal_content")
 
     def _content(self):
@@ -1864,7 +1913,7 @@ _WIZARD_STEPS: list[_WizardStep] = [
         and c.get("subgraph_count", 1) >= 2,
         True,
     ),
-    _WizardStep("node_select", lambda c: c.get("op") in _NODE_SELECT_OPS, True),
+    _WizardStep("node_select", lambda c: c.get("op") in _NODE_SELECT_STEP_OPS, True),
     _WizardStep(
         "section_select",
         lambda c: c.get("op") in _NODE_SELECT_OPS and bool(c.get("node_has_sections")),
@@ -3631,11 +3680,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         tabbed = self.query_one(TabbedContent)
 
-        # Tab on the Actions tab → focus the side-by-side preview minimap (t945),
-        # mirroring NodeDetailModal. No-op (falls through to default Tab) when no
-        # preview pane is mounted or focus is already inside the minimap.
-        if event.key == "tab" and tabbed.active == "tab_actions":
-            if self._focus_preview_minimap():
+        # Tab / Shift+Tab on the Actions tab → cycle the side-by-side preview
+        # focus ring (t945): inputs → minimap → proposal markdown → wrap. No-op
+        # (falls through to default Tab) when no preview pane is mounted.
+        if event.key in ("tab", "shift+tab") and tabbed.active == "tab_actions":
+            if self._cycle_preview_focus(forward=event.key == "tab"):
                 event.prevent_default()
                 event.stop()
                 return
@@ -3773,7 +3822,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if event.key == "enter" and self._wizard_step_id == "node_select":
                 focused = self.focused
                 if isinstance(focused, OperationRow) and not focused.op_disabled:
-                    if self._wizard_op in _NODE_SELECT_OPS:
+                    if self._wizard_op in _NODE_SELECT_STEP_OPS:
                         self._wizard_config["_selected_node"] = focused.op_key
                         self._actions_advance_from_node_select(focused.op_key)
                         event.prevent_default()
@@ -6345,7 +6394,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if isinstance(event.widget, OperationRow):
             tabbed = self.query_one(TabbedContent)
             if tabbed.active == "tab_actions" and self._wizard_step_id == "node_select":
-                if self._wizard_op in _NODE_SELECT_OPS:
+                if self._wizard_op in _NODE_SELECT_STEP_OPS:
                     self._wizard_config["_selected_node"] = event.widget.op_key
                     # Visual feedback: mark selected node
                     container = self.query_one("#actions_content", VerticalScroll)
@@ -6642,6 +6691,29 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         except Exception:
             pass
 
+    def _focus_operation_row(self, op_key: str) -> None:
+        """Focus the OperationRow matching ``op_key`` (fallback: first enabled).
+
+        Used to pre-highlight a default choice (e.g. HEAD on the decompose
+        source-node step); focusing the row drives ``on_descendant_focus`` to
+        seed ``_selected_node`` and enable Next.
+        """
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active != "tab_actions":
+            return
+        try:
+            rows = list(self.query("OperationRow"))
+            for row in rows:
+                if row.op_key == op_key and not row.op_disabled:
+                    row.focus()
+                    return
+            for row in rows:
+                if not row.op_disabled:
+                    row.focus()
+                    return
+        except Exception:
+            pass
+
     def _is_session_op_disabled(self, op_key: str, status: str, head: str | None) -> bool:
         """Determine if a session operation should be disabled."""
         if op_key == "pause":
@@ -6804,6 +6876,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             "explore": "Select Base Node",
             "detail": "Select Node for Detailing",
             "patch": "Select Node to Patch",
+            "module_decompose": "Select Source Node",
         }
         desc = desc_map.get(self._wizard_op, "Select Node")
         container.mount(
@@ -6854,7 +6927,14 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         container.mount(
             Button("Next \u25b6", variant="primary", classes="btn_actions_next", disabled=True)
         )
-        self.call_after_refresh(self._focus_first_operation)
+        # module_decompose defaults its source node to HEAD so the user can
+        # advance immediately; explore/detail/patch require an explicit pick.
+        # Focusing the HEAD row makes on_descendant_focus seed _selected_node
+        # and enable Next (the same path explore uses for its first row).
+        if self._wizard_op == "module_decompose" and head in nodes:
+            self.call_after_refresh(lambda: self._focus_operation_row(head))
+        else:
+            self.call_after_refresh(self._focus_first_operation)
 
     def _actions_advance_from_node_select(self, node: str) -> bool:
         """Advance the wizard out of the node-select step for ``node``.
@@ -6876,11 +6956,14 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return False
         # Cache section presence into the ctx source BEFORE transitioning so the
         # step resolver sees it (else section_select would be skipped). This disk
-        # read happens once here, never inside a per-render predicate.
-        self._wizard_has_sections = self._node_has_sections(node)
-        if self._wizard_has_sections:
-            self._actions_show_section_select()
-            return True
+        # read happens once here, never inside a per-render predicate. Only the
+        # node-select ops have a section_select step; module_decompose reuses the
+        # node-select UI but skips straight to config.
+        if self._wizard_op in _NODE_SELECT_OPS:
+            self._wizard_has_sections = self._node_has_sections(node)
+            if self._wizard_has_sections:
+                self._actions_show_section_select()
+                return True
         if self._wizard_op == "detail":
             self._wizard_config["node"] = node
             self._actions_show_confirm()
@@ -7039,26 +7122,75 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         panes.first().scroll_to_section(event.section_name)
         event.stop()
 
-    def _focus_preview_minimap(self) -> bool:
-        """Tab on the Actions tab → focus the preview pane's minimap.
+    def _preview_focus_ring(self) -> list:
+        """Ordered Tab focus ring for the config-with-preview step.
 
-        Returns True if focus was moved (caller stops the event); False when
-        there is no preview pane or focus is already inside the minimap (so the
-        default Tab traversal runs).
+        Left input widgets (each editbox/control in DOM order), then the section
+        minimap (only when it is shown), then the scrollable proposal markdown
+        pane. Returns ``[]`` when no preview pane is mounted (other Actions-tab
+        steps fall back to their own / default Tab handling).
         """
         panes = self.query(ProposalPreviewPane)
-        if not panes:
+        splits = self.query(".config_preview_split")
+        if not panes or not splits:
+            return []
+        pane = panes.first()
+        ring: list = []
+
+        def _ancestor_in_ring(w) -> bool:
+            p = w.parent
+            while p is not None:
+                if p in ring:
+                    return True
+                p = p.parent
             return False
-        minimaps = list(panes.first().query(".preview_proposal_minimap"))
-        if not minimaps:
+
+        lefts = splits.first().query(".config_preview_left")
+        if lefts:
+            # Outermost focusable per control group (e.g. the RadioSet, not its
+            # individual RadioButtons), in DOM order.
+            for w in lefts.first().query("*"):
+                if not (w.can_focus and w.display and not w.disabled):
+                    continue
+                if _ancestor_in_ring(w):
+                    continue
+                ring.append(w)
+        minimaps = list(pane.query(".preview_proposal_minimap"))
+        if minimaps and minimaps[0].display:
+            ring.append(minimaps[0])
+        contents = list(pane.query("#preview_proposal_content"))
+        if contents:
+            ring.append(contents[0])
+        return ring
+
+    def _cycle_preview_focus(self, forward: bool = True) -> bool:
+        """Tab / Shift+Tab on the config-with-preview step → step the focus ring.
+
+        Cycles editboxes → minimap → proposal pane → wrap, so the proposal
+        markdown is reachable (and scrollable) by Tab alongside the inputs and
+        the minimap. Returns True when focus was moved (caller stops the event);
+        False when there is no preview pane (default Tab traversal runs).
+        """
+        ring = self._preview_focus_ring()
+        if not ring:
             return False
-        minimap = minimaps[0]
-        walker = self.screen.focused
-        while walker is not None:
-            if walker is minimap:
-                return False  # already on the minimap → default Tab
-            walker = walker.parent
-        minimap.focus_first_row()
+        focused = self.screen.focused
+        cur = -1
+        for i, member in enumerate(ring):
+            if focused is member or (
+                focused is not None and focused in member.walk_children()
+            ):
+                cur = i
+                break
+        if cur == -1:
+            target = ring[0]
+        else:
+            target = ring[(cur + (1 if forward else -1)) % len(ring)]
+        minimaps = list(self.query(".preview_proposal_minimap"))
+        if minimaps and target is minimaps[0]:
+            target.focus_first_row()
+        else:
+            target.focus()
         return True
 
     def _config_explore_no_node(self, container: VerticalScroll) -> None:
@@ -7231,36 +7363,55 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         pre-armed so naming one module + confirm creates the subgraph root and
         the linked aitask in a single pass. The op, config-collection, confirm,
         and execute paths are otherwise identical to the multi-module flow.
+
+        Lays out input-left / proposal-preview-right via the shared
+        :meth:`_mount_config_with_preview` helper (t945_1) so the chosen source
+        node's proposal is visible beside the Decomposition Plan input.
         """
         fast_track = getattr(self, "_wizard_fast_track", False)
-        source = get_head(self.session_path, module=self._wizard_subgraph)
-        if fast_track:
-            container.mount(Label(
-                "[dim]Fast-track: name one module — a linked aitask is "
-                "created in one pass.[/]"
-            ))
-        container.mount(Label(f"[bold]Source Subgraph:[/] {self._wizard_subgraph}"))
-        container.mount(Label(f"[bold]Source HEAD:[/] {source or '(none)'}"))
-        container.mount(Label("[bold]Decompose mode[/]"))
-        container.mount(RadioSet(
-            RadioButton("Manual — I type the names", value=True),
-            RadioButton("Agent-proposed — infer from the Plan"),
-            RadioButton("From section markers"),
-            classes="rs_decompose_mode",
-        ))
-        container.mount(Label("[bold]Modules (used by Manual / From-sections)[/]"))
-        container.mount(TextArea("", classes="ta_module_decompose_modules"))
-        link_chk = Checkbox("Create linked child tasks", classes="chk_link_to_task")
-        link_chk.value = bool(fast_track)
-        container.mount(link_chk)
-        container.mount(Label("[bold]Decomposition Plan (optional)[/]"))
-        container.mount(TextArea("", classes="ta_module_decompose_plan"))
-        review_chk = Checkbox(
-            "Review before apply", classes="chk_review_before_apply"
+        # Source node: the user's pick on the source-node step, else subgraph
+        # HEAD (express entry paths skip node-select).
+        node_id = self._wizard_config.get("_selected_node") or get_head(
+            self.session_path, module=self._wizard_subgraph
         )
-        review_chk.value = True
-        container.mount(review_chk)
-        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+        try:
+            proposal = (
+                read_proposal(self.session_path, node_id)
+                if node_id else "*No proposal found.*"
+            )
+        except Exception:
+            proposal = "*No proposal found.*"
+
+        def left_builder(left: VerticalScroll) -> None:
+            if fast_track:
+                left.mount(Label(
+                    "[dim]Fast-track: name one module — a linked aitask is "
+                    "created in one pass.[/]"
+                ))
+            left.mount(Label(f"[bold]Source Subgraph:[/] {self._wizard_subgraph}"))
+            left.mount(Label(f"[bold]Source Node:[/] {node_id or '(none)'}"))
+            left.mount(Label("[bold]Decompose mode[/]"))
+            left.mount(RadioSet(
+                RadioButton("Manual — I type the names", value=True),
+                RadioButton("Agent-proposed — infer from the Plan"),
+                RadioButton("From section markers"),
+                classes="rs_decompose_mode",
+            ))
+            left.mount(Label("[bold]Modules (used by Manual / From-sections)[/]"))
+            left.mount(TextArea("", classes="ta_module_decompose_modules"))
+            link_chk = Checkbox("Create linked child tasks", classes="chk_link_to_task")
+            link_chk.value = bool(fast_track)
+            left.mount(link_chk)
+            left.mount(Label("[bold]Decomposition Plan (optional)[/]"))
+            left.mount(TextArea("", classes="ta_module_decompose_plan"))
+            review_chk = Checkbox(
+                "Review before apply", classes="chk_review_before_apply"
+            )
+            review_chk.value = True
+            left.mount(review_chk)
+            left.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+        self._mount_config_with_preview(container, left_builder, proposal)
 
     def _ancestor_subgraphs(self, source: str) -> list[str]:
         return [
@@ -7464,7 +7615,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         elif op == "module_decompose":
             config["subgraph"] = self._wizard_subgraph
-            config["source_node"] = get_head(
+            # Use the node chosen on the source-node step, falling back to the
+            # subgraph HEAD (express entry paths skip node-select).
+            config["source_node"] = selected_node or get_head(
                 self.session_path, module=self._wizard_subgraph
             )
             if not config["source_node"]:
@@ -7804,7 +7957,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             nxt = next_step_id(self._wizard_ctx(), "subgraph_select")
             if nxt is not None:
                 self._render_wizard_step(nxt)
-        elif self._wizard_step_id == "node_select" and self._wizard_op in _NODE_SELECT_OPS:
+        elif self._wizard_step_id == "node_select" and self._wizard_op in _NODE_SELECT_STEP_OPS:
             self._wizard_config["_selected_node"] = row.op_key
             # Visual feedback: mark selected node
             container = self.query_one("#actions_content", VerticalScroll)

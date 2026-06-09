@@ -204,5 +204,50 @@ class SubgraphSelectStepTests(unittest.TestCase):
         self.assertEqual(prev_step_id(single, "node_select"), "op_select")
 
 
+class ModuleDecomposeNodeSelectTests(unittest.TestCase):
+    """module_decompose gains a source-node-select step (t945_3).
+
+    It reuses the node_select step (so the user can pick a source node,
+    defaulting to HEAD) but must NOT trigger section_select — that stays gated
+    on the narrower _NODE_SELECT_OPS.
+    """
+
+    def _ctx(self, subgraph_count=1, node_has_sections=False):
+        return {
+            "op": "module_decompose",
+            "node_has_sections": node_has_sections,
+            "subgraph_count": subgraph_count,
+        }
+
+    def test_single_subgraph_has_node_select_then_config(self):
+        self.assertEqual(
+            active_step_ids(self._ctx(subgraph_count=1)),
+            ["op_select", "node_select", "config", "confirm"],
+        )
+
+    def test_multi_subgraph_has_subgraph_then_node_select(self):
+        self.assertEqual(
+            active_step_ids(self._ctx(subgraph_count=2)),
+            ["op_select", "subgraph_select", "node_select", "config", "confirm"],
+        )
+
+    def test_section_select_never_active_even_with_sections(self):
+        # Unlike explore/detail/patch, decompose must skip section_select.
+        self.assertNotIn(
+            "section_select",
+            active_step_ids(self._ctx(subgraph_count=2, node_has_sections=True)),
+        )
+
+    def test_node_select_routes_to_config(self):
+        single = self._ctx(subgraph_count=1)
+        multi = self._ctx(subgraph_count=2)
+        self.assertEqual(next_step_id(single, "op_select"), "node_select")
+        self.assertEqual(next_step_id(multi, "subgraph_select"), "node_select")
+        # node_select -> config even when sections are present (no section_select).
+        self.assertEqual(
+            next_step_id(self._ctx(node_has_sections=True), "node_select"), "config"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

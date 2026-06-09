@@ -239,5 +239,138 @@ class ApplyPreviewRatioTests(unittest.TestCase):
         self._run(runner())
 
 
+class PreviewFocusRingTests(unittest.TestCase):
+    """Tab focus cycle across inputs → minimap → proposal markdown (t945_3).
+
+    Drives ``BrainstormApp._preview_focus_ring`` / ``_cycle_preview_focus``
+    against a host that reproduces the config-with-preview layout (a
+    ``.config_preview_split`` holding the ``.config_preview_left`` inputs and the
+    ``ProposalPreviewPane``). Both wizards (explore + decompose) share this path,
+    so one set of tests covers both.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _host(self):
+        from textual.containers import Horizontal
+        from textual.widgets import TextArea
+        from brainstorm.brainstorm_app import BrainstormApp
+
+        class _RingHost(App):
+            # Borrow the real focus-ring logic so the test exercises shipping code.
+            _preview_focus_ring = BrainstormApp._preview_focus_ring
+            _cycle_preview_focus = BrainstormApp._cycle_preview_focus
+
+            def compose(self) -> ComposeResult:
+                yield Horizontal(
+                    VerticalScroll(
+                        TextArea("", id="in1"),
+                        TextArea("", id="in2"),
+                        classes="config_preview_left",
+                    ),
+                    ProposalPreviewPane(classes="config_preview_pane"),
+                    classes="config_preview_split",
+                )
+
+        return _RingHost()
+
+    def test_ring_order_inputs_then_minimap_then_content(self):
+        async def runner():
+            app = self._host()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                await pilot.pause()
+                ring = app._preview_focus_ring()
+                self.assertEqual(ring[0].id, "in1")
+                self.assertEqual(ring[1].id, "in2")
+                self.assertIn("preview_proposal_minimap", ring[2].classes)
+                self.assertEqual(ring[3].id, "preview_proposal_content")
+
+        self._run(runner())
+
+    def test_cycle_steps_through_ring_and_wraps(self):
+        async def runner():
+            app = self._host()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                await pilot.pause()
+                app.query_one("#in1").focus()
+                await pilot.pause()
+
+                app._cycle_preview_focus(forward=True)
+                await pilot.pause()
+                self.assertEqual(app.focused.id, "in2")
+
+                app._cycle_preview_focus(forward=True)
+                await pilot.pause()
+                # Minimap zone: focus lands on its first section row.
+                self.assertIsInstance(app.focused, SectionRow)
+
+                app._cycle_preview_focus(forward=True)
+                await pilot.pause()
+                self.assertEqual(app.focused.id, "preview_proposal_content")
+
+                app._cycle_preview_focus(forward=True)
+                await pilot.pause()
+                self.assertEqual(app.focused.id, "in1")  # wrapped
+
+        self._run(runner())
+
+    def test_reverse_cycle_from_first_input_wraps_to_content(self):
+        async def runner():
+            app = self._host()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                await pilot.pause()
+                app.query_one("#in1").focus()
+                await pilot.pause()
+                app._cycle_preview_focus(forward=False)
+                await pilot.pause()
+                self.assertEqual(app.focused.id, "preview_proposal_content")
+
+        self._run(runner())
+
+    def test_tab_on_minimap_row_advances_to_proposal(self):
+        # Regression: the minimap keeps SectionMinimap's priority `tab` binding
+        # (BINDINGS merge across the MRO), so a real Tab press on a minimap row
+        # fires ToggleFocus rather than reaching the app Tab router. The
+        # on_section_minimap_toggle_focus handler must route it onward to the
+        # markdown pane instead of leaving focus stuck on the minimap.
+        async def runner():
+            app = self._host()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                await pilot.pause()
+                pane.query_one(".preview_proposal_minimap").focus_first_row()
+                await pilot.pause()
+                self.assertIsInstance(app.focused, SectionRow)
+                await pilot.press("tab")
+                await pilot.pause()
+                self.assertEqual(app.focused.id, "preview_proposal_content")
+
+        self._run(runner())
+
+    def test_minimap_absent_from_ring_when_no_sections(self):
+        async def runner():
+            app = self._host()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_NO_SECTIONS)
+                await pilot.pause()
+                ring = app._preview_focus_ring()
+                self.assertFalse(
+                    any("preview_proposal_minimap" in w.classes for w in ring)
+                )
+                # Ring is inputs + the markdown content only.
+                self.assertEqual(ring[-1].id, "preview_proposal_content")
+
+        self._run(runner())
+
+
 if __name__ == "__main__":
     unittest.main()
