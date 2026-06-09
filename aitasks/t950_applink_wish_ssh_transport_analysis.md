@@ -5,7 +5,7 @@ depends: []
 issue_type: documentation
 status: Implementing
 labels: [ait_bridge]
-assigned_to: daelyasy@hotmail.com
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-09 12:25
 updated_at: 2026-06-09 12:39
 ---
