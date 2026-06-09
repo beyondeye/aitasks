@@ -1087,6 +1087,7 @@ class NodeDetailModal(ModalScreen):
         self._plan_text = ""
 
     def compose(self) -> ComposeResult:
+        from section_viewer import SectionAwareMarkdown
         with Container(id="node_detail_dialog"):
             yield Label(
                 f"Node Detail: {self.node_id}", id="node_detail_title"
@@ -1098,15 +1099,17 @@ class NodeDetailModal(ModalScreen):
                         id="metadata_scroll",
                     )
                 with TabPane("Proposal", id="tab_proposal"):
-                    yield VerticalScroll(
-                        Markdown(id="proposal_content"),
-                        id="proposal_scroll",
-                    )
+                    with Horizontal(id="proposal_pane"):
+                        yield _InlineSectionMinimap.cls()(
+                            id="proposal_minimap", classes="node_detail_minimap"
+                        )
+                        yield SectionAwareMarkdown(id="proposal_content")
                 with TabPane("Plan", id="tab_plan"):
-                    yield VerticalScroll(
-                        Markdown(id="plan_content"),
-                        id="plan_scroll",
-                    )
+                    with Horizontal(id="plan_pane"):
+                        yield _InlineSectionMinimap.cls()(
+                            id="plan_minimap", classes="node_detail_minimap"
+                        )
+                        yield SectionAwareMarkdown(id="plan_content")
             with Horizontal(id="node_detail_buttons"):
                 yield Button(
                     "Close", variant="default", id="btn_close_detail"
@@ -1144,79 +1147,70 @@ class NodeDetailModal(ModalScreen):
 
         self.query_one("#metadata_content", Static).update("\n".join(lines))
 
+        from section_viewer import SectionAwareMarkdown
+
         # --- Proposal tab ---
         try:
             proposal = read_proposal(self.session_path, self.node_id)
         except Exception:
             proposal = "*No proposal found.*"
-        self.query_one("#proposal_content", Markdown).update(proposal)
         self._proposal_text = proposal
         parsed_proposal = parse_sections(proposal)
+        prop_content = self.query_one("#proposal_content", SectionAwareMarkdown)
+        prop_content.update_content(proposal, parsed_proposal)
+        prop_minimap = self.query_one("#proposal_minimap")
+        # populate() clears stale rows and adds one per section (none when
+        # there are no sections), so it also resets the minimap state.
+        prop_minimap.populate(parsed_proposal)
         if parsed_proposal.sections:
             self._proposal_parsed = parsed_proposal
-            prop_scroll = self.query_one("#proposal_scroll", VerticalScroll)
-            prop_minimap = _InlineSectionMinimap.cls()(id="proposal_minimap")
-            prop_scroll.mount(prop_minimap, before="#proposal_content")
-            prop_minimap.populate(parsed_proposal)
+            prop_minimap.display = True
+        else:
+            self._proposal_parsed = None
+            # No sections → hide the empty minimap so the proposal takes the
+            # full pane width.
+            prop_minimap.display = False
 
         # --- Plan tab ---
         plan = read_plan(self.session_path, self.node_id)
         if plan is None:
             plan = "*No plan generated.*"
-        self.query_one("#plan_content", Markdown).update(plan)
         self._plan_text = plan
         parsed_plan = parse_sections(plan)
+        plan_content = self.query_one("#plan_content", SectionAwareMarkdown)
+        plan_content.update_content(plan, parsed_plan)
+        plan_minimap = self.query_one("#plan_minimap")
+        plan_minimap.populate(parsed_plan)
         if parsed_plan.sections:
             self._plan_parsed = parsed_plan
-            plan_scroll = self.query_one("#plan_scroll", VerticalScroll)
-            plan_minimap = _InlineSectionMinimap.cls()(id="plan_minimap")
-            plan_scroll.mount(plan_minimap, before="#plan_content")
-            plan_minimap.populate(parsed_plan)
+            plan_minimap.display = True
+        else:
+            self._plan_parsed = None
+            plan_minimap.display = False
 
     def on_section_minimap_section_selected(self, event) -> None:
-        """Scroll the active tab's Markdown to the selected section."""
-        from section_viewer import estimate_section_y
+        """Scroll the selected tab's content to the chosen section's heading.
+
+        Delegates to ``SectionAwareMarkdown.request_scroll_to_section``, which
+        targets the section's actual rendered heading (exact, no overshoot)
+        rather than a line-ratio estimate, and defers until the markdown's
+        async render completes.
+        """
+        from section_viewer import SectionAwareMarkdown
         minimap_id = event.control.id
         if minimap_id == "proposal_minimap":
-            parsed, text, scroll_id, md_id = (
-                self._proposal_parsed,
-                self._proposal_text,
-                "#proposal_scroll",
-                "#proposal_content",
-            )
+            parsed, content_id = self._proposal_parsed, "#proposal_content"
         elif minimap_id == "plan_minimap":
-            parsed, text, scroll_id, md_id = (
-                self._plan_parsed,
-                self._plan_text,
-                "#plan_scroll",
-                "#plan_content",
-            )
+            parsed, content_id = self._plan_parsed, "#plan_content"
         else:
             return
         if parsed is None:
             return
-        scroll = self.query_one(scroll_id, VerticalScroll)
-        md = self.query_one(md_id, Markdown)
-        # Same correction as SectionAwareMarkdown.scroll_to_section: map the
-        # section's line ratio to the *scrollable* range below the minimap
-        # (scroll.max_scroll_y minus the minimap's outer height), not the
-        # markdown's full virtual height. Multiplying by virtual height
-        # over-shoots by ~one viewport because the bottom viewport-worth of
-        # content does not need to scroll past the visible area.
-        total = text.count("\n") + 1
-        minimap_height = float(event.control.outer_size.height)
-        max_scroll = float(getattr(scroll, "max_scroll_y", 0) or 0)
-        body_scroll_range = max(0.0, max_scroll - minimap_height)
-        y_in_body = estimate_section_y(
-            parsed, event.section_name, total, body_scroll_range
-        )
-        if y_in_body is not None:
-            scroll.scroll_to(
-                y=minimap_height + y_in_body, animate=False
-            )
-            # Markdown.can_focus is False, so we focus the parent
-            # VerticalScroll — that's what consumes up/down for scrolling.
-            scroll.focus()
+        content = self.query_one(content_id, SectionAwareMarkdown)
+        content.request_scroll_to_section(event.section_name)
+        # SectionAwareMarkdown is a VerticalScroll → focusing it lets up/down
+        # scroll the content after a section is selected.
+        content.focus()
         event.stop()
 
     def action_focus_minimap(self) -> None:
@@ -3249,9 +3243,26 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         height: 1fr;
     }
 
-    #metadata_scroll, #proposal_scroll, #plan_scroll {
+    #metadata_scroll {
         height: 1fr;
         padding: 1 2;
+    }
+
+    #proposal_pane, #plan_pane {
+        height: 1fr;
+    }
+
+    .node_detail_minimap {
+        width: 32;
+        max-width: 32;
+        height: 1fr;
+        max-height: 100%;
+    }
+
+    #proposal_content, #plan_content {
+        width: 1fr;
+        height: 1fr;
+        padding: 0 1;
     }
 
     #node_detail_buttons {
