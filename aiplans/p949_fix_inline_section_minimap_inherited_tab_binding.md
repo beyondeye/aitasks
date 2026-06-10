@@ -137,3 +137,29 @@ Dropping the class removes the misleading code outright and is the smaller diff.
 Per the shared task-workflow: review/commit (Step 8), then archive via
 `./.aitask-scripts/aitask_archive.sh 949` and `./ait git push` (Step 9). Working
 on the current branch (profile 'fast'), so no worktree/branch cleanup.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly as planned. Deleted the `_InlineSectionMinimap`
+  class from `.aitask-scripts/brainstorm/brainstorm_app.py`; switched
+  `NodeDetailModal.compose` to import `SectionMinimap` alongside the existing lazy
+  `SectionAwareMarkdown` import and yield stock `SectionMinimap(...)` at the two
+  call sites (`#proposal_minimap`, `#plan_minimap`); refreshed the stale
+  `_InlineSectionMinimap` prose reference in
+  `tests/test_brainstorm_node_detail_minimap.py`'s module docstring. Net diff:
+  −28 lines.
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** Chose the "drop the dead class" option over "fix the
+  docstring / override the key". The change is behavior-neutral by construction:
+  Textual merges `BINDINGS` across the MRO, so `_NoTabMinimap(SectionMinimap)`
+  with `BINDINGS = []` was already bind-for-bind identical to stock
+  `SectionMinimap` — and `NodeDetailModal`'s screen-level priority
+  `tab → focus_minimap` binding owns Tab regardless. The class was pure dead
+  complexity wrapping a false "no Tab binding" docstring; removing it is the
+  smaller, honest diff.
+- **Upstream defects identified:** None.
+- **Verification performed:** All 3 pilot tests in
+  `tests/test_brainstorm_node_detail_minimap.py` pass; `py_compile` of
+  `brainstorm_app.py` succeeds; `grep` for `_InlineSectionMinimap`/`_NoTabMinimap`
+  across `.aitask-scripts/` and `tests/` returns no matches.
