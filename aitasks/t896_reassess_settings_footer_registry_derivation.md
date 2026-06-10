@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t848_3]
 issue_type: refactor
 status: Implementing
 labels: [custom_shortcuts, verification]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 12:45
-updated_at: 2026-06-10 12:27
+updated_at: 2026-06-10 12:40
 boardidx: 50
 ---
 
