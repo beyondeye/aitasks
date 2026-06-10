@@ -6,7 +6,7 @@ issue_type: documentation
 status: Ready
 labels: [ait_bridge]
 created_at: 2026-05-24 09:32
-updated_at: 2026-05-24 16:00
+updated_at: 2026-06-10 17:49
 ---
 
 Design doc only: spec how the existing `ait monitor` TUI will be ported to drive a mobile client over the `applink` protocol. Identifies the headless-core extraction seam, maps every existing command verb to a protocol message + permission profile, defines the snapshot data model and refresh cadence, and enumerates the modal-dialog handshakes. Produces no code changes under `.aitask-scripts/monitor/`.
@@ -23,6 +23,22 @@ This task explicitly does NOT modify any code under `.aitask-scripts/monitor/`.
 
 - t822_1 only (uses the JSON envelope from `aidocs/applink/protocol.md` and the permission profile list from `aidocs/applink/permissions.md`)
 - NOT t822_2 (this is parallelizable with the TUI skeleton — `--no-sibling-dep` set at creation)
+
+## Coordination — tmux gateway (t952_3)
+
+t952_3 ("absorb control-mode + re-point monitor") moves the tmux **exec-strategy
+dispatcher** (control-client-when-alive, subprocess-fallback-on-`-1`) and the
+socket-flag ownership into `lib/tmux_exec.py` (`TmuxClient.run_via_control` /
+`run_async_via_control`), threads `AITASKS_TMUX_SOCKET` into the `tmux -C attach`
+spawn, and deletes the `_run_tmux_subprocess` / `_run_tmux_async` helpers from
+`tmux_monitor.py`. When writing the monitor_core design:
+- Treat `lib/tmux_exec.py` as the tmux-exec substrate that `monitor_core`
+  **delegates to** — do NOT design monitor_core to re-own the dispatcher.
+- The physical relocation of `TmuxControlBackend` / `TmuxControlClient` out of
+  `monitor/tmux_control.py` was deliberately deferred from t952_3 to ride with
+  this extraction — monitor_core is their natural home.
+- Re-verify all `tmux_control.py` / `tmux_monitor.py` file:line citations after
+  t952_3 lands; the line numbers shift and the two deleted helpers are gone.
 
 ## Key Files to Create
 
