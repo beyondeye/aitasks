@@ -23,9 +23,9 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     exit 0
 fi
 
-# shellcheck source=lib/require_no_tmux.sh
-. "$SCRIPT_DIR/lib/require_no_tmux.sh"
-require_no_tmux
+# shellcheck source=lib/tmux_isolation.sh
+. "$SCRIPT_DIR/lib/tmux_isolation.sh"
+require_isolated_tmux
 
 # Each test case gets its own scratch dir + server so a server-kill case
 # can't poison the others.

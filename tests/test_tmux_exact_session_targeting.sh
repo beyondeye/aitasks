@@ -19,9 +19,9 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
-# shellcheck source=lib/require_no_tmux.sh
-. "$SCRIPT_DIR/lib/require_no_tmux.sh"
-require_no_tmux
+# shellcheck source=lib/tmux_isolation.sh
+. "$SCRIPT_DIR/lib/tmux_isolation.sh"
+require_isolated_tmux
 
 PASS=0
 FAIL=0

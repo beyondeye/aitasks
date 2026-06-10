@@ -33,9 +33,9 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     exit 0
 fi
 
-# shellcheck source=lib/require_no_tmux.sh
-. "$SCRIPT_DIR/lib/require_no_tmux.sh"
-require_no_tmux
+# shellcheck source=lib/tmux_isolation.sh
+. "$SCRIPT_DIR/lib/tmux_isolation.sh"
+require_isolated_tmux
 
 FIXTURE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ait_kill_smart_XXXXXX")
 trap 'TMUX_TMPDIR="$FIXTURE_DIR" tmux kill-server 2>/dev/null || true; rm -rf "$FIXTURE_DIR"' EXIT
