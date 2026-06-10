@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [config, codeagent]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8_1m
 created_at: 2026-06-10 16:53
-updated_at: 2026-06-10 16:59
+updated_at: 2026-06-10 17:26
+completed_at: 2026-06-10 17:26
 ---
 
 Register the new Claude model **Fable 5** for the `claudecode` code agent (register-only — do NOT promote to default).
