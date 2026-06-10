@@ -146,3 +146,31 @@ the built `self._table`.
 - None identified. The six assertions map 1:1 to the task's bullets, the pilot
   harness is proven to run green under `python3` (textual 8.2.7), and no
   production code changes.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `tests/test_code_viewer_render.py` — 7 Textual-pilot
+  tests across 5 `TestCase` classes that drive a live `CodeViewer` mounted in a
+  minimal `_HostApp`. Coverage: one Rich `Table` row per source line +
+  `_total_lines == len(splitlines())`; 3-column layout + per-line highlight
+  spans; annotation-gutter indexing non-viewport (`_build_start == 0`); gutter
+  indexing in viewport mode with a non-zero `_build_start` (~2230) verifying the
+  `file_idx - _build_start` offset and its off-by-one neighbor; cursor vs
+  selection row styles (cursor wins over selection); wrap/truncate toggle via
+  `cycle_wrap_mode`; and viewport windowing indicators (`row_count ==
+  viewport_size + indicators`, "lines above/below" text). All 7 pass in ~1.3s.
+- **Deviations from plan:** None. Implemented exactly as planned. The task's six
+  bullets map to 7 tests (row-mapping and 3-column/spans split into two tests in
+  one class).
+- **Issues encountered:** None. The plan's pre-verified facts held: the
+  highlighter's split agrees with `splitlines()`; `move_cursor(2399)` on a
+  2500-line file shifts `_viewport_start` to 2230 (non-zero `_build_start`);
+  Rich `Column._cells` is the correct accessor for rendered content cells; and
+  truncate appends `…` past the ~73-col content width at size (80, 24).
+- **Key decisions:** Asserting against widget/Rich internals (`_table`,
+  `Column._cells`, `_build_start`, `_extra_cell`, `_row_style`) is intentional —
+  this is a render-contract regression test for the t959 refactor, so pinning
+  those internals is the goal, not incidental coupling. Inserted both
+  `codebrowser/` and `lib/` on `sys.path` for explicitness even though
+  `code_viewer.py` self-inserts `lib/` at import.
+- **Upstream defects identified:** None.
