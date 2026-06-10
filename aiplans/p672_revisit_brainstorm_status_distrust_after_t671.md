@@ -182,3 +182,35 @@ Assessed on two dimensions independently.
 None. Both dimensions are Low; the kept one-shot apply + manual ctrl+r retry are
 themselves the defensive fallback, and no before/after mitigation task is
 warranted.
+
+## Final Implementation Notes
+
+- **Actual work done:** Rewrote the `elif status in ("Error", "Aborted"):`
+  branch of `_poll_initializer` in
+  `.aitask-scripts/brainstorm/brainstorm_app.py` (Candidate 1, as decided).
+  Removed the 30 s slow-watcher reinstall (`set_interval(30, …)`), set
+  `self._initializer_done = True`, added a try/except stop of
+  `#initializer_polling_indicator` (matching the `Completed` branch), kept the
+  one-shot `_load_existing_session()` + `_try_apply_initializer_if_needed()`
+  apply attempt, rewrote the comment to the t671 rationale, and dropped the
+  now-false "Watching for output;" clause from the error toast. Net: +14/-5
+  lines, one file.
+- **Deviations from plan:** None. Implemented exactly as the approved plan
+  specified.
+- **Issues encountered:** None.
+- **Key decisions:** Candidate 2 (`n000_needs_apply` four-delimiter gate) left
+  untouched — confirmed during exploration that it is a genuine
+  content-completeness guard (rejects the registration placeholder and
+  mid-stream partial writes), not a status-distrust workaround, and its
+  docstring already carries no t653_1/t670 framing. A `status == "Completed"`
+  gate would regress (would not catch Completed-but-malformed output). The
+  slow-watcher comment was the only distrust-framing comment in either file, so
+  the task's "drop t653_1/t670 framing" step is satisfied by the Candidate 1
+  rewrite alone.
+- **Upstream defects identified:** None.
+- **Verification:** `python3 -m py_compile` OK; slow-watcher grep returns no
+  matches; `tests/test_brainstorm_session.py` (14 tests) OK;
+  `tests/test_apply_initializer_output.sh` 8/8;
+  `tests/test_apply_initializer_tolerant.sh` 15/15. The TUI timer/indicator
+  behaviour itself is not unit-testable without a live crew worktree (noted
+  manual).
