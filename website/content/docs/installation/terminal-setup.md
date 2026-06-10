@@ -69,6 +69,26 @@ ait ide --session project-b
 
 Or, better, configure a distinct `tmux.default_session` per project in each project's `aitasks/metadata/project_config.yaml`. Then a plain `ait ide` in each project root just works.
 
+## Surviving a compositor restart on Linux/Wayland
+
+All `ait`-managed sessions for a project share **one** tmux server, so if that server is torn down, every session inside it is lost at once. On Linux desktops that launch graphical apps through transient systemd user scopes — most Wayland compositors (Hyprland, Sway) and session managers such as uwsm — that can happen when your graphical session restarts.
+
+When you start the server with [`ait ide`](#recommended-workflow--ait-ide), the framework already guards against this: it spawns the server inside a persistent systemd-user service under `session.slice`, which survives a compositor restart, an `app.slice` teardown, or a logout *of the graphical session*, and ends only at full logout. No action is needed on your part.
+
+The gap is a server you start **yourself** — for example from a compositor keybind or autostart entry that runs `tmux new-session …` directly. That server inherits your graphical session's transient `app.slice` scope; when the compositor restarts (or that scope is otherwise torn down), the scope dies as a unit and takes the tmux server — and all its sessions — with it.
+
+To give a self-launched server the same survival guarantee, wrap the tmux invocation in a persistent systemd-user service under `session.slice`:
+
+```bash
+systemd-run --user --slice=session.slice \
+    --property=Type=forking --property=KillMode=none --collect \
+    -- tmux new-session -d -s aitasks -c /path/to/your/project -n monitor 'ait monitor'
+```
+
+`--slice=session.slice` is the load-bearing flag — it moves the server out of the transient `app.slice` scope into a unit that survives compositor / `app.slice` teardown and ends only at full logout. `--property=Type=forking` matches tmux's double-fork so systemd tracks the daemon, and `--property=KillMode=none` keeps systemd from signalling the server when the launching command returns (tmux owns its own lifecycle via `kill-server`). Run it once, then attach as usual with `ait ide` or `tmux attach -t aitasks`.
+
+> **Omarchy / uwsm users:** uwsm launches apps into `app.slice`, so a `tmux-spawn` keybind that runs `tmux` directly inherits that scope and dies with the compositor. Point the keybind at the `systemd-run --user --slice=session.slice` form above — or simply start your session with `ait ide`, which already does this — so the server persists across compositor restarts.
+
 ## Minimal / non-tmux workflow
 
 If you cannot or do not want to use tmux, aitasks still runs. Open your terminal, `cd` to the project, and invoke each `ait` command directly in whichever terminal window or tab you prefer:
