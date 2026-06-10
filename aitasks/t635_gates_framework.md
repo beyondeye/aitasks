@@ -12,4 +12,35 @@ boardcol: now
 boardidx: 40
 ---
 
-this the parent task for implementing the aitasks gate framework: see home/ddt/Work/aitasks/aidocs/gates/
+Parent task for implementing the aitasks gate framework AND its gradual
+integration into the existing workflows (aitask-pick / task-workflow, TUIs,
+autonomous lanes).
+
+## Design docs (read in this order)
+
+- `aidocs/gates/integration-roadmap.md` — **sequencing + locked integration
+  decisions (D1–D8)**; maps every phase to the children below. The child
+  decomposition mirrors its table exactly.
+- `aidocs/gates/aitask-gate-framework.md` — the substrate contract: data
+  model, marker format, registry, orchestrator, verifier contract, remote
+  projection (Appendix A).
+- `aidocs/gates/risk-evaluation-gate-seam.md` — ready-made first conversion
+  (t635_13, formerly standalone t912).
+
+## Phases → children
+
+1. **Ledger substrate** (no behavior change): t635_1, t635_2
+2. **Re-entry** (priority #1): t635_3 (dependency-unblock design — blocks
+   t635_4), t635_4 (gate-guarded archival), t635_5 (ledger-driven resume),
+   t635_6 (aitask-resume skill), t635_7 (gate-aware aitask-pick)
+3. **TUI visibility**: t635_8 (Python ledger parser), t635_9 (board
+   In-Flight action-grouped view), t635_10 (monitor gate column)
+4. **Orchestrator + first conversions**: t635_11 (orchestrator + verifier
+   contract), t635_12 (build/tests machine gates), t635_13 (risk-evaluation
+   gate, ex-t912), t635_14 (profile→gate-declaration unification)
+5. **Async human gates + remote projection**: t635_15, t635_16
+6. **Autonomous-lane rigor**: t635_17
+
+Children carry explicit `depends:` (sibling auto-deps disabled) matching the
+roadmap's dependency table — the phases overlap deliberately (e.g. t635_8
+only needs t635_1).
