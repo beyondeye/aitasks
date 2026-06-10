@@ -241,3 +241,56 @@ and merge.
 - None. t952 (pre-existing, already created) will later centralize the duplicated
   systemd-run logic; it is a planned refactor, not a risk-mitigation follow-up
   spawned by this task.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned in
+  `.aitask-scripts/lib/agent_launch_utils.py`:
+  1. `_systemd_user_available()` — Python mirror of t943's
+     `ait_systemd_user_available` (honors `AIT_NO_SYSTEMD_RUN`; accepts
+     `running`/`degraded`).
+  2. `_persistent_new_session_prefix()` — `systemd-run --user
+     --slice=session.slice --unit=ait-tmux-<esc>-<pid>-<rand> Type=forking
+     KillMode=none --collect --quiet --` prefix, or `None` when systemd --user
+     is unavailable. Unit uniqueness via `os.getpid()` + `os.urandom(3).hex()`
+     (no new import).
+  3. `_new_session_tmux_argv()` — gates on **server-existence**
+     (`get_tmux_sessions()` empty ⟺ genuine creation): wraps creation in the
+     persistent service, else setsid, else plain; an attach uses today's plain
+     argv. Explicit `-c (cwd or os.getcwd())` on the creation path preserves
+     the launcher cwd once the server is detached.
+  4. `launch_in_tmux()` `new_session` branch now delegates argv construction to
+     the builder; the `Popen`/`wait`, stderr/return-code error contract,
+     `_query_first_pane_pid` capture, and `TMUX` switch-client block are
+     unchanged. `new_window`/`split` branches untouched.
+  Tests: `tests/test_launch_in_tmux_pane_pid.py` gained
+  `TestNewSessionPersistentSpawn` (attach / systemd-wrap / setsid / plain / cwd)
+  and `TestSystemdUserAvailable` (escape hatch).
+- **Deviations from plan:** None of substance. As discussed and user-approved
+  during planning, the precheck uses server-existence
+  (`bool(get_tmux_sessions())`) rather than a literal `tmux has-session -t
+  =<session>`, to faithfully implement the task's "genuine SERVER creation, not
+  an attach" goal and avoid spurious transient units when a server is already
+  up.
+- **Issues encountered:** The new server-existence precheck inserts a
+  `get_tmux_sessions()` call (which uses `subprocess.run`, internally a
+  context-managed `Popen`) before the branch's own `Popen`. The pre-existing
+  `TestLaunchInTmuxNewSession.test_failure_returns_error` patched only `Popen`
+  with a fake lacking the context-manager protocol, so the new
+  `subprocess.run` tripped a `TypeError`. Fixed by patching
+  `get_tmux_sessions` → `["x"]` in that test (it exercises the plain attach
+  path, so no real `list-sessions` is wanted anyway).
+- **Key decisions:** Replicated the systemd-run logic in Python rather than
+  shelling out to the bash helper — keeps the file's existing
+  direct-`subprocess` idiom, preserves exact `cwd=None` semantics, and stays
+  unit-testable with the existing mock style. Duplication is temporary by
+  design: t952 will centralize it.
+- **Upstream defects identified:** None.
+- **Verification run:** `python3 tests/test_launch_in_tmux_pane_pid.py` → 23/23
+  OK. Live (`AIT_NO_SYSTEMD_RUN=1`, isolated `TMUX_TMPDIR`, no server): genuine
+  creation took the setsid rung, session created, pane pid alive. Untouched
+  bash suite `tests/test_tmux_persistent_scope.sh` → 9/9. The real systemd-run
+  rung was not driven live (it spawns on the default socket and would touch the
+  user's real tmux server); its load-bearing `session.slice` placement is
+  already proven by that bash suite's Tier-2 with the identical flags this
+  Python prefix replicates.
