@@ -1,13 +1,17 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [tmux]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 09:31
-updated_at: 2026-06-10 11:31
+updated_at: 2026-06-10 11:50
+completed_at: 2026-06-10 11:50
 ---
 
 ## Origin
