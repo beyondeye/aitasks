@@ -531,6 +531,96 @@ def _query_first_pane_pid(session: str, window: str) -> int | None:
     return _parse_pane_pid(result.stdout)
 
 
+def _systemd_user_available() -> bool:
+    """Whether a usable ``systemd --user`` manager is reachable for systemd-run.
+
+    Python mirror of ``ait_systemd_user_available`` in ``terminal_compat.sh``
+    (t943). Honors the ``AIT_NO_SYSTEMD_RUN`` test/escape hatch and accepts a
+    ``running`` or ``degraded`` user manager.
+    """
+    if os.environ.get("AIT_NO_SYSTEMD_RUN"):
+        return False
+    if shutil.which("systemd-run") is None or shutil.which("systemctl") is None:
+        return False
+    if not os.environ.get("XDG_RUNTIME_DIR"):
+        return False
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-system-running"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+    return result.returncode == 0 or result.stdout.strip() == "degraded"
+
+
+def _persistent_new_session_prefix(session: str) -> list[str] | None:
+    """systemd-run argv prefix that lands a new tmux SERVER in a persistent
+    ``session.slice`` service, or ``None`` when ``systemd --user`` is
+    unavailable.
+
+    Python mirror of the systemd-run rung of ``ait_tmux_new_session_persistent``
+    (t943): the new server escapes the transient ``app.slice`` scope so a
+    compositor / ``app.slice`` teardown can no longer reap it (t956). Socket
+    unchanged (default). The returned prefix is meant to be concatenated with a
+    ``tmux new-session -d …`` argv.
+    """
+    if not _systemd_user_available():
+        return None
+    safe = "session"
+    try:
+        esc = subprocess.run(
+            ["systemd-escape", "--", session],
+            capture_output=True, text=True, timeout=5,
+        )
+        if esc.returncode == 0 and esc.stdout.strip():
+            safe = esc.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    # --slice=session.slice is the load-bearing flag (escapes app.slice).
+    # Type=forking matches tmux's double-fork; KillMode=none keeps systemd from
+    # signalling the server cgroup when the launching transaction finishes;
+    # --collect GCs the unit in the benign loser-of-a-race case.
+    unit = f"ait-tmux-{safe}-{os.getpid()}-{os.urandom(3).hex()}"
+    return [
+        "systemd-run", "--user", "--slice=session.slice", f"--unit={unit}",
+        "--property=Type=forking", "--property=KillMode=none",
+        "--collect", "--quiet", "--",
+    ]
+
+
+def _new_session_tmux_argv(
+    session: str, window: str, command: str,
+    cwd_args: list[str], cwd: str | None,
+) -> list[str]:
+    """Build the argv that creates a detached tmux session.
+
+    When this call genuinely creates the tmux SERVER (no server running yet),
+    wrap it in a persistent ``session.slice`` systemd-user service so a
+    compositor / ``app.slice`` teardown can't reap it (t956, mirroring t943's
+    ``ait_tmux_new_session_persistent``), with a setsid → plain-tmux fallback
+    ladder. When a server is already running this is an *attach*, not a server
+    creation, so today's plain invocation is used unchanged.
+    """
+    base = ["tmux", "new-session", "-d", "-s", session, "-n", window]
+    if get_tmux_sessions():
+        # A tmux server is already running → new-session attaches a session to
+        # it (no server creation). Preserve today's default-cwd behavior — no
+        # forced -c when cwd is None.
+        return base + cwd_args + [command]
+    # No server running → this new-session creates it. The systemd-run / setsid
+    # rungs sever the launcher relationship, so pass an explicit -c: once
+    # detached, the default "inherit the launcher's cwd" no longer holds, and
+    # ``cwd or os.getcwd()`` reproduces today's inherited-cwd behavior.
+    created = base + ["-c", cwd or os.getcwd(), command]
+    prefix = _persistent_new_session_prefix(session)
+    if prefix is not None:
+        return prefix + created
+    if shutil.which("setsid"):
+        return ["setsid"] + created
+    return created
+
+
 def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, str | None]:
     """Launch a command in tmux according to the given config.
 
@@ -542,15 +632,14 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
     """
     cwd_args = ["-c", config.cwd] if config.cwd else []
     if config.new_session:
-        # Create new session with a window, then switch to it.
-        # ``new-session -d`` does not support ``-P``, so query pane_pid
-        # from list-panes after creation.
-        tmux_cmd = [
-            "tmux", "new-session", "-d",
-            "-s", config.session, "-n", config.window,
-            *cwd_args,
-            command,
-        ]
+        # Create new session with a window, then switch to it. When this is the
+        # first session (no server yet), the server is spawned inside a
+        # persistent session.slice service so it survives an app.slice teardown
+        # (t956) — see _new_session_tmux_argv. ``new-session -d`` does not
+        # support ``-P``, so query pane_pid from list-panes after creation.
+        tmux_cmd = _new_session_tmux_argv(
+            config.session, config.window, command, cwd_args, config.cwd,
+        )
         proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE)
         proc.wait()
         if proc.returncode != 0:
