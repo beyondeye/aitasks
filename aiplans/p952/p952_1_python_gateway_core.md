@@ -102,3 +102,47 @@ concern is real); spawn primitives `_run_tmux_async`/`_run_tmux_subprocess` @
   `tests/test_launch_in_tmux_pane_pid.py`, `tests/test_tmux_exact_session_targeting.sh`.
 
 See **Step 9 (Post-Implementation)** of the task-workflow for archival.
+
+## Final Implementation Notes
+- **Actual work done:** Added `.aitask-scripts/lib/tmux_exec.py` (`TmuxClient` +
+  module-level `tmux_socket_args` / `session_target` / `window_target` /
+  `_systemd_user_available`) and `tests/test_tmux_exec.py` (25 tests). Pure
+  addition — no call sites migrated, no control-mode. `run`/`run_async`/`spawn`
+  prepend `["tmux", *socket_args]`; socket args cached once at construction from
+  `AITASKS_TMUX_SOCKET`. `new_session_argv` ports the systemd-run→setsid→plain
+  ladder faithfully and routes its server-existence probe through the gateway's
+  own `run(["list-sessions", ...])`.
+- **Deviations from plan:** `new_session_argv` keeps the original
+  `_new_session_tmux_argv(session, window, command, cwd_args, cwd)` signature
+  (not the plan's shorthand `(session, root, window, cmd)`) so it is a literal
+  drop-in for t952_2's migration. `_systemd_user_available` was copied into the
+  gateway (not imported from `agent_launch_utils`) to keep the new module
+  self-contained — both copies coexist until t952_2/t952_3 migrate callers; the
+  duplicate is intentional and transient.
+- **Issues encountered:** The live integration test initially failed under a
+  private `TMUX_TMPDIR`: `systemd-run --user` spawns the server in a transient
+  unit that does NOT inherit `TMUX_TMPDIR`, so the server landed on a different
+  tmpdir than the isolated `-L` socket the test probed. Fixed by setting
+  `AIT_NO_SYSTEMD_RUN=1` in the test env to force the env-inheriting setsid/plain
+  rung. (Drained the `Popen` stderr pipe to clear a `ResourceWarning`.)
+- **Key decisions:** Socket via `-L` (name) not `-S` (path) so it composes with
+  tmux's standard tmpdir resolution and the test isolation harness. Socket read
+  once at construction (never per-call) to protect the monitor fallback hot path.
+- **Upstream defects identified:** None. (Forward-looking note, not a defect: the
+  `systemd-run` rung threads the socket *name* via `-L` in argv but not the
+  socket *location* — `TMUX_TMPDIR` is an env var systemd-run won't propagate.
+  In production this is moot because `TMUX_TMPDIR` is not customized and the
+  default tmpdir is shared. A future dedicated-socket task that customizes the
+  tmpdir/path must pass `--setenv=TMUX_TMPDIR` (or use `-S`) on the systemd-run
+  rung. See **Notes for sibling tasks**.)
+- **Notes for sibling tasks:** (1) The contract is `from tmux_exec import
+  TmuxClient`; methods take args WITHOUT the leading `"tmux"`. (2) t952_2: swap
+  `subprocess.run(["tmux", ...])` → `client.run([...])`, `Popen(["tmux", ...])`
+  → `client.spawn([...])`, and `launch_in_tmux`'s new-session branch →
+  `client.new_session_argv(...)`; the `agent_launch_utils` originals
+  (`_new_session_tmux_argv`, `_persistent_new_session_prefix`,
+  `_systemd_user_available`) can then be deleted. (3) t952_3: when threading the
+  socket into `tmux -C attach`, reuse `tmux_socket_args()` / a `TmuxClient`
+  instance so the value matches; mind the systemd-run/`TMUX_TMPDIR` note above if
+  a custom tmpdir is ever introduced. (4) t952_4 (shell mirror) must read the
+  same `AITASKS_TMUX_SOCKET` var, `-L` form.
