@@ -44,6 +44,11 @@ framework:
    upstream-defect tasks, risk mitigations) — not pass/fail checks; their
    "pass" is "considered, and an artifact was created or explicitly waived".
 
+Notably **absent** from today's pseudo-gates: a documentation checkpoint.
+Nothing in task-workflow asks "do the docs need updating for this change?".
+The framework's `docs_updated` gate fills this gap as a *new* gate rather
+than a conversion (t635_19).
+
 ## Locked decisions (design session 2026-06-10)
 
 | # | Decision | Rejected alternatives |
@@ -110,6 +115,11 @@ Each phase is independently shippable and leaves the framework consistent.
   runs → machine gates).
 - Convert **risk evaluation** per [[risk-evaluation-gate-seam]] (t635_13,
   formerly t912).
+- Ship the **`docs_updated` gate** (t635_19) — a new gate, not a
+  conversion: the documentation checkpoint missing from today's
+  task-workflow. Change-scoped (`skip` when the diff touches no
+  doc-relevant surface, distinct from `pass`); doc roots come from project
+  config, not hardcoded.
 - **Configuration unification principle** lands here: profiles stop being the
   *runtime* toggle for converted checkpoints. Instead, profiles (and
   `default_gates`) choose which gates get **declared** in `gates:` at
@@ -132,6 +142,25 @@ Each phase is independently shippable and leaves the framework consistent.
   non-skippable verify step; stop at pending-human without escalating.
 - Archive guard profile-enforced; `auto_complete_on_all_gates_pass` for the
   autonomous lane.
+
+### Documentation track (cross-phase)
+
+The gates work is a comprehensive redesign of how tasks are worked and must
+be documented on the website across every affected surface — concepts,
+workflows, skills, TUIs, commands, configuration:
+
+- **Incremental**: every child that lands a user-facing surface updates its
+  own website pages in the same task (current-state-only rule — never
+  document unlanded behavior).
+- **Comprehensive sweep** (t635_18): new "Gates" concept page, new workflow
+  pages (working with gates / resuming in-flight tasks / human review
+  sign-off), `aitask-resume` + updated aitask-pick skill pages, board
+  In-Flight view + monitor column TUI docs, `ait gates`/`ait gate` command
+  reference, `gates.yaml` + profile-declaration configuration reference.
+- **Permanent enforcement** (t635_19): once the `docs_updated` gate ships,
+  documentation drift becomes a gated checkpoint — including for the
+  remaining t635 children themselves (the framework dogfooding its own
+  documentation gate).
 
 ## Open design problems
 
@@ -182,6 +211,8 @@ the doc's opt-in stance and must be decided when t635_2 is planned.
 | t635_15 async human gates | 5 | 11 | file-touch signals, `ait gate pass`, headless hybrid switch |
 | t635_16 remote projection (Appendix A) | 5 | 15 | Label/comment mirror, comment signals; needs dispatcher backends |
 | t635_17 autonomous-lane rigor | 6 | 12, 15 | pickrem/pickweb gate verify step, enforced archive guard |
+| t635_18 website documentation | docs | 7, 9, 10, 12, 14 | Comprehensive website sweep: concepts, workflows, skills, TUIs, commands, config |
+| t635_19 docs_updated gate | 4 | 11 | New documentation gate (no pseudo-gate ancestor); change-scoped skip |
 
 ## See also
 
