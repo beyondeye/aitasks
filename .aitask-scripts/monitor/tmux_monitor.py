@@ -39,7 +39,10 @@ from agent_launch_utils import (  # noqa: E402
     tmux_window_target,
 )
 
-from .prompt_patterns import PromptPattern, all_patterns
+try:
+    from .prompt_patterns import PromptPattern, all_patterns
+except ImportError:  # imported top-level (tests put MONITOR_DIR on PYTHONPATH)
+    from prompt_patterns import PromptPattern, all_patterns  # noqa: E402
 
 
 class PaneCategory(Enum):

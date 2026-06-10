@@ -52,7 +52,7 @@ print('SWITCH_CALLABLE:' + str(callable(u.switch_to_pane_anywhere)))
 print('SWITCH_PARAMS:' + ','.join(inspect.signature(u.switch_to_pane_anywhere).parameters))
 ")
 mapfile -t lines <<<"$out"
-assert_eq "AitasksSession fields" "FIELDS:project_name,project_root,session" "${lines[0]:-}"
+assert_eq "AitasksSession fields" "FIELDS:is_live,is_stale,project_name,project_root,session" "${lines[0]:-}"
 assert_eq "AitasksSession is frozen" "FROZEN:True" "${lines[1]:-}"
 assert_eq "discover_aitasks_sessions callable" "DISCOVER_CALLABLE:True" "${lines[2]:-}"
 assert_eq "switch_to_pane_anywhere callable" "SWITCH_CALLABLE:True" "${lines[3]:-}"
