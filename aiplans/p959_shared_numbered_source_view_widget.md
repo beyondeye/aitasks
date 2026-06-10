@@ -260,11 +260,11 @@ CSS targets `#code_viewer`/`#code_display` — both preserved) or
 ### Code-health risk: medium
 - `CodeViewer` is load-bearing and PyPy-routed; moving its render loop into a base
   and unifying `_highlighted_lines`→`_lines` touches the core render path ·
-  severity: medium · → mitigation: codeviewer_render_regression_tests
+  severity: medium · → mitigation: t960
 - The annotation-gutter precompute moves from inline-in-`_rebuild_display` to a
   `_prepare_build` hook + per-row `_extra_cell` lookup; an off-by-one in the
   `file_idx - _build_start` index would mis-render the gutter · severity: medium
-  · → mitigation: codeviewer_render_regression_tests
+  · → mitigation: t960
 
 ### Goal-achievement risk: low
 - Goal (shared base + adopt in both, 5 enumerated hooks) is precise; base defaults
@@ -272,7 +272,7 @@ CSS targets `#code_viewer`/`#code_display` — both preserved) or
   severity: low · → mitigation: None needed
 
 ### Planned mitigations
-- timing: after | name: codeviewer_render_regression_tests | type: test | priority: medium | effort: medium | addresses: code-health (render path moved into base + gutter precompute off-by-one) | desc: Render-level regression test for CodeViewer (viewport above/below indicators, annotation-gutter cell content, cursor/selection row styles, wrap-vs-truncate) — the codebrowser side has only the control-chars test today
+- timing: after | name: t960 (codeviewer_render_regression_tests) | type: test | priority: medium | effort: medium | addresses: code-health (render path moved into base + gutter precompute off-by-one) | desc: Render-level regression test for CodeViewer (viewport above/below indicators, annotation-gutter cell content, cursor/selection row styles, wrap-vs-truncate) — the codebrowser side has only the control-chars test today
 
 ## Verification
 - `python tests/test_brainstorm_proposal_preview.py` — all 19 green (one-row-per-

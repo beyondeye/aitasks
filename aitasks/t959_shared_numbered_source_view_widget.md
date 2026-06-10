@@ -1,13 +1,17 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: refactor
 status: Implementing
 labels: [ait_brainstorm]
+risk_mitigation_tasks: [960]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 10:04
-updated_at: 2026-06-10 10:07
+updated_at: 2026-06-10 10:36
 ---
 
 Extract a shared "reflow-stable, syntax-highlighted, line-numbered source view" base widget and adopt it in both the codebrowser `CodeViewer` and the brainstorm Actions-tab numbered proposal view (`_NumberedProposal`, added in t954).
