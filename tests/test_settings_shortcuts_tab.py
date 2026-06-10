@@ -35,7 +35,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "settings"))
 
 import yaml  # noqa: E402
-from textual.widgets import DataTable  # noqa: E402
+from textual.widgets import DataTable, Input  # noqa: E402
 
 import keybinding_registry  # noqa: E402
 import shortcut_persist  # noqa: E402
@@ -152,7 +152,7 @@ class PopulateTests(_Fixture):
 
 
 class NavigationTests(_Fixture):
-    def test_arrow_nav_between_tab_title_and_table(self):
+    def test_arrow_nav_between_tab_title_search_and_table(self):
         async def runner():
             app = SettingsApp()
             async with app.run_test(size=(140, 45)) as pilot:
@@ -160,15 +160,46 @@ class NavigationTests(_Fixture):
                 await pilot.press("s")           # switch to Shortcuts tab
                 await pilot.pause()
                 table = app.query_one("#shortcuts_table", DataTable)
+                search = app.query_one("#shortcuts_search", Input)
                 self.assertIs(app.focused, table)        # table focused on entry
-                await pilot.press("up")                  # row 0 -> tab title
-                self.assertIsNot(app.focused, table)
+                await pilot.press("up")                  # row 0 -> search box
+                self.assertIs(app.focused, search)
+                await pilot.press("up")                  # search box -> tab title
                 self.assertIn("Tabs", type(app.focused).__name__)
-                await pilot.press("down")                # tab title -> table row 0
+                await pilot.press("down")                # tab title -> search box
+                self.assertIs(app.focused, search)
+                await pilot.press("down")                # search box -> table row 0
                 self.assertIs(app.focused, table)
                 self.assertEqual(table.cursor_row, 0)
                 await pilot.press("down")                # row 0 -> row 1 (in-table)
                 self.assertEqual(table.cursor_row, 1)
+        self._run(runner())
+
+    def test_search_box_filters_table(self):
+        async def runner():
+            app = SettingsApp()
+            async with app.run_test(size=(140, 45)) as pilot:
+                await pilot.pause()
+                table = app.query_one("#shortcuts_table", DataTable)
+                full_count = table.row_count
+                # Pick a real action_id to filter for, then type it.
+                rk = next(iter(table.rows))
+                action_id = str(table.get_row(rk)[1])
+                search = app.query_one("#shortcuts_search", Input)
+                # Setting .value posts Input.Changed, driving the live filter.
+                search.value = action_id
+                await pilot.pause()
+                table = app.query_one("#shortcuts_table", DataTable)
+                self.assertLessEqual(table.row_count, full_count)
+                self.assertGreaterEqual(table.row_count, 1)
+                # The targeted action survives the filter.
+                actions = {str(table.get_row(r)[1]) for r in table.rows}
+                self.assertIn(action_id, actions)
+                # Clearing restores the full list.
+                search.value = ""
+                await pilot.pause()
+                table = app.query_one("#shortcuts_table", DataTable)
+                self.assertEqual(table.row_count, full_count)
         self._run(runner())
 
     def test_check_action_gates_shortcut_bindings_to_tab(self):

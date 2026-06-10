@@ -23,6 +23,7 @@ from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin, render_label_cfg  # noqa: E402
 from agent_launch_utils import detect_git_tuis  # noqa: E402
 
+import fuzzy_filter  # noqa: E402
 import keybinding_registry  # noqa: E402
 import shortcut_persist  # noqa: E402
 import shortcut_scopes  # noqa: E402
@@ -1237,6 +1238,14 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
        itself so the outer container must not add a second scrollbar. */
     #shortcuts_content { height: 1fr; }
     #shortcuts_table { height: 1fr; }
+    /* Filter box: an accent rounded border + titled label so it reads as its
+       own search field rather than blending into the dim hint text above it. */
+    #shortcuts_search {
+        border: round $accent;
+        border-title-color: $accent;
+        height: 3;
+        margin-bottom: 1;
+    }
 
     /* Verify build multi-line editor */
     #edit_textarea { height: 10; min-height: 5; max-height: 15; }
@@ -1317,6 +1326,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._tmux_tab_rc: int = 0  # counter snapshot for tmux tab widgets
         self._profiles_tab_rc: int = 0  # counter snapshot for profiles tab widgets
         self._shortcuts_swept: bool = False  # global scope sweep runs once
+        self._shortcuts_query: str = ""  # fuzzy filter for the Shortcuts tab
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1405,6 +1415,11 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _focus_first_in_tab(self, tab_id: str) -> None:
         """Focus the first focusable widget in the given tab pane."""
         try:
+            # Shortcuts tab: land on the table (table-first nav convention); the
+            # filter box above it is reachable via ↑ or a click.
+            if tab_id == "tab_shortcuts":
+                self.query_one("#shortcuts_table", DataTable).focus()
+                return
             pane = self.query_one(f"#{tab_id}", TabPane)
             focusable = [
                 w for w in pane.query("*")
@@ -1438,6 +1453,21 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     return
             except Exception:
                 pass
+
+        # The Shortcuts-tab filter box joins the vertical focus chain: ↓ drops
+        # into the table, ↑ returns to the tab bar. Other keys fall through to
+        # the Input guard below, so typing still filters.
+        if isinstance(focused, Input) and focused.id == "shortcuts_search":
+            if event.key == "down":
+                self.query_one("#shortcuts_table", DataTable).focus()
+                event.prevent_default()
+                event.stop()
+                return
+            if event.key == "up":
+                self.query_one(TabbedContent).query_one("Tabs").focus()
+                event.prevent_default()
+                event.stop()
+                return
 
         # Guard: skip all custom handling when an Input has focus
         if isinstance(focused, Input):
@@ -3137,6 +3167,11 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 "affected TUI is restarted.[/dim]",
                 classes="section-hint",
             ))
+            search = Input(
+                placeholder="Type to filter…", id="shortcuts_search",
+            )
+            search.border_title = "Filter"
+            container.mount(search)
             table = DataTable(
                 id="shortcuts_table", cursor_type="row", zebra_stripes=True,
             )
@@ -3152,13 +3187,31 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         table.clear()  # keeps columns
         overrides = keybinding_registry.load_user_overrides()
-        for scope, action_id, default_key, label in keybinding_registry.iter_all_bindings():
-            current = keybinding_registry.resolve_key(scope, action_id) or default_key
-            origin = "user" if action_id in overrides.get(scope, {}) else "default"
+        # Resolve current keys up front so the fuzzy filter can match on them.
+        rows = [
+            (
+                scope, action_id, default_key, label,
+                keybinding_registry.resolve_key(scope, action_id) or default_key,
+                "user" if action_id in overrides.get(scope, {}) else "default",
+            )
+            for scope, action_id, default_key, label
+            in keybinding_registry.iter_all_bindings()
+        ]
+        rows = fuzzy_filter.rank(
+            self._shortcuts_query, rows,
+            key=lambda r: f"{r[1]} {r[3]} {r[4]} {r[2]} {r[0]}",
+        )
+        for scope, action_id, default_key, label, current, origin in rows:
             table.add_row(
                 scope, action_id, current, default_key, label, origin,
                 key=f"{scope}\x00{action_id}",
             )
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "shortcuts_search":
+            return
+        self._shortcuts_query = event.value
+        self._populate_shortcuts_tab()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.data_table.id != "shortcuts_table":

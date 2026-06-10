@@ -24,8 +24,9 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Footer, Label
+from textual.widgets import DataTable, Footer, Input, Label
 
+import fuzzy_filter
 import keybinding_registry
 import shortcut_persist
 from key_capture_screen import KeyCaptureScreen
@@ -43,6 +44,9 @@ class ShortcutEditorModal(ModalScreen[None]):
         Binding("r", "revert_row", "Revert edit"),
         Binding("d", "reset_default", "Reset to default"),
         Binding("s", "save", "Save"),
+        # Fires only from the search box: the table consumes ↓ itself when
+        # focused, so this moves focus from the filter into the results.
+        Binding("down", "focus_table", "To list", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -68,6 +72,13 @@ class ShortcutEditorModal(ModalScreen[None]):
         width: 100%;
         margin-bottom: 1;
     }
+    #se_search {
+        width: 100%;
+        height: 3;
+        margin-bottom: 1;
+        border: round $accent;
+        border-title-color: $accent;
+    }
     #se_table {
         height: auto;
         max-height: 70%;
@@ -82,16 +93,21 @@ class ShortcutEditorModal(ModalScreen[None]):
         self._defaults = {(s, a): dk for s, a, dk, _ in self._rows}
         # pending edits keyed by (scope, action_id) -> new_key:str | _CLEAR
         self._pending: dict[tuple[str, str], object] = {}
+        # current fuzzy-filter query (empty = show every row)
+        self._query = ""
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
         with Container(id="shortcut_editor_dialog"):
             yield Label(f"Shortcuts — {self._scope}", id="se_title")
             yield Label(
-                "Enter: rebind  •  r: revert edit  •  d: reset to default  "
-                "•  s: save  •  Esc: cancel",
+                "Type to filter  •  ↓/Enter: to list  •  Enter: rebind  •  "
+                "r: revert edit  •  d: reset to default  •  s: save  •  Esc: cancel",
                 id="se_help",
             )
+            search = Input(placeholder="Type to filter…", id="se_search")
+            search.border_title = "Filter"
+            yield search
             yield DataTable(id="se_table", cursor_type="row", zebra_stripes=True)
         yield Footer()
 
@@ -99,22 +115,60 @@ class ShortcutEditorModal(ModalScreen[None]):
         table = self.query_one("#se_table", DataTable)
         table.add_columns("Scope", "Action", "Key", "Default", "Label", "Origin")
         self._refresh_table()
-        table.focus()
+        # Focus the filter box so the user can start narrowing immediately;
+        # ↓/Enter moves into the table to rebind.
+        self.query_one("#se_search", Input).focus()
 
     # -------------------------------------------------------------- table build
+    def _candidate(self, row) -> str:
+        """Searchable text for a row — action id, label, the effective key, the
+        default key, and the scope, so the filter matches any of them."""
+        scope, action_id, default_key, label = row
+        eff = self._effective_key(scope, action_id, default_key)
+        return f"{action_id} {label} {eff} {default_key} {scope}"
+
+    def _visible_rows(self):
+        """Rows to display: all of them when the filter is empty, otherwise the
+        fuzzy-ranked subset (best match first). Display-only — collision and
+        rebind logic always scan the full ``self._rows``."""
+        if not self._query.strip():
+            return self._rows
+        return fuzzy_filter.rank(self._query, self._rows, key=self._candidate)
+
     def _refresh_table(self) -> None:
         table = self.query_one("#se_table", DataTable)
         # Preserve cursor position across a rebuild.
         cursor = table.cursor_row
         table.clear(columns=False)
         colliding = self._colliding_pairs()
-        for scope, action_id, default_key, label in self._rows:
+        for scope, action_id, default_key, label in self._visible_rows():
             table.add_row(
                 *self._row_cells(scope, action_id, default_key, label, colliding),
                 key=self._row_key(scope, action_id),
             )
         if table.row_count:
             table.move_cursor(row=min(cursor or 0, table.row_count - 1))
+
+    # ------------------------------------------------------------------ filter
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "se_search":
+            return
+        self._query = event.value
+        self._refresh_table()
+        # The result set changed under the cursor — start at the top.
+        table = self.query_one("#se_table", DataTable)
+        if table.row_count:
+            table.move_cursor(row=0)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "se_search":
+            self.action_focus_table()
+
+    def action_focus_table(self) -> None:
+        table = self.query_one("#se_table", DataTable)
+        if table.row_count:
+            table.move_cursor(row=0)
+        table.focus()
 
     def _row_cells(self, scope, action_id, default_key, label, colliding):
         eff = self._effective_key(scope, action_id, default_key)

@@ -28,7 +28,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 import yaml  # noqa: E402
 from textual.app import App  # noqa: E402
 from textual.binding import Binding  # noqa: E402
-from textual.widgets import DataTable  # noqa: E402
+from textual.widgets import DataTable, Input  # noqa: E402
 
 import keybinding_registry  # noqa: E402
 import shortcut_persist  # noqa: E402
@@ -339,6 +339,9 @@ class PilotTests(_Fixture):
                     if s == "testscope" and a == "noop_pick"
                 )
                 table = modal.query_one("#se_table", DataTable)
+                # The modal opens with the filter box focused; move focus into
+                # the table before rebinding (↓/Enter does this for the user).
+                table.focus()
                 table.move_cursor(row=target)
                 await pilot.pause()
                 await pilot.press("enter")        # -> KeyCaptureScreen
@@ -350,6 +353,52 @@ class PilotTests(_Fixture):
 
             cfg = _read_userconfig().get("shortcuts", {}).get("testscope", {})
             self.assertEqual(cfg.get("noop_pick"), "o")
+
+        self._run(runner())
+
+    def test_search_box_filters_and_clears(self):
+        async def runner():
+            app = HostApp()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("question_mark")
+                await pilot.pause()
+                modal = app.screen
+                self.assertIsInstance(modal, ShortcutEditorModal)
+                table = modal.query_one("#se_table", DataTable)
+                full_count = table.row_count
+                # The filter box is focused on open — type to narrow.
+                for ch in "pick":
+                    await pilot.press(ch)
+                await pilot.pause()
+
+                visible = {(s, a) for (s, a, _, _) in modal._visible_rows()}
+                self.assertIn(("testscope", "noop_pick"), visible)
+                self.assertNotIn(("testscope", "noop_brainstorm"), visible)
+                self.assertLess(table.row_count, full_count)
+                self.assertEqual(table.row_count, len(modal._visible_rows()))
+
+                # Clearing the box restores every row.
+                for _ in range(len("pick")):
+                    await pilot.press("backspace")
+                await pilot.pause()
+                self.assertEqual(table.row_count, full_count)
+
+        self._run(runner())
+
+    def test_enter_in_search_moves_focus_to_table(self):
+        async def runner():
+            app = HostApp()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("question_mark")
+                await pilot.pause()
+                modal = app.screen
+                search = modal.query_one("#se_search", Input)
+                self.assertIs(app.focused, search)   # focused on open
+                await pilot.press("enter")           # submit -> focus table
+                await pilot.pause()
+                self.assertIs(app.focused, modal.query_one("#se_table", DataTable))
 
         self._run(runner())
 
