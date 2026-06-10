@@ -1,0 +1,44 @@
+---
+priority: high
+effort: high
+depends: [t635_2]
+issue_type: feature
+status: Ready
+labels: [gates, task_workflow, crash_recovery]
+created_at: 2026-06-10 18:53
+updated_at: 2026-06-10 18:53
+---
+
+## Context
+
+Phase 2 of `aidocs/gates/integration-roadmap.md` — the #1 priority pain
+point (decision D3): resuming a half-done task (crash, session loss,
+multi-day work, gates left pending at workflow end) should skip what is
+already done and continue from the first unmet checkpoint. Today re-entry
+state lives only in the conversation; the existing crash-recovery procedure
+covers only the lock-reclaim case.
+
+## Scope
+
+- task-workflow Step 3 learns to read the Gate Runs ledger (recorded by
+  t635_2): a task with ledger entries + status Implementing resumes at the
+  right step instead of restarting at planning — e.g. "review approved,
+  merge pending" lands directly in the Step 9 region.
+- Generalize the existing crash-recovery procedure
+  (`.claude/skills/task-workflow/crash-recovery.md`) to use the ledger as
+  its source of truth where applicable.
+- Re-entry must respect the framework doc's derivation rule (scan
+  back-to-front, first block per gate/checkpoint name = current state).
+- Regenerate goldens + `aitask_skill_verify.sh` in the same commit.
+
+## Out of scope
+
+The standalone resume skill (t635_6) and pick integration (t635_7) — this
+child makes task-workflow itself re-entrant when it is (re)entered with an
+in-flight task.
+
+## References
+
+- `aidocs/gates/integration-roadmap.md` (Phase 2)
+- `aidocs/gates/aitask-gate-framework.md` ("Decision tree (re-entry)",
+  "Re-entry contract")
