@@ -176,3 +176,48 @@ terminal_compat's chain, not `./ait`'s. Same conclusion, corrected rationale.)
   `=session:window`.
 
 See **Step 9 (Post-Implementation)** of the task-workflow for archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `.aitask-scripts/lib/tmux_exec.sh` (the shell tmux
+  gateway): `ait_tmux` (function form, builds `tmux [-L sock] <args>` via an argv
+  array so it is never empty under `set -u`), `ait_tmux_socket_args` (emitter,
+  one arg per line; trims whitespace to match the Python `.strip()`), and
+  `ait_tmux_session_target` / `ait_tmux_window_target`. Migrated `tmux_bootstrap.sh`
+  (set-environment, list-windows, new-window, has-session → `ait_tmux`; target
+  vars → `ait_tmux_session_target`), `terminal_compat.sh` (the 3
+  `ait_tmux_new_session_persistent` rungs now prepend socket args via
+  `${sock[@]+"${sock[@]}"}`), `aitask_minimonitor.sh` (list-panes), and
+  `aitask_ide.sh` (captured calls → `ait_tmux`; all three `exec tmux` sites →
+  emitter form). Added the same-commit `tmux_exec.sh` copy to
+  `tests/lib/test_scaffold.sh`.
+- **Deviations from plan:** (1) **Three** `exec tmux` sites in `aitask_ide.sh`
+  used the emitter form, not just the compound one the original task body named
+  (`:85` select-window, `:94` compound attach, `:101` attach) — a shell function
+  cannot be `exec`'d. (2) **Wiring:** to avoid a circular file-scope dependency,
+  `tmux_exec.sh` sources `terminal_compat.sh` one-way (for die/warn/info) while
+  `terminal_compat.sh` sources `tmux_exec.sh` **lazily inside
+  `ait_tmux_new_session_persistent`** (guarded), keeping the base leaf free of an
+  always-on dependency. `tmux_bootstrap.sh` sources the gateway at file scope
+  (it uses `ait_tmux` directly); `aitask_ide.sh`/`aitask_minimonitor.sh` source
+  it explicitly too. (3) Promoted the existing inline `=session` formatting at the
+  target-variable definition sites to the helpers (live usage + parity with the
+  Python gateway) without rewriting every `:window` interpolation.
+- **Issues encountered:** None. Behavior-preservation confirmed empirically:
+  with `AITASKS_TMUX_SOCKET` unset the emitter prints nothing, so every migrated
+  call is byte-identical to the raw call it replaced.
+- **Key decisions:** `ait_tmux` builds a full argv array (`_argv=(tmux …)`) so
+  `"${_argv[@]}"` is never an empty expansion; the `exec`/rung sites use the
+  `${arr[@]+"${arr[@]}"}` guard for the same `set -u` safety. The
+  `_AIT_TMUX_EXEC_LOADED` guard makes the lazy re-source from terminal_compat a
+  cheap no-op in any load order.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** (1) `tmux_exec.sh` is the shell socket-policy
+  chokepoint — t952_5's anti-regression lint guard should whitelist
+  `aitask_companion_cleanup.sh` (left on raw `tmux` by design) and treat
+  `tmux_exec.sh`'s own `command tmux` / the persistent rungs' `tmux …` as the
+  sanctioned raw sites. (2) The shell contract matches the Python one:
+  `AITASKS_TMUX_SOCKET` empty → no args, non-empty → `-L <value>`. (3) The
+  same-commit scaffold rule generalized: a base leaf that is copied
+  unconditionally and grows a (lazy) dependency drags that dependency into the
+  scaffold copy list, regardless of whether `./ait` sources it.
