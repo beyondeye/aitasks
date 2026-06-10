@@ -34,6 +34,7 @@ TUI:
   minimonitor    Compact monitor for tmux agent panes
   monitor        Monitor tmux panes running code agents
   settings       Launch the settings TUI
+  stats-tui      Launch the statistics TUI
   syncer         Launch the remote-desync syncer TUI
 
 Task Management:
