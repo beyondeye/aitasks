@@ -21,9 +21,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-LIB_DIR = REPO_ROOT / ".aitask-scripts" / "lib"
+SCRIPTS_DIR = REPO_ROOT / ".aitask-scripts"
+LIB_DIR = SCRIPTS_DIR / "lib"
 
 sys.path.insert(0, str(LIB_DIR))
+sys.path.insert(0, str(SCRIPTS_DIR))  # for the `monitor` package import below
 import tmux_exec  # noqa: E402
 from tmux_exec import (  # noqa: E402
     TMUX_SOCKET_ENV,
@@ -32,6 +34,7 @@ from tmux_exec import (  # noqa: E402
     tmux_socket_args,
     window_target,
 )
+from monitor.tmux_control import TmuxControlClient  # noqa: E402
 
 
 class _FakeRunResult:
@@ -245,6 +248,121 @@ class TestNewSessionArgv(unittest.TestCase):
         argv = self._build(socket_args=["-L", "sock"], setsid="/usr/bin/setsid")
         tail = argv[argv.index("setsid") + 1:]
         self.assertEqual(tail[:3], ["tmux", "-L", "sock"])
+
+
+class _FakeBackend:
+    """Duck-typed control-mode backend for dispatcher tests (no real tmux)."""
+
+    def __init__(self, alive: bool, sync_result=None, async_result=None):
+        self.is_alive = alive
+        self._sync_result = sync_result
+        self._async_result = async_result
+        self.sync_calls: list[list[str]] = []
+        self.async_calls: list[list[str]] = []
+
+    def request_sync(self, args, timeout=None):
+        self.sync_calls.append(args)
+        return self._sync_result
+
+    async def request_async(self, args, timeout=None):
+        self.async_calls.append(args)
+        return self._async_result
+
+
+class TestRunViaControl(unittest.TestCase):
+    """The control-mode exec dispatcher (t952_3): control-client when alive,
+    subprocess fallback on rc == -1. Behavior-preserving port of the former
+    TmuxMonitor.tmux_run / _tmux_async dispatch."""
+
+    def test_none_backend_uses_subprocess(self):
+        client = TmuxClient(socket_args=[])
+        with patch.object(client, "run", return_value=(0, "viasub")) as m:
+            rc, out = client.run_via_control(None, ["list-sessions"])
+        self.assertEqual((rc, out), (0, "viasub"))
+        m.assert_called_once()
+
+    def test_dead_backend_uses_subprocess(self):
+        client = TmuxClient(socket_args=[])
+        backend = _FakeBackend(alive=False)
+        with patch.object(client, "run", return_value=(0, "viasub")) as m:
+            rc, out = client.run_via_control(backend, ["list-sessions"])
+        self.assertEqual((rc, out), (0, "viasub"))
+        self.assertEqual(backend.sync_calls, [])  # backend never consulted
+        m.assert_called_once()
+
+    def test_alive_backend_short_circuits(self):
+        client = TmuxClient(socket_args=[])
+        backend = _FakeBackend(alive=True, sync_result=(0, "fromctrl"))
+        with patch.object(client, "run") as m:
+            rc, out = client.run_via_control(backend, ["display-message"])
+        self.assertEqual((rc, out), (0, "fromctrl"))
+        self.assertEqual(backend.sync_calls, [["display-message"]])
+        m.assert_not_called()  # subprocess fallback NOT taken on success
+
+    def test_transport_failure_falls_back(self):
+        client = TmuxClient(socket_args=[])
+        backend = _FakeBackend(alive=True, sync_result=(-1, ""))
+        with patch.object(client, "run", return_value=(0, "fallback")) as m:
+            rc, out = client.run_via_control(backend, ["display-message"])
+        # rc == -1 from the backend → fall through to subprocess.
+        self.assertEqual((rc, out), (0, "fallback"))
+        m.assert_called_once()
+
+    def test_tmux_error_rc1_does_not_fall_back(self):
+        # rc == 1 is a real tmux command error (not transport) — return it,
+        # do NOT retry via subprocess.
+        client = TmuxClient(socket_args=[])
+        backend = _FakeBackend(alive=True, sync_result=(1, "err-body"))
+        with patch.object(client, "run") as m:
+            rc, out = client.run_via_control(backend, ["has-session"])
+        self.assertEqual((rc, out), (1, "err-body"))
+        m.assert_not_called()
+
+    def test_async_alive_short_circuits(self):
+        async def go():
+            client = TmuxClient(socket_args=[])
+            backend = _FakeBackend(alive=True, async_result=(0, "actrl"))
+            with patch.object(client, "run_async") as m:
+                rc, out = await client.run_async_via_control(backend, ["x"])
+            m.assert_not_called()
+            return rc, out
+        self.assertEqual(asyncio.run(go()), (0, "actrl"))
+
+    def test_async_transport_failure_falls_back(self):
+        async def go():
+            client = TmuxClient(socket_args=[])
+            backend = _FakeBackend(alive=True, async_result=(-1, ""))
+
+            async def fake_run_async(args, timeout=5.0):
+                return (0, "afallback")
+            with patch.object(client, "run_async", side_effect=fake_run_async):
+                return await client.run_async_via_control(backend, ["x"])
+        self.assertEqual(asyncio.run(go()), (0, "afallback"))
+
+
+class TestControlAttachArgv(unittest.TestCase):
+    """The `tmux -C attach` argv threads the socket flag (t952_3)."""
+
+    def test_socket_flag_in_attach_argv(self):
+        c = TmuxControlClient(session="mysess", socket_args=["-L", "sock"])
+        self.assertEqual(
+            c._attach_argv(),
+            ["tmux", "-L", "sock", "-C", "attach", "-t", "mysess",
+             "-f", "no-output,ignore-size"],
+        )
+
+    def test_no_socket_flag_when_empty(self):
+        c = TmuxControlClient(session="mysess", socket_args=[])
+        self.assertEqual(
+            c._attach_argv(),
+            ["tmux", "-C", "attach", "-t", "mysess",
+             "-f", "no-output,ignore-size"],
+        )
+
+    def test_socket_args_default_from_env(self):
+        with patch.dict(os.environ, {TMUX_SOCKET_ENV: "envsock"}, clear=False):
+            c = TmuxControlClient(session="s")
+        self.assertEqual(c._attach_argv()[:3], ["tmux", "-L", "envsock"])
 
 
 @unittest.skipIf(shutil.which("tmux") is None, "tmux not installed")

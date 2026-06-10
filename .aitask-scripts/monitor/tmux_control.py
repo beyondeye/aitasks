@@ -38,8 +38,15 @@ import collections
 import contextlib
 import enum
 import re
+import sys
 import threading
+from pathlib import Path
 from typing import Optional
+
+_LIB_DIR = str(Path(__file__).resolve().parent.parent / "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from tmux_exec import tmux_socket_args  # noqa: E402  (lib gateway: socket flag source)
 
 # %begin / %end / %error <epoch> <cmd_id> <flags>
 # Flags is a bitmask; bit 1 means the block is the response to a command
@@ -69,9 +76,21 @@ def _quote_arg(arg: str) -> str:
 class TmuxControlClient:
     """Single persistent `tmux -C` control client."""
 
-    def __init__(self, session: str, command_timeout: float = 5.0):
+    def __init__(
+        self,
+        session: str,
+        command_timeout: float = 5.0,
+        socket_args: list[str] | None = None,
+    ):
         self.session = session
         self.command_timeout = command_timeout
+        # Socket flag (``-L <name>`` or ``[]``) cached once — never re-read
+        # per request (this client serves the monitor refresh hot path). When
+        # not supplied, resolved from ``AITASKS_TMUX_SOCKET`` via the gateway so
+        # the control attach converges on the same socket as TmuxClient (t952_3).
+        self._socket_args = (
+            list(socket_args) if socket_args is not None else tmux_socket_args()
+        )
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._reader_task: Optional[asyncio.Task] = None
         self._pending: "collections.deque[asyncio.Future]" = collections.deque()
@@ -85,6 +104,19 @@ class TmuxControlClient:
     def is_alive(self) -> bool:
         return self._alive
 
+    def _attach_argv(self) -> list[str]:
+        """Build the ``tmux -C attach`` argv, with the socket flag threaded in.
+
+        The cached socket flag goes between ``"tmux"`` and ``"-C"`` so a
+        dedicated-socket move (``AITASKS_TMUX_SOCKET``) reaches the control
+        channel exactly as it reaches TmuxClient's subprocess path. Extracted as
+        a method so the argv is unit-testable without spawning a process.
+        """
+        return [
+            "tmux", *self._socket_args, "-C", "attach", "-t", self.session,
+            "-f", "no-output,ignore-size",
+        ]
+
     async def start(self) -> bool:
         """Spawn `tmux -C attach` and start the reader task.
 
@@ -96,8 +128,7 @@ class TmuxControlClient:
             return self._alive
         try:
             self._proc = await asyncio.create_subprocess_exec(
-                "tmux", "-C", "attach", "-t", self.session,
-                "-f", "no-output,ignore-size",
+                *self._attach_argv(),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
@@ -182,7 +213,7 @@ class TmuxControlClient:
     ) -> tuple[int, str]:
         """Issue one tmux command; return `(rc, stdout_text)`.
 
-        rc semantics mirror `tmux_monitor._run_tmux_async`:
+        rc semantics mirror `lib.tmux_exec.TmuxClient.run_async`:
         - `0` on success
         - `1` on tmux command error (`%error` reply)
         - `-1` on transport failure (client dead, broken pipe, timeout)
@@ -294,9 +325,20 @@ class TmuxControlBackend:
     surfaces `(-1, "")` on transport failure.
     """
 
-    def __init__(self, session: str, command_timeout: float = 5.0):
+    def __init__(
+        self,
+        session: str,
+        command_timeout: float = 5.0,
+        socket_args: list[str] | None = None,
+    ):
         self.session = session
         self.command_timeout = command_timeout
+        # Cached socket flag, passed to every client this backend constructs
+        # (initial start + every supervisor reconnect) so a reconnected channel
+        # keeps the same socket. Resolved from AITASKS_TMUX_SOCKET when unset.
+        self._socket_args = (
+            list(socket_args) if socket_args is not None else tmux_socket_args()
+        )
         self._client: Optional[TmuxControlClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
@@ -342,7 +384,9 @@ class TmuxControlBackend:
             self._loop = None
             return False
         self._thread = thread
-        client = TmuxControlClient(self.session, self.command_timeout)
+        client = TmuxControlClient(
+            self.session, self.command_timeout, socket_args=self._socket_args
+        )
         cf = asyncio.run_coroutine_threadsafe(client.start(), self._loop)
         try:
             ok = cf.result(timeout=_BACKEND_START_TIMEOUT)
@@ -413,7 +457,8 @@ class TmuxControlBackend:
                     if self._stop_requested:
                         return
                     new_client = TmuxControlClient(
-                        self.session, self.command_timeout
+                        self.session, self.command_timeout,
+                        socket_args=self._socket_args,
                     )
                     if await new_client.start():
                         self._client = new_client

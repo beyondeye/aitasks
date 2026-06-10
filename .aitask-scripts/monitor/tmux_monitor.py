@@ -31,6 +31,7 @@ _LIB_DIR = str(Path(__file__).resolve().parent.parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from tui_registry import BRAINSTORM_PREFIX, TUI_NAMES  # noqa: E402
+from tmux_exec import TmuxClient  # noqa: E402  (gateway: exec-strategy dispatcher)
 from agent_launch_utils import (  # noqa: E402
     AitasksSession,
     discover_aitasks_sessions,
@@ -100,58 +101,6 @@ def _is_companion_process(pid: int) -> bool:
     return False
 
 
-async def _run_tmux_async(args: list[str], timeout: float = 5.0) -> tuple[int, str]:
-    """Run `tmux <args>` asynchronously. Returns (returncode, stdout_text).
-
-    Returns (-1, "") on FileNotFoundError / OSError / timeout, matching the
-    error semantics of the synchronous tmux helpers (they just return empty
-    on failure).
-    """
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "tmux", *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-    except (FileNotFoundError, OSError):
-        return (-1, "")
-    try:
-        stdout_bytes, _ = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout
-        )
-    except asyncio.TimeoutError:
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        with contextlib.suppress(Exception):
-            await proc.wait()
-        return (-1, "")
-    return (proc.returncode or 0, stdout_bytes.decode("utf-8", errors="replace"))
-
-
-def _run_tmux_subprocess(
-    args: list[str], timeout: float = 5.0
-) -> tuple[int, str]:
-    """Sync sibling of `_run_tmux_async`. Same `(rc, stdout)` contract.
-
-    `(-1, "")` on FileNotFoundError / OSError / timeout. Used as the
-    subprocess fallback path inside `TmuxMonitor.tmux_run`, and (post-t722)
-    is the *only* place in `.aitask-scripts/monitor/` that spawns tmux via
-    `subprocess.run` for runtime ops — every other site routes through
-    `tmux_run` or `_tmux_async`. (The two `_detect_tmux_session()`
-    pre-monitor-init helpers in `monitor_app.py` and `minimonitor_app.py`
-    are the only intentional exceptions; no `TmuxMonitor` exists yet at
-    that point.)
-    """
-    try:
-        result = subprocess.run(
-            ["tmux", *args],
-            capture_output=True, text=True, timeout=timeout,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return (-1, "")
-    return (result.returncode, result.stdout or "")
-
-
 @dataclass
 class TmuxPaneInfo:
     window_index: str
@@ -215,6 +164,9 @@ class TmuxMonitor:
         self._sessions_cache: tuple[float, list[AitasksSession]] | None = None
         self._compare_mode_overrides: dict[str, str] = {}
         self._backend: TmuxControlBackend | None = None
+        # Gateway owns the exec strategy (control-client-vs-subprocess dispatch)
+        # and the socket flag; tmux_run / _tmux_async delegate to it (t952_3).
+        self._tmux = TmuxClient()
 
     async def start_control_client(self) -> bool:
         """Start the persistent `tmux -C` backend on a dedicated bg thread.
@@ -255,34 +207,28 @@ class TmuxMonitor:
     async def _tmux_async(
         self, args: list[str], timeout: float = 5.0
     ) -> tuple[int, str]:
-        backend = self._backend
-        if backend is not None and backend.is_alive:
-            rc, out = await backend.request_async(args, timeout=timeout)
-            if rc != -1:
-                return rc, out
-            # transport failure on this call — fall back to subprocess.
-        return await _run_tmux_async(args, timeout=timeout)
+        # Thin delegation: the gateway owns the control-client-vs-subprocess
+        # dispatch (t952_3). Signature unchanged so all monitor call sites stay.
+        return await self._tmux.run_async_via_control(
+            self._backend, args, timeout=timeout
+        )
 
     def tmux_run(
         self, args: list[str], timeout: float = 5.0
     ) -> tuple[int, str]:
         """Sync user-action wrapper — control-client when alive, subprocess fallback.
 
-        Returns `(rc, stdout)`. `rc` semantics match `_tmux_async`:
+        Returns `(rc, stdout)`. `rc` semantics:
           * `0` on success
           * `1` on tmux command error
           * `-1` on transport failure or subprocess error.
 
         Safe to call from sync Textual handlers because the control client
         runs on a background loop; this method blocks the caller's thread,
-        not the bg loop's reader task.
+        not the bg loop's reader task. The dispatch itself lives in the gateway
+        (`TmuxClient.run_via_control`, t952_3); this is a thin delegation.
         """
-        backend = self._backend
-        if backend is not None and backend.is_alive:
-            rc, out = backend.request_sync(args, timeout=timeout)
-            if rc != -1:
-                return rc, out
-        return _run_tmux_subprocess(args, timeout=timeout)
+        return self._tmux.run_via_control(self._backend, args, timeout=timeout)
 
     def _discover_sessions_cached(self) -> list[AitasksSession]:
         """Return the list of aitasks-like tmux sessions, memoized for TTL seconds."""

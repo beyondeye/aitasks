@@ -19,15 +19,18 @@ policies that are currently implicit and duplicated across call sites (t952):
    prefix-match bug that crosses project boundaries.
 
 3. **Exec strategy.** The per-tick subprocess primitives live here
-   (:meth:`TmuxClient.run` / :meth:`run_async` / :meth:`spawn`). The persistent
-   control-mode client is folded in by a later stage (t952_3); this module is
-   the seam it plugs into.
+   (:meth:`TmuxClient.run` / :meth:`run_async` / :meth:`spawn`), and so does the
+   control-mode dispatch (:meth:`run_via_control` / :meth:`run_async_via_control`):
+   "persistent control client when alive, subprocess fallback on ``rc == -1``".
+   The control client itself (``monitor/tmux_control.py``) is passed in
+   duck-typed, so the gateway owns the *strategy* without depending on
+   ``monitor/``.
 
-This module is a **pure addition**: t952_1 builds it and migrates no call sites.
-The spawn primitives preserve the exact ``(rc, stdout)`` contract — ``(-1, "")``
-on ``FileNotFoundError`` / ``OSError`` / timeout — of the helpers it supersedes
-(``monitor/tmux_monitor.py`` ``_run_tmux_subprocess`` / ``_run_tmux_async``), and
-the new-session persistence ladder mirrors ``agent_launch_utils`` /
+The spawn primitives (:meth:`TmuxClient.run` / :meth:`run_async`) are the sole
+owner of the ``(rc, stdout)`` contract — ``(-1, "")`` on ``FileNotFoundError`` /
+``OSError`` / timeout — and serve as the subprocess fallback for the control-mode
+dispatcher (:meth:`run_via_control` / :meth:`run_async_via_control`, t952_3). The
+new-session persistence ladder mirrors ``agent_launch_utils`` /
 ``terminal_compat.sh`` byte-for-byte (load-bearing for t943/t956 server
 survival).
 
@@ -143,9 +146,9 @@ class TmuxClient:
     ) -> tuple[int, str]:
         """Run ``tmux <args>`` synchronously. Returns ``(returncode, stdout)``.
 
-        ``(-1, "")`` on ``FileNotFoundError`` / ``OSError`` / timeout — the exact
-        contract of ``monitor/tmux_monitor.py``'s ``_run_tmux_subprocess`` so the
-        gateway is a drop-in for it.
+        ``(-1, "")`` on ``FileNotFoundError`` / ``OSError`` / timeout. This is the
+        canonical subprocess primitive — the control-mode dispatcher
+        (:meth:`run_via_control`) falls back to it on a transport failure.
         """
         try:
             result = subprocess.run(
@@ -162,8 +165,8 @@ class TmuxClient:
         """Async sibling of :meth:`run`. Same ``(rc, stdout)`` contract.
 
         ``(-1, "")`` on ``FileNotFoundError`` / ``OSError`` / timeout. On timeout
-        the child is killed and reaped before returning. Mirrors
-        ``monitor/tmux_monitor.py``'s ``_run_tmux_async``.
+        the child is killed and reaped before returning. The async fallback for
+        :meth:`run_async_via_control`.
         """
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -196,6 +199,45 @@ class TmuxClient:
         current call sites already do via ``is_tmux_available``).
         """
         return subprocess.Popen(self._argv(args), **popen_kwargs)
+
+    # -- control-mode exec dispatcher ---------------------------------------
+    # "Control-client when alive, subprocess fallback on rc == -1." This is the
+    # exec-strategy choice the gateway owns (t952_3): the persistent control
+    # client (a `tmux -C attach` connection, see monitor/tmux_control.py) when it
+    # is alive, otherwise a per-tick subprocess via run/run_async. The backend is
+    # passed in (duck-typed) rather than held, so the gateway stays stateless
+    # w.r.t. the channel and the backend lifecycle stays with its owner.
+
+    def run_via_control(
+        self, backend, args: list[str], timeout: float = _DEFAULT_TIMEOUT
+    ) -> tuple[int, str]:
+        """Sync exec dispatch: control client when alive, else subprocess.
+
+        ``backend`` is a control-mode backend (duck-typed: ``.is_alive`` /
+        ``.request_sync``) or ``None``. On a transport failure (``rc == -1``)
+        from the backend, falls back to :meth:`run`. Behavior-preserving port of
+        the former ``TmuxMonitor.tmux_run`` dispatch — the ``rc != -1`` fallback
+        branch is load-bearing.
+        """
+        if backend is not None and backend.is_alive:
+            rc, out = backend.request_sync(args, timeout=timeout)
+            if rc != -1:
+                return rc, out
+        return self.run(args, timeout=timeout)
+
+    async def run_async_via_control(
+        self, backend, args: list[str], timeout: float = _DEFAULT_TIMEOUT
+    ) -> tuple[int, str]:
+        """Async sibling of :meth:`run_via_control`.
+
+        Port of the former ``TmuxMonitor._tmux_async`` dispatch. Falls back to
+        :meth:`run_async` on ``rc == -1`` from the backend.
+        """
+        if backend is not None and backend.is_alive:
+            rc, out = await backend.request_async(args, timeout=timeout)
+            if rc != -1:
+                return rc, out
+        return await self.run_async(args, timeout=timeout)
 
     # -- session/window targeting (mandatory; thin instance-level re-exports) --
 
