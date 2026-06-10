@@ -144,3 +144,31 @@ archival, and merge.
 
 _Risk-Mitigation Follow-up (Part 1, design-in-planning) ran: no before/after
 mitigation tasks proposed — both dimensions are `low` with no open risks._
+
+## Final Implementation Notes
+
+- **Actual work done:** Added one new section, "Surviving a compositor
+  restart on Linux/Wayland", to
+  `website/content/docs/installation/terminal-setup.md` (+20 lines), inserted
+  between the "One gotcha: `ait ide` is one view of a shared session" section
+  and "Minimal / non-tmux workflow". The section explains the shared
+  single-tmux-server lifecycle, that `ait ide` already places the server in a
+  persistent `session.slice` service, the gap for a self-launched server
+  (transient `app.slice` scope dies with the compositor), and a
+  copy-pasteable `systemd-run --user --slice=session.slice -- tmux
+  new-session …` recipe with each load-bearing flag explained. Closes with an
+  Omarchy / uwsm cross-reference callout.
+- **Deviations from plan:** None — implemented exactly as planned.
+- **Issues encountered:** None. `hugo build --gc --minify` from `website/`
+  built cleanly (210 pages); the only warnings are pre-existing Hugo
+  deprecation notices (`.Language.LanguageDirection`, `.Site.AllPages`)
+  unrelated to this change. The in-page anchor `#recommended-workflow--ait-ide`
+  targets the existing "Recommended workflow — ait ide" heading.
+- **Key decisions:** Chose `terminal-setup.md` over `known-issues.md`
+  (code-agent caveats only) and `linux.md` (package-install only); added to an
+  existing page so no `_index.md`/sidebar edit was required. Prose is
+  current-state-only (no `t943`/version-history references in the body, per
+  documentation conventions). systemd-run flags mirror the framework's own
+  invocation in `terminal_compat.sh:168`, with `--unit`/`--quiet` dropped for
+  example readability.
+- **Upstream defects identified:** None.
