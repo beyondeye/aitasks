@@ -1,0 +1,7 @@
+
+=== 2026-06-10 10:10:17 | start_runner(brainstorm-635) ===
+[10:10:17] Starting runner for crew 'brainstorm-635'
+[10:10:17]   Worktree:       .aitask-crews/crew-brainstorm-635
+[10:10:17]   Interval:       30s
+[10:10:17]   Max concurrent: 3
+[10:10:17]   Mode:           continuous

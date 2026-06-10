@@ -1,0 +1,10 @@
+groups:
+  bootstrap:
+    operation: bootstrap
+    agents: []
+    status: Waiting
+    created_at: 2026-06-10 13:10
+    head_at_creation: null
+    nodes_created:
+    - n000_init
+    subgraph: _umbrella
