@@ -196,3 +196,30 @@ Single-task (no children). On approval: implement on the current branch, show
 the diff for review (Step 8), commit code as
 `test: <desc> (t936)`, update + commit the plan, then archive via
 `./.aitask-scripts/aitask_archive.sh 936` and push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  `tests/lib/require_no_tmux.sh` → renamed `tests/lib/tmux_isolation.sh`; the
+  refusal guard `require_no_tmux` (two `exit 2` paths) was replaced with
+  `require_isolated_tmux`, which `unset TMUX` and redirects `TMUX_TMPDIR` to a
+  per-user, mode-0700 isolated dir (`${TMPDIR:-/tmp}/ait_isolated_tmux_<uid>`)
+  as the process default. The 8 tmux tests were updated (shellcheck `source=`
+  directive, the `.` source line, and the call site) to source the renamed file
+  and call `require_isolated_tmux`. No change to any test's own fixture logic.
+- **Deviations from plan:** None.
+- **Issues encountered:** None in the change itself.
+- **Key decisions:** Kept the fixed per-user safety-net dir (vs. a per-process
+  `mktemp` + EXIT trap) so no per-run cleanup is needed and the tests' own EXIT
+  traps don't clobber it. Verified post-run the dir stays empty (mode 700, no
+  socket) because every test sets its own fixture `TMUX_TMPDIR`.
+- **Verification performed:** `shellcheck -x` clean on the lib and all 8 tests
+  (the only finding is a pre-existing SC2046 warning in
+  `test_tmux_exact_session_targeting.sh:122`, present on HEAD). With a live
+  marker session on the default socket, all 8 tests **ran** (none `exit 2`; 6
+  passed) and the marker survived untouched; the default socket was clean
+  afterward. A representative test (`test_tmux_run_parity.sh`) also ran to PASS
+  with `$TMUX` set (inside-tmux case), marker again untouched.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/tmux_monitor.py:42 — relative import `from .prompt_patterns import …` fails when test_multi_session_monitor.sh runs `python -c "import tmux_monitor"` with PYTHONPATH set to the monitor dir (module imported top-level, not as a package). Pre-existing: fails identically on HEAD in a clean (no-tmux) environment. Surfaced only now that the guard lets the test run.`
+  - `tests/test_multi_session_primitives.sh — stale assertion: expects AitasksSession FIELDS `project_name,project_root,session` but the dataclass now also has `is_live,is_stale` (1/20 sub-checks fails). Pre-existing: fails identically on HEAD. The test's expected-fields list needs updating to match the dataclass.`
