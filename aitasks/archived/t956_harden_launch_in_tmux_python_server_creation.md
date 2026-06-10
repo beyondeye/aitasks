@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [tmux]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 09:30
-updated_at: 2026-06-10 11:29
+updated_at: 2026-06-10 11:37
+completed_at: 2026-06-10 11:37
 ---
 
 ## Origin
