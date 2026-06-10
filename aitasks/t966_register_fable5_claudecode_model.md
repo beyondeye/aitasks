@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [config, codeagent]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8_1m
 created_at: 2026-06-10 16:53
-updated_at: 2026-06-10 16:55
+updated_at: 2026-06-10 16:59
 ---
 
 Register the new Claude model **Fable 5** for the `claudecode` code agent (register-only — do NOT promote to default).

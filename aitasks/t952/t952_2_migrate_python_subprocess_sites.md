@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t952_1]
 issue_type: refactor
 status: Implementing
 labels: [tmux, ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 12:48
-updated_at: 2026-06-10 13:19
+updated_at: 2026-06-10 16:59
 ---
 
 ## Context

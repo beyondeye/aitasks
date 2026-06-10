@@ -712,6 +712,13 @@
           }
         }
       }
+    },
+    {
+      "name": "fable5",
+      "cli_id": "claude-fable-5",
+      "notes": "Fable 5 — latest-generation Claude model",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
