@@ -8541,15 +8541,24 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 )
             self._load_existing_session()
         elif status in ("Error", "Aborted"):
-            # Don't permanently stop — the agent may still write _output.md
-            # later. Stop the fast 2 s timer; install a slower 30 s watcher
-            # so a late-arriving output is still applied.
+            # Post-t671, Error/Aborted is the agent's own trustworthy terminal
+            # status — it will not resume, so there is no late output to wait
+            # for. Stop polling permanently. Make one best-effort apply attempt
+            # in case the agent emitted a complete output before failing
+            # (n000_needs_apply gates on the four delimiters); ctrl+r still
+            # forces a manual retry afterwards.
+            self._initializer_done = True
             if self._initializer_timer is not None:
                 self._initializer_timer.stop()
-            self._initializer_timer = self.set_interval(30, self._poll_initializer)
+            try:
+                self.query_one(
+                    "#initializer_polling_indicator", PollingIndicator
+                ).stop()
+            except Exception:
+                pass
             self.notify(
                 f"Initializer agent {status.lower()}. "
-                f"Watching for output; press ctrl+r or run "
+                f"Press ctrl+r or run "
                 f"`ait brainstorm apply-initializer {self.task_num}` to retry.",
                 severity="error",
             )
