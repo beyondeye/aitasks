@@ -105,6 +105,14 @@ Each phase is independently shippable and leaves the framework consistent.
   to `ait gate pass`, `aitask-resume` (headless or in a pane), and
   pick-resume.
 - **Monitor gate-status column** (framework doc integration table).
+- **Stats redesign for multi-stage completion** (t635_20, design pass
+  first): `ait stats` / `ait stats-tui` currently count only archived
+  tasks and date them via `completed_at`/`updated_at` — deferred archival
+  (Phase 2) makes both misleading. Settle which event is "completion",
+  whether implementation-complete-but-gated tasks get their own series,
+  which ledger-enabled metrics to add (time-in-phase, gate pass/retry
+  rates, pending-human wait), and how mixed pre-/post-gates populations
+  stay honest.
 
 ### Phase 4 — Orchestrator + first true conversions
 
@@ -213,6 +221,7 @@ the doc's opt-in stance and must be decided when t635_2 is planned.
 | t635_17 autonomous-lane rigor | 6 | 12, 15 | pickrem/pickweb gate verify step, enforced archive guard |
 | t635_18 website documentation | docs | 7, 9, 10, 12, 14 | Comprehensive website sweep: concepts, workflows, skills, TUIs, commands, config |
 | t635_19 docs_updated gate | 4 | 11 | New documentation gate (no pseudo-gate ancestor); change-scoped skip |
+| t635_20 stats multi-stage completion | 3 | 4, 8 | Design pass + implement: redefine completion stats under deferred archival; ledger-enabled metrics |
 
 ## See also
 
