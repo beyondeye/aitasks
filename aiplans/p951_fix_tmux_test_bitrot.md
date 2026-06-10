@@ -103,3 +103,11 @@ See **Step 9 (Post-Implementation)** of the shared task-workflow for archival.
 ### Goal-achievement risk: low
 - None identified. The two changes map one-to-one onto the two reproduced
   failures and are directly verifiable by re-running both tests to green.
+
+## Final Implementation Notes
+
+- **Actual work done:** Two changes exactly as planned. (1) `.aitask-scripts/monitor/tmux_monitor.py:42` — wrapped the lone relative sibling import in a `try: from .prompt_patterns ... except ImportError: from prompt_patterns ...` so the module imports both as `monitor.tmux_monitor` (production) and top-level (tests with `MONITOR_DIR` on `PYTHONPATH`). (2) `tests/test_multi_session_primitives.sh:55` — updated the expected `FIELDS` string to the current 5-field `AitasksSession` shape (`is_live,is_stale,project_name,project_root,session`).
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Both failures reproduced before the fix; both test files pass after (`test_multi_session_monitor.sh` 43/43, `test_multi_session_primitives.sh` 20/20). Production package-mode import (`from monitor.tmux_monitor import TmuxMonitor`) confirmed unbroken.
+- **Key decisions:** Chose the robust-import fix over rewriting the test's invocation to package paths. `test_multi_session_monitor.sh` imports lib modules (`agent_launch_utils`, `monitor_app`, `monitor_shared`) directly across ~10 invocations; converting all to package paths is invasive and brittle (lib/ is reached via sys.path insertion, not a package path). The try/except is one guarded line, leaves the production path first-and-unchanged, and removes the module's internal inconsistency (line 42 was its only relative runtime import; lines 33–40 are all top-level). Kept the FIELDS assertion exact-match (not subset) so it stays a deliberate canary for future dataclass changes.
+- **Upstream defects identified:** None. (The two defects fixed here *are* the upstream defects t936 surfaced; no further pre-existing defect was found during this fix.)
