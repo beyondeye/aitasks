@@ -109,3 +109,11 @@ is available there.
   suitable one-line `notes` at implementation time. · severity: low · → mitigation: verify cli_id in Step 1 dry-run
 
 No before/after risk-mitigation follow-up tasks are warranted (both axes low).
+
+## Final Implementation Notes
+- **Actual work done:** Ran `aitask_add_model.sh add-json --agent claudecode --name fable5 --cli-id claude-fable-5 --notes "Fable 5 — latest-generation Claude model"` (dry-run first, then applied). Appended the `fable5` entry to `aitasks/metadata/models_claudecode.json` and `seed/models_claudecode.json`. No defaults/config/docs/tests touched (register-only, as scoped).
+- **Deviations from plan:** None. The dry-run diff matched the plan exactly.
+- **Issues encountered:** None in the registration itself. `test_codeagent.sh` passed 92/92 (defaults untouched).
+- **Key decisions:** cli_id `claude-fable-5` confirmed authoritative via the claude-api skill model catalog (Fable 5 → `claude-fable-5`; `fable` is also a valid Claude Code `--model` alias). Committed as framework-internal `ait:` changes per repo precedent for model-registry additions (e.g. `ait: Sync claudecode/opus4_7 registration to seed`).
+- **Post-implementation finding (Claude Code Fable 5 launch behavior):** User observed that launching `claude --model claude-fable-5` (via aitask-pick) starts on Fable 5 but shows **Opus 4.8** selected; `/model fable` after start switches to Fable 5 and holds. Research (Claude help center / Claude Code model-config docs) shows this is **intentional content-safety model switching** — Fable 5 runs cyber/bio classifiers and Claude Code auto-switches flagged requests to the default Opus, and the first request carries workspace context (CLAUDE.md, git status) which can trip it. This is independent of this register-only change (the cli_id is correct). Spawned follow-up **t967** to investigate the launch-time trigger (CLAUDE.md security section hypothesis vs. other causes) and a workaround (`/config` "switch models when a message is flagged"). t967 `depends: [966]`.
+- **Upstream defects identified:** None.
