@@ -1,13 +1,16 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [671]
 issue_type: refactor
 status: Implementing
 labels: [ait_brainstorm, agentcrew]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-04-27 14:06
-updated_at: 2026-06-10 12:50
+updated_at: 2026-06-10 13:03
 boardidx: 120
 ---
 
