@@ -5,9 +5,9 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [tmux, ait_bridge]
-children_to_implement: [t952_2, t952_3, t952_4, t952_5, t952_6]
+children_to_implement: [t952_3, t952_4, t952_5, t952_6]
 created_at: 2026-06-10 08:58
-updated_at: 2026-06-10 13:17
+updated_at: 2026-06-10 17:13
 boardidx: 20
 ---
 
