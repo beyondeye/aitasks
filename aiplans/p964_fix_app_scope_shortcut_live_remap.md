@@ -206,3 +206,29 @@ current branch); commit code + plan separately, then archive via
   validated by the required e2e key-press test · severity: low · → mitigation:
   None needed.
 
+## Final Implementation Notes
+
+- **Actual work done:** Added `ShortcutsMixin._relink_live_bindings()` in
+  `.aitask-scripts/lib/shortcuts_mixin.py` and invoked it from `__init__` right
+  after `register_app_bindings`. It moves each remapped binding from its
+  default key to its override key in the live `self._bindings.key_to_bindings`,
+  preserving co-resident framework bindings. Added a new e2e test
+  `tests/test_shortcuts_mixin_live_remap.py` (6 tests) and updated the stale
+  `test_override_flows_into_bindings_like_every_app_binding` in
+  `tests/test_settings_shortcuts_tab.py` to assert the live keymap now carries
+  the override.
+- **Deviations from plan:** None. Implemented exactly as approved.
+- **Issues encountered:** None. The relink works for App and modal scopes;
+  `App.__init__` only augments `_bindings` (command palette) after the mixin
+  runs and never resets it, so the relink persists.
+- **Key decisions:** Chose direct key-by-key move surgery over (a) a wholesale
+  rebuild of `self._bindings` from `self.BINDINGS` — which would drop framework
+  bindings (`ctrl+c`/`ctrl+p`/screen `tab`) — and (b) Textual's `app._keymap` /
+  `apply_keymap`, which requires assigning `Binding.id` across the whole binding
+  corpus. The move-surgery is self-contained and matched on `(default_key,
+  action)`. Scoped the fix to the shared mixin (user-approved) so it repairs
+  modal scopes (`shared.agent_cmd`, `shared.stale_entry`) too, not just Apps —
+  empirically confirmed both were broken, contradicting the task's original
+  "only Apps affected" diagnosis.
+- **Upstream defects identified:** None.
+
