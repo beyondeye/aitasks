@@ -1,7 +1,7 @@
 ---
 priority: low
 effort: medium
-depends: []
+depends: [966]
 issue_type: chore
 status: Ready
 labels: [codeagent, research]
