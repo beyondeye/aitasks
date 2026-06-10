@@ -210,15 +210,15 @@ and merge.
   actual 2026-06-07 server was created by the user's own Hyprland `tmux-spawn`
   keybind (outside the repo), so the complete fix also needs that launcher
   hardened — a personal Omarchy-config change, separate from this task ·
-  severity: medium · → mitigation: document_tmux_workspace_keybind_persistence
+  severity: medium · → mitigation: t957 (document_tmux_workspace_keybind_persistence)
 - Secondary framework server-creation site `launch_in_tmux()` (new_session
   branch) in `agent_launch_utils.py` is left unhardened (deferred to keep this
   change surgical and shell-only) · severity: low · → mitigation:
-  harden_launch_in_tmux_python_server_creation
+  t956 (harden_launch_in_tmux_python_server_creation)
 
 ### Planned mitigations
-- timing: after | name: harden_launch_in_tmux_python_server_creation | type: enhancement | priority: low | effort: low | addresses: secondary server-creation site in agent_launch_utils.py | desc: Mirror the persistent systemd-user-service (session.slice) server spawn in the Python launch_in_tmux() new_session branch, gated on systemd-run availability + a tmux has-session precheck, with the same setsid/plain fallback ladder.
-- timing: after | name: document_tmux_workspace_keybind_persistence | type: documentation | priority: low | effort: low | addresses: user-launched workspace server not covered by framework hardening | desc: Add a troubleshooting/docs note (and cross-reference the omarchy guidance) explaining that a workspace launcher/keybind which starts the ait tmux server should place it in a persistent slice (e.g. systemd-run --user --slice=session.slice) so a user-created server also survives compositor/app.slice teardown.
+- timing: after | name: harden_launch_in_tmux_python_server_creation | task: t956 | type: enhancement | priority: low | effort: low | addresses: secondary server-creation site in agent_launch_utils.py | desc: Mirror the persistent systemd-user-service (session.slice) server spawn in the Python launch_in_tmux() new_session branch, gated on systemd-run availability + a tmux has-session precheck, with the same setsid/plain fallback ladder.
+- timing: after | name: document_tmux_workspace_keybind_persistence | task: t957 | type: documentation | priority: low | effort: low | addresses: user-launched workspace server not covered by framework hardening | desc: Add a troubleshooting/docs note (and cross-reference the omarchy guidance) explaining that a workspace launcher/keybind which starts the ait tmux server should place it in a persistent slice (e.g. systemd-run --user --slice=session.slice) so a user-created server also survives compositor/app.slice teardown.
 
 ## Final Implementation Notes
 
