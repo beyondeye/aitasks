@@ -101,3 +101,19 @@ No before/after mitigation tasks needed.
 Profile 'fast': work is on the current branch (no worktree/merge). After review
 and commit, archive via `./.aitask-scripts/aitask_archive.sh 963`, then
 `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a single line —
+  `  stats-tui      Launch the statistics TUI` — to the TUI section of
+  `show_usage()` in `ait`, alphabetically between `settings` and `syncer`,
+  column-aligned to the existing entries (description at column 18). No other
+  changes.
+- **Deviations from plan:** None. Implemented exactly as planned.
+- **Issues encountered:** None. `bash -n ait` passes; `./ait help` renders the
+  new entry correctly aligned.
+- **Key decisions:** Kept the minimal one-line fix; auto-generation of the help
+  list from `tui_registry.py` was rejected (intentional curation per t918,
+  Python startup latency, CLI↔internal-module coupling). No website doc edits
+  (`commands/_index.md` already lists `ait stats-tui`).
+- **Upstream defects identified:** None.
