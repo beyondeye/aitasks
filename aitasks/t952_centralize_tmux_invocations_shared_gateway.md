@@ -5,7 +5,7 @@ depends: []
 issue_type: refactor
 status: Implementing
 labels: [tmux, ait_bridge]
-children_to_implement: [t952_1, t952_2, t952_3]
+children_to_implement: [t952_1, t952_2, t952_3, t952_4]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 08:58
 updated_at: 2026-06-10 12:48
