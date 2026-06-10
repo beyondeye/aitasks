@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [952]
 issue_type: enhancement
 status: Ready
 labels: [tmux, ait_bridge]
 created_at: 2026-06-10 08:58
-updated_at: 2026-06-10 08:58
+updated_at: 2026-06-10 08:59
 ---
 
 ## Problem
