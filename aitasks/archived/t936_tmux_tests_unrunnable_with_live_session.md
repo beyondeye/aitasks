@@ -1,13 +1,17 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: test
-status: Implementing
+status: Done
 labels: [testing, tmux]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-03 23:15
-updated_at: 2026-06-10 07:39
+updated_at: 2026-06-10 08:58
+completed_at: 2026-06-10 08:58
 boardidx: 20
 ---
 
