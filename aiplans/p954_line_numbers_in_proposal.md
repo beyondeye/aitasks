@@ -225,3 +225,22 @@ regression from the new child widget).
 
 ### Goal-achievement risk: low
 - None identified — the codebrowser one-row-per-source-line pattern is proven to keep numbers anchored across reflow, fully covers the requirement, and the toggle/default choice was user-confirmed.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-10) — keybinding customizability
+- **Requested by user:** Confirm the new `Ctrl+Shift+L` binding is in the customizable keybindings map.
+- **Outcome:** No code change needed. `BrainstormApp` subclasses `ShortcutsMixin` (scope `brainstorm`), whose `__init__` calls `register_app_bindings(scope, self.BINDINGS)` over the whole `BINDINGS` list — so the binding, placed directly in `BINDINGS`, is auto-registered as `("brainstorm","toggle_preview_numbered") → ("ctrl+shift+l","Line numbers")`. It appears in the in-TUI shortcut editor (`?`) and is rebindable via `userconfig.yaml` `shortcuts.brainstorm.toggle_preview_numbered`, identical to the sibling `cycle_preview_ratio`.
+
+### Change Request 2 (2026-06-10) — syntax highlighting
+- **Requested by user:** The numbered view should syntax-highlight the markdown (parity with codebrowser, which shows highlighted markdown + line numbers).
+- **Changes made:** `_NumberedProposal.set_text` now markdown-highlights the source via Rich `Syntax(text, "markdown", theme="monokai").highlight(text)` (the codebrowser approach), splits into per-line `Text` (the highlighter drops the trailing-newline empty line → conventional line count), and caches the lines so `_rebuild` (per-resize) only re-lays out the table width. Added `test_numbered_view_is_syntax_highlighted`; adjusted the test fixture to omit a trailing newline so raw and highlighted line counts align.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`, `tests/test_brainstorm_proposal_preview.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a `Ctrl+Shift+L` toggle in the brainstorm Actions-tab proposal preview (explore / module-decompose config steps) that swaps the `SectionAwareMarkdown` for a new `_NumberedProposal` widget — a scrollable, **markdown-syntax-highlighted** source view with a right-justified line-number gutter. Built on the codebrowser Rich-`Table` pattern: one source line per row, number column `no_wrap`, content column wraps, so line numbers survive reflow on narrow terminals. Markdown remains the default; the section minimap is hidden in numbered mode and restored (only when the proposal has sections) on toggle-back. `populate()` resets to markdown mode and feeds the numbered view. Focus ring (`_preview_focus_ring`) follows the visible content view. Binding gated to the Actions tab via `check_action`, auto-registered in the customizable shortcuts map.
+- **Deviations from plan:** Added markdown syntax highlighting (Change Request 2) beyond the original plain-text plan. Cached the highlighted lines in `set_text` (not in the plan's sketch) so per-resize `_rebuild` does not re-run the highlighter.
+- **Issues encountered:** Textual's `Static` exposes no `.renderable` in this version — tests assert against a cached `_NumberedProposal._table` instead. `Syntax.highlight().split("\n")` drops the trailing-newline empty line (conventional line count); test fixture omits the trailing newline to keep raw/highlighted counts aligned.
+- **Key decisions:** Numbered view is a `Static`-rendered Rich `Table` inside a `VerticalScroll` (never a `TextArea`/`CycleField`/`RadioSet`) to preserve the `_actions_collect_config` single-match collector contract. Theme `monokai` for codebrowser parity.
+- **Upstream defects identified:** None.
