@@ -34,7 +34,9 @@ autonomous lanes).
    t635_4), t635_4 (gate-guarded archival), t635_5 (ledger-driven resume),
    t635_6 (aitask-resume skill), t635_7 (gate-aware aitask-pick)
 3. **TUI visibility**: t635_8 (Python ledger parser), t635_9 (board
-   In-Flight action-grouped view), t635_10 (monitor gate column)
+   In-Flight action-grouped view), t635_10 (monitor gate column),
+   t635_20 (stats redesign for multi-stage completion — design pass first;
+   deferred archival breaks today's archived-only completion counting)
 4. **Orchestrator + first conversions**: t635_11 (orchestrator + verifier
    contract), t635_12 (build/tests machine gates), t635_13 (risk-evaluation
    gate, ex-t912), t635_14 (profile→gate-declaration unification),
