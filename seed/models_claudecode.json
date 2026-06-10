@@ -77,6 +77,13 @@
       "notes": "Most capable model, 1M context, complex reasoning + agentic coding, adaptive thinking",
       "verified": {},
       "verifiedstats": {}
+    },
+    {
+      "name": "fable5",
+      "cli_id": "claude-fable-5",
+      "notes": "Fable 5 — latest-generation Claude model",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
