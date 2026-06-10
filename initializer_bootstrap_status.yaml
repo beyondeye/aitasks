@@ -2,11 +2,11 @@ agent_name: initializer_bootstrap
 agent_type: initializer
 group: bootstrap
 launch_mode: interactive
-status: Waiting
+status: Running
 depends_on: []
 created_at: 2026-06-10 10:10:15
-started_at:
-completed_at:
+started_at: '2026-06-10 10:10:19'
+completed_at: null
 progress: 0
-pid:
-error_message:
+pid: 3631962
+error_message: null
