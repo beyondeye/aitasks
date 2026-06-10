@@ -951,6 +951,85 @@ class _PreviewMinimap:
         return cls._cache
 
 
+class _NumberedProposal(VerticalScroll):
+    """Scrollable source-line view: syntax-highlighted markdown + a line-number
+    gutter.
+
+    The alternate proposal rendering for the explore / module-decompose config
+    preview (t954): the proposal source, **markdown-highlighted** (same Rich
+    ``Syntax`` approach as the codebrowser ``code_viewer``), with a
+    right-justified line-number gutter so the user can reference specific lines
+    ("adapt around line 30").
+
+    Each source line is exactly one Rich ``Table`` row (the codebrowser pattern):
+    the number column is ``no_wrap`` while the content column wraps, so a long
+    proposal line that reflows across several terminal rows keeps a single,
+    stable line number — numbers track *source* lines, not wrapped rows. The
+    highlight is computed once in :meth:`set_text` and cached per line, so
+    :meth:`_rebuild` (which runs on every resize) only re-lays out the table
+    width.
+
+    Mounts only a ``Static`` (never a ``TextArea`` / ``CycleField`` / ``RadioSet``)
+    so the recursive ``#actions_content`` collectors in ``_actions_collect_config``
+    stay unambiguous — same constraint as :class:`ProposalPreviewPane`.
+    """
+
+    DEFAULT_CSS = """
+    _NumberedProposal {
+        height: 1fr;
+        width: 1fr;
+        padding: 0 1;
+    }
+    """
+
+    LINE_NUM_WIDTH = 5
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._text = ""
+        self._lines: list = []  # cached per-line highlighted Text
+        self._table = None  # last built Rich Table (one row per source line)
+
+    def compose(self) -> ComposeResult:
+        yield Static(id="preview_numbered_inner")
+
+    def set_text(self, text: str) -> None:
+        self._text = text or ""
+        # Markdown-highlight the source once (codebrowser pattern), then split
+        # into per-line Text so each source line is one table row. The trailing
+        # newline's empty line is dropped by Syntax.highlight (conventional line
+        # count). Cached here so resize only re-lays out the table width.
+        from rich.syntax import Syntax
+
+        highlighted = Syntax(
+            self._text, "markdown", theme="monokai"
+        ).highlight(self._text)
+        self._lines = highlighted.split("\n")
+        self._rebuild()
+
+    def on_resize(self, event) -> None:
+        if self._lines:
+            self._rebuild()
+
+    def _rebuild(self) -> None:
+        from rich.table import Table
+
+        available = self.size.width if self.size.width > 0 else 120
+        content_w = max(20, available - self.LINE_NUM_WIDTH - 2)
+        table = Table(
+            show_header=False, show_edge=False, box=None, pad_edge=False
+        )
+        table.add_column(
+            style="dim", justify="right", width=self.LINE_NUM_WIDTH, no_wrap=True
+        )
+        # Content wraps (no_wrap=False); the number stays anchored to the row.
+        table.add_column(no_wrap=False, width=content_w)
+        for i, line in enumerate(self._lines, start=1):
+            table.add_row(Text(str(i), style="dim"), line)
+        self._table = table
+        self.query_one("#preview_numbered_inner", Static).update(table)
+
+
 class ProposalPreviewPane(Horizontal):
     """Reusable side-by-side proposal viewer: a fixed minimap pane beside a
     scrollable Markdown.
@@ -993,17 +1072,24 @@ class ProposalPreviewPane(Horizontal):
         height: 1fr;
         padding: 0 1;
     }
+    ProposalPreviewPane > #preview_proposal_numbered {
+        width: 1fr;
+        height: 1fr;
+        display: none;
+    }
     """
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._parsed = None
         self._text = ""
+        self._numbered = False
 
     def compose(self) -> ComposeResult:
         from section_viewer import SectionAwareMarkdown
         yield _PreviewMinimap.cls()(classes="preview_proposal_minimap")
         yield SectionAwareMarkdown(id="preview_proposal_content")
+        yield _NumberedProposal(id="preview_proposal_numbered")
 
     def _content(self):
         from section_viewer import SectionAwareMarkdown
@@ -1018,6 +1104,9 @@ class ProposalPreviewPane(Horizontal):
         self._text = text
         parsed = parse_sections(text)
         self._content().update_content(text, parsed)
+        # Feed the alternate numbered view with the raw source (line N == source
+        # line N). It stays hidden until toggled via ``toggle_numbered``.
+        self._numbered_view().set_text(text)
         minimap = self._minimap()
         # populate() clears any stale rows and adds one per section (none when
         # there are no sections), so this also resets the minimap on re-populate.
@@ -1030,6 +1119,37 @@ class ProposalPreviewPane(Horizontal):
             # No sections → hide the (now-empty) minimap so the proposal takes
             # the full pane width.
             minimap.display = False
+        # populate() always lands in markdown (default) mode — each config step
+        # builds a fresh pane, but reset explicitly so a re-populate is clean.
+        self._numbered = False
+        self._content().display = True
+        self._numbered_view().display = False
+
+    def _numbered_view(self) -> "_NumberedProposal":
+        return self.query_one("#preview_proposal_numbered", _NumberedProposal)
+
+    def toggle_numbered(self) -> bool:
+        """Swap the content pane between Markdown and the numbered source view.
+
+        Markdown mode shows the ``SectionAwareMarkdown`` (and the minimap when the
+        proposal has sections); numbered mode shows the ``_NumberedProposal``
+        gutter view and hides the minimap (line numbers, not sections, are the
+        navigation aid there). Returns the new ``_numbered`` state.
+        """
+        self._numbered = not self._numbered
+        md = self._content()
+        num = self._numbered_view()
+        minimap = self._minimap()
+        if self._numbered:
+            md.display = False
+            minimap.display = False
+            num.display = True
+        else:
+            num.display = False
+            md.display = True
+            # Restore the minimap only when the proposal actually has sections.
+            minimap.display = self._parsed is not None
+        return self._numbered
 
     def scroll_to_section(self, section_name: str) -> None:
         """Scroll the proposal so *section_name*'s heading sits at the top.
@@ -3461,6 +3581,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("f", "toggle_deferred", "Defer module"),
         Binding("H", "op_help", "Op help"),
         Binding("ctrl+shift+b", "cycle_preview_ratio", "Preview width"),
+        Binding("ctrl+shift+l", "toggle_preview_numbered", "Line numbers"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+r", "retry_patcher_apply",
                 "Retry patcher apply", show=False),
@@ -3592,7 +3713,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if not self._current_focused_node_id:
                 return None
             return True
-        if action == "cycle_preview_ratio":
+        if action in ("cycle_preview_ratio", "toggle_preview_numbered"):
             try:
                 tabbed = self.query_one(TabbedContent)
             except Exception:
@@ -7117,6 +7238,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._preview_ratio = (getattr(self, "_preview_ratio", 0) + 1) % 3
         self._apply_preview_ratio(left, pane, self._preview_ratio)
 
+    def action_toggle_preview_numbered(self) -> None:
+        """Toggle the config-step proposal preview between Markdown and the
+        numbered source-line view (t954)."""
+        from textual.actions import SkipAction
+        panes = self.query(ProposalPreviewPane)
+        if not panes:
+            raise SkipAction()
+        panes.first().toggle_numbered()
+
     def on_section_minimap_section_selected(self, event) -> None:
         """Route an Actions-tab preview minimap selection to its pane.
 
@@ -7169,9 +7299,18 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         minimaps = list(pane.query(".preview_proposal_minimap"))
         if minimaps and minimaps[0].display:
             ring.append(minimaps[0])
-        contents = list(pane.query("#preview_proposal_content"))
-        if contents:
-            ring.append(contents[0])
+        # Append whichever content view is currently shown: the markdown pane by
+        # default, or the numbered source view when toggled (ctrl+shift+l). The
+        # minimap above is already gated on .display, so numbered mode (which
+        # hides it) drops it from the ring automatically.
+        if getattr(pane, "_numbered", False):
+            numbered = list(pane.query("#preview_proposal_numbered"))
+            if numbered:
+                ring.append(numbered[0])
+        else:
+            contents = list(pane.query("#preview_proposal_content"))
+            if contents:
+                ring.append(contents[0])
         return ring
 
     def _cycle_preview_focus(self, forward: bool = True) -> bool:

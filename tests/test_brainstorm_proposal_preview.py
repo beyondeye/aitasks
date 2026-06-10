@@ -29,7 +29,10 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
 
-from brainstorm.brainstorm_app import ProposalPreviewPane  # noqa: E402
+from brainstorm.brainstorm_app import (  # noqa: E402
+    ProposalPreviewPane,
+    _NumberedProposal,
+)
 from section_viewer import SectionRow, SectionAwareMarkdown  # noqa: E402
 
 
@@ -355,6 +358,28 @@ class PreviewFocusRingTests(unittest.TestCase):
 
         self._run(runner())
 
+    def test_ring_targets_numbered_view_when_toggled(self):
+        # t954: in numbered mode the ring drops the minimap and ends on the
+        # numbered source view instead of the markdown pane.
+        async def runner():
+            app = self._host()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                await pilot.pause()
+                pane.toggle_numbered()
+                await pilot.pause()
+                ring = app._preview_focus_ring()
+                self.assertEqual(ring[-1].id, "preview_proposal_numbered")
+                self.assertFalse(
+                    any("preview_proposal_minimap" in w.classes for w in ring)
+                )
+                self.assertFalse(
+                    any(w.id == "preview_proposal_content" for w in ring)
+                )
+
+        self._run(runner())
+
     def test_minimap_absent_from_ring_when_no_sections(self):
         async def runner():
             app = self._host()
@@ -368,6 +393,148 @@ class PreviewFocusRingTests(unittest.TestCase):
                 )
                 # Ring is inputs + the markdown content only.
                 self.assertEqual(ring[-1].id, "preview_proposal_content")
+
+        self._run(runner())
+
+
+class NumberedViewTests(unittest.TestCase):
+    """The ctrl+shift+l numbered source-line view (t954).
+
+    The numbered view renders the *raw* proposal source with a line-number
+    gutter, one Rich Table row per source line, so numbers stay anchored even
+    when a long line wraps on a narrow terminal.
+    """
+
+    # No trailing newline: raw line count == Syntax.highlight line count (the
+    # highlighter drops the empty line after a final newline), so the expected
+    # row count is simply len(split).
+    PROPOSAL = (
+        "# Goal\n"
+        "\n"
+        "Add a settings screen that lets users configure notification "
+        "preferences and the theme; this line is intentionally long so it "
+        "wraps on a narrow terminal.\n"
+        "Short tail line."
+    )
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _numbered(self, pane: ProposalPreviewPane) -> _NumberedProposal:
+        return pane.query_one("#preview_proposal_numbered", _NumberedProposal)
+
+    def test_toggle_numbered_swaps_visible_widget(self):
+        async def runner():
+            app = _HostApp()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                await pilot.pause()
+                md = _content(pane)
+                num = self._numbered(pane)
+                minimap = pane.query_one(".preview_proposal_minimap")
+                # Default: markdown + minimap visible, numbered hidden.
+                self.assertTrue(md.display)
+                self.assertFalse(num.display)
+                self.assertTrue(minimap.display)
+
+                self.assertTrue(pane.toggle_numbered())
+                await pilot.pause()
+                self.assertTrue(num.display)
+                self.assertFalse(md.display)
+                self.assertFalse(minimap.display)
+
+                # Toggle back → markdown returns; minimap reappears (sections).
+                self.assertFalse(pane.toggle_numbered())
+                await pilot.pause()
+                self.assertTrue(md.display)
+                self.assertFalse(num.display)
+                self.assertTrue(minimap.display)
+
+        self._run(runner())
+
+    def test_toggle_back_keeps_minimap_hidden_without_sections(self):
+        async def runner():
+            app = _HostApp()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_NO_SECTIONS)
+                await pilot.pause()
+                minimap = pane.query_one(".preview_proposal_minimap")
+                self.assertFalse(minimap.display)
+                pane.toggle_numbered()
+                await pilot.pause()
+                pane.toggle_numbered()  # back to markdown
+                await pilot.pause()
+                # No sections → minimap stays hidden after the round-trip.
+                self.assertFalse(minimap.display)
+
+        self._run(runner())
+
+    def test_populate_resets_to_markdown_mode(self):
+        async def runner():
+            app = _HostApp()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                await pilot.pause()
+                pane.toggle_numbered()
+                await pilot.pause()
+                self.assertTrue(pane._numbered)
+                # Re-populating (e.g. a fresh config step) snaps back to md.
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                await pilot.pause()
+                self.assertFalse(pane._numbered)
+                self.assertTrue(_content(pane).display)
+                self.assertFalse(self._numbered(pane).display)
+
+        self._run(runner())
+
+    def test_one_table_row_per_source_line(self):
+        async def runner():
+            app = _HostApp()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(self.PROPOSAL)
+                await pilot.pause()
+                num = self._numbered(pane)
+                expected = len(self.PROPOSAL.split("\n"))
+                self.assertEqual(len(num._text.split("\n")), expected)
+                # One Rich Table row per source line — the gutter numbering basis.
+                self.assertEqual(num._table.row_count, expected)
+
+        self._run(runner())
+
+    def test_numbered_view_is_syntax_highlighted(self):
+        # t954 follow-up: the numbered view markdown-highlights the source (Rich
+        # Syntax), like codebrowser — so the per-line Text carries style spans.
+        async def runner():
+            app = _HostApp()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(self.PROPOSAL)
+                await pilot.pause()
+                num = self._numbered(pane)
+                self.assertTrue(any(line.spans for line in num._lines))
+
+        self._run(runner())
+
+    def test_line_numbers_survive_narrow_width(self):
+        async def runner():
+            app = _HostApp()
+            async with app.run_test(size=(40, 12)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(self.PROPOSAL)
+                pane.toggle_numbered()
+                await pilot.pause()
+                num = self._numbered(pane)
+                # Force a rebuild at the narrow width (where the long line wraps).
+                num.set_text(self.PROPOSAL)
+                await pilot.pause()
+                expected = len(self.PROPOSAL.split("\n"))
+                # Row count == logical source lines regardless of wrapping:
+                # numbers track source lines, not wrapped terminal rows.
+                self.assertEqual(num._table.row_count, expected)
 
         self._run(runner())
 
