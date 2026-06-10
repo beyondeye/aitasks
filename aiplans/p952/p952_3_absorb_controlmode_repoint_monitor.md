@@ -275,3 +275,51 @@ See **Step 9 (Post-Implementation)** of the task-workflow for archival.
   Rejected: they would be zero-caller duplicates of the gateway's `run` /
   `run_async` — exactly the duplication t952 removes; deletion shrinks t952_5's
   lint allowlist to just the gateway.
+
+## Final Implementation Notes
+- **Actual work done:** (1) `lib/tmux_exec.py` — added `TmuxClient.run_via_control`
+  / `run_async_via_control`, a verbatim port of the former
+  `TmuxMonitor.tmux_run` / `_tmux_async` dispatch ("control client when alive,
+  subprocess fallback on `rc == -1`"); the backend is a duck-typed parameter, so
+  the gateway has no `monitor/` dependency and stays stateless w.r.t. the
+  channel. (2) `monitor/tmux_control.py` — `_LIB_DIR` `sys.path` insert +
+  `from tmux_exec import tmux_socket_args`; `socket_args` cached once in
+  `TmuxControlClient` and `TmuxControlBackend`; new `_attach_argv()` threads the
+  socket flag between `"tmux"` and `"-C"`; backend passes its cached socket args
+  to every client it builds, including the supervisor reconnect. (3)
+  `monitor/tmux_monitor.py` — `self._tmux = TmuxClient()`; `tmux_run` /
+  `_tmux_async` reduced to one-line delegations; deleted the orphaned
+  `_run_tmux_subprocess` / `_run_tmux_async`. (4) `tests/test_tmux_exec.py` —
+  +10 tests (dispatcher: None/dead → subprocess, alive → short-circuit, `-1` →
+  fallback, `rc==1` → no retry, sync+async; attach-argv socket threading,
+  default-from-env). (5) Per user instruction, added a coordination pointer to
+  `aitasks/t822/t822_3_monitor_port_design.md`.
+- **Deviations from plan:** none in approach. Beyond the plan: tidied three now-
+  stale gateway docstrings in `tmux_exec.py` that referenced the deleted
+  `_run_tmux_*` helpers / described t952_3 as "a later stage" (current-state
+  doc convention).
+- **Issues encountered:** none. The keystone parity oracle
+  (`test_tmux_run_parity.sh`) passed first try on both the backend-on
+  (`request_sync`) and subprocess-fallback paths; control + resilience suites
+  green. No `AIT_NO_SYSTEMD_RUN` workaround needed (this child does not exercise
+  `new_session_argv`'s systemd-run rung).
+- **Key decisions:** backend passed **per-call** (not held as gateway state) to
+  avoid coupling the stateless gateway to monitor's backend lifecycle and to
+  avoid a `lib → monitor` import cycle; the `monitor → lib` direction
+  (`tmux_control` importing `tmux_socket_args`) is the correct one and already
+  used by `tmux_monitor`.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t952_4 (shell mirror):** read the same `AITASKS_TMUX_SOCKET` (`-L` form);
+    no Python coupling with this child.
+  - **t952_5 (registry collapse + lint guard):** after this child, the *only*
+    Python sites still spawning raw `tmux` outside the gateway's `run`/`run_async`/
+    `spawn` are `monitor/tmux_control.py`'s `_attach_argv()` (the control attach —
+    now carries the socket flag and is the gateway's control-mode primitive;
+    whitelist it) and the two registry readers in `agent_launch_utils.py` (yours).
+    The `_run_tmux_subprocess` / `_run_tmux_async` helpers are **gone** — do not
+    whitelist them.
+  - **t822_3 (monitor_port_design):** its task file now carries a coordination
+    note; `monitor_core` should delegate tmux exec to `lib/tmux_exec.py`, and the
+    physical relocation of `TmuxControlBackend`/`TmuxControlClient` into the core
+    is the natural home for the move deferred here.
