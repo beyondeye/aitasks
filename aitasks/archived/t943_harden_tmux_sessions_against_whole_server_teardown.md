@@ -5,13 +5,14 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [tmux, resilience]
 risk_mitigation_tasks: [956, 957]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-07 17:17
-updated_at: 2026-06-10 09:31
+updated_at: 2026-06-10 09:33
+completed_at: 2026-06-10 09:33
 ---
 
 ## Problem
