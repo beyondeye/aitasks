@@ -289,3 +289,41 @@ CSS targets `#code_viewer`/`#code_display` — both preserved) or
   reflow; markdown highlighting; toggle/focus-ring).
 
 Follow Step 9 (Post-Implementation) of the task-workflow for archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/lib/numbered_source_view.py`
+  (`NumberedSourceView(VerticalScroll)`) exactly as designed — hook-based base
+  whose defaults reproduce `_NumberedProposal`'s behavior. Adopted it in both
+  hosts: `_NumberedProposal` collapsed to a ~12-line subclass (kept only
+  `DEFAULT_CSS` + `_INNER_ID`); `CodeViewer` re-parented onto the base with the
+  hook overrides for lexer/wrap/render-range/extra-column/row-style/truncate and
+  the viewport indicator rows. Added the lib `sys.path` guard at the top of
+  `code_viewer.py` (mirrors `section_viewer.py`) so the import resolves even when
+  only the codebrowser dir is on the path (the control-chars unit test).
+- **Deviations from plan:** None functional. Cleanup beyond the plan: removed
+  imports in `code_viewer.py` that the refactor made unused (`time`,
+  `textual.containers.VerticalScroll`, `textual.widgets.Static`,
+  `rich.table.Table`) — all of that plumbing now lives in the base.
+- **Issues encountered:** `aitask_plan_externalize.sh` returned
+  `MULTIPLE_CANDIDATES` (several recent internal plan files); re-ran with explicit
+  `--internal <path>` for the plan authored this session. No code issues.
+- **Key decisions:** Unified the highlighted-line cache on the base's `self._lines`
+  (matching `_NumberedProposal`, which tests read directly) and dropped
+  `CodeViewer._highlighted_lines` + the raw-`splitlines()` `self._lines`;
+  `_total_lines` is now `len(self._lines)` after highlight (already equal to the
+  old `splitlines()` count, or the prior render would have IndexError'd). Kept the
+  inner `Static` id per-host via `_INNER_ID` so the `#code_display` /
+  `#preview_numbered_inner` CSS selectors still match. `CodeViewer` always
+  declares the 3rd (annotation) column (`_has_extra_column → True`), collapsing to
+  width 0 when hidden — preserves the prior always-3-column table. The annotation
+  gutter is precomputed once per build in `_prepare_build` and read per-row via
+  `_extra_cell` (indexed off `_build_start`).
+- **Upstream defects identified:** None.
+- **Verification performed:** `tests/test_brainstorm_proposal_preview.py` (19) and
+  `tests/test_code_viewer_control_chars.py` (7) both green; base imports under the
+  lib-path guard; `codebrowser_app` imports clean and `CodeViewer` subclasses
+  `NumberedSourceView`. Ad-hoc render smoke test (not committed) confirmed: small
+  file → row_count == source lines, 3 columns, highlight spans present, cursor /
+  annotations / wrap-toggle exercised without error; 3000-line file → viewport
+  mode with 202 rows (200 viewport + 2 above/below indicator rows).
