@@ -1,14 +1,21 @@
 ---
 priority: low
 effort: medium
-depends: [635]
+depends: [t635_11]
 issue_type: enhancement
 status: Ready
 labels: [gates, task_workflow]
 created_at: 2026-06-02 12:49
-updated_at: 2026-06-02 12:49
-boardidx: 50
+updated_at: 2026-06-10 18:55
 ---
+
+> **Formerly standalone task t912** (`t912_risk_evaluation_gate_integration`),
+> reparented under t635 during the 2026-06-10 gates-integration design
+> session (Phase 4 of `aidocs/gates/integration-roadmap.md`, decision D4).
+> Archived plans referencing t912 (p884_7, p884_8) are historical record and
+> intentionally not rewritten. Dependency updated from the bare framework
+> parent (t635) to the orchestrator child (t635_11), which is what the
+> integration actually needs.
 
 ## Context
 
@@ -21,12 +28,8 @@ to be wrapped as a first-class gate once the framework lands.
 ## Goal
 
 Wrap the risk-evaluation feature as a first-class `aitask-gate-risk` gate once the
-gates framework (t635) is in place, replacing the forward-compat seam note added
-in t884_3.
-
-## Depends on
-
-- **t635** (gates framework) — this task cannot start until the framework lands.
+gates framework orchestrator + verifier contract (t635_11) is in place, replacing
+the forward-compat seam note added in t884_3.
 
 ## Design already documented
 
@@ -46,8 +49,13 @@ doc, keeping the `risk_evaluation` opt-in semantics. Regenerate goldens and run
 `./.aitask-scripts/aitask_skill_verify.sh` in the same commit (gotcha #2 from the
 t884 parent plan).
 
+Note: the broader profile→gate-declaration configuration unification (which
+checkpoint is toggled where) is t635_14 — this child performs the risk-specific
+conversion per the seam doc; t635_14 then retires the duplicated Jinja toggle.
+
 ## Reference
 
 - `aidocs/gates/risk-evaluation-gate-seam.md` (integration design).
 - `aidocs/gates/aitask-gate-framework.md` (gates contract).
-- t635 (gates framework), t884 (parent feature task).
+- `aidocs/gates/integration-roadmap.md` (Phase 4, D4).
+- t635_11 (orchestrator + verifier contract), t884 (parent feature task).
