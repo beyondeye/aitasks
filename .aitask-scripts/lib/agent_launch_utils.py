@@ -21,9 +21,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tui_registry import TUI_NAMES as _DEFAULT_TUI_NAMES
+from tmux_exec import TmuxClient
 
 # Known git management TUIs in preference order
 KNOWN_GIT_TUIS = ["lazygit", "gitui", "tig"]
+
+# Single Python gateway for raw tmux spawning (t952). Socket args are cached
+# once at construction from AITASKS_TMUX_SOCKET (unset today → default socket).
+_TMUX = TmuxClient()
 
 
 def tmux_session_target(session: str) -> str:
@@ -173,36 +178,26 @@ def is_tmux_available() -> bool:
 
 def get_tmux_sessions() -> list[str]:
     """List running tmux session names. Returns empty list if tmux not running."""
-    try:
-        result = subprocess.run(
-            ["tmux", "list-sessions", "-F", "#{session_name}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0:
-            return [s for s in result.stdout.strip().splitlines() if s]
-        return []
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return []
+    rc, out = _TMUX.run(["list-sessions", "-F", "#{session_name}"])
+    if rc == 0:
+        return [s for s in out.strip().splitlines() if s]
+    return []
 
 
 def get_tmux_windows(session: str) -> list[tuple[str, str]]:
     """List windows in a tmux session as (index, name) tuples."""
-    try:
-        result = subprocess.run(
-            ["tmux", "list-windows", "-t", tmux_session_target(session),
-             "-F", "#{window_index}:#{window_name}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0:
-            windows = []
-            for line in result.stdout.strip().splitlines():
-                if ":" in line:
-                    idx, name = line.split(":", 1)
-                    windows.append((idx, name))
-            return windows
-        return []
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return []
+    rc, out = _TMUX.run(
+        ["list-windows", "-t", tmux_session_target(session),
+         "-F", "#{window_index}:#{window_name}"]
+    )
+    if rc == 0:
+        windows = []
+        for line in out.strip().splitlines():
+            if ":" in line:
+                idx, name = line.split(":", 1)
+                windows.append((idx, name))
+        return windows
+    return []
 
 
 def find_window_by_name(name: str, session: str) -> tuple[str, str] | None:
@@ -468,16 +463,10 @@ def switch_to_pane_anywhere(pane_id: str) -> bool:
     dead, or no client is attached.
     """
     def _display(fmt: str) -> str | None:
-        try:
-            result = subprocess.run(
-                ["tmux", "display-message", "-p", "-t", pane_id, fmt],
-                capture_output=True, text=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        rc, out = _TMUX.run(["display-message", "-p", "-t", pane_id, fmt])
+        if rc != 0:
             return None
-        if result.returncode != 0:
-            return None
-        value = result.stdout.strip()
+        value = out.strip()
         return value or None
 
     sess = _display("#{session_name}")
@@ -492,14 +481,8 @@ def switch_to_pane_anywhere(pane_id: str) -> bool:
         ["select-window", "-t", tmux_window_target(sess, win)],
         ["select-pane", "-t", pane_id],
     ):
-        try:
-            result = subprocess.run(
-                ["tmux", *args],
-                capture_output=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return False
-        if result.returncode != 0:
+        rc, _ = _TMUX.run(args)
+        if rc != 0:
             return False
     return True
 
@@ -518,107 +501,13 @@ def _parse_pane_pid(stdout: str) -> int | None:
 
 def _query_first_pane_pid(session: str, window: str) -> int | None:
     """Query the first pane's pid in a freshly created session/window."""
-    try:
-        result = subprocess.run(
-            ["tmux", "list-panes", "-t", tmux_window_target(session, window),
-             "-F", "#{pane_pid}"],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+    rc, out = _TMUX.run(
+        ["list-panes", "-t", tmux_window_target(session, window),
+         "-F", "#{pane_pid}"]
+    )
+    if rc != 0:
         return None
-    if result.returncode != 0:
-        return None
-    return _parse_pane_pid(result.stdout)
-
-
-def _systemd_user_available() -> bool:
-    """Whether a usable ``systemd --user`` manager is reachable for systemd-run.
-
-    Python mirror of ``ait_systemd_user_available`` in ``terminal_compat.sh``
-    (t943). Honors the ``AIT_NO_SYSTEMD_RUN`` test/escape hatch and accepts a
-    ``running`` or ``degraded`` user manager.
-    """
-    if os.environ.get("AIT_NO_SYSTEMD_RUN"):
-        return False
-    if shutil.which("systemd-run") is None or shutil.which("systemctl") is None:
-        return False
-    if not os.environ.get("XDG_RUNTIME_DIR"):
-        return False
-    try:
-        result = subprocess.run(
-            ["systemctl", "--user", "is-system-running"],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return False
-    return result.returncode == 0 or result.stdout.strip() == "degraded"
-
-
-def _persistent_new_session_prefix(session: str) -> list[str] | None:
-    """systemd-run argv prefix that lands a new tmux SERVER in a persistent
-    ``session.slice`` service, or ``None`` when ``systemd --user`` is
-    unavailable.
-
-    Python mirror of the systemd-run rung of ``ait_tmux_new_session_persistent``
-    (t943): the new server escapes the transient ``app.slice`` scope so a
-    compositor / ``app.slice`` teardown can no longer reap it (t956). Socket
-    unchanged (default). The returned prefix is meant to be concatenated with a
-    ``tmux new-session -d …`` argv.
-    """
-    if not _systemd_user_available():
-        return None
-    safe = "session"
-    try:
-        esc = subprocess.run(
-            ["systemd-escape", "--", session],
-            capture_output=True, text=True, timeout=5,
-        )
-        if esc.returncode == 0 and esc.stdout.strip():
-            safe = esc.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-    # --slice=session.slice is the load-bearing flag (escapes app.slice).
-    # Type=forking matches tmux's double-fork; KillMode=none keeps systemd from
-    # signalling the server cgroup when the launching transaction finishes;
-    # --collect GCs the unit in the benign loser-of-a-race case.
-    unit = f"ait-tmux-{safe}-{os.getpid()}-{os.urandom(3).hex()}"
-    return [
-        "systemd-run", "--user", "--slice=session.slice", f"--unit={unit}",
-        "--property=Type=forking", "--property=KillMode=none",
-        "--collect", "--quiet", "--",
-    ]
-
-
-def _new_session_tmux_argv(
-    session: str, window: str, command: str,
-    cwd_args: list[str], cwd: str | None,
-) -> list[str]:
-    """Build the argv that creates a detached tmux session.
-
-    When this call genuinely creates the tmux SERVER (no server running yet),
-    wrap it in a persistent ``session.slice`` systemd-user service so a
-    compositor / ``app.slice`` teardown can't reap it (t956, mirroring t943's
-    ``ait_tmux_new_session_persistent``), with a setsid → plain-tmux fallback
-    ladder. When a server is already running this is an *attach*, not a server
-    creation, so today's plain invocation is used unchanged.
-    """
-    base = ["tmux", "new-session", "-d", "-s", session, "-n", window]
-    if get_tmux_sessions():
-        # A tmux server is already running → new-session attaches a session to
-        # it (no server creation). Preserve today's default-cwd behavior — no
-        # forced -c when cwd is None.
-        return base + cwd_args + [command]
-    # No server running → this new-session creates it. The systemd-run / setsid
-    # rungs sever the launcher relationship, so pass an explicit -c: once
-    # detached, the default "inherit the launcher's cwd" no longer holds, and
-    # ``cwd or os.getcwd()`` reproduces today's inherited-cwd behavior.
-    created = base + ["-c", cwd or os.getcwd(), command]
-    prefix = _persistent_new_session_prefix(session)
-    if prefix is not None:
-        return prefix + created
-    if shutil.which("setsid"):
-        return ["setsid"] + created
-    return created
+    return _parse_pane_pid(out)
 
 
 def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, str | None]:
@@ -635,9 +524,11 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
         # Create new session with a window, then switch to it. When this is the
         # first session (no server yet), the server is spawned inside a
         # persistent session.slice service so it survives an app.slice teardown
-        # (t956) — see _new_session_tmux_argv. ``new-session -d`` does not
-        # support ``-P``, so query pane_pid from list-panes after creation.
-        tmux_cmd = _new_session_tmux_argv(
+        # (t956) — see TmuxClient.new_session_argv. ``new-session -d`` does not
+        # support ``-P``, so query pane_pid from list-panes after creation. The
+        # gateway returns the full argv (incl. any systemd-run/setsid prefix and
+        # the socket flag), so it goes straight to Popen, not client.spawn.
+        tmux_cmd = _TMUX.new_session_argv(
             config.session, config.window, command, cwd_args, config.cwd,
         )
         proc = subprocess.Popen(tmux_cmd, stderr=subprocess.PIPE)
@@ -648,69 +539,53 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
         pane_pid = _query_first_pane_pid(config.session, config.window)
         # Try to switch client (works if we're inside tmux)
         if os.environ.get("TMUX"):
-            subprocess.Popen(
-                ["tmux", "switch-client", "-t", tmux_session_target(config.session)]
+            _TMUX.spawn(
+                ["switch-client", "-t", tmux_session_target(config.session)]
             )
         return pane_pid, None
     elif config.new_window:
-        tmux_cmd = [
-            "tmux", "new-window",
+        rc, out = _TMUX.run([
+            "new-window",
             "-P", "-F", "#{pane_pid}",
             "-t", tmux_window_target(config.session, ""),
             "-n", config.window,
             *cwd_args,
             command,
-        ]
-        try:
-            result = subprocess.run(
-                tmux_cmd, capture_output=True, text=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-            return None, f"tmux new-window failed: {e}"
-        if result.returncode != 0:
-            return None, f"tmux new-window failed: {result.stderr.strip()}"
-        return _parse_pane_pid(result.stdout), None
+        ])
+        if rc != 0:
+            return None, f"tmux new-window failed (rc={rc})"
+        return _parse_pane_pid(out), None
     else:
         # Split existing window into a new pane
         split_flag = "-h" if config.split_direction == "horizontal" else "-v"
         target = tmux_window_target(config.session, config.window)
-        tmux_cmd = [
-            "tmux", "split-window",
+        rc, out = _TMUX.run([
+            "split-window",
             "-P", "-F", "#{pane_pid}",
             split_flag, "-t", target,
             *cwd_args,
             command,
-        ]
-        try:
-            result = subprocess.run(
-                tmux_cmd, capture_output=True, text=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-            return None, f"tmux split-window failed: {e}"
-        if result.returncode != 0:
-            return None, f"tmux split-window failed: {result.stderr.strip()}"
+        ])
+        if rc != 0:
+            return None, f"tmux split-window failed (rc={rc})"
         # Switch to the target window so the user sees the new pane
-        subprocess.Popen(["tmux", "select-window", "-t", target])
-        return _parse_pane_pid(result.stdout), None
+        _TMUX.spawn(["select-window", "-t", target])
+        return _parse_pane_pid(out), None
 
 
 def _lookup_window_name(session: str, window_index: str) -> str | None:
     """Look up a tmux window name from its index."""
-    try:
-        result = subprocess.run(
-            ["tmux", "list-windows", "-t", tmux_session_target(session),
-             "-F", "#{window_index}:#{window_name}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode != 0:
-            return None
-        for line in result.stdout.strip().splitlines():
-            if ":" in line:
-                idx, name = line.split(":", 1)
-                if idx == window_index:
-                    return name
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
+    rc, out = _TMUX.run(
+        ["list-windows", "-t", tmux_session_target(session),
+         "-F", "#{window_index}:#{window_name}"]
+    )
+    if rc != 0:
+        return None
+    for line in out.strip().splitlines():
+        if ":" in line:
+            idx, name = line.split(":", 1)
+            if idx == window_index:
+                return name
     return None
 
 
@@ -794,66 +669,52 @@ def maybe_spawn_minimonitor(
     # Resolve window index
     win_index = window_index
     if win_index is None:
-        try:
-            result = subprocess.run(
-                ["tmux", "list-windows", "-t", tmux_session_target(session),
-                 "-F", "#{window_index}:#{window_name}"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode != 0:
-                return None
-            for line in result.stdout.strip().splitlines():
-                if ":" in line:
-                    idx, name = line.split(":", 1)
-                    if name == window_name:
-                        win_index = idx  # keep looping — pick the *last* match
-            if win_index is None:
-                return None
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        rc, out = _TMUX.run(
+            ["list-windows", "-t", tmux_session_target(session),
+             "-F", "#{window_index}:#{window_name}"]
+        )
+        if rc != 0:
+            return None
+        for line in out.strip().splitlines():
+            if ":" in line:
+                idx, name = line.split(":", 1)
+                if name == window_name:
+                    win_index = idx  # keep looping — pick the *last* match
+        if win_index is None:
             return None
 
     # Check existing panes for monitor/minimonitor and pane count
-    try:
-        result = subprocess.run(
-            ["tmux", "list-panes", "-t", tmux_window_target(session, win_index),
-             "-F", "#{pane_current_command}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0:
-            pane_lines = result.stdout.strip().splitlines()
-            for cmd_line in pane_lines:
-                if "minimonitor" in cmd_line or "monitor_app" in cmd_line:
-                    return None
-            # Avoid overcrowding: skip if 3+ panes already exist
-            if len(pane_lines) >= 3:
+    rc, out = _TMUX.run(
+        ["list-panes", "-t", tmux_window_target(session, win_index),
+         "-F", "#{pane_current_command}"]
+    )
+    if rc == 0:
+        pane_lines = out.strip().splitlines()
+        for cmd_line in pane_lines:
+            if "minimonitor" in cmd_line or "monitor_app" in cmd_line:
                 return None
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
+        # Avoid overcrowding: skip if 3+ panes already exist
+        if len(pane_lines) >= 3:
+            return None
 
     # Spawn minimonitor as a right split, capturing the new pane id
-    split_argv = ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}",
+    split_argv = ["split-window", "-h", "-P", "-F", "#{pane_id}",
                   "-l", str(width)]
     if project_root is not None:
         split_argv += ["-c", str(project_root)]
     split_argv += ["-t", tmux_window_target(session, win_index),
                    "ait", "minimonitor"]
-    try:
-        spawn = subprocess.run(
-            split_argv,
-            capture_output=True, text=True, timeout=5,
-        )
-        if spawn.returncode != 0:
-            return None
-        companion_pane = spawn.stdout.strip() or None
-        # Refocus the original pane (left pane)
-        subprocess.Popen(
-            ["tmux", "select-pane", "-t",
-             f"{tmux_window_target(session, win_index)}.0"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        return companion_pane
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+    rc, out = _TMUX.run(split_argv)
+    if rc != 0:
         return None
+    companion_pane = out.strip() or None
+    # Refocus the original pane (left pane)
+    _TMUX.spawn(
+        ["select-pane", "-t",
+         f"{tmux_window_target(session, win_index)}.0"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return companion_pane
 
 
 def launch_or_focus_codebrowser(
@@ -870,49 +731,36 @@ def launch_or_focus_codebrowser(
 
     Returns ``(success, error_message)``. On success, error_message is None.
     """
-    try:
-        result = subprocess.run(
-            ["tmux", "set-environment", "-t", tmux_session_target(session),
-             "AITASK_CODEBROWSER_FOCUS", focus_value],
-            capture_output=True, timeout=5,
-        )
-        if result.returncode != 0:
-            return False, "tmux set-environment failed"
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        return False, f"tmux set-environment error: {e}"
+    rc, _ = _TMUX.run(
+        ["set-environment", "-t", tmux_session_target(session),
+         "AITASK_CODEBROWSER_FOCUS", focus_value]
+    )
+    if rc != 0:
+        return False, "tmux set-environment failed"
 
-    try:
-        lw = subprocess.run(
-            ["tmux", "list-windows", "-t", tmux_session_target(session),
-             "-F", "#{window_name}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if lw.returncode != 0:
-            return False, "tmux list-windows failed"
-        names = lw.stdout.strip().splitlines()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        return False, f"tmux list-windows error: {e}"
+    rc, out = _TMUX.run(
+        ["list-windows", "-t", tmux_session_target(session),
+         "-F", "#{window_name}"]
+    )
+    if rc != 0:
+        return False, "tmux list-windows failed"
+    names = out.strip().splitlines()
 
-    try:
-        if window_name in names:
-            sel = subprocess.run(
-                ["tmux", "select-window", "-t",
-                 tmux_window_target(session, window_name)],
-                capture_output=True, timeout=5,
-            )
-            if sel.returncode != 0:
-                return False, "tmux select-window failed"
-        else:
-            nw = subprocess.run(
-                ["tmux", "new-window", "-t", tmux_window_target(session, ""),
-                 "-n", window_name,
-                 "./ait", "codebrowser", "--focus", focus_value],
-                capture_output=True, timeout=5,
-            )
-            if nw.returncode != 0:
-                return False, "tmux new-window failed"
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        return False, f"tmux switch error: {e}"
+    if window_name in names:
+        rc, _ = _TMUX.run(
+            ["select-window", "-t",
+             tmux_window_target(session, window_name)]
+        )
+        if rc != 0:
+            return False, "tmux select-window failed"
+    else:
+        rc, _ = _TMUX.run(
+            ["new-window", "-t", tmux_window_target(session, ""),
+             "-n", window_name,
+             "./ait", "codebrowser", "--focus", focus_value]
+        )
+        if rc != 0:
+            return False, "tmux new-window failed"
 
     return True, None
 

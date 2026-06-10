@@ -53,9 +53,14 @@ from agent_launch_utils import (  # noqa: E402
     tmux_window_target,
 )
 from stale_entry_modal import RegistryRefresh, StaleEntryModal  # noqa: E402
+from tmux_exec import TmuxClient  # noqa: E402
 from tui_registry import BRAINSTORM_PREFIX as _BRAINSTORM_PREFIX, TUI_NAMES as _TUI_NAMES, switcher_tuis  # noqa: E402
 from keybinding_registry import register_app_bindings, resolve_key  # noqa: E402
 from shortcut_labels import display_form, render_label  # noqa: E402
+
+# Single Python gateway for raw tmux spawning (t952). Socket args cached once
+# at construction from AITASKS_TMUX_SOCKET (unset today → default socket).
+_TMUX = TmuxClient()
 
 
 def _format_desync_lines(lines_output: str) -> str:
@@ -125,12 +130,9 @@ def _detect_current_session() -> str | None:
     if not os.environ.get("TMUX"):
         return None
     try:
-        result = subprocess.run(
-            ["tmux", "display-message", "-p", "#S"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
+        rc, out = _TMUX.run(["display-message", "-p", "#S"])
+        if rc == 0 and out.strip():
+            return out.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     return None
@@ -609,22 +611,20 @@ class TuiSwitcherOverlay(ModalScreen):
         Centralizes the ``-c <project_root>`` flag so cross-session spawns
         land in the SELECTED session's project directory (not the attached
         session's cwd). When ``capture_pane_id`` is True, runs synchronously
-        with ``-P -F #{pane_id}`` and returns the
-        ``subprocess.CompletedProcess`` so callers can read the pane id;
-        otherwise returns the async ``Popen`` for fire-and-forget use.
+        through the gateway and returns the ``(returncode, stdout)`` tuple so
+        callers can read the pane id; otherwise returns the async ``Popen``
+        for fire-and-forget use.
         """
         project_root = self._project_root_for_session(self._session)
-        argv = ["tmux", "new-window", "-t",
+        argv = ["new-window", "-t",
                 tmux_window_target(self._session, ""),
                 "-c", str(project_root),
                 "-n", window_name]
         if capture_pane_id:
             argv += ["-P", "-F", "#{pane_id}", cmd]
-            return subprocess.run(
-                argv, capture_output=True, text=True, timeout=5,
-            )
+            return _TMUX.run(argv)
         argv += [cmd]
-        return subprocess.Popen(
+        return _TMUX.spawn(
             argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
 
@@ -1006,8 +1006,8 @@ class TuiSwitcherOverlay(ModalScreen):
                 target = tmux_window_target(
                     self._session, window_index if window_index else name
                 )
-                subprocess.Popen(
-                    ["tmux", "select-window", "-t", target],
+                _TMUX.spawn(
+                    ["select-window", "-t", target],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
             elif name == "git":
@@ -1032,8 +1032,8 @@ class TuiSwitcherOverlay(ModalScreen):
         if self._session == self._attached_session:
             return
         try:
-            subprocess.Popen(
-                ["tmux", "switch-client", "-t", tmux_session_target(self._session)],
+            _TMUX.spawn(
+                ["switch-client", "-t", tmux_session_target(self._session)],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         except (FileNotFoundError, OSError):
@@ -1052,15 +1052,11 @@ class TuiSwitcherOverlay(ModalScreen):
         """
         project_root = self._project_root_for_session(self._session)
         cmd = self._get_launch_command("git", project_root)
-        try:
-            result = self._spawn_in_session("git", cmd, capture_pane_id=True)
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        rc, stdout = self._spawn_in_session("git", cmd, capture_pane_id=True)
+        if rc != 0:
             self.app.notify("Failed to launch git TUI", severity="error")
             return
-        if result.returncode != 0:
-            self.app.notify("Failed to launch git TUI", severity="error")
-            return
-        primary_pane = result.stdout.strip()
+        primary_pane = stdout.strip()
         if not primary_pane:
             return
 
@@ -1071,8 +1067,11 @@ class TuiSwitcherOverlay(ModalScreen):
         )
 
         if companion_pane:
-            subprocess.Popen(
-                ["tmux", "set-option", "-p", "-t", primary_pane,
+            # Pane-scoped verbs: -t is a %pane id, passed through untouched
+            # (no session_target wrapping). Routed via the gateway for socket
+            # consistency.
+            _TMUX.spawn(
+                ["set-option", "-p", "-t", primary_pane,
                  "remain-on-exit", "on"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
@@ -1080,8 +1079,8 @@ class TuiSwitcherOverlay(ModalScreen):
                 Path(__file__).resolve().parent.parent / "aitask_companion_cleanup.sh"
             )
             hook_cmd = f"run-shell '{script_path} {primary_pane} {companion_pane}'"
-            subprocess.Popen(
-                ["tmux", "set-hook", "-p", "-t", primary_pane,
+            _TMUX.spawn(
+                ["set-hook", "-p", "-t", primary_pane,
                  "pane-died", hook_cmd],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )

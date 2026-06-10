@@ -17,9 +17,7 @@ sys.path.insert(0, str(LIB_DIR))
 import agent_launch_utils  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
     TmuxLaunchConfig,
-    _new_session_tmux_argv,
     _parse_pane_pid,
-    _systemd_user_available,
     launch_in_tmux,
     tmux_session_target,
     tmux_window_target,
@@ -190,100 +188,23 @@ class TestLaunchInTmuxNewSession(unittest.TestCase):
                 pass
 
         # A server is "running" → plain attach path, so the only subprocess is
-        # the (failing) Popen below. Patch get_tmux_sessions to avoid the
-        # server-existence precheck issuing a real list-sessions (t956).
-        with patch.object(agent_launch_utils, "get_tmux_sessions",
-                          return_value=["x"]), \
+        # the (failing) Popen below. Patch the gateway's server-existence probe
+        # so new_session_argv takes the attach path without a real list-sessions
+        # (t952: the probe now routes through TmuxClient._server_running).
+        with patch.object(agent_launch_utils._TMUX, "_server_running",
+                          return_value=True), \
              patch.object(subprocess, "Popen", return_value=_FakePopenErr()):
             pid, err = launch_in_tmux("echo hi", self.config)
         self.assertIsNone(pid)
         self.assertIn("tmux new-session failed", err or "")
 
 
-class TestNewSessionPersistentSpawn(unittest.TestCase):
-    """_new_session_tmux_argv: persistent session.slice wrapping (t956).
-
-    Wraps a *genuine* server creation (no tmux server running) in a
-    ``systemd-run --slice=session.slice`` service, with a setsid → plain-tmux
-    fallback ladder; when a server is already running, the call is an attach
-    and today's plain ``tmux new-session`` argv is used unchanged.
-    """
-
-    def _argv(self, **patches):
-        # Sensible defaults; individual tests override via **patches.
-        defaults = {
-            "get_tmux_sessions": lambda: [],          # no server by default
-            "_systemd_user_available": lambda: False,
-            "setsid": None,                           # shutil.which("setsid")
-        }
-        defaults.update(patches)
-
-        def fake_which(name):
-            return defaults["setsid"] if name == "setsid" else f"/usr/bin/{name}"
-
-        # systemd-escape (only reached when systemd is available)
-        def fake_run(argv, **kwargs):
-            if argv[:1] == ["systemd-escape"]:
-                return _FakeRunResult(0, "testsess\n", "")
-            return _FakeRunResult(0, "", "")
-
-        with patch.object(agent_launch_utils, "get_tmux_sessions",
-                          side_effect=defaults["get_tmux_sessions"]), \
-             patch.object(agent_launch_utils, "_systemd_user_available",
-                          side_effect=defaults["_systemd_user_available"]), \
-             patch.object(agent_launch_utils.shutil, "which",
-                          side_effect=fake_which), \
-             patch.object(subprocess, "run", side_effect=fake_run):
-            return _new_session_tmux_argv(
-                "testsess", "win", "echo hi", [], None)
-
-    def test_server_running_is_plain_attach(self):
-        # A server exists → attach; no systemd-run / setsid, and (cwd=None) no
-        # forced -c.
-        argv = self._argv(get_tmux_sessions=lambda: ["other"])
-        self.assertEqual(
-            argv, ["tmux", "new-session", "-d", "-s", "testsess",
-                   "-n", "win", "echo hi"])
-
-    def test_no_server_with_systemd_wraps_in_session_slice(self):
-        argv = self._argv(_systemd_user_available=lambda: True)
-        self.assertEqual(argv[0], "systemd-run")
-        self.assertIn("--user", argv)
-        self.assertIn("--slice=session.slice", argv)
-        self.assertIn("--property=Type=forking", argv)
-        self.assertIn("--property=KillMode=none", argv)
-        self.assertIn("--collect", argv)
-        # The wrapped tmux creation carries an explicit -c even though cwd=None.
-        self.assertIn("--", argv)
-        tail = argv[argv.index("--") + 1:]
-        self.assertEqual(tail[:3], ["tmux", "new-session", "-d"])
-        self.assertIn("-c", tail)
-
-    def test_no_server_no_systemd_with_setsid(self):
-        argv = self._argv(setsid="/usr/bin/setsid")
-        self.assertEqual(argv[0], "setsid")
-        self.assertEqual(argv[1:4], ["tmux", "new-session", "-d"])
-        self.assertIn("-c", argv)
-
-    def test_no_server_no_systemd_no_setsid_is_plain_with_cwd(self):
-        argv = self._argv()  # no systemd, no setsid
-        self.assertEqual(argv[:3], ["tmux", "new-session", "-d"])
-        self.assertNotIn("systemd-run", argv)
-        self.assertNotIn("setsid", argv)
-        self.assertIn("-c", argv)  # explicit -c preserves launcher cwd
-
-    def test_explicit_cwd_used_on_creation(self):
-        argv = self._argv(setsid="/usr/bin/setsid")
-        # cwd passed through to -c; here cwd=None → os.getcwd(); assert -c value
-        # is a real absolute path (the launcher cwd), not empty.
-        idx = argv.index("-c")
-        self.assertTrue(argv[idx + 1].startswith("/"))
-
-
-class TestSystemdUserAvailable(unittest.TestCase):
-    def test_escape_hatch_disables(self):
-        with patch.dict(os.environ, {"AIT_NO_SYSTEMD_RUN": "1"}, clear=False):
-            self.assertFalse(_systemd_user_available())
+# NOTE: the new-session persistence ladder (systemd-run → setsid → plain) and
+# `_systemd_user_available` now live in `lib/tmux_exec.py` (t952_1) and are
+# covered by `tests/test_tmux_exec.py::TestNewSessionArgv` + the socket tests.
+# `launch_in_tmux`'s new-session branch routes through `TmuxClient.new_session_argv`
+# (t952_2), so the argv-shape unit tests that used to live here were removed to
+# avoid duplicating that coverage.
 
 
 @unittest.skipIf(shutil.which("tmux") is None, "tmux not installed")

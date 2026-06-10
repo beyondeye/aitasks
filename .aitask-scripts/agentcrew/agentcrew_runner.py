@@ -50,6 +50,11 @@ from lib.agent_launch_utils import (
     tmux_window_target,
 )
 from lib.launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES
+from lib.tmux_exec import TmuxClient
+
+# Single Python gateway for raw tmux spawning (t952). Socket args cached once
+# at construction from AITASKS_TMUX_SOCKET (unset today → default socket).
+_TMUX = TmuxClient()
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -443,15 +448,14 @@ def _launch_interactive(ctx: LaunchContext) -> int | None:
                 None,
             )
             if win_idx is not None:
-                pp = subprocess.run(
-                    ["tmux", "pipe-pane", "-O", "-o",
+                rc, _ = _TMUX.run(
+                    ["pipe-pane", "-O", "-o",
                      "-t", f"{tmux_window_target(session, win_idx)}.0",
-                     f"cat >> {shlex.quote(ctx.log_path)}"],
-                    capture_output=True, text=True, check=False,
+                     f"cat >> {shlex.quote(ctx.log_path)}"]
                 )
-                if pp.returncode != 0:
-                    log(f"WARN: pipe-pane failed for {ctx.name}: "
-                        f"{pp.stderr.strip()}", ctx.batch)
+                if rc != 0:
+                    log(f"WARN: pipe-pane failed for {ctx.name} (rc={rc})",
+                        ctx.batch)
             maybe_spawn_minimonitor(session, window_name)
         else:
             log(f"WARN: tmux launch failed for {ctx.name}: {err}",
