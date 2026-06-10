@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
 status: Implementing
 labels: [tmux, resilience]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-07 17:17
-updated_at: 2026-06-10 07:40
+updated_at: 2026-06-10 09:05
 ---
 
 ## Problem
