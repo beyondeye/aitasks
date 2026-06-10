@@ -127,3 +127,53 @@ ait_warn_if_incapable_terminal() {
     echo "" >&2
     return 0
 }
+
+# --- Persistent-scope tmux session spawn (t943) ---------------------------
+# Background: every ait-managed tmux session shares one default-socket server.
+# When that server is started inside a *transient* systemd user scope (the
+# app.slice scope an Omarchy/uwsm workspace launch creates), a compositor /
+# app.slice teardown dies as a unit and takes the tmux server — and all its
+# sessions — with it. These helpers let the framework start *its own* new
+# server inside a persistent session.slice service instead, so it survives an
+# app.slice teardown. The socket is unchanged (default), so every other tmux
+# call site keeps working untouched.
+
+# ait_systemd_user_available
+# Returns 0 iff a usable systemd --user manager is reachable for systemd-run.
+ait_systemd_user_available() {
+    [[ -n "${AIT_NO_SYSTEMD_RUN:-}" ]] && return 1   # test/escape hatch
+    command -v systemd-run >/dev/null 2>&1 || return 1
+    command -v systemctl   >/dev/null 2>&1 || return 1
+    [[ -n "${XDG_RUNTIME_DIR:-}" ]] || return 1
+    systemctl --user is-system-running >/dev/null 2>&1 && return 0
+    [[ "$(systemctl --user is-system-running 2>/dev/null)" == "degraded" ]]
+}
+
+# ait_tmux_new_session_persistent <session> <root> <window> <command>
+# Create a brand-new DETACHED tmux session whose SERVER lands in a persistent
+# systemd-user service under session.slice, so a compositor / app.slice
+# teardown does not reach it. Socket unchanged (default). Falls back to setsid,
+# then plain tmux. Precondition: caller has confirmed the server does NOT yet
+# exist (otherwise wrapping is pointless — a plain new-session just attaches).
+ait_tmux_new_session_persistent() {
+    local session="$1" root="$2" window="$3" cmd="$4"
+    if ait_systemd_user_available; then
+        local safe unit
+        safe="$(systemd-escape -- "$session" 2>/dev/null || echo session)"
+        unit="ait-tmux-${safe}-$$-${RANDOM}"
+        # --slice=session.slice escapes app.slice (the load-bearing flag).
+        # Type=forking matches tmux's double-fork; KillMode=none keeps systemd
+        # from signalling the server cgroup when the launching transaction
+        # finishes; --collect GCs the unit in the benign loser-of-a-race case.
+        systemd-run --user --slice=session.slice --unit="$unit" \
+            --property=Type=forking --property=KillMode=none \
+            --collect --quiet -- \
+            tmux new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
+        return $?
+    fi
+    if command -v setsid >/dev/null 2>&1; then
+        setsid tmux new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
+        return $?
+    fi
+    tmux new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
+}

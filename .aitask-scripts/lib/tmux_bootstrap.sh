@@ -154,8 +154,14 @@ spawn_session_detached() {
     }
 
     if ! tmux has-session -t "$session_t" 2>/dev/null; then
+        # First session => this call creates the tmux SERVER. Spawn it inside a
+        # persistent systemd-user service (session.slice) so a compositor /
+        # app.slice teardown no longer kills the server (t943). Socket
+        # unchanged; only the new server's cgroup placement differs. The helper
+        # degrades gracefully (setsid → plain tmux) where systemd --user is
+        # unavailable, preserving today's behavior.
         # new-session -s takes a literal session name; do not prefix '='.
-        tmux new-session -d -s "$session" -c "$root" -n monitor 'ait monitor' \
+        ait_tmux_new_session_persistent "$session" "$root" monitor 'ait monitor' \
             || {
                 echo "spawn_session_detached: tmux new-session failed for '$session'" >&2
                 return 4
