@@ -182,3 +182,77 @@ Delete the now-orphaned `_new_session_tmux_argv`, `_persistent_new_session_prefi
 - Pure routing otherwise — no new behavior tests added.
 
 See **Step 9 (Post-Implementation)** of the task-workflow for archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a module-level `_TMUX = TmuxClient()` to
+  `agent_launch_utils.py`, `tui_switcher.py`, and `agentcrew_runner.py`
+  (`from tmux_exec import TmuxClient`; agentcrew uses `from lib.tmux_exec …`).
+  Migrated every non-registry tmux call site onto it:
+  - `agent_launch_utils.py`: `get_tmux_sessions`, `get_tmux_windows`,
+    `_lookup_window_name`, `switch_to_pane_anywhere` (`_display` + action loop),
+    `_query_first_pane_pid`, `launch_in_tmux` (new-session →
+    `_TMUX.new_session_argv(...)` then raw `Popen`; new-window/split →
+    `_TMUX.run`; switch-client/select-window → `_TMUX.spawn`),
+    `maybe_spawn_minimonitor` (list-windows/list-panes/split via `run`,
+    select-pane refocus via `spawn`), `launch_or_focus_codebrowser`
+    (set-environment/list-windows/select-window/new-window via `run`). Deleted
+    the now-orphaned `_new_session_tmux_argv`, `_persistent_new_session_prefix`,
+    `_systemd_user_available` (the gateway owns them). The two registry readers
+    (`_read_registry_entry`, `discover_aitasks_sessions` walk) were left raw —
+    HARD BOUNDARY for t952_5.
+  - `tui_switcher.py`: `_detect_current_session`, `_spawn_in_session`,
+    `_switch_to`, `_teleport_if_cross`, `_launch_git_with_companion`. The
+    `set-option -p` / `set-hook -p` pane-scoped verbs keep their `-t %pane`
+    targets untouched (routed through `spawn` only for socket consistency).
+  - `agentcrew_runner.py`: pipe-pane via `_TMUX.run`.
+  - `tests/test_launch_in_tmux_pane_pid.py`: dropped dead imports + removed
+    `TestNewSessionPersistentSpawn` / `TestSystemdUserAvailable` (coverage
+    replicated in `test_tmux_exec.py::TestNewSessionArgv`); repointed
+    `test_failure_returns_error` to patch `_TMUX._server_running`.
+- **Deviations from plan:** none beyond the verify-pass findings already folded
+  into the plan body. The original plan's "agentcrew via client.spawn" was
+  corrected to `client.run` (it checks a returncode), and `_spawn_in_session`'s
+  capture-path return contract was changed from `CompletedProcess` to
+  `(rc, stdout)` with its one caller updated.
+- **Issues encountered:** The live integration tests in
+  `test_launch_in_tmux_pane_pid.py` (`TestLaunchInTmuxIntegration`) fail under
+  isolated `TMUX_TMPDIR` unless `AIT_NO_SYSTEMD_RUN=1` is set — `systemd-run
+  --user` spawns the server in a transient unit that does not inherit
+  `TMUX_TMPDIR`, so the probe and the created server land on different sockets.
+  This is the **same pre-existing condition t952_1 documented** (and why
+  `test_tmux_exec.py`'s integration sets `AIT_NO_SYSTEMD_RUN=1`); verified
+  identical on the un-migrated code via `git stash`. Not a regression. With the
+  flag set, all 17 tests pass.
+- **Key decisions:** (1) Kept `tmux_session_target` / `tmux_window_target` as
+  module-level functions in `agent_launch_utils.py` (widely imported; the
+  gateway re-exports them verbatim) — migrated code still calls them for `-t`
+  formatting, zero blast radius. (2) The new-session branch keeps a raw
+  `subprocess.Popen` on the full argv returned by `new_session_argv` (which
+  already carries the socket flag + any systemd-run/setsid prefix) rather than
+  `spawn`, which would double-prepend `tmux`.
+- **Upstream defects identified:** None. (Note: the gateway's `run` returns
+  `(rc, stdout)` only — stdout, no stderr. Three sites that previously surfaced
+  tmux's stderr in an error/warn string now show only a prefix + rc. This is an
+  intentional, accepted behavior delta of routing through the gateway, not a
+  defect; message prefixes are preserved so substring-matching tests/log-greps
+  still work.)
+- **Notes for sibling tasks:**
+  - The migration pattern for the remaining children: `from tmux_exec import
+    TmuxClient`, one module-level `_TMUX`, then `subprocess.run(["tmux", …])` →
+    `rc, out = _TMUX.run([…])` and `Popen(["tmux", …])` → `_TMUX.spawn([…])`.
+    The gateway folds `TimeoutExpired/FileNotFoundError/OSError` into `(-1, "")`,
+    so wrapping try/except collapses into the existing `rc != 0` branch;
+    `spawn` does NOT swallow `FileNotFoundError` (guard with
+    `is_tmux_available()` / an `except` as the call sites already do).
+  - **t952_3 (control-mode + monitor):** when threading the socket into
+    `tmux -C attach`, reuse `tmux_socket_args()` / a `TmuxClient` so the value
+    matches; mind the systemd-run/`TMUX_TMPDIR` note above if a custom tmpdir is
+    introduced.
+  - **t952_5 (registry collapse):** the only raw `["tmux", …]` calls left in
+    `agent_launch_utils.py` are `_read_registry_entry` (`show-environment -g`)
+    and the `list-sessions` / `list-panes -s` walk in
+    `discover_aitasks_sessions` — these are yours. A lint guard forbidding raw
+    tmux outside the gateway can now assume every other Python site is migrated.
+  - If `run` ever needs to surface tmux's stderr for an error message, that is a
+    gateway enhancement (add a stderr-returning method), not a per-site fix.
