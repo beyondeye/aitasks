@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [tmux]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 09:30
-updated_at: 2026-06-10 09:30
+updated_at: 2026-06-10 11:07
 ---
 
 ## Origin
