@@ -35,7 +35,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "settings"))
 
 import yaml  # noqa: E402
-from textual.widgets import DataTable, Input  # noqa: E402
+from textual.widgets import DataTable, Input, TabbedContent  # noqa: E402
 
 import keybinding_registry  # noqa: E402
 import shortcut_persist  # noqa: E402
@@ -369,6 +369,140 @@ class ExportImportTests(_Fixture):
                 from settings_app import CycleField
                 cf = screen.query_one("#cf_imp_shortcuts", CycleField)
                 self.assertEqual(cf.current_value, "yes")
+        self._run(runner())
+
+
+class TabSwitchMigrationTests(_Fixture):
+    """t896 — Settings tab-switch keys migrated onto the keybinding registry.
+
+    The tab keys (a/b/c/m/p/s/t) used to be a raw `_TAB_SHORTCUTS` dict driven
+    by `on_key`, invisible to the registry, with hand-composed footer hints
+    that had drifted (they dropped the `s` key). They are now registered
+    `switch_tab_*` actions (rebindable in the Shortcuts editor) whose footer
+    hint derives from the registry.
+    """
+
+    _TAB_ACTIONS = {
+        "switch_tab_agent": ("a", "tab_agent"),
+        "switch_tab_board": ("b", "tab_board"),
+        "switch_tab_project": ("c", "tab_project"),
+        "switch_tab_models": ("m", "tab_models"),
+        "switch_tab_profiles": ("p", "tab_profiles"),
+        "switch_tab_shortcuts": ("s", "tab_shortcuts"),
+        "switch_tab_tmux": ("t", "tab_tmux"),
+    }
+
+    def test_tab_actions_registered_under_settings_scope(self):
+        async def runner():
+            app = SettingsApp()
+            async with app.run_test(size=(140, 45)) as pilot:
+                await pilot.pause()
+                for action, (default_key, _tab) in self._TAB_ACTIONS.items():
+                    recorded = keybinding_registry._DEFAULTS.get(
+                        ("settings", action))
+                    self.assertIsNotNone(
+                        recorded, f"{action} not registered under settings")
+                    self.assertEqual(recorded[0], default_key)
+                # show=False keeps them out of the global footer (the hints are
+                # rendered manually in section-hint labels).
+                shown = {b.action: b.show for b in SettingsApp.BINDINGS
+                         if b.action in self._TAB_ACTIONS}
+                self.assertEqual(set(shown), set(self._TAB_ACTIONS))
+                self.assertTrue(all(s is False for s in shown.values()))
+        self._run(runner())
+
+    def test_footer_hint_is_registry_derived_and_lists_all_keys(self):
+        async def runner():
+            app = SettingsApp()
+            async with app.run_test(size=(140, 45)) as pilot:
+                await pilot.pause()
+                # Default: every tab key present, INCLUDING `s` (the item #6
+                # regression the hardcoded `a/b/c/m/p/t` literals had dropped).
+                self.assertEqual(
+                    app._tab_switch_hint(), "a/b/c/m/p/s/t: switch tabs")
+                # Rebinding a tab key flows into the hint — proving derivation,
+                # not a hardcoded literal.
+                shortcut_persist.save_override(
+                    "settings", "switch_tab_agent", "g")
+                keybinding_registry.refresh_all()
+                self.assertEqual(
+                    app._tab_switch_hint(), "g/b/c/m/p/s/t: switch tabs")
+        self._run(runner())
+
+    def test_tab_switch_inert_while_modal_active(self):
+        async def runner():
+            app = SettingsApp()
+            async with app.run_test(size=(140, 45)) as pilot:
+                await pilot.pause()
+                # Active on the base screen.
+                self.assertTrue(app.check_action("switch_tab_agent", None))
+                # Open a modal (Shortcuts tab -> `d` reset confirm); the
+                # tab-switch keys go inert so typing in the dialog can't switch
+                # the background tab (parity with the former on_key guard).
+                await pilot.press("s")
+                await pilot.pause()
+                await pilot.press("d")
+                await pilot.pause()
+                from settings_app import ResetShortcutsConfirmScreen
+                self.assertIsInstance(app.screen, ResetShortcutsConfirmScreen)
+                self.assertIsNone(app.check_action("switch_tab_agent", None))
+        self._run(runner())
+
+    def test_override_flows_into_bindings_like_every_app_binding(self):
+        """A tab-key override is substituted into `app.BINDINGS` by
+        `register_app_bindings`, exactly like every other settings App binding.
+
+        Note: Textual computes the *live* keymap from class-level BINDINGS at
+        class-creation time, so App-scope overrides reach `self.BINDINGS`, the
+        registry, and the footer hint, but not the live keymap (a pre-existing,
+        framework-wide limitation shared by all App-scope bindings, e.g.
+        `export_configs`). This test therefore asserts the override reaches the
+        same surface every other App binding reaches, not a live key-press.
+        """
+        async def runner():
+            shortcut_persist.save_override("settings", "switch_tab_tmux", "z")
+            keybinding_registry.refresh_all()
+            app = SettingsApp()
+            async with app.run_test(size=(140, 45)) as pilot:
+                await pilot.pause()
+                keyed = {b.action: b.key for b in app.BINDINGS
+                         if b.action == "switch_tab_tmux"}
+                self.assertEqual(keyed["switch_tab_tmux"], "z")
+                # The footer hint reflects the override too (registry-derived).
+                self.assertIn("z", app._tab_switch_hint())
+        self._run(runner())
+
+    def test_tab_titles_carry_current_shortcut(self):
+        async def runner():
+            app = SettingsApp()
+            async with app.run_test(size=(160, 45)) as pilot:
+                await pilot.pause()
+                tabbed = app.query_one(TabbedContent)
+                expected = {
+                    "tab_agent": "(A)gent Defaults",
+                    "tab_board": "(B)oard",
+                    "tab_project": "Proje(C)t Config",
+                    "tab_tmux": "(T)mux",
+                    "tab_models": "(M)odels",
+                    "tab_profiles": "Execution (P)rofiles",
+                    "tab_shortcuts": "(S)hortcuts",
+                }
+                for pane_id, label in expected.items():
+                    self.assertEqual(
+                        str(tabbed.get_tab(pane_id).label), label)
+        self._run(runner())
+
+    def test_tab_title_reflects_current_override(self):
+        async def runner():
+            # Override BEFORE instantiation so compose() resolves the new key.
+            shortcut_persist.save_override("settings", "switch_tab_tmux", "z")
+            keybinding_registry.refresh_all()
+            app = SettingsApp()
+            async with app.run_test(size=(160, 45)) as pilot:
+                await pilot.pause()
+                tabbed = app.query_one(TabbedContent)
+                self.assertEqual(
+                    str(tabbed.get_tab("tab_tmux").label), "(Z) Tmux")
         self._run(runner())
 
 

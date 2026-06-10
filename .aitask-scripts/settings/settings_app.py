@@ -156,15 +156,19 @@ EXPORT_CATEGORIES: dict[str, list[str]] = {
 _SHORTCUTS_EXPORT_SENTINEL = "__shortcuts__"
 
 
-# Tab shortcut keys -> TabPane IDs
-_TAB_SHORTCUTS = {
-    "a": "tab_agent",
-    "b": "tab_board",
-    "c": "tab_project",
-    "m": "tab_models",
-    "p": "tab_profiles",
-    "s": "tab_shortcuts",
-    "t": "tab_tmux",
+# Tab-switch action_id -> TabPane id. The KEY for each action comes from the
+# keybinding registry (default declared in SettingsApp.BINDINGS), so users can
+# rebind tab switching in the Shortcuts editor and the footer hint follows
+# automatically (see _tab_switch_hint). Insertion order drives the hint order
+# (a/b/c/m/p/s/t by default).
+_TAB_SWITCH_ACTIONS = {
+    "switch_tab_agent": "tab_agent",
+    "switch_tab_board": "tab_board",
+    "switch_tab_project": "tab_project",
+    "switch_tab_models": "tab_models",
+    "switch_tab_profiles": "tab_profiles",
+    "switch_tab_shortcuts": "tab_shortcuts",
+    "switch_tab_tmux": "tab_tmux",
 }
 
 PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
@@ -1284,6 +1288,18 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("w", "profile_save", "Save profile", show=False),
         Binding("v", "profile_revert", "Revert profile", show=False),
         Binding("x", "profile_delete", "Delete profile", show=False),
+        # Tab switching — registry-backed (scope "settings") so the keys are
+        # rebindable in the Shortcuts editor and the per-tab footer hints derive
+        # from them (_tab_switch_hint). show=False: they belong to the manually
+        # rendered section-hint footers, not the global footer. Inert while a
+        # modal owns the screen (gated in check_action).
+        Binding("a", "switch_tab_agent", "Agent tab", show=False),
+        Binding("b", "switch_tab_board", "Board tab", show=False),
+        Binding("c", "switch_tab_project", "Project tab", show=False),
+        Binding("m", "switch_tab_models", "Models tab", show=False),
+        Binding("p", "switch_tab_profiles", "Profiles tab", show=False),
+        Binding("s", "switch_tab_shortcuts", "Shortcuts tab", show=False),
+        Binding("t", "switch_tab_tmux", "Tmux tab", show=False),
     ]
 
     _SHORTCUT_TAB_ACTIONS = frozenset({"sc_reset", "sc_lint"})
@@ -1293,6 +1309,12 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def check_action(self, action: str, parameters):
         """Gate the sc_* / profile_* bindings to their owning tab."""
+        # Tab-switch keys are inert while a modal owns the screen — typing in a
+        # dialog must not switch the background tab (parity with the former
+        # on_key modal guard). A focused Input already swallows letter keys, so
+        # the in-field case needs no extra guard here.
+        if action in _TAB_SWITCH_ACTIONS and isinstance(self.screen, ModalScreen):
+            return None
         if action in self._SHORTCUT_TAB_ACTIONS:
             try:
                 if self.query_one(TabbedContent).active != "tab_shortcuts":
@@ -1330,22 +1352,28 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with TabbedContent("Agent Defaults", "Board", "Project Config", "Tmux", "Models", "Execution Profiles", "Shortcuts"):
-            with TabPane("Agent Defaults", id="tab_agent"):
+        # Each tab title carries its (registry-resolved) switch shortcut via
+        # self.label(), so the active key is visible on the tab itself and
+        # tracks user rebinds. Textual ignores TabbedContent's positional
+        # titles when TabPane children are composed (see TabbedContent.compose),
+        # so the TabPane title is the single source of truth — no positional
+        # titles are passed.
+        with TabbedContent():
+            with TabPane(self.label("switch_tab_agent", "Agent Defaults"), id="tab_agent"):
                 yield VerticalScroll(id="agent_content")
-            with TabPane("Board", id="tab_board"):
+            with TabPane(self.label("switch_tab_board", "Board"), id="tab_board"):
                 yield VerticalScroll(id="board_content")
-            with TabPane("Project Config", id="tab_project"):
+            with TabPane(self.label("switch_tab_project", "Project Config"), id="tab_project"):
                 yield VerticalScroll(id="project_content")
-            with TabPane("Tmux", id="tab_tmux"):
+            with TabPane(self.label("switch_tab_tmux", "Tmux"), id="tab_tmux"):
                 yield VerticalScroll(id="tmux_content")
-            with TabPane("Models", id="tab_models"):
+            with TabPane(self.label("switch_tab_models", "Models"), id="tab_models"):
                 yield VerticalScroll(id="models_content")
-            with TabPane("Execution Profiles", id="tab_profiles"):
+            with TabPane(self.label("switch_tab_profiles", "Execution Profiles"), id="tab_profiles"):
                 # Non-scrolling shell: the selector + search + buttons stay fixed
                 # while only the inner params VerticalScroll scrolls.
                 yield Vertical(id="profiles_content")
-            with TabPane("Shortcuts", id="tab_shortcuts"):
+            with TabPane(self.label("switch_tab_shortcuts", "Shortcuts"), id="tab_shortcuts"):
                 # Non-scrolling: the inner DataTable scrolls itself, so an outer
                 # VerticalScroll would produce a redundant second scrollbar.
                 yield Vertical(id="shortcuts_content")
@@ -1432,6 +1460,59 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         except Exception:
             pass
 
+    def _switch_to_tab(self, tab_id: str) -> None:
+        """Activate ``tab_id`` and settle focus.
+
+        Immediately moves focus to the tab bar to prevent Textual from
+        reverting the switch (happens when the previously focused widget becomes
+        hidden and the new tab has no focusable content, e.g. the Models tab),
+        then lands focus on the tab's first focusable widget after refresh.
+        """
+        try:
+            tabbed = self.query_one(TabbedContent)
+            tabbed.active = tab_id
+            tabbed.query_one("Tabs").focus()
+            self.call_after_refresh(self._focus_first_in_tab, tab_id)
+        except Exception:
+            pass
+
+    # Tab-switch actions. Distinct action_ids (one per tab) so each key is
+    # independently rebindable in the Shortcuts editor; all delegate to the
+    # shared _switch_to_tab helper.
+    def action_switch_tab_agent(self) -> None:
+        self._switch_to_tab("tab_agent")
+
+    def action_switch_tab_board(self) -> None:
+        self._switch_to_tab("tab_board")
+
+    def action_switch_tab_project(self) -> None:
+        self._switch_to_tab("tab_project")
+
+    def action_switch_tab_models(self) -> None:
+        self._switch_to_tab("tab_models")
+
+    def action_switch_tab_profiles(self) -> None:
+        self._switch_to_tab("tab_profiles")
+
+    def action_switch_tab_shortcuts(self) -> None:
+        self._switch_to_tab("tab_shortcuts")
+
+    def action_switch_tab_tmux(self) -> None:
+        self._switch_to_tab("tab_tmux")
+
+    def _tab_switch_hint(self) -> str:
+        """Footer hint listing the live tab-switch keys (registry-derived).
+
+        Resolves each tab-switch action's current key from the keybinding
+        registry, so the hint auto-includes every tab key and reflects user
+        rebinds instead of drifting from a hardcoded literal.
+        """
+        keys = [
+            keybinding_registry.resolve_key(self._shortcuts_scope, action_id)
+            for action_id in _TAB_SWITCH_ACTIONS
+        ]
+        return "/".join(k for k in keys if k) + ": switch tabs"
+
     # -------------------------------------------------------------------
     # Key handling
     # -------------------------------------------------------------------
@@ -1473,23 +1554,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if isinstance(focused, Input):
             return
 
-        # Tab switching: a/b/c/m/p/t
-        if event.key in _TAB_SHORTCUTS:
-            try:
-                tabbed = self.query_one(TabbedContent)
-                new_tab_id = _TAB_SHORTCUTS[event.key]
-                tabbed.active = new_tab_id
-                # Immediately move focus to the tab bar to prevent Textual
-                # from reverting the tab switch (happens when the previously
-                # focused widget becomes hidden and the new tab has no
-                # focusable content, e.g. the Models tab).
-                tabbed.query_one("Tabs").focus()
-                self.call_after_refresh(self._focus_first_in_tab, new_tab_id)
-            except Exception:
-                pass
-            event.prevent_default()
-            event.stop()
-            return
+        # Tab switching (a/b/c/m/p/s/t) is handled by the registry-backed
+        # switch_tab_* bindings + action_switch_tab_* methods, not here.
 
         # Up/Down navigation within active tab. _nav_vertical moves the focused
         # DataTable's row cursor internally and hands off to the tab title / next
@@ -1975,7 +2041,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         container.mount(Label(
             "[dim]Enter: edit  |  d: remove local preference  |  "
-            "\u2191\u2193: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
+            f"\u2191\u2193: navigate  |  {self._tab_switch_hint()}[/dim]",
             classes="section-hint",
         ))
 
@@ -2105,7 +2171,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         container.mount(Label(
             "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
-            "|  a/b/c/m/p/t: switch tabs[/dim]",
+            f"|  {self._tab_switch_hint()}[/dim]",
             classes="section-hint",
         ))
 
@@ -2205,7 +2271,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                           id=f"btn_project_revert_{rc}"))
 
         container.mount(Label(
-            "[dim]Enter: edit  |  ↑↓: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
+            f"[dim]Enter: edit  |  ↑↓: navigate  |  {self._tab_switch_hint()}[/dim]",
             classes="section-hint",
         ))
 
@@ -2364,7 +2430,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                           id=f"btn_tmux_revert_{rc}"))
 
         container.mount(Label(
-            "[dim]Enter: edit  |  ←→: cycle  |  ↑↓: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
+            f"[dim]Enter: edit  |  ←→: cycle  |  ↑↓: navigate  |  {self._tab_switch_hint()}[/dim]",
             classes="section-hint",
         ))
 
@@ -2449,7 +2515,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if not self.config_mgr.models:
             container.mount(Label("No model files found.", classes="section-header"))
             container.mount(Label(
-                "[dim]\u2191\u2193: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
+                f"[dim]\u2191\u2193: navigate  |  {self._tab_switch_hint()}[/dim]",
                 classes="section-hint",
             ))
             return
@@ -2536,7 +2602,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             classes="section-hint",
         ))
         container.mount(Label(
-            "[dim]\u2191\u2193: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
+            f"[dim]\u2191\u2193: navigate  |  {self._tab_switch_hint()}[/dim]",
             classes="section-hint",
         ))
 
@@ -2579,7 +2645,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 id="btn_profile_add_new",
             ))
             container.mount(Label(
-                "[dim]\u2191\u2193: navigate  |  a/b/c/m/p/t: switch tabs[/dim]",
+                f"[dim]\u2191\u2193: navigate  |  {self._tab_switch_hint()}[/dim]",
                 classes="section-hint",
             ))
             return
@@ -2607,7 +2673,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             ))
             container.mount(Label(
                 "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
-                "|  a/b/c/m/p/t: switch tabs[/dim]",
+                f"|  {self._tab_switch_hint()}[/dim]",
                 classes="section-hint",
             ))
             return
@@ -2694,7 +2760,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         container.mount(Label(
             "[dim]\u2191\u2193: navigate  |  \u25c0\u25b6: cycle options  "
             "|  Tab: switch pane  |  Enter: edit strings  |  ?: field details  "
-            "|  w/v/x: save/revert/delete  |  a/b/c/m/p/t: switch tabs[/dim]",
+            f"|  w/v/x: save/revert/delete  |  {self._tab_switch_hint()}[/dim]",
             classes="section-hint",
         ))
 
