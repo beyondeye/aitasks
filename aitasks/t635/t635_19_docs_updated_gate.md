@@ -1,0 +1,54 @@
+---
+priority: medium
+effort: medium
+depends: [t635_11]
+issue_type: feature
+status: Ready
+labels: [gates, task_workflow, web_site]
+created_at: 2026-06-10 19:03
+updated_at: 2026-06-10 19:03
+---
+
+## Context
+
+A DOCUMENTATION checkpoint is entirely missing from today's task-workflow —
+unlike tests, review, risk, and follow-ups, nothing asks "do the docs need
+updating for this change?". The framework doc's own registry example and
+worked lifecycle already include a `docs_updated` machine gate; this child
+ships it. Unlike t635_12/t635_13 this is NOT a conversion of an existing
+pseudo-gate — it is a new gate filling a real gap.
+
+## Scope
+
+- `aitask-gate-docs-updated` verifier skill against the t635_11 contract:
+  inspect the task's change set, determine whether user-facing docs
+  (website pages) and/or `aidocs/` design docs are affected, update them
+  (or report what needs updating on fail).
+- Change-scoped short-circuit: the gate returns `skip` (distinct from
+  `pass`, so history shows it was evaluated) when the diff touches no
+  doc-relevant surface — the framework doc's `applies_when:` predicate
+  (open question 3) or an in-verifier equivalent; decide at planning.
+- Repo-specific doc knowledge: where doc roots live should come from
+  project config (e.g. a `doc_paths:` key in `project_config.yaml` or the
+  registry entry), not be hardcoded — other projects using aitasks have
+  different doc layouts.
+- Candidate for `default_gates` in this repo's `gates.yaml`; verify the
+  workflows `_index.md` manual-list rule is part of the verifier's
+  checklist for this repo (website pages need their hand-curated index
+  bullet).
+- Doc updates the verifier produces must follow
+  `aidocs/framework/documentation_conventions.md` (current-state-only,
+  generic project names, agent-generic wording).
+
+## Relationship to t635_18
+
+t635_18 is the one-time comprehensive documentation sweep for the gates
+feature itself; this gate is the PERMANENT per-task checkpoint that keeps
+docs from drifting afterward — including for the remaining t635 children
+(the framework dogfooding its own documentation gate).
+
+## References
+
+- `aidocs/gates/aitask-gate-framework.md` (registry example `docs_updated`,
+  open question 3 `applies_when:`)
+- `aidocs/gates/integration-roadmap.md` (Phase 4)
