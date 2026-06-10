@@ -86,9 +86,52 @@ class ShortcutsMixin:
             raise RuntimeError(
                 "ShortcutsMixin subclass must set _shortcuts_scope"
             )
+        default_bindings = self.BINDINGS
         self.BINDINGS = register_app_bindings(
-            self._shortcuts_scope, self.BINDINGS
+            self._shortcuts_scope, default_bindings
         )
+        self._relink_live_bindings(default_bindings, self.BINDINGS)
+
+    def _relink_live_bindings(self, defaults, overridden) -> None:
+        """Move remapped keys into the live keymap Textual built from defaults.
+
+        Textual copies the class-level ``_merged_bindings`` (computed from the
+        *default* keys at class-definition time) into ``self._bindings`` during
+        ``super().__init__()``. Because we substitute override keys into
+        ``self.BINDINGS`` *after* that copy, the live keymap would otherwise
+        keep firing the default key — overrides reach the editor row / registry
+        / footer hint / tab title but pressing the new key does nothing. For
+        each binding whose key was remapped, move it from its default key to
+        its override key in ``self._bindings`` so the new key fires, without
+        disturbing the framework bindings (quit, command palette, screen
+        tab-nav, ...) that live alongside in the same map and are absent from
+        ``self.BINDINGS``.
+
+        ``register_app_bindings`` returns exactly one entry per input binding,
+        in order, so ``defaults`` and ``overridden`` align by index.
+        """
+        live = getattr(self, "_bindings", None)
+        if live is None:  # defensive: non-DOMNode use (tests / future scopes)
+            return
+        mapping = live.key_to_bindings
+        for default_b, active_b in zip(defaults, overridden):
+            old_key = getattr(default_b, "key", None)
+            new_key = getattr(active_b, "key", None)
+            action = getattr(active_b, "action", None)
+            if not old_key or not new_key or old_key == new_key:
+                continue
+            bucket = mapping.get(old_key)
+            if bucket is not None:
+                # Drop only this action's binding from the default key; a
+                # second action sharing that key keeps its live entry.
+                remaining = [
+                    b for b in bucket if getattr(b, "action", None) != action
+                ]
+                if remaining:
+                    mapping[old_key] = remaining
+                else:
+                    del mapping[old_key]
+            mapping.setdefault(new_key, []).append(active_b)
 
     def label(self, action_id: str, text: str, *, style: str = "wrap") -> str:
         key = resolve_key(self._shortcuts_scope, action_id) or ""

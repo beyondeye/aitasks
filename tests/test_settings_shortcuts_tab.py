@@ -450,14 +450,13 @@ class TabSwitchMigrationTests(_Fixture):
 
     def test_override_flows_into_bindings_like_every_app_binding(self):
         """A tab-key override is substituted into `app.BINDINGS` by
-        `register_app_bindings`, exactly like every other settings App binding.
+        `register_app_bindings`, exactly like every other settings App binding,
+        AND reaches Textual's live keymap (t964).
 
-        Note: Textual computes the *live* keymap from class-level BINDINGS at
-        class-creation time, so App-scope overrides reach `self.BINDINGS`, the
-        registry, and the footer hint, but not the live keymap (a pre-existing,
-        framework-wide limitation shared by all App-scope bindings, e.g.
-        `export_configs`). This test therefore asserts the override reaches the
-        same surface every other App binding reaches, not a live key-press.
+        `ShortcutsMixin._relink_live_bindings` moves the remapped binding onto
+        its override key in `self._bindings` after registration, so App-scope
+        overrides now fire on key-press — not just appear in `self.BINDINGS`,
+        the registry, the footer hint, and tab titles.
         """
         async def runner():
             shortcut_persist.save_override("settings", "switch_tab_tmux", "z")
@@ -470,6 +469,20 @@ class TabSwitchMigrationTests(_Fixture):
                 self.assertEqual(keyed["switch_tab_tmux"], "z")
                 # The footer hint reflects the override too (registry-derived).
                 self.assertIn("z", app._tab_switch_hint())
+                # The live keymap reflects the override: the new key `z` is
+                # bound to switch_tab_tmux and the default `t` no longer carries
+                # that action (t964 — live remap fix).
+                live = app._bindings.key_to_bindings
+                self.assertTrue(
+                    any(b.action == "switch_tab_tmux"
+                        for b in live.get("z", [])),
+                    "override key 'z' not in live keymap",
+                )
+                self.assertFalse(
+                    any(b.action == "switch_tab_tmux"
+                        for b in live.get("t", [])),
+                    "default key 't' still bound to switch_tab_tmux live",
+                )
         self._run(runner())
 
     def test_tab_titles_carry_current_shortcut(self):
