@@ -2,7 +2,7 @@
 
 t946 refactored the modal's Proposal and Plan tabs from an inline minimap
 (mounted inside the tab's VerticalScroll, so it scrolled out of view) to the
-proven ``SectionViewerScreen`` layout: a fixed-width ``_InlineSectionMinimap``
+proven ``SectionViewerScreen`` layout: a fixed-width ``SectionMinimap``
 sibling beside a scrollable ``SectionAwareMarkdown``. The minimap is composed
 once and shown/hidden via ``display``; section navigation routes through
 ``SectionAwareMarkdown.request_scroll_to_section`` (exact rendered-heading

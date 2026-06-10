@@ -884,32 +884,6 @@ class DeleteNodeModal(ModalScreen):
         self.dismiss(False)
 
 
-class _InlineSectionMinimap:
-    """Lazily-imported SectionMinimap subclass with no Tab binding.
-
-    Used inside `NodeDetailModal` only, where Tab is owned by the dialog (it
-    focuses the minimap). The fullscreen `SectionViewerScreen` continues to
-    use the stock `SectionMinimap` and its built-in Tab toggle.
-
-    Implemented as a function returning the subclass class, so the import of
-    `SectionMinimap` stays lazy (matches the existing pattern at the call
-    sites).
-    """
-
-    _cache = None
-
-    @classmethod
-    def cls(cls):
-        if cls._cache is None:
-            from section_viewer import SectionMinimap as _Base
-
-            class _NoTabMinimap(_Base):
-                BINDINGS: list = []
-
-            cls._cache = _NoTabMinimap
-        return cls._cache
-
-
 class _PreviewMinimap:
     """Lazily-built SectionMinimap subclass for the config-step preview pane.
 
@@ -1161,7 +1135,7 @@ class NodeDetailModal(ModalScreen):
         self._plan_text = ""
 
     def compose(self) -> ComposeResult:
-        from section_viewer import SectionAwareMarkdown
+        from section_viewer import SectionAwareMarkdown, SectionMinimap
         with Container(id="node_detail_dialog"):
             yield Label(
                 f"Node Detail: {self.node_id}", id="node_detail_title"
@@ -1174,13 +1148,13 @@ class NodeDetailModal(ModalScreen):
                     )
                 with TabPane("Proposal", id="tab_proposal"):
                     with Horizontal(id="proposal_pane"):
-                        yield _InlineSectionMinimap.cls()(
+                        yield SectionMinimap(
                             id="proposal_minimap", classes="node_detail_minimap"
                         )
                         yield SectionAwareMarkdown(id="proposal_content")
                 with TabPane("Plan", id="tab_plan"):
                     with Horizontal(id="plan_pane"):
-                        yield _InlineSectionMinimap.cls()(
+                        yield SectionMinimap(
                             id="plan_minimap", classes="node_detail_minimap"
                         )
                         yield SectionAwareMarkdown(id="plan_content")
