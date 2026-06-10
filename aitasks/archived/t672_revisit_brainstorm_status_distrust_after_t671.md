@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: [671]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [ait_brainstorm, agentcrew]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-04-27 14:06
-updated_at: 2026-06-10 13:03
+updated_at: 2026-06-10 13:51
+completed_at: 2026-06-10 13:51
 boardidx: 120
 ---
 
