@@ -28,6 +28,12 @@ _AIT_TMUX_BOOTSTRAP_LOADED=1
 _TMUX_BOOTSTRAP_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _TMUX_BOOTSTRAP_SCRIPTS_DIR="$(cd "$_TMUX_BOOTSTRAP_LIB_DIR/.." && pwd)"
 
+# Gateway for all tmux invocations (socket flag + exact-match targeting),
+# shared with the Python TmuxClient. Pulls in terminal_compat.sh (die/warn/info)
+# transitively; both are guarded against double-sourcing.
+# shellcheck source=tmux_exec.sh disable=SC1091
+source "$_TMUX_BOOTSTRAP_LIB_DIR/tmux_exec.sh"
+
 # --- Public helpers (callable after sourcing) ---------------------------
 
 # _tmux_bootstrap_resolve_session <project_root>
@@ -96,7 +102,7 @@ _tmux_bootstrap_read_syncer_autostart() {
 _tmux_bootstrap_set_project_registry() {
     local root="$1"
     local session="$2"
-    tmux set-environment -g "AITASKS_PROJECT_${session}" "$root" 2>/dev/null || true
+    ait_tmux set-environment -g "AITASKS_PROJECT_${session}" "$root" 2>/dev/null || true
     "$_TMUX_BOOTSTRAP_SCRIPTS_DIR/aitask_projects.sh" add "$root" >/dev/null 2>&1 || true
 }
 
@@ -111,9 +117,10 @@ _tmux_bootstrap_ensure_syncer_window() {
     local autostart
     autostart=$(_tmux_bootstrap_read_syncer_autostart "$root")
     [[ "$autostart" == "1" ]] || return 0
-    local session_t="=${session}"
-    if ! tmux list-windows -t "$session_t" -F '#{window_name}' 2>/dev/null | grep -qx 'syncer'; then
-        tmux new-window -t "${session_t}:" -c "$root" -n syncer 'ait syncer' 2>/dev/null || true
+    local session_t
+    session_t="$(ait_tmux_session_target "$session")"
+    if ! ait_tmux list-windows -t "$session_t" -F '#{window_name}' 2>/dev/null | grep -qx 'syncer'; then
+        ait_tmux new-window -t "${session_t}:" -c "$root" -n syncer 'ait syncer' 2>/dev/null || true
     fi
 }
 
@@ -146,14 +153,14 @@ spawn_session_detached() {
 
     local session session_t
     session=$(_tmux_bootstrap_resolve_session "$root")
-    session_t="=${session}"
+    session_t="$(ait_tmux_session_target "$session")"
 
     command -v tmux >/dev/null || {
         echo "spawn_session_detached: tmux is not installed" >&2
         return 3
     }
 
-    if ! tmux has-session -t "$session_t" 2>/dev/null; then
+    if ! ait_tmux has-session -t "$session_t" 2>/dev/null; then
         # First session => this call creates the tmux SERVER. Spawn it inside a
         # persistent systemd-user service (session.slice) so a compositor /
         # app.slice teardown no longer kills the server (t943). Socket

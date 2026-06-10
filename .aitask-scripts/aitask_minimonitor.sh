@@ -8,6 +8,8 @@ source "$SCRIPT_DIR/lib/aitask_path.sh"
 source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/tmux_exec.sh
+source "$SCRIPT_DIR/lib/tmux_exec.sh"
 
 PYTHON="$(require_ait_python)"
 
@@ -36,7 +38,7 @@ if [[ -n "${TMUX:-}" ]]; then
             echo "A monitor is already running in this window. Exiting."
             exit 0
         fi
-    done < <(tmux list-panes -F "#{pane_pid}:#{pane_current_command}" 2>/dev/null || true)
+    done < <(ait_tmux list-panes -F "#{pane_pid}:#{pane_current_command}" 2>/dev/null || true)
 fi
 
 exec "$PYTHON" "$SCRIPT_DIR/monitor/minimonitor_app.py" "$@"

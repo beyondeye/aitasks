@@ -157,6 +157,18 @@ ait_systemd_user_available() {
 # exist (otherwise wrapping is pointless — a plain new-session just attaches).
 ait_tmux_new_session_persistent() {
     local session="$1" root="$2" window="$3" cmd="$4"
+    # Route the socket flag through the gateway (single source of socket policy,
+    # shared with lib/tmux_exec.sh / the Python TmuxClient). Sourced lazily here
+    # rather than at file scope so terminal_compat.sh stays a leaf for its many
+    # other consumers; the _AIT_TMUX_EXEC_LOADED guard makes repeat calls cheap.
+    local _tc_lib_dir
+    _tc_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    # shellcheck source=tmux_exec.sh disable=SC1091
+    source "$_tc_lib_dir/tmux_exec.sh"
+    local -a sock=()
+    local _line
+    while IFS= read -r _line; do sock+=("$_line"); done < <(ait_tmux_socket_args)
+
     if ait_systemd_user_available; then
         local safe unit
         safe="$(systemd-escape -- "$session" 2>/dev/null || echo session)"
@@ -165,15 +177,16 @@ ait_tmux_new_session_persistent() {
         # Type=forking matches tmux's double-fork; KillMode=none keeps systemd
         # from signalling the server cgroup when the launching transaction
         # finishes; --collect GCs the unit in the benign loser-of-a-race case.
+        # The socket flag goes into the tmux argv *inside* the unit command.
         systemd-run --user --slice=session.slice --unit="$unit" \
             --property=Type=forking --property=KillMode=none \
             --collect --quiet -- \
-            tmux new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
+            tmux ${sock[@]+"${sock[@]}"} new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
         return $?
     fi
     if command -v setsid >/dev/null 2>&1; then
-        setsid tmux new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
+        setsid tmux ${sock[@]+"${sock[@]}"} new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
         return $?
     fi
-    tmux new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
+    tmux ${sock[@]+"${sock[@]}"} new-session -d -s "$session" -c "$root" -n "$window" "$cmd"
 }
