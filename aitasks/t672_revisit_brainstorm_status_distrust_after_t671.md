@@ -3,11 +3,12 @@ priority: low
 effort: medium
 depends: [671]
 issue_type: refactor
-status: Postponed
+status: Implementing
 labels: [ait_brainstorm, agentcrew]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-27 14:06
-updated_at: 2026-05-20 14:26
-boardidx: 140
+updated_at: 2026-06-10 12:50
+boardidx: 120
 ---
 
 Follow-up to t671 (archived as `aiplans/archived/p671_*`).

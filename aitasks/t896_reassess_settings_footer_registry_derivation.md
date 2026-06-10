@@ -11,7 +11,7 @@ assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 12:45
 updated_at: 2026-06-10 12:40
-boardidx: 50
+boardidx: 60
 ---
 
 ## Reassess: settings tab-switcher footer registry-derivation
