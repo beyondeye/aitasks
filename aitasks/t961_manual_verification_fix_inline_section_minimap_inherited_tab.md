@@ -19,3 +19,9 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t949
+
+## Verification Checklist
+
+- [ ] In `ait brainstorm`, open a node detail modal (Enter on a node), switch to the Proposal tab, press Tab → focus moves into the section minimap; arrow through rows, Enter scrolls the content to that section; press Tab again while on the minimap → focus stays put (no jump back to row 0).
+- [ ] Repeat the above on the Plan tab.
+- [ ] Confirm the Tab/minimap behavior is identical to before the t949 change (it should be — the change is behavior-neutral).
