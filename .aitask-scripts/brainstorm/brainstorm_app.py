@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from keybinding_registry import resolve_key  # noqa: E402
+from numbered_source_view import NumberedSourceView  # noqa: E402
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -951,23 +952,21 @@ class _PreviewMinimap:
         return cls._cache
 
 
-class _NumberedProposal(VerticalScroll):
+class _NumberedProposal(NumberedSourceView):
     """Scrollable source-line view: syntax-highlighted markdown + a line-number
     gutter.
 
     The alternate proposal rendering for the explore / module-decompose config
-    preview (t954): the proposal source, **markdown-highlighted** (same Rich
-    ``Syntax`` approach as the codebrowser ``code_viewer``), with a
+    preview (t954): the proposal source, **markdown-highlighted**, with a
     right-justified line-number gutter so the user can reference specific lines
     ("adapt around line 30").
 
-    Each source line is exactly one Rich ``Table`` row (the codebrowser pattern):
-    the number column is ``no_wrap`` while the content column wraps, so a long
-    proposal line that reflows across several terminal rows keeps a single,
-    stable line number — numbers track *source* lines, not wrapped rows. The
-    highlight is computed once in :meth:`set_text` and cached per line, so
-    :meth:`_rebuild` (which runs on every resize) only re-lays out the table
-    width.
+    A thin adopter of :class:`NumberedSourceView` (t959 extracted the shared base
+    that codebrowser's ``CodeViewer`` also uses). The base's defaults already
+    match this view exactly — markdown lexer, always-wrap content column, one
+    Rich ``Table`` row per source line so numbers track *source* lines across
+    reflow, highlight cached once per :meth:`set_text` and only re-laid-out on
+    resize — so this subclass only pins the styling and the inner ``Static`` id.
 
     Mounts only a ``Static`` (never a ``TextArea`` / ``CycleField`` / ``RadioSet``)
     so the recursive ``#actions_content`` collectors in ``_actions_collect_config``
@@ -982,52 +981,7 @@ class _NumberedProposal(VerticalScroll):
     }
     """
 
-    LINE_NUM_WIDTH = 5
-
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self._text = ""
-        self._lines: list = []  # cached per-line highlighted Text
-        self._table = None  # last built Rich Table (one row per source line)
-
-    def compose(self) -> ComposeResult:
-        yield Static(id="preview_numbered_inner")
-
-    def set_text(self, text: str) -> None:
-        self._text = text or ""
-        # Markdown-highlight the source once (codebrowser pattern), then split
-        # into per-line Text so each source line is one table row. The trailing
-        # newline's empty line is dropped by Syntax.highlight (conventional line
-        # count). Cached here so resize only re-lays out the table width.
-        from rich.syntax import Syntax
-
-        highlighted = Syntax(
-            self._text, "markdown", theme="monokai"
-        ).highlight(self._text)
-        self._lines = highlighted.split("\n")
-        self._rebuild()
-
-    def on_resize(self, event) -> None:
-        if self._lines:
-            self._rebuild()
-
-    def _rebuild(self) -> None:
-        from rich.table import Table
-
-        available = self.size.width if self.size.width > 0 else 120
-        content_w = max(20, available - self.LINE_NUM_WIDTH - 2)
-        table = Table(
-            show_header=False, show_edge=False, box=None, pad_edge=False
-        )
-        table.add_column(
-            style="dim", justify="right", width=self.LINE_NUM_WIDTH, no_wrap=True
-        )
-        # Content wraps (no_wrap=False); the number stays anchored to the row.
-        table.add_column(no_wrap=False, width=content_w)
-        for i, line in enumerate(self._lines, start=1):
-            table.add_row(Text(str(i), style="dim"), line)
-        self._table = table
-        self.query_one("#preview_numbered_inner", Static).update(table)
+    _INNER_ID = "preview_numbered_inner"
 
 
 class ProposalPreviewPane(Horizontal):

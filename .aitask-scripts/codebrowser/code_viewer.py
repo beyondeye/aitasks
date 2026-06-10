@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
-import time
+import sys
 from pathlib import Path
 
 from textual.binding import Binding
-from textual.containers import VerticalScroll
 from textual.message import Message
-from textual.widgets import Static
 
 from rich.style import Style
 from rich.syntax import Syntax
-from rich.table import Table
 from rich.text import Text
 
-from annotation_data import AnnotationRange
+# Resolve the shared base widget from lib/ even when code_viewer is imported
+# with only the codebrowser dir on sys.path (e.g. the control-chars unit test).
+_LIB = Path(__file__).resolve().parent.parent / "lib"
+if str(_LIB) not in sys.path:
+    sys.path.insert(0, str(_LIB))
+
+from numbered_source_view import NumberedSourceView  # noqa: E402
+from annotation_data import AnnotationRange  # noqa: E402
 
 ANNOTATION_COLORS = [
     "cyan", "green", "yellow", "magenta",
@@ -50,8 +54,16 @@ def _sanitize_control_chars(text: str) -> str:
     return text.translate(_CONTROL_CHAR_TRANSLATION)
 
 
-class CodeViewer(VerticalScroll):
-    """Displays source code with syntax highlighting, line numbers, and annotation gutter."""
+class CodeViewer(NumberedSourceView):
+    """Displays source code with syntax highlighting, line numbers, and annotation gutter.
+
+    Adopts the shared :class:`NumberedSourceView` base (t959): the highlight +
+    per-line cache, width calc, boxless table skeleton, the number→row loop, and
+    ``on_resize``→rebuild live in the base. ``CodeViewer`` overrides the base's
+    hooks to layer on file-aware lexer guessing, the annotation gutter (third
+    column), viewport windowing with above/below indicators, cursor/selection row
+    styling, and the wrap/truncate toggle.
+    """
 
     class CursorMoved(Message):
         """Posted when the cursor line changes."""
@@ -72,13 +84,12 @@ class CodeViewer(VerticalScroll):
     ]
 
     MAX_LINE_WIDTH = 500
+    _INNER_ID = "code_display"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._file_path: Path | None = None
-        self._lines: list[str] = []
         self._total_lines: int = 0
-        self._highlighted_lines: list[Text] = []
         self._annotations: list[AnnotationRange] = []
         self._show_annotations: bool = True
         self._cursor_line: int = 0
@@ -97,8 +108,8 @@ class CodeViewer(VerticalScroll):
         # Wrap mode: "truncate" (default) or "wrap"
         self._wrap_mode: str = "truncate"
 
-    def compose(self):
-        yield Static("Select a file to view", id="code_display")
+    def _placeholder(self) -> str:
+        return "Select a file to view"
 
     def _reset_state(self) -> None:
         """Reset viewer state for a new file load."""
@@ -114,15 +125,13 @@ class CodeViewer(VerticalScroll):
         """Show a placeholder message instead of code content."""
         self._lines = []
         self._total_lines = 0
-        self._highlighted_lines = []
         self._reset_state()
-        self.query_one("#code_display", Static).update(message)
+        self._inner_static().update(message)
 
     def show_binary_info(self, commit_timeline: list[dict]) -> None:
         """Show binary file info with commit timeline."""
         self._lines = []
         self._total_lines = 0
-        self._highlighted_lines = []
         self._reset_state()
 
         content = Text()
@@ -148,7 +157,7 @@ class CodeViewer(VerticalScroll):
         else:
             content.append("No commit history available.\n", style="dim")
 
-        self.query_one("#code_display", Static).update(content)
+        self._inner_static().update(content)
 
     def load_file(self, file_path: Path) -> None:
         """Load and display a file with syntax highlighting."""
@@ -180,15 +189,14 @@ class CodeViewer(VerticalScroll):
         # Normalize tabs to spaces
         content = content.expandtabs(4)
 
-        self._lines = content.splitlines()
-        self._total_lines = len(self._lines)
         self._reset_state()
+        # Highlight via the shared base (uses CodeViewer._select_lexer →
+        # file-aware lexer guessing). One highlighted Text per source line; the
+        # count matches splitlines() (the existing render indexes up to
+        # _total_lines, so they are already equal).
+        self._lines = self._highlight(content)
+        self._total_lines = len(self._lines)
         self._viewport_mode = self._total_lines > self._viewport_threshold
-
-        lexer = Syntax.guess_lexer(str(file_path), code=content)
-        syntax = Syntax(content, lexer, theme="monokai")
-        highlighted_text = syntax.highlight(content)
-        self._highlighted_lines = highlighted_text.split("\n")
 
         self._rebuild_display()
         self.scroll_home(animate=False)
@@ -239,7 +247,7 @@ class CodeViewer(VerticalScroll):
         lines ``[vp_start, vp_end)`` (0-indexed).
         """
         if vp_end is None:
-            vp_end = len(self._highlighted_lines)
+            vp_end = len(self._lines)
         size = vp_end - vp_start
 
         # Build task_id -> color_index lookup for deterministic unique colors
@@ -280,91 +288,87 @@ class CodeViewer(VerticalScroll):
             self._rebuild_display()
         return self._wrap_mode
 
-    def _rebuild_display(self) -> None:
-        """Build and render the line-number + code + annotation table."""
-        t0 = time.perf_counter()
+    # ---- NumberedSourceView hook overrides -------------------------------
+    # The base owns the table skeleton, width calc, number\u2192row loop, and the
+    # Static.update / on_resize\u2192rebuild plumbing. These hooks layer on
+    # CodeViewer's divergences: file-aware lexer, annotation gutter (3rd
+    # column), viewport windowing + above/below indicators, cursor/selection
+    # row styling, and the wrap/truncate toggle.
 
-        # Calculate column widths dynamically based on available space
-        LINE_NUM_WIDTH = 5
-        available = self.size.width if self.size.width > 0 else 120
-        show_ann = self._show_annotations and self._annotations
-        ann_width = self._annotation_col_width() if show_ann else 0
-        code_max_width = max(20, available - LINE_NUM_WIDTH - ann_width - 2)
+    def _select_lexer(self, code: str) -> str:
+        return Syntax.guess_lexer(str(self._file_path), code=code)
 
-        table = Table(
-            show_header=False,
-            show_edge=False,
-            box=None,
-            pad_edge=False,
-        )
-        table.add_column(style="dim", justify="right", width=LINE_NUM_WIDTH, no_wrap=True)
-        if self._wrap_mode == "wrap":
-            table.add_column(no_wrap=False, width=code_max_width)
-        else:
-            table.add_column(no_wrap=True, width=code_max_width)
-        table.add_column(width=ann_width, no_wrap=True, justify="left")
+    def _wrap(self) -> bool:
+        return self._wrap_mode == "wrap"
 
-        # Determine line range to render
+    def _render_range(self) -> tuple[int, int]:
         if self._viewport_mode:
             vp_start = self._viewport_start
             vp_end = min(vp_start + self._viewport_size, self._total_lines)
-        else:
-            vp_start = 0
-            vp_end = self._total_lines
+            return vp_start, vp_end
+        return 0, self._total_lines
 
+    def _has_extra_column(self) -> bool:
+        # CodeViewer always renders the 3rd (annotation) column; it collapses to
+        # width 0 when annotations are hidden or absent (matches the prior
+        # always-3-column table).
+        return True
+
+    def _extra_column_width(self) -> int:
+        show_ann = self._show_annotations and self._annotations
+        return self._annotation_col_width() if show_ann else 0
+
+    def _prepare_build(self, start: int, end: int) -> None:
+        # Precompute the annotation gutter for the rendered range and snapshot
+        # the selection bounds once, so the per-row hooks are cheap lookups.
         if self._show_annotations and self._annotations:
-            gutter = self._build_annotation_gutter(vp_start, vp_end)
+            self._gutter = self._build_annotation_gutter(start, end)
         else:
-            gutter = [Text("") for _ in range(vp_end - vp_start)]
+            self._gutter = [Text("") for _ in range(end - start)]
+        self._sel_min, self._sel_max = self._selection_bounds()
 
-        sel_min, sel_max = self._selection_bounds()
+    def _extra_cell(self, file_idx: int) -> Text:
+        idx = file_idx - self._build_start
+        if 0 <= idx < len(self._gutter):
+            return self._gutter[idx]
+        return Text("")
 
-        # Top indicator for viewport mode
-        if self._viewport_mode and vp_start > 0:
+    def _row_style(self, file_idx: int):
+        if file_idx == self._cursor_line:
+            return CURSOR_STYLE
+        if self._sel_min is not None and self._sel_min <= file_idx <= self._sel_max:
+            return SELECTION_STYLE
+        return None
+
+    def _truncate_line(self, line: Text, code_max_width: int) -> Text:
+        effective_max = min(self.MAX_LINE_WIDTH, code_max_width)
+        if len(line) > effective_max:
+            line = line.copy()
+            line.truncate(effective_max)
+            line.append("\u2026", style="dim")
+        return line
+
+    def _pre_rows(self, table, start: int, end: int) -> None:
+        # Top indicator for viewport mode.
+        if self._viewport_mode and start > 0:
             table.add_row(
                 Text("", style="dim"),
-                Text(f"\u00b7\u00b7\u00b7 {vp_start} lines above \u00b7\u00b7\u00b7", style="dim italic"),
+                Text(f"\u00b7\u00b7\u00b7 {start} lines above \u00b7\u00b7\u00b7", style="dim italic"),
                 Text(""),
             )
 
-        for file_idx in range(vp_start, vp_end):
-            gutter_idx = file_idx - vp_start
-            line = self._highlighted_lines[file_idx]
-            ann_text = gutter[gutter_idx] if gutter_idx < len(gutter) else Text("")
-            row_style = None
-            if file_idx == self._cursor_line:
-                row_style = CURSOR_STYLE
-            elif sel_min is not None and sel_min <= file_idx <= sel_max:
-                row_style = SELECTION_STYLE
-            if self._wrap_mode == "truncate":
-                effective_max = min(self.MAX_LINE_WIDTH, code_max_width)
-                if len(line) > effective_max:
-                    line = line.copy()
-                    line.truncate(effective_max)
-                    line.append("\u2026", style="dim")
-            table.add_row(
-                Text(str(file_idx + 1), style="dim"), line, ann_text, style=row_style
-            )
-
-        # Bottom indicator for viewport mode
-        if self._viewport_mode and vp_end < self._total_lines:
-            lines_below = self._total_lines - vp_end
+    def _post_rows(self, table, start: int, end: int) -> None:
+        # Bottom indicator for viewport mode.
+        if self._viewport_mode and end < self._total_lines:
+            lines_below = self._total_lines - end
             table.add_row(
                 Text("", style="dim"),
                 Text(f"\u00b7\u00b7\u00b7 {lines_below} lines below \u00b7\u00b7\u00b7", style="dim italic"),
                 Text(""),
             )
 
-        self.query_one("#code_display", Static).update(table)
-
-        elapsed = time.perf_counter() - t0
-        if elapsed > 0.05:
-            self.log(f"_rebuild_display: {elapsed*1000:.1f}ms ({self._total_lines} lines, viewport={self._viewport_mode})")
-
-    def on_resize(self, event) -> None:
-        """Rebuild display when widget size changes so column widths adapt."""
-        if self._total_lines > 0:
-            self._rebuild_display()
+    def _rebuild_log_detail(self) -> str:
+        return f"{self._total_lines} lines, viewport={self._viewport_mode}"
 
     def _selection_bounds(self) -> tuple[int | None, int | None]:
         """Return (min, max) of selection range, or (None, None)."""
