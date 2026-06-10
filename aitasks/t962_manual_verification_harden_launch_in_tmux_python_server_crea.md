@@ -19,3 +19,10 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t956
+
+## Verification Checklist
+
+- [ ] From a plain terminal with NO tmux server running, launch an agent via a TUI 'new session' path (launch_in_tmux new_session=True); confirm cat /proc/<tmux-server-pid>/cgroup shows /session.slice/ait-tmux-*.service, NOT /app.slice/
+- [ ] With that server in session.slice, restart the Hyprland compositor (or systemctl --user stop a sibling app-*.scope); confirm tmux list-sessions still works (server survived the teardown)
+- [ ] Control: repeat the no-server launch with AIT_NO_SYSTEMD_RUN=1 — server lands in /app.slice/ and the same teardown kills it (demonstrates the contrast)
+- [ ] When a tmux server is ALREADY running, the new-session launch attaches plainly with no spurious ait-tmux-* transient systemd unit created (systemctl --user list-units 'ait-tmux-*')
