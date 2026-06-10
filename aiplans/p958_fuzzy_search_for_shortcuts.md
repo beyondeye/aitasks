@@ -171,3 +171,42 @@ Working on the current branch (profile 'fast'), so no worktree/merge cleanup.
 - **Settings tab auto-focus:** rejected — it is one widget among many in a tab;
   stealing focus on tab entry would be disruptive. The `?` modal does auto-focus
   because search is its primary purpose.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-10 10:30)
+- **Requested by user:** The settings-tab filter box was hard to spot — its
+  placeholder used the same muted color as the dim hint paragraph directly
+  above it, so it blended in and read as part of the hint.
+- **Changes made:** Gave both search boxes a distinct **rounded accent border
+  with a "Filter" border-title** so each reads unmistakably as its own input
+  field regardless of placeholder color. Placeholder reworded to "Type to
+  filter…". Applied to the settings Shortcuts tab (`#shortcuts_search`, via
+  `SettingsApp.CSS`) and mirrored to the `?` modal (`#se_search`, via the
+  modal's self-contained `DEFAULT_CSS`) for consistency.
+- **Files affected:** `.aitask-scripts/settings/settings_app.py`,
+  `.aitask-scripts/lib/shortcut_editor_modal.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `.aitask-scripts/lib/fuzzy_filter.py` (general
+  `match`/`rank` subsequence scorer). Wired an `#se_search` Input into
+  `ShortcutEditorModal` (auto-focused, live fuzzy filter over the DataTable,
+  ↓/Enter to drop into the table) and a `#shortcuts_search` Input into the
+  Settings Shortcuts tab (filters the cross-TUI list; joins the ↑/↓ focus chain
+  tab-title ↔ search ↔ table; table stays the entry-focus). Both boxes got a
+  rounded accent border + "Filter" title (post-review visual fix). Added
+  `tests/test_fuzzy_filter.py` and extended the two dialog pilot tests.
+- **Deviations from plan:** None structurally. Settings nav needed two small
+  helpers beyond the plan: a `_focus_first_in_tab` special-case (keep the table
+  as entry-focus) and an `on_key` escape for the search Input (↓→table, ↑→tab
+  bar) so it isn't an arrow-key focus trap. Post-review, both filter boxes were
+  given a distinct accent border + title because the placeholder shared the dim
+  hint color and blended in.
+- **Issues encountered:** Auto-focusing the modal search box broke the existing
+  rebind pilot test (it pressed Enter expecting the table focused) and the
+  settings nav test's focus-chain assertions — both updated to the new layout.
+- **Key decisions:** New `lib/` matcher rather than importing codebrowser's
+  path-specialised `PathFuzzySearch` (avoids a `lib/`→`codebrowser/` dependency).
+  Filtering is display-only — collision/rebind/save logic untouched.
+- **Upstream defects identified:** None
