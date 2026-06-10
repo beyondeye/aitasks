@@ -3,12 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Implementing
+status: Ready
 labels: [tmux, ait_bridge]
 children_to_implement: [t952_1, t952_2, t952_3, t952_4, t952_5]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 08:58
-updated_at: 2026-06-10 12:49
+updated_at: 2026-06-10 12:51
 boardidx: 20
 ---
 
