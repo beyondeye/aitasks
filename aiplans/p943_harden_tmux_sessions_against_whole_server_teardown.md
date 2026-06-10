@@ -219,3 +219,60 @@ and merge.
 ### Planned mitigations
 - timing: after | name: harden_launch_in_tmux_python_server_creation | type: enhancement | priority: low | effort: low | addresses: secondary server-creation site in agent_launch_utils.py | desc: Mirror the persistent systemd-user-service (session.slice) server spawn in the Python launch_in_tmux() new_session branch, gated on systemd-run availability + a tmux has-session precheck, with the same setsid/plain fallback ladder.
 - timing: after | name: document_tmux_workspace_keybind_persistence | type: documentation | priority: low | effort: low | addresses: user-launched workspace server not covered by framework hardening | desc: Add a troubleshooting/docs note (and cross-reference the omarchy guidance) explaining that a workspace launcher/keybind which starts the ait tmux server should place it in a persistent slice (e.g. systemd-run --user --slice=session.slice) so a user-created server also survives compositor/app.slice teardown.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all three plan steps.
+  1. Added `ait_systemd_user_available()` and `ait_tmux_new_session_persistent()`
+     to `.aitask-scripts/lib/terminal_compat.sh` (capability gate +
+     `systemd-run --user --slice=session.slice` spawn with a
+     setsid → plain-tmux fallback ladder; `AIT_NO_SYSTEMD_RUN` escape hatch).
+  2. Replaced the inner `tmux new-session` in `spawn_session_detached`
+     (`.aitask-scripts/lib/tmux_bootstrap.sh`) with a call to the new helper,
+     preserving the `has-session` guard, the `return 4` failure contract, and
+     the untouched `BOOTSTRAP_FAILED:stale_path` → `return 42` sentinel.
+  3. Added `tests/test_tmux_persistent_scope.sh` (Tier 0 helper presence,
+     Tier 1 always-on fallback rung, Tier 2 systemd-guarded session.slice
+     placement that skips cleanly where no user manager is reachable).
+- **Deviations from plan:**
+  - The plan referenced `tests/lib/require_no_tmux.sh` / `require_no_tmux`; the
+    current isolation helper is `tests/lib/tmux_isolation.sh` /
+    `require_isolated_tmux` (renamed since the plan was written). Used the
+    actual helper.
+  - Tier 2 **reconstructs** the `systemd-run` invocation with
+    `--setenv=TMUX_TMPDIR=<isolated>` instead of calling the helper directly:
+    the production helper intentionally does NOT thread `TMUX_TMPDIR` (it must
+    spawn on the default socket), so calling it in-test would create a server on
+    the user's real default tmux server. The reconstruction uses the identical
+    load-bearing flags (`--slice=session.slice`, `Type=forking`,
+    `KillMode=none`, `--collect`), so it still verifies the session.slice
+    placement property. Tier 1 exercises the real helper end-to-end.
+- **Issues encountered:**
+  - `tmux display-message -p -t '=<session>'` returns empty for pane/window
+    formats (a session-only target has no pane context) → used
+    `list-windows` / `list-panes -F` instead, the reliable scripting form.
+  - The setsid fallback brings the server up asynchronously, so
+    `pane_current_path` (derived from the pane process's `/proc` cwd) can
+    momentarily read the launcher's cwd before settling into `-c <root>`. Fixed
+    by polling the cwd in the test until it reflects the requested root (window
+    name / start command are tmux metadata and need no poll).
+- **Key decisions:** Socket left unchanged (default) — this is a cgroup/lifecycle
+  change only, so every other tmux call site keeps working untouched. Verified
+  empirically on the live Arch+Hyprland box that `--slice=session.slice` lands
+  the server in `/user.slice/.../session.slice/ait-tmux-*.service` and **not**
+  under `app.slice`.
+- **Verification run:** new test 9/9 (stable over 3 runs, both tiers exercised);
+  `shellcheck` clean on both production files; regression tests
+  `test_tmux_control`, `test_tmux_run_parity`,
+  `test_tmux_exact_session_targeting`, `test_tmux_control_resilience`,
+  `test_kill_agent_pane_smart` all green. Pre-existing/unrelated:
+  `test_multi_session_primitives.sh` (19/20) fails a stale `AitasksSession`
+  field-list assertion in `agent_launch_utils.py` — untouched by this task; it
+  is a test-vs-code drift (test gap), a candidate for `/aitask-qa`, not a code
+  defect seeded here.
+- **Upstream defects identified:** None.
+- **Follow-up tasks created during planning discussion:** t952 (centralize tmux
+  invocations behind a shared gateway) and t953 (dedicated persistent socket,
+  depends on t952) — the broader tmux-refactoring groundwork for the
+  wish/SSH + hosted directions in `aidocs/applink/wish_ssh_evaluation.md`.
+  These are independent of t943's narrow scope.
