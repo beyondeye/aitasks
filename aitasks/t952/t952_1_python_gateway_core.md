@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [tmux, ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 12:47
-updated_at: 2026-06-10 12:47
+updated_at: 2026-06-10 12:57
 ---
 
 ## Context
