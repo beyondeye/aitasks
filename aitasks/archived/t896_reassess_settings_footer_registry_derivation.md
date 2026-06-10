@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: [t848_3]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [custom_shortcuts, verification]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 12:45
-updated_at: 2026-06-10 12:40
+updated_at: 2026-06-10 13:04
+completed_at: 2026-06-10 13:04
 boardidx: 60
 ---
 
