@@ -37,9 +37,16 @@ autonomous lanes).
    In-Flight action-grouped view), t635_10 (monitor gate column)
 4. **Orchestrator + first conversions**: t635_11 (orchestrator + verifier
    contract), t635_12 (build/tests machine gates), t635_13 (risk-evaluation
-   gate, ex-t912), t635_14 (profile→gate-declaration unification)
+   gate, ex-t912), t635_14 (profile→gate-declaration unification),
+   t635_19 (docs_updated gate — new, fills the documentation checkpoint
+   missing from today's task-workflow)
 5. **Async human gates + remote projection**: t635_15, t635_16
 6. **Autonomous-lane rigor**: t635_17
+
+**Documentation track** (cross-phase): incremental website updates in each
+user-facing child + t635_18 (comprehensive website sweep: concepts,
+workflows, skills, TUIs, commands, configuration) + t635_19 as the permanent
+docs-drift checkpoint thereafter.
 
 Children carry explicit `depends:` (sibling auto-deps disabled) matching the
 roadmap's dependency table — the phases overlap deliberately (e.g. t635_8
