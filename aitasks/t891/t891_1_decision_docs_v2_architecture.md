@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [756]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, brainstom_modules, remove_support]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 10:51
-updated_at: 2026-06-01 10:51
+updated_at: 2026-06-11 09:42
 ---
 
 # t891_1 — Decision + docs: author proposal-only architecture v2, archive v1
