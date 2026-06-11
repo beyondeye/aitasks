@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [codebrowser, codeagent]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 12:47
-updated_at: 2026-06-11 12:47
+updated_at: 2026-06-11 12:58
 ---
 
 ## Origin

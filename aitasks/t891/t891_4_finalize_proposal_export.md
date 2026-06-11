@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t891_3]
 issue_type: refactor
 status: Implementing
 labels: [ait_brainstorm, brainstom_modules, remove_support]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 10:52
-updated_at: 2026-06-11 12:10
+updated_at: 2026-06-11 12:53
 ---
 
 # t891_4 — Finalize replacement: proposal export (no plan, no migration)
