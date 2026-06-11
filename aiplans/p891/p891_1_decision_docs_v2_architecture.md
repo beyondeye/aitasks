@@ -168,3 +168,26 @@ See **Step 9 (Post-Implementation)** of the shared workflow for archival/merge.
   above catches plan-layer remnants and a TOC self-consistency check covers
   links. · severity: low · → mitigation: covered by Verification step (no
   separate task)
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  1. `git mv aidocs/brainstorming/brainstorm_engine_architecture.md aidocs/brainstorming/old/` (created `old/`), preserving v1 as history.
+  2. Authored `aidocs/brainstorming/brainstorm_engine_architecture_v2.md` (proposal-only). Removed the entire plan layer: §3 node-triad → node-pair; `plan_file` field + schema rule; `br_plans/`, `PLANS_DIR`, `read_plan`, plan-file naming; §4.4 Plan Template (renumbered §4.5 Dimension Linking → §4.4); detailer/patcher from Operation Groups, Agent Type Definitions, Source Code Layout; Detailer/Patcher Input Assembly; §7.5 Detail + §7.6 Patch; §8.4 Detailer + §8.5 Plan Patcher. Reworked §7.7 Finalize → §7.5 proposal export; replaced the Top-Down/Bottom-Up flow with a single proposal-only "Flow Summary"; trimmed the NodeDetailModal "Plan tab" mention to "Proposal tab". Added a module cross-ref (intro + References) to `module_decomposition_design.md`.
+  3. Edited `module_decomposition_design.md`: added a t891 proposal-only note; removed `detail`/`patch` from the §1 op-list, the lifecycle one-liner, §4.5, §4.6 worked-example step 5, §4.10 templates; fixed two further stray `patch` refs (re-refine → `explore`; free-form context note).
+  4. Repointed the single external reference (`model_reference_locations.md:93`) → v2 with refreshed line numbers (511/514/517/520).
+
+- **Deviations from plan:** The plan's premise ("re-read as-landed arch doc; t756 may have added module sections to fold into v2") was **disproven during verify** — t756 never touched the arch doc (last modified 2026-05-20 by t807). Per user decision (confirmed in plan), v2 is the existing arch doc minus the plan layer + a module **cross-ref**, NOT authored module sections. Also, two `patch` references (`module_decomposition_design.md` L350, L660) were not in the explore agent's original anchor list; found via the verification grep and fixed as entailed-consistency edits.
+
+- **Issues encountered:** None blocking. The doc transform was mechanical once anchors were verified accurate (the arch doc had not drifted since the 2026-06-01 snapshot).
+
+- **Key decisions:** (a) v2 module scope = cross-ref only (modules stay canonical in `module_decomposition_design.md`). (b) Design-doc edit depth = scoped + entailed consistency (op-list/lifecycle fixes) but NOT a full post-t756 rewrite.
+
+- **Upstream defects identified:** `aidocs/brainstorming/module_decomposition_design.md:9 — stale header "Status: design only — no implementation has landed" despite t756 (which implemented decompose/sync/merge) being Done/archived; same doc L338/§4.3 still describes sync producing a node "plan_file" (a field t891_3 removes) and the syncer template (~L514-518) outputs "+ plan reflecting as-implemented state". These are a t756-as-built reconciliation, deliberately out of t891_1 scope — worth a separate follow-up to refresh that design doc to post-t756/post-t891 reality.`
+
+- **Notes for sibling tasks (t891_2 ops/agents, t891_3 schema/TUI, t891_4 finalize):**
+  - `brainstorm_engine_architecture_v2.md` is now the **authoritative target spec** for your code removals — it already describes the proposal-only end state (no detailer/patcher agent types, no `detail`/`patch` ops, no `plan_file`/`br_plans`/`PLANS_DIR`, Finalize = proposal export). Use it as the checklist of what code must disappear.
+  - The v1 two-level design survives at `aidocs/brainstorming/old/brainstorm_engine_architecture.md` — consult it for the exact pre-removal shape of the detailer/patcher machinery you are deleting (the reference model t756 was built from).
+  - **t891_4 (finalize):** v2 §7.5 documents finalize as a **proposal export** (or fast-track + aitask ownership). The bracketed "or hand the design off via fast-track…" was intentionally non-committal — make v2 §7.5 match whatever you actually implement.
+  - **t891_3 (schema/TUI):** v2 §9.4 already trims the brainstorm host to the "Proposal tab" only (the Plan tab is yours to remove in `NodeDetailModal`). Codebrowser/Board "plan view" rows in §9.4 refer to **aitask** plans (aiplans/p*.md) and must stay.
+  - The `module_decomposition_design.md` staleness above is **not** yours to fix unless your task naturally touches §4.3 sync semantics — it's flagged as a standalone follow-up.
