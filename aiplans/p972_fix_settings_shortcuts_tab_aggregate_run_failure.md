@@ -119,3 +119,32 @@ hygiene.
 Standard archival: commit the test fix (`bug: ... (t972)`), update + commit the
 plan via `./ait git`, then `./.aitask-scripts/aitask_archive.sh 972` and
 `./ait git push`. No branch/worktree to clean up (working on current branch).
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `shortcut_label_case` cache isolation to
+  `tests/test_settings_shortcuts_tab.py`'s `_Fixture`: imported
+  `refresh_label_case` from `shortcuts_mixin` and called it (alongside the
+  existing `keybinding_registry._reset_for_tests()`) in both `setUp` and
+  `tearDown`. 3-line change, exactly as planned — no deviations.
+- **Deviations from plan:** None.
+- **Issues encountered:** None for this fix. During the full-suite verification
+  run, ~15 unrelated `test_brainstorm_*` tests failed/errored. Confirmed by the
+  user that these are expected: the brainstorm code is being refactored in a
+  parallel session. They are independent of this change — brainstorm modules
+  sort *before* `test_settings_*` in unittest discovery order, so this fix's
+  `setUp`/`tearDown` (which run after them) cannot affect them. The target test
+  `test_tab_titles_carry_current_shortcut` was absent from the failure list
+  after the fix (previously the sole failure).
+- **Key decisions:** Chose the victim-side fix (reset cache in the consuming
+  test's fixture) over patching a single leaking module's `tearDown`. The
+  leaked `preserve`/False value originates from the developer's real
+  (gitignored) `userconfig.yaml` read at repo-root cwd by *many* TUI tests —
+  there is no single leaker — so victim-side isolation is the only
+  order-independent fix, and it mirrors the established pattern in the sibling
+  `tests/test_shortcut_label_case.py::_Fixture`.
+- **Verification:** Deterministic reproduction — poisoned the global cache to
+  `preserve`/False (the exact leak state) in-process, then ran the settings
+  module: the previously-failing test passes, and all 22 tests in the module
+  pass.
+- **Upstream defects identified:** None.
