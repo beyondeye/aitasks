@@ -151,3 +151,59 @@ un-allowlisted hit remains. Print a clear PASS/FAIL summary (match the
   parent (scope item 4) is deferred, not delivered here · severity: low · → mitigation: explicitly tracked in t970; intentional per pick-time decision
 
 See **Step 9 (Post-Implementation)** for archival.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **Job (b1) — Layer-A migration.** Routed `agent_launch_utils.py`'s
+    remaining raw tmux calls onto the module-level `_TMUX` gateway:
+    `discover_aitasks_sessions` (`list-sessions` + per-session `list-panes`) **and**
+    `_read_registry_entry` (`show-environment -g`). Both were the t952_2
+    "HARD BOUNDARY" holdouts. The `subprocess.run([...]) + try/except
+    (TimeoutExpired/FileNotFoundError/OSError)` shape collapses into the gateway's
+    `rc != 0` branch (the gateway folds spawn errors into `(-1, "")`).
+  - **Job (b2) — guard.** New `tests/test_no_raw_tmux.sh`: scans `.aitask-scripts/`
+    `*.py`/`*.sh`, fails on any raw tmux spawn outside a documented allowlist
+    (per-entry reason + Layer-A/B classification + `TODO(socket-move)` markers).
+    Self-tests: rogue py/sh flagged, allowlisted file not flagged,
+    comment/prose/`ait_tmux` not flagged.
+  - **Doc.** Added "The backend substrate: a single tmux gateway" to
+    `aidocs/applink/wish_ssh_evaluation.md` — gateway as socket-policy chokepoint,
+    the enforced Layer-A/B split, and the guard, all motivated by the served
+    (`wish`/`applink`) deployment direction.
+- **Deviations from plan:**
+  - The plan named only `discover_aitasks_sessions` for the Layer-A migration; the
+    guard surfaced a **second** HARD-BOUNDARY raw call (`_read_registry_entry`'s
+    `show-environment`) — migrated it too (same rationale). This is exactly the
+    drift the guard exists to catch, found on first run.
+  - Guard detection patterns were tightened twice after first-run false positives:
+    Python now requires a comma after `["tmux"` (excludes dict-subscripts like
+    `settings_app.py`'s `data["tmux"]`); shell anchors `tmux` to command position
+    (excludes in-string prose like `tmux_bootstrap.sh`'s `echo "… tmux
+    new-session failed"`). Documented as the guard's known scope in its header.
+  - **Job (a) (registry-file-reader collapse) was split out to standalone `t970`**
+    at pick time (user decision) — parity gap: Python `_read_registry_index`
+    returns 3 fields, bash `list_registry_entries` emits 4 feeding write ops. Not
+    implemented here.
+- **Issues encountered:** Live integration tests need `AIT_NO_SYSTEMD_RUN=1`
+  (pre-existing `systemd-run --user` / `TMUX_TMPDIR` condition documented in
+  t952_1/t952_2; not a regression). With it set, all suites pass.
+- **Key decisions:** The guard is a **freeze, not a migration** — existing
+  sanctioned raw sites (gateway internals, control-mode attach, ambient `$TMUX`
+  self-probes, local-only Layer-B navigation) are allowlisted with reasons rather
+  than rewritten. The `ait_tmux` shell helper is skipped for free (its `tmux` is
+  preceded by `_`, not a command-position lead-in). Migrated `_TMUX.run([...])`
+  calls carry no `"tmux"` argv literal, so they are invisible to the guard by
+  construction.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t952_6 (manual verification):** the gateway routing is now complete for the
+    Python side; a live check should confirm `ait monitor` / session discovery
+    still enumerate sessions correctly (the migrated `discover_aitasks_sessions`).
+  - **t970 (registry collapse):** when it lands and the bash awk readers shell out
+    to a Python CLI, re-run `tests/test_no_raw_tmux.sh` (unaffected — registry
+    readers are not tmux spawns) and ensure no new raw tmux is introduced.
+  - **Future dedicated-socket task:** the allowlist rows tagged `TODO(socket-move)`
+    (`monitor_app.py` rename/has-session, `codebrowser_app.py` show/set-environment)
+    are the Layer-A worklist to route through the gateway when the socket flag goes
+    live. Ambient `_detect_*` probes are intentionally NOT on that list.
