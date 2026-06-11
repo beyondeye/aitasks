@@ -185,3 +185,33 @@ def resize_pane(self, pane: str, *, x: int | None = None,
 Follow task-workflow Step 8 (user review) → Step 9 (archival via
 `./.aitask-scripts/aitask_archive.sh 978`, then `./ait git push`). Commit
 message: `bug: Pin minimonitor companion pane width on resize (t978)`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. (1) Added
+  `TmuxClient.resize_pane(pane, *, x=None, y=None, backend=None, timeout=...)`
+  to `.aitask-scripts/lib/tmux_exec.py` as the sole owner of the `resize-pane`
+  verb, dispatching through `run_via_control` when a backend is supplied else a
+  direct `run`. (2) Added a thin `TmuxMonitor.resize_pane` delegation in
+  `.aitask-scripts/monitor/tmux_monitor.py`, mirroring the `tmux_run` pattern.
+  (3) In `.aitask-scripts/monitor/minimonitor_app.py` added a `target_width`
+  constructor param (default 40), read `tmux.minimonitor.width` in `main()`, and
+  added `on_resize` → `_maybe_pin_width()` that clamps the companion pane back to
+  the target when it exceeds it. (4) Added 4 `TestResizePane` cases to
+  `tests/test_tmux_exec.py`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. The `resize_pane` test asserts against
+  `tmux_exec._DEFAULT_TIMEOUT` (module constant) rather than hardcoding a value,
+  matching the gateway's default.
+- **Key decisions:** The `resize-pane` verb construction lives in the gateway
+  (per t952 direction and the user's steer) with an optional `backend` param so
+  the minimonitor reaches it via `TmuxMonitor.resize_pane` with the live control
+  backend threaded in — same shape as `tmux_run`. The clamp is strictly
+  "only when wider than target", which makes it self-terminating (no oscillation)
+  and narrow-terminal-safe (tmux clamps `-x` to fit).
+- **Upstream defects identified:** None.
+- **Verification:** `python tests/test_tmux_exec.py` (41 passed),
+  `bash tests/test_no_raw_tmux.sh` (5/5), `bash tests/test_tmux_run_parity.sh`
+  (pass), `bash tests/test_multi_session_minimonitor.sh` (39/39), byte-compile of
+  all edited modules OK. The tmux detach→reattach behavior is the plan's manual
+  verification step (cannot be covered by automated tests).
