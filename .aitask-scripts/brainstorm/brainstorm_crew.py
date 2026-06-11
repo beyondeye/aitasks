@@ -1,8 +1,8 @@
 """Agent registration helpers for the brainstorm engine.
 
 Provides functions to register brainstorm agents (explorer, comparator,
-synthesizer, detailer, patcher, initializer) into a brainstorm crew
-with properly assembled input context.
+synthesizer, initializer, module_decomposer/merger/syncer) into a
+brainstorm crew with properly assembled input context.
 
 Each register_* function:
 1. Reads node data using brainstorm_dag functions
@@ -37,7 +37,6 @@ from .brainstorm_dag import (  # noqa: E402
     _read_graph_state,
     next_node_id,
     read_node,
-    read_plan,
     read_proposal,
 )
 from .brainstorm_sections import parse_sections, get_section_by_name  # noqa: E402
@@ -49,8 +48,6 @@ BRAINSTORM_AGENT_TYPES = {
     "explorer": {"max_parallel": 2, "launch_mode": "interactive"},
     "comparator": {"max_parallel": 1, "launch_mode": "interactive"},
     "synthesizer": {"max_parallel": 1, "launch_mode": "interactive"},
-    "detailer": {"max_parallel": 1, "launch_mode": "interactive"},
-    "patcher": {"max_parallel": 1, "launch_mode": "interactive"},
     "initializer": {"max_parallel": 1, "launch_mode": "interactive"},
     "module_decomposer": {"max_parallel": 1, "launch_mode": "interactive"},
     "module_merger": {"max_parallel": 1, "launch_mode": "interactive"},
@@ -278,15 +275,6 @@ def _assemble_input_explorer(
                 for s in targeted:
                     dim_str = f" [dimensions: {', '.join(s.dimensions)}]" if s.dimensions else ""
                     lines.extend(["", f"### Section: {s.name}{dim_str}", s.content])
-        plan_text = read_plan(session_path, base_node_id)
-        if plan_text:
-            parsed_plan = parse_sections(plan_text)
-            targeted_plan = [s for s in parsed_plan.sections if s.name in target_sections]
-            if targeted_plan:
-                lines.extend(["", "## Targeted Plan Section Content"])
-                for s in targeted_plan:
-                    dim_str = f" [dimensions: {', '.join(s.dimensions)}]" if s.dimensions else ""
-                    lines.extend(["", f"### Section: {s.name}{dim_str}", s.content])
 
     lines.extend([
         "",
@@ -381,107 +369,6 @@ def _assemble_input_synthesizer(
                       "Use these dimension keys in section markers:"])
         for k in sorted(all_dims.keys()):
             lines.append(f"- {k}")
-
-    lines.extend([
-        "",
-        "## Assigned Node ID",
-        assigned_node_id,
-        "",
-        "Use this exact value as the `node_id` field of your output YAML.",
-        "Do not invent a different id or modify it in any way.",
-    ])
-
-    return "\n".join(lines) + "\n"
-
-
-def _assemble_input_detailer(
-    session_path: Path,
-    node_id: str,
-    codebase_paths: list[str],
-    target_sections: list[str] | None = None,
-) -> str:
-    """Assemble detailer _input.md with node paths and codebase context."""
-    node_data = read_node(session_path, node_id)
-    ref_files = node_data.get("reference_files", []) or []
-
-    lines = [
-        "# Detailer Input",
-        "",
-        "## Target Node",
-        f"- Metadata: {session_path}/{NODES_DIR}/{node_id}.yaml",
-        f"- Proposal: {session_path}/{PROPOSALS_DIR}/{node_id}.md",
-        *_subgraph_context_lines(session_path, node_id),
-        "",
-        "## Reference Files",
-    ]
-    if ref_files:
-        lines.append(_format_reference_files(ref_files))
-    else:
-        lines.append("No reference files.")
-
-    lines.extend(["", "## Project Context"])
-    for cp in codebase_paths:
-        lines.append(f"- {cp}")
-
-    # Dimension keys for section markers
-    dims = extract_dimensions(node_data)
-    if dims:
-        lines.extend(["", "## Dimension Keys",
-                      "Use these dimension keys in section markers:"])
-        for k in sorted(dims.keys()):
-            lines.append(f"- {k}")
-
-    if target_sections:
-        lines.extend(["", "## Target Sections",
-                      "Re-detail only these sections of the existing plan.",
-                      "Leave other sections unchanged:"])
-        for name in target_sections:
-            lines.append(f"- {name}")
-        plan_path = session_path / PLANS_DIR / f"{node_id}_plan.md"
-        if plan_path.is_file():
-            lines.append(f"\nCurrent plan: {plan_path}")
-
-    return "\n".join(lines) + "\n"
-
-
-def _assemble_input_patcher(
-    session_path: Path,
-    node_id: str,
-    tweak_request: str,
-    assigned_node_id: str,
-    target_sections: list[str] | None = None,
-) -> str:
-    """Assemble patcher _input.md with current node paths and patch request."""
-    lines = [
-        "# Patcher Input",
-        "",
-        "## Patch Request",
-        tweak_request,
-        "",
-        "## Current Node",
-        f"- Metadata: {session_path}/{NODES_DIR}/{node_id}.yaml",
-    ]
-
-    plan_file = session_path / PLANS_DIR / f"{node_id}_plan.md"
-    if plan_file.is_file():
-        lines.append(
-            f"- Plan: {session_path}/{PLANS_DIR}/{node_id}_plan.md"
-            " (this is what the patcher modifies)"
-        )
-
-    lines.append(
-        f"- Proposal: {session_path}/{PROPOSALS_DIR}/{node_id}.md"
-        " (read-only, for impact analysis)"
-    )
-
-    lines.extend(_subgraph_context_lines(session_path, node_id))
-
-    if target_sections:
-        lines.extend(["", "## Target Sections",
-                      "Focus the patch on these sections only.",
-                      "Leave all other sections unchanged:"])
-        for name in target_sections:
-            lines.append(f"- {name}")
 
     lines.extend([
         "",
@@ -820,92 +707,6 @@ def register_synthesizer(
     work2do_path = TEMPLATE_DIR / "synthesizer.md"
     _run_addwork(
         crew_id, agent_name, "synthesizer", group_name, work2do_path,
-        launch_mode=launch_mode,
-    )
-    _write_agent_input(session_dir, agent_name, input_content)
-
-    return agent_name
-
-
-def register_detailer(
-    session_dir: Path,
-    crew_id: str,
-    node_id: str,
-    codebase_paths: list[str],
-    group_name: str,
-    launch_mode: str = DEFAULT_LAUNCH_MODE,
-    target_sections: list[str] | None = None,
-) -> str:
-    """Register a Detailer agent in the brainstorm crew.
-
-    Args:
-        session_dir: Path to crew worktree.
-        crew_id: Crew identifier.
-        node_id: Node ID to create an implementation plan for.
-        codebase_paths: List of project context file paths.
-        group_name: Operation group name (e.g., "detail_001").
-        launch_mode: Launch mode for the agent; one of VALID_LAUNCH_MODES
-            (defaults to DEFAULT_LAUNCH_MODE).
-
-    Returns:
-        Agent name (e.g., "detailer_001").
-    """
-    seq = _group_seq(group_name)
-    agent_name = f"detailer_{seq}"
-
-    input_content = _assemble_input_detailer(
-        session_dir, node_id, codebase_paths,
-        target_sections=target_sections,
-    )
-
-    work2do_path = TEMPLATE_DIR / "detailer.md"
-    _run_addwork(
-        crew_id, agent_name, "detailer", group_name, work2do_path,
-        launch_mode=launch_mode,
-    )
-    _write_agent_input(session_dir, agent_name, input_content)
-
-    return agent_name
-
-
-def register_patcher(
-    session_dir: Path,
-    crew_id: str,
-    node_id: str,
-    tweak_request: str,
-    group_name: str,
-    launch_mode: str = DEFAULT_LAUNCH_MODE,
-    target_sections: list[str] | None = None,
-) -> str:
-    """Register a Plan Patcher agent in the brainstorm crew.
-
-    Args:
-        session_dir: Path to crew worktree.
-        crew_id: Crew identifier.
-        node_id: Node ID whose plan needs patching.
-        tweak_request: User's specific edit request.
-        group_name: Operation group name (e.g., "patch_001").
-        launch_mode: Launch mode for the agent; one of VALID_LAUNCH_MODES
-            (defaults to DEFAULT_LAUNCH_MODE).
-
-    Returns:
-        Agent name (e.g., "patcher_001").
-    """
-    seq = _group_seq(group_name)
-    agent_name = f"patcher_{seq}"
-
-    node_num = next_node_id(session_dir)
-    assigned_node_id = f"n{node_num:03d}_{agent_name}"
-
-    input_content = _assemble_input_patcher(
-        session_dir, node_id, tweak_request,
-        assigned_node_id,
-        target_sections=target_sections,
-    )
-
-    work2do_path = TEMPLATE_DIR / "patcher.md"
-    _run_addwork(
-        crew_id, agent_name, "patcher", group_name, work2do_path,
         launch_mode=launch_mode,
     )
     _write_agent_input(session_dir, agent_name, input_content)

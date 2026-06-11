@@ -9,9 +9,9 @@ Covers two pieces:
   the Next button, keyboard ``Enter``, and the modal callback. Unit-tested with
   ``BrainstormApp.__init__`` bypassed and a temp session on disk.
 
-The ``detail``-with-sections case is a regression guard: routing all node-select
-advances through this helper fixed a pre-existing bug where keyboard ``Enter``
-skipped section selection for the ``detail`` operation.
+The ``explore``-with-sections case is a regression guard: routing all
+node-select advances through this helper fixed a pre-existing bug where keyboard
+``Enter`` skipped section selection for a node-select operation.
 
 End-to-end in-TUI flow (press ``A`` -> modal -> Actions wizard) is verified by
 manual verification; full ``BrainstormApp`` boot is not an established test
@@ -77,9 +77,9 @@ class NodeActionSelectModalTests(unittest.TestCase):
 
     def test_all_ops_listed_and_enabled_without_op_states(self):
         async def runner():
-            # No op_states + has_plan=True -> every op renders enabled (patch via
-            # the has_plan fallback, module ops/delete default-enabled). The
-            # relevance filtering itself is unit-tested separately.
+            # No op_states + has_plan=True -> every op renders enabled (module
+            # ops/delete default-enabled). The relevance filtering itself is
+            # unit-tested separately.
             app = _ModalHost("n001_x", has_plan=True)
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
@@ -87,7 +87,7 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 rows = list(app.screen.query(OperationRow))
                 self.assertEqual(
                     [r.op_key for r in rows],
-                    ["explore", "detail", "patch", "fast_track",
+                    ["explore", "fast_track",
                      "module_decompose", "module_merge", "module_sync",
                      "delete"],
                 )
@@ -121,24 +121,6 @@ class NodeActionSelectModalTests(unittest.TestCase):
 
         self._run(runner())
 
-    def test_patch_disabled_when_node_has_no_plan(self):
-        async def runner():
-            app = _ModalHost("n001_x", has_plan=False)
-            async with app.run_test(size=(120, 40)) as pilot:
-                await pilot.pause()
-                await pilot.pause()
-                rows = {r.op_key: r for r in app.screen.query(OperationRow)}
-                self.assertFalse(rows["explore"].op_disabled)
-                self.assertFalse(rows["detail"].op_disabled)
-                self.assertTrue(rows["patch"].op_disabled)
-                self.assertFalse(rows["patch"].can_focus)
-                # fast_track (t756_6) is a preset, not a node op — always
-                # enabled regardless of whether the node has a plan.
-                self.assertFalse(rows["fast_track"].op_disabled)
-                self.assertTrue(rows["fast_track"].can_focus)
-
-        self._run(runner())
-
     def test_fast_track_row_label_and_select(self):
         async def runner():
             app = _ModalHost("n7", has_plan=True)
@@ -147,9 +129,7 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 await pilot.pause()
                 rows = {r.op_key: r for r in app.screen.query(OperationRow)}
                 self.assertIn("Fast-track this module", str(rows["fast_track"].render()))
-                # explore -> detail -> patch -> fast_track, then Enter selects.
-                await pilot.press("down")
-                await pilot.press("down")
+                # explore -> fast_track, then Enter selects.
                 await pilot.press("down")
                 await pilot.press("enter")
                 await pilot.pause()
@@ -180,29 +160,14 @@ class NodeActionSelectModalTests(unittest.TestCase):
 
         self._run(runner())
 
-    def test_down_navigates_then_enter_selects_detail(self):
+    def test_down_navigates_then_enter_selects_fast_track(self):
         async def runner():
             app = _ModalHost("n1", has_plan=True)
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 await pilot.pause()
-                await pilot.press("down")
-                await pilot.press("enter")
-                await pilot.pause()
-                self.assertEqual(app.result, "detail")
-
-        self._run(runner())
-
-    def test_navigation_skips_disabled_patch_row(self):
-        async def runner():
-            app = _ModalHost("n1", has_plan=False)
-            async with app.run_test(size=(120, 40)) as pilot:
-                await pilot.pause()
-                await pilot.pause()
-                # Focusable rows are explore, detail, fast_track (patch is
-                # disabled and not focusable, so navigation skips it).
-                # explore -> down: detail -> down: fast_track.
-                await pilot.press("down")
+                # Focusable order: explore -> fast_track. One down lands on the
+                # second focusable row.
                 await pilot.press("down")
                 await pilot.press("enter")
                 await pilot.pause()
@@ -241,9 +206,6 @@ Postgres.
 <!-- /section: storage -->
 """
 
-_PLAN_NO_SECTIONS = "# Plan\n\nPlain plan, no markers.\n"
-
-
 class AdvanceFromNodeSelectTests(unittest.TestCase):
     """Routing assertions for the shared node-select advance helper."""
 
@@ -257,26 +219,8 @@ class AdvanceFromNodeSelectTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _write_node(self, node_id: str, plan_file: str | None = None) -> None:
-        data = {
-            "node_id": node_id,
-            "parents": [],
-            "description": f"desc {node_id}",
-            "proposal_file": f"br_proposals/{node_id}.md",
-        }
-        if plan_file:
-            data["plan_file"] = plan_file
-        (self.wt / "br_nodes" / f"{node_id}.yaml").write_text(
-            yaml.safe_dump(data), encoding="utf-8"
-        )
-
     def _write_proposal(self, node_id: str, content: str) -> None:
         (self.wt / "br_proposals" / f"{node_id}.md").write_text(
-            content, encoding="utf-8"
-        )
-
-    def _write_plan(self, node_id: str, content: str) -> None:
-        (self.wt / "br_plans" / f"{node_id}_plan.md").write_text(
             content, encoding="utf-8"
         )
 
@@ -303,50 +247,18 @@ class AdvanceFromNodeSelectTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(app.calls, ["config"])
 
-    def test_detail_no_sections_goes_to_confirm(self):
-        self._write_proposal("n1", _PROPOSAL_NO_SECTIONS)
-        app = self._make_app("detail")
-        result = app._actions_advance_from_node_select("n1")
-        self.assertTrue(result)
-        self.assertEqual(app.calls, ["confirm"])
-        self.assertEqual(app._wizard_config.get("node"), "n1")
-
-    def test_detail_with_sections_goes_to_section_select(self):
-        # Regression guard: keyboard Enter previously skipped section
-        # selection for `detail`; the shared helper now applies it uniformly.
-        self._write_proposal("n1", _PROPOSAL_WITH_SECTIONS)
-        app = self._make_app("detail")
-        result = app._actions_advance_from_node_select("n1")
-        self.assertTrue(result)
-        self.assertEqual(app.calls, ["section"])
-
     def test_explore_with_sections_goes_to_section_select(self):
+        # Regression guard (re-expressed via the surviving `explore` op, which
+        # uses section_select): keyboard Enter previously skipped section
+        # selection; the shared helper now applies it uniformly.
         self._write_proposal("n1", _PROPOSAL_WITH_SECTIONS)
         app = self._make_app("explore")
         result = app._actions_advance_from_node_select("n1")
         self.assertTrue(result)
         self.assertEqual(app.calls, ["section"])
 
-    def test_patch_with_plan_no_sections_goes_to_config(self):
-        self._write_node("n1", plan_file="br_plans/n1_plan.md")
-        self._write_plan("n1", _PLAN_NO_SECTIONS)
-        app = self._make_app("patch")
-        result = app._actions_advance_from_node_select("n1")
-        self.assertTrue(result)
-        self.assertEqual(app.calls, ["config"])
-
-    def test_patch_without_plan_is_blocked(self):
-        self._write_node("n1")  # no plan_file
-        self._write_proposal("n1", _PROPOSAL_NO_SECTIONS)
-        app = self._make_app("patch")
-        result = app._actions_advance_from_node_select("n1")
-        self.assertFalse(result)
-        self.assertEqual(app.calls, [])
-        self.assertTrue(app.notices)
-        self.assertIn("no plan", app.notices[0][0])
-
     def test_empty_node_is_blocked(self):
-        app = self._make_app("detail")
+        app = self._make_app("explore")
         result = app._actions_advance_from_node_select("")
         self.assertFalse(result)
         self.assertEqual(app.calls, [])
@@ -428,7 +340,7 @@ class OnNodeActionResultTests(unittest.TestCase):
 
     def test_missing_node_notifies_and_skips_wizard(self):
         app = self._make_app()
-        app._on_node_action_result("ghost", "detail")
+        app._on_node_action_result("ghost", "explore")
         self.assertTrue(app.notices)
         self.assertIn("no longer exists", app.notices[0][0])
         self.assertEqual(app.calls, [])
@@ -436,8 +348,8 @@ class OnNodeActionResultTests(unittest.TestCase):
     def test_valid_pick_seeds_wizard_and_defers_tab_entry(self):
         self._write_node("n1")
         app = self._make_app()
-        app._on_node_action_result("n1", "detail")
-        self.assertEqual(app._wizard_op, "detail")
+        app._on_node_action_result("n1", "explore")
+        self.assertEqual(app._wizard_op, "explore")
         self.assertEqual(app._wizard_config.get("_selected_node"), "n1")
         self.assertIn("node_select", app.calls)
         self.assertIn(("advance", "n1"), app.calls)

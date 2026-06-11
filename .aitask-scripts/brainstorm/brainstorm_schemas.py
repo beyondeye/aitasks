@@ -79,8 +79,6 @@ GROUP_OPERATIONS = [
     "explore",
     "compare",
     "synthesize",
-    "detail",
-    "patch",
     "module_decompose",
     "module_merge",
     "module_sync",

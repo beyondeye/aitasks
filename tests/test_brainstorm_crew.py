@@ -32,10 +32,8 @@ from brainstorm.brainstorm_crew import (
     BRAINSTORM_AGENT_TYPES,
     TEMPLATE_DIR,
     _assemble_input_comparator,
-    _assemble_input_detailer,
     _assemble_input_explorer,
     _assemble_input_module_decomposer,
-    _assemble_input_patcher,
     _assemble_input_synthesizer,
     _format_reference_files,
     _group_seq,
@@ -267,71 +265,12 @@ class TestAssembleInputSynthesizer(BrainstormCrewTestBase):
         self.assertEqual(ref_section.count(shared_ref), 1)
 
 
-class TestAssembleInputDetailer(BrainstormCrewTestBase):
-
-    def test_basic_detailer_input(self):
-        self._init_session()
-        self._create_test_node(
-            "n003_synth",
-            reference_files=["src/db/schema.ts", "https://redis.io/docs"],
-        )
-
-        result = _assemble_input_detailer(
-            self.wt_path, "n003_synth",
-            ["CLAUDE.md", "package.json"],
-        )
-        self.assertIn("# Detailer Input", result)
-        self.assertIn("## Target Node", result)
-        self.assertIn(f"{NODES_DIR}/n003_synth.yaml", result)
-        self.assertIn(f"{PROPOSALS_DIR}/n003_synth.md", result)
-        self.assertIn("## Reference Files", result)
-        self.assertIn("src/db/schema.ts", result)
-        self.assertIn("## Project Context", result)
-        self.assertIn("- CLAUDE.md", result)
-        self.assertIn("- package.json", result)
-
-
-class TestAssembleInputPatcher(BrainstormCrewTestBase):
-
-    def test_basic_patcher_input(self):
-        self._init_session()
-        self._create_test_node("n003_synth")
-        # Create a plan file
-        plan_dir = self.wt_path / PLANS_DIR
-        plan_file = plan_dir / "n003_synth_plan.md"
-        plan_file.write_text("# Plan", encoding="utf-8")
-
-        result = _assemble_input_patcher(
-            self.wt_path, "n003_synth",
-            "Rename variable X to Y in step 3",
-            "n004_patcher_001",
-        )
-        self.assertIn("# Patcher Input", result)
-        self.assertIn("## Patch Request", result)
-        self.assertIn("Rename variable X to Y in step 3", result)
-        self.assertIn("## Current Node", result)
-        self.assertIn(f"{NODES_DIR}/n003_synth.yaml", result)
-        self.assertIn("this is what the patcher modifies", result)
-        self.assertIn("read-only, for impact analysis", result)
-
-    def test_patcher_input_no_plan(self):
-        self._init_session()
-        self._create_test_node("n003_synth")
-
-        result = _assemble_input_patcher(
-            self.wt_path, "n003_synth", "Fix step 2",
-            "n004_patcher_001",
-        )
-        self.assertNotIn("_plan.md", result)
-        self.assertIn(f"{PROPOSALS_DIR}/n003_synth.md", result)
-
-
 class TestBrainstormAgentTypes(unittest.TestCase):
 
     def test_agent_types_keys(self):
         expected = {
             "explorer", "comparator", "synthesizer",
-            "detailer", "patcher", "initializer",
+            "initializer",
             "module_decomposer", "module_merger", "module_syncer",
         }
         self.assertEqual(set(BRAINSTORM_AGENT_TYPES.keys()), expected)
@@ -380,8 +319,6 @@ class TestGetAgentTypes(unittest.TestCase):
         "brainstorm-explorer": "claudecode/opus4_8",
         "brainstorm-comparator": "claudecode/sonnet4_6",
         "brainstorm-synthesizer": "claudecode/opus4_8",
-        "brainstorm-detailer": "claudecode/opus4_8",
-        "brainstorm-patcher": "claudecode/sonnet4_6",
         "brainstorm-initializer": "claudecode/sonnet4_6",
         "brainstorm-module_decomposer": "claudecode/opus4_8",
         "brainstorm-module_merger": "claudecode/opus4_8",
@@ -448,16 +385,16 @@ class TestGetAgentTypes(unittest.TestCase):
 
     def test_non_brainstorm_keys_ignored(self):
         """Non-brainstorm keys in config don't affect agent types."""
-        self._write_full_config({"pick": "claudecode/opus4_8", "brainstorm-detailer": "codex/o3"})
+        self._write_full_config({"pick": "claudecode/opus4_8", "brainstorm-comparator": "codex/o3"})
         result = get_agent_types(config_root=Path(self.tmpdir))
-        self.assertEqual(result["detailer"]["agent_string"], "codex/o3")
+        self.assertEqual(result["comparator"]["agent_string"], "codex/o3")
         self.assertNotIn("pick", result)
 
     def test_launch_mode_override_from_project(self):
         """Project config overlays brainstorm-<type>-launch-mode."""
-        self._write_full_config({"brainstorm-detailer-launch-mode": "headless"})
+        self._write_full_config({"brainstorm-comparator-launch-mode": "headless"})
         result = get_agent_types(config_root=Path(self.tmpdir))
-        self.assertEqual(result["detailer"]["launch_mode"], "headless")
+        self.assertEqual(result["comparator"]["launch_mode"], "headless")
         self.assertEqual(result["explorer"]["launch_mode"], "interactive")
 
     def test_launch_mode_local_overrides_project(self):
@@ -485,11 +422,9 @@ class TestGetAgentTypes(unittest.TestCase):
         """Framework launch_mode defaults are preserved when config has no overrides."""
         self._write_full_config()
         result = get_agent_types(config_root=Path(self.tmpdir))
-        self.assertEqual(result["detailer"]["launch_mode"], "interactive")
         self.assertEqual(result["explorer"]["launch_mode"], "interactive")
         self.assertEqual(result["comparator"]["launch_mode"], "interactive")
         self.assertEqual(result["synthesizer"]["launch_mode"], "interactive")
-        self.assertEqual(result["patcher"]["launch_mode"], "interactive")
         self.assertEqual(result["initializer"]["launch_mode"], "interactive")
 
     def test_launch_mode_does_not_clobber_agent_string(self):

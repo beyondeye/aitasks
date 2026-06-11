@@ -358,9 +358,8 @@ Jinja fragments shared across skills (macros, includes). The directory
 also serves the brainstorm-crew bash pipeline — see
 `.aitask-scripts/skill_templates/README.md` for the dual-pipeline rules
 and naming conventions. Fragment filenames lead with an underscore
-(`_auto_continue_block.j2`, `_planning_plan_contract.md`,
-`_detailer_rules.md`) to mark them as "not-a-skill, not-a-procedure" —
-just a reusable text fragment.
+(`_auto_continue_block.j2`, `_planning_plan_contract.md`) to mark them as
+"not-a-skill, not-a-procedure" — just a reusable text fragment.
 
 ### Whitespace-control flags
 

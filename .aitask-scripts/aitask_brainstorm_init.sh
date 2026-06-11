@@ -149,8 +149,6 @@ crew_output=$(bash "$SCRIPT_DIR/aitask_crew_init.sh" \
     --add-type "explorer:$(_get_brainstorm_agent_string explorer):$(_get_brainstorm_launch_mode explorer)" \
     --add-type "comparator:$(_get_brainstorm_agent_string comparator):$(_get_brainstorm_launch_mode comparator)" \
     --add-type "synthesizer:$(_get_brainstorm_agent_string synthesizer):$(_get_brainstorm_launch_mode synthesizer)" \
-    --add-type "detailer:$(_get_brainstorm_agent_string detailer):$(_get_brainstorm_launch_mode detailer)" \
-    --add-type "patcher:$(_get_brainstorm_agent_string patcher):$(_get_brainstorm_launch_mode patcher)" \
     --add-type "initializer:$(_get_brainstorm_agent_string initializer):$(_get_brainstorm_launch_mode initializer)" \
     --batch 2>&1) || {
     die "Failed to create crew: $crew_output"

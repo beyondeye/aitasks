@@ -202,8 +202,7 @@ class UpdateOperationTests(unittest.TestCase):
 
 # ---------------------------------------------------------------------------
 # Integration tests: call sites in init_session / apply_initializer_output /
-# apply_patcher_output / _run_design_op all produce the expected br_groups.yaml
-# state.
+# _run_design_op all produce the expected br_groups.yaml state.
 # ---------------------------------------------------------------------------
 
 
@@ -211,7 +210,6 @@ from brainstorm.brainstorm_session import (  # noqa: E402
     GRAPH_STATE_FILE,
     SESSION_FILE,
     apply_initializer_output,
-    apply_patcher_output,
     init_session,
 )
 from brainstorm.brainstorm_dag import (  # noqa: E402
@@ -305,60 +303,6 @@ class ApplyInitializerUpdatesBootstrapTests(unittest.TestCase):
             b = groups["bootstrap"]
             self.assertEqual(b["status"], "Completed")
             self.assertIn("initializer_bootstrap", b["agents"])
-
-
-class ApplyPatcherUpdatesGroupTests(unittest.TestCase):
-    def test_patcher_apply_updates_group_nodes_and_status(self):
-        with tempfile.TemporaryDirectory() as td:
-            wt = Path(td) / "crew-brainstorm-102"
-            wt.mkdir()
-            with _patch_worktree(wt):
-                init_session(
-                    102, "aitasks/t102.md", "u@example.com",
-                    "Initial spec",
-                )
-
-                # Pre-record a patch_001 group so apply_patcher_output's
-                # update_operation has a target to update.
-                record_operation(
-                    102, "patch_001", "patch", ["patcher_001"],
-                    head_at_creation="n000_init",
-                )
-
-                # Seed a patcher output that creates n001_patched parented
-                # on n000_init.
-                node_meta = (
-                    "node_id: n001_patched\n"
-                    "parents: [n000_init]\n"
-                    "description: Patched node\n"
-                    "proposal_file: br_proposals/n000_init.md\n"
-                    "created_at: '2026-05-05 12:05'\n"
-                    "created_by_group: patch_001\n"
-                )
-                output = (
-                    "--- PATCHED_PLAN_START ---\n"
-                    "# Patched plan\nbody\n"
-                    "--- PATCHED_PLAN_END ---\n"
-                    "--- IMPACT_START ---\n"
-                    "**NO_IMPACT** Justification.\n"
-                    "--- IMPACT_END ---\n"
-                    "--- METADATA_START ---\n"
-                    f"{node_meta}"
-                    "--- METADATA_END ---\n"
-                )
-                (wt / "patcher_001_output.md").write_text(
-                    output, encoding="utf-8",
-                )
-
-                new_id, _impact, _details = apply_patcher_output(
-                    102, "patcher_001", "n000_init",
-                )
-
-            groups = _read_groups(wt)
-            self.assertEqual(new_id, "n001_patched")
-            p = groups["patch_001"]
-            self.assertEqual(p["status"], "Completed")
-            self.assertEqual(p["nodes_created"], ["n001_patched"])
 
 
 if __name__ == "__main__":

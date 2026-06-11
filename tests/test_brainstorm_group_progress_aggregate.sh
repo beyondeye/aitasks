@@ -207,10 +207,10 @@ groups = {
         "agents": ["explorer_001a", "explorer_001b"],
         "nodes_created": ["n002_good"],
     },
-    "patch_002": {
-        "operation": "patch",
-        "agents": ["patcher_002"],
-        "nodes_created": ["n003_patched"],
+    "synthesize_002": {
+        "operation": "synthesize",
+        "agents": ["synthesizer_002"],
+        "nodes_created": ["n003_synth"],
     },
 }
 
@@ -218,7 +218,7 @@ cases = [
     # (node_id, stored_group, expected_resolved_name, expected_op)
     ("n002_good",   "explore_001",     "explore_001", "explore"),  # direct
     ("n002_good",   "op_explore_001",  "explore_001", "explore"),  # suffix
-    ("n003_patched","operation_patch_002","patch_002", "patch"),   # suffix
+    ("n003_synth","operation_synthesize_002","synthesize_002", "synthesize"),  # suffix
     ("n002_good",   "garbage_value",   "explore_001", "explore"),  # nodes_created
     ("n_unknown",   "totally_unknown", "totally_unknown", "?"),    # no match
 ]

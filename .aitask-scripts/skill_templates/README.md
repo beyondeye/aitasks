@@ -6,7 +6,7 @@ includes by **two independent template pipelines**:
 | Pipeline | Renderer | Include syntax | Production consumer |
 |----------|----------|----------------|---------------------|
 | Skill templates | minijinja (`skill_template.py`) | `{% include "X" %}`, `{% from "X" import Y %}`, `{% import "X" as Y %}` | `.claude/skills/task-workflow/planning.md` → `_planning_plan_contract.md`; 4 *_auto_continue skills → `_auto_continue_block.j2` (macro import) |
-| Brainstorm crew templates | bash (`resolve_template_includes` in `lib/agentcrew_utils.sh`, called from `aitask_crew_addwork.sh`) | `<!-- include: X -->` | `.aitask-scripts/brainstorm/templates/detailer.md` → `_detailer_rules.md` |
+| Brainstorm crew templates | bash (`resolve_template_includes` in `lib/agentcrew_utils.sh`, called from `aitask_crew_addwork.sh`) | `<!-- include: X -->` | No current cross-dir consumer — the resolver can fall back here, but brainstorm templates currently include from their own dir (e.g. `brainstorm/templates/explorer.md` → `_section_format.md`). |
 
 For the broader authoring rules (when to reach for a macro vs. an
 `{% include %}` vs. a procedure-markdown extraction, plus the minijinja
@@ -28,13 +28,6 @@ fragment to live under one pipeline's "owner" dir.
 
 - `_planning_plan_contract.md` — the implementation-plan content contract
   embedded in `task-workflow/planning.md` (skill side). Single-level plans.
-  Do NOT consume from detailer.md — the brainstorm detailer has a
-  two-level (proposal + plan) structure and its own contract inlined in
-  `detailer.md`.
-- `_detailer_rules.md` — the 5 authoring rules embedded in
-  `brainstorm/templates/detailer.md`'s `## Rules` section. Brainstorm-side
-  fragment that demonstrates the bash resolver crossing into the shared
-  dir; do NOT consume from planning.md.
 - `_auto_continue_block.j2` — Jinja macro (`auto_continue_block`) that
   emits the post-task-creation "Continue / Save for later"
   decision-point block. Consumed via `{% from "_auto_continue_block.j2"
@@ -59,14 +52,14 @@ Editing a fragment here propagates correctly to consumers:
   each target's on-disk content against the fresh render, so a committed
   prerender that drifted under git-equalized mtimes (`git checkout`/clone
   resets source and target to the same timestamp) is still repaired.
-- **Brainstorm side:** detailer.md is freshly include-resolved into a new
-  work2do file on every `ait crew addwork`, so no caching layer to
-  invalidate.
+- **Brainstorm side:** crew templates (e.g. explorer.md) are freshly
+  include-resolved into a new work2do file on every `ait crew addwork`, so
+  no caching layer to invalidate.
 
 ## Verification
 
 - `bash tests/test_skill_render_task_workflow.sh` exercises the minijinja
-  side (Test 2c) and asserts no cross-leak from detailer-specific contract.
-- `bash tests/test_crew_template_includes.sh` exercises the bash side
-  (Tests 8 + 9) including the real `detailer.md` → `_detailer_rules.md`
-  cross-dir resolution and the missing-fallback warning path.
+  side (Test 2c): `_planning_plan_contract.md` resolves into planning.md.
+- `bash tests/test_crew_template_includes.sh` exercises the bash side —
+  in-dir includes (Test 7, `_section_format.md`) and the multi-base-dir
+  resolver capability plus its missing-fallback warning path (Test 8).

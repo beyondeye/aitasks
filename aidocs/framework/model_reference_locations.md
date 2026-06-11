@@ -56,7 +56,7 @@ rule.)
 
 | File | Line | Context | Tag |
 |---|---|---|---|
-| `aitasks/metadata/codeagent_config.json` | 3–13 | Defaults for `pick`, `explain`, `batch-review`, `qa`, `raw`, `explore`, `brainstorm-explorer`, `brainstorm-comparator`, `brainstorm-synthesizer`, `brainstorm-detailer`, `brainstorm-patcher` | `needed_for_promote` |
+| `aitasks/metadata/codeagent_config.json` | 3–13 | Defaults for `pick`, `explain`, `batch-review`, `qa`, `raw`, `explore`, `brainstorm-explorer`, `brainstorm-comparator`, `brainstorm-synthesizer` | `needed_for_promote` |
 | `seed/codeagent_config.json` | 3–8 | Synced copy | `needed_for_promote` |
 
 ### 3. Hardcoded source-code defaults

@@ -42,22 +42,6 @@ class ActiveStepTests(unittest.TestCase):
             ["op_select", "node_select", "section_select", "config", "confirm"],
         )
 
-    def test_patch_matches_explore_shape(self):
-        self.assertEqual(
-            active_step_ids(ctx("patch", True)),
-            ["op_select", "node_select", "section_select", "config", "confirm"],
-        )
-
-    def test_detail_has_no_config(self):
-        self.assertEqual(
-            active_step_ids(ctx("detail")),
-            ["op_select", "node_select", "confirm"],
-        )
-        self.assertEqual(
-            active_step_ids(ctx("detail", True)),
-            ["op_select", "node_select", "section_select", "confirm"],
-        )
-
     def test_compare_and_synthesize_have_no_node_select(self):
         for op in ("compare", "synthesize"):
             self.assertEqual(
@@ -93,11 +77,6 @@ class StepPositionTests(unittest.TestCase):
         self.assertEqual(step_position(c, "config"), (3, 4))
         self.assertEqual(step_position(c, "confirm"), (4, 4))
 
-    def test_detail_with_sections_indices(self):
-        c = ctx("detail", True)
-        self.assertEqual(step_position(c, "section_select"), (3, 4))
-        self.assertEqual(step_position(c, "confirm"), (4, 4))
-
     def test_compare_config_index(self):
         c = ctx("compare")
         self.assertEqual(step_position(c, "config"), (2, 3))
@@ -120,16 +99,11 @@ class NextPrevTests(unittest.TestCase):
         self.assertIsNone(next_step_id(c, ids[-1]))  # confirm -> None
 
     def test_prev_is_inverse_of_next(self):
-        c = ctx("patch", True)
+        c = ctx("explore", True)
         ids = active_step_ids(c)
         for a, b in zip(ids, ids[1:]):
             self.assertEqual(prev_step_id(c, b), a)
         self.assertIsNone(prev_step_id(c, ids[0]))  # op_select -> None
-
-    def test_detail_skips_config(self):
-        c = ctx("detail")
-        self.assertEqual(next_step_id(c, "node_select"), "confirm")
-        self.assertEqual(prev_step_id(c, "confirm"), "node_select")
 
     def test_compare_back_from_config_is_op_select(self):
         self.assertEqual(prev_step_id(ctx("compare"), "config"), "op_select")
@@ -142,11 +116,6 @@ class NextPrevTests(unittest.TestCase):
         # node_select -> section_select.
         self.assertEqual(
             next_step_id(ctx("explore", True), "node_select"), "section_select"
-        )
-        # Detail (no config): false -> confirm, true -> section_select.
-        self.assertEqual(next_step_id(ctx("detail", False), "node_select"), "confirm")
-        self.assertEqual(
-            next_step_id(ctx("detail", True), "node_select"), "section_select"
         )
 
     def test_prev_from_config_depends_on_sections(self):
@@ -180,10 +149,6 @@ class SubgraphSelectStepTests(unittest.TestCase):
         self.assertEqual(
             active_step_ids(self._ctx("explore", subgraph_count=2)),
             ["op_select", "subgraph_select", "node_select", "config", "confirm"],
-        )
-        self.assertEqual(
-            active_step_ids(self._ctx("detail", subgraph_count=3)),
-            ["op_select", "subgraph_select", "node_select", "confirm"],
         )
 
     def test_inactive_for_non_node_select_ops(self):
@@ -232,7 +197,7 @@ class ModuleDecomposeNodeSelectTests(unittest.TestCase):
         )
 
     def test_section_select_never_active_even_with_sections(self):
-        # Unlike explore/detail/patch, decompose must skip section_select.
+        # Unlike explore, decompose must skip section_select.
         self.assertNotIn(
             "section_select",
             active_step_ids(self._ctx(subgraph_count=2, node_has_sections=True)),

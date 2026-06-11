@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Regression test for t792: apply paths must force-canonicalize
 # created_by_group from the agent name, ignoring whatever the agent
-# emitted in its NODE_YAML / METADATA block. Covers both the explorer
-# (and synthesizer, shared code path) and patcher apply functions.
+# emitted in its NODE_YAML / METADATA block. Covers the explorer
+# (and synthesizer, shared code path) apply function.
 
 set -euo pipefail
 
@@ -97,90 +97,6 @@ else
 fi
 
 cleanup_explorer
-trap - EXIT
-
-# ---------------------------------------------------------------------------
-# Case 2: patcher apply ignores agent-emitted created_by_group
-# ---------------------------------------------------------------------------
-TASK_NUM_PA="999742"
-CREW_PA=".aitask-crews/crew-brainstorm-${TASK_NUM_PA}"
-AGENT_PA="patcher_001"
-SOURCE_PA="n000_init"
-
-cleanup_patcher() { rm -rf "$CREW_PA"; }
-
-rm -rf "$CREW_PA"
-mkdir -p "$CREW_PA/br_nodes" "$CREW_PA/br_proposals" "$CREW_PA/br_plans"
-
-cat > "$CREW_PA/br_nodes/${SOURCE_PA}.yaml" <<'EOF'
-node_id: n000_init
-parents: []
-description: Source node
-proposal_file: br_proposals/n000_init.md
-created_at: "2026-01-01 00:00"
-created_by_group: bootstrap
-EOF
-
-cat > "$CREW_PA/br_proposals/${SOURCE_PA}.md" <<'EOF'
-## Overview
-Source proposal for patcher apply test.
-EOF
-
-cat > "$CREW_PA/br_graph_state.yaml" <<EOF
-current_head: ${SOURCE_PA}
-history:
-- ${SOURCE_PA}
-next_node_id: 1
-active_dimensions: []
-EOF
-
-# Patcher output with WRONG created_by_group (faithfully copied
-# parent metadata, which had 'bootstrap'). Apply must overwrite
-# this with the canonical 'patch_001'.
-cat > "$CREW_PA/${AGENT_PA}_output.md" <<'EOF'
---- PATCHED_PLAN_START ---
-# Patched plan body
---- PATCHED_PLAN_END ---
---- IMPACT_START ---
-**NO_IMPACT**
-Justification: trivial test patch.
---- IMPACT_END ---
---- METADATA_START ---
-node_id: n001_test_patch
-parents: [n000_init]
-description: Test patcher node
-proposal_file: br_proposals/n000_init.md
-created_at: "2026-05-04 12:52"
-created_by_group: bootstrap
-component_x: bar
---- METADATA_END ---
-EOF
-
-trap cleanup_patcher EXIT
-if out=$(./.aitask-scripts/aitask_brainstorm_apply_patcher.sh \
-            "$TASK_NUM_PA" "$AGENT_PA" "$SOURCE_PA" 2>&1); then
-    :
-else
-    echo "FAIL: patcher apply failed unexpectedly: $out"
-    FAIL=$((FAIL + 1))
-fi
-
-NEW_NODE_PA="$CREW_PA/br_nodes/n001_test_patch.yaml"
-if [[ -f "$NEW_NODE_PA" ]]; then
-    actual=$(grep -E '^created_by_group:' "$NEW_NODE_PA" | head -1 | awk '{print $2}')
-    if [[ "$actual" == "patch_001" ]]; then
-        echo "PASS: patcher apply force-canonicalized created_by_group (bootstrap → patch_001)"
-        PASS=$((PASS + 1))
-    else
-        echo "FAIL: patcher apply preserved drifted value (got '$actual', expected 'patch_001')"
-        FAIL=$((FAIL + 1))
-    fi
-else
-    echo "FAIL: patcher apply did not produce node file"
-    FAIL=$((FAIL + 1))
-fi
-
-cleanup_patcher
 trap - EXIT
 
 echo

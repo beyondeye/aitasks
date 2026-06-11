@@ -537,13 +537,7 @@ def apply_initializer_output(task_num: int | str) -> None:
     )
 
 
-_PATCHER_DELIMITERS = (
-    "PATCHED_PLAN_START", "PATCHED_PLAN_END",
-    "IMPACT_START", "IMPACT_END",
-    "METADATA_START", "METADATA_END",
-)
-
-# Structural fields the patcher/explorer/synthesizer emit alongside dimension
+# Structural fields the explorer/synthesizer emit alongside dimension
 # fields. Stripped before the remainder is passed to ``create_node`` as the
 # ``dimensions`` dict, so that proposal_file is set authoritatively to
 # ``br_proposals/<new>.md`` (the parent's path the agent emits would violate
@@ -602,16 +596,14 @@ def resolve_node_group(
 def _agent_to_group_name(agent_name: str) -> str:
     """Derive a group name from an agent name.
 
-    ``patcher_001`` → ``patch_001``. Parallel explorers share a group, so
-    a trailing single-letter parallel suffix is stripped:
+    ``synthesizer_001`` → ``synthesize_001``. Parallel explorers share a
+    group, so a trailing single-letter parallel suffix is stripped:
     ``explorer_001a`` → ``explore_001``. Returns the input unchanged if
     the pattern does not match.
     """
     role_to_group = {
-        "patcher": "patch",
         "explorer": "explore",
         "synthesizer": "synthesize",
-        "detailer": "detail",
         "module_decomposer": "module_decompose",
         "module_merger": "module_merge",
         "module_syncer": "module_sync",
@@ -647,169 +639,6 @@ def _agent_apply_scan_should_track(status: str, needs_apply: bool) -> bool:
     if status == "Completed":
         return needs_apply
     return True
-
-
-def _patcher_needs_apply(task_num: int | str, agent_name: str) -> bool:
-    """Return True iff ``<agent_name>_output.md`` contains all six patcher
-    delimiter tokens AND the new node id parsed from the METADATA block
-    does NOT already exist in ``br_nodes/``.
-
-    Guards against the registration-time placeholder ``_output.md``
-    written by ``aitask_crew_addwork.sh`` and against double-apply when
-    the TUI restarts after a successful apply.
-    """
-    wt = crew_worktree(task_num)
-    out_path = wt / f"{agent_name}_output.md"
-    if not out_path.is_file():
-        return False
-    try:
-        text = out_path.read_text(encoding="utf-8")
-    except Exception:
-        return False
-    if not all(token in text for token in _PATCHER_DELIMITERS):
-        return False
-    try:
-        meta_text = _extract_block(text, "METADATA_START", "METADATA_END")
-        meta = _tolerant_yaml_load(meta_text)
-    except Exception:
-        # Delimiters present but body unparseable — let the apply call
-        # surface the structured error.
-        return True
-    if not isinstance(meta, dict):
-        return True
-    new_node_id = meta.get("node_id")
-    if not new_node_id:
-        return True
-    return not (wt / NODES_DIR / f"{new_node_id}.yaml").exists()
-
-
-def _classify_impact(impact_text: str) -> tuple[str, str]:
-    """Return (impact_type, details) for an IMPACT block.
-
-    impact_type is exactly one of ``"NO_IMPACT"`` or ``"IMPACT_FLAG"``.
-    Raises ValueError if the block contains neither marker or both.
-    The full block text is returned as ``details`` for banner display.
-    """
-    has_no_impact = "**NO_IMPACT**" in impact_text
-    has_flag = "**IMPACT_FLAG**" in impact_text
-    if has_no_impact and has_flag:
-        raise ValueError(
-            "IMPACT block contains both **NO_IMPACT** and **IMPACT_FLAG**"
-        )
-    if not has_no_impact and not has_flag:
-        raise ValueError(
-            "IMPACT block must contain exactly one of "
-            "**NO_IMPACT** or **IMPACT_FLAG**"
-        )
-    return ("NO_IMPACT" if has_no_impact else "IMPACT_FLAG", impact_text.strip())
-
-
-def _parse_patcher_output(
-    text: str,
-    err_log: Path,
-    expected_role: str,
-    *,
-    wt: Path,
-    source_node_id: str,
-) -> tuple[dict, str, dict]:
-    """Patcher parser: three-block format (PATCHED_PLAN / IMPACT / METADATA).
-
-    The new node's proposal is the parent's proposal verbatim — the patcher
-    edits the plan, never the proposal. ``extras`` carries the plan_text and
-    the classified IMPACT for the wrapper to consume.
-    """
-    plan_text = _extract_block(text, "PATCHED_PLAN_START", "PATCHED_PLAN_END")
-    impact_text = _extract_block(text, "IMPACT_START", "IMPACT_END")
-    meta_text = _extract_block(text, "METADATA_START", "METADATA_END")
-
-    try:
-        node_data = _tolerant_yaml_load(meta_text)
-    except yaml.YAMLError as exc:
-        err_log.write_text(
-            f"apply_{expected_role}_output failed at "
-            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            f"Original YAML parse error:\n{exc}\n\n"
-            f"METADATA block (first 2000 chars):\n{meta_text[:2000]}\n",
-            encoding="utf-8",
-        )
-        raise
-    if not isinstance(node_data, dict):
-        raise ValueError(
-            f"{expected_role} METADATA block did not parse as a dict"
-        )
-
-    impact_type, impact_details = _classify_impact(impact_text)
-
-    # Reuse the parent's proposal verbatim. Raises FileNotFoundError if
-    # the source proposal is missing.
-    source_proposal_text = read_proposal(wt, source_node_id)
-
-    extras = {
-        "plan_text": plan_text,
-        "impact_type": impact_type,
-        "impact_details": impact_details,
-    }
-    return node_data, source_proposal_text, extras
-
-
-def _write_patcher_plan_file(
-    wt: Path, new_node_id: str, _node_data: dict, extras: dict
-) -> None:
-    """Patcher finalize hook: persist the PATCHED_PLAN block as a plan
-    file and record it on the new node. Runs between create_node and
-    set_head so the plan_file pointer is in place before head advances.
-    """
-    plan_rel = f"{PLANS_DIR}/{new_node_id}_plan.md"
-    (wt / PLANS_DIR).mkdir(parents=True, exist_ok=True)
-    (wt / plan_rel).write_text(extras["plan_text"], encoding="utf-8")
-    update_node(wt, new_node_id, {"plan_file": plan_rel})
-
-
-def apply_patcher_output(
-    task_num: int | str,
-    agent_name: str,
-    source_node_id: str,
-) -> tuple[str, str, str]:
-    """Parse ``<agent_name>_output.md`` and integrate the patched plan as
-    a new node parented on ``source_node_id``.
-
-    Returns:
-        ``(new_node_id, impact_type, impact_details)``.
-        ``impact_type`` is ``"NO_IMPACT"`` or ``"IMPACT_FLAG"``.
-        ``impact_details`` is the IMPACT block text (stripped) so the TUI
-        can render the affected dimensions / justification verbatim.
-
-    Raises:
-        FileNotFoundError: output file missing OR source proposal missing.
-        ValueError: any delimiter missing, METADATA invalid, IMPACT block
-            ambiguous, or ``new_node_id`` already exists as a node.
-    """
-    wt = crew_worktree(task_num)
-
-    def _parser(text: str, err_log: Path, expected_role: str):
-        return _parse_patcher_output(
-            text, err_log, expected_role,
-            wt=wt, source_node_id=source_node_id,
-        )
-
-    new_node_id, node_data, extras = _apply_node_output(
-        task_num,
-        agent_name,
-        expected_role="patcher",
-        metadata_block_label="METADATA",
-        parser=_parser,
-        finalize=_write_patcher_plan_file,
-        extra_error_context={"source_node_id": source_node_id},
-    )
-
-    update_operation(
-        task_num,
-        node_data["created_by_group"],
-        nodes_created=new_node_id,
-        status="Completed",
-    )
-
-    return new_node_id, extras["impact_type"], extras["impact_details"]
 
 
 _EXPLORER_DELIMITERS = (
@@ -933,8 +762,7 @@ def _apply_node_output(
     extra_error_context: dict | None = None,
 ) -> tuple[str, dict, dict]:
     """Shared apply core for agents whose output produces exactly one new
-    node. Used by ``apply_explorer_output``, ``apply_synthesizer_output``,
-    and ``apply_patcher_output``.
+    node. Used by ``apply_explorer_output`` and ``apply_synthesizer_output``.
 
     The flow-specific parts are injected:
 
@@ -942,17 +770,17 @@ def _apply_node_output(
       extras)``. It is responsible for writing a flow-specific YAML error
       log (with the relevant block excerpt) and re-raising on
       :class:`yaml.YAMLError`.
-    - ``finalize`` runs between ``create_node`` and ``set_head``. Used by
-      the patcher to persist the PATCHED_PLAN block as a plan file before
-      head advances.
-    - ``extra_error_context`` adds fields to the catch-all error log
-      (e.g. ``source_node_id`` for the patcher).
+    - ``finalize`` runs between ``create_node`` and ``set_head`` — an optional
+      hook for a flow that must persist a flow-specific artifact before head
+      advances.
+    - ``extra_error_context`` adds flow-specific fields to the catch-all error
+      log.
 
     Args:
         task_num: Brainstorm session task number.
         agent_name: Agent that produced the output (e.g. ``explorer_001a``).
         expected_role: Role string used in failure-log prose
-            (``"explorer"`` / ``"synthesizer"`` / ``"patcher"``).
+            (``"explorer"`` / ``"synthesizer"``).
         metadata_block_label: Block name surfaced in validate_node failure
             messages (``"NODE_YAML"`` or ``"METADATA"``).
         parser: Output parser strategy. Defaults to the two-block parser
@@ -1040,8 +868,7 @@ def _apply_node_output(
 
         set_head(wt, new_node_id, module=subgraph)
         # next_node_id is consumed at registration time (see
-        # register_explorer / register_synthesizer / register_patcher in
-        # brainstorm_crew.py).
+        # register_explorer / register_synthesizer in brainstorm_crew.py).
 
         return new_node_id, node_data, extras
     except yaml.YAMLError:
@@ -1127,7 +954,7 @@ def _synthesizer_needs_apply(
     """Synthesizer alias for :func:`_explorer_needs_apply` — the
     underlying check is role-neutral (delimiter presence + node_id
     collision). Exists so TUI callers read naturally and mirror the
-    explorer / patcher symmetry.
+    explorer / synthesizer symmetry.
     """
     return _explorer_needs_apply(task_num, agent_name)
 
@@ -1759,114 +1586,3 @@ def apply_module_syncer_output(
         status="Completed",
     )
     return new_id
-
-
-_DETAILER_DELIMITERS = ("DETAILED_PLAN_START", "DETAILED_PLAN_END")
-
-
-def _detailer_needs_apply(
-    task_num: int | str, agent_name: str, target_node_id: str,
-) -> bool:
-    """Return True iff ``<agent_name>_output.md`` contains both DETAILED_PLAN
-    delimiters AND its plan body differs from the plan already on disk for
-    the target node.
-
-    Guards against the registration-time placeholder ``_output.md`` written
-    by ``aitask_crew_addwork.sh`` (no delimiters) and against re-applying an
-    output the poller already ingested. The body-content comparison — rather
-    than a bare "node already has plan_file" check — keeps re-detailing
-    correct: a later detailer on the same node produces different content
-    and is still applied.
-    """
-    wt = crew_worktree(task_num)
-    out_path = wt / f"{agent_name}_output.md"
-    if not out_path.is_file():
-        return False
-    try:
-        text = out_path.read_text(encoding="utf-8")
-    except Exception:
-        return False
-    if not _output_has_all_delimiters(text, _DETAILER_DELIMITERS):
-        return False
-    try:
-        plan_text = _extract_block(
-            text, "DETAILED_PLAN_START", "DETAILED_PLAN_END"
-        )
-    except ValueError:
-        # Delimiters present but malformed — let the apply call log it.
-        return True
-    plan_path = wt / PLANS_DIR / f"{target_node_id}_plan.md"
-    if not plan_path.is_file():
-        return True
-    try:
-        existing = plan_path.read_text(encoding="utf-8")
-    except Exception:
-        return True
-    return existing.strip("\n") != plan_text
-
-
-def apply_detailer_output(
-    task_num: int | str, agent_name: str, target_node_id: str,
-) -> str:
-    """Parse ``<agent_name>_output.md`` and attach the detailer's plan to an
-    existing node.
-
-    The detailer ENRICHES a node — unlike explorer/synthesizer/patcher it does
-    NOT create a new node, advance ``current_head``, or consume a node id. The
-    single delimited DETAILED_PLAN block is written to
-    ``br_plans/<target_node_id>_plan.md`` and the node's ``plan_file`` field is
-    set via :func:`update_node`.
-
-    Returns:
-        The relative plan path written (e.g. ``br_plans/n001_x_plan.md``).
-
-    Raises:
-        FileNotFoundError: output file missing OR target node missing.
-        ValueError: DETAILED_PLAN delimiters missing or the plan body empty.
-    """
-    wt = crew_worktree(task_num)
-    out_path = wt / f"{agent_name}_output.md"
-    err_log = wt / f"{agent_name}_apply_error.log"
-    if not out_path.is_file():
-        raise FileNotFoundError(f"No detailer output at {out_path}")
-    try:
-        node_path = wt / NODES_DIR / f"{target_node_id}.yaml"
-        if not node_path.is_file():
-            raise FileNotFoundError(
-                f"detailer target node not found: {target_node_id}"
-            )
-
-        text = out_path.read_text(encoding="utf-8")
-        plan_text = _extract_block(
-            text, "DETAILED_PLAN_START", "DETAILED_PLAN_END"
-        )
-        if not plan_text.strip():
-            raise ValueError("detailer DETAILED_PLAN block is empty")
-
-        plan_rel = f"{PLANS_DIR}/{target_node_id}_plan.md"
-        (wt / PLANS_DIR).mkdir(parents=True, exist_ok=True)
-        (wt / plan_rel).write_text(plan_text, encoding="utf-8")
-        update_node(wt, target_node_id, {"plan_file": plan_rel})
-
-        # The detailer enriches an existing node — record the agent and flip
-        # the detail group Completed, but emit no nodes_created (no new node).
-        update_operation(
-            task_num,
-            _agent_to_group_name(agent_name),
-            agents_append=agent_name,
-            status="Completed",
-        )
-        return plan_rel
-    except Exception as exc:
-        try:
-            err_log.write_text(
-                f"apply_detailer_output failed at "
-                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                f"agent_name: {agent_name}\n"
-                f"target_node_id: {target_node_id}\n\n"
-                f"Error: {type(exc).__name__}: {exc}\n",
-                encoding="utf-8",
-            )
-        except Exception:
-            pass
-        raise

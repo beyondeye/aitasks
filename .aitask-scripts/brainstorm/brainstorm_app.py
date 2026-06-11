@@ -101,12 +101,10 @@ from brainstorm.brainstorm_session import (
 )
 from brainstorm.brainstorm_crew import (
     register_comparator,
-    register_detailer,
     register_explorer,
     register_module_decomposer,
     register_module_merger,
     register_module_syncer,
-    register_patcher,
     register_synthesizer,
 )
 from agent_launch_utils import is_tmux_available
@@ -155,7 +153,7 @@ AGENT_STATUS_COLORS = {
     "Paused": "#FFB86C",
 }
 
-_NODE_SELECT_OPS = {"explore", "detail", "patch"}
+_NODE_SELECT_OPS = {"explore"}
 # Ops that get a source-node-select step. module_decompose picks a source node
 # too, but — unlike the ops above — must NOT trigger the section_select step
 # (which stays gated on the narrower _NODE_SELECT_OPS).
@@ -168,8 +166,6 @@ _WIZARD_OP_TO_AGENT_TYPE = {
     "explore": "explorer",
     "compare": "comparator",
     "synthesize": "synthesizer",
-    "detail": "detailer",
-    "patch": "patcher",
     "module_decompose": "module_decomposer",
     "module_merge": "module_merger",
     "module_sync": "module_syncer",
@@ -222,8 +218,6 @@ _DESIGN_OPS = [
     ("explore", "Explore", "Create new design variants from a base node"),
     ("compare", "Compare", "Run agent comparison across nodes"),
     ("synthesize", "Synthesize", "Merge multiple nodes into a synthesis"),
-    ("detail", "Detail", "Generate implementation plan for a node"),
-    ("patch", "Patch", "Tweak an existing plan"),
     ("module_decompose", "Module Decompose", "Fork module subgraph roots"),
     ("module_merge", "Module Merge", "Merge a module up into an ancestor"),
     ("module_sync", "Module Sync", "Pull a linked module's as-implemented design back in"),
@@ -347,76 +341,12 @@ _OPERATION_HELP: dict[str, dict] = {
             "A new merged YAML metadata file.",
             "A new merged proposal markdown including a Conflict "
             "Resolutions section.",
-            "No plan — use Detail later to derive a plan.",
         ],
         "use_cases": [
             "Combine the data layer from one variant with the API layer "
             "from another into a unified design.",
             "Resolve component-level tradeoffs across siblings into a "
             "single proposal.",
-        ],
-    },
-    # Source: .aitask-scripts/brainstorm/templates/detailer.md
-    # I/O from "## Input" (reads node YAML metadata + proposal markdown +
-    # reference files + project context like CLAUDE.md) and "## Output"
-    # (single plan markdown attached to the same node; does NOT modify
-    # the proposal or YAML metadata).
-    "detail": {
-        "title": "Detail — Implementation Planner",
-        "summary": (
-            "Translate a finalized proposal into a concrete, step-by-step "
-            "implementation plan with file paths, code snippets, and "
-            "verification steps. Steps are ordered by dependency."
-        ),
-        "reads_from_parent": [
-            "YAML metadata of the selected node.",
-            "Proposal markdown of the selected node.",
-            "Reference files (local paths and cached URLs).",
-            "Additional project context (e.g., CLAUDE.md, directory listings).",
-        ],
-        "produces": [
-            "A single implementation plan markdown attached to the same "
-            "node (Prerequisites + Step-by-Step Changes + per-component "
-            "sub-sections).",
-            "Does NOT modify the node's proposal or YAML metadata.",
-        ],
-        "use_cases": [
-            "Convert the leading proposal into something a developer can "
-            "implement directly.",
-            "Re-detail a node after material proposal changes.",
-        ],
-    },
-    # Source: .aitask-scripts/brainstorm/templates/patcher.md
-    # I/O from "## Input" — plan is the edit target; proposal is read-only
-    # and used only for impact analysis — and "## Output" (patched plan +
-    # impact verdict NO_IMPACT/IMPACT_FLAG; optional updated metadata when
-    # the patch flags an architectural change).
-    "patch": {
-        "title": "Patch — Plan Patcher",
-        "summary": (
-            "Apply a surgical, targeted modification to an existing "
-            "implementation plan and assess whether the change has any "
-            "architectural impact. Only the user-requested change is "
-            "applied; unaffected steps remain byte-for-byte identical."
-        ),
-        "reads_from_parent": [
-            "YAML metadata of the selected node.",
-            "Plan markdown of the selected node — the edit target.",
-            "Proposal markdown of the selected node — read-only, used only "
-            "for impact analysis.",
-        ],
-        "produces": [
-            "A patched plan markdown (only requested changes applied).",
-            "An impact verdict: NO_IMPACT (purely local change) or "
-            "IMPACT_FLAG (architectural implications listed).",
-            "Optionally an updated YAML metadata file when the patch flags "
-            "an architectural change (e.g., swapping a component).",
-        ],
-        "use_cases": [
-            "Tweak a step in an approved plan without redoing the whole "
-            "Detail pass.",
-            "Swap one library for another and surface whether the change "
-            "has architectural implications.",
         ],
     },
     "module_decompose": {
@@ -1965,7 +1895,6 @@ _WIZARD_STEPS: list[_WizardStep] = [
         "config",
         lambda c: c.get("op") in (
             "explore",
-            "patch",
             "compare",
             "synthesize",
             "module_decompose",
@@ -2369,8 +2298,8 @@ class NodeActionSelectModal(ModalScreen):
     """Modal to pick an operation for a focused DAG node.
 
     Surfaced via the `A` keybinding on the Graph and Dashboard tabs. Offers
-    every operation that can run from a focused node — the single-node ops
-    (explore, detail, patch), the fast-track preset, the module ops
+    every operation that can run from a focused node — the single-node op
+    (explore), the fast-track preset, the module ops
     (module_decompose / module_merge / module_sync, seeded from the node's
     subgraph), and delete. Each op is shown disabled with a reason when it does
     not apply to this node (per the ``op_states`` map passed by the caller).
@@ -2387,7 +2316,7 @@ class NodeActionSelectModal(ModalScreen):
     # _OP_LABELS — fast_track seeds a single-module module_decompose, delete is
     # handled inline via DeleteNodeModal — so their labels live in _LOCAL_LABELS.
     _OPS = [
-        "explore", "detail", "patch", "fast_track",
+        "explore", "fast_track",
         "module_decompose", "module_merge", "module_sync", "delete",
     ]
 
@@ -2425,13 +2354,10 @@ class NodeActionSelectModal(ModalScreen):
                     label, desc = self._LOCAL_LABELS.get(
                         op_key, _OP_LABELS.get(op_key, (op_key, ""))
                     )
-                    # op_states (computed by the caller) is authoritative; patch
-                    # falls back to has_plan when no map was supplied; all other
-                    # ops default to enabled.
+                    # op_states (computed by the caller) is authoritative; all
+                    # ops default to enabled when no map was supplied.
                     if op_key in self.op_states:
                         disabled, reason = self.op_states[op_key]
-                    elif op_key == "patch":
-                        disabled, reason = (not self.has_plan, "node has no plan")
                     else:
                         disabled, reason = (False, "")
                     if disabled and reason:
@@ -3511,14 +3437,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("ctrl+shift+b", "cycle_preview_ratio", "Preview width"),
         Binding("ctrl+shift+l", "toggle_preview_numbered", "Line numbers"),
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
-        Binding("ctrl+shift+r", "retry_patcher_apply",
-                "Retry patcher apply", show=False),
         Binding("ctrl+shift+x", "retry_explorer_apply",
                 "Retry explorer apply", show=False),
         Binding("ctrl+shift+y", "retry_synthesizer_apply",
                 "Retry synthesizer apply", show=False),
-        Binding("ctrl+shift+d", "retry_detailer_apply",
-                "Retry detailer apply", show=False),
     ]
 
     # Maps action_name -> required tab id. check_action() hides the binding
@@ -3565,14 +3487,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._initializer_timer = None
         self._initializer_apply_error: str | None = None
         self._applying_initializer: bool = False
-        # Patcher auto-apply state. Maps agent_name -> source_node_id for
-        # patchers we should poll until applied. Populated at register
-        # time and refreshed at session-load by parsing existing
-        # patcher_*_input.md files.
-        self._patcher_sources: dict[str, str] = {}
-        self._applying_patcher: set[str] = set()
-        self._patcher_apply_errors: dict[str, str] = {}
-        self._patcher_poll_timer = None
         # Explorer auto-apply state. Tracked agent names produce a single
         # node each via apply_explorer_output; the poll timer fires until
         # every tracked agent has either applied or been dropped.
@@ -3588,14 +3502,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._applying_synthesizer: set[str] = set()
         self._synthesizer_apply_errors: dict[str, str] = {}
         self._synthesizer_poll_timer = None
-        # Detailer auto-apply state. Maps agent_name -> target_node_id for
-        # detailers we should poll until applied. The detailer enriches an
-        # existing node (writes its plan, sets plan_file) rather than creating
-        # a node — so this mirrors the patcher's keyed-on-a-node pattern.
-        self._detailer_targets: dict[str, str] = {}
-        self._applying_detailer: set[str] = set()
-        self._detailer_apply_errors: dict[str, str] = {}
-        self._detailer_poll_timer = None
         self._module_agents: set[str] = set()
         self._applying_module_agent: set[str] = set()
         self._module_apply_errors: dict[str, str] = {}
@@ -3693,9 +3599,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         with Horizontal(id="initializer_row", classes="initializer-row"):
             yield Static("", id="initializer_apply_banner", classes="initializer-banner")
             yield PollingIndicator(id="initializer_polling_indicator")
-        yield Static(
-            "", id="patcher_impact_banner", classes="initializer-banner"
-        )
         with TabbedContent(id="brainstorm_tabs"):
             with TabPane("(D)ashboard", id="tab_dashboard"):
                 with Horizontal(id="dashboard_split"):
@@ -4114,7 +4017,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # which passes self._wizard_subgraph). The _umbrella root has none.
         ancestors = [] if is_umbrella else self._ancestor_subgraphs(module)
         return {
-            "patch": (not self._node_has_plan(node_id), "node has no plan"),
             "module_decompose": (is_umbrella, "no module on the root design"),
             "module_merge": (
                 is_umbrella or not ancestors,
@@ -4753,10 +4655,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             pass
         self._status_refresh_timer = self.set_interval(30, self._refresh_status_tab)
         self._try_apply_initializer_if_needed()
-        self._scan_existing_patchers()
         self._scan_existing_explorers()
         self._scan_existing_synthesizers()
-        self._scan_existing_detailers()
         self._scan_existing_module_agents()
 
     def _try_apply_initializer_if_needed(self, force: bool = False) -> None:
@@ -4812,201 +4712,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._try_apply_initializer_if_needed(force=True)
 
     # ------------------------------------------------------------------
-    # Patcher auto-apply (mirrors initializer pattern)
+    # Shared node-id recovery. ``_PATCHER_INPUT_META_RE`` is named for the
+    # (removed) patcher op but is retained because ``_recover_node_id_from_input``
+    # — used by the delete-cascade casualty scan and the explorer/synthesizer
+    # retry helpers — parses the same ``_input.md`` Metadata line.
     # ------------------------------------------------------------------
 
     _PATCHER_INPUT_META_RE = re.compile(
         r"-\s*Metadata:\s*\S+/br_nodes/([A-Za-z0-9_]+)\.yaml"
     )
-
-    def _register_patcher_source(self, agent_name: str,
-                                 source_node_id: str) -> None:
-        """Main-thread: track a freshly-registered patcher and ensure the
-        poll timer is running."""
-        self._patcher_sources[agent_name] = source_node_id
-        self._ensure_patcher_poll_timer()
-
-    def _ensure_patcher_poll_timer(self) -> None:
-        if self._patcher_poll_timer is not None:
-            return
-        if not self._patcher_sources:
-            return
-        self._patcher_poll_timer = self.set_interval(5, self._poll_patchers)
-
-    def _stop_patcher_poll_timer(self) -> None:
-        if self._patcher_poll_timer is not None:
-            try:
-                self._patcher_poll_timer.stop()
-            except Exception:
-                pass
-            self._patcher_poll_timer = None
-
-    def _scan_existing_patchers(self) -> None:
-        """Scan the worktree for patcher agents that are in-flight or
-        completed-but-unapplied, so the poll timer keeps watching them.
-        Recovers the source_node_id by parsing the agent's _input.md
-        (written by ``_assemble_input_patcher``).
-
-        Idempotent — safe to call from ``_load_existing_session``.
-        """
-        wt = self.session_path
-        if not wt or not Path(wt).is_dir():
-            return
-        try:
-            from brainstorm.brainstorm_session import (
-                _agent_apply_scan_should_track,
-                _patcher_needs_apply,
-            )
-        except Exception:
-            return
-        for status_path in sorted(Path(wt).glob("patcher_*_status.yaml")):
-            agent = status_path.stem[:-len("_status")]
-            if agent in self._patcher_sources:
-                continue
-            try:
-                data = read_yaml(str(status_path))
-            except Exception:
-                continue
-            status = (data or {}).get("status", "")
-            input_path = Path(wt) / f"{agent}_input.md"
-            if not input_path.is_file():
-                continue
-            try:
-                input_text = input_path.read_text(encoding="utf-8")
-            except Exception:
-                continue
-            m = self._PATCHER_INPUT_META_RE.search(input_text)
-            if not m:
-                continue
-            needs_apply = (
-                _patcher_needs_apply(self.task_num, agent)
-                if status == "Completed" else False
-            )
-            if not _agent_apply_scan_should_track(status, needs_apply):
-                continue
-            self._patcher_sources[agent] = m.group(1)
-        self._ensure_patcher_poll_timer()
-
-    def _poll_patchers(self) -> None:
-        """Timer tick: for each tracked patcher, apply its output if it's
-        Completed. Drops entries whose output has already been applied
-        (idempotent across restarts). Stops the timer when empty.
-        """
-        if not self._patcher_sources:
-            self._stop_patcher_poll_timer()
-            return
-        try:
-            from brainstorm.brainstorm_session import (
-                _AGENT_FAILED_STATUSES,
-                _patcher_needs_apply,
-            )
-        except Exception:
-            return
-        for agent, source in list(self._patcher_sources.items()):
-            if agent in self._applying_patcher:
-                continue
-            status_path = self.session_path / f"{agent}_status.yaml"
-            if not status_path.is_file():
-                continue
-            try:
-                data = read_yaml(str(status_path))
-            except Exception:
-                continue
-            status = (data or {}).get("status", "")
-            if status in _AGENT_FAILED_STATUSES:
-                self._patcher_sources.pop(agent, None)
-                continue
-            if status != "Completed":
-                continue
-            if not _patcher_needs_apply(self.task_num, agent):
-                # Already applied (e.g., by CLI fallback). Drop and move on.
-                self._patcher_sources.pop(agent, None)
-                continue
-            self._try_apply_patcher_if_needed(agent, source)
-        if not self._patcher_sources:
-            self._stop_patcher_poll_timer()
-
-    def _try_apply_patcher_if_needed(self, agent_name: str,
-                                     source_node_id: str,
-                                     force: bool = False) -> None:
-        """Single-shot apply attempt for one patcher agent. Failures
-        surface via the IMPACT/error banner; success refreshes the DAG.
-        """
-        if agent_name in self._applying_patcher:
-            return
-        from brainstorm.brainstorm_session import (
-            _patcher_needs_apply,
-            apply_patcher_output,
-        )
-        if not force and not _patcher_needs_apply(self.task_num, agent_name):
-            return
-        self._applying_patcher.add(agent_name)
-        try:
-            try:
-                new_id, impact, details = apply_patcher_output(
-                    self.task_num, agent_name, source_node_id,
-                )
-            except Exception as exc:
-                self._patcher_apply_errors[agent_name] = str(exc)
-                self._set_impact_banner(
-                    f"Patcher {agent_name} apply failed: {exc} — "
-                    f"run `ait brainstorm apply-patcher {self.task_num} "
-                    f"{agent_name} {source_node_id}` to retry"
-                )
-                return
-            self._patcher_apply_errors.pop(agent_name, None)
-            self._patcher_sources.pop(agent_name, None)
-            if impact == "IMPACT_FLAG":
-                self._set_impact_banner(
-                    f"Patcher {agent_name} → {new_id}: IMPACT_FLAG — "
-                    f"Explorer regeneration recommended.\n{details}"
-                )
-            else:
-                self._clear_impact_banner()
-                self.notify(f"Patched plan applied → {new_id}.")
-            self._load_existing_session()
-        finally:
-            self._applying_patcher.discard(agent_name)
-
-    def _set_impact_banner(self, msg: str) -> None:
-        try:
-            widget = self.query_one("#patcher_impact_banner", Static)
-            widget.update(msg)
-            widget.add_class("visible")
-        except Exception:
-            pass
-
-    def _clear_impact_banner(self) -> None:
-        try:
-            widget = self.query_one("#patcher_impact_banner", Static)
-            widget.update("")
-            widget.remove_class("visible")
-        except Exception:
-            pass
-
-    def action_retry_patcher_apply(self) -> None:
-        """ctrl+shift+r: force-retry a patcher apply.
-
-        Walks the worktree (rather than ``self._patcher_sources``) so the
-        retry works after auto-apply has already drained the tracking
-        dict — the previously-applied-then-corrupted case mirroring t787
-        item #3 / t837. Recovers ``source_node_id`` from
-        ``self._patcher_sources`` if present, else by re-parsing the
-        agent's ``_input.md``.
-        """
-        agent = self._pick_completed_agent_for_retry("patcher")
-        if agent is None:
-            self.notify("No completed patcher agents to retry.")
-            return
-        source = self._patcher_sources.get(agent)
-        if source is None:
-            source = self._recover_node_id_from_input(agent)
-        if source is None:
-            self.notify(
-                f"Cannot retry {agent}: source_node_id not recoverable."
-            )
-            return
-        self._try_apply_patcher_if_needed(agent, source, force=True)
 
     # ------------------------------------------------------------------
     # Explorer auto-apply (mirrors patcher pattern; no source_node_id —
@@ -5457,11 +5171,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _pick_completed_agent_for_retry(self, role: str) -> str | None:
         """Walk the session worktree and return the agent name with the
         most recent ``_status.yaml`` mtime whose status is ``Completed``,
-        for the given role prefix (``explorer``, ``patcher``,
-        ``synthesizer``, ``detailer``). Returns ``None`` if the worktree
-        is missing or no Completed agent is found. Shared by the four
-        ``action_retry_*_apply`` methods so the retry path keeps working
-        after auto-apply has drained the in-memory tracking container.
+        for the given role prefix (``explorer``, ``synthesizer``). Returns
+        ``None`` if the worktree is missing or no Completed agent is found.
+        Shared by the ``action_retry_*_apply`` methods so the retry path
+        keeps working after auto-apply has drained the in-memory tracking
+        container.
         """
         wt = self.session_path
         if not wt or not Path(wt).is_dir():
@@ -5486,9 +5200,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _recover_node_id_from_input(self, agent: str) -> str | None:
         """Re-parse ``<agent>_input.md`` for the node-id captured by
-        ``_PATCHER_INPUT_META_RE``. Used by the patcher / detailer retry
-        actions to recover ``source_node_id`` / ``target_node_id`` when
-        the in-memory tracking entry has been drained by auto-apply.
+        ``_PATCHER_INPUT_META_RE``. Used by the delete-cascade casualty scan
+        (``_delete_agent_casualties``) to recover the node an in-flight agent
+        operates on.
         """
         wt = self.session_path
         if not wt or not Path(wt).is_dir():
@@ -5665,183 +5379,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify("No completed synthesizer agents to retry.")
             return
         self._try_apply_synthesizer_if_needed(agent, force=True)
-
-    # ------------------------------------------------------------------
-    # Detailer auto-apply (mirrors patcher pattern — keyed on the target
-    # node id; the detailer enriches an existing node, writing its plan)
-    # ------------------------------------------------------------------
-
-    def _register_detailer_target(self, agent_name: str,
-                                  target_node_id: str) -> None:
-        """Main-thread: track a freshly-registered detailer and ensure the
-        poll timer is running."""
-        self._detailer_targets[agent_name] = target_node_id
-        self._ensure_detailer_poll_timer()
-
-    def _ensure_detailer_poll_timer(self) -> None:
-        if self._detailer_poll_timer is not None:
-            return
-        if not self._detailer_targets:
-            return
-        self._detailer_poll_timer = self.set_interval(5, self._poll_detailers)
-
-    def _stop_detailer_poll_timer(self) -> None:
-        if self._detailer_poll_timer is not None:
-            try:
-                self._detailer_poll_timer.stop()
-            except Exception:
-                pass
-            self._detailer_poll_timer = None
-
-    def _scan_existing_detailers(self) -> None:
-        """Scan the worktree for detailer agents that are in-flight or
-        completed-but-unapplied, so the poll timer keeps watching them.
-        Recovers the target_node_id by parsing the agent's _input.md (the
-        ``## Target Node`` Metadata line written by
-        ``_assemble_input_detailer``).
-
-        Idempotent — safe to call from ``_load_existing_session``.
-        """
-        wt = self.session_path
-        if not wt or not Path(wt).is_dir():
-            return
-        try:
-            from brainstorm.brainstorm_session import (
-                _agent_apply_scan_should_track,
-                _detailer_needs_apply,
-            )
-        except Exception:
-            return
-        for status_path in sorted(Path(wt).glob("detailer_*_status.yaml")):
-            agent = status_path.stem[:-len("_status")]
-            if agent in self._detailer_targets:
-                continue
-            try:
-                data = read_yaml(str(status_path))
-            except Exception:
-                continue
-            status = (data or {}).get("status", "")
-            input_path = Path(wt) / f"{agent}_input.md"
-            if not input_path.is_file():
-                continue
-            try:
-                input_text = input_path.read_text(encoding="utf-8")
-            except Exception:
-                continue
-            m = self._PATCHER_INPUT_META_RE.search(input_text)
-            if not m:
-                continue
-            target_node_id = m.group(1)
-            needs_apply = (
-                _detailer_needs_apply(self.task_num, agent, target_node_id)
-                if status == "Completed" else False
-            )
-            if not _agent_apply_scan_should_track(status, needs_apply):
-                continue
-            self._detailer_targets[agent] = target_node_id
-        self._ensure_detailer_poll_timer()
-
-    def _poll_detailers(self) -> None:
-        """Timer tick: for each tracked detailer, apply its output if it's
-        Completed. Drops entries whose output has already been applied
-        (idempotent across restarts). Stops the timer when empty.
-        """
-        if not self._detailer_targets:
-            self._stop_detailer_poll_timer()
-            return
-        try:
-            from brainstorm.brainstorm_session import (
-                _AGENT_FAILED_STATUSES,
-                _detailer_needs_apply,
-            )
-        except Exception:
-            return
-        for agent, target in list(self._detailer_targets.items()):
-            if agent in self._applying_detailer:
-                continue
-            status_path = self.session_path / f"{agent}_status.yaml"
-            if not status_path.is_file():
-                continue
-            try:
-                data = read_yaml(str(status_path))
-            except Exception:
-                continue
-            status = (data or {}).get("status", "")
-            if status in _AGENT_FAILED_STATUSES:
-                self._detailer_targets.pop(agent, None)
-                continue
-            if status != "Completed":
-                continue
-            if not _detailer_needs_apply(self.task_num, agent, target):
-                # Already applied (e.g., by CLI fallback). Drop and move on.
-                self._detailer_targets.pop(agent, None)
-                continue
-            self._try_apply_detailer_if_needed(agent, target)
-        if not self._detailer_targets:
-            self._stop_detailer_poll_timer()
-
-    def _try_apply_detailer_if_needed(self, agent_name: str,
-                                      target_node_id: str,
-                                      force: bool = False) -> None:
-        """Single-shot apply attempt for one detailer agent. Failures
-        surface via the initializer apply banner; success refreshes the DAG.
-        """
-        if agent_name in self._applying_detailer:
-            return
-        from brainstorm.brainstorm_session import (
-            _detailer_needs_apply,
-            apply_detailer_output,
-        )
-        if not force and not _detailer_needs_apply(
-            self.task_num, agent_name, target_node_id,
-        ):
-            return
-        self._applying_detailer.add(agent_name)
-        try:
-            try:
-                apply_detailer_output(
-                    self.task_num, agent_name, target_node_id,
-                )
-            except Exception as exc:
-                self._detailer_apply_errors[agent_name] = str(exc)
-                self._set_apply_banner(
-                    f"Detailer {agent_name} apply failed: {exc} — "
-                    f"run `ait brainstorm apply-detailer {self.task_num} "
-                    f"{agent_name} {target_node_id}` to retry"
-                )
-                return
-            self._detailer_apply_errors.pop(agent_name, None)
-            self._detailer_targets.pop(agent_name, None)
-            self._clear_apply_banner()
-            self.notify(
-                f"Detailer {agent_name} applied → {target_node_id} plan."
-            )
-            self._load_existing_session()
-        finally:
-            self._applying_detailer.discard(agent_name)
-
-    def action_retry_detailer_apply(self) -> None:
-        """ctrl+shift+d: force-retry a detailer apply.
-
-        Walks the worktree (rather than ``self._detailer_targets``) so
-        the retry works after auto-apply has already drained the tracking
-        dict — mirrors the t837 fix for explorer. Recovers
-        ``target_node_id`` from ``self._detailer_targets`` if present,
-        else by re-parsing the agent's ``_input.md``.
-        """
-        agent = self._pick_completed_agent_for_retry("detailer")
-        if agent is None:
-            self.notify("No completed detailer agents to retry.")
-            return
-        target = self._detailer_targets.get(agent)
-        if target is None:
-            target = self._recover_node_id_from_input(agent)
-        if target is None:
-            self.notify(
-                f"Cannot retry {agent}: target_node_id not recoverable."
-            )
-            return
-        self._try_apply_detailer_if_needed(agent, target, force=True)
 
     def on_tabbed_content_tab_activated(self, event) -> None:
         """Refresh Status tab when it becomes active."""
@@ -6924,7 +6461,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.call_after_refresh(self._focus_first_operation)
 
     def _actions_show_node_select(self) -> None:
-        """Step 2: dedicated node selection for explore/detail/patch."""
+        """Step 2: dedicated node selection for explore."""
         self._wizard_config = {}
         self._enter_wizard_step("node_select")
 
@@ -6934,8 +6471,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         total = self._wizard_total_steps
         desc_map = {
             "explore": "Select Base Node",
-            "detail": "Select Node for Detailing",
-            "patch": "Select Node to Patch",
             "module_decompose": "Select Source Node",
         }
         desc = desc_map.get(self._wizard_op, "Select Node")
@@ -6978,17 +6513,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 lbl_parts.append("[dim]○ no plan[/]")
             lbl = " ".join(lbl_parts)
 
-            disabled = (self._wizard_op == "patch" and not has_plan)
-            if disabled:
-                desc = f"{desc}  [italic](patch unavailable)[/]"
-
-            container.mount(OperationRow(nid, lbl, desc, disabled=disabled))
+            container.mount(OperationRow(nid, lbl, desc))
 
         container.mount(
             Button("Next \u25b6", variant="primary", classes="btn_actions_next", disabled=True)
         )
         # module_decompose defaults its source node to HEAD so the user can
-        # advance immediately; explore/detail/patch require an explicit pick.
+        # advance immediately; explore requires an explicit pick.
         # Focusing the HEAD row makes on_descendant_focus seed _selected_node
         # and enable Next (the same path explore uses for its first row).
         if self._wizard_op == "module_decompose" and head in nodes:
@@ -7006,14 +6537,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if not node:
             self.notify("Select a node first", severity="warning")
             return False
-        if self._wizard_op == "patch" and not self._node_has_plan(node):
-            self.notify(
-                f"Node '{node}' has no plan — patch is only valid on "
-                f"nodes that already have an implementation plan.",
-                severity="error",
-                timeout=6,
-            )
-            return False
         # Cache section presence into the ctx source BEFORE transitioning so the
         # step resolver sees it (else section_select would be skipped). This disk
         # read happens once here, never inside a per-render predicate. Only the
@@ -7024,11 +6547,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if self._wizard_has_sections:
                 self._actions_show_section_select()
                 return True
-        if self._wizard_op == "detail":
-            self._wizard_config["node"] = node
-            self._actions_show_confirm()
-        else:
-            self._actions_show_config()
+        self._actions_show_config()
         return True
 
     def _actions_show_section_select(self) -> None:
@@ -7091,8 +6610,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._config_compare(container)
         elif op == "synthesize":
             self._config_synthesize(container)
-        elif op == "patch":
-            self._config_patch_no_node(container)
         elif op == "module_decompose":
             self._config_module_decompose(container)
         elif op == "module_merge":
@@ -7413,26 +6930,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
         self.call_after_refresh(lambda: self._focus_fcl_filter("syn_nodes"))
 
-    def _config_patch_no_node(self, container: VerticalScroll) -> None:
-        """Patch config (node already selected): patch request."""
-        node_id = self._wizard_config.get("_selected_node", "?")
-        container.mount(Label(f"[bold]Node:[/] {node_id}"))
-        container.mount(
-            Label("[bold]Patch Request[/] \u2014 describe the change to apply to this node")
-        )
-        container.mount(
-            Label("[dim]Type your patch request in the text area below.[/]")
-        )
-        container.mount(TextArea("", classes="ta_patch_request"))
-        container.mount(
-            Button(
-                "Next \u25b6",
-                variant="primary",
-                classes="btn_actions_next",
-                disabled=True,
-            )
-        )
-
     def _config_module_decompose(self, container: VerticalScroll) -> None:
         """Module decompose config: module list + extraction options.
 
@@ -7681,16 +7178,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.notify("Merge rules cannot be empty", severity="warning")
                 return False
 
-        elif op == "patch":
-            config["node"] = selected_node or ""
-            if not config["node"]:
-                self.notify("Select a node first", severity="warning")
-                return False
-            config["patch_request"] = container.query_one(TextArea).text.strip()
-            if not config["patch_request"]:
-                self.notify("Patch request cannot be empty", severity="warning")
-                return False
-
         elif op == "module_decompose":
             config["subgraph"] = self._wizard_subgraph
             # Use the node chosen on the source-node step, falling back to the
@@ -7877,12 +7364,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             lines.append(f"[bold]Source Nodes:[/] {', '.join(cfg['nodes'])}")
             lines.append("[bold]Merge Rules:[/]")
             lines.append(cfg["merge_rules"])
-        elif op == "detail":
-            lines.append(f"[bold]Node:[/] {cfg['node']}")
-        elif op == "patch":
-            lines.append(f"[bold]Node:[/] {cfg['node']}")
-            lines.append("[bold]Patch Request:[/]")
-            lines.append(cfg["patch_request"])
         elif op == "module_decompose":
             lines.append(f"[bold]Source Subgraph:[/] {cfg['subgraph']}")
             lines.append(f"[bold]Source HEAD:[/] {cfg['source_node']}")
@@ -7963,30 +7444,17 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _on_actions_next(self) -> None:
         """Handle Next button — dispatch by the current step id."""
         if self._wizard_step_id == "node_select":
-            # Guarded advance (patch-no-plan guard, section/config/confirm routing).
+            # Guarded advance (section/config routing).
             self._actions_advance_from_node_select(
                 self._wizard_config.get("_selected_node", "")
             )
         elif self._wizard_step_id == "section_select":
-            # Collect sections, then go to config (explore/patch) or confirm (detail).
+            # Collect sections, then go to config.
             self._collect_target_sections()
-            if self._wizard_op == "detail":
-                self._wizard_config["node"] = self._wizard_config.get("_selected_node", "")
-                self._actions_show_confirm()
-            else:
-                self._actions_show_config()
+            self._actions_show_config()
         elif self._wizard_step_id == "config":
             if self._actions_collect_config():
                 self._actions_show_confirm()
-
-    @on(TextArea.Changed, ".ta_patch_request")
-    def _on_patch_request_changed(self, event: TextArea.Changed) -> None:
-        """Enable Next button only when the patch request TextArea is non-empty."""
-        has_text = bool(event.text_area.text.strip())
-        try:
-            self.query_one(".btn_actions_next", Button).disabled = not has_text
-        except Exception:
-            pass
 
     @on(Button.Pressed, ".btn_runner_start")
     def _on_runner_start(self, event: Button.Pressed) -> None:
@@ -8153,34 +7621,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     self._register_synthesizer_agent, agent,
                 )
                 msg = f"Registered synthesizer: {agent}"
-            elif op == "detail":
-                agent = register_detailer(
-                    self.session_path, crew_id, cfg["node"],
-                    ["."], group_name,
-                    launch_mode=launch_mode,
-                    target_sections=target_sections,
-                )
-                agents_list.append(agent)
-                # Track the target node so the auto-apply poller can pass it
-                # to apply_detailer_output when the agent completes.
-                self.call_from_thread(
-                    self._register_detailer_target, agent, cfg["node"],
-                )
-                msg = f"Registered detailer: {agent}"
-            elif op == "patch":
-                agent = register_patcher(
-                    self.session_path, crew_id, cfg["node"],
-                    cfg["patch_request"], group_name,
-                    launch_mode=launch_mode,
-                    target_sections=target_sections,
-                )
-                agents_list.append(agent)
-                # Track source node so the auto-apply poller can pass it
-                # to apply_patcher_output when the agent completes.
-                self.call_from_thread(
-                    self._register_patcher_source, agent, cfg["node"],
-                )
-                msg = f"Registered patcher: {agent}"
             elif op == "module_decompose":
                 operation_extra = {
                     "modules": cfg["modules"],

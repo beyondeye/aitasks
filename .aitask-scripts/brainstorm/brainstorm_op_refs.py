@@ -18,8 +18,6 @@ _OP_INPUT_SECTION = {
     "compare":    "Comparison Request",
     "synthesize": "Merge Rules",
     "hybridize":  "Merge Rules",  # legacy alias (t807)
-    "detail":     None,
-    "patch":      "Patch Request",
     "module_decompose": "Decomposition Plan",
     "module_merge":     "Merge-Up Rules",
     "module_sync":      "Sync Sources",

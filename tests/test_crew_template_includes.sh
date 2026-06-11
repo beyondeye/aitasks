@@ -313,68 +313,13 @@ EOF
 )
 rm -rf "$TMPDIR_T8"
 
-# --- Test 9: Production bridge — detailer.md consumes skill_templates fragment (t818) ---
-# detailer.md's `## Rules` section is sourced from
-# .aitask-scripts/skill_templates/_detailer_rules.md via the multi-base-dir
-# resolver. This is the actual production cross-pipeline include — the
-# brainstorm template lives in brainstorm/templates/ but pulls a fragment
-# from the neutral skill_templates/ dir. Without this test, the bridge
-# would only be exercised in synthetic fixtures (Test 8) and a regression
-# could land that breaks production but passes the rest of the suite.
-echo "Test 9: production bridge — detailer.md → skill_templates/_detailer_rules.md"
-(
-    source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
-    source "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh"
-
-    # WITH the skill_templates fallback dir: the include resolves and the
-    # rules section is materialized verbatim inside detailer.md.
-    resolved="$(cat "$PROJECT_DIR/.aitask-scripts/brainstorm/templates/detailer.md" \
-        | resolve_template_includes \
-            "$PROJECT_DIR/.aitask-scripts/brainstorm/templates" \
-            "$PROJECT_DIR/.aitask-scripts/skill_templates" 2>/dev/null)"
-    assert_contains_ci "rules fragment resolved (rule 1 prose)" \
-        "Be maximally specific" "$resolved"
-    assert_contains_ci "rules fragment resolved (rule 3 prose)" \
-        "Every assumption from the node's YAML" "$resolved"
-    assert_contains_ci "rules fragment resolved (rule 5 prose)" \
-        "Do not include architectural discussion" "$resolved"
-    assert_not_contains_ci "rules include directive removed" \
-        "<!-- include: _detailer_rules.md -->" "$resolved"
-
-    # Brainstorm section markers MUST remain in their original positions —
-    # the bash resolver only touches `<!-- include: -->` directives, never
-    # `<!-- section: -->` markers. If a future change relocates a marker
-    # into a fragment, brainstorm's section parser breaks silently.
-    assert_contains_ci "section marker 'prerequisites' preserved" \
-        "<!-- section: prerequisites -->" "$resolved"
-    # `[...]` in grep BRE is a character class; check the bare section name
-    # plus the closing marker and rely on Test 9's overall resolved-output
-    # diff for full-fidelity dimension-attribute coverage.
-    assert_contains_ci "section marker 'step_by_step' opening preserved" \
-        "section: step_by_step " "$resolved"
-    assert_contains_ci "section marker 'step_by_step' closing preserved" \
-        "/section: step_by_step" "$resolved"
-    assert_contains_ci "section marker 'verification' opening preserved" \
-        "section: verification " "$resolved"
-    assert_contains_ci "section marker 'verification' closing preserved" \
-        "/section: verification" "$resolved"
-    # Spot-check the dimension attribute survives (escape brackets via word match).
-    assert_contains_ci "step_by_step dimensions attribute present" \
-        "dimensions: component_" "$resolved"
-    assert_contains_ci "verification dimensions attribute present" \
-        "dimensions: assumption_" "$resolved"
-
-    # WITHOUT the skill_templates fallback: the include cannot be resolved
-    # (proves the fragment really lives in skill_templates/, not in
-    # brainstorm/templates/ — guards against an accidental copy/move).
-    stderr_only_primary="$(cat "$PROJECT_DIR/.aitask-scripts/brainstorm/templates/detailer.md" \
-        | resolve_template_includes "$PROJECT_DIR/.aitask-scripts/brainstorm/templates" \
-            2>&1 1>/dev/null || true)"
-    assert_contains_ci "warn when skill_templates fallback omitted" \
-        "_detailer_rules.md" "$stderr_only_primary"
-    assert_contains_ci "warn message is the missing-include path" \
-        "not found in any base_dir" "$stderr_only_primary"
-)
+# Note: A former "Test 9" exercised a production cross-directory include
+# bridge (brainstorm/templates/detailer.md → skill_templates/_detailer_rules.md).
+# The detailer brainstorm op and its template were retired (t891_2), and no
+# surviving brainstorm template consumes a fragment from the neutral
+# skill_templates/ dir — the survivors (explorer/initializer/synthesizer) only
+# include _section_format.md from their own dir, which Test 7 already covers.
+# The multi-base-dir resolver capability itself remains guarded by Test 8.
 
 # ============================================================
 # Summary

@@ -136,11 +136,8 @@ done
 # Verifies the {% include "_planning_plan_contract.md" %} directive resolves
 # through the extended minijinja loader path (search dir =
 # .aitask-scripts/skill_templates/). The fragment is the planning-specific
-# "Detailed" spec — kept separate from detailer.md's contract by design
-# (detailer has a two-level proposal+plan structure, planning.md is
-# single-level; unifying the two breaks brainstorm's section-marker
-# parsing). Catches regressions where the include target moves or the
-# loader path config drifts.
+# single-level "Detailed" spec. Catches regressions where the include target
+# moves or the loader path config drifts.
 echo "=== Test 2c: planning.md embeds resolved _planning_plan_contract.md ==="
 for profile in "${PROFILES[@]}"; do
     rendered="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
@@ -150,11 +147,6 @@ for profile in "${PROFILES[@]}"; do
         "code snippets for non-trivial modifications" "$rendered"
     assert_not_contains "planning.md $profile: no literal include tag survives" \
         '{% include' "$rendered"
-    # Negative: detailer-specific contract content must NOT leak into planning.md.
-    assert_not_contains "planning.md $profile: no detailer Verification Checklist" \
-        "Verification Checklist" "$rendered"
-    assert_not_contains "planning.md $profile: no detailer Authoring Rules section" \
-        "### Authoring Rules" "$rendered"
 done
 
 # === Test 3: default profile preserves all AskUserQuestion blocks ===

@@ -382,7 +382,7 @@ def _node_module(session_path: Path, node_id: str) -> str:
 
 
 def _node_id_ordinal(node_id: str) -> int:
-    """Return the numeric ordinal of a node id (``n012_patcher`` -> 12).
+    """Return the numeric ordinal of a node id (``n012_explorer`` -> 12).
 
     Node ids are minted as ``f"n{num:03d}_{agent}"`` with a session-wide
     counter, so the ordinal is a stable global recency key. Returns -1 for an

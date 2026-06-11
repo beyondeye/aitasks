@@ -181,7 +181,6 @@ class TestListOpInputs(unittest.TestCase):
             "explore":    "Exploration Mandate",
             "compare":    "Comparison Request",
             "synthesize": "Merge Rules",
-            "patch":      "Patch Request",
             "bootstrap":  "Mandate",
         }
         for op, expected_section in cases.items():
@@ -201,12 +200,6 @@ class TestListOpInputs(unittest.TestCase):
                                   "agents": ["synthesizer_001"]})
         self.assertEqual(legacy[0].section, "Merge Rules")
         self.assertEqual(legacy[0].section, current[0].section)
-
-    def test_detail_op_has_no_section(self):
-        info = {"operation": "detail", "agents": ["a"]}
-        refs = list_op_inputs(info)
-        self.assertEqual(len(refs), 1)
-        self.assertIsNone(refs[0].section)
 
     def test_unknown_operation_section_is_none(self):
         info = {"operation": "weird_unknown_op", "agents": ["a"]}
@@ -288,7 +281,7 @@ class TestCanonicalOp(unittest.TestCase):
         self.assertEqual(canonical_op("synthesize"), "synthesize")
 
     def test_other_operations_pass_through(self):
-        for op in ("explore", "compare", "detail", "patch", "bootstrap"):
+        for op in ("explore", "compare", "bootstrap"):
             self.assertEqual(canonical_op(op), op)
 
     def test_unknown_value_passes_through(self):

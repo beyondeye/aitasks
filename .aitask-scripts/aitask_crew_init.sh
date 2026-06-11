@@ -46,7 +46,7 @@ Options:
                             headless, interactive, openshell_headless,
                             openshell_interactive.
                             Example: --add-type impl:claudecode/sonnet4_6
-                                     --add-type detailer:claudecode/opus4_6:interactive
+                                     --add-type review:claudecode/opus4_6:interactive
   --batch                   Non-interactive mode (no prompts)
   --help                    Show this help
 

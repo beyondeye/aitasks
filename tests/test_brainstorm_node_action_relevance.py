@@ -73,8 +73,6 @@ class NodeActionOpStatesTests(unittest.TestCase):
         self.assertTrue(states["module_sync"][0])
         for op in ("module_decompose", "module_merge", "module_sync"):
             self.assertIn("root design", states[op][1])
-        # node has a plan -> patch enabled.
-        self.assertFalse(states["patch"][0])
 
     def test_module_node_with_task_and_ancestor_enables_all(self):
         self._node("n000_init", [])
@@ -119,15 +117,6 @@ class NodeActionOpStatesTests(unittest.TestCase):
 
         self.assertTrue(states["module_sync"][0])
         self.assertIn("no linked task", states["module_sync"][1])
-
-    def test_node_without_plan_disables_patch(self):
-        self._node("n000_init", [])
-        self._graph_state(current_heads={"_umbrella": "n000_init"})
-
-        states = self._app()._node_action_op_states("n000_init")
-
-        self.assertTrue(states["patch"][0])
-        self.assertIn("no plan", states["patch"][1])
 
 
 if __name__ == "__main__":

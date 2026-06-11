@@ -6,7 +6,6 @@ prefix_rule(pattern = ["./.aitask-scripts/aitask_archive.sh"], decision = "allow
 prefix_rule(pattern = ["./.aitask-scripts/aitask_audit_wrappers.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_backfill_pid_anchor.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_brainstorm_apply_initializer.sh"], decision = "allow", justification = "Aitasks helper script")
-prefix_rule(pattern = ["./.aitask-scripts/aitask_brainstorm_apply_patcher.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_changelog.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_claim_id.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_codeagent.sh"], decision = "allow", justification = "Aitasks helper script")
