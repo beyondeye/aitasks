@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: documentation
 status: Implementing
 labels: [ait_brainstorm, brainstom_modules]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:07
-updated_at: 2026-06-11 12:59
+updated_at: 2026-06-11 13:10
 ---
 
 ## Origin
