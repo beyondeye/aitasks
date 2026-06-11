@@ -26,6 +26,14 @@ risk. If a fast clean landing of the routing work is wanted, (a) can be split
 into its own standalone follow-up task without blocking the guard. Decide at
 plan time.
 
+**Pick-time decision (2026-06-10):** job (a) was **split out to standalone
+follow-up `t970`** (`aitasks/t970_collapse_projects_yaml_registry_reader.md`) —
+a parity gap was found (Python authority returns 3 fields, bash emits 4 feeding
+write ops). This task now covers only: (b1) migrate the Layer-A
+`discover_aitasks_sessions` walk onto the gateway (t952_2's HARD BOUNDARY), and
+(b2) the anti-regression lint guard. See `aiplans/p952/p952_5_*` for the
+verified plan and the guard's Layer-A/B allowlist rationale.
+
 ## Key files to modify
 ### Job (a) — registry collapse
 - `.aitask-scripts/lib/agent_launch_utils.py:266-368` — `_read_registry_index`,

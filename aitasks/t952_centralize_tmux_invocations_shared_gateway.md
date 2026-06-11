@@ -68,6 +68,9 @@ sites through it — without behavior change.
 4. **Single source for session discovery / registry** — collapse the duplicate
    registry reading in `agent_launch_utils.discover_aitasks_sessions()` (Python)
    and `aitask_project_resolve.sh` (bash) to one authority the gateway exposes.
+   **(Split out at t952_5 pick time to standalone follow-up `t970` — it is the
+   only non-routing part and hit a 3-vs-4-field parity gap; tracked separately,
+   not delivered under this umbrella.)**
 
 ## Out of scope (future direction — separate tasks)
 
