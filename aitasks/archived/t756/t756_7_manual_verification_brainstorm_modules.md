@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t756_6]
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [verification, manual]
 verifies: [t756_1, t756_2, t756_3, t756_4, t756_5, t756_6]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 17:38
-updated_at: 2026-06-11 09:37
+updated_at: 2026-06-11 09:38
+completed_at: 2026-06-11 09:38
 ---
 
 ## Manual Verification Task
