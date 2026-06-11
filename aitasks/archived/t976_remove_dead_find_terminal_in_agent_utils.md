@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [codebrowser, codeagent]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 12:47
-updated_at: 2026-06-11 13:07
+updated_at: 2026-06-11 13:09
+completed_at: 2026-06-11 13:09
 ---
 
 ## Origin
