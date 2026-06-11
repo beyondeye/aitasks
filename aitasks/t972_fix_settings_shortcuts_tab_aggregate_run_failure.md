@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tests]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 10:36
-updated_at: 2026-06-11 10:36
+updated_at: 2026-06-11 10:42
 ---
 
 ## Origin
