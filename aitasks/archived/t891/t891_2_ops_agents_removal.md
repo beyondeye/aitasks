@@ -1,13 +1,17 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [t891_1]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [ait_brainstorm, brainstom_modules, remove_support]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 10:52
-updated_at: 2026-06-11 10:34
+updated_at: 2026-06-11 11:23
+completed_at: 2026-06-11 11:23
 ---
 
 # t891_2 — Ops/agents removal: retire detail/patch + detailer/patcher
