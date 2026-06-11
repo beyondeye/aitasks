@@ -218,12 +218,12 @@ on failure — accepted, warn-only there).
   harness/env pins `AITASKS_TMUX_SOCKET` (module-level `_TMUX` singletons cache
   at import) silently targets the wrong server. The known cases
   (test_discover_*, test_launch_in_tmux_pane_pid) are fixed in-plan; un-audited
-  stragglers are possible · severity: medium · → mitigation: manual_verification_dedicated_socket
+  stragglers are possible · severity: medium · → mitigation: manual_verification_dedicated_socket (t973)
 - Migration-window cross-server semantics: gateway-routed self-probes invoked
   from a foreign server (user's personal tmux, legacy session) change meaning
   post-flip. The three entry points (ide socket-identity check, bootstrap
   warning, switcher) are guarded; ambient probes elsewhere are accepted
-  · severity: medium · → mitigation: manual_verification_dedicated_socket
+  · severity: medium · → mitigation: manual_verification_dedicated_socket (t973)
 - Stale prose/comments asserting "default socket" semantics scattered across
   call sites; sweep is in-plan but a missed one misleads future editors
   · severity: low · → mitigation: TBD
@@ -235,7 +235,7 @@ on failure — accepted, warn-only there).
   crash · severity: low · → mitigation: TBD
 
 ### Planned mitigations
-- timing: after | name: manual_verification_dedicated_socket | type: manual_verification | priority: medium | effort: low | addresses: chokepoint default flip + migration-window cross-server semantics (code-health) | desc: live-box checklist — ait ide lands on `tmux -L ait` under session.slice; default server untouched; legacy-session prompt fires; AITASKS_TMUX_SOCKET=default opt-out reaches legacy server; `j` switcher cross-session teleport works on the dedicated server
+- timing: after | name: manual_verification_dedicated_socket (created: t973) | type: manual_verification | priority: medium | effort: low | addresses: chokepoint default flip + migration-window cross-server semantics (code-health) | desc: live-box checklist — ait ide lands on `tmux -L ait` under session.slice; default server untouched; legacy-session prompt fires; AITASKS_TMUX_SOCKET=default opt-out reaches legacy server; `j` switcher cross-session teleport works on the dedicated server
 
 ## Final Implementation Notes
 - **Actual work done:** Implemented exactly per plan. Gateway default flipped in both mirrors (`tmux_exec.py::tmux_socket_args` returns `["-L", "ait"]` when env unset via new `AIT_DEDICATED_SOCKET` constant; shell mirror uses `[[ -z "${AITASKS_TMUX_SOCKET+x}" ]]`). Added `ait_tmux_socket_name()`, `ait_tmux_legacy()`, `ait_tmux_legacy_socket_args()` to the shell gateway. `aitask_ide.sh` gained the inside-tmux socket-identity check (compares `basename "${TMUX%%,*}"` against `ait_tmux_socket_name`) and the interactive legacy-attach offer with `[[ -t 0 && -t 1 ]]` TTY guard; `tmux_bootstrap.sh::spawn_session_detached` gained the non-interactive stderr warning. Holdouts routed: monitor_app.py `has-session` + `rename-session` (the latter now passes an explicit `-t =<current>` target) and codebrowser_app.py `show/set-environment`, each via a module-level `_TMUX = TmuxClient()`. Allowlist comments updated and the stale `tmux_monitor.py` entry dropped (no raw spawns remain there). Tests: isolation harness pins `AITASKS_TMUX_SOCKET=""`; `test_tmux_exec.py` updated/extended (unset→`-L ait`, empty→no flag, `default` opt-out); NEW `tests/test_tmux_socket_args_sh.sh` pins the shell mirror semantics + shell/python parity (13 cases); `test_launch_in_tmux_pane_pid.py::TestLaunchInTmuxIntegration` fully isolated (private TMUX_TMPDIR + test socket + `AIT_NO_SYSTEMD_RUN` + singleton swap). Docs: wish_ssh_evaluation.md, terminal-setup.md (new "The dedicated tmux server" section with the knob table and migration note), macos.md, tui_conventions.md, companion_cleanup.sh raw-by-design comment.

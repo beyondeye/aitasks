@@ -7,10 +7,11 @@ depends: [952]
 issue_type: enhancement
 status: Implementing
 labels: [tmux, ait_bridge]
+risk_mitigation_tasks: [973]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-06-10 08:58
-updated_at: 2026-06-11 10:08
+updated_at: 2026-06-11 10:38
 boardidx: 50
 ---
 
