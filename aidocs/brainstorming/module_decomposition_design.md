@@ -10,12 +10,20 @@ Status: design only — no implementation has landed. The follow-up
 Phase A/B/C/D tasks are listed in §7. The plan that produced this
 document is `aiplans/p754_new_brainstorm_operations.md`.
 
+> **Note (t891 — proposal-only):** `ait brainstorm` no longer has an
+> implementation-**plan** layer. The `detail` and `patch` operations and the
+> detailer/patcher agents have been retired (see `t891` and the proposal-only
+> `brainstorm_engine_architecture_v2.md`). The lifecycle below reflects this: a
+> module fast-tracks directly from its refined **proposal**; the detailed
+> implementation plan is rebuilt against the live codebase at `/aitask-pick`
+> time and absorbed back via `sync`.
+
 ## 1. Context
 
 `ait brainstorm` today produces a single proposal-graph per task:
 `br_session.yaml` carries a single `task_id`/`task_file`,
 `br_graph_state.yaml` tracks a single `current_head`, and the supported
-operations (`explore`, `compare`, `synthesize`, `detail`, `patch`) all
+operations (`explore`, `compare`, `synthesize`) all
 evolve that one proposal as a whole.
 
 Three increasingly-common use cases push against this model. They are
@@ -187,7 +195,7 @@ selector" prefix on the wizard.
 The lifecycle in one line:
 
 ```
-decompose → (existing ops refine) → detail → fast-track to aitask
+decompose → (existing ops refine) → fast-track to aitask
           → implementation → sync → merge
 ```
 
@@ -339,7 +347,7 @@ subgraph it joins.
     (linked task plan path, commit range, list of subsequent aitask
     plans consulted) for traceability.
 - **Side effect on the subgraph.** The synced node becomes the new
-  HEAD. If the user wants to re-refine after sync (e.g. `patch`),
+  HEAD. If the user wants to re-refine after sync (e.g. `explore`),
   they build on top of the synced HEAD — the original
   pre-implementation design is still reachable in history.
 - **No side effects** on the linked aitask, its plan file, or any of
@@ -381,7 +389,7 @@ subgraph it joins.
 
 ### 4.5 Existing ops become module-aware
 
-`explore`, `compare`, `synthesize`, `detail`, `patch` all currently
+`explore`, `compare`, `synthesize` all currently
 target the single `current_head`. They become module-scoped: the
 wizard gains a "subgraph selector" step (default: most-recently-touched
 subgraph) before the node-selection step. Behind the scenes:
@@ -412,8 +420,8 @@ step.
    `module_tasks = {}` (nothing fast-tracked yet).
 4. **`explore` on parser HEAD (n010) → n011, n012.**
    `current_heads = {_umbrella: n002, parser: n012, cache: n014}`.
-5. **`detail` on parser HEAD (n012).** Adds `n012_plan.md`. The user
-   chooses to fast-track:
+5. **Fast-track parser HEAD (n012).** The user fast-tracks the refined
+   proposal directly:
    `aitask_create.sh --batch --parent 754 --name parser_module ...`
    creates t754_1; `module_tasks[parser] = 754_1` is written.
 6. **Implementation happens outside brainstorm.** t754_1 enters
@@ -437,10 +445,11 @@ step.
 
 This narrative is the load-bearing visual of the design. Readers get
 the "branches grow, sync, merge back, regrow" mental model from this
-single example. Note that step 7 (sync) is **only** required because
-step 6 (implementation) happened — if a module is decomposed and
-merged purely as a design exercise without ever fast-tracking to
-implementation, sync is skipped and step 8 follows step 5 directly.
+single example. Note that steps 6-7 (implementation, sync) only happen
+because the module was fast-tracked in step 5 — if a module is decomposed
+and merged purely as a design exercise without ever fast-tracking to
+implementation, the fast-track/implementation/sync steps are skipped and
+the merge (step 8) follows the refinement directly.
 
 ### 4.7 Fluid status (UC-2) is a derived view, not a new op
 
@@ -520,9 +529,9 @@ UC-3 (fast-track) is the one place a single op suffices — it is just
   Input: destination proposal + source module proposal. Output:
   destination proposal regenerated to absorb the source module's
   refined design.
-- **Existing templates** (explorer, comparator, synthesizer,
-  detailer, patcher) get a small front-matter addition: "subgraph
-  context: <module_label>" so the agent stays in scope.
+- **Existing templates** (explorer, comparator, synthesizer) get a
+  small front-matter addition: "subgraph context: <module_label>" so
+  the agent stays in scope.
 
 ## 5. Touchpoint checklist for implementation
 
@@ -648,8 +657,8 @@ For the **sync scan engine**:
 - **Sync without a linked task?** Should `sync` also be runnable on
   a non-fast-tracked subgraph if the user manually pastes
   implementation context? Recommend NO for v1 — keep sync tied to
-  `linked_task`. Free-form context absorption is what `patch` is
-  for.
+  `linked_task`. Free-form context can be folded in by hand-editing
+  the proposal or via `explore`.
 - **Sync-then-merge as a fused op?** Question explicitly raised and
   rejected (see §4.9) — sync's output node should be reviewable
   before merge fires.

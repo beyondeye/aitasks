@@ -90,7 +90,7 @@ rule.)
 | `website/content/docs/skills/aitask-refresh-code-models.md` | 39 | "e.g., Opus 4.6 → `opus4_6`" naming-convention example | `informational_only` |
 | `aidocs/codeagents/claudecode_tools.md` | 5 | `**Model:** Claude Opus 4.6 (claude-opus-4-6)` — stale asof-today statement | `needed_for_promote` |
 | `aidocs/agentcrew/agentcrew_architecture.md` | 68, 71, 185 | Architecture diagrams using agent strings as examples | `informational_only` |
-| `aidocs/brainstorming/brainstorm_engine_architecture.md` | 476, 479, 482, 485, 488 | Rationale for assigning specific agents to brainstorm types | `informational_only` (historical rationale) |
+| `aidocs/brainstorming/brainstorm_engine_architecture_v2.md` | 511, 514, 517, 520 | Rationale for assigning specific agents to brainstorm types | `informational_only` (historical rationale) |
 
 ### 6. Skills and procedure files
 
