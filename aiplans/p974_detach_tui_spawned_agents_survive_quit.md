@@ -126,3 +126,24 @@ Cleanup / archival per **Step 9 (Post-Implementation)** of the task workflow.
 
 ### Goal-achievement risk: low
 - The fix targets the root cause directly and is the standard remedy; residual uncertainty is only whether the user's specific environment exhibited an additional kill path, which the manual outside-tmux verification confirms. · severity: low · → mitigation: covered by manual verification step
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `spawn_in_terminal(terminal, cmd, **popen_kwargs)`
+  to `.aitask-scripts/lib/agent_launch_utils.py` (wraps `subprocess.Popen` with
+  `start_new_session=True`). Routed all 7 terminal-spawn sites through it:
+  `board/aitask_board.py` (pick/create/brainstorm), `codebrowser/codebrowser_app.py`
+  (agent/create), `codebrowser/history_screen.py` (qa), `lib/sync_action_runner.py`
+  (sync) — adding `spawn_in_terminal` to each module's existing `agent_launch_utils`
+  import. Added `start_new_session=True` inline to the two `crew logview` spawns in
+  `monitor/monitor_app.py` and `brainstorm/brainstorm_app.py` (no terminal wrapper,
+  so not routed through the helper). Added `tests/test_spawn_in_terminal.py`.
+- **Deviations from plan:** None. Implemented exactly as planned.
+- **Issues encountered:** None. New test (4 cases) and existing
+  `test_launch_in_tmux_pane_pid.py` (17 cases) both pass; all 7 touched files parse.
+- **Key decisions:** Used `start_new_session=True` (POSIX `setsid` equivalent) rather
+  than an external `setsid` prefix — no dependency on a binary, applied uniformly via
+  one helper. Kept the two `logview` spawns as inline flags (genuinely different shape:
+  no terminal wrapper) rather than forcing them through the terminal helper. Left the
+  `suspend()` inline fallbacks untouched (they intentionally block/exit with the TUI).
+- **Upstream defects identified:** `.aitask-scripts/codebrowser/agent_utils.py:9 — find_terminal() is dead code` (both codebrowser consumers now import `find_terminal` from `agent_launch_utils`; the `agent_utils` copy has no remaining importers). Out of scope for this task; safe to remove in a follow-up cleanup.
