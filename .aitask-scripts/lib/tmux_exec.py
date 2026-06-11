@@ -258,6 +258,27 @@ class TmuxClient:
                 return rc, out
         return await self.run_async(args, timeout=timeout)
 
+    # -- pane geometry ------------------------------------------------------
+
+    def resize_pane(
+        self, pane: str, *, x: int | None = None, y: int | None = None,
+        backend=None, timeout: float = _DEFAULT_TIMEOUT,
+    ) -> tuple[int, str]:
+        """Resize ``pane`` to ``x`` columns and/or ``y`` rows.
+
+        Sole owner of the ``resize-pane`` verb. When ``backend`` is supplied it
+        dispatches through the control client if alive (same exec strategy as
+        :meth:`run_via_control`), else a direct subprocess via :meth:`run`.
+        """
+        args = ["resize-pane", "-t", pane]
+        if x is not None:
+            args += ["-x", str(x)]
+        if y is not None:
+            args += ["-y", str(y)]
+        if backend is not None:
+            return self.run_via_control(backend, args, timeout=timeout)
+        return self.run(args, timeout=timeout)
+
     # -- session/window targeting (mandatory; thin instance-level re-exports) --
 
     @staticmethod

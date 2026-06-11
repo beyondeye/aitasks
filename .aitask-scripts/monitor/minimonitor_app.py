@@ -161,6 +161,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         agent_prefixes: list[str] | None = None,
         tui_names: set[str] | None = None,
         compare_mode_default: str = "stripped",
+        target_width: int = 40,
     ) -> None:
         super().__init__()
         self.current_tui_name = "minimonitor"
@@ -171,6 +172,10 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._agent_prefixes = agent_prefixes
         self._tui_names = tui_names
         self._compare_mode_default = compare_mode_default
+        # Configured width of this companion side-column. tmux rescales panes
+        # proportionally on a window resize (incl. detach->reattach), so the
+        # pane spawned at this width drifts wider; on_resize re-pins it.
+        self._target_width = target_width
         self._snapshots: dict[str, PaneSnapshot] = {}
         self._focused_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
@@ -230,6 +235,32 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # an agent's window, renaming would break agent classification.
 
         self._start_monitoring()
+
+    def on_resize(self, event) -> None:
+        """Re-pin the companion pane to its configured width on any resize."""
+        self._maybe_pin_width()
+
+    def _maybe_pin_width(self) -> None:
+        """Clamp this minimonitor's companion pane back to its target width.
+
+        tmux stores window layout as proportions, so on a window resize (live,
+        or detach -> resize terminal -> reattach) it rescales every pane to the
+        same fraction of the new width — a pane spawned at ``target_width``
+        columns drifts wider. Re-pin it whenever we exceed the target.
+
+        Self-terminating: after the resize the pane width equals the target, so
+        the follow-up Resize event returns early. If the window is too narrow
+        for the target, tmux clamps ``-x`` to what fits and the width stays at
+        or below the target, so it does not loop either.
+        """
+        if self._monitor is None:
+            return
+        own_pane = os.environ.get("TMUX_PANE")
+        if not own_pane:
+            return
+        if self.size.width <= self._target_width:
+            return
+        self._monitor.resize_pane(own_pane, x=self._target_width)
 
     def _teardown_prior_monitoring(self) -> None:
         """Cancel the prior refresh timer and close the prior monitor's
@@ -1073,6 +1104,11 @@ def main() -> None:
 
     refresh_seconds = args.interval if args.interval is not None else tmux_config.get("monitor", {}).get("refresh_seconds", 3)
 
+    # Same config key the spawner reads (agent_launch_utils.maybe_spawn_minimonitor);
+    # the app re-pins its pane to this width on resize.
+    mm_cfg = tmux_config.get("minimonitor", {})
+    target_width = int(mm_cfg["width"]) if isinstance(mm_cfg, dict) and "width" in mm_cfg else 40
+
     app = MiniMonitorApp(
         session=session,
         project_root=project_root,
@@ -1082,6 +1118,7 @@ def main() -> None:
         agent_prefixes=config.get("agent_prefixes"),
         tui_names=config.get("tui_names"),
         compare_mode_default=config.get("compare_mode_default", "stripped"),
+        target_width=target_width,
     )
     app.run()
 

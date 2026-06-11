@@ -230,6 +230,19 @@ class TmuxMonitor:
         """
         return self._tmux.run_via_control(self._backend, args, timeout=timeout)
 
+    def resize_pane(
+        self, pane: str, *, x: int | None = None, y: int | None = None,
+        timeout: float = 2.0,
+    ) -> tuple[int, str]:
+        """Resize a pane via the gateway (control client when alive, else subprocess).
+
+        Thin delegation mirroring :meth:`tmux_run`; the ``resize-pane`` verb is
+        owned by ``TmuxClient.resize_pane``.
+        """
+        return self._tmux.resize_pane(
+            pane, x=x, y=y, backend=self._backend, timeout=timeout
+        )
+
     def _discover_sessions_cached(self) -> list[AitasksSession]:
         """Return the list of aitasks-like tmux sessions, memoized for TTL seconds."""
         now = time.monotonic()

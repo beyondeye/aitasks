@@ -354,6 +354,38 @@ class TestRunViaControl(unittest.TestCase):
         self.assertEqual(asyncio.run(go()), (0, "afallback"))
 
 
+class TestResizePane(unittest.TestCase):
+    """resize_pane: arg construction + control-mode dispatch (t978)."""
+
+    def test_x_only_argv(self):
+        client = TmuxClient(socket_args=["-L", "sock"])
+        with patch.object(client, "run", return_value=(0, "")) as m:
+            client.resize_pane("%3", x=40)
+        m.assert_called_once_with(["resize-pane", "-t", "%3", "-x", "40"], timeout=tmux_exec._DEFAULT_TIMEOUT)
+
+    def test_x_and_y_argv(self):
+        client = TmuxClient(socket_args=[])
+        with patch.object(client, "run", return_value=(0, "")) as m:
+            client.resize_pane("%5", x=40, y=20)
+        m.assert_called_once_with(["resize-pane", "-t", "%5", "-x", "40", "-y", "20"], timeout=tmux_exec._DEFAULT_TIMEOUT)
+
+    def test_no_dimensions_is_bare_target(self):
+        client = TmuxClient(socket_args=[])
+        with patch.object(client, "run", return_value=(0, "")) as m:
+            client.resize_pane("%1")
+        m.assert_called_once_with(["resize-pane", "-t", "%1"], timeout=tmux_exec._DEFAULT_TIMEOUT)
+
+    def test_backend_dispatches_via_control(self):
+        # With a live backend, resize routes through run_via_control (not run).
+        client = TmuxClient(socket_args=[])
+        backend = _FakeBackend(alive=True, sync_result=(0, ""))
+        with patch.object(client, "run") as m:
+            rc, _ = client.resize_pane("%2", x=40, backend=backend)
+        self.assertEqual(rc, 0)
+        self.assertEqual(backend.sync_calls, [["resize-pane", "-t", "%2", "-x", "40"]])
+        m.assert_not_called()
+
+
 class TestControlAttachArgv(unittest.TestCase):
     """The `tmux -C attach` argv threads the socket flag (t952_3)."""
 
