@@ -1,24 +1,7 @@
 """Shared utilities for launching code agents from TUI screens."""
 
-import os
-import shutil
 import subprocess
 from pathlib import Path
-
-
-def find_terminal() -> str | None:
-    """Find an available terminal emulator, or return None."""
-    terminal = os.environ.get("TERMINAL")
-    if terminal and shutil.which(terminal):
-        return terminal
-    for term in [
-        "alacritty", "kitty", "ghostty", "foot",
-        "x-terminal-emulator", "xdg-terminal-exec", "gnome-terminal",
-        "konsole", "xfce4-terminal", "lxterminal", "mate-terminal", "xterm",
-    ]:
-        if shutil.which(term):
-            return term
-    return None
 
 
 def resolve_agent_binary(
