@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [tmux, ait_bridge]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 08:17
-updated_at: 2026-06-11 08:53
+updated_at: 2026-06-11 09:17
+completed_at: 2026-06-11 09:17
 ---
 
 ## Origin
