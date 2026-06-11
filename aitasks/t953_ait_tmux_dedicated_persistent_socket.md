@@ -7,7 +7,7 @@ status: Ready
 labels: [tmux, ait_bridge]
 created_at: 2026-06-10 08:58
 updated_at: 2026-06-10 08:59
-boardidx: 30
+boardidx: 50
 ---
 
 ## Problem

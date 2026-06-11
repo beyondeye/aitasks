@@ -8,7 +8,7 @@ labels: [tmux, ait_bridge]
 children_to_implement: [t952_6]
 created_at: 2026-06-10 08:58
 updated_at: 2026-06-11 08:30
-boardidx: 20
+boardidx: 10
 ---
 
 ## Problem

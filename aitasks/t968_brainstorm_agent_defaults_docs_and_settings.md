@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [929_3]
+depends: [t929_3]
 issue_type: documentation
 status: Ready
 labels: [ait_brainstorm, ait_settings]
 created_at: 2026-06-10 18:15
 updated_at: 2026-06-10 18:15
+boardidx: 30
 ---
 
 ## Context
