@@ -5,7 +5,7 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [tmux, monitor]
-assigned_to: daelyasy@hotmail.com
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 13:06
 updated_at: 2026-06-11 13:07
 ---
