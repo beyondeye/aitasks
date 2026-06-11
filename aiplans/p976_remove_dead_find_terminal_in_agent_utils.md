@@ -83,3 +83,20 @@ No other files change — no consumer imports the removed symbol.
 
 Work is on the current branch (profile 'fast'), so no worktree/merge cleanup.
 Archive via `./.aitask-scripts/aitask_archive.sh 976` after commit/review.
+
+## Final Implementation Notes
+
+- **Actual work done:** Deleted the dead `find_terminal()` function from
+  `.aitask-scripts/codebrowser/agent_utils.py` and its now-orphaned `import os`
+  / `import shutil` lines. Kept `resolve_agent_binary` (uses `subprocess` +
+  `Path`) untouched. Net change: 17 deletions, single file.
+- **Deviations from plan:** None — implemented exactly as planned.
+- **Issues encountered:** None.
+- **Key decisions:** Removed `os`/`shutil` imports alongside the function since
+  they were used only by `find_terminal()`; leaving them would produce
+  unused-import lint warnings.
+- **Verification:** `grep` confirms `find_terminal` gone from the module and no
+  importers exist anywhere; `python3 -m py_compile` passes; importing
+  `agent_utils` and accessing `resolve_agent_binary` succeeds. (`pyflakes` not
+  installed in the venv — skipped, non-blocking.)
+- **Upstream defects identified:** None.
