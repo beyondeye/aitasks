@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [952]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [tmux, ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 08:58
-updated_at: 2026-06-10 08:59
+updated_at: 2026-06-11 09:37
 boardidx: 50
 ---
 
