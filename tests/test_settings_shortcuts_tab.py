@@ -39,6 +39,7 @@ from textual.widgets import DataTable, Input, TabbedContent  # noqa: E402
 
 import keybinding_registry  # noqa: E402
 import shortcut_persist  # noqa: E402
+from shortcuts_mixin import refresh_label_case  # noqa: E402
 from settings_app import (  # noqa: E402
     ExportScreen,
     ImportScreen,
@@ -59,6 +60,7 @@ class _Fixture(unittest.TestCase):
 
     def setUp(self) -> None:
         keybinding_registry._reset_for_tests()
+        refresh_label_case()
         self._prev_cwd = os.getcwd()
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
@@ -74,6 +76,7 @@ class _Fixture(unittest.TestCase):
         os.chdir(self._prev_cwd)
         self._tmp.cleanup()
         keybinding_registry._reset_for_tests()
+        refresh_label_case()
 
     def _run(self, coro):
         return asyncio.run(coro)
