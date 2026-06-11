@@ -74,6 +74,10 @@ class HistoryScreen(Screen):
     HistoryScreen #history_detail { width: 1fr; }
     """
 
+    # Skip the on-open background reload if the cached index is fresher than
+    # this (seconds) — avoids re-scanning on quick screen toggles.
+    AUTO_RELOAD_DEBOUNCE_S = 5.0
+
     def __init__(
         self,
         project_root: Path,
@@ -100,6 +104,7 @@ class HistoryScreen(Screen):
         self._refreshing = False
         self._refresh_modal: Optional[HistoryRefreshModal] = None
         self._refresh_start_time = 0.0
+        self._reload_baseline_ids: set = set()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -149,6 +154,26 @@ class HistoryScreen(Screen):
         # Defer scroll restoration to after layout completes
         if self._restore_scroll_y > 0:
             self.set_timer(0.1, self._restore_scroll)
+        # Cache rendered immediately above; now reload in the background so
+        # tasks archived mid-session (e.g. by agents in other tmux windows)
+        # appear without a manual `r`.
+        self._maybe_auto_reload()
+
+    def _maybe_auto_reload(self) -> None:
+        """Kick off a debounced background reload of the history index."""
+        cached_at = getattr(self.app, "_history_cached_at", 0.0)
+        if cached_at and (time.monotonic() - cached_at) < self.AUTO_RELOAD_DEBOUNCE_S:
+            return  # cache is fresh (quick screen toggle) — skip
+        self._reload_baseline_ids = {t.task_id for t in (self._task_index or [])}
+        self._reload_data(auto=True)
+
+    def _finish_auto_reload(self) -> None:
+        """After a background reload finishes, notify only if the index changed."""
+        if not self.is_mounted:
+            return
+        new_ids = {t.task_id for t in (self._task_index or [])}
+        if new_ids != self._reload_baseline_ids:
+            self.notify("History updated", timeout=2)
 
     def _restore_scroll(self) -> None:
         """Restore the task list scroll position after layout."""
@@ -166,17 +191,20 @@ class HistoryScreen(Screen):
             self.app.call_from_thread(self._on_index_chunk, index_chunk, platform)
 
     @work(thread=True, exclusive=True, group="history_reload")
-    def _reload_data(self) -> None:
+    def _reload_data(self, auto: bool = False) -> None:
         platform = detect_platform_info(self._project_root)
         first = True
         for index_chunk in load_task_index_progressive(self._project_root):
-            self.app.call_from_thread(self._on_reload_chunk, index_chunk, platform, first)
+            self.app.call_from_thread(self._on_reload_chunk, index_chunk, platform, first, auto)
             first = False
+        if auto:
+            self.app.call_from_thread(self._finish_auto_reload)
 
     async def _on_index_chunk(self, index, platform) -> None:
         # Always cache on app (even if screen dismissed, so re-open is fast)
         self.app._history_index = index
         self.app._history_platform = platform
+        self.app._history_cached_at = time.monotonic()
         # Guard: skip UI updates if screen was dismissed while worker ran
         if not self.is_mounted:
             return
@@ -214,9 +242,10 @@ class HistoryScreen(Screen):
             except Exception:
                 pass
 
-    def _on_reload_chunk(self, index, platform, is_first: bool) -> None:
+    def _on_reload_chunk(self, index, platform, is_first: bool, auto: bool = False) -> None:
         self.app._history_index = index
         self.app._history_platform = platform
+        self.app._history_cached_at = time.monotonic()
         if not self.is_mounted:
             return
         self._task_index = index
@@ -234,6 +263,11 @@ class HistoryScreen(Screen):
             except Exception:
                 saved_scroll = 0
                 saved_labels = set()
+            # Race guard: when auto-reload fires right after _populate_and_restore
+            # (whose scroll restore runs on a 0.1s timer), the live scroll_y may
+            # still be 0 — fall back to the pending restore value.
+            if saved_scroll == 0 and self._restore_scroll_y > 0:
+                saved_scroll = self._restore_scroll_y
             saved_task_id = detail._nav_stack[-1] if detail._nav_stack else None
             saved_showing_plan = detail._showing_plan
             left.set_data(index)
@@ -247,12 +281,15 @@ class HistoryScreen(Screen):
             if saved_scroll > 0:
                 self._restore_scroll_y = saved_scroll
                 self.set_timer(0.1, self._restore_scroll)
-            elapsed = time.monotonic() - self._refresh_start_time
-            remaining = max(0.0, 1.0 - elapsed)
-            if remaining > 0.0:
-                self.set_timer(remaining, self._dismiss_refresh_modal)
-            else:
-                self._dismiss_refresh_modal()
+            if not auto:
+                # Manual `r` shows the blocking modal; dismiss it after a brief
+                # minimum display time. Auto-reload has no modal.
+                elapsed = time.monotonic() - self._refresh_start_time
+                remaining = max(0.0, 1.0 - elapsed)
+                if remaining > 0.0:
+                    self.set_timer(remaining, self._dismiss_refresh_modal)
+                else:
+                    self._dismiss_refresh_modal()
         else:
             try:
                 left.update_index(index)

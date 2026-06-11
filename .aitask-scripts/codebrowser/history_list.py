@@ -231,22 +231,74 @@ class HistoryTaskList(VerticalScroll):
             item.remove()
         self._load_chunk()
 
+    def _refresh_load_more(self) -> None:
+        """Sync the 'Load more' indicator to the current offset/index."""
+        self._has_more = self._offset < len(self._index)
+        ind = self.query_one("#load_more_ind", _LoadMoreIndicator)
+        if self._has_more:
+            remaining = len(self._index) - self._offset
+            ind.update(f"\u25bc Load more ({remaining} remaining) \u25bc")
+            ind.display = True
+        else:
+            ind.display = False
+
     def update_index(self, new_index: list[CompletedTask]) -> None:
-        """Progressive update: replace full index and refresh filtered view."""
+        """Progressive update: reconcile the displayed window with a re-sorted index.
+
+        Each progressive chunk re-sorts the growing index by commit date, so a
+        task arriving in a later chunk (notably a recently-archived child task)
+        can sort *into* a position the list has already paged past. Keeping the
+        mounted rows as-is would drop it forever \u2014 not even "Load more" could
+        surface it, since the offset is applied against the new index.
+
+        To prevent that, re-render the currently displayed window (the first
+        ``_offset`` rows) from the new index whenever its contents changed,
+        preserving scroll position and the focused row. A fast path skips the
+        re-mount when the visible window is unchanged (the common case where a
+        later chunk only appends older tasks below the fold).
+        """
         self._full_index = new_index
         self._child_counts = _compute_child_counts(new_index)
-        new_filtered = filter_index_by_labels(self._full_index, self._active_labels)
-        # Only update load-more indicator (items already displayed stay)
-        self._index = new_filtered
-        if self._has_more or self._offset < len(self._index):
-            self._has_more = self._offset < len(self._index)
-            ind = self.query_one("#load_more_ind", _LoadMoreIndicator)
-            if self._has_more:
-                remaining = len(self._index) - self._offset
-                ind.update(f"\u25bc Load more ({remaining} remaining) \u25bc")
-                ind.display = True
-            else:
-                ind.display = False
+        self._index = filter_index_by_labels(self._full_index, self._active_labels)
+        displayed = self._offset if self._offset > 0 else self._chunk_size
+        displayed = min(displayed, len(self._index))
+        current_items = list(self.query(HistoryTaskItem))
+        new_window = self._index[:displayed]
+        if [it.completed_task.task_id for it in current_items] == [
+            t.task_id for t in new_window
+        ]:
+            # Visible window unchanged \u2014 only refresh the load-more indicator.
+            self._refresh_load_more()
+            return
+        # Window changed: re-render it, preserving scroll + focused row.
+        saved_scroll = int(self.scroll_y)
+        focused = self.app.focused if self.app else None
+        focused_id = (
+            focused.completed_task.task_id
+            if isinstance(focused, HistoryTaskItem) and focused in current_items
+            else None
+        )
+        ind = self.query_one("#load_more_ind", _LoadMoreIndicator)
+        for item in current_items:
+            item.remove()
+        for task in new_window:
+            cc = self._child_counts.get(task.task_id, 0)
+            self.mount(HistoryTaskItem(task, child_count=cc), before=ind)
+        self._offset = displayed
+        self._refresh_load_more()
+        self.set_timer(0.05, lambda: self._restore_window_view(saved_scroll, focused_id))
+
+    def _restore_window_view(self, scroll_y: int, focused_id: str | None) -> None:
+        """Restore scroll + focus after a window re-render lays out."""
+        try:
+            self.scroll_y = scroll_y
+            if focused_id:
+                for it in self.query(HistoryTaskItem):
+                    if it.completed_task.task_id == focused_id:
+                        it.focus()
+                        break
+        except Exception:
+            pass
 
     def _load_chunk(self) -> None:
         chunk, has_more = load_completed_tasks_chunk(self._index, self._offset, self._chunk_size)

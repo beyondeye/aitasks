@@ -420,6 +420,7 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._detail_expanded: bool = False
         self._history_index = None       # cached task index
         self._history_platform = None    # cached platform info
+        self._history_cached_at = 0.0    # monotonic time the index was last cached
         self._history_last_task_id = None  # last viewed task in history
         self._history_loaded_chunks = 0    # number of chunks loaded in list
         self._history_showing_plan = False  # plan/task view toggle state
