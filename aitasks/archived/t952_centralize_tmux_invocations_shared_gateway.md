@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Done
 labels: [tmux, ait_bridge]
-children_to_implement: [t952_6]
 created_at: 2026-06-10 08:58
-updated_at: 2026-06-11 08:30
+updated_at: 2026-06-11 09:33
+completed_at: 2026-06-11 09:33
 boardidx: 10
 ---
 
