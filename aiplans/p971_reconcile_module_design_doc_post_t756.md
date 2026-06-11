@@ -122,3 +122,27 @@ Change the syncer `Output:` line to proposal-only:
 Doc-only, on `main` (no worktree/branch). Commit the doc with
 `documentation: … (t971)`, then archive via
 `./.aitask-scripts/aitask_archive.sh 971` and `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Applied the three planned edits to
+  `aidocs/brainstorming/module_decomposition_design.md` exactly as
+  designed — (1) status header rewritten to current-state "implemented"
+  phrasing, (2) §4.3 `sync` outputs stripped of the node `plan_file`
+  clause (proposal-only), (3) §4.10 syncer template output line
+  proposal-only. Net 8 insertions / 8 deletions in one file. No code,
+  schema, or test surface touched.
+- **Deviations from plan:** None.
+- **Issues encountered:** Plan externalization first returned
+  `MULTIPLE_CANDIDATES` (several recent internal plans in the recency
+  window); re-ran with explicit `--internal <path>` to disambiguate.
+  No impact on the change itself.
+- **Key decisions:** Kept §7 "Roadmap (out of scope here)" body and the
+  closing "primary reference for Phases A–D" line untouched — they remain
+  accurate records of how delivery was split into phases, and the new
+  status line still cross-references §7. Narrow blast radius by design
+  (the three stale lines were grep-bounded). Confirmed the proposal-only
+  target wording against `brainstorm_engine_architecture_v2.md:1057` and
+  that `brainstorm_schemas.py` has zero `plan_file`/`plan` references
+  (t891_3 removed the node plan layer).
+- **Upstream defects identified:** None.
