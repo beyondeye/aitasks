@@ -718,7 +718,26 @@
       "cli_id": "claude-fable-5",
       "notes": "Fable 5 — latest-generation Claude model",
       "verified": {},
-      "verifiedstats": {}
+      "verifiedstats": {},
+      "usagestats": {
+        "pick": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W24",
+            "runs": 1
+          }
+        }
+      }
     }
   ]
 }
