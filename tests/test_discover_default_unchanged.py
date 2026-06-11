@@ -34,8 +34,17 @@ class DefaultCallUnchangedTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
+        # Pin the module-level gateway singleton to NO socket flag: the mocks
+        # below prefix-match argv[:2] == ["tmux", "list-sessions"], but since
+        # t953 a default-constructed TmuxClient carries `-L ait`. Swapping the
+        # singleton (rather than setting the env var pre-import) stays correct
+        # under run_all_python_tests.sh, where another module may import
+        # agent_launch_utils first and freeze the cached socket args.
+        self._saved_tmux = agent_launch_utils._TMUX
+        agent_launch_utils._TMUX = agent_launch_utils.TmuxClient(socket_args=[])
 
     def tearDown(self) -> None:
+        agent_launch_utils._TMUX = self._saved_tmux
         self._tmpdir.cleanup()
         os.environ.pop("AITASKS_PROJECTS_INDEX", None)
 

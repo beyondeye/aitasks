@@ -335,7 +335,8 @@ class TmuxControlBackend:
         self.command_timeout = command_timeout
         # Cached socket flag, passed to every client this backend constructs
         # (initial start + every supervisor reconnect) so a reconnected channel
-        # keeps the same socket. Resolved from AITASKS_TMUX_SOCKET when unset.
+        # keeps the same socket. Resolved from AITASKS_TMUX_SOCKET when not
+        # supplied (unset env → dedicated `-L ait` socket, t953).
         self._socket_args = (
             list(socket_args) if socket_args is not None else tmux_socket_args()
         )

@@ -209,22 +209,44 @@ class TestLaunchInTmuxNewSession(unittest.TestCase):
 
 @unittest.skipIf(shutil.which("tmux") is None, "tmux not installed")
 class TestLaunchInTmuxIntegration(unittest.TestCase):
-    """Live tmux integration: spawn sleep, verify pid alive."""
+    """Live tmux integration: spawn sleep, verify pid alive.
+
+    Isolated (t953): a private TMUX_TMPDIR + test socket so the launch can
+    never touch the user's real servers (default OR the dedicated `ait`
+    socket the gateway now targets when AITASKS_TMUX_SOCKET is unset).
+    `agent_launch_utils._TMUX` caches its socket args at import, so the
+    module-level singleton is rebuilt inside the patched env and restored
+    in tearDown — mirroring test_tmux_exec.py::TestGatewayIntegration.
+    """
 
     SESSION = "_t675_pid_integration"
+    SOCK = "ait_t675_test"
 
     def setUp(self):
-        # Tear down any pre-existing test session.
-        subprocess.run(
-            ["tmux", "kill-session", "-t", tmux_session_target(self.SESSION)],
-            capture_output=True,
+        import tempfile
+        self._tmpdir = tempfile.mkdtemp(prefix="ait_t675_tmux_")
+        # AIT_NO_SYSTEMD_RUN forces the setsid/plain rung: a systemd-run
+        # transient unit would not inherit this test's TMUX_TMPDIR and would
+        # land the server on a different socket than the isolated one.
+        self._env = patch.dict(
+            os.environ,
+            {"TMUX_TMPDIR": self._tmpdir,
+             "AITASKS_TMUX_SOCKET": self.SOCK,
+             "AIT_NO_SYSTEMD_RUN": "1"},
+            clear=False,
         )
+        self._env.start()
+        os.environ.pop("TMUX", None)  # not nested under the user's server
+        self._saved_tmux = agent_launch_utils._TMUX
+        agent_launch_utils._TMUX = agent_launch_utils.TmuxClient()
+        self._client = agent_launch_utils._TMUX
+        self._client.run(["kill-session", "-t", tmux_session_target(self.SESSION)])
 
     def tearDown(self):
-        subprocess.run(
-            ["tmux", "kill-session", "-t", tmux_session_target(self.SESSION)],
-            capture_output=True,
-        )
+        self._client.run(["kill-server"])
+        agent_launch_utils._TMUX = self._saved_tmux
+        self._env.stop()
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def test_new_session_pane_pid_alive(self):
         config = TmuxLaunchConfig(

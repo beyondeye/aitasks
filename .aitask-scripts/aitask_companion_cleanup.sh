@@ -7,6 +7,11 @@
 # naturally.
 #
 # Usage: aitask_companion_cleanup.sh <primary_pane_id> <companion_pane_id>
+#
+# Raw `tmux` (no gateway / socket flag) is correct here BY DESIGN: hook
+# commands run as tmux server jobs, and tmux fills `$TMUX` in the job
+# environment, so every call below reaches exactly the server that fired the
+# hook — including the dedicated `-L ait` server (t953) — with no flag needed.
 set -euo pipefail
 
 primary="${1:?primary pane id required}"

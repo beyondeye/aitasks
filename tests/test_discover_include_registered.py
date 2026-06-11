@@ -54,6 +54,14 @@ class IncludeRegisteredTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
+        # Pin the module-level gateway singleton to NO socket flag: _fake_run
+        # prefix-matches argv[:2] == ["tmux", "list-sessions"], but since t953
+        # a default-constructed TmuxClient carries `-L ait`. Swapping the
+        # singleton (rather than setting the env var pre-import) stays correct
+        # under run_all_python_tests.sh, where another module may import
+        # agent_launch_utils first and freeze the cached socket args.
+        self._saved_tmux = agent_launch_utils._TMUX
+        agent_launch_utils._TMUX = agent_launch_utils.TmuxClient(socket_args=[])
         # Empty tmux to force the live-tmux loop to return [].
         self._tmux_patch = mock.patch.object(
             agent_launch_utils.subprocess, "run",
@@ -64,6 +72,7 @@ class IncludeRegisteredTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self._tmux_patch.stop()
+        agent_launch_utils._TMUX = self._saved_tmux
         self._tmpdir.cleanup()
         os.environ.pop("AITASKS_PROJECTS_INDEX", None)
 

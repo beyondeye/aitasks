@@ -129,14 +129,14 @@ ait_warn_if_incapable_terminal() {
 }
 
 # --- Persistent-scope tmux session spawn (t943) ---------------------------
-# Background: every ait-managed tmux session shares one default-socket server.
+# Background: every ait-managed tmux session shares one server (on the
+# dedicated `-L ait` socket since t953; the gateway owns socket selection).
 # When that server is started inside a *transient* systemd user scope (the
 # app.slice scope an Omarchy/uwsm workspace launch creates), a compositor /
 # app.slice teardown dies as a unit and takes the tmux server — and all its
 # sessions — with it. These helpers let the framework start *its own* new
 # server inside a persistent session.slice service instead, so it survives an
-# app.slice teardown. The socket is unchanged (default), so every other tmux
-# call site keeps working untouched.
+# app.slice teardown.
 
 # ait_systemd_user_available
 # Returns 0 iff a usable systemd --user manager is reachable for systemd-run.
@@ -152,8 +152,8 @@ ait_systemd_user_available() {
 # ait_tmux_new_session_persistent <session> <root> <window> <command>
 # Create a brand-new DETACHED tmux session whose SERVER lands in a persistent
 # systemd-user service under session.slice, so a compositor / app.slice
-# teardown does not reach it. Socket unchanged (default). Falls back to setsid,
-# then plain tmux. Precondition: caller has confirmed the server does NOT yet
+# teardown does not reach it. The socket flag comes from the gateway (dedicated
+# `-L ait` by default, t953). Falls back to setsid, then plain tmux. Precondition: caller has confirmed the server does NOT yet
 # exist (otherwise wrapping is pointless — a plain new-session just attaches).
 ait_tmux_new_session_persistent() {
     local session="$1" root="$2" window="$3" cmd="$4"

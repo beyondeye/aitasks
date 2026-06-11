@@ -85,7 +85,7 @@ If you must keep using Apple Terminal, edit `~/.tmux.conf` and remove (or commen
 # set -ag terminal-overrides ",*:RGB"
 ```
 
-Then either restart the tmux server (`tmux kill-server`) or reload and recreate panes:
+Then either restart the tmux server (`tmux -L ait kill-server` — `ait`-managed sessions live on the dedicated `ait` socket) or reload and recreate panes:
 
 ```bash
 tmux source-file ~/.tmux.conf

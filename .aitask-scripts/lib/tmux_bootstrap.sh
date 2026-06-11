@@ -161,12 +161,25 @@ spawn_session_detached() {
     }
 
     if ! ait_tmux has-session -t "$session_t" 2>/dev/null; then
+        # Legacy-session detection (t953): a same-name session may still live
+        # on the user's default server from before the dedicated-socket move
+        # (tmux cannot move sessions between servers). Warn-only here — this
+        # path is non-interactive (tui_switcher bootstrap); `ait ide` runs its
+        # own interactive offer before reaching this helper. Skipped when the
+        # gateway already targets the default server.
+        local sock_name
+        sock_name="$(ait_tmux_socket_name)"
+        if [[ -n "$sock_name" && "$sock_name" != "default" ]] \
+            && ait_tmux_legacy has-session -t "$session_t" 2>/dev/null; then
+            echo "WARNING: session '$session' also exists on the legacy default tmux server;" >&2
+            echo "         run 'AITASKS_TMUX_SOCKET=default ait ide' to reach it." >&2
+        fi
         # First session => this call creates the tmux SERVER. Spawn it inside a
         # persistent systemd-user service (session.slice) so a compositor /
-        # app.slice teardown no longer kills the server (t943). Socket
-        # unchanged; only the new server's cgroup placement differs. The helper
-        # degrades gracefully (setsid → plain tmux) where systemd --user is
-        # unavailable, preserving today's behavior.
+        # app.slice teardown no longer kills the server (t943). The socket flag
+        # comes from the gateway (dedicated `-L ait` by default, t953); the
+        # helper also fixes the new server's cgroup placement. It degrades
+        # gracefully (setsid → plain tmux) where systemd --user is unavailable.
         # new-session -s takes a literal session name; do not prefix '='.
         ait_tmux_new_session_persistent "$session" "$root" monitor 'ait monitor' \
             || {

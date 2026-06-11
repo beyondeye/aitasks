@@ -59,7 +59,8 @@ from keybinding_registry import register_app_bindings, resolve_key  # noqa: E402
 from shortcut_labels import display_form, render_label  # noqa: E402
 
 # Single Python gateway for raw tmux spawning (t952). Socket args cached once
-# at construction from AITASKS_TMUX_SOCKET (unset today → default socket).
+# at construction from AITASKS_TMUX_SOCKET (unset → dedicated `-L ait` socket,
+# t953).
 _TMUX = TmuxClient()
 
 

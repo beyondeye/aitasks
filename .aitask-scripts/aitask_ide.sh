@@ -64,10 +64,12 @@ command -v tmux >/dev/null || die "tmux is not installed. Install it first, then
 
 # Socket flag for the `exec tmux ...` sites below. A shell function cannot be
 # exec'd (and exec must keep the `\;` separator intact), so the ait_tmux
-# wrapper is unusable there — capture the emitter's args once instead. Empty by
-# default (default socket), so the exec lines are byte-identical to before.
+# wrapper is unusable there — capture the emitter's args once instead.
+# `-L ait` by default (the dedicated ait socket, t953); empty only when the
+# legacy no-flag escape hatch is active (AITASKS_TMUX_SOCKET set but empty).
 _IDE_SOCK_ARGS=()
 while IFS= read -r _line; do _IDE_SOCK_ARGS+=("$_line"); done < <(ait_tmux_socket_args)
+_IDE_SOCK_NAME="$(ait_tmux_socket_name)"
 
 # Thin wrappers that delegate to the shared bootstrap helpers (t826_2).
 set_project_registry() {
@@ -79,6 +81,23 @@ ensure_syncer_window() {
 }
 
 if [[ -n "${TMUX:-}" ]]; then
+    # Socket-identity check (t953): the gateway targets the dedicated socket,
+    # so a gateway-routed self-probe from inside a FOREIGN server (the user's
+    # personal tmux, or a pre-t953 legacy session) would query a server where
+    # this client has no pane — failing under `set -e`. Compare the attached
+    # server's socket name ($TMUX's first field is the socket path) against
+    # the gateway's resolved name; bail out with guidance on mismatch. Skip
+    # when the legacy no-flag escape hatch is active (empty name → ait_tmux
+    # follows $TMUX, today's behavior).
+    _attached_sock="$(basename "${TMUX%%,*}")"
+    if [[ -n "$_IDE_SOCK_NAME" && "$_attached_sock" != "$_IDE_SOCK_NAME" ]]; then
+        warn "You are inside a tmux server on socket '$_attached_sock', but ait sessions"
+        warn "live on the dedicated socket '-L $_IDE_SOCK_NAME'."
+        warn "Detach (Ctrl-b d) and re-run 'ait ide' to use the aitasks server, or run"
+        warn "  AITASKS_TMUX_SOCKET=$_attached_sock ait ide"
+        warn "to keep using the current server."
+        exit 1
+    fi
     current_session=$(ait_tmux display-message -p '#S')
     if [[ "$current_session" != "$SESSION" ]]; then
         warn "Already inside tmux session '$current_session', but configured session is '$SESSION'."
@@ -101,6 +120,30 @@ if ait_tmux has-session -t "$SESSION_T" 2>/dev/null; then
     fi
     ensure_syncer_window
     exec tmux ${_IDE_SOCK_ARGS[@]+"${_IDE_SOCK_ARGS[@]}"} attach -t "$SESSION_T" \; select-window -t "${SESSION_T}:monitor"
+fi
+
+# Legacy-session migration offer (t953): no session on the dedicated socket,
+# but one with the same name may still live on the user's default server from
+# before the socket move (tmux cannot move sessions between servers). Detect
+# it so a user mid-flight is not stranded. Skipped when the gateway already
+# targets the default server (opt-out / legacy escape hatch).
+if [[ -n "$_IDE_SOCK_NAME" && "$_IDE_SOCK_NAME" != "default" ]] \
+    && ait_tmux_legacy has-session -t "$SESSION_T" 2>/dev/null; then
+    if [[ -t 0 && -t 1 ]]; then
+        warn "Session '$SESSION' exists on the legacy default tmux server (pre-dedicated-socket)."
+        printf 'Attach to it instead? [y/N] ' >&2
+        read -r _legacy_answer || _legacy_answer=""
+        if [[ "$_legacy_answer" =~ ^[Yy]$ ]]; then
+            _IDE_LEGACY_ARGS=()
+            while IFS= read -r _line; do _IDE_LEGACY_ARGS+=("$_line"); done < <(ait_tmux_legacy_socket_args)
+            exec tmux "${_IDE_LEGACY_ARGS[@]}" attach -t "$SESSION_T"
+        fi
+        warn "Creating a fresh session on the dedicated socket. To reach the legacy one later:"
+        warn "  AITASKS_TMUX_SOCKET=default ait ide"
+    else
+        warn "Session '$SESSION' also exists on the legacy default tmux server;"
+        warn "run 'AITASKS_TMUX_SOCKET=default ait ide' to reach it."
+    fi
 fi
 
 # Fresh-session path. spawn_session_detached handles new-session + env

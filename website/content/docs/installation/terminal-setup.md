@@ -34,7 +34,7 @@ That's it. `ait ide` is the headline entry point into the aitasks "IDE" — a si
 
 Here's what happens under the hood:
 
-1. `ait ide` reads the tmux session name from `aitasks/metadata/project_config.yaml` under `tmux.default_session` (defaults to `aitasks` if unset), then attaches to — or creates — a tmux session with that exact name. Because the session name is always explicit, `ait monitor` never has to fall back to its interactive `SessionRenameDialog` on the happy path.
+1. `ait ide` reads the tmux session name from `aitasks/metadata/project_config.yaml` under `tmux.default_session` (defaults to `aitasks` if unset), then attaches to — or creates — a tmux session with that exact name **on the framework's dedicated tmux server** (named socket `ait`, kept separate from your personal default tmux server — see [the dedicated tmux server](#the-dedicated-tmux-server) below). Because the session name is always explicit, `ait monitor` never has to fall back to its interactive `SessionRenameDialog` on the happy path.
 2. A `monitor` window is created (or focused) inside the session, running [`ait monitor`](../../tuis/monitor/). From the monitor you get a live dashboard of running code agents, open TUIs, and other panes in the session.
 3. Press **`j`** inside any main aitasks TUI (`ait board`, `ait monitor`, `ait minimonitor`, `ait codebrowser`, `ait settings`, `ait brainstorm`, `ait syncer`) to open the **TUI switcher** dialog and jump to another TUI without leaving tmux.
 
@@ -69,9 +69,29 @@ ait ide --session project-b
 
 Or, better, configure a distinct `tmux.default_session` per project in each project's `aitasks/metadata/project_config.yaml`. Then a plain `ait ide` in each project root just works.
 
+## The dedicated tmux server
+
+All `ait`-managed tmux sessions live on a **dedicated tmux server** on the named socket `ait`, isolated from your personal default tmux server. This means a stray `tmux kill-server` aimed at your own tmux cannot take down running agents, and your personal sessions never mix with framework sessions. To inspect the framework's server directly, add `-L ait` to any tmux command:
+
+```bash
+tmux -L ait ls               # list ait-managed sessions
+tmux -L ait attach -t aitasks
+```
+
+The socket is controlled by the `AITASKS_TMUX_SOCKET` environment variable:
+
+| `AITASKS_TMUX_SOCKET` | Behavior |
+|---|---|
+| unset | dedicated `ait` socket (the default) |
+| a name (e.g. `mysock`) | that named socket |
+| `default` | your personal default tmux server (explicit opt-out) |
+| set but empty | no socket flag — tmux follows `$TMUX` (legacy behavior) |
+
+**Migrating from an older version:** tmux cannot move sessions between servers, so a session created on your default server before the dedicated-socket change stays there. `ait ide` detects this and offers to attach to the legacy session one last time; you can also reach it any time with `AITASKS_TMUX_SOCKET=default ait ide` (or plain `tmux attach`). Finish or kill the legacy session at your convenience — new sessions are created on the dedicated server.
+
 ## Surviving a compositor restart on Linux/Wayland
 
-All `ait`-managed sessions for a project share **one** tmux server, so if that server is torn down, every session inside it is lost at once. On Linux desktops that launch graphical apps through transient systemd user scopes — most Wayland compositors (Hyprland, Sway) and session managers such as uwsm — that can happen when your graphical session restarts.
+All `ait`-managed sessions share **one** tmux server — a dedicated one on the named socket `ait` (`tmux -L ait`), kept separate from your personal default tmux server — so if that server is torn down, every session inside it is lost at once. On Linux desktops that launch graphical apps through transient systemd user scopes — most Wayland compositors (Hyprland, Sway) and session managers such as uwsm — that can happen when your graphical session restarts.
 
 When you start the server with [`ait ide`](#recommended-workflow--ait-ide), the framework already guards against this: it spawns the server inside a persistent systemd-user service under `session.slice`, which survives a compositor restart, an `app.slice` teardown, or a logout *of the graphical session*, and ends only at full logout. No action is needed on your part.
 
@@ -82,10 +102,10 @@ To give a self-launched server the same survival guarantee, wrap the tmux invoca
 ```bash
 systemd-run --user --slice=session.slice \
     --property=Type=forking --property=KillMode=none --collect \
-    -- tmux new-session -d -s aitasks -c /path/to/your/project -n monitor 'ait monitor'
+    -- tmux -L ait new-session -d -s aitasks -c /path/to/your/project -n monitor 'ait monitor'
 ```
 
-`--slice=session.slice` is the load-bearing flag — it moves the server out of the transient `app.slice` scope into a unit that survives compositor / `app.slice` teardown and ends only at full logout. `--property=Type=forking` matches tmux's double-fork so systemd tracks the daemon, and `--property=KillMode=none` keeps systemd from signalling the server when the launching command returns (tmux owns its own lifecycle via `kill-server`). Run it once, then attach as usual with `ait ide` or `tmux attach -t aitasks`.
+`--slice=session.slice` is the load-bearing flag — it moves the server out of the transient `app.slice` scope into a unit that survives compositor / `app.slice` teardown and ends only at full logout. `--property=Type=forking` matches tmux's double-fork so systemd tracks the daemon, and `--property=KillMode=none` keeps systemd from signalling the server when the launching command returns (tmux owns its own lifecycle via `kill-server`). `-L ait` lands the session on the framework's dedicated server so `ait` tooling can see it. Run it once, then attach as usual with `ait ide` or `tmux -L ait attach -t aitasks`.
 
 > **Omarchy / uwsm users:** uwsm launches apps into `app.slice`, so a `tmux-spawn` keybind that runs `tmux` directly inherits that scope and dies with the compositor. Point the keybind at the `systemd-run --user --slice=session.slice` form above — or simply start your session with `ait ide`, which already does this — so the server persists across compositor restarts.
 

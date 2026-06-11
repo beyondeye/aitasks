@@ -53,5 +53,15 @@ if [[ -z "${_AIT_TMUX_ISOLATION_LOADED:-}" ]]; then
             export _AIT_ISOLATED_TMUX_TMPDIR
         fi
         export TMUX_TMPDIR="$_AIT_ISOLATED_TMUX_TMPDIR"
+
+        # 3. Pin the gateway socket knob to the no-flag escape hatch (t953):
+        #    unset AITASKS_TMUX_SOCKET now means the dedicated `-L ait`
+        #    socket, so gateway-routed app code under test would otherwise
+        #    target a different server than the raw (no `-L`) fixture spawns
+        #    in the tests. Set-but-empty => no socket flag for BOTH, so they
+        #    agree on the default socket inside the isolated TMUX_TMPDIR.
+        #    This also shields the suite from a custom AITASKS_TMUX_SOCKET
+        #    value inherited from the developer's shell.
+        export AITASKS_TMUX_SOCKET=""
     }
 fi

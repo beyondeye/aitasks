@@ -333,7 +333,12 @@ pause-pane`, etc. — typical surface: `.aitask-scripts/monitor/`,
 implementation must NOT run from inside the user's active aitasks tmux
 session. Even with per-case `TMUX_TMPDIR` sockets, a wrong test or an embedded
 helper bug can blast the user's real session and take all running code agents
-down.
+down. Note that since t953 ait sessions live on the dedicated `-L ait` socket,
+so "the user's main aitasks tmux" means the dedicated server, not the personal
+default one; the test isolation helper (`tests/lib/tmux_isolation.sh`) pins
+`AITASKS_TMUX_SOCKET=""` in addition to redirecting `TMUX_TMPDIR`, so isolated
+tests can reach neither the personal default server nor the dedicated `ait`
+server.
 
 How to apply:
 - Flag the risk before drafting the verification section. Recommend the user

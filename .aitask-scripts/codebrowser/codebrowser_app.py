@@ -30,8 +30,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name, tmux_session_target
+from tmux_exec import TmuxClient
 from tui_switcher import TuiSwitcherMixin
 from shortcuts_mixin import ShortcutsMixin
+
+# Gateway client for the Layer-A backend calls below (show/set-environment
+# target the ait backend session by name and must pair with the
+# gateway-routed writer in agent_launch_utils.launch_or_focus_codebrowser —
+# t953). Ambient $TMUX self-probes (_detect_*) stay raw by design.
+_TMUX = TmuxClient()
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -510,21 +517,22 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return (path, min(starts), max(ends))
 
     def _consume_codebrowser_focus(self) -> str | None:
-        """Read AITASK_CODEBROWSER_FOCUS from the tmux session env, or None."""
+        """Read AITASK_CODEBROWSER_FOCUS from the tmux session env, or None.
+
+        Gateway-routed (t953): pairs with the gateway-routed writer in
+        ``launch_or_focus_codebrowser``. The gateway folds transport errors
+        into ``rc != 0``.
+        """
         if not self._tmux_session:
             return None
-        try:
-            result = subprocess.run(
-                ["tmux", "show-environment", "-t",
-                 tmux_session_target(self._tmux_session),
-                 "AITASK_CODEBROWSER_FOCUS"],
-                capture_output=True, text=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        rc, stdout = _TMUX.run(
+            ["show-environment", "-t",
+             tmux_session_target(self._tmux_session),
+             "AITASK_CODEBROWSER_FOCUS"],
+        )
+        if rc != 0:
             return None
-        if result.returncode != 0:
-            return None
-        line = result.stdout.strip()
+        line = stdout.strip()
         if not line or "=" not in line:
             return None
         _, _, val = line.partition("=")
@@ -532,18 +540,14 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return val or None
 
     def _clear_codebrowser_focus(self) -> None:
-        """Unset AITASK_CODEBROWSER_FOCUS on the tmux session."""
+        """Unset AITASK_CODEBROWSER_FOCUS on the tmux session (gateway-routed)."""
         if not self._tmux_session:
             return
-        try:
-            subprocess.run(
-                ["tmux", "set-environment", "-t",
-                 tmux_session_target(self._tmux_session), "-u",
-                 "AITASK_CODEBROWSER_FOCUS"],
-                capture_output=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            pass
+        _TMUX.run(
+            ["set-environment", "-t",
+             tmux_session_target(self._tmux_session), "-u",
+             "AITASK_CODEBROWSER_FOCUS"],
+        )
 
     def _apply_focus(self, focus_value: str) -> None:
         """Parse a focus value and navigate the viewer to it."""

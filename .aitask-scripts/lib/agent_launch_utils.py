@@ -27,7 +27,8 @@ from tmux_exec import TmuxClient
 KNOWN_GIT_TUIS = ["lazygit", "gitui", "tig"]
 
 # Single Python gateway for raw tmux spawning (t952). Socket args are cached
-# once at construction from AITASKS_TMUX_SOCKET (unset today → default socket).
+# once at construction from AITASKS_TMUX_SOCKET (unset → dedicated `-L ait`
+# socket, t953).
 _TMUX = TmuxClient()
 
 

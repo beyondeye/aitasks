@@ -4,14 +4,16 @@
 framework that launches a raw ``tmux`` process. It owns three cross-cutting
 policies that are currently implicit and duplicated across call sites (t952):
 
-1. **Socket selection.** Today nothing threads ``-L``/``-S``; every call assumes
-   the default socket. The gateway centralizes this in one place — see
-   :func:`tmux_socket_args`. It reads the env var ``AITASKS_TMUX_SOCKET`` once at
-   client construction (never per-call: the monitor fallback path is a hot
-   path). Empty/unset → no flag (today's behavior, preserved). This env var is
-   the **single future knob** a dedicated-socket task flips; the shell mirror
-   (``lib/tmux_exec.sh``, t952_4) and the control-mode attach (t952_3) read the
-   same var so all clients converge on one value.
+1. **Socket selection.** The framework runs its tmux sessions on a dedicated
+   named socket (``-L ait``, t953) so the ait backend is isolated from the
+   user's personal default server. The gateway centralizes this in one place —
+   see :func:`tmux_socket_args`. It reads the env var ``AITASKS_TMUX_SOCKET``
+   once at client construction (never per-call: the monitor fallback path is a
+   hot path). Unset → ``-L ait`` (the dedicated default); ``default`` → the
+   user's default server (explicit opt-out); set-but-empty → no flag (legacy
+   escape hatch that follows ``$TMUX``, used by the test isolation harness).
+   The shell mirror (``lib/tmux_exec.sh``, t952_4) and the control-mode attach
+   (t952_3) read the same var so all clients converge on one value.
 
 2. **Target formatting.** :func:`session_target` / :func:`window_target` (the
    ``=<session>`` exact-match helpers, promoted here from "available" to
@@ -50,10 +52,17 @@ import os
 import shutil
 import subprocess
 
-# Env var naming the tmux socket (``tmux -L <name>``). Empty/unset preserves
-# today's default-socket behavior. The single knob a future dedicated-socket
-# task flips — shared verbatim with the shell gateway ``lib/tmux_exec.sh``.
+# Env var naming the tmux socket (``tmux -L <name>``). Unset → the dedicated
+# ``ait`` socket (t953); ``default`` → the user's default server (opt-out);
+# set-but-empty → no flag (legacy escape hatch, follows ``$TMUX``). Shared
+# verbatim with the shell gateway ``lib/tmux_exec.sh``.
 TMUX_SOCKET_ENV = "AITASKS_TMUX_SOCKET"
+
+# The dedicated socket name every ait-managed tmux session lives on when the
+# env var is unset (t953). ONE shared server for all aitasks projects —
+# sessions stay per-project, so the multi-session `j` switcher keeps working.
+# Mirrored verbatim in ``lib/tmux_exec.sh`` (AIT_DEDICATED_SOCKET).
+AIT_DEDICATED_SOCKET = "ait"
 
 _DEFAULT_TIMEOUT = 5.0
 
@@ -61,14 +70,24 @@ _DEFAULT_TIMEOUT = 5.0
 def tmux_socket_args() -> list[str]:
     """Return the socket flag for every ``tmux`` invocation, from one source.
 
-    Reads ``AITASKS_TMUX_SOCKET``: empty/unset → ``[]`` (default socket, today's
-    behavior); non-empty → ``["-L", value]`` (a named socket on the default
-    ``$TMUX_TMPDIR``). ``-L`` (socket name) rather than ``-S`` (socket path) is
-    chosen so the value composes with tmux's standard tmpdir resolution and with
-    the test isolation harness (``TMUX_TMPDIR`` redirection in
-    ``tests/lib/tmux_isolation.sh``).
+    Reads ``AITASKS_TMUX_SOCKET`` (t953 semantics):
+
+    * **unset** → ``["-L", "ait"]`` — the dedicated ait socket (default).
+    * **non-empty** → ``["-L", value]`` — a named socket on the standard
+      ``$TMUX_TMPDIR``. ``AITASKS_TMUX_SOCKET=default`` is the explicit opt-out:
+      tmux's default socket is literally named ``default``.
+    * **set but empty/whitespace** → ``[]`` — legacy escape hatch: no flag, so
+      tmux follows ``$TMUX`` ambient resolution. Used by the test isolation
+      harness (``tests/lib/tmux_isolation.sh``).
+
+    ``-L`` (socket name) rather than ``-S`` (socket path) is chosen so the value
+    composes with tmux's standard tmpdir resolution and with the test isolation
+    harness (``TMUX_TMPDIR`` redirection).
     """
-    sock = os.environ.get(TMUX_SOCKET_ENV, "").strip()
+    raw = os.environ.get(TMUX_SOCKET_ENV)
+    if raw is None:
+        return ["-L", AIT_DEDICATED_SOCKET]
+    sock = raw.strip()
     return ["-L", sock] if sock else []
 
 

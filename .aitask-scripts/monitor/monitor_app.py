@@ -43,6 +43,13 @@ from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 import subprocess  # noqa: E402
 from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, tmux_session_target  # noqa: E402
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # noqa: E402
+from tmux_exec import TmuxClient  # noqa: E402
+
+# Gateway client for the Layer-A backend calls below (has-session /
+# rename-session target the ait backend session by name, so they must reach
+# the dedicated gateway socket — t953). Ambient $TMUX self-probes
+# (display-message / rename-window on our own pane) stay raw by design.
+_TMUX = TmuxClient()
 
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
@@ -246,13 +253,19 @@ class SessionRenameDialog(ModalScreen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-rename":
-            try:
-                subprocess.run(
-                    ["tmux", "rename-session", self._expected],
-                    capture_output=True, timeout=5,
-                )
+            # Gateway-routed with an explicit exact-match target (t953): with
+            # the dedicated `-L ait` socket in the argv, implicit
+            # current-session resolution would rely on $TMUX_PANE existing on
+            # the ait server — false when the monitor runs inside a legacy
+            # default-socket session. The gateway swallows exceptions into
+            # rc != 0, so branch on rc instead of try/except.
+            rc, _ = _TMUX.run(
+                ["rename-session", "-t", tmux_session_target(self._current),
+                 self._expected],
+            )
+            if rc == 0:
                 self.dismiss(True)
-            except Exception:
+            else:
                 self.app.notify("Failed to rename session", severity="error")
                 self.dismiss(False)
         else:
@@ -509,15 +522,14 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             and self._session != self._expected_session
         ):
             # Check if a session with the expected name already exists.
-            # Pre-monitor-init: no `self._monitor` yet, so subprocess is
-            # the only available path here too.
+            # Pre-monitor-init: no `self._monitor` yet, so the module-level
+            # gateway client is the path here (Layer-A backend query, t953).
             try:
-                result = subprocess.run(
-                    ["tmux", "has-session", "-t",
+                rc, _ = _TMUX.run(
+                    ["has-session", "-t",
                      tmux_session_target(self._expected_session)],
-                    capture_output=True, timeout=5,
                 )
-                if result.returncode == 0:
+                if rc == 0:
                     # Expected session exists elsewhere — just warn
                     self.notify(
                         f"Session '{self._session}' differs from configured "

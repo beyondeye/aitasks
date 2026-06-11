@@ -216,11 +216,13 @@ therefore funnels all tmux access through a **single gateway per language**:
 three cross-cutting policies that a served deployment depends on:
 
 - **Socket selection.** The gateway is the one place that decides which tmux
-  server to talk to (the default socket today; a dedicated `-L`/`-S` socket when
-  the framework runs hosted). Because every Layer-A backend call routes through
-  it, pointing the served backend at a dedicated socket — so it does **not** fight
-  the operator's personal default server — becomes a one-knob change
-  (`AITASKS_TMUX_SOCKET`) rather than an edit to every call site.
+  server to talk to. Since t953 that is a **dedicated `-L ait` socket by
+  default**, isolated from the operator's personal default server;
+  `AITASKS_TMUX_SOCKET` overrides it (a custom name, `default` for the user's
+  default server, or set-but-empty for the legacy follow-`$TMUX` behavior).
+  Because every Layer-A backend call routes through the gateway, a hosted
+  deployment re-points the whole backend with that one knob rather than an
+  edit to every call site.
 - **Target formatting** (`=session` exact-match) and **exec strategy** (per-tick
   subprocess vs. the persistent control-mode client), so a remote front-end
   reuses the same well-known surface `ait monitor` already drives.
@@ -232,11 +234,11 @@ go through the gateway:
   management) routes through the gateway, so it is socket-bound and follows the
   served backend.
 - **Layer B / ambient probes** (a TUI asking "*which `$TMUX` am I myself running
-  inside?*") deliberately stay on the user's **default** server — they describe
-  the operator's local attach context, not the aitasks backend, so routing them
-  through a dedicated-socket gateway would query the wrong server. When the
-  front-end is remote, Layer B does not exist at all (navigation is in-app), so
-  these probes are local-only by construction.
+  inside?*") deliberately stay raw and follow **whatever server `$TMUX` points
+  at** — they describe the operator's local attach context, not the aitasks
+  backend, so routing them through the dedicated-socket gateway would query the
+  wrong server. When the front-end is remote, Layer B does not exist at all
+  (navigation is in-app), so these probes are local-only by construction.
 
 An anti-regression guard (`tests/test_no_raw_tmux.sh`) freezes this boundary: any
 new raw `tmux` spawn outside the gateway fails the test unless it is added to a

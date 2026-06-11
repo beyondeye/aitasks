@@ -42,17 +42,17 @@ TOTAL=0
 # B/ambient = a `$TMUX` self-probe of the user's *default* server (NOT the
 # aitasks backend socket — routing it through the dedicated-socket gateway would
 # query the wrong server); gateway = the chokepoint itself.
-# `TODO(socket-move)` marks Layer-A holdouts a future dedicated-socket task
-# should route through the gateway; they are sanctioned for THIS guard.
+# The Layer-A holdouts formerly marked `TODO(socket-move)` were routed through
+# the gateway in t953 (monitor_app rename/has-session, codebrowser
+# show/set-environment); only genuinely ambient self-probes remain raw.
 ALLOWLIST=(
   ".aitask-scripts/lib/tmux_exec.py"               # gateway: THE python chokepoint
   ".aitask-scripts/lib/tmux_exec.sh"               # gateway: THE shell chokepoint
   ".aitask-scripts/monitor/tmux_control.py"        # A: control-mode `tmux -C attach` client
-  ".aitask-scripts/monitor/tmux_monitor.py"        # A: raw per-tick fallback helpers
   ".aitask-scripts/aitask_companion_cleanup.sh"    # A: minimal-env cleanup hook, raw by design
-  ".aitask-scripts/monitor/monitor_app.py"         # B/ambient _detect probes; TODO(socket-move): rename/has-session
+  ".aitask-scripts/monitor/monitor_app.py"         # B/ambient _detect probes + own-pane rename-window
   ".aitask-scripts/monitor/minimonitor_app.py"     # B/ambient _detect probe + self display-message
-  ".aitask-scripts/codebrowser/codebrowser_app.py" # B/ambient _detect probes; TODO(socket-move): show/set-environment
+  ".aitask-scripts/codebrowser/codebrowser_app.py" # B/ambient _detect probes
   ".aitask-scripts/board/aitask_board.py"          # B/ambient _detect probe; B-nav select-window (local-only)
   ".aitask-scripts/stats/stats_app.py"             # B/ambient _detect probe
 )

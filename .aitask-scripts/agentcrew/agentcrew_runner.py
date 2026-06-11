@@ -53,7 +53,8 @@ from lib.launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES
 from lib.tmux_exec import TmuxClient
 
 # Single Python gateway for raw tmux spawning (t952). Socket args cached once
-# at construction from AITASKS_TMUX_SOCKET (unset today → default socket).
+# at construction from AITASKS_TMUX_SOCKET (unset → dedicated `-L ait` socket,
+# t953).
 _TMUX = TmuxClient()
 
 # ---------------------------------------------------------------------------

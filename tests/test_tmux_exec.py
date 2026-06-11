@@ -53,10 +53,11 @@ def _clear_socket_env():
 
 
 class TestSocketArgs(unittest.TestCase):
-    def test_unset_is_empty(self):
+    def test_unset_is_dedicated_default(self):
+        # Unset env → the dedicated ait socket (t953).
         env = _clear_socket_env()
         try:
-            self.assertEqual(tmux_socket_args(), [])
+            self.assertEqual(tmux_socket_args(), ["-L", "ait"])
         finally:
             env.stop()
 
@@ -64,9 +65,22 @@ class TestSocketArgs(unittest.TestCase):
         with patch.dict(os.environ, {TMUX_SOCKET_ENV: "aitsock"}, clear=False):
             self.assertEqual(tmux_socket_args(), ["-L", "aitsock"])
 
-    def test_whitespace_is_empty(self):
+    def test_empty_string_is_no_flag(self):
+        # Set-but-empty is the legacy escape hatch (no flag → tmux follows
+        # $TMUX). Load-bearing for tests/lib/tmux_isolation.sh's pin.
+        with patch.dict(os.environ, {TMUX_SOCKET_ENV: ""}, clear=False):
+            self.assertEqual(tmux_socket_args(), [])
+
+    def test_whitespace_is_no_flag(self):
+        # Whitespace-only collapses to the same escape hatch as empty.
         with patch.dict(os.environ, {TMUX_SOCKET_ENV: "   "}, clear=False):
             self.assertEqual(tmux_socket_args(), [])
+
+    def test_default_value_is_default_socket(self):
+        # The explicit opt-out spelling: tmux's default socket is literally
+        # named "default", so `-L default` targets the user's default server.
+        with patch.dict(os.environ, {TMUX_SOCKET_ENV: "default"}, clear=False):
+            self.assertEqual(tmux_socket_args(), ["-L", "default"])
 
     def test_cached_at_construction(self):
         # The client must read the env ONCE at construction — the monitor
@@ -119,7 +133,7 @@ class TestRunContract(unittest.TestCase):
             ["tmux", "-L", "sock", "list-sessions", "-F", "#{session_name}"],
         )
 
-    def test_no_socket_when_unset(self):
+    def test_no_socket_when_empty(self):
         captured = {}
 
         def fake_run(argv, **kwargs):
