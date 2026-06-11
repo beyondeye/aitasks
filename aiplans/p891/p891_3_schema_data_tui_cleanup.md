@@ -209,3 +209,65 @@ no test is plan-only):
 
 See **Step 9 (Post-Implementation)** of the shared workflow for archival
 (`./.aitask-scripts/aitask_archive.sh 891_3`).
+
+## Final Implementation Notes
+
+- **Actual work done:** Removed the plan data model + plan TUI surfaces end-to-end
+  (net ~308 lines across 7 source + 16 test files). Source: `brainstorm_schemas.py`
+  (`plan_file` out of `NODE_OPTIONAL_FIELDS`), `brainstorm_dag.py` (`PLANS_DIR`,
+  `read_plan`, the node-delete closure plan snapshot + `br_plans` unlink, docstring),
+  `brainstorm_op_refs.py` (`node_plan` kind + branch + `PLANS_DIR` import),
+  `brainstorm_crew.py` (`PLANS_DIR` import + explorer `- Plan:` line),
+  `brainstorm_session.py` (`PLANS_DIR` import, `br_plans/` dir creation at the
+  subdir-create loop, `plan_file` from `_NODE_NON_DIMENSION_FIELDS`, two docstrings),
+  `brainstorm_dag_display.py` (`NO_PLAN_STYLE`, `node_has_plan_map` build/return → 5-tuple,
+  `_render_node_box` `has_plan` param + ●/○ block, `_render_layer` param, `l`/`view_plan`
+  binding, `PlanRequested` message, `_node_has_plan_map` state + wiring, `action_view_plan`),
+  `brainstorm_app.py` (`read_plan` import; NodeDetail **Plan tab** + minimap + the
+  fullscreen/focus/section-selected/export plan branches; the **ExportNodeDetailModal**
+  plan half incl. `_write_node_exports`/`_export_filename`/`action_export`; `NodeRow`
+  plan marker; `NodeActionSelectModal` dead `has_plan`; `action_node_action` /
+  dashboard / wizard node-select badges; `PlanRequested` `@on` handler; `_node_sections`
+  → proposal-only; `_node_has_plan` removed; the explorer `reads_from_parent` /
+  `_OPERATION_HELP` plan help text).
+- **Deviations from plan:** The as-landed surface was materially larger than the
+  2026-06-01 snapshot. Areas the snapshot missed and that were handled here:
+  (1) the entire **ExportNodeDetailModal** plan-export path (`Shift+E` export) —
+  params, checkbox, `do_plan`/`plan_text` plumbing, `_write_node_exports` branch,
+  `_export_filename` 'plan' kind; (2) `_node_sections` "plan preferred, else proposal"
+  → proposal-only (feeds the t873 section-select wizard, behavior preserved via the
+  proposal fallback); (3) the explorer `reads_from_parent` help text + the
+  `_OPERATION_HELP` source comment. Also cleaned two vestigial `br_plans` mkdirs in
+  tests the symbol-grep flagged (`test_brainstorm_dag_click_focus.py`,
+  `test_brainstorm_apply_created_by_group.sh`). Two test-side `_build_graph` 6-tuple
+  unpacks and two extra `_make_session(plan=...)` callers were missed on the first
+  pass and fixed after the suite flagged them.
+- **Issues encountered:** None blocking. The `_build_graph` arity change (6→5 tuple)
+  rippled into `test_brainstorm_dag_op_badge.py`'s unpacks; the suite caught it
+  immediately. Verified `_render_node_box` still emits NODE_ROWS=5 (the ●/○ was inline
+  in the title row, not its own row).
+- **Key decisions:** Left `finalize_session` (`brainstorm_session.py`) and its
+  `plan_file` reads **untouched** — that is t891_4's boundary. Consequently the two
+  finalize-dependent tests (`test_brainstorm_dag.py::test_finalize_copies_plan`,
+  `test_brainstorm_cli_python.py::test_archive_sets_crew_status`) were kept passing by
+  inlining the `"br_plans"` literal (since the store is no longer auto-created) and
+  explicitly `mkdir`-ing it — both carry a NOTE that t891_4 owns their rewrite. All
+  other plan tests were updated in place to proposal-only; none were deleted wholesale
+  (no test was plan-only).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (t891_4 — finalize replacement / proposal export):**
+  - `finalize_session` (`brainstorm_session.py` ~L337-367) is the **only** remaining
+    live `plan_file` consumer in `.aitask-scripts/brainstorm/`. After t891_3, no node
+    is ever written with a `plan_file`, so `finalize_session` now raises
+    `ValueError("HEAD node '<head>' has no plan_file.")` on **every** call — replace it
+    per your plan (proposal export or fast-track-ownership).
+    `PLANS_DIR`/`read_plan`/`br_plans` are gone, so finalize must not reference them.
+  - Two tests still scaffold a `br_plans/` dir + `plan_file` purely to exercise the
+    legacy finalize copy: `test_brainstorm_dag.py::test_finalize_copies_plan` and
+    `test_brainstorm_cli_python.py::TestArchiveCommand::test_archive_sets_crew_status`
+    (both use the inlined `"br_plans"` literal + a NOTE). Rewrite/retire them when you
+    change finalize. `test_brainstorm_cli.sh` Test 11 ("archive handles no-plan HEAD
+    gracefully", asserts `NO_PLAN` + `ARCHIVED`) still passes and may need updating
+    depending on the new finalize semantics.
+  - The kept `_node_sections`/`_node_has_sections` (now proposal-only) and the t873
+    section machinery are not yours to touch.
