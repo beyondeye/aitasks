@@ -206,3 +206,63 @@ _Mitigations for the code-health risks are intrinsic deliverables of this task
 (the golden-corpus/round-trip test and the `require_python` guard), not separate
 before/after follow-up tasks — so no standalone risk-mitigation tasks are
 proposed._
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `lib/agent_launch_utils.py`: added `_parse_registry_records()` — the single
+    bash-parity raw 4-field reader (the registry-file authority); refactored
+    `_read_registry_index()` into a thin delegating annotator over it (kept its
+    exact name-AND-path + OK/STALE contract); added a stdlib `__main__` CLI with
+    `--list-registry` (raw `name|path|git_remote|last_opened`) and
+    `--resolve-index NAME` (first-match path).
+  - `aitask_projects.sh`: `list_registry_entries` now shells out to
+    `--list-registry`; added `require_python >/dev/null` guard to all 5 mutating
+    verbs (add/remove/update/prune/doctor).
+  - `aitask_project_resolve.sh`: `cmd_list` shells out to `--list-registry`;
+    `index_lookup_path` kept as lean bash (see Key decisions) with a parity-lock
+    comment.
+  - `tests/test_registry_reader_parity.sh`: new golden-corpus + round-trip test
+    (27 assertions).
+
+- **Deviations from plan:** None in shape. The plan's "measure-then-decide" for
+  the resolve hot path resolved to **keep bash** (numbers below). Also collapsed
+  the third duplicate (`aitask_project_resolve.sh::cmd_list`, not named in the
+  original task scope) to the Python authority, as anticipated in plan §3 — it is
+  not on the resolve hot path (backs the one-shot project picker in
+  `aitask_create.sh:825`).
+
+- **Issues encountered:** During guard verification, an initial `env -i
+  PATH=/nonexistent` simulation hid `bash` itself (exit 127) rather than just
+  `python3`; re-ran with a curated PATH (coreutils symlinks, no `python3`) and an
+  empty `HOME` to genuinely exercise the missing-interpreter path. Confirmed:
+  loud abort (exit 1, "No Python interpreter found"), registry left intact.
+
+- **Key decisions:**
+  - **Full Python authority** (chosen at plan time): both read and write paths
+    read through Python; `build_registry_yaml` stays in bash. The critical parity
+    gap (Python's `_read_registry_index` returned only 3 fields and *skipped*
+    name-only entries; bash emitted 4 raw fields and emits on name alone) is why
+    `_parse_registry_records` is a *new* parser, not a reuse of
+    `_read_registry_index`.
+  - **Silent-wipe guard:** because the shell-out makes a missing interpreter
+    return empty and callers use `tsv=$(... || true)`, an empty read could wipe
+    `git_remote`/`last_opened` on mutation. Closed by an up-front `require_python`
+    in each mutating verb (runs in the main shell, so it aborts loudly before any
+    read-modify-write). This is an intentional behavior change: registry
+    *mutation* now requires Python (resolve already hard-depends on it).
+  - **Resolve hot path kept in bash (latency):** measured (N=100) Python
+    `--resolve-index` ≈ **53.3ms/call** vs bash awk ≈ **3.8ms/call** (incl. bash
+    startup; sub-ms within an already-running resolve); end-to-end resolve ≈
+    **59.6ms/call**. A shell-out would add a second interpreter startup and ~double
+    resolve latency, so `index_lookup_path` stays bash, pinned byte-identical to
+    `--resolve-index` by the new parity test.
+
+- **Upstream defects identified:** None.
+
+- **Verification results:** new parity test 27/27; regression suites
+  (`test_project_resolve{,_list}`, `test_projects_cmd`,
+  `test_aitask_projects_{update,remove,prune,doctor}`, 9 cross-repo/xdeps tests,
+  `test_discover_include_registered`, `test_discover_default_unchanged`) all pass;
+  `shellcheck` clean (only benign SC1091 source-info); `py_compile` OK;
+  missing-interpreter guard verified (abort, no wipe).
