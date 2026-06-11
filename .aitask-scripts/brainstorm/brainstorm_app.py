@@ -61,7 +61,6 @@ from brainstorm.brainstorm_dag import (
     list_subgraphs,
     node_descendants_closure,
     read_node,
-    read_plan,
     read_proposal,
     set_head,
 )
@@ -249,9 +248,8 @@ _OP_LABELS: dict[str, tuple[str, str]] = {
 _OPERATION_HELP: dict[str, dict] = {
     # Source: .aitask-scripts/brainstorm/templates/explorer.md
     # I/O contract derived from "## Input" (reads parent YAML metadata,
-    # proposal markdown, plan markdown if one exists, reference files) and
-    # "## Output" (produces a new node: YAML metadata + proposal markdown;
-    # no plan).
+    # proposal markdown, reference files) and "## Output" (produces a new
+    # node: YAML metadata + proposal markdown).
     "explore": {
         "title": "Explore — Architecture Explorer",
         "summary": (
@@ -264,7 +262,6 @@ _OPERATION_HELP: dict[str, dict] = {
             "YAML metadata of the base node (all dimensions: requirements_*, "
             "assumption_*, component_*, tradeoff_*).",
             "Proposal markdown of the base node (full architectural narrative).",
-            "Plan markdown of the base node (if one exists).",
             "Reference files cited by the base node.",
         ],
         "produces": [
@@ -1046,7 +1043,7 @@ class ProposalPreviewPane(Horizontal):
 
 
 class NodeDetailModal(ModalScreen):
-    """Modal for viewing node details with tabbed content (Metadata, Proposal, Plan)."""
+    """Modal for viewing node details with tabbed content (Metadata, Proposal)."""
 
     BINDINGS = [
         Binding("escape", "close", "Close", show=False),
@@ -1061,8 +1058,6 @@ class NodeDetailModal(ModalScreen):
         self.session_path = session_path
         self._proposal_parsed = None
         self._proposal_text = ""
-        self._plan_parsed = None
-        self._plan_text = ""
 
     def compose(self) -> ComposeResult:
         from section_viewer import SectionAwareMarkdown, SectionMinimap
@@ -1082,12 +1077,6 @@ class NodeDetailModal(ModalScreen):
                             id="proposal_minimap", classes="node_detail_minimap"
                         )
                         yield SectionAwareMarkdown(id="proposal_content")
-                with TabPane("Plan", id="tab_plan"):
-                    with Horizontal(id="plan_pane"):
-                        yield SectionMinimap(
-                            id="plan_minimap", classes="node_detail_minimap"
-                        )
-                        yield SectionAwareMarkdown(id="plan_content")
             with Horizontal(id="node_detail_buttons"):
                 yield Button(
                     "Close", variant="default", id="btn_close_detail"
@@ -1095,7 +1084,7 @@ class NodeDetailModal(ModalScreen):
             yield Footer()
 
     def on_mount(self) -> None:
-        """Load node data into all three tabs."""
+        """Load node data into both tabs."""
         try:
             node_data = read_node(self.session_path, self.node_id)
         except Exception:
@@ -1149,23 +1138,6 @@ class NodeDetailModal(ModalScreen):
             # full pane width.
             prop_minimap.display = False
 
-        # --- Plan tab ---
-        plan = read_plan(self.session_path, self.node_id)
-        if plan is None:
-            plan = "*No plan generated.*"
-        self._plan_text = plan
-        parsed_plan = parse_sections(plan)
-        plan_content = self.query_one("#plan_content", SectionAwareMarkdown)
-        plan_content.update_content(plan, parsed_plan)
-        plan_minimap = self.query_one("#plan_minimap")
-        plan_minimap.populate(parsed_plan)
-        if parsed_plan.sections:
-            self._plan_parsed = parsed_plan
-            plan_minimap.display = True
-        else:
-            self._plan_parsed = None
-            plan_minimap.display = False
-
     def on_section_minimap_section_selected(self, event) -> None:
         """Scroll the selected tab's content to the chosen section's heading.
 
@@ -1178,8 +1150,6 @@ class NodeDetailModal(ModalScreen):
         minimap_id = event.control.id
         if minimap_id == "proposal_minimap":
             parsed, content_id = self._proposal_parsed, "#proposal_content"
-        elif minimap_id == "plan_minimap":
-            parsed, content_id = self._plan_parsed, "#plan_content"
         else:
             return
         if parsed is None:
@@ -1192,7 +1162,7 @@ class NodeDetailModal(ModalScreen):
         event.stop()
 
     def action_focus_minimap(self) -> None:
-        """Tab on Proposal/Plan tab → focus the inline minimap.
+        """Tab on the Proposal tab → focus the inline minimap.
 
         No-op when focus is already inside the minimap, so Tab presses while
         the user is navigating minimap rows do not jump back to row 0.
@@ -1201,8 +1171,6 @@ class NodeDetailModal(ModalScreen):
         tabbed = self.query_one(TabbedContent)
         if tabbed.active == "tab_proposal":
             mm_sel = "#proposal_minimap"
-        elif tabbed.active == "tab_plan":
-            mm_sel = "#plan_minimap"
         else:
             raise SkipAction()
         minimaps = self.query(mm_sel)
@@ -1224,12 +1192,9 @@ class NodeDetailModal(ModalScreen):
         if tabbed.active == "tab_proposal":
             content = self._proposal_text
             title = f"Proposal: {self.node_id}"
-        elif tabbed.active == "tab_plan":
-            content = self._plan_text
-            title = f"Plan: {self.node_id}"
         else:
             self.notify(
-                "Fullscreen viewer only works on Proposal or Plan tab",
+                "Fullscreen viewer only works on the Proposal tab",
                 severity="warning",
             )
             return
@@ -1243,20 +1208,16 @@ class NodeDetailModal(ModalScreen):
         """E → open ExportNodeDetailModal for the active node's content."""
         tabbed = self.query_one(TabbedContent)
         active_tab = tabbed.active or ""
-        # Pre-check the active tab; user can adjust in the modal. Metadata
-        # tab pre-checks both so the user can export either or both without
-        # having to flip checkboxes.
+        # Pre-check the proposal on the Proposal/Metadata tabs; the user can
+        # still adjust in the modal.
         default_proposal = active_tab in ("tab_proposal", "tab_metadata")
-        default_plan = active_tab in ("tab_plan", "tab_metadata")
         last_dir = getattr(self.app, "_last_export_dir", None) or str(Path.cwd())
         self.app.push_screen(
             ExportNodeDetailModal(
                 node_id=self.node_id,
                 task_num=self.app.task_num,
                 proposal_text=self._proposal_text,
-                plan_text=self._plan_text,
                 default_proposal=default_proposal,
-                default_plan=default_plan,
                 default_dir=last_dir,
             ),
             callback=self._on_export_done,
@@ -1303,7 +1264,7 @@ def _validate_export_dir(dir_str: str):
 
 
 def _export_filename(task_num: str, node_id: str, kind: str) -> str:
-    """kind is 'proposal' or 'plan'."""
+    """kind is 'proposal'."""
     return f"brainstorm_t{task_num}_{node_id}_{kind}.md"
 
 
@@ -1312,9 +1273,7 @@ def _write_node_exports(
     task_num: str,
     node_id: str,
     proposal_text: str,
-    plan_text: str,
     do_proposal: bool,
-    do_plan: bool,
 ) -> list[str]:
     """Write requested files to target_dir. Returns list of written paths.
 
@@ -1325,15 +1284,11 @@ def _write_node_exports(
         p = target_dir / _export_filename(task_num, node_id, "proposal")
         p.write_text(proposal_text, encoding="utf-8")
         written.append(str(p))
-    if do_plan:
-        p = target_dir / _export_filename(task_num, node_id, "plan")
-        p.write_text(plan_text, encoding="utf-8")
-        written.append(str(p))
     return written
 
 
 class ExportNodeDetailModal(ModalScreen):
-    """Modal: pick what to export (proposal/plan) and the output directory."""
+    """Modal: pick what to export (proposal) and the output directory."""
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
@@ -1344,18 +1299,14 @@ class ExportNodeDetailModal(ModalScreen):
         node_id: str,
         task_num: str,
         proposal_text: str,
-        plan_text: str,
         default_proposal: bool,
-        default_plan: bool,
         default_dir: str,
     ):
         super().__init__()
         self.node_id = node_id
         self.task_num = task_num
         self._proposal_text = proposal_text
-        self._plan_text = plan_text
         self._default_proposal = default_proposal and bool(proposal_text)
-        self._default_plan = default_plan and bool(plan_text)
         self._default_dir = default_dir
 
     def compose(self) -> ComposeResult:
@@ -1376,12 +1327,6 @@ class ExportNodeDetailModal(ModalScreen):
                 id="export_modal_chk_proposal",
                 disabled=not self._proposal_text,
             )
-            yield Checkbox(
-                f"Plan{'' if self._plan_text else ' (empty)'}",
-                value=self._default_plan,
-                id="export_modal_chk_plan",
-                disabled=not self._plan_text,
-            )
             with Horizontal(id="export_modal_buttons"):
                 yield Button("Export", variant="primary", id="btn_export_ok")
                 yield Button("Cancel", variant="default", id="btn_export_cancel")
@@ -1397,9 +1342,8 @@ class ExportNodeDetailModal(ModalScreen):
     def _confirm(self) -> None:
         dir_str = self.query_one("#export_modal_dir", Input).value
         do_proposal = self.query_one("#export_modal_chk_proposal", Checkbox).value
-        do_plan = self.query_one("#export_modal_chk_plan", Checkbox).value
-        if not (do_proposal or do_plan):
-            self.notify("Select at least one of Proposal / Plan", severity="warning")
+        if not do_proposal:
+            self.notify("Select Proposal to export", severity="warning")
             return
         target, err = _validate_export_dir(dir_str)
         if err is not None:
@@ -1411,9 +1355,7 @@ class ExportNodeDetailModal(ModalScreen):
                 self.task_num,
                 self.node_id,
                 self._proposal_text,
-                self._plan_text,
                 do_proposal,
-                do_plan,
             )
         except OSError as exc:
             self.notify(f"Write failed: {exc}", severity="error")
@@ -2149,22 +2091,16 @@ class NodeRow(Static):
             super().__init__()
             self.group_name = group_name
 
-    def __init__(self, node_id: str, description: str, is_head: bool = False,
-                 has_plan: bool = False):
+    def __init__(self, node_id: str, description: str, is_head: bool = False):
         super().__init__()
         self.node_id = node_id
         self.node_description = description
         self.is_head = is_head
-        self.has_plan = has_plan
         self.can_focus = True
 
     def render(self) -> str:
         head_marker = " [bold green]HEAD[/]" if self.is_head else ""
-        plan_marker = (
-            " [bold green]● has plan[/]" if self.has_plan
-            else " [dim]○ no plan[/]"
-        )
-        return f"[bold]{self.node_id}[/]{head_marker}{plan_marker}  {self.node_description}"
+        return f"[bold]{self.node_id}[/]{head_marker}  {self.node_description}"
 
     def action_open_operation(self) -> None:
         """Post OperationOpened for this row's generating group (o key)."""
@@ -2331,10 +2267,9 @@ class NodeActionSelectModal(ModalScreen):
         ),
     }
 
-    def __init__(self, node_id: str, has_plan: bool, op_states: dict | None = None):
+    def __init__(self, node_id: str, op_states: dict | None = None):
         super().__init__()
         self.node_id = node_id
-        self.has_plan = has_plan
         # op_states[op_key] = (disabled: bool, reason: str). Computed by the
         # caller (action_node_action) so the modal stays session-free/testable.
         self.op_states = op_states or {}
@@ -4067,10 +4002,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 f"Node '{node_id}' no longer exists.", severity="error"
             )
             return
-        has_plan = self._node_has_plan(node_id)
         op_states = self._node_action_op_states(node_id)
         self.push_screen(
-            NodeActionSelectModal(node_id, has_plan, op_states),
+            NodeActionSelectModal(node_id, op_states),
             lambda result, nid=node_id: self._on_node_action_result(
                 nid, result
             ),
@@ -5825,8 +5759,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         for nid in nodes:
             node_data = read_node(self.session_path, nid)
             desc = node_data.get("description", "")
-            has_plan = bool(node_data.get("plan_file"))
-            row = NodeRow(nid, desc, is_head=(nid == head), has_plan=has_plan)
+            row = NodeRow(nid, desc, is_head=(nid == head))
             pane.mount(row)
 
     def _render_node_detail_widgets(self, node_id: str) -> tuple[str, list]:
@@ -6044,24 +5977,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             SectionViewerScreen(proposal, title=f"Proposal: {event.node_id}")
         )
 
-    @on(DAGDisplay.PlanRequested)
-    def on_dag_display_plan_requested(
-        self, event: DAGDisplay.PlanRequested
-    ) -> None:
-        """Open SectionViewerScreen with the focused node's plan ('l' key)."""
-        from section_viewer import SectionViewerScreen
-        try:
-            plan = read_plan(self.session_path, event.node_id)
-        except Exception:
-            plan = None
-        if not plan or not plan.strip():
-            self.notify(
-                f"No plan generated for {event.node_id}", severity="warning"
-            )
-            return
-        self.push_screen(
-            SectionViewerScreen(plan, title=f"Plan: {event.node_id}")
-        )
 
     @on(DAGDisplay.CompareRequested)
     async def on_dag_display_compare_requested(
@@ -6502,15 +6417,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         for nid in nodes:
             node_data = read_node(self.session_path, nid)
             desc = node_data.get("description", "")
-            has_plan = bool(node_data.get("plan_file"))
 
             lbl_parts = [nid]
             if nid == head:
                 lbl_parts.append("[green]HEAD[/]")
-            if has_plan:
-                lbl_parts.append("[bold green]● has plan[/]")
-            else:
-                lbl_parts.append("[dim]○ no plan[/]")
             lbl = " ".join(lbl_parts)
 
             container.mount(OperationRow(nid, lbl, desc))
@@ -7092,15 +7002,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return group_dimensions_by_prefix(merged)
 
     def _node_sections(self, node_id: str) -> list:
-        """Return the list of ContentSection for a node (plan preferred, else proposal)."""
-        try:
-            plan = read_plan(self.session_path, node_id)
-        except FileNotFoundError:
-            plan = None
-        if plan:
-            secs = parse_sections(plan).sections
-            if secs:
-                return secs
+        """Return the list of ContentSection for a node's proposal."""
         try:
             proposal = read_proposal(self.session_path, node_id)
         except FileNotFoundError:
@@ -7110,16 +7012,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return []
 
     def _node_has_sections(self, node_id: str) -> bool:
-        """True when the node's plan or proposal has structured sections."""
+        """True when the node's proposal has structured sections."""
         return bool(self._node_sections(node_id))
-
-    def _node_has_plan(self, node_id: str) -> bool:
-        """Return True if the node has a plan_file set in its YAML."""
-        try:
-            data = read_node(self.session_path, node_id)
-        except Exception:
-            return False
-        return bool(data.get("plan_file"))
 
     def _actions_collect_config(self) -> bool:
         """Collect and validate config from config step widgets. Returns True if valid."""

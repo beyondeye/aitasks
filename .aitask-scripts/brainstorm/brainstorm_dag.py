@@ -2,7 +2,7 @@
 
 All functions take a session_path (Path to the crew worktree, e.g.
 .aitask-crews/crew-brainstorm-419/) and operate on br_nodes/, br_proposals/,
-br_plans/, and br_graph_state.yaml within it.
+and br_graph_state.yaml within it.
 
 Reuses YAML I/O from agentcrew_utils to avoid duplication.
 """
@@ -21,7 +21,6 @@ from agentcrew.agentcrew_utils import read_yaml, write_yaml  # noqa: E402
 
 NODES_DIR = "br_nodes"
 PROPOSALS_DIR = "br_proposals"
-PLANS_DIR = "br_plans"
 GRAPH_STATE_FILE = "br_graph_state.yaml"
 
 # Default subgraph for the module-decomposition feature (t756). Every legacy
@@ -302,17 +301,6 @@ def delete_node_cascade(session_path: Path, node_id: str) -> dict:
     closure_list = node_descendants_closure(session_path, node_id)
     closure = set(closure_list)
 
-    # Snapshot plan_file paths before the node YAMLs are removed.
-    plan_files: dict[str, str] = {}
-    for nid in closure_list:
-        try:
-            data = read_node(session_path, nid)
-        except Exception:
-            continue
-        pf = data.get("plan_file")
-        if pf:
-            plan_files[nid] = str(pf)
-
     gs = _read_graph_state(session_path)
 
     # --- HEAD repoints ---
@@ -357,10 +345,6 @@ def delete_node_cascade(session_path: Path, node_id: str) -> dict:
     for nid in closure_list:
         (session_path / NODES_DIR / f"{nid}.yaml").unlink(missing_ok=True)
         (session_path / PROPOSALS_DIR / f"{nid}.md").unlink(missing_ok=True)
-        (session_path / PLANS_DIR / f"{nid}_plan.md").unlink(missing_ok=True)
-        pf = plan_files.get(nid)
-        if pf and pf != f"{PLANS_DIR}/{nid}_plan.md":
-            (session_path / pf).unlink(missing_ok=True)
 
     return {
         "deleted": closure_list,
@@ -514,14 +498,6 @@ def is_ancestor_subgraph(
 def read_proposal(session_path: Path, node_id: str) -> str:
     """Read the proposal markdown file for a node."""
     path = session_path / PROPOSALS_DIR / f"{node_id}.md"
-    return path.read_text(encoding="utf-8")
-
-
-def read_plan(session_path: Path, node_id: str) -> str | None:
-    """Read the plan markdown file for a node (None if doesn't exist)."""
-    path = session_path / PLANS_DIR / f"{node_id}_plan.md"
-    if not path.is_file():
-        return None
     return path.read_text(encoding="utf-8")
 
 

@@ -23,7 +23,6 @@ from brainstorm.brainstorm_schemas import (
 from brainstorm.brainstorm_dag import (
     GRAPH_STATE_FILE,
     NODES_DIR,
-    PLANS_DIR,
     PROPOSALS_DIR,
     UMBRELLA_SUBGRAPH,
     create_node,
@@ -39,7 +38,6 @@ from brainstorm.brainstorm_dag import (
     next_node_id,
     node_descendants_closure,
     read_node,
-    read_plan,
     read_proposal,
     set_head,
     update_node,
@@ -102,7 +100,6 @@ class TestInitSession(BrainstormTestBase):
         self.assertTrue((wt / GROUPS_FILE).is_file())
         self.assertTrue((wt / NODES_DIR).is_dir())
         self.assertTrue((wt / PROPOSALS_DIR).is_dir())
-        self.assertTrue((wt / PLANS_DIR).is_dir())
 
         session = read_yaml(str(wt / SESSION_FILE))
         self.assertEqual(session["task_id"], self.task_num)
@@ -501,16 +498,21 @@ class TestValidateSession(BrainstormTestBase):
 class TestFinalizeSession(BrainstormTestBase):
 
     def test_finalize_copies_plan(self):
+        # NOTE: finalize_session's plan export is retired in t891_4; this test
+        # exercises the still-present behavior and is updated there. The
+        # "br_plans" store is no longer auto-created (t891_3), so the test
+        # creates it explicitly.
         self._init_session()
         # Create a node with a plan
         create_node(self.wt_path, "n000_init", [], "Init", {}, "# Init", "")
         # Write plan file
-        plan_dir = self.wt_path / PLANS_DIR
+        plan_dir = self.wt_path / "br_plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
         plan_file = plan_dir / "n000_init_plan.md"
         plan_file.write_text("# Plan: Init\n\nStep 1: Do stuff.", encoding="utf-8")
         # Update node to reference plan
         update_node(self.wt_path, "n000_init", {
-            "plan_file": f"{PLANS_DIR}/n000_init_plan.md"
+            "plan_file": "br_plans/n000_init_plan.md"
         })
         set_head(self.wt_path, "n000_init")
 
@@ -600,18 +602,14 @@ class TestDeleteNodeCascade(BrainstormTestBase):
 
     def setUp(self):
         super().setUp()
-        for d in (NODES_DIR, PROPOSALS_DIR, PLANS_DIR):
+        for d in (NODES_DIR, PROPOSALS_DIR):
             (self.wt_path / d).mkdir(parents=True, exist_ok=True)
 
-    def _node(self, nid, parents, module=None, plan=False):
+    def _node(self, nid, parents, module=None):
         create_node(
             self.wt_path, nid, parents, nid, {}, f"# {nid}",
             module_label=module,
         )
-        if plan:
-            plan_rel = f"{PLANS_DIR}/{nid}_plan.md"
-            (self.wt_path / plan_rel).write_text("# plan", encoding="utf-8")
-            update_node(self.wt_path, nid, {"plan_file": plan_rel})
 
     def _set_gs(self, **fields):
         write_yaml(str(self.wt_path / GRAPH_STATE_FILE), fields)
@@ -689,17 +687,6 @@ class TestDeleteNodeCascade(BrainstormTestBase):
         # parser history fully pruned; umbrella untouched.
         self.assertEqual(gs["history"]["parser"], [])
         self.assertEqual(gs["history"]["_umbrella"], ["n000_init"])
-
-    def test_nondefault_plan_file_deleted(self):
-        self._node("n000_a", [])
-        custom_rel = f"{PLANS_DIR}/custom_plan.md"
-        (self.wt_path / custom_rel).write_text("# custom", encoding="utf-8")
-        update_node(self.wt_path, "n000_a", {"plan_file": custom_rel})
-        self._set_gs(current_heads={"_umbrella": "n000_a"})
-
-        delete_node_cascade(self.wt_path, "n000_a")
-
-        self.assertFalse((self.wt_path / custom_rel).is_file())
 
     def test_multiparent_overdelete_pulls_in_synth(self):
         self._node("n000_a", [])

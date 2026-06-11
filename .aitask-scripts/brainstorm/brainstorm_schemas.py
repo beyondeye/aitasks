@@ -17,7 +17,7 @@ NODE_REQUIRED_FIELDS = [
 # ``module_label`` (optional) records the node's subgraph membership for the
 # module-decomposition feature (t756). Absent / empty means the default
 # ``_umbrella`` subgraph, so legacy single-head sessions need no migration.
-NODE_OPTIONAL_FIELDS = ["plan_file", "reference_files", "module_label"]
+NODE_OPTIONAL_FIELDS = ["reference_files", "module_label"]
 
 # Dimension fields use these prefixes — extensible, any key starting with
 # one of these is treated as a dimension field.

@@ -30,7 +30,6 @@ from brainstorm.brainstorm_dag_display import DAGDisplay  # noqa: E402
 def _seed_session(wt: Path) -> None:
     (wt / "br_nodes").mkdir(parents=True, exist_ok=True)
     (wt / "br_proposals").mkdir(parents=True, exist_ok=True)
-    (wt / "br_plans").mkdir(parents=True, exist_ok=True)
     (wt / "br_graph_state.yaml").write_text(
         yaml.safe_dump({
             "current_head": None,

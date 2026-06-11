@@ -130,7 +130,7 @@ class DeleteGuardAndCallbackTests(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="brainstorm_node_delete_")
         self.wt = Path(self.tmpdir)
-        for d in ("br_nodes", "br_proposals", "br_plans"):
+        for d in ("br_nodes", "br_proposals"):
             (self.wt / d).mkdir()
 
     def tearDown(self):

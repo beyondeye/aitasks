@@ -31,12 +31,11 @@ class NodeActionOpStatesTests(unittest.TestCase):
         self.wt = Path(self.tmpdir)
         (self.wt / "br_nodes").mkdir()
         (self.wt / "br_proposals").mkdir()
-        (self.wt / "br_plans").mkdir()
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _node(self, node_id, parents, module=None, plan_file=None):
+    def _node(self, node_id, parents, module=None):
         data = {
             "node_id": node_id,
             "parents": parents,
@@ -45,8 +44,6 @@ class NodeActionOpStatesTests(unittest.TestCase):
         }
         if module:
             data["module_label"] = module
-        if plan_file:
-            data["plan_file"] = plan_file
         (self.wt / "br_nodes" / f"{node_id}.yaml").write_text(
             yaml.safe_dump(data), encoding="utf-8"
         )
@@ -62,8 +59,7 @@ class NodeActionOpStatesTests(unittest.TestCase):
         return app
 
     def test_umbrella_node_disables_module_ops(self):
-        self._node("n000_init", [], plan_file="br_plans/n000_init_plan.md")
-        (self.wt / "br_plans" / "n000_init_plan.md").write_text("# p", "utf-8")
+        self._node("n000_init", [])
         self._graph_state(current_heads={"_umbrella": "n000_init"})
 
         states = self._app()._node_action_op_states("n000_init")

@@ -19,7 +19,6 @@ from agentcrew.agentcrew_utils import AGENTCREW_DIR, read_yaml, write_yaml
 from brainstorm.brainstorm_dag import (
     GRAPH_STATE_FILE,
     NODES_DIR,
-    PLANS_DIR,
     PROPOSALS_DIR,
     create_node,
 )
@@ -155,20 +154,6 @@ class TestAssembleInputExplorer(BrainstormCrewTestBase):
         self.assertIn("src/db/schema.ts", result)
         self.assertIn("## Active Dimensions", result)
         self.assertIn("database, cache", result)
-
-    def test_explorer_input_with_plan(self):
-        self._init_session()
-        self._create_test_node("n000_init")
-        # Create a plan file
-        plan_dir = self.wt_path / PLANS_DIR
-        plan_file = plan_dir / "n000_init_plan.md"
-        plan_file.write_text("# Plan", encoding="utf-8")
-
-        result = _assemble_input_explorer(
-            self.wt_path, "n000_init", "Explore", [],
-            "n001_explorer_001a",
-        )
-        self.assertIn(f"{PLANS_DIR}/n000_init_plan.md", result)
 
     def test_explorer_input_no_refs(self):
         self._init_session()

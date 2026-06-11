@@ -34,7 +34,7 @@ class OpenNodeDetailVisibleTests(unittest.TestCase):
         self.assertFalse(_open_node_detail_visible("tab_dashboard", False))
 
     def test_hidden_on_other_tabs_regardless_of_focus(self):
-        for tab in ("tab_proposal", "tab_plan", "tab_compare", "tab_status", ""):
+        for tab in ("tab_proposal", "tab_compare", "tab_status", ""):
             self.assertFalse(_open_node_detail_visible(tab, True))
             self.assertFalse(_open_node_detail_visible(tab, False))
 
@@ -46,16 +46,10 @@ class ExportFilenameTests(unittest.TestCase):
             "brainstorm_t753_init_001_proposal.md",
         )
 
-    def test_plan_filename(self):
-        self.assertEqual(
-            _export_filename("753", "init_001", "plan"),
-            "brainstorm_t753_init_001_plan.md",
-        )
-
     def test_alphanumeric_task_num(self):
         self.assertEqual(
-            _export_filename("42_3", "op1_002", "plan"),
-            "brainstorm_t42_3_op1_002_plan.md",
+            _export_filename("42_3", "op1_002", "proposal"),
+            "brainstorm_t42_3_op1_002_proposal.md",
         )
 
 
@@ -106,7 +100,7 @@ class ValidateExportDirTests(unittest.TestCase):
 
 
 class WriteNodeExportsTests(unittest.TestCase):
-    def test_both_flags_write_both_files(self):
+    def test_proposal_flag_writes_file(self):
         with tempfile.TemporaryDirectory() as td:
             target = Path(td)
             written = _write_node_exports(
@@ -114,41 +108,17 @@ class WriteNodeExportsTests(unittest.TestCase):
                 task_num="753",
                 node_id="init_001",
                 proposal_text="proposal body",
-                plan_text="plan body",
                 do_proposal=True,
-                do_plan=True,
             )
             prop = target / "brainstorm_t753_init_001_proposal.md"
-            plan = target / "brainstorm_t753_init_001_plan.md"
-            self.assertEqual(written, [str(prop), str(plan)])
+            self.assertEqual(written, [str(prop)])
             self.assertEqual(prop.read_text(encoding="utf-8"), "proposal body")
-            self.assertEqual(plan.read_text(encoding="utf-8"), "plan body")
 
-    def test_only_proposal_flag(self):
+    def test_no_flag_no_files(self):
         with tempfile.TemporaryDirectory() as td:
             target = Path(td)
             written = _write_node_exports(
-                target, "753", "n", "p", "pl", True, False
-            )
-            self.assertEqual(len(written), 1)
-            self.assertTrue(written[0].endswith("_proposal.md"))
-            self.assertFalse((target / "brainstorm_t753_n_plan.md").exists())
-
-    def test_only_plan_flag(self):
-        with tempfile.TemporaryDirectory() as td:
-            target = Path(td)
-            written = _write_node_exports(
-                target, "753", "n", "p", "pl", False, True
-            )
-            self.assertEqual(len(written), 1)
-            self.assertTrue(written[0].endswith("_plan.md"))
-            self.assertFalse((target / "brainstorm_t753_n_proposal.md").exists())
-
-    def test_no_flags_no_files(self):
-        with tempfile.TemporaryDirectory() as td:
-            target = Path(td)
-            written = _write_node_exports(
-                target, "753", "n", "p", "pl", False, False
+                target, "753", "n", "p", False
             )
             self.assertEqual(written, [])
             self.assertEqual(list(target.iterdir()), [])
@@ -158,53 +128,35 @@ class WriteNodeExportsTests(unittest.TestCase):
             target = Path(td)
             text = "# Heading\n\nLine with é and 日本語\n\n- item\n"
             written = _write_node_exports(
-                target, "1", "n", text, "", True, False
+                target, "1", "n", text, True
             )
             self.assertEqual(Path(written[0]).read_text(encoding="utf-8"), text)
 
 
 class ExportNodeDetailModalSmokeTests(unittest.TestCase):
-    def test_empty_plan_coerces_default_plan_to_false(self):
-        modal = ExportNodeDetailModal(
-            node_id="init_001",
-            task_num="753",
-            proposal_text="proposal",
-            plan_text="",
-            default_proposal=True,
-            default_plan=True,
-            default_dir="/tmp/x",
-        )
-        self.assertTrue(modal._default_proposal)
-        self.assertFalse(modal._default_plan)
-
     def test_empty_proposal_coerces_default_proposal_to_false(self):
         modal = ExportNodeDetailModal(
-            "n", "753", "", "plan", True, True, "/tmp/x"
+            "n", "753", "", True, "/tmp/x"
         )
         self.assertFalse(modal._default_proposal)
-        self.assertTrue(modal._default_plan)
 
-    def test_both_non_empty_keeps_flags(self):
+    def test_non_empty_keeps_flag(self):
         modal = ExportNodeDetailModal(
-            "n", "753", "p", "pl", True, True, "/tmp/x"
+            "n", "753", "p", True, "/tmp/x"
         )
         self.assertTrue(modal._default_proposal)
-        self.assertTrue(modal._default_plan)
 
     def test_round_trip_attrs(self):
         modal = ExportNodeDetailModal(
             node_id="init_001",
             task_num="753",
             proposal_text="proposal body",
-            plan_text="plan body",
             default_proposal=False,
-            default_plan=False,
             default_dir="/some/dir",
         )
         self.assertEqual(modal.node_id, "init_001")
         self.assertEqual(modal.task_num, "753")
         self.assertEqual(modal._proposal_text, "proposal body")
-        self.assertEqual(modal._plan_text, "plan body")
         self.assertEqual(modal._default_dir, "/some/dir")
 
 

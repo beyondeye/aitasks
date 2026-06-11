@@ -48,15 +48,11 @@ PROPOSAL_WITH_SECTIONS = """\
 <!-- /section: details -->
 """
 
-PLAN_NO_SECTIONS = "# Plan\n\nJust prose, no section markers.\n"
-
-
-def _make_session(td: str, node_id: str, *, proposal: str, plan: str) -> Path:
-    """Write a minimal brainstorm session with one node's proposal + plan."""
+def _make_session(td: str, node_id: str, *, proposal: str) -> Path:
+    """Write a minimal brainstorm session with one node's proposal."""
     session = Path(td)
     (session / "br_nodes").mkdir(parents=True, exist_ok=True)
     (session / "br_proposals").mkdir(parents=True, exist_ok=True)
-    (session / "br_plans").mkdir(parents=True, exist_ok=True)
     (session / "br_nodes" / f"{node_id}.yaml").write_text(
         yaml.safe_dump({
             "description": "A test node",
@@ -67,9 +63,6 @@ def _make_session(td: str, node_id: str, *, proposal: str, plan: str) -> Path:
     )
     (session / "br_proposals" / f"{node_id}.md").write_text(
         proposal, encoding="utf-8"
-    )
-    (session / "br_plans" / f"{node_id}_plan.md").write_text(
-        plan, encoding="utf-8"
     )
     return session
 
@@ -129,7 +122,7 @@ class NodeDetailMinimapTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as td:
                 session = _make_session(
                     td, "n001_test",
-                    proposal=PROPOSAL_WITH_SECTIONS, plan=PLAN_NO_SECTIONS,
+                    proposal=PROPOSAL_WITH_SECTIONS,
                 )
                 app, pilot, screen, cm = await self._drive("n001_test", session)
                 try:
@@ -137,21 +130,13 @@ class NodeDetailMinimapTests(unittest.TestCase):
                     prop_content = screen.query_one(
                         "#proposal_content", SectionAwareMarkdown
                     )
-                    plan_content = screen.query_one(
-                        "#plan_content", SectionAwareMarkdown
-                    )
-                    # ...sitting inside the new Horizontal panes beside a minimap.
+                    # ...sitting inside the new Horizontal pane beside a minimap.
                     self.assertIsInstance(
                         screen.query_one("#proposal_pane"), Horizontal
                     )
-                    self.assertIsInstance(
-                        screen.query_one("#plan_pane"), Horizontal
-                    )
                     self.assertIs(prop_content.parent, screen.query_one("#proposal_pane"))
-                    self.assertIs(plan_content.parent, screen.query_one("#plan_pane"))
                     # The old inline scroll wrappers are gone.
                     self.assertEqual(len(list(screen.query("#proposal_scroll"))), 0)
-                    self.assertEqual(len(list(screen.query("#plan_scroll"))), 0)
                 finally:
                     await cm.__aexit__(None, None, None)
 
@@ -162,7 +147,7 @@ class NodeDetailMinimapTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as td:
                 session = _make_session(
                     td, "n001_test",
-                    proposal=PROPOSAL_WITH_SECTIONS, plan=PLAN_NO_SECTIONS,
+                    proposal=PROPOSAL_WITH_SECTIONS,
                 )
                 app, pilot, screen, cm = await self._drive("n001_test", session)
                 try:
@@ -172,13 +157,6 @@ class NodeDetailMinimapTests(unittest.TestCase):
                     self.assertEqual(
                         [r.section_name for r in rows], ["intro", "details"]
                     )
-                    # Plan has no section markers → its minimap is hidden.
-                    plan_minimap = screen.query_one("#plan_minimap")
-                    self.assertFalse(plan_minimap.display)
-                    self.assertEqual(
-                        len(list(plan_minimap.query(SectionRow))), 0
-                    )
-                    self.assertIsNone(screen._plan_parsed)
                 finally:
                     await cm.__aexit__(None, None, None)
 
@@ -189,7 +167,7 @@ class NodeDetailMinimapTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as td:
                 session = _make_session(
                     td, "n001_test",
-                    proposal=PROPOSAL_WITH_SECTIONS, plan=PLAN_NO_SECTIONS,
+                    proposal=PROPOSAL_WITH_SECTIONS,
                 )
                 app, pilot, screen, cm = await self._drive("n001_test", session)
                 try:

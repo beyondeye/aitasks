@@ -50,10 +50,9 @@ from brainstorm.brainstorm_app import (  # noqa: E402
 class _ModalHost(App):
     """Minimal host App that pushes a NodeActionSelectModal on mount."""
 
-    def __init__(self, node_id: str, has_plan: bool, op_states=None) -> None:
+    def __init__(self, node_id: str, op_states=None) -> None:
         super().__init__()
         self._node_id = node_id
-        self._has_plan = has_plan
         self._op_states = op_states
         self.result = "UNSET"
 
@@ -62,7 +61,7 @@ class _ModalHost(App):
 
     def on_mount(self) -> None:
         self.push_screen(
-            NodeActionSelectModal(self._node_id, self._has_plan, self._op_states),
+            NodeActionSelectModal(self._node_id, self._op_states),
             self._record,
         )
 
@@ -77,10 +76,10 @@ class NodeActionSelectModalTests(unittest.TestCase):
 
     def test_all_ops_listed_and_enabled_without_op_states(self):
         async def runner():
-            # No op_states + has_plan=True -> every op renders enabled (module
-            # ops/delete default-enabled). The relevance filtering itself is
-            # unit-tested separately.
-            app = _ModalHost("n001_x", has_plan=True)
+            # No op_states -> every op renders enabled (module ops/delete
+            # default-enabled). The relevance filtering itself is unit-tested
+            # separately.
+            app = _ModalHost("n001_x")
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 await pilot.pause()
@@ -103,7 +102,7 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 "module_merge": (True, "no ancestor subgraph"),
                 "module_sync": (True, "module has no linked task"),
             }
-            app = _ModalHost("n001_x", has_plan=True, op_states=states)
+            app = _ModalHost("n001_x", op_states=states)
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 await pilot.pause()
@@ -123,7 +122,7 @@ class NodeActionSelectModalTests(unittest.TestCase):
 
     def test_fast_track_row_label_and_select(self):
         async def runner():
-            app = _ModalHost("n7", has_plan=True)
+            app = _ModalHost("n7")
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 await pilot.pause()
@@ -139,7 +138,7 @@ class NodeActionSelectModalTests(unittest.TestCase):
 
     def test_title_widget_carries_node_id(self):
         async def runner():
-            app = _ModalHost("n042_special", has_plan=True)
+            app = _ModalHost("n042_special")
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 await pilot.pause()
@@ -150,7 +149,7 @@ class NodeActionSelectModalTests(unittest.TestCase):
 
     def test_enter_selects_first_enabled_op(self):
         async def runner():
-            app = _ModalHost("n1", has_plan=True)
+            app = _ModalHost("n1")
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 await pilot.pause()
@@ -162,7 +161,7 @@ class NodeActionSelectModalTests(unittest.TestCase):
 
     def test_down_navigates_then_enter_selects_fast_track(self):
         async def runner():
-            app = _ModalHost("n1", has_plan=True)
+            app = _ModalHost("n1")
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 await pilot.pause()
@@ -177,7 +176,7 @@ class NodeActionSelectModalTests(unittest.TestCase):
 
     def test_escape_cancels_with_none(self):
         async def runner():
-            app = _ModalHost("n1", has_plan=True)
+            app = _ModalHost("n1")
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 await pilot.pause()
@@ -214,7 +213,6 @@ class AdvanceFromNodeSelectTests(unittest.TestCase):
         self.wt = Path(self.tmpdir)
         (self.wt / "br_nodes").mkdir()
         (self.wt / "br_proposals").mkdir()
-        (self.wt / "br_plans").mkdir()
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -279,7 +277,6 @@ class OnNodeActionResultTests(unittest.TestCase):
         self.wt = Path(self.tmpdir)
         (self.wt / "br_nodes").mkdir()
         (self.wt / "br_proposals").mkdir()
-        (self.wt / "br_plans").mkdir()
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)

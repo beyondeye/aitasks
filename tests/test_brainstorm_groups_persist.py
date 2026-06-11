@@ -214,7 +214,6 @@ from brainstorm.brainstorm_session import (  # noqa: E402
 )
 from brainstorm.brainstorm_dag import (  # noqa: E402
     NODES_DIR,
-    PLANS_DIR,
     PROPOSALS_DIR,
 )
 

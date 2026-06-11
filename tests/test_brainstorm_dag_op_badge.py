@@ -31,7 +31,6 @@ def _seed_session(wt: Path) -> None:
     """Set up the minimal directory layout _build_graph expects."""
     (wt / "br_nodes").mkdir(parents=True, exist_ok=True)
     (wt / "br_proposals").mkdir(parents=True, exist_ok=True)
-    (wt / "br_plans").mkdir(parents=True, exist_ok=True)
 
 
 def _write_node(wt: Path, node_id: str, parents: list[str], group: str) -> None:
@@ -69,7 +68,7 @@ class TestBuildGraphOpMap(unittest.TestCase):
                 },
             })
             _write_node(wt, "n001_x", parents=[], group="explore_001")
-            _, _, _, _, op_map, _ = _build_graph(wt)
+            _, _, _, _, op_map = _build_graph(wt)
             self.assertEqual(op_map.get("n001_x"), "explore")
 
     def test_legacy_session_empty_groups_yields_empty_op(self):
@@ -78,7 +77,7 @@ class TestBuildGraphOpMap(unittest.TestCase):
             _seed_session(wt)
             _write_groups(wt, {})
             _write_node(wt, "n001_x", parents=[], group="some_legacy_group")
-            _, _, _, _, op_map, _ = _build_graph(wt)
+            _, _, _, _, op_map = _build_graph(wt)
             self.assertEqual(op_map.get("n001_x"), "")
 
     def test_missing_groups_file_yields_empty_op(self):
@@ -86,7 +85,7 @@ class TestBuildGraphOpMap(unittest.TestCase):
             wt = Path(td)
             _seed_session(wt)
             _write_node(wt, "n001_x", parents=[], group="explore_001")
-            _, _, _, _, op_map, _ = _build_graph(wt)
+            _, _, _, _, op_map = _build_graph(wt)
             self.assertEqual(op_map.get("n001_x"), "")
 
     def test_missing_created_by_group_yields_empty_op(self):
@@ -107,7 +106,7 @@ class TestBuildGraphOpMap(unittest.TestCase):
             (wt / "br_nodes" / "n001_x.yaml").write_text(
                 yaml.safe_dump(data), encoding="utf-8"
             )
-            _, _, _, _, op_map, _ = _build_graph(wt)
+            _, _, _, _, op_map = _build_graph(wt)
             self.assertEqual(op_map.get("n001_x"), "")
 
 

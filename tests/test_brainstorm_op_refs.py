@@ -22,7 +22,6 @@ from brainstorm.brainstorm_op_refs import (  # noqa: E402
 )
 from brainstorm.brainstorm_dag import (  # noqa: E402
     NODES_DIR,
-    PLANS_DIR,
     PROPOSALS_DIR,
 )
 from brainstorm.brainstorm_schemas import canonical_op  # noqa: E402
@@ -32,7 +31,7 @@ class TestOpDataRefValidation(unittest.TestCase):
     def test_valid_kinds_accepted(self):
         for kind in [
             "agent_input", "agent_output", "agent_log",
-            "node_proposal", "node_plan", "node_metadata",
+            "node_proposal", "node_metadata",
             "session_spec",
         ]:
             OpDataRef(kind=kind, target="x")
@@ -77,13 +76,6 @@ class TestFileForRef(unittest.TestCase):
         self.assertEqual(
             file_for_ref(self.session, ref),
             self.session / PROPOSALS_DIR / "n005_x.md",
-        )
-
-    def test_node_plan(self):
-        ref = OpDataRef("node_plan", "n005_x")
-        self.assertEqual(
-            file_for_ref(self.session, ref),
-            self.session / PLANS_DIR / "n005_x_plan.md",
         )
 
     def test_node_metadata(self):

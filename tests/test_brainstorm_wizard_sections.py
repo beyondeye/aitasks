@@ -110,18 +110,6 @@ Postgres.
 <!-- /section: storage -->
 """
 
-    PLAN_WITH_SECTIONS = """\
-# Plan
-
-<!-- section: auth [dimensions: component_auth] -->
-Adopt OAuth.
-<!-- /section: auth -->
-
-<!-- section: storage -->
-Redis cache in front.
-<!-- /section: storage -->
-"""
-
     PROPOSAL_NO_SECTIONS = "# Proposal\n\nNo markers here.\n"
 
     def setUp(self):
@@ -138,7 +126,6 @@ Redis cache in front.
         self.wt_path = Path(ac_mod.AGENTCREW_DIR) / f"crew-brainstorm-{self.task_num}"
         self.wt_path.mkdir(parents=True)
         (self.wt_path / "br_proposals").mkdir()
-        (self.wt_path / "br_plans").mkdir()
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -150,9 +137,6 @@ Redis cache in front.
     def _write_proposal(self, node_id: str, content: str) -> None:
         (self.wt_path / "br_proposals" / f"{node_id}.md").write_text(content, encoding="utf-8")
 
-    def _write_plan(self, node_id: str, content: str) -> None:
-        (self.wt_path / "br_plans" / f"{node_id}_plan.md").write_text(content, encoding="utf-8")
-
     def _make_app(self):
         from brainstorm.brainstorm_app import BrainstormApp
         app = BrainstormApp.__new__(BrainstormApp)
@@ -161,26 +145,19 @@ Redis cache in front.
         app.session_path = self.wt_path
         return app
 
-    def test_plan_preferred_over_proposal(self):
-        self._write_proposal("n1", self.PROPOSAL_NO_SECTIONS)
-        self._write_plan("n1", self.PLAN_WITH_SECTIONS)
-        app = self._make_app()
-        sections = app._node_sections("n1")
-        self.assertEqual([s.name for s in sections], ["auth", "storage"])
-
-    def test_falls_back_to_proposal_when_plan_missing(self):
+    def test_returns_proposal_sections(self):
         self._write_proposal("n1", self.PROPOSAL_WITH_SECTIONS)
         app = self._make_app()
         sections = app._node_sections("n1")
         self.assertEqual([s.name for s in sections], ["auth", "storage"])
 
-    def test_returns_empty_when_neither_has_sections(self):
+    def test_returns_empty_when_proposal_has_no_sections(self):
         self._write_proposal("n1", self.PROPOSAL_NO_SECTIONS)
         app = self._make_app()
         self.assertEqual(app._node_sections("n1"), [])
 
-    def test_has_sections_true_when_any_present(self):
-        self._write_plan("n1", self.PLAN_WITH_SECTIONS)
+    def test_has_sections_true_when_present(self):
+        self._write_proposal("n1", self.PROPOSAL_WITH_SECTIONS)
         app = self._make_app()
         self.assertTrue(app._node_has_sections("n1"))
 

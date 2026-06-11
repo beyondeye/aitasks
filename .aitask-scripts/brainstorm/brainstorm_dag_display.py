@@ -51,7 +51,6 @@ HEAD_BORDER_STYLE = Style(color="#50FA7B", bold=True)
 ANCHOR_BORDER_STYLE = Style(color="#FFB86C", bold=True)
 FOCUSED_BG = Style(bgcolor="#44475A")
 HEAD_TAG_STYLE = Style(color="#50FA7B", bold=True)
-NO_PLAN_STYLE = Style(color="#6272A4", dim=True)
 NODE_ID_STYLE = Style(bold=True)
 DESC_STYLE = Style(color="#F8F8F2")
 EDGE_STYLE = Style(color="#6272A4")
@@ -90,23 +89,20 @@ UNKNOWN_STATUS_STYLE = Style(color="#6272A4", italic=True)
 
 def _build_graph(
     session_path: Path,
-) -> tuple[list[str], dict, dict, dict, dict, dict]:
+) -> tuple[list[str], dict, dict, dict, dict]:
     """Build adjacency maps from session nodes.
 
-    Returns (node_ids, parent_map, child_map, node_descs, node_op_map,
-    node_has_plan_map). ``node_op_map`` maps each node id to its
-    originating operation name (e.g. ``"explore"``) by joining
-    ``created_by_group`` against ``br_groups.yaml``. Falls back to ``""``
-    when the group entry is missing (legacy sessions with empty
-    br_groups.yaml). ``node_has_plan_map`` maps each node id to whether
-    it has a ``plan_file`` set in its YAML.
+    Returns (node_ids, parent_map, child_map, node_descs, node_op_map).
+    ``node_op_map`` maps each node id to its originating operation name
+    (e.g. ``"explore"``) by joining ``created_by_group`` against
+    ``br_groups.yaml``. Falls back to ``""`` when the group entry is
+    missing (legacy sessions with empty br_groups.yaml).
     """
     nodes = list_nodes(session_path)
     parent_map: dict[str, list[str]] = {}
     child_map: dict[str, list[str]] = {}
     node_descs: dict[str, str] = {}
     node_op_map: dict[str, str] = {}
-    node_has_plan_map: dict[str, bool] = {}
 
     groups_path = session_path / GROUPS_FILE
     groups: dict = {}
@@ -126,11 +122,10 @@ def _build_graph(
             (groups.get(group_name) or {}).get("operation", "")
         ) if group_name else ""
         node_op_map[nid] = op
-        node_has_plan_map[nid] = bool(data.get("plan_file"))
         for p in parents:
             child_map.setdefault(p, []).append(nid)
 
-    return nodes, parent_map, child_map, node_descs, node_op_map, node_has_plan_map
+    return nodes, parent_map, child_map, node_descs, node_op_map
 
 
 def _assign_layers(
@@ -224,7 +219,6 @@ def _render_node_box(
     is_focused: bool,
     operation: str = "",
     is_anchor: bool = False,
-    has_plan: bool = False,
 ) -> list[Text]:
     """Render a single node box as BOX_WIDTH-wide Rich Text lines.
 
@@ -265,10 +259,6 @@ def _render_node_box(
     inner.append(node_id, style=NODE_ID_STYLE + bg)
     if is_head:
         inner.append(" HEAD", style=HEAD_TAG_STYLE + bg)
-    if has_plan:
-        inner.append(" ●", style=HEAD_TAG_STYLE + bg)
-    else:
-        inner.append(" ○", style=NO_PLAN_STYLE + bg)
     pad = inner_w - len(inner.plain)
     if pad > 0:
         inner.append(" " * pad, style=bg)
@@ -314,11 +304,9 @@ def _render_layer(
     total_width: int,
     node_op_map: dict[str, str] | None = None,
     compare_anchor_id: str | None = None,
-    node_has_plan_map: dict[str, bool] | None = None,
 ) -> list[Text]:
     """Render all node boxes in a layer as full-width lines."""
     op_map = node_op_map or {}
-    plan_map = node_has_plan_map or {}
     # Build individual box lines
     boxes: list[list[Text]] = []
     for nid in layer:
@@ -332,7 +320,6 @@ def _render_layer(
                 compare_anchor_id is not None
                 and nid == compare_anchor_id
             ),
-            has_plan=plan_map.get(nid, False),
         )
         boxes.append(box)
 
@@ -470,7 +457,6 @@ class DAGDisplay(VerticalScroll):
         Binding("h", "head_node", "Set HEAD", show=True),
         Binding("o", "open_operation", "Operation", show=True),
         Binding("p", "view_proposal", "Proposal", show=True),
-        Binding("l", "view_plan", "Plan", show=True),
         Binding("x", "compare_with", "Compare", show=True),
         Binding("escape", "cancel_compare", show=False),
     ])
@@ -510,13 +496,6 @@ class DAGDisplay(VerticalScroll):
             super().__init__()
             self.node_id = node_id
 
-    class PlanRequested(Message):
-        """Emitted when l is pressed to view the focused node's plan."""
-
-        def __init__(self, node_id: str) -> None:
-            super().__init__()
-            self.node_id = node_id
-
     class TopBoundaryHit(Message):
         """Emitted when Up is pressed while focus is on a layer-0 node.
 
@@ -542,7 +521,6 @@ class DAGDisplay(VerticalScroll):
         self._child_map: dict[str, list[str]] = {}
         self._node_descs: dict[str, str] = {}
         self._node_op_map: dict[str, str] = {}
-        self._node_has_plan_map: dict[str, bool] = {}
         self._head: str | None = None
         self._node_line_map: dict[str, int] = {}
         self._compare_anchor_id: str | None = None
@@ -555,14 +533,13 @@ class DAGDisplay(VerticalScroll):
         """Build layout from session data and render."""
         self._session_path = session_path
 
-        nodes, parent_map, child_map, node_descs, node_op_map, node_has_plan_map = _build_graph(
+        nodes, parent_map, child_map, node_descs, node_op_map = _build_graph(
             session_path
         )
         self._parent_map = parent_map
         self._child_map = child_map
         self._node_descs = node_descs
         self._node_op_map = node_op_map
-        self._node_has_plan_map = node_has_plan_map
         self._head = get_head(session_path)
 
         if not nodes:
@@ -618,7 +595,6 @@ class DAGDisplay(VerticalScroll):
                 layer, self._node_descs, self._head, focused_id, total_width,
                 node_op_map=self._node_op_map,
                 compare_anchor_id=self._compare_anchor_id,
-                node_has_plan_map=self._node_has_plan_map,
             )
             all_lines.extend(layer_lines)
 
@@ -836,13 +812,6 @@ class DAGDisplay(VerticalScroll):
             return
         focused_id = self._node_order[self._focused_idx]
         self.post_message(self.ProposalRequested(focused_id))
-
-    def action_view_plan(self) -> None:
-        """Post PlanRequested for the focused node (l key)."""
-        if not self._node_order:
-            return
-        focused_id = self._node_order[self._focused_idx]
-        self.post_message(self.PlanRequested(focused_id))
 
     def action_compare_with(self) -> None:
         """Enter compare-pick mode (x key)."""

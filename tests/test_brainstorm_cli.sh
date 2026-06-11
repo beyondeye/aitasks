@@ -150,7 +150,6 @@ TMPDIR_T1="$(setup_test_repo)"
     assert_file_exists "br_groups.yaml created" "$WT/br_groups.yaml"
     assert_dir_exists "br_nodes/ created" "$WT/br_nodes"
     assert_dir_exists "br_proposals/ created" "$WT/br_proposals"
-    assert_dir_exists "br_plans/ created" "$WT/br_plans"
 
     # Verify session content
     task_id=$(grep '^task_id:' "$WT/br_session.yaml" | sed 's/^task_id: *//')

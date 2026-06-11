@@ -25,7 +25,6 @@ from brainstorm.brainstorm_dag import (  # noqa: E402
     GRAPH_STATE_FILE,
     NODES_DIR,
     PROPOSALS_DIR,
-    PLANS_DIR,
     create_node,
     set_head,
 )
@@ -164,12 +163,15 @@ class TestArchiveCommand(CLITestBase):
             wt, node_id, [], "Test node", {},
             "Test proposal", "test_group",
         )
-        # Create a plan file for the node
-        plan_path = wt / PLANS_DIR / f"{node_id}_plan.md"
+        # Create a plan file for the node. NOTE: finalize's plan export is
+        # retired in t891_4 (which updates this test); the "br_plans" store is
+        # no longer auto-created (t891_3), so create it explicitly here.
+        plan_path = wt / "br_plans" / f"{node_id}_plan.md"
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
         plan_path.write_text("# Test plan", encoding="utf-8")
         # Update node to reference the plan
         from brainstorm.brainstorm_dag import update_node
-        update_node(wt, node_id, {"plan_file": f"{PLANS_DIR}/{node_id}_plan.md"})
+        update_node(wt, node_id, {"plan_file": f"br_plans/{node_id}_plan.md"})
         # Set HEAD
         set_head(wt, node_id)
 

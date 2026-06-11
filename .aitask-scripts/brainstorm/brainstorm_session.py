@@ -4,7 +4,7 @@ Sessions live in AgentCrew crew worktrees at
 .aitask-crews/crew-brainstorm-<task_num>/. The crew worktree is created by
 `ait crew init`; this module adds brainstorm-specific files (br_session.yaml,
 br_graph_state.yaml, br_groups.yaml) and subdirectories (br_nodes/,
-br_proposals/, br_plans/).
+br_proposals/).
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ from agentcrew.agentcrew_utils import AGENTCREW_DIR, read_yaml, write_yaml  # no
 from .brainstorm_dag import (  # noqa: E402
     GRAPH_STATE_FILE,
     NODES_DIR,
-    PLANS_DIR,
     PROPOSALS_DIR,
     UMBRELLA_SUBGRAPH,
     create_node,
@@ -65,7 +64,7 @@ def init_session(
     """Initialize brainstorm session files in an existing crew worktree.
 
     Creates: br_session.yaml, br_graph_state.yaml, br_groups.yaml,
-             br_nodes/, br_proposals/, br_plans/ directories.
+             br_nodes/, br_proposals/ directories.
 
     If ``initial_proposal_file`` is given, it is recorded in
     br_session.yaml and the seeded n000_init becomes a placeholder
@@ -97,7 +96,7 @@ def init_session(
         abs_proposal_path = str(proposal_path.resolve())
 
     # Create subdirectories
-    for subdir in (NODES_DIR, PROPOSALS_DIR, PLANS_DIR):
+    for subdir in (NODES_DIR, PROPOSALS_DIR):
         (wt / subdir).mkdir(parents=True, exist_ok=True)
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -544,7 +543,7 @@ def apply_initializer_output(task_num: int | str) -> None:
 # validate_node's ``node_id ∈ proposal_file`` invariant).
 _NODE_NON_DIMENSION_FIELDS = frozenset({
     "node_id", "parents", "description", "proposal_file",
-    "created_at", "created_by_group", "reference_files", "plan_file",
+    "created_at", "created_by_group", "reference_files",
 })
 
 _AGENT_NAME_RE = re.compile(r"^([a-z_]+)_([0-9A-Za-z_]+)$")

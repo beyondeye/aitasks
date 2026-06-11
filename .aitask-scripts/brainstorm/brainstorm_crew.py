@@ -29,7 +29,6 @@ from launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES  # noqa: E402
 
 from .brainstorm_dag import (  # noqa: E402
     NODES_DIR,
-    PLANS_DIR,
     PROPOSALS_DIR,
     get_head,
     is_ancestor_subgraph,
@@ -234,10 +233,6 @@ def _assemble_input_explorer(
         f"- Metadata: {node_yaml_path}",
         f"- Proposal: {proposal_path}",
     ]
-
-    plan_file = session_path / PLANS_DIR / f"{base_node_id}_plan.md"
-    if plan_file.is_file():
-        lines.append(f"- Plan: {session_path}/{PLANS_DIR}/{base_node_id}_plan.md")
 
     lines.extend(_subgraph_context_lines(session_path, base_node_id))
 

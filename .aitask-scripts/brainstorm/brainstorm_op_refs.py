@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .brainstorm_dag import NODES_DIR, PLANS_DIR, PROPOSALS_DIR
+from .brainstorm_dag import NODES_DIR, PROPOSALS_DIR
 from .brainstorm_schemas import canonical_op
 
 _OP_INPUT_SECTION = {
@@ -26,7 +26,7 @@ _OP_INPUT_SECTION = {
 
 _VALID_KINDS = {
     "agent_input", "agent_output", "agent_log",
-    "node_proposal", "node_plan", "node_metadata",
+    "node_proposal", "node_metadata",
     "session_spec",
 }
 
@@ -51,8 +51,6 @@ def file_for_ref(session_path: Path, ref: OpDataRef) -> Path:
         return session_path / f"{ref.target}_log.txt"
     if ref.kind == "node_proposal":
         return session_path / PROPOSALS_DIR / f"{ref.target}.md"
-    if ref.kind == "node_plan":
-        return session_path / PLANS_DIR / f"{ref.target}_plan.md"
     if ref.kind == "node_metadata":
         return session_path / NODES_DIR / f"{ref.target}.yaml"
     if ref.kind == "session_spec":

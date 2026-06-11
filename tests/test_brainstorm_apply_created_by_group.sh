@@ -24,7 +24,7 @@ SOURCE_EX="n000_init"
 cleanup_explorer() { rm -rf "$CREW_EX"; }
 
 rm -rf "$CREW_EX"
-mkdir -p "$CREW_EX/br_nodes" "$CREW_EX/br_proposals" "$CREW_EX/br_plans"
+mkdir -p "$CREW_EX/br_nodes" "$CREW_EX/br_proposals"
 
 cat > "$CREW_EX/br_nodes/${SOURCE_EX}.yaml" <<'EOF'
 node_id: n000_init
