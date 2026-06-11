@@ -174,3 +174,46 @@ simple single-proposal sessions, export proceeds normally.
   guard strictness was explicitly chosen by the user ("Block until synced").
   Anchors and module-state helpers re-verified against as-landed code. ·
   severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** Rewrote `finalize_session` (`brainstorm_session.py`) to
+  export the HEAD node's **proposal** (`read_proposal` → `aiplans/p<N>_<head>.md`,
+  `dest.write_text`) instead of copying a `plan_file`/`br_plans` plan. Added the
+  user-requested **module-sync guard**: it computes `module_status_rows(wt)` and
+  raises `ValueError("… run module_sync before finalizing.")` when any
+  non-umbrella module is `in_implementation`/`implemented` with no `last_synced`
+  stamp. The `completed` status transition is preserved; the `shutil` import
+  stays (used by `delete_session`). Updated user-facing "plan"→"proposal" wording
+  in `brainstorm_cli.py` (finalize docstring + subparser help) and
+  `brainstorm_app.py` (`_SESSION_OPS` label, OP help-dict comment/title/summary/
+  use-case, session-op config label, and the notify string). Tests:
+  `test_finalize_copies_plan`→`test_finalize_exports_proposal`, new
+  `test_finalize_blocked_by_unsynced_module`, and stripped the `br_plans`/
+  `plan_file` setup from the CLI archive test.
+- **Deviations from plan:** None functionally. The plan flagged that the
+  `PLAN:<dest>` CLI stdout token *might* be renamed to `PROPOSAL:`; it is **kept**
+  because `aitask_brainstorm_archive.sh:82-85` consumes `^PLAN:` — renaming would
+  widen blast radius beyond this child's scope. Only prose was changed.
+- **Issues encountered:** The `brainstorm_status` ↔ `brainstorm_session` import
+  cycle (`brainstorm_status.py:38` imports from `brainstorm_session`) — resolved
+  with a **function-local** import inside `finalize_session` (matches the existing
+  `from .brainstorm_dag import …` local-import style). Verified importable both
+  ways.
+- **Key decisions:** Strategy (a) proposal export (ratified by
+  `brainstorm_engine_architecture_v2.md:135`), not pure (b) no-op — (b) would
+  strand the handoff for non-decomposed sessions. Guard strictness = "Block until
+  synced" (user-selected): allows export for design-only/simple sessions and for
+  decomposed sessions once every implemented module is synced.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** (1) `t891` is now **grep-clean** of
+  `plan_file`/`br_plans` across `.aitask-scripts/brainstorm/` — finalize was the
+  last consumer. (2) **Naming lag, not a defect:** `aitask_brainstorm_archive.sh`
+  still uses the `PLAN:<path>` stdout token and "Plan file copied to aiplans/"
+  usage comments (lines 10, 42, 82-85). These are an internal protocol contract
+  with `brainstorm_cli.py`'s `print(f"PLAN:{dest}")`, deliberately left intact;
+  if a future task wants full "proposal" naming consistency it must change the
+  CLI token and the archive parser together. (3) The module-sync guard reuses
+  `brainstorm_status.module_status_rows`; the `in_implementation`/`implemented`
+  + unsynced predicate is the canonical "premature export" signal. t891_5
+  (manual verification) should exercise the live finalize block/unblock flow.
