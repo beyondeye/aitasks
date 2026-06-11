@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-24 09:32
-updated_at: 2026-06-10 17:49
+updated_at: 2026-06-11 10:00
 ---
 
 Design doc only: spec how the existing `ait monitor` TUI will be ported to drive a mobile client over the `applink` protocol. Identifies the headless-core extraction seam, maps every existing command verb to a protocol message + permission profile, defines the snapshot data model and refresh cadence, and enumerates the modal-dialog handshakes. Produces no code changes under `.aitask-scripts/monitor/`.
