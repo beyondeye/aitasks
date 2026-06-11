@@ -156,3 +156,36 @@ manual `r` still work.
 - None identified — root cause is empirically verified and confirmed in-code;
   the fix generalizes the already-correct `_on_reload_chunk` pattern and every
   acceptance criterion maps to a concrete change.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented both fixes exactly as planned.
+  - `history_list.py`: rewrote `HistoryTaskList.update_index` to reconcile the
+    displayed window against the re-sorted index — recomputes `_index`/
+    `_child_counts`, compares the current row IDs to the new top-`displayed`
+    window, fast-path returns (indicator-only refresh) when unchanged, and
+    otherwise re-mounts the window while preserving `_offset`, scroll, and the
+    focused row. Extracted `_refresh_load_more()` and added
+    `_restore_window_view()`.
+  - `history_screen.py`: added `AUTO_RELOAD_DEBOUNCE_S = 5.0`,
+    `_reload_baseline_ids`, `_maybe_auto_reload()` (called at the end of
+    `_populate_and_restore`), `_finish_auto_reload()` (change-only notify),
+    threaded an `auto` flag through `_reload_data`/`_on_reload_chunk`, wrote the
+    cache timestamp on every chunk, guarded the scroll-restore race, and
+    suppressed the blocking modal on the auto path.
+  - `codebrowser_app.py`: initialized `_history_cached_at = 0.0`.
+  - Added `tests/test_history_progressive_reconcile.py` (3 headless pilots).
+- **Deviations from plan:** None substantive. The "uncommitted unrelated
+  changes" caveat became moot: between planning and commit, another session
+  committed/reset the `spawn_in_terminal` refactor, so the two shared files
+  (`history_screen.py`, `codebrowser_app.py`) ended up containing only t975
+  changes — no selective `git add -p` was needed.
+- **Issues encountered:** `pytest` is not installed in the venv; ran the suite
+  via `python3 -m unittest`. New tests (3) and existing `test_history_data`
+  (28) all pass.
+- **Key decisions:** Routed both the initial progressive load and manual `r`
+  reload through the same reconciling `update_index` (single fix point), kept a
+  fast path to avoid needless re-mounts/flicker, and reused the existing
+  `_reload_data`/`_on_reload_chunk` worker for auto-refresh via an `auto` flag
+  rather than duplicating a worker.
+- **Upstream defects identified:** None
