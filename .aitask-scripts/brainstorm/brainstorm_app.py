@@ -225,7 +225,7 @@ _DESIGN_OPS = [
 _SESSION_OPS = [
     ("pause", "Pause", "Pause the active session"),
     ("resume", "Resume", "Resume a paused session"),
-    ("finalize", "Finalize", "Copy HEAD plan to aiplans/ and mark completed"),
+    ("finalize", "Finalize", "Export HEAD proposal to aiplans/ and mark completed"),
     ("archive", "Archive", "Mark completed session as archived"),
     ("delete", "Delete", "Permanently delete session, worktree, and branch"),
 ]
@@ -435,18 +435,20 @@ _OPERATION_HELP: dict[str, dict] = {
             "Continue work on a session that was paused earlier.",
         ],
     },
-    # Source: brainstorm_session.finalize_session — copies the HEAD node's
-    # plan into aiplans/ and marks the session `completed`. Requires HEAD
-    # to be set and status to be `active`.
+    # Source: brainstorm_session.finalize_session — exports the HEAD node's
+    # proposal into aiplans/ and marks the session `completed`. Requires HEAD
+    # to be set; blocks if a fast-tracked module is in implementation but
+    # not yet synced.
     "finalize": {
         "title": "Finalize — Session Lifecycle",
         "summary": (
-            "Copy the HEAD node's implementation plan into aiplans/ and "
+            "Export the HEAD node's proposal into aiplans/ and "
             "mark the session `completed`. Requires the session to be "
-            "`active` and HEAD to point at a node that has a plan."
+            "`active` with a HEAD; blocked while a fast-tracked module is "
+            "in implementation but not yet synced."
         ),
         "use_cases": [
-            "Promote the chosen design's plan to the project's canonical "
+            "Promote the chosen design's proposal to the project's canonical "
             "aiplans/ directory once the brainstorm has converged.",
         ],
     },
@@ -6976,7 +6978,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         labels = {
             "pause": "Pause the session. Agents will not be dispatched.",
             "resume": "Resume the paused session.",
-            "finalize": "Copy the HEAD node's plan to aiplans/ and mark session completed.",
+            "finalize": "Export the HEAD node's proposal to aiplans/ and mark session completed.",
             "archive": "Mark the session as archived.",
         }
         container.mount(Label(f"[bold]{labels.get(self._wizard_op, self._wizard_op)}[/]"))
@@ -7422,7 +7424,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.notify("Session resumed")
             elif op == "finalize":
                 dest = finalize_session(self.task_num)
-                self.notify(f"Plan finalized to {dest}")
+                self.notify(f"Proposal finalized to {dest}")
             elif op == "archive":
                 archive_session(self.task_num)
                 self.notify("Session archived")

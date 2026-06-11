@@ -497,34 +497,69 @@ class TestValidateSession(BrainstormTestBase):
 
 class TestFinalizeSession(BrainstormTestBase):
 
-    def test_finalize_copies_plan(self):
-        # NOTE: finalize_session's plan export is retired in t891_4; this test
-        # exercises the still-present behavior and is updated there. The
-        # "br_plans" store is no longer auto-created (t891_3), so the test
-        # creates it explicitly.
+    def test_finalize_exports_proposal(self):
+        # t891_4: finalize exports the HEAD node's *proposal* to aiplans/
+        # (the plan-export path was retired with the plan layer).
         self._init_session()
-        # Create a node with a plan
-        create_node(self.wt_path, "n000_init", [], "Init", {}, "# Init", "")
-        # Write plan file
-        plan_dir = self.wt_path / "br_plans"
-        plan_dir.mkdir(parents=True, exist_ok=True)
-        plan_file = plan_dir / "n000_init_plan.md"
-        plan_file.write_text("# Plan: Init\n\nStep 1: Do stuff.", encoding="utf-8")
-        # Update node to reference plan
-        update_node(self.wt_path, "n000_init", {
-            "plan_file": "br_plans/n000_init_plan.md"
-        })
+        create_node(
+            self.wt_path, "n000_init", [], "Init", {},
+            "# Proposal: Init\n\nDesign details.", "",
+        )
         set_head(self.wt_path, "n000_init")
 
-        # Finalize
         dest_dir = os.path.join(self.tmpdir, "aiplans")
         dest = finalize_session(self.task_num, plan_dest_dir=dest_dir)
         self.assertTrue(os.path.isfile(dest))
-        self.assertIn("Step 1: Do stuff.", Path(dest).read_text())
+        self.assertIn("Design details.", Path(dest).read_text())
 
         # Check session status updated
         session = load_session(self.task_num)
         self.assertEqual(session["status"], "completed")
+
+    def test_finalize_blocked_by_unsynced_module(self):
+        # t891_4: finalize must refuse to export the umbrella proposal while a
+        # fast-tracked module is in implementation but not yet synced — its real
+        # plan lives in the linked aitask. After a module_sync stamp, it exports.
+        from brainstorm.brainstorm_session import (
+            _write_last_synced,
+            _write_module_task,
+        )
+        self._init_session()
+        wt = self.wt_path
+        # Umbrella head with the proposal that would be exported once unblocked.
+        create_node(wt, "n000_init", [], "Init", {}, "# Proposal body", "")
+        set_head(wt, "n000_init")
+        # A fast-tracked module subgraph: >1 node + a linked task.
+        create_node(wt, "n001_auth", [], "Auth root", {}, "## auth\n", "g",
+                    module_label="auth")
+        create_node(wt, "n002_auth", ["n001_auth"], "Auth refine", {},
+                    "## auth2\n", "g", module_label="auth")
+        set_head(wt, "n002_auth", module="auth")
+        _write_module_task(wt, "auth", f"{self.task_num}_2")
+
+        cwd = os.getcwd()
+        os.chdir(self.tmpdir)
+        try:
+            # Linked task Implementing → module in_implementation, unsynced.
+            task_dir = Path("aitasks") / f"t{self.task_num}"
+            task_dir.mkdir(parents=True, exist_ok=True)
+            (task_dir / f"t{self.task_num}_2_auth.md").write_text(
+                "---\nstatus: Implementing\nissue_type: feature\n---\n\nbody\n",
+                encoding="utf-8",
+            )
+            dest_dir = os.path.join(self.tmpdir, "aiplans")
+            with self.assertRaises(ValueError) as ctx:
+                finalize_session(self.task_num, plan_dest_dir=dest_dir)
+            self.assertIn("auth", str(ctx.exception))
+            self.assertIn("module_sync", str(ctx.exception))
+
+            # After a sync stamp, the export proceeds.
+            _write_last_synced(wt, "auth", "2026-06-11 12:00")
+            dest = finalize_session(self.task_num, plan_dest_dir=dest_dir)
+            self.assertTrue(os.path.isfile(dest))
+            self.assertIn("# Proposal body", Path(dest).read_text())
+        finally:
+            os.chdir(cwd)
 
 
 class TestDimensionFields(BrainstormTestBase):

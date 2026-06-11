@@ -112,7 +112,7 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 
 def cmd_finalize(args: argparse.Namespace) -> None:
-    """Copy HEAD node's plan to aiplans/ and mark session completed."""
+    """Export HEAD node's proposal to aiplans/ and mark session completed."""
     if not session_exists(args.task_num):
         print(f"ERROR:No brainstorm session for task {args.task_num}", file=sys.stderr)
         sys.exit(1)
@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> None:
     p_list.set_defaults(func=cmd_list)
 
     # finalize
-    p_fin = subparsers.add_parser("finalize", help="Copy HEAD plan to aiplans/")
+    p_fin = subparsers.add_parser("finalize", help="Export HEAD proposal to aiplans/")
     p_fin.add_argument("--task-num", required=True, help="Task number")
     p_fin.set_defaults(func=cmd_finalize)
 

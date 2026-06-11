@@ -334,12 +334,20 @@ def list_sessions() -> list[dict]:
 
 
 def finalize_session(task_num: int | str, plan_dest_dir: str = "aiplans") -> str:
-    """Copy HEAD node's plan to aiplans/. Mark session completed.
+    """Export HEAD node's proposal to aiplans/. Mark session completed.
 
-    Returns the destination path of the copied plan file.
-    Raises ValueError if HEAD has no plan.
+    Returns the destination path of the exported proposal file. Raises
+    ValueError if no HEAD is set, or if a fast-tracked module is still in
+    implementation but has not been synced back (run ``module_sync`` first).
     """
-    from .brainstorm_dag import get_head, read_node
+    from .brainstorm_dag import get_head, read_proposal
+    # Function-local: brainstorm_status imports from this module, so a top-level
+    # import would be circular. Both modules are fully loaded by call time.
+    from .brainstorm_status import (
+        STATUS_IMPLEMENTED,
+        STATUS_IN_IMPLEMENTATION,
+        module_status_rows,
+    )
 
     wt = crew_worktree(task_num)
 
@@ -347,19 +355,27 @@ def finalize_session(task_num: int | str, plan_dest_dir: str = "aiplans") -> str
     if not head:
         raise ValueError("No HEAD node set — cannot finalize.")
 
-    node_data = read_node(wt, head)
-    plan_file = node_data.get("plan_file")
-    if not plan_file:
-        raise ValueError(f"HEAD node '{head}' has no plan_file.")
+    # Block export while a fast-tracked module is mid-implementation and unsynced:
+    # its real plan lives in the linked aitask, so the umbrella proposal would be
+    # a stale handoff. ``module_sync`` reconciles implementation reality first.
+    unsynced = [
+        r for r in module_status_rows(wt)
+        if not r["is_umbrella"]
+        and r["status"] in (STATUS_IN_IMPLEMENTATION, STATUS_IMPLEMENTED)
+        and not r["last_synced"]
+    ]
+    if unsynced:
+        names = ", ".join(r["module"] for r in unsynced)
+        raise ValueError(
+            f"Cannot finalize: module(s) {names} are in implementation but not "
+            f"synced. Run module_sync before finalizing."
+        )
 
-    src = wt / plan_file
-    if not src.is_file():
-        raise FileNotFoundError(f"Plan file not found: {src}")
-
+    proposal = read_proposal(wt, head)
     dest_dir = Path(plan_dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"p{task_num}_{head}.md"
-    shutil.copy2(str(src), str(dest))
+    dest.write_text(proposal, encoding="utf-8")
 
     save_session(task_num, {"status": "completed"})
 

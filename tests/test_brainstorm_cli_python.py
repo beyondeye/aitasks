@@ -156,22 +156,14 @@ class TestArchiveCommand(CLITestBase):
 
     def test_archive_sets_crew_status(self):
         self._init_session()
-        # Create a node with a plan so finalize can work
+        # Create a node with a proposal so finalize can export it (t891_4:
+        # finalize exports the HEAD node's proposal, not a plan).
         wt = crew_worktree(self.task_num)
         node_id = "0"
         create_node(
             wt, node_id, [], "Test node", {},
             "Test proposal", "test_group",
         )
-        # Create a plan file for the node. NOTE: finalize's plan export is
-        # retired in t891_4 (which updates this test); the "br_plans" store is
-        # no longer auto-created (t891_3), so create it explicitly here.
-        plan_path = wt / "br_plans" / f"{node_id}_plan.md"
-        plan_path.parent.mkdir(parents=True, exist_ok=True)
-        plan_path.write_text("# Test plan", encoding="utf-8")
-        # Update node to reference the plan
-        from brainstorm.brainstorm_dag import update_node
-        update_node(wt, node_id, {"plan_file": f"br_plans/{node_id}_plan.md"})
         # Set HEAD
         set_head(wt, node_id)
 
