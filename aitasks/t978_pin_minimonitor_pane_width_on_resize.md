@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tmux, monitor]
+assigned_to: daelyasy@hotmail.com
 created_at: 2026-06-11 13:06
-updated_at: 2026-06-11 13:06
+updated_at: 2026-06-11 13:07
 ---
 
 ## Problem

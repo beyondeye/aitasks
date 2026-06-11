@@ -5,9 +5,9 @@ depends: [756]
 issue_type: enhancement
 status: Ready
 labels: [ait_brainstorm, brainstom_modules, remove_support]
-children_to_implement: [t891_4, t891_5]
+children_to_implement: [t891_5]
 created_at: 2026-06-01 09:19
-updated_at: 2026-06-11 11:58
+updated_at: 2026-06-11 13:07
 boardidx: 60
 ---
 
