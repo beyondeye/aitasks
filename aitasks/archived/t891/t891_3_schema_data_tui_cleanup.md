@@ -1,13 +1,17 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t891_2]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [ait_brainstorm, brainstom_modules, remove_support]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-01 10:52
-updated_at: 2026-06-11 11:26
+updated_at: 2026-06-11 11:58
+completed_at: 2026-06-11 11:58
 ---
 
 # t891_3 — Schema/data + TUI cleanup: remove plan_file, br_plans, plan UI
