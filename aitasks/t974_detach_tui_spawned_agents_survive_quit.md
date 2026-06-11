@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui, codeagent, tmux]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 12:26
-updated_at: 2026-06-11 12:26
+updated_at: 2026-06-11 12:27
 ---
 
 ## Problem
