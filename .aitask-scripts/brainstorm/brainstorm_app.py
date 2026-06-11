@@ -3846,6 +3846,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     try:
                         subprocess.Popen(
                             ["./ait", "crew", "logview", "--path", str(log_path)],
+                            start_new_session=True,  # outlive the brainstorm TUI (esp. outside tmux)
                         )
                         self.notify(f"Opening log for {focused.agent_name}")
                     except OSError as exc:

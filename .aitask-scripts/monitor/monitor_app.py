@@ -1569,6 +1569,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             subprocess.Popen(
                 ["./ait", "crew", "logview", "--path", str(log_path)],
                 cwd=str(root),
+                start_new_session=True,  # outlive the monitor TUI (esp. outside tmux)
             )
             self.notify(f"Opening log for {agent_name}")
         except OSError as exc:

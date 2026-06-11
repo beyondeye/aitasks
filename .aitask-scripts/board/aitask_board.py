@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for, task_dir
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
-from agent_launch_utils import find_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
+from agent_launch_utils import find_terminal, spawn_in_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
 from sync_action_runner import (
     SyncConflictScreen,
     run_sync_batch,
@@ -4715,7 +4715,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         wrapper = str(CODEAGENT_SCRIPT)
         terminal = find_terminal()
         if terminal:
-            subprocess.Popen([terminal, "--", wrapper, "invoke", "pick", num])
+            spawn_in_terminal(terminal, [wrapper, "invoke", "pick", num])
         else:
             with self.suspend():
                 ret = subprocess.call([wrapper, "invoke", "pick", num])
@@ -4759,7 +4759,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """Launch aitask_create.sh in a terminal or via suspend."""
         terminal = find_terminal()
         if terminal:
-            subprocess.Popen([terminal, "--", str(CREATE_SCRIPT)])
+            spawn_in_terminal(terminal, [str(CREATE_SCRIPT)])
         else:
             with self.suspend():
                 subprocess.call([str(CREATE_SCRIPT)])
@@ -4772,7 +4772,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         terminal = find_terminal()
         brainstorm_cmd = str(BRAINSTORM_TUI_SCRIPT)
         if terminal:
-            subprocess.Popen([terminal, "--", brainstorm_cmd, task_num])
+            spawn_in_terminal(terminal, [brainstorm_cmd, task_num])
         else:
             with self.suspend():
                 subprocess.call([brainstorm_cmd, task_num])

@@ -50,7 +50,7 @@ _LIB_DIR = str(Path(__file__).resolve().parent)
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from agent_launch_utils import find_terminal  # noqa: E402
+from agent_launch_utils import find_terminal, spawn_in_terminal  # noqa: E402
 
 
 # --- Wire-protocol status constants (must match aitask_sync.sh --batch exactly) ---
@@ -251,7 +251,7 @@ def run_interactive_sync(app, on_done: Callable[[], None] | None = None) -> None
     """
     terminal = find_terminal()
     if terminal:
-        subprocess.Popen([terminal, "--", "./ait", "sync"])
+        spawn_in_terminal(terminal, ["./ait", "sync"])
         return
 
     with app.suspend():

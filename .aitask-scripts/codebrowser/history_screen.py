@@ -9,7 +9,7 @@ from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
-from agent_launch_utils import find_terminal as _find_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
+from agent_launch_utils import find_terminal as _find_terminal, spawn_in_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -417,8 +417,8 @@ class HistoryScreen(Screen):
         wrapper = str(self._project_root / ".aitask-scripts" / "aitask_codeagent.sh")
         terminal = _find_terminal()
         if terminal:
-            subprocess.Popen(
-                [terminal, "--", wrapper, "invoke", "qa", task_id],
+            spawn_in_terminal(
+                terminal, [wrapper, "invoke", "qa", task_id],
                 cwd=str(self._project_root),
             )
         else:

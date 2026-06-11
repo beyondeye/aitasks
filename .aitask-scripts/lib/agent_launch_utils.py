@@ -117,6 +117,25 @@ def find_terminal() -> str | None:
     return None
 
 
+def spawn_in_terminal(
+    terminal: str, cmd: list[str], **popen_kwargs
+) -> subprocess.Popen:
+    """Spawn ``cmd`` in a new terminal window, detached from this process.
+
+    Wraps ``subprocess.Popen`` with ``start_new_session=True`` so the spawned
+    terminal (and the agent inside it) becomes a new session / process-group
+    leader. This lets the agent outlive the launching TUI even when the TUI is
+    NOT running inside tmux (the tmux launch path already detaches via
+    ``tmux_exec.py``). Without it, the child shares the TUI's session and
+    controlling terminal and is torn down when the TUI exits.
+
+    ``cmd`` is the argv that follows the terminal's ``--`` separator.
+    """
+    return subprocess.Popen(
+        [terminal, "--", *cmd], start_new_session=True, **popen_kwargs
+    )
+
+
 def resolve_dry_run_command(
     project_root: Path,
     operation: str,
