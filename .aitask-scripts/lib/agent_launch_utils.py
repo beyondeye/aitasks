@@ -236,16 +236,13 @@ def _read_registry_entry(session: str) -> Path | None:
     empty stdout with non-zero exit (truly absent).
     """
     var = f"AITASKS_PROJECT_{session}"
-    try:
-        result = subprocess.run(
-            ["tmux", "show-environment", "-g", var],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+    # Layer-A backend read — routed through the gateway so it honors the socket
+    # flag. The gateway folds spawn errors into (-1, ""), so rc != 0 covers the
+    # former except-branch (tmux missing / timeout) as well as a real miss.
+    rc, out = _TMUX.run(["show-environment", "-g", var])
+    if rc != 0:
         return None
-    if result.returncode != 0:
-        return None
-    line = result.stdout.strip()
+    line = out.strip()
     if not line or line.startswith("-") or "=" not in line:
         return None
     _, _, value = line.partition("=")
@@ -390,38 +387,27 @@ def discover_aitasks_sessions(
     ``is_stale=True``. Default ``False`` so existing callers (notably
     ``ait monitor``) see identical output to today.
     """
-    try:
-        result = subprocess.run(
-            ["tmux", "list-sessions", "-F", "#{session_name}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        sessions = (
-            [s for s in result.stdout.strip().splitlines() if s]
-            if result.returncode == 0 else []
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        sessions = []
+    # Layer-A backend enumeration — routed through the tmux gateway so it honors
+    # the socket flag (default today). The gateway folds TimeoutExpired/
+    # FileNotFoundError/OSError into (-1, ""), so the rc != 0 branch covers them.
+    rc, out = _TMUX.run(["list-sessions", "-F", "#{session_name}"])
+    sessions = [s for s in out.strip().splitlines() if s] if rc == 0 else []
 
     found: list[AitasksSession] = []
     for session in sessions:
         project_root: Path | None = None
-        try:
-            panes = subprocess.run(
-                ["tmux", "list-panes", "-s", "-t",
-                 tmux_session_target(session),
-                 "-F", "#{pane_current_path}"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if panes.returncode == 0:
-                for raw_path in panes.stdout.strip().splitlines():
-                    if not raw_path:
-                        continue
-                    candidate = _walk_up_to_aitasks(Path(raw_path))
-                    if candidate is not None:
-                        project_root = candidate
-                        break
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            pass
+        prc, pout = _TMUX.run(
+            ["list-panes", "-s", "-t", tmux_session_target(session),
+             "-F", "#{pane_current_path}"]
+        )
+        if prc == 0:
+            for raw_path in pout.strip().splitlines():
+                if not raw_path:
+                    continue
+                candidate = _walk_up_to_aitasks(Path(raw_path))
+                if candidate is not None:
+                    project_root = candidate
+                    break
 
         if project_root is None:
             project_root = _read_registry_entry(session)

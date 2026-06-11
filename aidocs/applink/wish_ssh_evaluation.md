@@ -205,6 +205,45 @@ agents in **one** screen (the `PaneCard` grid), which is exactly the model that
 fits a single `wish` PTY. The one-TUI-per-window + `j`-switcher + `switch-client`
 model does **not** port; it is replaced by in-TUI navigation.
 
+### The backend substrate: a single tmux gateway
+
+For a served front-end to drive tmux "as the agent backend," there has to be one
+backend handle it can drive — not raw `tmux` calls scattered across the codebase,
+each implicitly assuming the user's personal default tmux server. The framework
+therefore funnels all tmux access through a **single gateway per language**:
+`.aitask-scripts/lib/tmux_exec.py` (`TmuxClient`) and its shell mirror
+`.aitask-scripts/lib/tmux_exec.sh` (`ait_tmux`). The gateway is the sole owner of
+three cross-cutting policies that a served deployment depends on:
+
+- **Socket selection.** The gateway is the one place that decides which tmux
+  server to talk to (the default socket today; a dedicated `-L`/`-S` socket when
+  the framework runs hosted). Because every Layer-A backend call routes through
+  it, pointing the served backend at a dedicated socket — so it does **not** fight
+  the operator's personal default server — becomes a one-knob change
+  (`AITASKS_TMUX_SOCKET`) rather than an edit to every call site.
+- **Target formatting** (`=session` exact-match) and **exec strategy** (per-tick
+  subprocess vs. the persistent control-mode client), so a remote front-end
+  reuses the same well-known surface `ait monitor` already drives.
+
+The **Layer A / Layer B split is enforced, not just described**, by which calls
+go through the gateway:
+
+- **Layer A** (backend — session/pane enumeration, capture, window/pane
+  management) routes through the gateway, so it is socket-bound and follows the
+  served backend.
+- **Layer B / ambient probes** (a TUI asking "*which `$TMUX` am I myself running
+  inside?*") deliberately stay on the user's **default** server — they describe
+  the operator's local attach context, not the aitasks backend, so routing them
+  through a dedicated-socket gateway would query the wrong server. When the
+  front-end is remote, Layer B does not exist at all (navigation is in-app), so
+  these probes are local-only by construction.
+
+An anti-regression guard (`tests/test_no_raw_tmux.sh`) freezes this boundary: any
+new raw `tmux` spawn outside the gateway fails the test unless it is added to a
+documented allowlist that records *why* each remaining direct call is sanctioned.
+This keeps the "single backend handle" property from eroding as the codebase
+grows toward the served deployments above.
+
 ## Unifying conclusion: monitor_core with three front-ends
 
 All three use cases converge on the **`monitor_core` extraction seam** already
