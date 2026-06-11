@@ -6,9 +6,10 @@ grow per-module subgraphs, fast-track individual modules into their
 own implementation aitasks, and absorb the as-implemented design back
 into the broader proposal.
 
-Status: design only — no implementation has landed. The follow-up
-Phase A/B/C/D tasks are listed in §7. The plan that produced this
-document is `aiplans/p754_new_brainstorm_operations.md`.
+Status: implemented. The `decompose`, `sync`, and `merge` operations and
+their supporting data-model extensions described here are live in
+`ait brainstorm`, delivered across the Phase A–D tasks in §7. The plan
+that produced this document is `aiplans/p754_new_brainstorm_operations.md`.
 
 > **Note (t891 — proposal-only):** `ait brainstorm` no longer has an
 > implementation-**plan** layer. The `detail` and `patch` operations and the
@@ -333,9 +334,8 @@ subgraph it joins.
      full file list.
 - **Outputs.**
   - A new node `nZZZ` in the module subgraph with
-    `module_label=<module>`, `parents=[<previous module HEAD>]`, an
-    updated `proposal_file` reflecting the as-implemented design,
-    and an updated `plan_file` mirroring the aitask's final plan.
+    `module_label=<module>`, `parents=[<previous module HEAD>]`, and an
+    updated `proposal_file` reflecting the as-implemented design.
   - `current_heads[<module>] = nZZZ`;
     `history[<module>].append(nZZZ)`.
   - `last_synced_at[<module>]` is updated to `now()` so the next
@@ -523,8 +523,8 @@ UC-3 (fast-track) is the one place a single op suffices — it is just
 - **New template** `.aitask-scripts/brainstorm/templates/syncer.md`.
   Input: linked task's plan file + scoped git diff bundle + the
   subsequent-aitasks context bundle (from
-  `aitask_explain_context.sh`). Output: refined module proposal +
-  plan reflecting as-implemented state.
+  `aitask_explain_context.sh`). Output: refined module proposal
+  reflecting the as-implemented state.
 - **New template** `.aitask-scripts/brainstorm/templates/merger.md`.
   Input: destination proposal + source module proposal. Output:
   destination proposal regenerated to absorb the source module's
