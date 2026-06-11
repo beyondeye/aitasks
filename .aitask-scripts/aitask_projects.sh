@@ -154,56 +154,22 @@ atomic_write() {
 # Pipe is used (not tab) so empty middle fields survive `read -r` (tab is
 # whitespace IFS — consecutive tabs collapse).
 # Empty / missing registry → no output.
+#
+# Single registry-file reader authority (t970): shells out to the Python
+# parser in agent_launch_utils.py instead of re-implementing the YAML grammar
+# in awk. The output is byte-identical to the former awk reader (golden-corpus
+# tested in tests/test_registry_reader_parity.sh). Because this feeds the
+# read-modify-write round-trip (cmd_add / cmd_remove / cmd_update re-serialize
+# the whole file via build_registry_yaml), every mutating verb guards Python
+# availability up front with `require_python` — a missing interpreter aborts
+# loudly rather than returning empty and wiping git_remote/last_opened.
 list_registry_entries() {
     [[ -f "$REGISTRY_FILE" ]] || return 0
-    awk '
-        function emit() {
-            if (cur_name != "") {
-                printf "%s|%s|%s|%s\n", cur_name, cur_path, cur_remote, cur_last
-            }
-            cur_name=""; cur_path=""; cur_remote=""; cur_last=""
-        }
-        function unquote(s) {
-            gsub(/^[[:space:]]+/, "", s)
-            gsub(/[[:space:]]+$/, "", s)
-            gsub(/^"/, "", s); gsub(/"$/, "", s)
-            gsub(/^'\''/, "", s); gsub(/'\''$/, "", s)
-            return s
-        }
-        /^[[:space:]]*-[[:space:]]*name:[[:space:]]*/ {
-            emit()
-            v=$0
-            sub(/^[[:space:]]*-[[:space:]]*name:[[:space:]]*/, "", v)
-            cur_name=unquote(v)
-            next
-        }
-        /^[[:space:]]+name:[[:space:]]*/ {
-            emit()
-            v=$0
-            sub(/^[[:space:]]+name:[[:space:]]*/, "", v)
-            cur_name=unquote(v)
-            next
-        }
-        /^[[:space:]]+path:[[:space:]]*/ {
-            v=$0
-            sub(/^[[:space:]]+path:[[:space:]]*/, "", v)
-            cur_path=unquote(v)
-            next
-        }
-        /^[[:space:]]+git_remote:[[:space:]]*/ {
-            v=$0
-            sub(/^[[:space:]]+git_remote:[[:space:]]*/, "", v)
-            cur_remote=unquote(v)
-            next
-        }
-        /^[[:space:]]+last_opened:[[:space:]]*/ {
-            v=$0
-            sub(/^[[:space:]]+last_opened:[[:space:]]*/, "", v)
-            cur_last=unquote(v)
-            next
-        }
-        END { emit() }
-    ' "$REGISTRY_FILE"
+    local python_bin
+    python_bin=$(resolve_python)
+    [[ -n "$python_bin" ]] || return 0
+    AITASKS_PROJECTS_INDEX="$REGISTRY_FILE" "$python_bin" \
+        "$SCRIPT_DIR/lib/agent_launch_utils.py" --list-registry
 }
 
 # Build a registry YAML body from entries on stdin (pipe-separated:
@@ -299,6 +265,7 @@ cmd_list() {
 # --- Verb: add ----------------------------------------------------------
 
 cmd_add() {
+    require_python >/dev/null  # registry mutation routes reads through Python (t970)
     # Prefer the caller's pwd (captured by the ait wrapper before its own cd)
     # over $(pwd), which after `ait` has already cd'd would always be the
     # ait-script directory.
@@ -341,6 +308,7 @@ cmd_add() {
 # --- Verb: remove -------------------------------------------------------
 
 cmd_remove() {
+    require_python >/dev/null  # registry mutation routes reads through Python (t970)
     local name=""
     local force=0
     while [[ $# -gt 0 ]]; do
@@ -396,6 +364,7 @@ cmd_remove() {
 # --- Verb: update -------------------------------------------------------
 
 cmd_update() {
+    require_python >/dev/null  # registry mutation routes reads through Python (t970)
     local name="${1:-}"
     local new_path="${2:-}"
     [[ -n "$name" && -n "$new_path" ]] \
@@ -439,6 +408,7 @@ cmd_update() {
 # --- Verb: prune --------------------------------------------------------
 
 cmd_prune() {
+    require_python >/dev/null  # registry mutation routes reads through Python (t970)
     local dry_run=0
     local assume_yes=0
     while [[ $# -gt 0 ]]; do
@@ -508,6 +478,7 @@ cmd_prune() {
 # --- Verb: doctor -------------------------------------------------------
 
 cmd_doctor() {
+    require_python >/dev/null  # registry mutation routes reads through Python (t970)
     local enable_clone=0
     while [[ $# -gt 0 ]]; do
         case "$1" in

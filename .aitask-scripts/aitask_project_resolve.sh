@@ -74,40 +74,20 @@ EOF
 # longer holds an aitasks project root. Only the persistent registry is
 # enumerated — the tmux scan and process env-var lookups are intentionally
 # excluded so the output is reproducible across shells.
+#
+# Reads through the single Python registry-file authority (t970,
+# agent_launch_utils.py --list-registry); status is still computed here in bash
+# via path_is_aitasks_project. The `list` verb is not on the resolve hot path
+# (it backs the one-shot project picker in aitask_create.sh), so the Python
+# startup cost is acceptable here. Degrades to empty output if no interpreter
+# is available — `list` is read-only, so there is no data-loss risk.
 cmd_list() {
     [[ -f "$REGISTRY_FILE" ]] || return 0
-    local raw name path status
-    raw=$(awk '
-        function flush() {
-            if (cur_name == "") return
-            printf "%s\t%s\n", cur_name, cur_path
-            cur_name=""; cur_path=""
-        }
-        function unquote(s) {
-            gsub(/^[[:space:]]+/, "", s)
-            gsub(/[[:space:]]+$/, "", s)
-            gsub(/^"/, "", s); gsub(/"$/, "", s)
-            gsub(/^'\''/, "", s); gsub(/'\''$/, "", s)
-            return s
-        }
-        /^[[:space:]]*-[[:space:]]*name:[[:space:]]*/ {
-            flush()
-            v=$0; sub(/^[[:space:]]*-[[:space:]]*name:[[:space:]]*/, "", v)
-            cur_name=unquote(v); next
-        }
-        /^[[:space:]]+name:[[:space:]]*/ {
-            flush()
-            v=$0; sub(/^[[:space:]]+name:[[:space:]]*/, "", v)
-            cur_name=unquote(v); next
-        }
-        /^[[:space:]]+path:[[:space:]]*/ {
-            v=$0; sub(/^[[:space:]]+path:[[:space:]]*/, "", v)
-            cur_path=unquote(v); next
-        }
-        END { flush() }
-    ' "$REGISTRY_FILE")
-    [[ -z "$raw" ]] && return 0
-    while IFS=$'\t' read -r name path; do
+    local python_bin
+    python_bin=$(resolve_python)
+    [[ -n "$python_bin" ]] || return 0
+    local name path status
+    while IFS='|' read -r name path _remote _last; do
         [[ -z "$name" ]] && continue
         if path_is_aitasks_project "$path"; then
             status="RESOLVED"
@@ -115,7 +95,8 @@ cmd_list() {
             status="STALE"
         fi
         printf 'PROJECT:%s:%s:%s\n' "$name" "$path" "$status"
-    done <<< "$raw"
+    done < <(AITASKS_PROJECTS_INDEX="$REGISTRY_FILE" "$python_bin" \
+        "$SCRIPT_DIR/lib/agent_launch_utils.py" --list-registry)
 }
 
 # Print RESOLVED:<path> if a tmux scan finds a session whose project_name or
@@ -157,6 +138,15 @@ PYEOF
 }
 
 # Print "<path>" for the registry entry matching NAME, or nothing.
+#
+# Deliberately kept as a lean bash awk reader rather than shelling out to the
+# Python registry authority (t970): this runs on the resolve hot path (every
+# `ait projects resolve` / cross-repo lookup), and resolve already pays one
+# Python startup for the live-tmux scan above. Measurement showed a Python
+# `--resolve-index` shell-out adds ~50ms/call here — a second interpreter
+# startup that would roughly double resolve latency — so the single-name lookup
+# stays in bash. It is pinned byte-identical to `agent_launch_utils.py
+# --resolve-index` by tests/test_registry_reader_parity.sh; keep the two in sync.
 index_lookup_path() {
     local name="$1"
     [[ -f "$REGISTRY_FILE" ]] || return 0

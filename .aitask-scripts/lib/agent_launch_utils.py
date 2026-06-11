@@ -255,15 +255,23 @@ def _read_registry_entry(session: str) -> Path | None:
     return path
 
 
-def _read_registry_index() -> list[tuple[str, Path, str]]:
-    """Read ``~/.config/aitasks/projects.yaml`` as ``(name, path, status)`` triples.
+def _parse_registry_records() -> list[tuple[str, str, str, str]]:
+    """Parse ``~/.config/aitasks/projects.yaml`` into raw 4-field tuples.
 
-    Mirrors ``aitask_projects.sh::list_registry_entries`` with a simple line
-    parser — no PyYAML dependency. Honors the ``AITASKS_PROJECTS_INDEX``
-    env var (same override the bash side supports). Annotates each entry
-    with ``"OK"`` (path holds the ``aitasks/metadata/project_config.yaml``
-    marker) or ``"STALE"`` (marker missing) so downstream callers can
-    decide whether to render or skip.
+    Returns ``(name, path, git_remote, last_opened)`` for every entry, with
+    empty strings for absent fields. This is the **single registry-file reader
+    authority** (t970): it is the byte-parity equivalent of
+    ``aitask_projects.sh::list_registry_entries`` and is exposed to the bash
+    side via the ``--list-registry`` / ``--resolve-index`` CLI below. Honors
+    the ``AITASKS_PROJECTS_INDEX`` env var (same override the bash side
+    supports); no PyYAML dependency.
+
+    An entry is emitted as soon as a ``- name:`` / indented ``name:`` line is
+    seen — path/remote/last may be empty — matching the bash awk ``emit()``
+    rule (which feeds the registry read+write round-trip, so name-only entries
+    and the raw remote/last fields must survive). This differs from
+    :func:`_read_registry_index`, which additionally requires a non-empty path
+    and annotates ``OK``/``STALE`` for the discover path.
     """
     index_path = os.environ.get("AITASKS_PROJECTS_INDEX")
     if not index_path:
@@ -277,20 +285,20 @@ def _read_registry_index() -> list[tuple[str, Path, str]]:
             s = s[1:-1]
         return s
 
-    entries: list[tuple[str, Path, str]] = []
+    records: list[tuple[str, str, str, str]] = []
     cur_name = ""
     cur_path = ""
+    cur_remote = ""
+    cur_last = ""
 
     def _flush() -> None:
-        nonlocal cur_name, cur_path
-        if cur_name and cur_path:
-            p = Path(cur_path)
-            if (p / "aitasks" / "metadata" / "project_config.yaml").is_file():
-                entries.append((cur_name, p, "OK"))
-            else:
-                entries.append((cur_name, p, "STALE"))
+        nonlocal cur_name, cur_path, cur_remote, cur_last
+        if cur_name:
+            records.append((cur_name, cur_path, cur_remote, cur_last))
         cur_name = ""
         cur_path = ""
+        cur_remote = ""
+        cur_last = ""
 
     try:
         with open(index_path, encoding="utf-8") as fh:
@@ -310,10 +318,38 @@ def _read_registry_index() -> list[tuple[str, Path, str]]:
                 if stripped.startswith("path:") and line.startswith(" "):
                     cur_path = _unquote(stripped[len("path:"):])
                     continue
+                if stripped.startswith("git_remote:") and line.startswith(" "):
+                    cur_remote = _unquote(stripped[len("git_remote:"):])
+                    continue
+                if stripped.startswith("last_opened:") and line.startswith(" "):
+                    cur_last = _unquote(stripped[len("last_opened:"):])
+                    continue
         _flush()
     except OSError:
         return []
 
+    return records
+
+
+def _read_registry_index() -> list[tuple[str, Path, str]]:
+    """Read ``~/.config/aitasks/projects.yaml`` as ``(name, path, status)`` triples.
+
+    Thin annotator over :func:`_parse_registry_records` (the single reader
+    authority): keeps only entries with a non-empty name *and* path, and tags
+    each ``"OK"`` (path holds the ``aitasks/metadata/project_config.yaml``
+    marker) or ``"STALE"`` (marker missing) so downstream callers
+    (``discover_aitasks_sessions``) can decide whether to render or skip. File
+    order is preserved.
+    """
+    entries: list[tuple[str, Path, str]] = []
+    for name, path, _remote, _last in _parse_registry_records():
+        if not (name and path):
+            continue
+        p = Path(path)
+        if (p / "aitasks" / "metadata" / "project_config.yaml").is_file():
+            entries.append((name, p, "OK"))
+        else:
+            entries.append((name, p, "STALE"))
     return entries
 
 
@@ -790,3 +826,67 @@ def load_tmux_defaults(project_root: Path) -> dict:
     except Exception:
         pass
     return defaults
+
+
+# --- Registry-file CLI (t970) -------------------------------------------------
+# Thin shell-out surface so bash (aitask_projects.sh / aitask_project_resolve.sh)
+# can read ~/.config/aitasks/projects.yaml through this single Python authority
+# instead of maintaining duplicate awk parsers. Stdlib only; touches neither
+# tmux nor Textual. Honors AITASKS_PROJECTS_INDEX via _parse_registry_records().
+
+
+def _cli_list_registry() -> int:
+    """Emit one ``name|path|git_remote|last_opened`` line per registry entry.
+
+    Byte-identical to bash ``list_registry_entries`` — pipe-separated, empty
+    fields preserved, file order. Feeds the registry read+write round-trip.
+    """
+    out = "".join(
+        f"{name}|{path}|{remote}|{last}\n"
+        for name, path, remote, last in _parse_registry_records()
+    )
+    sys.stdout.write(out)
+    return 0
+
+
+def _cli_resolve_index(name: str) -> int:
+    """Print the path of the first registry entry matching ``name``.
+
+    Matches bash ``index_lookup_path``: first entry whose name equals ``name``
+    *and* has a non-empty path wins; prints nothing on miss. Exit 0 either way.
+    """
+    for n, path, _remote, _last in _parse_registry_records():
+        if n == name and path:
+            sys.stdout.write(f"{path}\n")
+            return 0
+    return 0
+
+
+def _main(argv: list[str]) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="agent_launch_utils.py",
+        description="Internal registry-file reader for the cross-repo project "
+        "registry. Prefer `ait projects` for user-facing use.",
+    )
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--list-registry",
+        action="store_true",
+        help="Emit name|path|git_remote|last_opened for every registry entry.",
+    )
+    group.add_argument(
+        "--resolve-index",
+        metavar="NAME",
+        help="Print the registry path for NAME (index-file lookup only).",
+    )
+    args = parser.parse_args(argv)
+
+    if args.list_registry:
+        return _cli_list_registry()
+    return _cli_resolve_index(args.resolve_index)
+
+
+if __name__ == "__main__":
+    sys.exit(_main(sys.argv[1:]))
