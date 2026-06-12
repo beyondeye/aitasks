@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [tmux, documentation, ait_bridge]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-12 07:49
-updated_at: 2026-06-12 07:52
+updated_at: 2026-06-12 07:56
+completed_at: 2026-06-12 07:56
 ---
 
 ## Problem
