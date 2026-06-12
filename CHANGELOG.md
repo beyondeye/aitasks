@@ -1,5 +1,73 @@
 # Changelog
 
+## v0.24.0
+
+### Features
+
+- **Gates framework roadmap** (t635): Locked the design decisions and roadmap for an upcoming task-gates framework, including a documentation track and a `docs_updated` gate.
+- **Kill & next commands in minimonitor** (t944): The minimonitor can now kill the followed agent (`k`) or launch its next sibling task (`n`) directly, and shows the followed agent in its own dedicated panel separate from the general list.
+- **Reusable proposal preview pane** (t945_1): Added a side-by-side proposal preview to the brainstorm TUI, with a section minimap and adjustable split ratios.
+- **Proposal preview in the explore wizard** (t945_2): The brainstorm explore wizard now shows the source node's proposal side-by-side as you configure the next step.
+- **Source-node choice & preview in decompose** (t945_3): The module-decompose wizard now lets you pick the source node and previews its proposal side-by-side, with full Tab navigation across inputs, minimap, and proposal.
+- **Fable 5 model for Claude Code** (t966): Registered the Fable 5 (`claude-fable-5`) model so it can be selected for Claude Code agents.
+
+### Enhancements
+
+- **Review module decomposition before applying** (t929_1): module_decompose now offers a "Review before apply" gate where you can preview the proposed breakdown and re-run it with steering notes before it lands.
+- **Agent-proposed module sets** (t929_2): module_decompose gained an "Agent-proposed" mode that infers the module breakdown from the plan instead of requiring you to name modules up front.
+- **Tmux sessions survive compositor restarts** (t943): Agent tmux sessions now launch in a persistent systemd user slice, so they survive a session/compositor teardown (e.g., a Wayland compositor restart).
+- **Dedicated tmux server** (t953): `ait` now runs its tmux sessions on a dedicated, persistent socket isolated from your default tmux server, with a configurable opt-out and a legacy-attach offer.
+- **Line-numbered proposal view** (t954): Added a `Ctrl+Shift+L` toggle that switches the brainstorm proposal preview to a syntax-highlighted, line-numbered source view.
+- **Hardened tmux server creation** (t956): New tmux servers spawned by agent launches now land in a persistent slice (with setsid/plain fallbacks), making detached agent sessions more robust.
+- **Fuzzy search for shortcuts** (t958): The shortcut editor and the Settings Shortcuts tab now have a fuzzy filter box for quickly finding keybindings.
+
+### Bug Fixes
+
+- **Codebrowser ANSI-file hang** (t940): Fixed the codebrowser hanging on files containing raw ANSI/control characters; those bytes now render as visible control-picture glyphs.
+- **Monitor window rename** (t941): The monitor now renames only its own tmux window on startup instead of an untargeted rename that could hit the wrong window.
+- **TUI switcher default project from minimonitor** (t947): Opening the TUI switcher from the minimonitor now defaults to the followed agent's project, regardless of list focus.
+- **Dead minimap Tab binding** (t949): Removed a dead minimap class carrying a misleading, latent Tab binding.
+- **tmux test bitrot** (t951): Fixed two broken tmux tests (a relative-import failure and a stale field assertion).
+- **stats-tui missing from help** (t963): `ait help` now lists the `stats-tui` command.
+- **App-scope shortcut remapping** (t964): Custom App- and modal-scope keybinding overrides now take effect on the live keymap immediately, instead of silently requiring a restart.
+- **Settings shortcuts test isolation** (t972): Fixed a test-ordering failure in the Settings Shortcuts tab caused by shared label-case cache state.
+- **Detached TUI-spawned agents** (t974): Agents launched from a TUI (board, codebrowser, sync) now run in their own session and survive quitting the TUI that spawned them.
+- **History progressive-load fixes** (t975): Fixed the codebrowser History view dropping child tasks during progressive loading and serving stale data; it now reconciles the window and auto-refreshes on open.
+- **Minimonitor pane width on resize** (t978): The minimonitor companion pane now stays pinned to its target width when the terminal is resized.
+
+### Improvements
+
+- **Brainstorm: drop detail/patch ops** (t891_2): Removed the brainstorm `detail`/`patch` operations and the detailer/patcher agents as part of the move to a proposal-only model.
+- **Brainstorm: remove plan data model** (t891_3): Removed the brainstorm plan data model and the plan-tab TUI surfaces.
+- **Brainstorm: finalize exports a proposal** (t891_4): Brainstorm "finalize" now exports the node's proposal to `aiplans/` and blocks if a decomposed module still needs syncing.
+- **Brainstorm initializer cleanup** (t672): Simplified the brainstorm initializer's error handling, removing a stale slow-watcher path.
+- **Editable Settings tab-switch keys** (t896): The Settings tab-switch keys are now driven by the keybinding registry — editable, reflected in footer hints, and shown in each tab title.
+- **NodeDetailModal minimap pane** (t946): Moved the NodeDetailModal section minimap into a fixed sibling pane with exact-heading scrolling.
+- **Tmux command gateway** (t952_1, t952_2, t952_3, t952_4, t952_5): Centralized all tmux invocations (Python and shell) behind a single gateway that owns socket policy and exact-match targeting, re-pointed the monitor's control mode through it, and added a lint guard preventing new raw tmux calls.
+- **Shared numbered source view** (t959): Extracted a shared line-numbered source-view widget used by both the codebrowser and the brainstorm proposal preview.
+- **Single projects.yaml registry reader** (t970): Collapsed the projects.yaml registry reader to a single authoritative implementation shared by the read and write paths.
+- **Dead-code cleanup** (t976): Removed a dead `find_terminal` helper from the codebrowser.
+
+### Documentation
+
+- **Monitor-to-applink port design** (t822_3): Added a design doc mapping the monitor's headless core and protocol verbs for the mobile companion port.
+- **Brainstorm architecture v2** (t891_1): Authored a proposal-only brainstorm engine architecture doc and archived the v1 (two-level plan) design.
+- **AgentCrew docs** (t917): Documented `ait crew` and the AgentCrew concept on the website, including all subcommands and the dashboard/logview TUIs.
+- **tmux pane-switching shortcuts** (t948): Documented native tmux pane-switching shortcuts and how to focus the minimonitor from the agent pane.
+- **Wish/SSH transport evaluation** (t950): Added an evaluation of SSH-based serving (charmbracelet/wish) as a complementary access path alongside the native mobile transport.
+- **Persistent tmux workspace docs** (t957): Documented how to keep a self-launched tmux server alive across a compositor restart on Linux/Wayland.
+- **Module design doc reconciliation** (t971): Updated the module-decomposition design doc to reflect the as-implemented (post-t756) proposal-only reality.
+- **tmux gateway architecture** (t980): Documented the tmux gateway chokepoint, its centralized policies, and the raw-tmux freeze/allowlist.
+
+### Tests
+
+- **Run tmux tests alongside a live session** (t936): tmux tests now run against an isolated socket so they no longer refuse to run when a live tmux session is present.
+- **CodeViewer render regression tests** (t960): Added render-contract regression tests for the CodeViewer after the shared numbered-source-view refactor.
+
+### Maintenance
+
+- **Hide migrate-archives from help** (t918): The one-time, upgrade-only `migrate-archives` command is now hidden from `ait help` (the command itself remains available).
+
 ## v0.23.1
 
 ### Bug Fixes
