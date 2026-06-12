@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [t891_2, t891_3, t891_4]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-01 11:49
-updated_at: 2026-06-11 13:11
+updated_at: 2026-06-12 07:36
 ---
 
 ## Manual Verification Task
