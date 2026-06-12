@@ -215,3 +215,4 @@ message: `bug: Pin minimonitor companion pane width on resize (t978)`.
   (pass), `bash tests/test_multi_session_minimonitor.sh` (39/39), byte-compile of
   all edited modules OK. The tmux detach→reattach behavior is the plan's manual
   verification step (cannot be covered by automated tests).
+- **Manual-verification failure:** item "Detach tmux (prefix d) → resize the terminal much wider → reattach (tmux attach) → confirm the minimonitor pane snaps back to ~40 columns instead of staying proportionally wide (the reported bug)" failed; follow-up task t981.
