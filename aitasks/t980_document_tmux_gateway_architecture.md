@@ -3,8 +3,9 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [tmux, documentation, ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-12 07:49
 updated_at: 2026-06-12 07:49
 ---
