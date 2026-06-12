@@ -228,7 +228,9 @@ How to apply:
 - Any `tmux -t <session>` target must use exact match (`-t =<session>`) —
   tmux's default prefix match means a session named `aitasks` silently
   resolves to `aitasks_mob` if that's the only running match, crossing project
-  boundaries.
+  boundaries. This section owns the *why*; the mandatory exact-match helpers
+  (`session_target` / `ait_tmux_session_target`) and the gateway they live in
+  are documented in `aidocs/framework/tmux_gateway.md`.
 - When reviewing multi-project behavior, assume the user may have several
   session names that share prefixes.
 

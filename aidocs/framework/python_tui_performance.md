@@ -43,12 +43,12 @@ The optimization target is different for each TUI. **One approach does not fit a
 |-----|--------------------|-------|------------|
 | **Board** | Widget tree builds, frontmatter parsing, your code + Textual rendering | CPU-bound (Python + Textual) | PyPy (helps Textual too); mypyc/Nuitka help your code only; cache parsed frontmatter |
 | **Codebrowser** | Render diff for syntax highlighting, scroll/selection lag inside Textual (see t257) | CPU-bound (mostly Textual) | PyPy mostly; source-level fix to selection-render path |
-| **Monitor** | **N × `fork+exec(tmux)` per 3s tick** (subprocess.run / asyncio.create_subprocess_exec for each agent pane) | **I/O-bound** (OS fork/exec) | **`tmux -C` control mode** (single persistent connection, zero forks). Or `pipe-pane`. Adaptive polling. **Compile/JIT options give ~0% here.** |
+| **Monitor** | **N × `fork+exec(tmux)` per 3s tick** (one `tmux capture-pane` per agent pane, spawned through the gateway `TmuxClient`, `lib/tmux_exec.py`) | **I/O-bound** (OS fork/exec) | **`tmux -C` control mode** (single persistent connection, zero forks). Or `pipe-pane`. Adaptive polling. **Compile/JIT options give ~0% here.** |
 | **Minimonitor** | Same as monitor | Same | Same |
 
 ### Monitor refresh loop (the hot path)
 
-`tmux_monitor.py::capture_all_async()` spawns one `tmux capture-pane` subprocess per agent pane every 3 seconds via `asyncio.create_subprocess_exec`. Per-call cost is ~1-10 ms of `fork()` + `exec(tmux)` work — **OS-level, not Python-level**. With 5-10 agents that's 6-15 fork+exec cycles every refresh. PyPy, Nuitka, mypyc, JIT — none of them speed up `fork+exec`.
+`tmux_monitor.py::capture_all_async()` issues one `tmux capture-pane` per agent pane every 3 seconds, routed through the tmux gateway (`TmuxClient.run_async` via `run_async_via_control`, `lib/tmux_exec.py`); on the subprocess-fallback path each call is an `asyncio.create_subprocess_exec` — the raw spawn now lives in the gateway, not in `tmux_monitor.py` (t952). Per-call cost is ~1-10 ms of `fork()` + `exec(tmux)` work — **OS-level, not Python-level**. With 5-10 agents that's 6-15 fork+exec cycles every refresh. PyPy, Nuitka, mypyc, JIT — none of them speed up `fork+exec`.
 
 ## Compile / JIT Options Compared
 
@@ -194,7 +194,7 @@ PyPy loses on **both** paths, for **different** reasons. The negative result is 
 | 8     | 3.47 ms        | 19.17 ms    | **5.5× slower** |
 | 15    | 4.61 ms        | 34.14 ms    | **7.4× slower** |
 
-Why PyPy loses here: each tick fires `asyncio.gather(*[capture_pane_async(p) for p in panes])`, one `asyncio.create_subprocess_exec("tmux", "capture-pane", …)` per pane. PyPy's asyncio + subprocess wrapping is heavier per call than CPython's optimized C-level subprocess module, and the slowdown scales linearly with pane count (more fork+exec calls per gather). JIT cannot accelerate OS-level work.
+Why PyPy loses here: each tick fires `asyncio.gather(*[capture_pane_async(p) for p in panes])`, one `tmux capture-pane` per pane via the gateway's `TmuxClient.run_async` (an `asyncio.create_subprocess_exec("tmux", "capture-pane", …)` on the subprocess-fallback path). PyPy's asyncio + subprocess wrapping is heavier per call than CPython's optimized C-level subprocess module, and the slowdown scales linearly with pane count (more fork+exec calls per gather). JIT cannot accelerate OS-level work.
 
 ### Production control-mode path (`start_control_client()` called)
 

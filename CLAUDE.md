@@ -193,8 +193,14 @@ skill files.
 > **Read `aidocs/framework/tui_conventions.md`** when editing any Textual TUI under
 > `.aitask-scripts/` (board, monitor, minimonitor, codebrowser, brainstorm,
 > settings, syncer, stats-tui, diffviewer, TUI switcher) or its launcher
-> `.sh`, when adding keybindings to an existing TUI, or when spawning tmux
-> panes / windows from framework code.
+> `.sh`, or when adding keybindings to an existing TUI. (For *spawning or
+> commanding* tmux from framework code, see `tmux_gateway.md` below.)
+>
+> **Read `aidocs/framework/tmux_gateway.md`** when writing or editing any code
+> (shell or Python) that spawns or commands `tmux` — panes, windows, sessions,
+> sockets, capture / send-keys — anywhere under `.aitask-scripts/`, not only in
+> TUIs. The two gateways (`lib/tmux_exec.py` / `lib/tmux_exec.sh`) are the only
+> sanctioned raw-`tmux` call sites; `tests/test_no_raw_tmux.sh` enforces it.
 >
 > **Read `aidocs/framework/python_tui_performance.md`** when re-evaluating a TUI's
 > Python runtime (CPython vs PyPy) choice. The framework currently routes
