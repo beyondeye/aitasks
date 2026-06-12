@@ -138,3 +138,31 @@ None — both dimensions are low; no before/after mitigation tasks warranted.
 Single parent task, current branch (no worktree/merge). After review + commit:
 consolidate plan, then `./.aitask-scripts/aitask_archive.sh 980` and `./ait git
 push`. No folded tasks, no linked issue/PR.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `aidocs/framework/tmux_gateway.md` (chokepoint
+  rule, the three centralized policies — socket / exact-match targeting / exec
+  strategy, the `test_no_raw_tmux.sh` freeze + allowlist boundary, and a
+  "writing new tmux code" checklist). Added an on-demand pointer in CLAUDE.md's
+  TUI Development section and tightened the existing `tui_conventions.md` pointer
+  so only one of the two claims the tmux-spawning trigger. Fixed the stale
+  attribution in `python_tui_performance.md` (3 spots: bottleneck table, monitor
+  hot-path paragraph, PyPy-loss paragraph) and added the gateway cross-link in
+  `tui_conventions.md`.
+- **Deviations from plan:** None. All four deliverables implemented as planned.
+- **Issues encountered:** None. The `grep` for `create_subprocess_exec("tmux"`
+  in `aidocs/framework/` still matches `python_tui_performance.md:197`, but that
+  is the *corrected* text (now framed as the gateway's `TmuxClient.run_async`
+  subprocess-fallback path), not a stale `tmux_monitor.py` attribution.
+- **Key decisions:** Ownership split for the exact-match rule resolved via
+  cross-links rather than moving prose — `tui_conventions.md` keeps the *why*
+  (multi-project isolation), `tmux_gateway.md` owns the *mechanism* (gateway +
+  mandatory `session_target`/`ait_tmux_session_target` helpers). Confirmed the
+  monitor is fully gateway-routed: `tmux_monitor.py` imports `TmuxClient` and the
+  only remaining `subprocess.run` there is a `ps` companion-detection probe, not
+  a tmux call.
+- **Upstream defects identified:** None.
+- **Verification:** `bash tests/test_no_raw_tmux.sh` → 5 passed / 0 failed;
+  `AIT_DEDICATED_SOCKET="ait"` confirmed in both gateways; all named shell
+  helpers and the two allowlist entries cited in the doc verified against source.
