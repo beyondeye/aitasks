@@ -3,11 +3,11 @@ priority: high
 effort: high
 depends: [756]
 issue_type: enhancement
-status: Ready
+status: Done
 labels: [ait_brainstorm, brainstom_modules, remove_support]
-children_to_implement: [t891_5]
 created_at: 2026-06-01 09:19
-updated_at: 2026-06-11 13:07
+updated_at: 2026-06-12 07:50
+completed_at: 2026-06-12 07:50
 boardidx: 60
 ---
 
