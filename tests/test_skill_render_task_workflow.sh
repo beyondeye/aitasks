@@ -212,9 +212,12 @@ assert_not_contains "synthetic profile suppresses fallback prose" \
 # The risk-evaluation gate is a zero-footprint {%- if profile.risk_evaluation
 # is defined and profile.risk_evaluation %} wrap at two dispatch sites:
 # planning.md §6.1 (the eval step) and SKILL.md Step 7 (the two-field write).
-# No committed profile sets the key, so default renders show neither (proven by
-# Test 1 zero-diff goldens); a synthetic risk_evaluation: true profile proves
-# both branches fire.
+# fast.yaml sets risk_evaluation: true, so the committed fast goldens
+# (planning-fast / SKILL-fast) carry the gated steps, while default/remote omit
+# them (all proven by Test 1's per-profile goldens). The synthetic
+# risk_evaluation: true profile below still proves both branches fire
+# independently of any committed profile, and the default profile (key absent)
+# proves absence.
 echo "=== Test 5: synthetic risk_evaluation: true profile ==="
 TMP_RISK="$(mktemp "${TMPDIR:-/tmp}/test_risk_XXXXXX.yaml")"
 trap 'rm -f "$TMP_PROFILE" "$TMP_RISK"' EXIT
