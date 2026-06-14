@@ -1,0 +1,57 @@
+---
+priority: medium
+effort: medium
+depends: [t983_8]
+issue_type: refactor
+status: Ready
+labels: [brainstorming, tui, ait_brainstorm]
+created_at: 2026-06-14 11:40
+updated_at: 2026-06-14 11:40
+---
+
+## Context
+Final child of t983. Renames the opaque Status tab to **Running**, adds the
+always-on header status strip (runner state + active-op count) the target IA
+calls for, lands t535's Running-tab agent actions, and finishes the keybinding /
+footer / CSS / docs deconflict. Every prior child already fixed its own test
+assertions, so this child only owns its own surfaces' tests. Coordinates with
+**t535** (its kill/cleanup/retry actions land here).
+
+## Key Files to Modify
+- `.aitask-scripts/brainstorm/brainstorm_app.py` — rename Status→Running (`r`);
+  add a custom header status-strip widget with the count/state derivation as a
+  **pure** function; add t535 agent actions (kill/cleanup/retry) on the Running
+  surface; finalize keybindings `b`/`s`/`r`, `v`, `space`; re-scope `f`/`H`/`D`
+  in `_TAB_SCOPED_ACTIONS` (:3385) + `check_action` (:3459) to the new tab ids;
+  update inline CSS.
+- `aidocs/framework/tui_conventions.md` — reflect the new 3-tab IA.
+- `website/content/docs/...` TUI pages — keep `brainstorm` in the user-facing TUI
+  list (board, monitor, minimonitor, codebrowser, settings, brainstorm).
+- `tests/test_brainstorm_header_strip.py` — NEW.
+
+## Reference Files for Patterns
+- Status tab: `_refresh_status_tab` / `#status_content` (:5320+) — becomes
+  Running.
+- `_TAB_SCOPED_ACTIONS` (:3385) + `check_action` (:3459) — the tab-scoped key
+  gating that must move to the new ids or keys silently hide.
+- t535 task (`aitasks/t535_brainstorm_status_tab_agent_actions.md`) — the
+  kill/cleanup/retry actions to implement here.
+
+## Implementation Plan
+1. Rename `tab_status`→`tab_running` (`r`); update all references.
+2. Extract a **pure** header-strip derivation (runner state + active-op count
+   from runtime state) and render it in a custom header widget always-on above
+   the tabs.
+3. Implement t535's agent actions (kill/cleanup/retry) within the Running tab.
+4. Final keybinding deconflict: `b`/`s`/`r` tabs, `v` toggle, `space` mark;
+   re-scope `f` (toggle_deferred), `H` (op_help), `D` (diff) to the new tab ids
+   in `_TAB_SCOPED_ACTIONS` + `check_action`.
+5. Update inline CSS, `tui_conventions.md`, website TUI pages.
+
+## Verification
+- Pure unit: `tests/test_brainstorm_header_strip.py` — count/state derivation.
+- Pilot: Running tab renders; agent actions (kill/cleanup/retry) dispatch.
+- Suite: full `tests/test_brainstorm*.py` green; run
+  `./.aitask-scripts/aitask_skill_verify.sh` if any skill/doc surface touched.
+- Manual: `b`/`s`/`r` navigate; header strip shows runner + running count; `f`/
+  `H`/`D` work under their new tabs.
