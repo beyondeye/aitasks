@@ -160,3 +160,30 @@ Standard task-workflow Step 9: commit on current branch (profile `fast`, no work
 - Binary snapshot/data plane and `subscribe`/`focus`-cadence (t822_8/9/10); full modal handshakes incl. `pick_next_sibling`/`restart_task` execution (t822_11); syncing the verb table into `permissions.md` (t822_12); headless `--headless-for-applink` mode (t822_13).
 - Seeding `applink_profiles/*.yaml` into `seed/` for fresh installs — small follow-up if not folded into t822_12's "ship matching YAML updates".
 - A richer QR-time profile selector in the TUI (v1 defaults to `monitor_control`).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-14) — `r` semantics + dedicated Devices screen
+- **Requested by user:** Do not overload `r` with revoke. Move revoking to a dedicated screen that also shows connected/paired device info (phone model, coarse location if available, last-connection time, etc.) — this cannot fit on the QR/regenerate screen.
+- **Changes made:**
+  - `r` kept as regenerate-only (preserves the t822_2 stable-connection-ID invariant — confirmed as the intended behavior).
+  - Added `DevicesScreen` (opened with `s`, replacing the placeholder Status screen): a `DataTable` of paired devices (name/model, platform, connection state, paired-at, last-seen, coarse location) with per-device revoke on `x`.
+  - `Session` gained `location` + `last_seen`; router reads optional additive `device.location` from the pair payload; server tracks `last_seen` per frame and added `active_sessions()` + `revoke_session()` (closes the live socket on revoke).
+  - New `tests/test_applink_devices.sh` (Textual `run_test`); router test extended for location/touch. Updated website `reference.md` + `_index.md` to current state.
+- **Files affected:** `applink/applink_app.py`, `applink/server.py`, `applink/sessions.py`, `applink/router.py`, `tests/test_applink_devices.sh`, `tests/test_applink_router.sh`, `website/content/docs/tuis/applink/{reference,_index}.md`.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented the applink JSON control plane as planned — `tls.py` (openssl self-signed cert + stdlib fingerprint + SSL context), `sessions.py` (single-use pairing tokens + persisted bearer table with device metadata/last_seen), `profiles.py` (YAML profile gating + `required_profile`), `router.py` (pure frame router: parse → auth → gate → dispatch, pull-model confirm, deferred verbs), `server.py` (`wss://` transport + connection state machine + devices/revoke), `paths.py`. Wired `pairing.compute_self_signed_fingerprint()` to the real cert; moved `_TEXTUAL_TO_TMUX` + `translate_key` + `TmuxMonitor.forward_key` into `monitor_core` (desktop forwarder delegates). Shipped 3 profile YAMLs, `aitask_applink_validate_profile.sh`, the `websockets` dependency, gitignore for runtime state. Added a dedicated Devices screen with revoke (per user review).
+- **Deviations from plan:**
+  - **`r` does NOT revoke bearers** (plan said it should). The t822_2 `generate_token()` docstring establishes a stable-connection-ID invariant this task must preserve; the plan's "revoke on `r` while preserving the invariant" was self-contradictory. Resolved with the user: `r` = regenerate-only; revoke lives on a dedicated Devices screen. The plan's `revoke_all()` was dropped in favor of per-device `revoke_session()`.
+  - **Dropped the `_TEXTUAL_TO_TMUX` re-export in `monitor_app.py`** (plan kept it as a back-compat guard) — a grep found zero external importers, so it was an unused import; canonical source is `monitor_core`/`tmux_monitor`.
+  - **Added** a Devices screen + `device.location`/`last_seen` (post-review scope add, see Post-Review Changes).
+- **Issues encountered:** Devices-screen revoke initially refreshed the row before the async revoke completed (row lingered until the next poll); fixed by making `action_revoke_selected` async and awaiting the revoke before refreshing. Profile YAMLs were auto-committed into the data branch by the concurrent syncer (correct content verified).
+- **Key decisions:** Pure `FrameRouter` (duck-typed monitor) for deterministic, socket/tmux-free unit tests; `websockets` library over hand-rolled RFC 6455; `openssl` shell-out over a Python crypto dependency; runtime state (cert + sessions) under the doc-specified `aitasks/metadata/applink_sessions/` (gitignored). Verified live end-to-end over a real `wss://` socket (pair → gating → auth; devices → revoke closes the socket).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **Mobile (`aitasks_mobile`, cross-repo):** the pair payload now accepts an **optional additive** `device.location` (coarse locality string) the Devices screen displays — the phone must populate it (server cannot derive it); also `device.name` is treated as the device model/label. No protocol version bump (additive per protocol.md §Versioning). Privacy/precision of "coarse location" is a mobile-side decision.
+  - **t822_8 (snapshot push loop):** dispatch is extended by adding verbs to `router.py`; `snapshot`/`subscribe`/`request_keyframe` currently return `UNKNOWN_VERB(deferred)`. The server already owns a `TmuxMonitor` + `capture_all_async` substrate.
+  - **t822_11 (modal handshakes):** `kill_pane`/`kill_window` already implement the pull-model `confirm_required` round-trip; `pick_next_sibling`/`restart_task` are stubbed as deferred.
+  - **t822_12 (permissions doc sync):** profile YAMLs use the canonical `focus` verb name (not seed-table `switch_to_pane`); `KNOWN_VERBS` in `router.py` is the single source of truth the validator checks against.
+  - **Security follow-up:** the `applink_security_review_hardening` "after" mitigation is created at Step 8d.
