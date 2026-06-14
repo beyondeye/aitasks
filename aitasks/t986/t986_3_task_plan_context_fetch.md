@@ -3,14 +3,14 @@ priority: medium
 risk_code_health: low
 risk_goal_achievement: low
 effort: low
-depends: [t986_2]
+depends: []
 issue_type: feature
 status: Implementing
 labels: [bash_scripts, task_workflow, aitask_monitormini]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 16:03
-updated_at: 2026-06-14 18:49
+updated_at: 2026-06-14 18:52
 ---
 
 ## Context
