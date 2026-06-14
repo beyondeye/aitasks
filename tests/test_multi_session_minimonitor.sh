@@ -193,6 +193,7 @@ app._own_window_index = None
 app._session = "sA"
 app._task_cache = SimpleNamespace(
     get_task_id=lambda w: None,
+    get_task_id_for_pane=lambda p: None,
     get_task_info=lambda t, s=None: None,
 )
 app._monitor = SimpleNamespace(
@@ -322,6 +323,7 @@ def make_app(containers):
     app._own_panel_built = False
     app._task_cache = SimpleNamespace(
         get_task_id=lambda w: None,
+        get_task_id_for_pane=lambda p: None,
         get_task_info=lambda t, s=None: None,
     )
     app._monitor = SimpleNamespace(

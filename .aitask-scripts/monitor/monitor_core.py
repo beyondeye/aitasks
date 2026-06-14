@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -168,6 +169,48 @@ def _is_companion_process(pid: int) -> bool:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     return False
+
+
+# -- Shadow companion panes (t986) --------------------------------------------
+#
+# A "shadow" is a second coding-agent CLI spawned in (by default) the same tmux
+# window as the agent it follows. Because splitting a window does not rename it,
+# a same-window shadow shares the *agent's* window name — so it cannot be told
+# apart by window name. Instead the spawner (t986_5) records the shadowed
+# agent's pane id in the pane-scoped tmux user option below. A pane carrying a
+# non-empty value is a shadow *helper*: excluded from agent lists exactly like
+# the minimonitor/monitor companion panes, and never resolved to a task. The
+# value also drives lifecycle cleanup — when the shadowed agent's pane dies,
+# `aitask_companion_cleanup.sh` kills the bound shadow.
+SHADOW_TARGET_OPTION = "@aitask_shadow_target"
+
+
+def is_shadow_target(shadow_target: str) -> bool:
+    """True when a pane's ``@aitask_shadow_target`` value marks it a shadow.
+
+    Pure: takes the already-read option value (empty/whitespace ⇒ not a
+    shadow), so the tmux read stays at the call site and this stays
+    unit-testable.
+    """
+    return bool(shadow_target.strip())
+
+
+def count_other_real_agents(
+    pane_records: Iterable[tuple[str, bool]], exclude_pane_id: str
+) -> int:
+    """Count panes that are *real* agents (not helper panes), excluding one.
+
+    ``pane_records`` is an iterable of ``(pane_id, is_helper)`` pairs. Helper
+    classification (companion process or shadow marker) is decided by the
+    caller, keeping this counting logic pure and import-free for unit tests.
+    Used by :meth:`TmuxMonitor.kill_agent_pane_smart` to decide whether the
+    window should collapse (no real agents left) or only the pane be killed.
+    """
+    return sum(
+        1
+        for pane_id, is_helper in pane_records
+        if pane_id != exclude_pane_id and not is_helper
+    )
 
 
 @dataclass
@@ -888,16 +931,24 @@ class TmuxMonitor:
         "#{window_index}", "#{window_name}", "#{pane_index}",
         "#{pane_id}", "#{pane_pid}", "#{pane_current_command}",
         "#{pane_width}", "#{pane_height}",
+        "#{@aitask_shadow_target}",   # shadow helper marker (t986); "" when unset
     ])
 
     def _parse_list_panes(self, stdout: str, session_name: str) -> list[TmuxPaneInfo]:
         panes: list[TmuxPaneInfo] = []
         for line in stdout.strip().splitlines():
             parts = line.split("\t")
-            if len(parts) != 8:
+            if len(parts) != 9:
                 continue
             pane_id = parts[3]
             if self.exclude_pane and pane_id == self.exclude_pane:
+                continue
+            # Shadow companion panes (t986) are helpers — drop them from
+            # discovery entirely so they never appear in agent lists, snapshots,
+            # or kill/sibling logic, exactly like the minimonitor/monitor panes
+            # filtered below. The marker is authoritative even for a same-window
+            # shadow, which shares the agent's window name.
+            if is_shadow_target(parts[8]):
                 continue
             try:
                 pane_pid = int(parts[4])
@@ -1292,26 +1343,27 @@ class TmuxMonitor:
         # window; fall back to self.session for legacy single-session paths.
         target_session = pane.session_name or self.session
         window_target = tmux_window_target(target_session, pane.window_index)
-        others = 0
         rc, stdout = self.tmux_run([
             "list-panes", "-t", window_target,
-            "-F", "#{pane_id}\t#{pane_pid}",
+            "-F", "#{pane_id}\t#{pane_pid}\t#{@aitask_shadow_target}",
         ])
         if rc != 0:
             return self.kill_pane(pane_id), False
+        records: list[tuple[str, bool]] = []
         for line in stdout.strip().splitlines():
             parts = line.split("\t")
-            if len(parts) != 2:
+            if len(parts) != 3:
                 continue
-            other_id, pid_str = parts
-            if other_id == pane_id:
-                continue
+            other_id, pid_str, shadow_target = parts
             try:
                 pid = int(pid_str)
             except ValueError:
                 continue
-            if not _is_companion_process(pid):
-                others += 1
+            # A pane is a helper (does NOT keep the window alive) when it is a
+            # companion (minimonitor/monitor) OR a shadow bound to an agent.
+            is_helper = is_shadow_target(shadow_target) or _is_companion_process(pid)
+            records.append((other_id, is_helper))
+        others = count_other_real_agents(records, pane_id)
 
         if others == 0:
             return self.kill_window(pane_id), True
@@ -1381,6 +1433,17 @@ def load_monitor_config(project_root: Path) -> dict:
 _TASK_ID_RE = re.compile(r'^agent-(?:pick|qa)-(\d+(?:_\d+)?)$')
 
 
+def task_id_from_window_name(window_name: str) -> str | None:
+    """Pure pane→task mapping: extract the task id from an agent window name.
+
+    Returns the captured id (e.g. ``"100"`` or ``"100_1"``) or ``None`` when the
+    window name is not an ``agent-(pick|qa)-<id>`` window. Kept import-free and
+    side-effect-free so it can be unit-tested directly.
+    """
+    m = _TASK_ID_RE.match(window_name)
+    return m.group(1) if m else None
+
+
 @dataclass
 class TaskInfo:
     """Resolved task metadata and content for display in the monitor."""
@@ -1415,6 +1478,9 @@ class TaskInfoCache:
         # without clobbering each other.
         self._cache: dict[tuple[str, str], TaskInfo | None] = {}
         self._window_to_task_id: dict[str, str | None] = {}
+        # Pane-keyed task-id cache (t986). Keyed by pane_id so panes sharing a
+        # window are never conflated; see get_task_id_for_pane.
+        self._pane_to_task_id: dict[str, str | None] = {}
 
     def update_session_mapping(self, mapping: dict[str, Path]) -> None:
         """Replace the session→project_root mapping (idempotent).
@@ -1434,11 +1500,31 @@ class TaskInfoCache:
         return self._project_root
 
     def get_task_id(self, window_name: str) -> str | None:
-        """Extract task ID from agent window name. Cached."""
+        """Extract task ID from agent window name. Cached.
+
+        Window-keyed; retained for callers that only have a window name. Pane
+        display sites should prefer :meth:`get_task_id_for_pane`.
+        """
         if window_name not in self._window_to_task_id:
-            m = _TASK_ID_RE.match(window_name)
-            self._window_to_task_id[window_name] = m.group(1) if m else None
+            self._window_to_task_id[window_name] = task_id_from_window_name(window_name)
         return self._window_to_task_id[window_name]
+
+    def get_task_id_for_pane(self, pane: TmuxPaneInfo) -> str | None:
+        """Resolve the task id for a specific pane, cached by ``pane_id``.
+
+        Pane-keyed rather than window-keyed (t986): a tmux window may hold more
+        than one pane (an agent plus a shadow/minimonitor helper, or — in
+        future — more than one agent), so conflating panes by their shared
+        window name is unsafe. The task id is still *derived* from the agent
+        window name today; keying the cache on ``pane_id`` is the seam a future
+        per-pane task source can slot into without touching call sites. Helper
+        panes do not reach this method (discovery already drops shadow/companion
+        panes), and a stray helper window name resolves to ``None`` anyway.
+        """
+        pane_id = pane.pane_id
+        if pane_id not in self._pane_to_task_id:
+            self._pane_to_task_id[pane_id] = task_id_from_window_name(pane.window_name)
+        return self._pane_to_task_id[pane_id]
 
     def get_task_info(
         self, task_id: str, session_name: str = ""

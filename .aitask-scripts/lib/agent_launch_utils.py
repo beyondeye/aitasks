@@ -725,19 +725,34 @@ def maybe_spawn_minimonitor(
         if win_index is None:
             return None
 
-    # Check existing panes for monitor/minimonitor and pane count
+    # Check existing panes for monitor/minimonitor and pane count. Shadow
+    # helper panes (t986) carry @aitask_shadow_target and must NOT count toward
+    # the overcrowding limit — a shadow following the agent should not block the
+    # companion minimonitor from spawning for that same agent.
     rc, out = _TMUX.run(
         ["list-panes", "-t", tmux_window_target(session, win_index),
-         "-F", "#{pane_current_command}"]
+         "-F", "#{pane_current_command}\t#{@aitask_shadow_target}"]
     )
     if rc == 0:
-        pane_lines = out.strip().splitlines()
-        for cmd_line in pane_lines:
+        real_panes = 0
+        for line in out.strip().splitlines():
+            cmd_line, _, shadow_target = line.partition("\t")
             if "minimonitor" in cmd_line or "monitor_app" in cmd_line:
                 return None
-        # Avoid overcrowding: skip if 3+ panes already exist
-        if len(pane_lines) >= 3:
+            if not shadow_target.strip():
+                real_panes += 1
+        # Avoid overcrowding: skip if 3+ non-helper panes already exist
+        if real_panes >= 3:
             return None
+
+    # Capture the currently-active pane (the just-launched agent) so we can
+    # refocus it after the split. Hardcoding `.0` is wrong once the window holds
+    # more than one pane (e.g. a shadow), where the agent need not be pane 0.
+    rc_active, active_pane = _TMUX.run(
+        ["display-message", "-p", "-t",
+         tmux_window_target(session, win_index), "#{pane_id}"]
+    )
+    agent_pane = active_pane.strip() if rc_active == 0 else ""
 
     # Spawn minimonitor as a right split, capturing the new pane id
     split_argv = ["split-window", "-h", "-P", "-F", "#{pane_id}",
@@ -750,10 +765,10 @@ def maybe_spawn_minimonitor(
     if rc != 0:
         return None
     companion_pane = out.strip() or None
-    # Refocus the original pane (left pane)
+    # Refocus the agent pane captured above, falling back to pane .0.
+    refocus_target = agent_pane or f"{tmux_window_target(session, win_index)}.0"
     _TMUX.spawn(
-        ["select-pane", "-t",
-         f"{tmux_window_target(session, win_index)}.0"],
+        ["select-pane", "-t", refocus_target],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     return companion_pane

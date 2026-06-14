@@ -30,4 +30,8 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     _strip_ansi,
     _TEXTUAL_TO_TMUX,
     translate_key,
+    task_id_from_window_name,
+    count_other_real_agents,
+    is_shadow_target,
+    SHADOW_TARGET_OPTION,
 )

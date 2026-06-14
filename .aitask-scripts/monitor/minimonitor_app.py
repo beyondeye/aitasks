@@ -534,7 +534,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         line1 = f"{dot} {glyph} {name}  {status}"
 
         # Optional task title line
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
@@ -552,7 +552,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """
         name = snap.pane.window_name
         line = f"[bold]{name}[/]"
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
@@ -672,11 +672,18 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         cards[new_idx].focus()
 
     def _find_sibling_pane_id(self) -> str | None:
-        """Return the pane_id of the first non-minimonitor pane in our window.
+        """Return the pane_id of the agent this minimonitor follows.
 
-        Notifies and returns None on failure (not in tmux, tmux error, no
-        sibling). Shared by the Tab focus handler and the Enter send handler.
+        Prefers the resolved followed-agent snapshot (pane-id exact) so that a
+        shadow or other helper pane sharing the window is never mistaken for the
+        agent (t986). Falls back to the first non-minimonitor pane in the window
+        when no agent snapshot is available. Notifies and returns None on
+        failure (not in tmux, tmux error, no sibling). Shared by the Tab focus
+        handler and the Enter send handler.
         """
+        own_snap = self._find_own_agent_snapshot()
+        if own_snap is not None:
+            return own_snap.pane.pane_id
         own_pane = os.environ.get("TMUX_PANE", "")
         if not own_pane or not self._own_window_id or self._monitor is None:
             self.notify("Not inside tmux", severity="warning")
@@ -774,7 +781,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify("No followed agent in this window", severity="warning")
             return
         task_info = None
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
             task_info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
         pane_id = snap.pane.pane_id
@@ -814,7 +821,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if snap is None:
             self.notify("No followed agent in this window", severity="warning")
             return
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if not task_id:
             self.notify("No task ID in window name", severity="warning")
             return
@@ -985,7 +992,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         snap = self._snapshots.get(pane_id)
         if not snap:
             return
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if not task_id:
             self.notify("No task ID in window name", severity="warning")
             return

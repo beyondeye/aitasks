@@ -979,7 +979,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             f" {dot} {glyph} {snap.pane.window_index}:{snap.pane.window_name} "
             f"({snap.pane.pane_index})  {status}"
         )
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
@@ -1117,7 +1117,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         # -- Header (always refreshed so PAUSED/LIVE badge stays current) --
         pane_label = f"({snap.pane.window_index}:{snap.pane.window_name})"
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
@@ -1484,7 +1484,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         snap = self._snapshots.get(pane_id)
         if not snap:
             return
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if not task_id:
             self.notify("No task ID in window name", severity="warning")
             return
@@ -1551,7 +1551,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if not snap:
             return
         task_info = None
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
             task_info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
         self.push_screen(
@@ -1587,7 +1587,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         snap = self._snapshots.get(pane_id)
         if not snap:
             return
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if not task_id:
             self.notify("No task ID in window name", severity="warning")
             return
@@ -1628,7 +1628,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         snap = self._snapshots.get(pane_id)
         if not snap:
             return
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if not task_id:
             return
         sess = snap.pane.session_name
@@ -1656,7 +1656,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         snap = self._snapshots.get(pane_id)
         if not snap:
             return
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if not task_id:
             return
         sess = snap.pane.session_name
@@ -1719,7 +1719,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 severity="warning",
             )
             return
-        task_id = self._task_cache.get_task_id(snap.pane.window_name)
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if not task_id:
             self.notify("No task ID in window name", severity="warning")
             return

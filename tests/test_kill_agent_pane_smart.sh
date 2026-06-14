@@ -57,7 +57,11 @@ import subprocess
 import sys
 import time
 
-import monitor.tmux_monitor as tm
+# Patch `_is_companion_process` on monitor_core, where it actually lives:
+# t822_6 moved the headless core out of tmux_monitor.py (now a re-export shim),
+# so patching the shim no longer reaches the function kill_agent_pane_smart
+# calls. monitor_core is the canonical home.
+import monitor.monitor_core as mc
 from monitor.tmux_monitor import TmuxMonitor, TmuxPaneInfo, PaneCategory
 
 session = os.environ["AIT_TEST_SESSION"]
@@ -89,7 +93,7 @@ def _is_companion_test(pid):
         return False
 
 
-tm._is_companion_process = _is_companion_test
+mc._is_companion_process = _is_companion_test
 
 
 def sub(args):
