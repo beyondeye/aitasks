@@ -37,6 +37,7 @@ BATCH_XDEPS=""
 BATCH_XDEPREPO=""
 BATCH_VERIFIES=""
 BATCH_GATES=""
+BATCH_ALSO_BLOCKS_DEPENDENTS=""
 BATCH_COMMIT=false
 BATCH_SILENT=false
 BATCH_PARENT=""
@@ -77,6 +78,9 @@ Batch mode (for automation):
   --labels, -l LABELS    Comma-separated labels
   --gates GATES          Comma-separated declared gate names (see
                          aitasks/metadata/gates.yaml; optional)
+  --also-blocks-dependents GATES
+                         Comma-separated per-task extra gates required before
+                         dependents unblock (optional; augments registry defaults)
   --deps DEPS            Comma-separated dependency task numbers
   --xdeps DEPS           Comma-separated cross-repo dependency task numbers
                          (in the format used inside --xdeprepo). Requires
@@ -154,6 +158,7 @@ parse_args() {
             --xdeprepo) BATCH_XDEPREPO="$2"; shift 2 ;;
             --verifies) BATCH_VERIFIES="$2"; shift 2 ;;
             --gates) BATCH_GATES="$2"; shift 2 ;;
+            --also-blocks-dependents) BATCH_ALSO_BLOCKS_DEPENDENTS="$2"; shift 2 ;;
             --parent|-P) BATCH_PARENT="$2"; shift 2 ;;
             # --project is handled in main() before parse_args (cross-repo
             # redirect); never reaches here.
@@ -432,6 +437,13 @@ create_child_task_file() {
             gates_yaml=$(format_yaml_list "$BATCH_GATES")
             echo "gates: $gates_yaml"
         fi
+        # Only write also_blocks_dependents if present (per-task extra unblock
+        # gates; augments registry blocks_dependents defaults). t635_3.
+        if [[ -n "${BATCH_ALSO_BLOCKS_DEPENDENTS:-}" ]]; then
+            local abd_yaml
+            abd_yaml=$(format_yaml_list "$BATCH_ALSO_BLOCKS_DEPENDENTS")
+            echo "also_blocks_dependents: $abd_yaml"
+        fi
         # Only write verifies if present
         if [[ -n "$verifies" ]]; then
             local verifies_yaml
@@ -546,6 +558,12 @@ create_draft_file() {
             local gates_yaml
             gates_yaml=$(format_yaml_list "$BATCH_GATES")
             echo "gates: $gates_yaml"
+        fi
+        # also_blocks_dependents rides along the draft for the same reason (t635_3).
+        if [[ -n "${BATCH_ALSO_BLOCKS_DEPENDENTS:-}" ]]; then
+            local abd_yaml
+            abd_yaml=$(format_yaml_list "$BATCH_ALSO_BLOCKS_DEPENDENTS")
+            echo "also_blocks_dependents: $abd_yaml"
         fi
         # Only write verifies if present
         if [[ -n "$verifies" ]]; then
@@ -1682,6 +1700,13 @@ create_task_file() {
             local gates_yaml
             gates_yaml=$(format_yaml_list "$BATCH_GATES")
             echo "gates: $gates_yaml"
+        fi
+        # Only write also_blocks_dependents if present (per-task extra unblock
+        # gates; augments registry blocks_dependents defaults). t635_3.
+        if [[ -n "${BATCH_ALSO_BLOCKS_DEPENDENTS:-}" ]]; then
+            local abd_yaml
+            abd_yaml=$(format_yaml_list "$BATCH_ALSO_BLOCKS_DEPENDENTS")
+            echo "also_blocks_dependents: $abd_yaml"
         fi
         # Only write verifies if present
         if [[ -n "$verifies" ]]; then

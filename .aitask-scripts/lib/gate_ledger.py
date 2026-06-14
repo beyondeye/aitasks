@@ -19,9 +19,11 @@ Stdlib only: markers and the minimal registry are parsed with ``re``, never
 PyYAML, so the fallback works in environments where PyYAML is unavailable.
 
 CLI:
-    gate_ledger.py append <task-file> <gate> <status> [key=value ...]
-    gate_ledger.py status <task-file>
-    gate_ledger.py list   <task-file> [registry.yaml]
+    gate_ledger.py append       <task-file> <gate> <status> [key=value ...]
+    gate_ledger.py status       <task-file>
+    gate_ledger.py list         <task-file> [registry.yaml]
+    gate_ledger.py deps-unblock <task-file> [registry.yaml]
+                                 -> SATISFIED | BLOCKED:<csv> | NO_GATES (t635_3)
 
 Supported append keys (anything else is ignored with a warning):
     marker line : run, status, attempt, duration, type
@@ -201,26 +203,45 @@ def _atomic_write(path: str, content: str) -> None:
 
 # --- Registry (minimal, stdlib-only 2-level parse) ------------------------
 
-def read_declared_gates(task_file: str) -> list[str]:
-    """Read the task's ``gates:`` frontmatter list (inline or block style)."""
+def _read_frontmatter_list(task_file: str, field: str) -> list[str]:
+    """Read a frontmatter list ``field`` (inline ``[a, b]`` or block ``- a``).
+
+    Returns ``[]`` when the field is absent or empty. Used for both ``gates:``
+    and ``also_blocks_dependents:`` (t635_3).
+    """
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
     m = re.match(r"(?s)\A---\n(.*?)\n---\n", text)
     fm = m.group(1) if m else text
-    # Inline: gates: [a, b]
-    inline = re.search(r"(?m)^gates:\s*\[(.*?)\]\s*$", fm)
+    # Inline: field: [a, b]
+    inline = re.search(rf"(?m)^{re.escape(field)}:\s*\[(.*?)\]\s*$", fm)
     if inline:
         return [g.strip().strip("'\"") for g in inline.group(1).split(",") if g.strip()]
-    # Block: gates:\n  - a\n  - b
-    block = re.search(r"(?m)^gates:\s*$\n((?:[ \t]*-[ \t]*.+\n?)*)", fm)
+    # Block: field:\n  - a\n  - b
+    block = re.search(rf"(?m)^{re.escape(field)}:\s*$\n((?:[ \t]*-[ \t]*.+\n?)*)", fm)
     if block:
         return [re.sub(r"^[ \t]*-[ \t]*", "", ln).strip().strip("'\"")
                 for ln in block.group(1).splitlines() if ln.strip()]
     return []
 
 
+def read_declared_gates(task_file: str) -> list[str]:
+    """Read the task's ``gates:`` frontmatter list (inline or block style)."""
+    return _read_frontmatter_list(task_file, "gates")
+
+
+def _truthy(value: str) -> bool:
+    """YAML-ish boolean: true/yes/on/1 (case-insensitive) -> True, else False."""
+    return value.strip().strip("'\"").lower() in ("true", "yes", "on", "1")
+
+
 def read_registry(registry_file: str) -> dict[str, dict]:
-    """Parse the minimal gates.yaml (name -> {type, description}) with re only."""
+    """Parse the minimal gates.yaml with re only.
+
+    Returns ``name -> {type, description, blocks_dependents}``.
+    ``blocks_dependents`` (t635_3) marks a gate as required-to-pass before the
+    owning task's dependents unblock; defaults to ``False`` when absent.
+    """
     gates: dict[str, dict] = {}
     if not registry_file or not os.path.exists(registry_file):
         return gates
@@ -237,7 +258,7 @@ def read_registry(registry_file: str) -> dict[str, dict]:
             hdr = re.match(r"^[ \t]+([A-Za-z0-9_]+):\s*$", line)
             if hdr:
                 cur = hdr.group(1)
-                gates[cur] = {"type": "", "description": ""}
+                gates[cur] = {"type": "", "description": "", "blocks_dependents": False}
                 continue
             if cur is None:
                 # A non-indented line ends the gates: mapping.
@@ -251,6 +272,10 @@ def read_registry(registry_file: str) -> dict[str, dict]:
             md = re.match(r"^[ \t]+description:\s*(.+?)\s*$", line)
             if md:
                 gates[cur]["description"] = md.group(1).strip().strip("'\"")
+                continue
+            mbd = re.match(r"^[ \t]+blocks_dependents:\s*(.+?)\s*$", line)
+            if mbd:
+                gates[cur]["blocks_dependents"] = _truthy(mbd.group(1))
                 continue
             if re.match(r"^\S", line):
                 in_gates = False
@@ -275,6 +300,45 @@ def format_list(task_file: str, registry_file: str | None) -> str:
             parts.append(f"- {desc}")
         lines.append(" ".join(parts))
     return "\n".join(lines)
+
+
+# --- Dependency-unblock decision (t635_3) ---------------------------------
+
+def required_unblock_gates(declared: list[str], also: list[str],
+                          registry: dict[str, dict]) -> list[str]:
+    """Gates that must pass before the owning task's dependents unblock.
+
+    The registry-default set (declared gates flagged ``blocks_dependents``) plus
+    the per-task ``also_blocks_dependents`` additions, de-duplicated in order.
+    """
+    req = [g for g in declared if registry.get(g, {}).get("blocks_dependents")]
+    for g in also:
+        if g not in req:
+            req.append(g)
+    return req
+
+
+def dependents_status(task_file: str, registry_file: str | None) -> tuple[str, list[str]]:
+    """Decide whether ``task_file`` releases its dependents.
+
+    Returns one of:
+      - ``("NO_GATES", [])``   — no required-to-unblock gates (ungated, or a
+        gated task that flags none as blocking). Caller falls back to today's
+        file-existence behavior (block until archived).
+      - ``("SATISFIED", [])``  — every required gate has derived status ``pass``;
+        dependents may proceed even while non-required gates still pend.
+      - ``("BLOCKED", pending)`` — one or more required gates are not ``pass``.
+    """
+    declared = read_declared_gates(task_file)
+    also = _read_frontmatter_list(task_file, "also_blocks_dependents")
+    registry = read_registry(registry_file) if registry_file else {}
+    required = required_unblock_gates(declared, also, registry)
+    if not required:
+        return ("NO_GATES", [])
+    with open(task_file, encoding="utf-8") as fh:
+        state = derive_status(fh.read())
+    pending = [g for g in required if state.get(g, {}).get("status") != "pass"]
+    return ("BLOCKED", pending) if pending else ("SATISFIED", [])
 
 
 # --- CLI ------------------------------------------------------------------
@@ -332,6 +396,18 @@ def main(argv: list[str]) -> int:
             return 2
         registry = argv[2] if len(argv) > 2 else None
         sys.stdout.write(format_list(argv[1], registry) + "\n")
+        return 0
+
+    if cmd == "deps-unblock":
+        if len(argv) < 2:
+            sys.stderr.write("Usage: gate_ledger.py deps-unblock <file> [registry]\n")
+            return 2
+        registry = argv[2] if len(argv) > 2 else None
+        decision, pending = dependents_status(argv[1], registry)
+        if decision == "BLOCKED":
+            sys.stdout.write("BLOCKED:" + ",".join(pending) + "\n")
+        else:
+            sys.stdout.write(decision + "\n")
         return 0
 
     sys.stderr.write(f"Unknown command: {cmd}\n")

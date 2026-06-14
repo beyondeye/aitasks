@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# test_gate_frontmatter_roundtrip.sh - Tests for `gates:` frontmatter registration (t635_1).
+# test_gate_frontmatter_roundtrip.sh - Tests for `gates:` (t635_1) and
+# `also_blocks_dependents:` (t635_3) frontmatter registration.
 #
 # The hazard: aitask_update.sh reconstructs frontmatter from a fixed positional
 # field list, so an UNregistered field is silently dropped on any `ait update`.
-# These tests prove `gates:` is durable across update/create/fold:
-#   - an unrelated `ait update` (e.g. --status) PRESERVES gates,
-#   - --gates replaces / clears,
+# These tests prove both fields are durable across update/create/fold:
+#   - an unrelated `ait update` (e.g. --status) PRESERVES them,
+#   - --gates / --also-blocks-dependents replace / clear,
 #   - create --gates writes it (draft path that finalize copies forward),
-#   - fold unions gates across folded tasks into the primary.
+#   - fold unions both lists across folded tasks into the primary.
 #
 # Run: bash tests/test_gate_frontmatter_roundtrip.sh
 
@@ -101,6 +102,38 @@ upd --batch 51 --status Editing --silent >/dev/null
 assert_eq "no-gates task gets no empty gates field" "" \
     "$(field "$A_TMP/aitasks/t51_nogate.md" gates)"
 
+echo "--- Part A: also_blocks_dependents durability (t635_3) ---"
+cat > "$A_TMP/aitasks/t52_abd.md" <<'EOF'
+---
+priority: high
+effort: medium
+depends: []
+issue_type: feature
+status: Ready
+labels: []
+gates: [build_verified]
+also_blocks_dependents: [docs_updated]
+created_at: 2026-06-14 09:00
+updated_at: 2026-06-14 09:00
+---
+
+body
+EOF
+# THE durability regression: an unrelated update must NOT drop the field.
+upd --batch 52 --status Editing --silent >/dev/null
+assert_eq "unrelated --status update preserves also_blocks_dependents" "[docs_updated]" \
+    "$(field "$A_TMP/aitasks/t52_abd.md" also_blocks_dependents)"
+assert_eq "...and preserves gates alongside it" "[build_verified]" \
+    "$(field "$A_TMP/aitasks/t52_abd.md" gates)"
+# --also-blocks-dependents replaces.
+upd --batch 52 --also-blocks-dependents "docs_updated,manual_verified" --silent >/dev/null
+assert_eq "--also-blocks-dependents replaces the set" "[docs_updated, manual_verified]" \
+    "$(field "$A_TMP/aitasks/t52_abd.md" also_blocks_dependents)"
+# --also-blocks-dependents "" clears (field omitted entirely).
+upd --batch 52 --also-blocks-dependents "" --silent >/dev/null
+assert_eq "--also-blocks-dependents '' clears the field" "" \
+    "$(field "$A_TMP/aitasks/t52_abd.md" also_blocks_dependents)"
+
 echo "--- Part A: create --gates ---"
 # Batch create produces a draft; finalize sed-copies it, so gates must be on the draft.
 ( cd "$A_TMP" && TASK_DIR=aitasks "$CREATE" --batch --name "gate create demo" \
@@ -154,8 +187,8 @@ write_fold_task() { # write_fold_task PATH [extra_fm_line ...]
 echo "--- Part B: fold gates union ---"
 setup_fold_project
 
-write_fold_task aitasks/t10_primary.md "gates: [tests_pass]"
-write_fold_task aitasks/t20_folded.md  "gates: [review, tests_pass]"
+write_fold_task aitasks/t10_primary.md "gates: [tests_pass]" "also_blocks_dependents: [docs_updated]"
+write_fold_task aitasks/t20_folded.md  "gates: [review, tests_pass]" "also_blocks_dependents: [manual_verified]"
 git add -A; git commit -m "fold setup" --quiet
 
 fold_out=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode none 10 20 2>&1)
@@ -164,6 +197,11 @@ assert_contains "fold reports primary updated" "PRIMARY_UPDATED:10" "$fold_out"
 union=$(field aitasks/t10_primary.md gates)
 stripped=$(echo "$union" | tr -d '[]" ')
 assert_eq "fold unions gates (primary first, deduped)" "tests_pass,review" "$stripped"
+
+abd_union=$(field aitasks/t10_primary.md also_blocks_dependents)
+abd_stripped=$(echo "$abd_union" | tr -d '[]" ')
+assert_eq "fold unions also_blocks_dependents (primary first, deduped)" \
+    "docs_updated,manual_verified" "$abd_stripped"
 
 popd >/dev/null 2>&1 || true
 

@@ -32,6 +32,10 @@ BATCH_RISK_MITIGATION_TASKS_SET=false
 # from any gated task (t635_1).
 BATCH_GATES=""
 BATCH_GATES_SET=false
+# also_blocks_dependents: per-task extra gates required before dependents unblock
+# (list, replaces-all). Registered for durability alongside gates: (t635_3).
+BATCH_ALSO_BLOCKS_DEPENDENTS=""
+BATCH_ALSO_BLOCKS_DEPENDENTS_SET=false
 BATCH_EFFORT=""
 BATCH_STATUS=""
 BATCH_TYPE=""
@@ -87,6 +91,7 @@ CURRENT_RISK_CODE_HEALTH=""
 CURRENT_RISK_GOAL_ACHIEVEMENT=""
 CURRENT_RISK_MITIGATION_TASKS=""
 CURRENT_GATES=""
+CURRENT_ALSO_BLOCKS_DEPENDENTS=""
 CURRENT_EFFORT=""
 CURRENT_DEPS=""
 CURRENT_XDEPS=""
@@ -162,6 +167,10 @@ Label options (batch mode):
 Gate options (batch mode):
   --gates GATES          Declared gate set (comma-separated names, replaces all;
                          empty clears it). See aitasks/metadata/gates.yaml.
+  --also-blocks-dependents GATES
+                         Per-task extra gates required before dependents unblock
+                         (comma-separated, replaces all; empty clears it).
+                         Augments the registry's blocks_dependents defaults.
 
 Description options (batch mode):
   --description, -d DESC New description text (replaces existing)
@@ -261,6 +270,7 @@ parse_args() {
             --risk-goal-achievement) BATCH_RISK_GOAL_ACHIEVEMENT="$2"; BATCH_RISK_GOAL_ACHIEVEMENT_SET=true; shift 2 ;;
             --risk-mitigation-tasks) BATCH_RISK_MITIGATION_TASKS="$2"; BATCH_RISK_MITIGATION_TASKS_SET=true; shift 2 ;;
             --gates) BATCH_GATES="$2"; BATCH_GATES_SET=true; shift 2 ;;
+            --also-blocks-dependents) BATCH_ALSO_BLOCKS_DEPENDENTS="$2"; BATCH_ALSO_BLOCKS_DEPENDENTS_SET=true; shift 2 ;;
             --effort|-e) BATCH_EFFORT="$2"; shift 2 ;;
             --status|-s) BATCH_STATUS="$2"; shift 2 ;;
             --type) BATCH_TYPE="$2"; shift 2 ;;
@@ -359,6 +369,7 @@ parse_yaml_frontmatter() {
     CURRENT_RISK_GOAL_ACHIEVEMENT=""
     CURRENT_RISK_MITIGATION_TASKS=""
     CURRENT_GATES=""
+    CURRENT_ALSO_BLOCKS_DEPENDENTS=""
     CURRENT_EFFORT="medium"
     CURRENT_DEPS=""
     CURRENT_XDEPS=""
@@ -447,6 +458,9 @@ parse_yaml_frontmatter() {
                 gates)
                     CURRENT_GATES=$(parse_yaml_list "$value")
                     ;;
+                also_blocks_dependents)
+                    CURRENT_ALSO_BLOCKS_DEPENDENTS=$(parse_yaml_list "$value")
+                    ;;
                 children_to_implement)
                     CURRENT_CHILDREN_TO_IMPLEMENT=$(parse_yaml_list "$value")
                     CURRENT_CHILDREN_TO_IMPLEMENT=$(normalize_task_ids "$CURRENT_CHILDREN_TO_IMPLEMENT")
@@ -525,6 +539,7 @@ write_task_file() {
     local risk_goal_achievement="${26:-}"
     local risk_mitigation_tasks="${27:-}"
     local gates="${28:-}"
+    local also_blocks_dependents="${29:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -569,6 +584,13 @@ write_task_file() {
             local gates_yaml
             gates_yaml=$(format_yaml_list "$gates")
             echo "gates: $gates_yaml"
+        fi
+        # Only write also_blocks_dependents if present (per-task extra unblock
+        # gates; absent/empty means "registry defaults only", so never emit []).
+        if [[ -n "$also_blocks_dependents" ]]; then
+            local abd_yaml
+            abd_yaml=$(format_yaml_list "$also_blocks_dependents")
+            echo "also_blocks_dependents: $abd_yaml"
         fi
         # Only write verifies if present
         if [[ -n "$verifies" ]]; then
@@ -937,6 +959,7 @@ handle_child_task_completion() {
     local saved_risk_goal_achievement="$CURRENT_RISK_GOAL_ACHIEVEMENT"
     local saved_risk_mitigation="$CURRENT_RISK_MITIGATION_TASKS"
     local saved_gates="$CURRENT_GATES"
+    local saved_abd="$CURRENT_ALSO_BLOCKS_DEPENDENTS"
     local saved_effort="$CURRENT_EFFORT"
     local saved_deps="$CURRENT_DEPS"
     local saved_xdeps="$CURRENT_XDEPS"
@@ -970,7 +993,7 @@ handle_child_task_completion() {
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
         "$CURRENT_RISK_CODE_HEALTH" "$CURRENT_RISK_GOAL_ACHIEVEMENT" "$CURRENT_RISK_MITIGATION_TASKS" \
-        "$CURRENT_GATES"
+        "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -984,6 +1007,7 @@ handle_child_task_completion() {
     CURRENT_RISK_GOAL_ACHIEVEMENT="$saved_risk_goal_achievement"
     CURRENT_RISK_MITIGATION_TASKS="$saved_risk_mitigation"
     CURRENT_GATES="$saved_gates"
+    CURRENT_ALSO_BLOCKS_DEPENDENTS="$saved_abd"
     CURRENT_EFFORT="$saved_effort"
     CURRENT_DEPS="$saved_deps"
     CURRENT_XDEPS="$saved_xdeps"
@@ -1465,7 +1489,7 @@ run_interactive_mode() {
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
         "$new_risk_code_health" "$new_risk_goal_achievement" "$CURRENT_RISK_MITIGATION_TASKS" \
-        "$CURRENT_GATES"
+        "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1551,6 +1575,7 @@ run_batch_mode() {
     [[ "$BATCH_RISK_GOAL_ACHIEVEMENT_SET" == true ]] && has_update=true
     [[ "$BATCH_RISK_MITIGATION_TASKS_SET" == true ]] && has_update=true
     [[ "$BATCH_GATES_SET" == true ]] && has_update=true
+    [[ "$BATCH_ALSO_BLOCKS_DEPENDENTS_SET" == true ]] && has_update=true
     [[ -n "$BATCH_EFFORT" ]] && has_update=true
     [[ -n "$BATCH_STATUS" ]] && has_update=true
     [[ -n "$BATCH_TYPE" ]] && has_update=true
@@ -1655,6 +1680,12 @@ run_batch_mode() {
     local new_gates="$CURRENT_GATES"
     if [[ "$BATCH_GATES_SET" == true ]]; then
         new_gates="$BATCH_GATES"
+    fi
+    # also_blocks_dependents: list, replaces-all (batch). Same preserve-by-default
+    # semantics as gates: (t635_3).
+    local new_abd="$CURRENT_ALSO_BLOCKS_DEPENDENTS"
+    if [[ "$BATCH_ALSO_BLOCKS_DEPENDENTS_SET" == true ]]; then
+        new_abd="$BATCH_ALSO_BLOCKS_DEPENDENTS"
     fi
     local new_status="${BATCH_STATUS:-$CURRENT_STATUS}"
     local new_type="${BATCH_TYPE:-$CURRENT_TYPE}"
@@ -1796,7 +1827,7 @@ run_batch_mode() {
         "$new_contributor_email" "$new_implemented_with" "$new_file_references" \
         "$new_verifies" "$new_xdeps" "$new_xdeprepo" \
         "$new_risk_code_health" "$new_risk_goal_achievement" "$new_risk_mitigation_tasks" \
-        "$new_gates"
+        "$new_gates" "$new_abd"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then

@@ -172,22 +172,27 @@ workflows, skills, TUIs, commands, configuration:
 
 ## Open design problems
 
-### 1. Dependency unblocking (t635_3 — blocks the archival change)
+### 1. Dependency unblocking (t635_3) — RESOLVED
 
-Today `depends:` effectively unblocks when the upstream task completes and
-archives. With deferred archival (D5), a task whose machine gates pass but
-whose human review pends for days would block dependents *longer than today*
-— a regression unless the unblock point is explicit. The framework doc only
-brushes this (open question 4, cross-task gates, deferred from v1).
+Resolved during t635_3 (design doc: [[dependency-unblock-semantics]]). A
+**combined registry + per-task** model: a registry per-gate flag
+**`blocks_dependents`** marks a gate as required-to-pass before the owning
+task's dependents unblock (set on the *integration* gates — `build_verified` /
+`review_approved` / `merge_approved` — not pre-code or post-integration
+sign-off gates); a per-task **`also_blocks_dependents:`** list adds further
+required gates. A gated active task releases its dependents once every required
+gate passes, even while non-required (slow human/async) gates still pend —
+fixing the regression. A task with no required-to-unblock gates falls back to
+today's file-existence behavior. Implemented in `lib/gate_ledger.py`
+(`dependents_status`), surfaced as `aitask_gate.sh deps-unblock`, and consumed
+by `aitask_ls.sh`. Dormant until t635_4 (deferred archival) + t635_14 (gate
+declaration) make it live; lands before t635_4 per the sequencing constraint.
 
-Candidate shapes to evaluate:
-- Unblock at **all-gates-pass** (strict, simple, but inherits the regression
-  for slow human gates).
-- Per-task declared subset (`unblock_after: [tests_pass]`) — flexible,
-  per-task noise.
-- **Registry-level `unblocks_dependents:` flag per gate** (e.g. machine
-  gates unblock, human gates don't) — declared once where the gate semantics
-  live. *Current lean, not yet decided.*
+The rejected shapes (recorded in the design doc): unblock at all-gates-pass
+(inherits the regression); pure machine-unblocks/human-doesn't (breaks worktree
+mode, where the human `merge_approved` gate is the integration point);
+per-task-only (re-declares the same set everywhere). Open question 4 (per-edge
+cross-task gate selectors) stays deferred.
 
 ### 2. Record-by-default vs opt-in (t635_2) — RESOLVED
 

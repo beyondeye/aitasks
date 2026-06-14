@@ -14,6 +14,8 @@
 #   append <task-id> <gate> <status> [k=v ...]   Append a gate-run block
 #   status <task-id>                             Print derived per-gate state
 #   list   <task-id>                             List declared gates (+ registry)
+#   deps-unblock <task-id>                       Decide if this task releases its
+#                                                dependents (t635_3; python-only)
 #
 # Primary path is bash + POSIX awk. The Python module lib/gate_ledger.py is the
 # documented fallback (drop-in, identical output): used when AIT_GATES_BACKEND=python
@@ -321,6 +323,22 @@ cmd_list() {
     done <<< "$gates"
 }
 
+# deps-unblock: decide whether this task releases its dependents (t635_3).
+# Python-only: the decision combines the registry `blocks_dependents` flag, the
+# per-task `also_blocks_dependents` list, and ledger derivation. It is a new,
+# low-frequency decision (only on `ait ls`, only for gated active tasks), so it
+# delegates to lib/gate_ledger.py rather than re-implementing the registry-flag
+# + two-list logic in awk. Prints one of: SATISFIED | BLOCKED:<csv> | NO_GATES.
+# If python is unavailable, degrades to NO_GATES so callers fall back to today's
+# file-existence behavior.
+cmd_deps_unblock() {
+    local task_id="${1:-}"
+    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh deps-unblock <task-id>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+    delegate_python deps-unblock "$file" "$REGISTRY" || echo "NO_GATES"
+}
+
 # --- usage / dispatch ------------------------------------------------------
 
 show_help() {
@@ -344,6 +362,14 @@ Commands:
         List the gates declared in the task's `gates:` frontmatter, enriched
         with type/description from aitasks/metadata/gates.yaml.
 
+  deps-unblock <task-id>
+        Decide whether this task releases its dependents (t635_3). Prints
+        SATISFIED (all required gates pass), BLOCKED:<csv> (required gates still
+        pending), or NO_GATES (no required-to-unblock gates → caller falls back
+        to file-existence). "Required" = declared gates flagged
+        `blocks_dependents` in the registry, plus the task's
+        `also_blocks_dependents` list.
+
 Backend:
   Primary path is bash + awk. Set AIT_GATES_BACKEND=python to force the
   lib/gate_ledger.py fallback (identical output).
@@ -356,6 +382,7 @@ main() {
         append) shift; cmd_append "$@" ;;
         status) shift; cmd_status "$@" ;;
         list)   shift; cmd_list "$@" ;;
+        deps-unblock) shift; cmd_deps_unblock "$@" ;;
         --help|-h|help|"") show_help ;;
         *) die "Unknown command: $cmd (try --help)" ;;
     esac

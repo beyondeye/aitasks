@@ -159,17 +159,62 @@ if [[ -n "$duplicate_parent_ids" ]]; then
     echo -e "\033[1;33mRun 'ait setup' to initialize the atomic task ID counter.\033[0m" >&2
 fi
 
+# Gate-aware dependency unblock (t635_3). An *active* task that declares gates
+# unblocks its dependents once its required-to-unblock gates all pass — before
+# archival, which gate-deferred archival (t635_4) would otherwise delay. This
+# precomputes the set of active task IDs that are "satisfied for dependency
+# purposes" so is_task_uncompleted() can treat them as completed.
+#
+# IDs are stored in the same normalized form as existing_ids_file: bare number
+# for parents, t<p>_<c> for children. In the common (no-gates) case the grep
+# guard matches nothing and the whole path is skipped — zero overhead.
+dep_satisfied_file=$(mktemp)
+build_dep_satisfied_set() {
+    local gate_script="$SCRIPT_DIR/aitask_gate.sh"
+    [[ -x "$gate_script" ]] || return 0
+
+    local candidates
+    candidates=$(grep -lE '^(gates|also_blocks_dependents):' \
+        "$TASK_DIR"/t[0-9]*_*.md "$TASK_DIR"/t[0-9]*/t[0-9]*_[0-9]*_*.md 2>/dev/null || true)
+    [[ -z "$candidates" ]] && return 0
+
+    local f base id norm decision
+    while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        base=$(basename "$f")
+        if [[ "$base" =~ ^t([0-9]+)_([0-9]+)_ ]]; then
+            id="${BASH_REMATCH[1]}_${BASH_REMATCH[2]}"; norm="t${BASH_REMATCH[1]}_${BASH_REMATCH[2]}"
+        elif [[ "$base" =~ ^t([0-9]+)_ ]]; then
+            id="${BASH_REMATCH[1]}"; norm="${BASH_REMATCH[1]}"
+        else
+            continue
+        fi
+        decision=$(TASK_DIR="$TASK_DIR" "$gate_script" deps-unblock "$id" 2>/dev/null || echo "NO_GATES")
+        [[ "$decision" == "SATISFIED" ]] && printf '%s\n' "$norm" >> "$dep_satisfied_file"
+    done <<< "$candidates"
+}
+build_dep_satisfied_set
+
 is_task_uncompleted() {
     local task_id="$1"
+    local norm_id
 
-    # Handle child task references (e.g., t1_2 or just the ID format)
+    # Normalize to the form stored in existing_ids_file / dep_satisfied_file.
     if [[ "$task_id" =~ ^t?([0-9]+)_([0-9]+)$ ]]; then
-        # Child task ID format
-        grep -qFx "t${BASH_REMATCH[1]}_${BASH_REMATCH[2]}" "$existing_ids_file"
+        norm_id="t${BASH_REMATCH[1]}_${BASH_REMATCH[2]}"   # child: t<p>_<c>
     else
-        # Regular parent task ID
-        grep -qFx "$task_id" "$existing_ids_file"
+        norm_id="${task_id#t}"                              # parent: bare number
     fi
+
+    # Not in the active set (archived) -> completed.
+    grep -qFx "$norm_id" "$existing_ids_file" || return 1
+
+    # Active, but a gated task whose required gates all passed is "completed for
+    # dependency purposes" (t635_3) -> dependents unblock before archival.
+    if [[ -s "$dep_satisfied_file" ]] && grep -qFx "$norm_id" "$dep_satisfied_file"; then
+        return 1
+    fi
+    return 0
 }
 
 # 2. Parsing Functions
@@ -535,4 +580,4 @@ else
     }
 fi
 
-rm "$existing_ids_file" "$output_file"
+rm -f "$existing_ids_file" "$output_file" "$dep_satisfied_file"

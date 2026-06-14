@@ -258,6 +258,43 @@ if [[ ${#gates_list[@]} -gt 0 ]]; then
     gates_args=(--gates "$gates_csv")
 fi
 
+# Step 3d: union also_blocks_dependents (per-task extra unblock gates) the same
+# way as gates above — a per-task unblock requirement must not be lost on fold
+# (t635_3).
+declare -A seen_abd=()
+abd_list=()
+
+add_to_abd() {
+    local raw="$1"
+    [[ -z "$raw" ]] && return 0
+    if [[ -z "${seen_abd[$raw]:-}" ]]; then
+        seen_abd[$raw]=1
+        abd_list+=("$raw")
+    fi
+}
+
+primary_abd_csv=$(parse_yaml_list "$(read_yaml_field "$primary_file" "also_blocks_dependents")")
+if [[ -n "$primary_abd_csv" ]]; then
+    IFS=',' read -ra primary_abd_parts <<< "$primary_abd_csv"
+    for g in "${primary_abd_parts[@]}"; do
+        add_to_abd "$g"
+    done
+fi
+for ff in ${folded_files[@]+"${folded_files[@]}"}; do
+    fa_csv=$(parse_yaml_list "$(read_yaml_field "$ff" "also_blocks_dependents")")
+    [[ -z "$fa_csv" ]] && continue
+    IFS=',' read -ra fa_parts <<< "$fa_csv"
+    for g in "${fa_parts[@]}"; do
+        add_to_abd "$g"
+    done
+done
+
+abd_args=()
+if [[ ${#abd_list[@]} -gt 0 ]]; then
+    abd_csv=$(IFS=','; echo "${abd_list[*]}")
+    abd_args=(--also-blocks-dependents "$abd_csv")
+fi
+
 # risk_mitigation_tasks is deliberately NOT unioned into the primary (unlike
 # verifies above). Each task's mitigation list is instance-specific to its own
 # risk evaluation — merging folded tasks' lists into the primary would attribute
@@ -269,6 +306,7 @@ fi
     ${file_ref_args[@]+"${file_ref_args[@]}"} \
     ${verifies_args[@]+"${verifies_args[@]}"} \
     ${gates_args[@]+"${gates_args[@]}"} \
+    ${abd_args[@]+"${abd_args[@]}"} \
     --silent >/dev/null
 echo "PRIMARY_UPDATED:${primary_id}"
 

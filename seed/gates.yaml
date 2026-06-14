@@ -14,20 +14,36 @@
 #   machine - verified programmatically (build, tests, automated evaluation)
 #   human   - requires a person's sign-off (the interactive approval, or later an
 #             async signal)
+#
+# blocks_dependents (t635_3):
+#   true  - this gate is REQUIRED to pass before tasks that `depends:` on the
+#           owning task unblock. Set on the "integration" gates — the points at
+#           which the task's code becomes available for dependents to build on.
+#   false - passing this gate does NOT gate dependents (pre-code checkpoints, and
+#           later post-integration sign-offs like async review / docs / manual
+#           verification, which would otherwise block dependents for days).
+#   A task unblocks its dependents once ALL its declared blocks_dependents gates
+#   pass; a per-task `also_blocks_dependents:` list adds further required gates.
+#   See aidocs/gates/dependency-unblock-semantics.md.
 
 gates:
   plan_approved:
     type: human
     description: "Implementation plan reviewed and approved before coding begins"
+    blocks_dependents: false
   risk_evaluated:
     type: machine
     description: "Plan assessed for code-health and goal-achievement risk"
+    blocks_dependents: false
   build_verified:
     type: machine
     description: "Project build/verify command(s) pass after implementation"
+    blocks_dependents: true
   review_approved:
     type: human
     description: "Implemented changes reviewed and approved before commit"
+    blocks_dependents: true
   merge_approved:
     type: human
     description: "Merge of the task branch into the base branch approved"
+    blocks_dependents: true
