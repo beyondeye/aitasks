@@ -24,6 +24,8 @@ CLI:
     gate_ledger.py list         <task-file> [registry.yaml]
     gate_ledger.py deps-unblock <task-file> [registry.yaml]
                                  -> SATISFIED | BLOCKED:<csv> | NO_GATES (t635_3)
+    gate_ledger.py archive-ready <task-file>
+                                 -> ALL_PASS | BLOCKED:<csv> | NO_GATES (t635_4)
 
 Supported append keys (anything else is ignored with a warning):
     marker line : run, status, attempt, duration, type
@@ -341,6 +343,30 @@ def dependents_status(task_file: str, registry_file: str | None) -> tuple[str, l
     return ("BLOCKED", pending) if pending else ("SATISFIED", [])
 
 
+# --- Gate-guarded archival decision (t635_4) ------------------------------
+
+def archive_status(task_file: str) -> tuple[str, list[str]]:
+    """Decide whether ``task_file`` may archive (D5: every declared gate pass).
+
+    Unlike :func:`dependents_status` (which filters to ``blocks_dependents``
+    gates), archival requires **every** declared gate to pass — so no registry
+    lookup is needed. A declared gate with no recorded run counts as not-pass.
+
+    Returns one of:
+      - ``("NO_GATES", [])``   — no declared gates → archive as today (the
+        dormant case until t635_14 populates ``gates:``).
+      - ``("ALL_PASS", [])``   — every declared gate has derived status ``pass``.
+      - ``("BLOCKED", nonpass)`` — one or more declared gates are not ``pass``.
+    """
+    declared = read_declared_gates(task_file)
+    if not declared:
+        return ("NO_GATES", [])
+    with open(task_file, encoding="utf-8") as fh:
+        state = derive_status(fh.read())
+    nonpass = [g for g in declared if state.get(g, {}).get("status") != "pass"]
+    return ("BLOCKED", nonpass) if nonpass else ("ALL_PASS", [])
+
+
 # --- CLI ------------------------------------------------------------------
 
 def _parse_kv(args: list[str]) -> dict:
@@ -406,6 +432,17 @@ def main(argv: list[str]) -> int:
         decision, pending = dependents_status(argv[1], registry)
         if decision == "BLOCKED":
             sys.stdout.write("BLOCKED:" + ",".join(pending) + "\n")
+        else:
+            sys.stdout.write(decision + "\n")
+        return 0
+
+    if cmd == "archive-ready":
+        if len(argv) < 2:
+            sys.stderr.write("Usage: gate_ledger.py archive-ready <file>\n")
+            return 2
+        decision, nonpass = archive_status(argv[1])
+        if decision == "BLOCKED":
+            sys.stdout.write("BLOCKED:" + ",".join(nonpass) + "\n")
         else:
             sys.stdout.write(decision + "\n")
         return 0

@@ -83,10 +83,11 @@ Each phase is independently shippable and leaves the framework consistent.
 
 - **Dependency-unblock semantics** designed and implemented (see open
   problem 1) — must land before or with the archival change.
-- **Gate-guarded archival**: Step 9 archives only when every declared gate is
-  pass; otherwise the task stays active and re-enterable. Archival is offered
-  (or profile-gated auto-applied) in a later session when the last gate
-  passes.
+- **Gate-guarded archival** (see [[gate-guarded-archival]]): Step 9 archives
+  only when every declared gate is pass; otherwise the task stays active and
+  re-enterable. Archival is offered immediately in-session when the last gate
+  passes, with the next pick as a backstop (or profile-gated auto-applied,
+  t635_17).
 - **Ledger-driven resume**: task-workflow Step 3 learns to read the ledger
   and resume from the first unmet checkpoint instead of restarting —
   a generalization of the existing crash-recovery procedure.

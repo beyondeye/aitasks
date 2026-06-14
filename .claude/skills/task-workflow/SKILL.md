@@ -72,7 +72,19 @@ After a task is selected and confirmed, perform these checks before proceeding t
   - Skip Steps 6-8; proceed to Step 9 after the procedure returns
   - Steps 4 (ownership) and 5 (worktree) still run before dispatch — manual verification is work that should be owned and locked
 
-**Note:** Check 1 and Check 2 should NOT set the task status to "Implementing" — the task is already done. Skip Step 4 (Assign Task) entirely when archiving via Check 1 or Check 2. Check 3 does run Step 4 as normal.
+**Check 4 - In-flight gated task, all gates now pass:**
+- Run `./.aitask-scripts/aitask_gate.sh archive-ready <taskid>` and parse:
+  - `NO_GATES` or `BLOCKED:<csv>` → skip this check (fall through to normal selection). This is the common case today — no task declares gates yet.
+  - `ALL_PASS` → the task's substantive work landed in an earlier session and every declared gate now passes, but archival was deferred (it was kept active). This is the next-pick backstop for the deferral in Step 9. Use `AskUserQuestion`:
+    - Question: "This task has all gates passing and is ready to archive. Would you like to archive it now?"
+    - Header: "Archive"
+    - Options:
+      - "Yes, archive it" (description: "Skip implementation and archive the now-complete task")
+      - "No, keep it active" (description: "Leave the task as-is and end the workflow")
+  - If "Yes, archive it" → skip Steps 4-8, proceed directly to **Step 9** (Post-Implementation) for archival
+  - If "No, keep it active" → end the workflow
+
+**Note:** Check 1, Check 2, and Check 4 should NOT set the task status to "Implementing" — the task is already done (or its work is complete and gated). Skip Step 4 (Assign Task) entirely when archiving via Check 1, Check 2, or Check 4. Check 3 does run Step 4 as normal.
 
 If none of the checks trigger, proceed to Step 4 as normal.
 
@@ -559,6 +571,39 @@ The script automatically handles:
 - Releasing task locks (and parent locks if parent was also archived)
 - For parent tasks: deleting folded tasks (if any, where status is not Implementing/Done)
 - Git staging and committing all changes
+
+**Gate guard — pending declared gates (handle BEFORE parsing the success output):**
+
+The archive script refuses to archive a task whose declared `gates:` are not all
+`pass`: it exits non-zero (code 2) and prints a `GATE_PENDING:<csv>` line (plus a
+`GATE_BLOCKED` line). If you see that, the archival did **not** happen — do NOT
+treat it as success or run the parse step below. (A task with no declared gates,
+or all gates passing, exits 0 and archives straight through — the common case
+today.) Instead use `AskUserQuestion`:
+- Question: "Task t<task_id> can't archive yet — pending gate(s): <csv>. How would you like to proceed?"
+- Header: "Gates"
+- Options:
+  - "Resolve now & archive" (description: "Satisfy the pending gate(s) in this session, then archive immediately")
+  - "Defer — keep in-flight" (description: "Leave the task active and re-enterable; archive on a later pick")
+
+- **If "Resolve now & archive":** For each pending gate the user can satisfy now
+  (run docs/tests, perform the review, etc.), record the pass:
+  ```bash
+  ./.aitask-scripts/aitask_gate.sh append <task_id> <gate> pass [k=v ...]
+  ```
+  After each, re-check `./.aitask-scripts/aitask_gate.sh archive-ready <task_id>`.
+  **The moment it prints `ALL_PASS`, re-run the archive script** (same command as
+  above) and continue with the normal success-path parsing below — no re-pick
+  needed (the archival commit persists the recorded gate runs). If a gate
+  genuinely cannot be satisfied in this session (e.g. an async reviewer you do
+  not control), fall through to "Defer".
+- **If "Defer — keep in-flight":** Do not archive. The task stays active
+  (`Implementing`) and re-enterable — its committed code and recorded gate runs
+  are the resume state, and the task lock is intentionally left held. Inform the
+  user: "Archival deferred — t<task_id> stays in-flight. Re-pick it with
+  `/aitask-pick <task_id>` once the pending gate(s) pass." Skip the
+  push-after-archival step and proceed directly to **Step 9b** (Satisfaction
+  Feedback) — the implementation work was completed.
 
 **Parse the script output and handle interactive follow-ups:**
 

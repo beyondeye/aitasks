@@ -16,6 +16,8 @@
 #   list   <task-id>                             List declared gates (+ registry)
 #   deps-unblock <task-id>                       Decide if this task releases its
 #                                                dependents (t635_3; python-only)
+#   archive-ready <task-id>                      Decide if this task may archive
+#                                                (t635_4; python-only)
 #
 # Primary path is bash + POSIX awk. The Python module lib/gate_ledger.py is the
 # documented fallback (drop-in, identical output): used when AIT_GATES_BACKEND=python
@@ -339,6 +341,19 @@ cmd_deps_unblock() {
     delegate_python deps-unblock "$file" "$REGISTRY" || echo "NO_GATES"
 }
 
+# archive-ready: decide whether this task may archive (t635_4). Python-only
+# (parallels deps-unblock — a new low-frequency decision, only at archival).
+# Prints one of: ALL_PASS (every declared gate passed), BLOCKED:<csv> (declared
+# gates not all pass), or NO_GATES (no declared gates → archive as today). If
+# python is unavailable, degrades to NO_GATES so archival proceeds as today.
+cmd_archive_ready() {
+    local task_id="${1:-}"
+    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh archive-ready <task-id>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+    delegate_python archive-ready "$file" || echo "NO_GATES"
+}
+
 # --- usage / dispatch ------------------------------------------------------
 
 show_help() {
@@ -370,6 +385,12 @@ Commands:
         `blocks_dependents` in the registry, plus the task's
         `also_blocks_dependents` list.
 
+  archive-ready <task-id>
+        Decide whether this task may archive (t635_4). Prints ALL_PASS (every
+        declared gate passed), BLOCKED:<csv> (declared gates not all pass), or
+        NO_GATES (no declared gates → archive as today). Unlike deps-unblock,
+        ALL declared gates must pass (no `blocks_dependents` filtering).
+
 Backend:
   Primary path is bash + awk. Set AIT_GATES_BACKEND=python to force the
   lib/gate_ledger.py fallback (identical output).
@@ -383,6 +404,7 @@ main() {
         status) shift; cmd_status "$@" ;;
         list)   shift; cmd_list "$@" ;;
         deps-unblock) shift; cmd_deps_unblock "$@" ;;
+        archive-ready) shift; cmd_archive_ready "$@" ;;
         --help|-h|help|"") show_help ;;
         *) die "Unknown command: $cmd (try --help)" ;;
     esac

@@ -33,6 +33,7 @@ DRY_RUN=false
 NO_COMMIT=false
 SUPERSEDED=false
 WITH_DEFERRED_CARRYOVER=false
+IGNORE_GATES=false
 TASK_NUM=""
 
 # --- Help ---
@@ -53,6 +54,9 @@ Options:
                                deferred items remain, creating a new
                                manual_verification task seeded with just those
                                deferred items
+  --ignore-gates               Archive even when the task declares gates that
+                               are not all `pass` (escape hatch — bypasses the
+                               gate-guard added in t635_4)
   --help, -h                   Show this help
 
 Output format (structured lines for skill parsing):
@@ -70,13 +74,16 @@ Output format (structured lines for skill parsing):
   COMMITTED:<hash>                  Git commit hash
   CARRYOVER_CREATED:<task_id>:<path> Carry-over manual_verification task
                                     created for deferred items
+  GATE_PENDING:<csv>                Declared gates not all `pass` (gate-guard)
 
 Exit codes:
   0  Success
   1  Generic error (invalid arguments, missing task, etc.)
-  2  Verification gate blocked archival (pending or deferred items on a
-     manual_verification task; see VERIFICATION_PENDING / VERIFICATION_DEFERRED
-     lines on stdout)
+  2  A pre-archive gate blocked archival. Either:
+       - manual_verification items pending/deferred (VERIFICATION_PENDING /
+         VERIFICATION_DEFERRED on stdout), or
+       - declared gates not all `pass` (GATE_PENDING:<csv> + GATE_BLOCKED on
+         stdout; override with --ignore-gates)
 
 Examples:
   ./.aitask-scripts/aitask_archive.sh 166          # Archive parent task t166
@@ -103,6 +110,10 @@ parse_args() {
                 ;;
             --with-deferred-carryover)
                 WITH_DEFERRED_CARRYOVER=true
+                shift
+                ;;
+            --ignore-gates)
+                IGNORE_GATES=true
                 shift
                 ;;
             --help|-h)
@@ -642,11 +653,45 @@ verification_gate_and_carryover() {
     fi
 }
 
+# --- Helper: gate-guard for declared gates (t635_4) ---
+# Gate-guarded archival (decision D5): a task that declares gates (gates:
+# frontmatter) may only archive once every declared gate is `pass`. Self-gating:
+# a task with no declared gates is a no-op, so behavior is unchanged until
+# t635_14 populates gates: (the mechanism is dormant today).
+#
+#   - NO_GATES / ALL_PASS -> return (archival proceeds).
+#   - BLOCKED:<csv> and --ignore-gates NOT set -> emit GATE_PENDING:<csv> +
+#     GATE_BLOCKED and exit 2 (mirrors verification_gate_and_carryover).
+#   - --ignore-gates -> log an override notice and proceed (escape hatch).
+gate_guard() {
+    local task_num="$1"
+
+    local decision
+    decision=$("$SCRIPT_DIR/aitask_gate.sh" archive-ready "$task_num" 2>/dev/null || echo "NO_GATES")
+
+    case "$decision" in
+        BLOCKED:*)
+            local pending="${decision#BLOCKED:}"
+            if [[ "$IGNORE_GATES" == true ]]; then
+                info "Ignoring gate-guard (--ignore-gates): archiving t${task_num} with pending gate(s): ${pending}"
+                return 0
+            fi
+            echo "GATE_PENDING:${pending}"
+            echo "GATE_BLOCKED: cannot archive until all declared gates pass (use --ignore-gates to override)"
+            exit 2
+            ;;
+        *)  # NO_GATES, ALL_PASS, or any unexpected value -> do not block.
+            return 0
+            ;;
+    esac
+}
+
 # --- Main ---
 main() {
     parse_args "$@"
 
     verification_gate_and_carryover "$TASK_NUM"
+    gate_guard "$TASK_NUM"
 
     if [[ "$TASK_NUM" =~ ^([0-9]+)_([0-9]+)$ ]]; then
         local parent_num="${BASH_REMATCH[1]}"
