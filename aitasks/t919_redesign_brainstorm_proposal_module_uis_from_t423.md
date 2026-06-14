@@ -175,3 +175,15 @@ live here):
   untouched (they are completed, already-built history).
 - Before removing, re-check that no other active task gained a `depends` on t423
   or t417_11 in the meantime.
+
+## Coordination — t983 (brainstorm TUI IA redesign)
+t983 restructures the brainstorm-TUI **information architecture** (5 tabs → 3:
+Browse / Session / Running; node ops become a contextual **Operations** dialog;
+Compare becomes a contextual overlay; a shared `NodeDetailPanel` replaces the
+three duplicate detail renderings). This task and t983 both edit
+`.aitask-scripts/brainstorm/brainstorm_app.py` heavily, so they overlap by
+construction. **Coordinate sequencing** — the proposal/module diff-merge,
+annotation, and interactive-refinement UIs ported here should land consistently
+with t983's contextual-operations IA (e.g. surface them through the new
+Operations dialog / Node Hub rather than the retired Actions/Compare tabs). Pin
+down the seam at whichever task is planned second.

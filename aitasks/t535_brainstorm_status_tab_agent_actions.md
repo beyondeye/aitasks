@@ -25,3 +25,10 @@ Suggested approach:
 - Confirm destructive actions (kill, cleanup) with a modal.
 
 Relates to parent t461 (interactive launch mode) but is independent — useful regardless of launch mode.
+
+## Coordination — t983 (brainstorm TUI IA redesign)
+t983 renames this **Status** tab to **Running** and adds an always-on header
+status strip. The agent-management actions specified here (kill / cleanup /
+retry on the selected agent row) should be implemented **within the new Running
+surface** introduced by t983. Sequence with t983 to avoid conflicting edits to
+the same status/runtime UI in `.aitask-scripts/brainstorm/brainstorm_app.py`.
