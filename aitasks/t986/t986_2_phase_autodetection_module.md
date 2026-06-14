@@ -3,11 +3,10 @@ priority: medium
 effort: medium
 depends: [t986_1]
 issue_type: feature
-status: Implementing
+status: Postponed
 labels: [gates, python, aitask_monitormini]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 16:03
-updated_at: 2026-06-14 17:25
+updated_at: 2026-06-14 18:01
 ---
 
 ## Context
@@ -70,3 +69,18 @@ the gate ledger parser is the source of truth; import it, do not fork it.
   - ledger-vs-text precedence (live AskUserQuestion overrides ledger phase).
 - Confirm no fork of gate-ledger logic: the module imports
   `derive_status`/`parse_gate_runs` from `gate_ledger.py`.
+
+## Postponement note (2026-06-14)
+
+**Postponed** during a `/aitask-pick` session. Phase detection was judged
+**not critical** to the shadow agent's current value: the shadow's job is to
+spawn fast and answer **any** question about the followed agent (explain what
+it's doing, explain plans, optionally link sibling-task context) — none of which
+requires knowing the followed agent's workflow *phase*. The only designed
+consumer was t986_4 (the shadow skill), and the phase-aware framing of that skill
+is itself being reconsidered (see parent t986 design note).
+
+**Revive when** a concrete shadow feature actually needs the followed agent's
+phase. The substrate this builds on (`lib/gate_ledger.py`, t635_1) is already
+landed, so resuming is cheap; the implementation plan at
+`aiplans/p986/p986_2_phase_autodetection_module.md` is preserved as-is.

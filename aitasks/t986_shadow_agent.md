@@ -31,6 +31,26 @@ Add **shadow** (the "shadow agent"; code identifier `shadow`) — a minimonitor-
 - **Advisory-only role.** `shadow` is read-only w.r.t. the source agent. It never forwards answers/keystrokes back into the source pane.
 - **Default placement:** same window (new pane) as the source agent; configurable to a separate window. Default agent+model and the same-window-vs-new-window choice are both configurable in settings.
 
+### Design update (2026-06-14) — phase detection deprioritized
+
+Re-examined during a `/aitask-pick` of t986_2. **Phase autodetection (t986_2) is
+now considered NON-critical and has been postponed** (status: Postponed). The
+shadow's core value is to **spawn fast, be immediately available, and answer ANY
+question** the user asks about the followed agent — explain what it's doing,
+explain plans, and optionally link sibling-task context. Those capabilities
+(served by t986_3 context-fetch and the t986_4 skill) do **not** require knowing
+the followed agent's workflow phase.
+
+Implications for the remaining children:
+- **t986_4 (shadow skill) must NOT be phase-gated.** Phase is, at most, advisory
+  context for *possible future* features; it must never restrict which questions
+  the user can ask, nor be a prerequisite for the shadow to start helping. Build
+  t986_4 around "answer any free-form question + explain + fetch context", not
+  around a phase router.
+- **t986_2 stays Postponed** until a concrete feature needs the followed agent's
+  phase. Its `depends:`/`children_to_implement` membership is unchanged; the
+  t635_1 substrate is landed so reviving it is cheap.
+
 ## Key findings / blast radius (from exploration)
 
 **minimonitor is the host.** It already runs as a companion pane, captures the agent pane (`monitor_core.py:capture_pane()` → `tmux capture-pane -p -e`), maps window→task via `TaskInfoCache` (`_TASK_ID_RE = agent-(pick|qa)-(\d+...)`), and shows a `TaskDetailDialog` (`i`, with plan toggle `p`). The new work is the trigger/spawn glue + the skill + the substrate hardening.
