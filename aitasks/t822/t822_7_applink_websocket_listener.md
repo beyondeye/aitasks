@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t822_6]
 issue_type: feature
 status: Implementing
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:41
-updated_at: 2026-06-14 11:12
+updated_at: 2026-06-14 11:38
 ---
 
 Wire the `ait applink` TUI to start a TLS WebSocket server on launch, accept the `pair` verb, and route subsequent control frames per the canonical verb table, enforcing permission profiles.

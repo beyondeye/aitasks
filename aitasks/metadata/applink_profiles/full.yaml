@@ -1,0 +1,13 @@
+name: full
+description: "Full terminal companion: snapshots, control, and destructive pane lifecycle."
+allowed_verbs:
+  - snapshot
+  - task_detail
+  - send_enter
+  - send_keys
+  - forward_key
+  - focus
+  - cycle_compare_mode
+  - kill_pane
+  - kill_window
+  - spawn_tui

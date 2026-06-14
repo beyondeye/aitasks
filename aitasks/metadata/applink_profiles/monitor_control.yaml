@@ -1,0 +1,10 @@
+name: monitor_control
+description: "Snapshots plus key forwarding and pane focus; no destructive verbs."
+allowed_verbs:
+  - snapshot
+  - task_detail
+  - send_enter
+  - send_keys
+  - forward_key
+  - focus
+  - cycle_compare_mode
