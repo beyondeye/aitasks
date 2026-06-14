@@ -8,12 +8,16 @@ absent from the destination are copied from the seed.
 Usage:
     aitask_install_merge.py yaml       <src> <dest>
     aitask_install_merge.py json       <src> <dest>
+    aitask_install_merge.py json-models <src> <dest>
     aitask_install_merge.py text-union <src> <dest>
 
 Semantics:
 - yaml/json: deep-merge with dest winning. New keys from src are added at any nesting
   depth. Existing dest keys keep their values (scalars, lists, and sub-dicts). Lists
   are treated atomically — not merged element-wise.
+- json-models: deep-merge JSON objects with dest winning, except the top-level
+  "models" arrays are unioned by model identity. Existing dest model entries are
+  preserved unchanged; seed-only model entries are appended in seed order.
 - text-union: line-oriented union. Dest order is preserved; src lines not already
   present in dest are appended in src order.
 - If dest does not exist, the file is copied as-is (no merge needed).
@@ -86,6 +90,50 @@ def merge_json(src: Path, dest: Path) -> None:
         f.write("\n")
 
 
+def _model_entry_key(entry: object) -> tuple[str, str]:
+    if isinstance(entry, dict):
+        name = entry.get("name")
+        if isinstance(name, str) and name:
+            return ("name", name)
+        cli_id = entry.get("cli_id")
+        if isinstance(cli_id, str) and cli_id:
+            return ("cli_id", cli_id)
+    canonical = json.dumps(entry, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return ("json", canonical)
+
+
+def merge_json_models(src: Path, dest: Path) -> None:
+    if _copy_if_dest_missing(src, dest):
+        return
+    try:
+        with open(src, "r", encoding="utf-8") as f:
+            src_data = json.load(f)
+        with open(dest, "r", encoding="utf-8") as f:
+            dest_data = json.load(f)
+    except json.JSONDecodeError as e:
+        _die(f"JSON parse error: {e}")
+    if not isinstance(src_data, dict) or not isinstance(dest_data, dict):
+        _die(f"Top-level JSON value must be an object in both {src} and {dest}")
+    src_models = src_data.get("models")
+    dest_models = dest_data.get("models")
+    if not isinstance(src_models, list) or not isinstance(dest_models, list):
+        _die(f"Top-level 'models' value must be a list in both {src} and {dest}")
+
+    merged_models = list(dest_models)
+    existing_keys = {_model_entry_key(entry) for entry in dest_models}
+    for entry in src_models:
+        key = _model_entry_key(entry)
+        if key not in existing_keys:
+            merged_models.append(entry)
+            existing_keys.add(key)
+
+    merged = deep_merge(src_data, dest_data)
+    merged["models"] = merged_models
+    with open(dest, "w", encoding="utf-8") as f:
+        json.dump(merged, f, indent=2)
+        f.write("\n")
+
+
 def merge_text_union(src: Path, dest: Path) -> None:
     if _copy_if_dest_missing(src, dest):
         return
@@ -105,6 +153,7 @@ def merge_text_union(src: Path, dest: Path) -> None:
 MODES = {
     "yaml": merge_yaml,
     "json": merge_json,
+    "json-models": merge_json_models,
     "text-union": merge_text_union,
 }
 

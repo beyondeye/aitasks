@@ -250,7 +250,7 @@ create_data_dirs() {
 
 # --- Merge seed file into destination (preserve existing user values) ---
 # Usage: merge_seed <mode> <src> <dest> <label>
-# Modes: yaml | json | text-union
+# Modes: yaml | json | json-models | text-union
 # - If dest is missing: straight copy.
 # - If dest exists and FORCE=true: merge via aitask_install_merge.py (existing
 #   dest values win, new seed keys are added).
@@ -447,7 +447,7 @@ install_seed_models() {
         local bname
         bname="$(basename "$src")"
         local dest="$INSTALL_DIR/aitasks/metadata/$bname"
-        merge_seed json "$src" "$dest" "model config: $bname"
+        merge_seed json-models "$src" "$dest" "model config: $bname"
     done
 
     if [[ "$found" == false ]]; then

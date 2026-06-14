@@ -96,6 +96,223 @@ fi
 assert_eq "json: invalid src leaves dest untouched" \
     "$original_good_dest" "$(cat "$TMP/good_dest.json")"
 
+# --- JSON models merge: destination entries preserved, seed-only models appended ---
+
+cat > "$TMP/src_models.json" <<'EOF'
+{
+  "models": [
+    {
+      "name": "opus",
+      "cli_id": "claude-opus",
+      "notes": "seed opus",
+      "verified": {
+        "pick": 0
+      }
+    },
+    {
+      "name": "fable5",
+      "cli_id": "claude-fable-5",
+      "notes": "seed fable",
+      "verified": {},
+      "verifiedstats": {}
+    }
+  ],
+  "seed_only": true
+}
+EOF
+cat > "$TMP/dest_models.json" <<'EOF'
+{
+  "models": [
+    {
+      "name": "opus",
+      "cli_id": "claude-opus",
+      "notes": "local opus",
+      "verified": {
+        "pick": 80
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 4
+          }
+        }
+      }
+    }
+  ],
+  "local_only": true
+}
+EOF
+opus_before="$("$AITASK_PYTHON" -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["models"][0], sort_keys=True))' "$TMP/dest_models.json")"
+"$AITASK_PYTHON" "$MERGE_SCRIPT" json-models "$TMP/src_models.json" "$TMP/dest_models.json"
+opus_after="$("$AITASK_PYTHON" -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["models"][0], sort_keys=True))' "$TMP/dest_models.json")"
+model_count="$("$AITASK_PYTHON" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["models"]))' "$TMP/dest_models.json")"
+model_names="$("$AITASK_PYTHON" -c 'import json,sys; print("\n".join(m.get("name", "") for m in json.load(open(sys.argv[1]))["models"]))' "$TMP/dest_models.json")"
+merged_model_json="$(cat "$TMP/dest_models.json")"
+assert_eq "json-models: existing model entry preserved exactly" "$opus_before" "$opus_after"
+assert_eq "json-models: seed-only model appended" "2" "$model_count"
+assert_eq "json-models: destination order then seed order" $'opus\nfable5' "$model_names"
+assert_contains "json-models: seed-only top-level key added" '"seed_only": true' "$merged_model_json"
+assert_contains "json-models: dest-only top-level key preserved" '"local_only": true' "$merged_model_json"
+
+"$AITASK_PYTHON" "$MERGE_SCRIPT" json-models "$TMP/src_models.json" "$TMP/dest_models.json"
+model_count_repeat="$("$AITASK_PYTHON" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["models"]))' "$TMP/dest_models.json")"
+assert_eq "json-models: repeat merge is idempotent" "2" "$model_count_repeat"
+
+# --- JSON models merge: cli_id fallback and canonical JSON fallback ---
+
+cat > "$TMP/src_models_cli_fallback.json" <<'EOF'
+{
+  "models": [
+    {
+      "cli_id": "provider/model",
+      "notes": "seed"
+    }
+  ]
+}
+EOF
+cat > "$TMP/dest_models_cli_fallback.json" <<'EOF'
+{
+  "models": [
+    {
+      "cli_id": "provider/model",
+      "notes": "local",
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 1
+          }
+        }
+      }
+    }
+  ]
+}
+EOF
+"$AITASK_PYTHON" "$MERGE_SCRIPT" json-models "$TMP/src_models_cli_fallback.json" "$TMP/dest_models_cli_fallback.json"
+cli_fallback_count="$("$AITASK_PYTHON" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["models"]))' "$TMP/dest_models_cli_fallback.json")"
+cli_fallback_notes="$("$AITASK_PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["models"][0]["notes"])' "$TMP/dest_models_cli_fallback.json")"
+assert_eq "json-models: cli_id fallback prevents duplicate" "1" "$cli_fallback_count"
+assert_eq "json-models: cli_id fallback preserves dest entry" "local" "$cli_fallback_notes"
+
+cat > "$TMP/src_models_json_fallback.json" <<'EOF'
+{
+  "models": [
+    {
+      "notes": "anonymous"
+    }
+  ]
+}
+EOF
+cat > "$TMP/dest_models_json_fallback.json" <<'EOF'
+{
+  "models": [
+    {
+      "notes": "anonymous"
+    }
+  ]
+}
+EOF
+"$AITASK_PYTHON" "$MERGE_SCRIPT" json-models "$TMP/src_models_json_fallback.json" "$TMP/dest_models_json_fallback.json"
+json_fallback_count="$("$AITASK_PYTHON" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["models"]))' "$TMP/dest_models_json_fallback.json")"
+assert_eq "json-models: canonical JSON fallback prevents duplicate" "1" "$json_fallback_count"
+
+# --- JSON models merge: invalid models shape fails non-zero, dest untouched ---
+
+echo '{"models": {"name": "bad"}}' > "$TMP/bad_models_shape.json"
+echo '{"models": []}' > "$TMP/good_models_dest.json"
+original_good_models_dest="$(cat "$TMP/good_models_dest.json")"
+if "$AITASK_PYTHON" "$MERGE_SCRIPT" json-models "$TMP/bad_models_shape.json" "$TMP/good_models_dest.json" 2>/dev/null; then
+    FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
+    echo "FAIL: json-models: invalid models shape should exit non-zero"
+else
+    PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1))
+fi
+assert_eq "json-models: invalid models shape leaves dest untouched" \
+    "$original_good_models_dest" "$(cat "$TMP/good_models_dest.json")"
+
+# --- install.sh seed model path: FORCE upgrade unions model arrays ---
+
+INSTALL_ROOT="$TMP/install_root"
+mkdir -p "$INSTALL_ROOT/.aitask-scripts/lib" "$INSTALL_ROOT/seed" "$INSTALL_ROOT/aitasks/metadata"
+cp "$MERGE_SCRIPT" "$INSTALL_ROOT/.aitask-scripts/aitask_install_merge.py"
+cp "$PROJECT_DIR/.aitask-scripts/lib/config_utils.py" "$INSTALL_ROOT/.aitask-scripts/lib/config_utils.py"
+cat > "$INSTALL_ROOT/seed/models_claudecode.json" <<'EOF'
+{
+  "models": [
+    {
+      "name": "opus",
+      "cli_id": "claude-opus",
+      "notes": "seed opus",
+      "verified": {
+        "pick": 0
+      }
+    },
+    {
+      "name": "fable5",
+      "cli_id": "claude-fable-5",
+      "notes": "seed fable",
+      "verified": {},
+      "verifiedstats": {}
+    }
+  ]
+}
+EOF
+cat > "$INSTALL_ROOT/aitasks/metadata/models_claudecode.json" <<'EOF'
+{
+  "models": [
+    {
+      "name": "opus",
+      "cli_id": "claude-opus",
+      "notes": "local opus",
+      "verified": {
+        "pick": 80
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 4
+          }
+        }
+      }
+    }
+  ]
+}
+EOF
+if (
+    cd "$PROJECT_DIR"
+    # shellcheck source=../install.sh
+    source "$PROJECT_DIR/install.sh" --source-only
+    INSTALL_DIR="$INSTALL_ROOT"
+    FORCE=true
+    install_seed_models >/dev/null
+); then
+    PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1))
+else
+    FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
+    echo "FAIL: install_seed_models should run successfully in FORCE mode"
+fi
+install_model_count="$("$AITASK_PYTHON" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["models"]))' "$INSTALL_ROOT/aitasks/metadata/models_claudecode.json")"
+install_opus_pick="$("$AITASK_PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["models"][0]["verified"]["pick"])' "$INSTALL_ROOT/aitasks/metadata/models_claudecode.json")"
+install_fable_name="$("$AITASK_PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["models"][1]["name"])' "$INSTALL_ROOT/aitasks/metadata/models_claudecode.json")"
+assert_eq "install_seed_models: model count includes seed addition" "2" "$install_model_count"
+assert_eq "install_seed_models: local verified score preserved" "80" "$install_opus_pick"
+assert_eq "install_seed_models: seed model appended through install.sh" "fable5" "$install_fable_name"
+
+if (
+    cd "$PROJECT_DIR"
+    # shellcheck source=../install.sh
+    source "$PROJECT_DIR/install.sh" --source-only
+    INSTALL_DIR="$INSTALL_ROOT"
+    FORCE=true
+    install_seed_models >/dev/null
+); then
+    PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1))
+else
+    FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
+    echo "FAIL: install_seed_models repeat run should succeed in FORCE mode"
+fi
+install_model_count_repeat="$("$AITASK_PYTHON" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["models"]))' "$INSTALL_ROOT/aitasks/metadata/models_claudecode.json")"
+assert_eq "install_seed_models: repeat FORCE run is idempotent" "2" "$install_model_count_repeat"
+
 # --- text-union: dest order preserved, seed-only lines appended ---
 
 printf 'bug\nfeature\nchore\ntest\ndocs\n' > "$TMP/src.txt"
