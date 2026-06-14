@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, aitask_monitor, tmux, python]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 16:02
-updated_at: 2026-06-14 16:02
+updated_at: 2026-06-14 16:20
 ---
 
 ## Context
