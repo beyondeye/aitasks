@@ -9,3 +9,6 @@ aitasks/metadata/*.local.json
 
 # Per-user execution profiles (local, not shared)
 aitasks/metadata/profiles/local/
+
+# applink runtime state (per-PC: TLS cert/key + active bearer sessions)
+aitasks/metadata/applink_sessions/
