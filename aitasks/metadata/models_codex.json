@@ -5,13 +5,13 @@
       "cli_id": "gpt-5.5",
       "notes": "Newest frontier model for complex coding, computer use, knowledge work, and research workflows; recommended choice for most Codex tasks (ChatGPT sign-in only)",
       "verified": {
-        "pick": 93
+        "pick": 95
       },
       "verifiedstats": {
         "pick": {
           "all_time": {
-            "runs": 3,
-            "score_sum": 280
+            "runs": 4,
+            "score_sum": 380
           },
           "prev_month": {
             "period": "2026-05",
@@ -20,13 +20,13 @@
           },
           "month": {
             "period": "2026-06",
-            "runs": 2,
-            "score_sum": 180
+            "runs": 3,
+            "score_sum": 280
           },
           "week": {
-            "period": "2026-W23",
-            "runs": 2,
-            "score_sum": 180
+            "period": "2026-W24",
+            "runs": 1,
+            "score_sum": 100
           }
         }
       },
