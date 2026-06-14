@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t986_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, codeagent, ait_settings, tmux]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 16:04
-updated_at: 2026-06-14 17:14
+updated_at: 2026-06-14 23:12
 ---
 
 ## Context
