@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t986_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [bash_scripts, task_workflow, aitask_monitormini]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 16:03
-updated_at: 2026-06-14 16:03
+updated_at: 2026-06-14 18:06
 ---
 
 ## Context
