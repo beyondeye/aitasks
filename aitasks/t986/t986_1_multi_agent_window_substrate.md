@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: refactor
 status: Implementing
 labels: [aitask_monitormini, aitask_monitor, tmux, python]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 16:02
-updated_at: 2026-06-14 16:20
+updated_at: 2026-06-14 16:38
 ---
 
 ## Context
@@ -85,3 +88,8 @@ to avoid conflicts).
 - Manual smoke (covered by the t986 aggregate manual-verification sibling):
   open two agent panes in one tmux window via the gateway and confirm monitor +
   minimonitor behave.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-14T13:38:38Z status=pass attempt=1 type=human
