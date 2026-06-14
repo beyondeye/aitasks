@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: [t635_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [gates, task_workflow]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:52
-updated_at: 2026-06-14 13:17
+updated_at: 2026-06-14 14:06
+completed_at: 2026-06-14 14:06
 ---
 
 ## Context
