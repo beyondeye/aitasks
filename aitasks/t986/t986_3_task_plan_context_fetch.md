@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [bash_scripts, task_workflow, aitask_monitormini]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 16:03
-updated_at: 2026-06-14 18:06
+updated_at: 2026-06-14 18:49
 ---
 
 ## Context
@@ -62,3 +63,8 @@ sequential sibling dep only orders it).
 - `shellcheck .aitask-scripts/aitask_shadow_context.sh`.
 - Confirm the helper is registered in the helper-script whitelist (so the skill
   may call it without a permission prompt and the no-inline-bash audit passes).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-14T15:49:12Z status=pass attempt=1 type=human
