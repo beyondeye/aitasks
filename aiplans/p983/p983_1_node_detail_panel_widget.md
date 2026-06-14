@@ -213,5 +213,79 @@ All in `.aitask-scripts/brainstorm/brainstorm_app.py` unless noted.
 - None identified. Approach matches the parent decomposition (item 1), renderer
   proven to depend only on `session_path`, all three renderings + test covered.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-06-14 12:50)
+- **Requested by user:** (1) Add a full-app compose smoke test (don't rely only
+  on manual verification for the dashboard/graph compose); (2) refactor
+  `_show_brief_in_detail` to use a public `NodeDetailPanel` method instead of
+  reaching into the panel's inner `#dash_node_title`/`#dash_node_info` IDs.
+- **Changes made:**
+  - Added `NodeDetailPanel.show_content(title_text, widgets)` as the public
+    pane-driving entry point; `update(node_id)` now delegates to it.
+  - `_show_brief_in_detail` now calls
+    `query_one("#dash_node_panel", NodeDetailPanel).show_content("Task Brief",
+    [Static(preview)])` — no longer reaches into the inner IDs.
+  - Added `BrainstormAppComposeSmokeTests` to
+    `tests/test_brainstorm_node_detail_panel.py`: a `_SmokeApp(BrainstormApp)`
+    that skips the session-loading `on_mount` (the only `on_mount` in the MRO),
+    repoints `session_path` at a fixture, and asserts the real app mounts
+    `#dash_node_panel`/`#dag_node_panel` and that `_show_node_detail`,
+    `_show_dag_node_detail`, and `_show_brief_in_detail` drive them through the
+    real DOM.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`,
+  `tests/test_brainstorm_node_detail_panel.py`.
+- **Result:** new test file now 7 tests (incl. smoke); full brainstorm suite
+  483 tests green.
+
+## Final Implementation Notes
+
+- **Actual work done:** Extracted the App method `_render_node_detail_widgets`
+  into a module-level `render_node_detail_widgets(session_path, node_id)` and a
+  reusable `NodeDetailPanel(Container)` widget (title `Label` + content
+  `Container`, caller-supplied child IDs, public `show_content` + `update`
+  methods). Repointed Dashboard + Graph compose to mount panels
+  (`#dash_node_panel` / `#dag_node_panel`, inner IDs preserved), reduced
+  `_show_node_detail` / `_show_dag_node_detail` to one-line `panel.update`, and
+  refactored `_show_brief_in_detail` to drive the panel via `show_content`.
+  Folded `NodeDetailModal`'s Metadata tab onto the shared renderer (removed the
+  plain-text path + now-dead `node_data` read). New
+  `tests/test_brainstorm_node_detail_panel.py` (7 tests: headless renderer,
+  panel pilot, modal-fold guard, full-app compose smoke).
+- **Deviations from plan:** (1) `NodeDetailPanel` subclasses `Container` (a
+  `Widget`) — matches the file's `FuzzyCheckList(Container)` pattern, no new
+  import. (2) Added `show_content` as the public pane API (Change Request 1) so
+  `_show_brief_in_detail` no longer reaches into inner IDs. (3) Added the
+  full-app `BrainstormAppComposeSmokeTests` (Change Request 1) beyond the
+  originally-planned panel/headless tests.
+- **Issues encountered:** Textual 8.2.7 uses the Content API — widget text is
+  read via `widget.render()` / `widget.content`, not a `renderable` attribute;
+  the test helper `_text()` was adjusted accordingly. The full `BrainstormApp`
+  has no test that mounts it; the smoke test subclasses it and skips the
+  session-loading `on_mount` (the only `on_mount` in the MRO) to isolate
+  compose + handlers without the heavy session pipeline.
+- **Key decisions:** Preserve the four container IDs inside the panel so the
+  CSS (`#dash_node_*`/`#dag_node_*`), keyboard nav (`_navigate_rows`, both
+  `*_toggle_pane_focus`), and the Task Brief path keep working with zero churn
+  — lowest blast radius for a foundation extraction. The modal-metadata fold is
+  a deliberate reconciliation (plain text → shared rich widgets incl.
+  interactive `DimensionRow`s), guarded by the modal-fold test.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t983_3 (Browse tab)** can host ONE shared `NodeDetailPanel(session_path,
+    title_id=..., info_id=..., id=...)` — drive it with `panel.update(node_id)`
+    (node detail) or `panel.show_content(title, widgets)` (arbitrary content).
+  - The renderer is now the module-level `render_node_detail_widgets(
+    session_path, node_id) -> (title, widgets)` in `brainstorm_app.py` — reuse
+    it; do not re-introduce a per-view rendering.
+  - Container IDs `dash_node_title/dash_node_info/dag_node_title/dag_node_info`
+    are now the panel's *inner* child IDs (still DOM-global queryable). When
+    t983_2/t983_3 merge Dashboard+Graph into Browse, collapse the two panels to
+    one and revisit `_navigate_rows` / `*_toggle_pane_focus` / the Task Brief
+    toggle (they target those inner IDs).
+  - Test harness pattern for brainstorm widgets lives in
+    `tests/test_brainstorm_node_detail_panel.py` (`_make_session`, `_text`,
+    `_HostPanelApp`, `_SmokeApp`) — mirror it.
+
 ## Step 9
 Archive via `./.aitask-scripts/aitask_archive.sh 983_1`.
