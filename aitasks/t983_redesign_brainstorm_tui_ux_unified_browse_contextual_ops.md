@@ -5,9 +5,9 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [brainstorming, tui, ait_brainstorm]
-children_to_implement: [t983_1, t983_2, t983_3, t983_4, t983_5, t983_6, t983_7, t983_8, t983_9]
+children_to_implement: [t983_1, t983_2, t983_3, t983_4, t983_5, t983_6, t983_7, t983_8, t983_9, t983_10]
 created_at: 2026-06-14 10:52
-updated_at: 2026-06-14 11:41
+updated_at: 2026-06-14 11:45
 ---
 
 Redesign the information architecture of the `ait brainstorm` TUI
