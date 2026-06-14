@@ -68,3 +68,8 @@ agent.
 - Cross-agent note: if SKILL.md ends up agent-agnostic, the Codex/OpenCode
   variants render from the Claude source automatically; only create port
   follow-ups if agent-specific surfaces are touched.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-14T19:43:57Z status=pass attempt=1 type=human
