@@ -36,6 +36,7 @@ BATCH_DEPS=""
 BATCH_XDEPS=""
 BATCH_XDEPREPO=""
 BATCH_VERIFIES=""
+BATCH_GATES=""
 BATCH_COMMIT=false
 BATCH_SILENT=false
 BATCH_PARENT=""
@@ -74,6 +75,8 @@ Batch mode (for automation):
   --assigned-to, -a EMAIL  Email of person assigned to task (optional)
   --issue URL            Issue tracker URL (e.g., GitHub issue URL)
   --labels, -l LABELS    Comma-separated labels
+  --gates GATES          Comma-separated declared gate names (see
+                         aitasks/metadata/gates.yaml; optional)
   --deps DEPS            Comma-separated dependency task numbers
   --xdeps DEPS           Comma-separated cross-repo dependency task numbers
                          (in the format used inside --xdeprepo). Requires
@@ -150,6 +153,7 @@ parse_args() {
             --xdeps) BATCH_XDEPS="$2"; shift 2 ;;
             --xdeprepo) BATCH_XDEPREPO="$2"; shift 2 ;;
             --verifies) BATCH_VERIFIES="$2"; shift 2 ;;
+            --gates) BATCH_GATES="$2"; shift 2 ;;
             --parent|-P) BATCH_PARENT="$2"; shift 2 ;;
             # --project is handled in main() before parse_args (cross-repo
             # redirect); never reaches here.
@@ -421,6 +425,13 @@ create_child_task_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        # Only write gates if present (opt-in declared gate set; read from the
+        # batch global, mirroring xdeps/xdeprepo above). t635_1.
+        if [[ -n "${BATCH_GATES:-}" ]]; then
+            local gates_yaml
+            gates_yaml=$(format_yaml_list "$BATCH_GATES")
+            echo "gates: $gates_yaml"
+        fi
         # Only write verifies if present
         if [[ -n "$verifies" ]]; then
             local verifies_yaml
@@ -528,6 +539,14 @@ create_draft_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        # Only write gates if present. Drafts carry gates too: finalize_draft
+        # sed-copies the draft to the real task (it does not call create_task_file),
+        # so the batch create -> finalize flow would otherwise drop --gates (t635_1).
+        if [[ -n "${BATCH_GATES:-}" ]]; then
+            local gates_yaml
+            gates_yaml=$(format_yaml_list "$BATCH_GATES")
+            echo "gates: $gates_yaml"
+        fi
         # Only write verifies if present
         if [[ -n "$verifies" ]]; then
             local verifies_yaml
@@ -1657,6 +1676,13 @@ create_task_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        # Only write gates if present (opt-in declared gate set; read from the
+        # batch global, mirroring xdeps/xdeprepo above). t635_1.
+        if [[ -n "${BATCH_GATES:-}" ]]; then
+            local gates_yaml
+            gates_yaml=$(format_yaml_list "$BATCH_GATES")
+            echo "gates: $gates_yaml"
+        fi
         # Only write verifies if present
         if [[ -n "$verifies" ]]; then
             local verifies_yaml

@@ -14,6 +14,10 @@ __pycache__/
 # AgentCrew worktrees (local, per-crew branches)
 .aitask-crews/
 
+# Gate sidecar logs (per-task verifier output; the in-body Gate Runs summary is
+# committed, not the raw logs)
+.aitask-gates/
+
 # Hugo generated files
 website/public/
 website/resources/

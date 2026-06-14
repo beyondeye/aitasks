@@ -104,6 +104,7 @@
       "Bash(./.aitask-scripts/aitask_fold_content.sh:*)",
       "Bash(./.aitask-scripts/aitask_fold_mark.sh:*)",
       "Bash(./.aitask-scripts/aitask_fold_validate.sh:*)",
+      "Bash(./.aitask-scripts/aitask_gate.sh:*)",
       "Bash(./ait git:*)",
       "Bash(./.aitask-scripts/aitask_init_data.sh:*)",
       "Bash(./.aitask-scripts/aitask_web_merge.sh:*)",

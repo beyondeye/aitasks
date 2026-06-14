@@ -336,6 +336,19 @@ install_seed_project_config() {
     merge_seed yaml "$src" "$dest" "project config: project_config.yaml"
 }
 
+# --- Install gate registry (t635_1) ---
+install_seed_gates_registry() {
+    local src="$INSTALL_DIR/seed/gates.yaml"
+    local dest="$INSTALL_DIR/aitasks/metadata/gates.yaml"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/gates.yaml in tarball — skipping gate registry installation"
+        return
+    fi
+
+    merge_seed yaml "$src" "$dest" "gate registry: gates.yaml"
+}
+
 # --- Install starter tmux.conf template ---
 install_seed_tmux_conf() {
     local src="$INSTALL_DIR/seed/tmux.conf"
@@ -966,6 +979,9 @@ main() {
 
     info "Installing project config..."
     install_seed_project_config
+
+    info "Installing gate registry..."
+    install_seed_gates_registry
 
     info "Installing starter tmux.conf template..."
     install_seed_tmux_conf

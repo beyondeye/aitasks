@@ -220,6 +220,44 @@ if [[ ${#verifies_list[@]} -gt 0 ]]; then
     verifies_args=(--verifies "$verifies_csv")
 fi
 
+# Step 3c: union gates (declared gate set) from primary + directly folded tasks.
+# Gate names are plain strings (no task-id normalization). Mirrors the verifies
+# union: a merged task should carry the union of every folded task's gates so a
+# declared checkpoint is never lost on fold (t635_1).
+declare -A seen_gates=()
+gates_list=()
+
+add_to_gates() {
+    local raw="$1"
+    [[ -z "$raw" ]] && return 0
+    if [[ -z "${seen_gates[$raw]:-}" ]]; then
+        seen_gates[$raw]=1
+        gates_list+=("$raw")
+    fi
+}
+
+primary_gates_csv=$(parse_yaml_list "$(read_yaml_field "$primary_file" "gates")")
+if [[ -n "$primary_gates_csv" ]]; then
+    IFS=',' read -ra primary_gates_parts <<< "$primary_gates_csv"
+    for g in "${primary_gates_parts[@]}"; do
+        add_to_gates "$g"
+    done
+fi
+for ff in ${folded_files[@]+"${folded_files[@]}"}; do
+    fg_csv=$(parse_yaml_list "$(read_yaml_field "$ff" "gates")")
+    [[ -z "$fg_csv" ]] && continue
+    IFS=',' read -ra fg_parts <<< "$fg_csv"
+    for g in "${fg_parts[@]}"; do
+        add_to_gates "$g"
+    done
+done
+
+gates_args=()
+if [[ ${#gates_list[@]} -gt 0 ]]; then
+    gates_csv=$(IFS=','; echo "${gates_list[*]}")
+    gates_args=(--gates "$gates_csv")
+fi
+
 # risk_mitigation_tasks is deliberately NOT unioned into the primary (unlike
 # verifies above). Each task's mitigation list is instance-specific to its own
 # risk evaluation — merging folded tasks' lists into the primary would attribute
@@ -230,6 +268,7 @@ fi
     --folded-tasks "$full_csv" \
     ${file_ref_args[@]+"${file_ref_args[@]}"} \
     ${verifies_args[@]+"${verifies_args[@]}"} \
+    ${gates_args[@]+"${gates_args[@]}"} \
     --silent >/dev/null
 echo "PRIMARY_UPDATED:${primary_id}"
 

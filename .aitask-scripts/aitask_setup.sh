@@ -1271,6 +1271,7 @@ setup_data_branch() {
         if [[ -d "$project_dir/seed" ]]; then
             cp "$project_dir/seed/task_types.txt" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/project_config.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
+            cp "$project_dir/seed/gates.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/code_areas.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/codeagent_config.json" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed"/models_*.json "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
@@ -1572,6 +1573,38 @@ setup_python_cache_gitignore() {
     fi
 
     success "Python cache rule added to .gitignore"
+}
+
+# --- Gate sidecar-log gitignore rule (t635_1) ---
+# Per-task gate verifier output lives under .aitask-gates/<task-id>/. The in-body
+# "Gate Runs" summary is what gets committed; the raw logs are local-only.
+setup_gate_logs_gitignore() {
+    local project_dir="$SCRIPT_DIR/.."
+    local gitignore="$project_dir/.gitignore"
+
+    if [[ -f "$gitignore" ]] && grep -qxF ".aitask-gates/" "$gitignore"; then
+        success "Gate sidecar-log rule already in .gitignore"
+        return
+    fi
+
+    info "Adding .aitask-gates/ to .gitignore (gate sidecar logs)..."
+
+    if [[ -f "$gitignore" ]]; then
+        echo "" >> "$gitignore"
+        echo "# Gate sidecar logs (per-task verifier output; in-body summary is committed)" >> "$gitignore"
+        echo ".aitask-gates/" >> "$gitignore"
+    else
+        {
+            echo "# Gate sidecar logs (per-task verifier output; in-body summary is committed)"
+            echo ".aitask-gates/"
+        } > "$gitignore"
+    fi
+
+    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add .aitask-gates/ to .gitignore (gate sidecar logs)" 2>/dev/null) || true
+    fi
+
+    success "Gate sidecar-log rule added to .gitignore"
 }
 
 # --- Version check ---
@@ -3090,6 +3123,9 @@ main() {
     echo ""
 
     setup_python_cache_gitignore
+    echo ""
+
+    setup_gate_logs_gitignore
     echo ""
 
     setup_id_counter

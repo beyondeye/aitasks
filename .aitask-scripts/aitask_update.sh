@@ -27,6 +27,11 @@ BATCH_RISK_GOAL_ACHIEVEMENT=""
 BATCH_RISK_GOAL_ACHIEVEMENT_SET=false
 BATCH_RISK_MITIGATION_TASKS=""
 BATCH_RISK_MITIGATION_TASKS_SET=false
+# gates: declared gate set (list, replaces-all). Registered for durability —
+# without parse+serialize here, `ait update` would silently drop the field
+# from any gated task (t635_1).
+BATCH_GATES=""
+BATCH_GATES_SET=false
 BATCH_EFFORT=""
 BATCH_STATUS=""
 BATCH_TYPE=""
@@ -81,6 +86,7 @@ CURRENT_PRIORITY=""
 CURRENT_RISK_CODE_HEALTH=""
 CURRENT_RISK_GOAL_ACHIEVEMENT=""
 CURRENT_RISK_MITIGATION_TASKS=""
+CURRENT_GATES=""
 CURRENT_EFFORT=""
 CURRENT_DEPS=""
 CURRENT_XDEPS=""
@@ -152,6 +158,10 @@ Label options (batch mode):
   --labels, -l LABELS    Labels (comma-separated, replaces all existing labels)
   --add-label LABEL      Add a label (can be repeated)
   --remove-label LABEL   Remove a label (can be repeated)
+
+Gate options (batch mode):
+  --gates GATES          Declared gate set (comma-separated names, replaces all;
+                         empty clears it). See aitasks/metadata/gates.yaml.
 
 Description options (batch mode):
   --description, -d DESC New description text (replaces existing)
@@ -250,6 +260,7 @@ parse_args() {
             --risk-code-health) BATCH_RISK_CODE_HEALTH="$2"; BATCH_RISK_CODE_HEALTH_SET=true; shift 2 ;;
             --risk-goal-achievement) BATCH_RISK_GOAL_ACHIEVEMENT="$2"; BATCH_RISK_GOAL_ACHIEVEMENT_SET=true; shift 2 ;;
             --risk-mitigation-tasks) BATCH_RISK_MITIGATION_TASKS="$2"; BATCH_RISK_MITIGATION_TASKS_SET=true; shift 2 ;;
+            --gates) BATCH_GATES="$2"; BATCH_GATES_SET=true; shift 2 ;;
             --effort|-e) BATCH_EFFORT="$2"; shift 2 ;;
             --status|-s) BATCH_STATUS="$2"; shift 2 ;;
             --type) BATCH_TYPE="$2"; shift 2 ;;
@@ -347,6 +358,7 @@ parse_yaml_frontmatter() {
     CURRENT_RISK_CODE_HEALTH=""
     CURRENT_RISK_GOAL_ACHIEVEMENT=""
     CURRENT_RISK_MITIGATION_TASKS=""
+    CURRENT_GATES=""
     CURRENT_EFFORT="medium"
     CURRENT_DEPS=""
     CURRENT_XDEPS=""
@@ -432,6 +444,9 @@ parse_yaml_frontmatter() {
                 labels)
                     CURRENT_LABELS=$(parse_yaml_list "$value")
                     ;;
+                gates)
+                    CURRENT_GATES=$(parse_yaml_list "$value")
+                    ;;
                 children_to_implement)
                     CURRENT_CHILDREN_TO_IMPLEMENT=$(parse_yaml_list "$value")
                     CURRENT_CHILDREN_TO_IMPLEMENT=$(normalize_task_ids "$CURRENT_CHILDREN_TO_IMPLEMENT")
@@ -509,6 +524,7 @@ write_task_file() {
     local risk_code_health="${25:-}"
     local risk_goal_achievement="${26:-}"
     local risk_mitigation_tasks="${27:-}"
+    local gates="${28:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -547,6 +563,13 @@ write_task_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
+        # Only write gates if present (opt-in declared gate set; absent/empty
+        # means "no gates active" per the gate framework, so never emit `[]`).
+        if [[ -n "$gates" ]]; then
+            local gates_yaml
+            gates_yaml=$(format_yaml_list "$gates")
+            echo "gates: $gates_yaml"
+        fi
         # Only write verifies if present
         if [[ -n "$verifies" ]]; then
             local verifies_yaml
@@ -913,6 +936,7 @@ handle_child_task_completion() {
     local saved_risk_code_health="$CURRENT_RISK_CODE_HEALTH"
     local saved_risk_goal_achievement="$CURRENT_RISK_GOAL_ACHIEVEMENT"
     local saved_risk_mitigation="$CURRENT_RISK_MITIGATION_TASKS"
+    local saved_gates="$CURRENT_GATES"
     local saved_effort="$CURRENT_EFFORT"
     local saved_deps="$CURRENT_DEPS"
     local saved_xdeps="$CURRENT_XDEPS"
@@ -945,7 +969,8 @@ handle_child_task_completion() {
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
-        "$CURRENT_RISK_CODE_HEALTH" "$CURRENT_RISK_GOAL_ACHIEVEMENT" "$CURRENT_RISK_MITIGATION_TASKS"
+        "$CURRENT_RISK_CODE_HEALTH" "$CURRENT_RISK_GOAL_ACHIEVEMENT" "$CURRENT_RISK_MITIGATION_TASKS" \
+        "$CURRENT_GATES"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -958,6 +983,7 @@ handle_child_task_completion() {
     CURRENT_RISK_CODE_HEALTH="$saved_risk_code_health"
     CURRENT_RISK_GOAL_ACHIEVEMENT="$saved_risk_goal_achievement"
     CURRENT_RISK_MITIGATION_TASKS="$saved_risk_mitigation"
+    CURRENT_GATES="$saved_gates"
     CURRENT_EFFORT="$saved_effort"
     CURRENT_DEPS="$saved_deps"
     CURRENT_XDEPS="$saved_xdeps"
@@ -1438,7 +1464,8 @@ run_interactive_mode() {
         "$CURRENT_FOLDED_INTO" "$CURRENT_PULL_REQUEST" "$CURRENT_CONTRIBUTOR" \
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
-        "$new_risk_code_health" "$new_risk_goal_achievement" "$CURRENT_RISK_MITIGATION_TASKS"
+        "$new_risk_code_health" "$new_risk_goal_achievement" "$CURRENT_RISK_MITIGATION_TASKS" \
+        "$CURRENT_GATES"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1523,6 +1550,7 @@ run_batch_mode() {
     [[ "$BATCH_RISK_CODE_HEALTH_SET" == true ]] && has_update=true
     [[ "$BATCH_RISK_GOAL_ACHIEVEMENT_SET" == true ]] && has_update=true
     [[ "$BATCH_RISK_MITIGATION_TASKS_SET" == true ]] && has_update=true
+    [[ "$BATCH_GATES_SET" == true ]] && has_update=true
     [[ -n "$BATCH_EFFORT" ]] && has_update=true
     [[ -n "$BATCH_STATUS" ]] && has_update=true
     [[ -n "$BATCH_TYPE" ]] && has_update=true
@@ -1621,6 +1649,13 @@ run_batch_mode() {
         new_risk_mitigation_tasks="$BATCH_RISK_MITIGATION_TASKS"
     fi
     new_risk_mitigation_tasks=$(normalize_task_ids "$new_risk_mitigation_tasks")
+
+    # gates: list, replaces-all (batch). Defaults to current → preserved when
+    # --gates is not passed, so an unrelated `ait update` never drops the field.
+    local new_gates="$CURRENT_GATES"
+    if [[ "$BATCH_GATES_SET" == true ]]; then
+        new_gates="$BATCH_GATES"
+    fi
     local new_status="${BATCH_STATUS:-$CURRENT_STATUS}"
     local new_type="${BATCH_TYPE:-$CURRENT_TYPE}"
     local new_deps="${BATCH_DEPS:-$CURRENT_DEPS}"
@@ -1760,7 +1795,8 @@ run_batch_mode() {
         "$new_folded_tasks" "$new_folded_into" "$new_pull_request" "$new_contributor" \
         "$new_contributor_email" "$new_implemented_with" "$new_file_references" \
         "$new_verifies" "$new_xdeps" "$new_xdeprepo" \
-        "$new_risk_code_health" "$new_risk_goal_achievement" "$new_risk_mitigation_tasks"
+        "$new_risk_code_health" "$new_risk_goal_achievement" "$new_risk_mitigation_tasks" \
+        "$new_gates"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then
