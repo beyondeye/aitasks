@@ -6,6 +6,7 @@ issue_type: bug
 status: Implementing
 labels: [installation, install_scripts, model_selection]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_5
 created_at: 2026-06-12 18:14
 updated_at: 2026-06-14 09:48
 ---
