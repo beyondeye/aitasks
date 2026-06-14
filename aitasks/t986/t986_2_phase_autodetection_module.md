@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t986_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [gates, python, aitask_monitormini]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 16:03
-updated_at: 2026-06-14 16:03
+updated_at: 2026-06-14 17:25
 ---
 
 ## Context
