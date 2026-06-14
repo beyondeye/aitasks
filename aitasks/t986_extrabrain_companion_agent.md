@@ -11,20 +11,20 @@ updated_at: 2026-06-14 15:36
 
 ## Goal
 
-Add **`secondbrain`** — a minimonitor-triggered AI "explainer" companion agent that captures the followed coding agent's tmux terminal output and answers the user's questions about it. The companion is a *second* coding-agent CLI (configurable agent+model) spawned, by default, in the **same tmux window** as the agent it explains.
+Add **extra-brain** (code identifier `extrabrain`) — a minimonitor-triggered AI "explainer" companion agent that captures the followed coding agent's tmux terminal output and answers the user's questions about it. The companion is a *second* coding-agent CLI (configurable agent+model) spawned, by default, in the **same tmux window** as the agent it explains.
 
-(Name chosen during exploration: `secondbrain`, avoiding the existing `explain` codeagent op / codebrowser file-history explainer.)
+(Display name **extra-brain**; code identifier `extrabrain` for the codeagent operation key / pane-classification marker — avoiding the existing `explain` codeagent op / codebrowser file-history explainer.)
 
 ## Use cases
 
-1. **Explain a plan / output that is too technical or buried.** Implementation plans produced in the task-workflow can be hard to follow because they're overly technical, or because the info the user cares about is buried deep. `secondbrain` reads the captured output and explains it in plain terms.
-2. **Help answer an `AskUserQuestion` shown WITHOUT its source context.** Some workflow prompts appear in the terminal without the source task/plan visible (observed example: a session working `t635_3`). In this case `secondbrain` must **auto-fetch the most recent stored task file + plan file** for that task to give the user enough context to understand and answer. Advisory only — it explains/suggests; the user types the answer themselves (it does NOT inject keystrokes into the source agent).
+1. **Explain a plan / output that is too technical or buried.** Implementation plans produced in the task-workflow can be hard to follow because they're overly technical, or because the info the user cares about is buried deep. `extrabrain` reads the captured output and explains it in plain terms.
+2. **Help answer an `AskUserQuestion` shown WITHOUT its source context.** Some workflow prompts appear in the terminal without the source task/plan visible (observed example: a session working `t635_3`). In this case `extrabrain` must **auto-fetch the most recent stored task file + plan file** for that task to give the user enough context to understand and answer. Advisory only — it explains/suggests; the user types the answer themselves (it does NOT inject keystrokes into the source agent).
 
 ## Design decisions (confirmed with user during exploration)
 
-- **Multi-agent-per-window: full refactor.** Do the proper refactor so a tmux window can robustly hold N real agents (key monitor state by `pane_id`, not `window_name`). **AND** the `secondbrain` pane must be classified as a *companion/helper* pane (like minimonitor itself) so it is **never listed among agents** in monitor/minimonitor.
+- **Multi-agent-per-window: full refactor.** Do the proper refactor so a tmux window can robustly hold N real agents (key monitor state by `pane_id`, not `window_name`). **AND** the `extrabrain` pane must be classified as a *companion/helper* pane (like minimonitor itself) so it is **never listed among agents** in monitor/minimonitor.
 - **Phase autodetection: ledger-first, text fallback.** Prefer the `t635` gate/checkpoint ledger to determine which workflow phase the source agent is in (planning / risk-eval / implementation review / AskUserQuestion / etc.); fall back to scraping terminal markers when the ledger lacks the phase.
-- **Advisory-only role.** `secondbrain` is read-only w.r.t. the source agent. It never forwards answers/keystrokes back into the source pane.
+- **Advisory-only role.** `extrabrain` is read-only w.r.t. the source agent. It never forwards answers/keystrokes back into the source pane.
 - **Default placement:** same window (new pane) as the source agent; configurable to a separate window. Default agent+model and the same-window-vs-new-window choice are both configurable in settings.
 
 ## Key findings / blast radius (from exploration)
@@ -38,9 +38,9 @@ Add **`secondbrain`** — a minimonitor-triggered AI "explainer" companion agent
 4. minimonitor `_find_sibling_pane_id()` — returns `other_panes[0]` (assumes one agent pane).
 5. Pane-`.0` refocus after companion spawn (`agent_launch_utils.py`).
 6. `pane-died` companion-cleanup hook (`aitask_companion_cleanup.sh`) — assumes one primary per window.
-Fix: key state by `pane_id`; extend companion classification (`_is_companion_process()` / `classify_pane`) to recognize the `secondbrain` pane.
+Fix: key state by `pane_id`; extend companion classification (`_is_companion_process()` / `classify_pane`) to recognize the `extrabrain` pane.
 
-**Config plumbing exists.** `codeagent_config.json` holds per-operation agent+model defaults (resolution chain in `lib/agent_string.sh` + `aitask_codeagent.sh`); `project_config.yaml` `tmux.*` + `settings/settings_app.py` (`PROJECT_CONFIG_SCHEMA`) is where the window-placement toggle goes. NOTE: the existing `defaults.explain` key is codebrowser's file-history explainer — use a new operation key (`secondbrain`), do not reuse `explain`.
+**Config plumbing exists.** `codeagent_config.json` holds per-operation agent+model defaults (resolution chain in `lib/agent_string.sh` + `aitask_codeagent.sh`); `project_config.yaml` `tmux.*` + `settings/settings_app.py` (`PROJECT_CONFIG_SCHEMA`) is where the window-placement toggle goes. NOTE: the existing `defaults.explain` key is codebrowser's file-history explainer — use a new operation key (`extrabrain`), do not reuse `explain`.
 
 **Skill shape.** Non-user-invocable skill = `user-invocable: false`, plain `.md` procedure files, no stub/`.j2` pair (like `task-workflow`, `related-task-discovery`). Context fetch: `aitask_query_files.sh task-file <N>` / `plan-file <N>` / `sibling-context <parent>`, and `aitask_explain_context.sh` for historical plans. Per-agent (Codex/OpenCode) ports are follow-ups.
 
@@ -48,12 +48,12 @@ Fix: key state by `pane_id`; extend companion classification (`_is_companion_pro
 
 Testability-first: pull pure headless units early; each child owns its tests.
 1. **Multi-agent-per-window substrate refactor** — re-key monitor state by `pane_id`; fix the 6 assumption sites; extract pure pane→task mapping units + unit tests.
-2. **`secondbrain` companion-pane classification** — exclude the pane from agent lists in monitor/minimonitor (extend `_is_companion_process`/`classify_pane`); tests.
+2. **`extrabrain` companion-pane classification** — exclude the pane from agent lists in monitor/minimonitor (extend `_is_companion_process`/`classify_pane`); tests.
 3. **Phase-autodetection module** — pure headless; ledger-first (uses the gate ledger / `t635_8` parser), terminal-text-marker fallback; fixture transcripts + tests.
 4. **Task/plan context-fetch utility** — given a source task id, fetch task file + most-recent plan + optional sibling context (wraps `aitask_query_files.sh` / `aitask_explain_context.sh`); tests.
-5. **The `secondbrain` non-invocable skill** — `SKILL.md` + sub-procedures (phase wiring, context fetch, plan-explanation, AskUserQuestion helper); advisory-only; consumes #3 + #4.
-6. **minimonitor trigger + spawn glue** — keybinding/action on the followed agent; capture output; spawn the `secondbrain` agent (codeagent operation pattern + `agent_launch_utils`) in the same window by default.
-7. **Settings/config** — new `secondbrain` codeagent operation default (agent+model) + `project_config.yaml`/settings-TUI toggle for same-window-vs-new-window.
+5. **The `extrabrain` non-invocable skill** — `SKILL.md` + sub-procedures (phase wiring, context fetch, plan-explanation, AskUserQuestion helper); advisory-only; consumes #3 + #4.
+6. **minimonitor trigger + spawn glue** — keybinding/action on the followed agent; capture output; spawn the `extrabrain` agent (codeagent operation pattern + `agent_launch_utils`) in the same window by default.
+7. **Settings/config** — new `extrabrain` codeagent operation default (agent+model) + `project_config.yaml`/settings-TUI toggle for same-window-vs-new-window.
 8. **Docs + manual verification** — aidocs (`tmux_gateway.md` multi-agent note, `tui_conventions.md` companion update, `monitor_idle_and_prompt_detection.md` if phase markers added), website docs, and a final manual-verification child.
 
 ## Coordination dependencies (not folds)
