@@ -48,7 +48,7 @@ TOTAL=0
 ALLOWLIST=(
   ".aitask-scripts/lib/tmux_exec.py"               # gateway: THE python chokepoint
   ".aitask-scripts/lib/tmux_exec.sh"               # gateway: THE shell chokepoint
-  ".aitask-scripts/monitor/tmux_control.py"        # A: control-mode `tmux -C attach` client
+  ".aitask-scripts/monitor/monitor_core.py"        # A: control-mode `tmux -C attach` client (moved here in t822_6)
   ".aitask-scripts/aitask_companion_cleanup.sh"    # A: minimal-env cleanup hook, raw by design
   ".aitask-scripts/monitor/monitor_app.py"         # B/ambient _detect probes + own-pane rename-window
   ".aitask-scripts/monitor/minimonitor_app.py"     # B/ambient _detect probe + self display-message
