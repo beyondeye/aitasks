@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [aitask_monitormini, codeagent, ait_settings, tmux]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 16:04
-updated_at: 2026-06-14 23:12
+updated_at: 2026-06-14 23:46
 ---
 
 ## Context
@@ -107,3 +108,8 @@ lifecycle mechanism it implemented changes what this task must do at spawn time
 - Manual (covered by t986_7): press the key in minimonitor on a followed agent →
   shadow spawns in the same window, receives the captured output, and the shadow
   pane does NOT appear in the agent list.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-14T20:46:41Z status=pass attempt=1 type=human
