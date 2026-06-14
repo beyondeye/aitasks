@@ -181,3 +181,54 @@ No mitigations needed (`risk_mitigations_planned = false`).
 Standard cleanup/archival/merge per `task-workflow` Step 9. Implemented on the
 current branch (no worktree), so the merge sub-step is a no-op; archive via
 `./.aitask-scripts/aitask_archive.sh 986_3`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/aitask_shadow_context.sh`
+  (`[--siblings] <task_id>` → `TASK_FILE:` / `PLAN_FILE:` / `SIBLING:` lines), a
+  thin orchestrator over `aitask_query_files.sh`. Created
+  `tests/test_shadow_context.sh` (28 assertions, all pass). Registered the helper
+  in all 5 whitelist touchpoints via `aitask_audit_wrappers.sh
+  apply-helper-whitelist`. Cleared the stale `depends: [t986_2]`.
+- **Deviations from plan:** None of substance — implemented exactly as the
+  verified plan. The plan was authored on the **verify path** specifically to fix
+  the child-ID resolution bug (the original task-body plan step 1 said
+  `task-file <id>`, which `die`s on child IDs); the helper branches
+  `child-file`/`task-file`/`archived-task` accordingly.
+- **Issues encountered:** `shellcheck` emits SC1091 ("not following sourced file")
+  for the two `source` lines — this is **info-level** and identical to the
+  baseline on `aitask_query_files.sh`; clean at `--severity=warning`. Accepted as
+  the project norm (no `.shellcheckrc`).
+- **Key decisions:**
+  - **Most-recent plan via `tail -1`:** `plan-file` emits `PLAN_FILE:$files` once
+    even when its `ls` glob matches multiple files (only the first line carries
+    the prefix). The helper strips the prefix and takes the last line
+    (lexicographically newest). Single-plan-per-task is the norm, so this is just
+    defensive; not treated as a `query_files` defect (multi-match is outside that
+    subcommand's documented one-path contract).
+  - **Archived plans deliberately out of scope:** `query_files` has no
+    archived-plan subcommand; the helper resolves the active plan only and emits
+    `PLAN_FILE:NOT_FOUND` for archived tasks. Deeper/historical plan retrieval is
+    the documented job of `aitask_explain_context.sh` (on-demand), per the parent
+    t986 design. Archived **task** files ARE resolved (fallback), so an archived
+    task can yield `TASK_FILE:<path>` + `PLAN_FILE:NOT_FOUND`.
+  - **Per-key `NOT_FOUND`** (`TASK_FILE:NOT_FOUND` / `PLAN_FILE:NOT_FOUND`) rather
+    than a bare `NOT_FOUND`, so the shadow can tell which artifact is missing.
+  - **Sibling lines** strip the `query_files` sub-type prefix
+    (`ARCHIVED_PLAN:`/`PENDING_SIBLING:`/…) to a uniform `SIBLING:<path>`.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t986_4 (shadow skill)** is the consumer: call
+    `./.aitask-scripts/aitask_shadow_context.sh <id>` (the followed agent's task
+    id, parent or child) to fetch task + most-recent active plan; add `--siblings`
+    for sibling context. The helper is already whitelisted, so no permission
+    prompt. For deeper/historical context the skill should call
+    `aitask_explain_context.sh` itself (the helper intentionally does not).
+  - The shadow skill dir (e.g. `.claude/skills/shadow/`) is **not** scanned by
+    `aitask_audit_wrappers.sh cmd_discover_helpers` (it scans `aitask-*`,
+    `task-workflow`, `user-file-select`, `ait-git`). Registration here was done by
+    explicit helper name, so it is covered; but if a future audit-driven check is
+    added, t986_4/t986_5 may need to extend `cmd_discover_helpers` to include the
+    shadow skill tree.
+  - Cross-agent: helper is agent-agnostic; the Codex/OpenCode whitelist
+    touchpoints (3/6/7) are already populated by this task.
