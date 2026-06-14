@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t635_2, t635_3]
 issue_type: feature
 status: Implementing
 labels: [gates, task-archive, task_workflow]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:53
-updated_at: 2026-06-14 17:59
+updated_at: 2026-06-14 18:46
 ---
 
 ## Context
@@ -56,3 +59,8 @@ roadmap sequencing constraint.
 - `aidocs/gates/aitask-gate-framework.md` ("Relationship to existing status
   field", integration table row for aitask-archive)
 - `aidocs/gates/dependency-unblock-semantics.md` (t635_3 — unblock vs archival)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-14T15:46:18Z status=pass attempt=1 type=human
