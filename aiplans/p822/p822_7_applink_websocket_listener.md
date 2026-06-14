@@ -143,7 +143,7 @@ Plus a `tls.py` assertion: `fingerprint()` is deterministic for a fixed cert.
 
 ### Code-health risk: medium
 - Moving `_TEXTUAL_TO_TMUX` + key translation out of `monitor_app.py` touches the **live desktop key-forward path** (load-bearing: typing into panes from `ait monitor`). A regression breaks interactive use. · severity: medium · → mitigation: re-export alias + thin delegation keep behavior identical; covered by Verification #6 and the router key-translation test.
-- A new **TLS network listener is fresh attack surface** (token/bearer handling, cert lifecycle, DoS, input validation) shipped without a dedicated security review. · severity: high · → mitigation: applink_security_review_hardening
+- A new **TLS network listener is fresh attack surface** (token/bearer handling, cert lifecycle, DoS, input validation) shipped without a dedicated security review. · severity: high · → mitigation: t985 (applink_security_review_hardening)
 - New `websockets` dependency + reliance on the system `openssl` binary. · severity: low · → mitigation: TBD (import probe in launcher; guarded openssl error).
 
 ### Goal-achievement risk: medium
@@ -151,7 +151,7 @@ Plus a `tls.py` assertion: `fingerprint()` is deterministic for a fixed cert.
 - Several verbs (`pick_next_sibling`, `restart_task`, full modal handshakes, data plane) are **intentionally deferred** to siblings — partial surface by design, not a gap. · severity: low · → mitigation: TBD (explicit `UNKNOWN_VERB`/scoping; covered by tests).
 
 ### Planned mitigations
-- timing: after | name: applink_security_review_hardening | type: chore | priority: high | effort: medium | addresses: code-health "new TLS network listener is fresh attack surface" | desc: Security review + hardening of the applink WS listener — TLS suite/cert rotation & lifecycle, bearer entropy/expiry, pairing-token replay, connection/DoS limits and rate-limiting, strict payload validation, and denied-verb audit logging.
+- timing: after | name: applink_security_review_hardening (created as t985) | type: chore | priority: high | effort: medium | addresses: code-health "new TLS network listener is fresh attack surface" | desc: Security review + hardening of the applink WS listener — TLS suite/cert rotation & lifecycle, bearer entropy/expiry, pairing-token replay, connection/DoS limits and rate-limiting, strict payload validation, and denied-verb audit logging.
 
 ## Step 9 (Post-Implementation)
 Standard task-workflow Step 9: commit on current branch (profile `fast`, no worktree) — code via `git`, profile YAMLs via `./ait git`; push via `./ait git push`; archive via `./.aitask-scripts/aitask_archive.sh 822_7`. Parent t822 keeps t822_8..t822_13 pending — archival closes only this child. The `applink_security_review_hardening` "after" mitigation is created at Step 8d.
