@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_monitormini, tmux, codeagent, claudeskills, gates]
-children_to_implement: [t986_1]
+children_to_implement: [t986_1, t986_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 15:36
-updated_at: 2026-06-14 16:02
+updated_at: 2026-06-14 16:03
 ---
 
 ## Goal
