@@ -33,6 +33,8 @@
       "Bash(./.aitask-scripts/aitask_brainstorm_apply_initializer.sh:*)",
       "Bash(./.aitask-scripts/aitask_changelog.sh:*)",
       "Bash(./.aitask-scripts/aitask_claim_id.sh:*)",
+      "Bash(./.aitask-scripts/aitask_explain_context.sh:*)",
+      "Bash(./.aitask-scripts/aitask_shadow_capture.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_context.sh:*)",
       "Bash(./.aitask-scripts/aitask_skill_resolve_profile.sh:*)",
       "Bash(./.aitask-scripts/aitask_skill_render.sh:*)",
