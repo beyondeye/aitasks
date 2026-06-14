@@ -149,3 +149,66 @@ _No `### Planned mitigations` subsection: the code-health risk is mitigated in-s
 ## Step 9 (Post-Implementation)
 
 Standard cleanup/archival/merge per `task-workflow` Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all 9 plan steps.
+  - `monitor_core.py`: added pure helpers `task_id_from_window_name`,
+    `is_shadow_target`, `count_other_real_agents`, plus the
+    `SHADOW_TARGET_OPTION = "@aitask_shadow_target"` constant. Extended
+    `_LIST_PANES_FORMAT` to a 9th field (`#{@aitask_shadow_target}`) and made
+    `_parse_list_panes` drop shadow helper panes unconditionally.
+    `kill_agent_pane_smart` now builds `(pane_id, is_helper)` records (helper =
+    companion OR shadow) and delegates the count to `count_other_real_agents`.
+    Added pane-keyed `TaskInfoCache.get_task_id_for_pane` (+ `_pane_to_task_id`
+    cache) alongside the retained window-keyed `get_task_id`.
+  - `tmux_monitor.py` shim re-exports the four new public symbols.
+  - `monitor_app.py` (8) + `minimonitor_app.py` (5) display sites switched to
+    `get_task_id_for_pane(snap.pane)`. `minimonitor_app._find_sibling_pane_id`
+    now returns `_find_own_agent_snapshot().pane.pane_id` first (shadow-safe),
+    falling back to the old first-non-minimonitor logic.
+  - `agent_launch_utils.maybe_spawn_minimonitor`: captures the active agent pane
+    before the split and refocuses it (not hardcoded `.0`); the overcrowding
+    skip counts only non-shadow panes.
+  - `aitask_companion_cleanup.sh`: on `pane-died`, session-scoped kill of any
+    pane whose `@aitask_shadow_target` equals the dying agent; shadow panes
+    excluded from the real-agent sibling count.
+- **Deviations from plan:** (1) The plan estimated ~3 display call sites for the
+  pane-keyed swap; there were actually **13** — all migrated consistently via
+  `get_task_id_for_pane`. (2) `_pane_to_task_id` is not pruned by
+  `TmuxMonitor._clean_stale` (that lives on the monitor, not the cache); growth
+  is bounded by live pane count over a session — acceptable, noted for future.
+  (3) `find_companion_pane_id` left unchanged: it matches only companion
+  *processes* (minimonitor/monitor_app), which a shadow coding-agent never is.
+- **Issues encountered:** `tests/test_kill_agent_pane_smart.sh` was already RED
+  on a clean tree — it monkeypatched `tmux_monitor._is_companion_process`, but
+  t822_6 moved that function to `monitor_core.py`, so the patch no longer
+  reached `kill_agent_pane_smart`. Since that function is in this task's blast
+  radius, the patch target was corrected to `monitor.monitor_core` (now green).
+  `tests/test_multi_session_minimonitor.sh` mocked `_task_cache` without the new
+  resolver; both mocks updated to add `get_task_id_for_pane`.
+- **Key decisions:** `@aitask_shadow_target` (pane-scoped tmux user option) is
+  the *authoritative* shadow classifier — a same-window shadow shares the
+  agent's window name, so a window-name marker alone cannot identify it. The
+  option doubles as the lifecycle binding (which agent the shadow follows).
+- **Upstream defects identified:** tests/test_multi_session_monitor.sh:1 — fails
+  on a clean tree with `ModuleNotFoundError: No module named 'monitor'`; the
+  test's `python` invocation does not put `.aitask-scripts` on `PYTHONPATH`
+  (reproduced after stashing all t986_1 changes). Pre-existing, almost certainly
+  since the t822_6 monitor_core extraction, and out of scope for t986_1.
+- **Notes for sibling tasks (esp. t986_5 — spawn glue):**
+  - The shadow spawn MUST set the binding option on the shadow pane:
+    `tmux set-option -p -t <shadow_pane> @aitask_shadow_target <shadowed_agent_pane_id>`.
+    Everything keys off it — discovery exclusion, `kill_agent_pane_smart`
+    counting, and cleanup auto-kill. Without it, a same-window shadow is listed
+    as an agent, counted in kill logic, and never auto-killed.
+  - t986_5 must ensure the *shadowed agent's* pane has a `pane-died` hook
+    invoking `aitask_companion_cleanup.sh <agent_pane> <companion_pane>`. Agents
+    launched with a minimonitor already have this hook; an agent that gets only
+    a shadow needs t986_5 to attach it.
+  - A same-window shadow does NOT need an `agent-shadow-*` window name (it shares
+    the agent's window); the user option is authoritative. The `agent-shadow-*`
+    window name matters only for the configurable separate-window placement.
+  - Reusable headless API (importable from `monitor.monitor_core` or the
+    `tmux_monitor` shim): `SHADOW_TARGET_OPTION`, `is_shadow_target(value)`,
+    `count_other_real_agents(records, exclude)`, `task_id_from_window_name(name)`.
