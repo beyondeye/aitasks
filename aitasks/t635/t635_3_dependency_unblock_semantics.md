@@ -57,3 +57,5 @@ archival change without this design regresses dependent-task availability.
 > **✅ gate:plan_approved** run=2026-06-14T14:18:05Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-14T14:18:06Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-14T14:41:43Z status=pass attempt=1 type=human
