@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [gates]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 18:52
-updated_at: 2026-06-10 18:52
+updated_at: 2026-06-14 09:52
 ---
 
 ## Context
