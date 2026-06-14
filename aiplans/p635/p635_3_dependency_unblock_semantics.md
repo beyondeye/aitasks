@@ -334,3 +334,62 @@ no separate before/after mitigation tasks are warranted.
 ## Step 9 reference
 Post-implementation cleanup and archival follow the shared **Step 9
 (Post-Implementation)** flow (current branch — `fast` profile; no worktree/merge).
+
+## Final Implementation Notes
+
+- **Actual work done:** Designed and implemented the dependency-unblock point for
+  gated tasks. Design doc `aidocs/gates/dependency-unblock-semantics.md` (new) +
+  roadmap "open problem 1" marked RESOLVED. Mechanism: `lib/gate_ledger.py` gained
+  `dependents_status()` / `required_unblock_gates()`, `read_registry` now parses a
+  per-gate `blocks_dependents` bool, and `read_declared_gates` was generalized to
+  `_read_frontmatter_list(file, field)`; new CLI verb `deps-unblock`. `aitask_gate.sh`
+  gained a `deps-unblock <task-id>` subcommand (delegates to Python; degrades to
+  `NO_GATES` if Python absent). `aitask_ls.sh` `is_task_uncompleted` is now
+  gate-aware via a precomputed `dep_satisfied` set (grep-guarded — zero overhead
+  when no task declares gates). Registry flag `blocks_dependents` added to the 5
+  gates in `aitasks/metadata/gates.yaml` (live) + `seed/gates.yaml` (integration
+  gates true; pre-code false). New per-task `also_blocks_dependents:` field
+  registered for durability across update/create/fold (mirrors `gates:` plumbing in
+  `aitask_update.sh` / `aitask_create.sh` / `aitask_fold_mark.sh`). Tests: new
+  `tests/test_dependency_unblock.sh` (12 — decision + `ait ls` integration incl. the
+  regression-fix case) and extended `tests/test_gate_frontmatter_roundtrip.sh` (+5
+  also_blocks_dependents durability/fold-union). Full suite 99/99; shellcheck clean.
+
+- **Deviations from plan:** None of substance. The live `aitasks/metadata/gates.yaml`
+  edit was swept into a data-branch commit by the concurrent syncer before this
+  session committed it (expected concurrent-writers behavior); the change is
+  identical and committed.
+
+- **Issues encountered:** None. `finalize_draft` copies the whole draft frontmatter
+  (only stripping `draft:`/`parent:`), so the per-task field rides along
+  automatically once written to the draft — no finalize_draft change needed.
+
+- **Key decisions:** (1) Combined registry `blocks_dependents` + per-task
+  `also_blocks_dependents` model (user). The flag means "required to pass before
+  dependents unblock", set on *integration* gates (not the machine-vs-human axis —
+  worktree's `merge_approved` is human but is the integration point). (2) Empty
+  required-set → `NO_GATES` → falls back to today's file-existence behavior
+  (conservative; never unblocks prematurely). (3) `deps-unblock` is python-only
+  (not awk-primary) — a new low-frequency decision; the bash-primary rule targeted
+  the hot append/status path. (4) Board left to t635_8/t635_9 (shared-parser rule);
+  CLI wired now. (5) Mechanism is dormant until t635_4 (deferred archival) +
+  t635_14 (gate declaration) make it live; correctness proven by synthetic fixtures.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t635_4 (consumer):** keep archival the *all-gates-pass* event, DISTINCT from
+    unblock — a task can release dependents (integration gates pass) yet stay active
+    while slow human/async gates pend.
+  - **t635_8 (shared parser):** `dependents_status` / `required_unblock_gates` /
+    `_read_frontmatter_list` live in `lib/gate_ledger.py` — extend/expose for TUIs,
+    do NOT fork. `read_registry` carries `blocks_dependents`.
+  - **t635_9 (board):** the board computes blocking independently
+    (`aitask_board.py`, `status != 'Done'`); wire the shared `dependents_status`
+    in. Interim window exists after t635_4 / before t635_9 where `ait board` and
+    `ait ls` can disagree.
+  - **t635_14:** once profiles populate `gates:`, a declared `blocks_dependents`
+    gate becomes a live unblock requirement; `also_blocks_dependents` is the
+    per-task escape hatch on top of the profile/registry defaults.
+  - **Naming** (`blocks_dependents` / `also_blocks_dependents`) was confirmed at
+    review.
