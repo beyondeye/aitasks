@@ -231,3 +231,48 @@ tests/test_shadow_capture.sh               # unit test for the capture helper
 Standard cleanup/archival/merge per `task-workflow` Step 9 (child-task path:
 archive to `aitasks/archived/t986/` + `aiplans/archived/p986/`; parent t986
 archives only when all children complete).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Created `.claude/skills/aitask-shadow/` — `SKILL.md` (user-invocable: true,
+    static dispatcher) + four sub-procedure files: `plan-explain.md`,
+    `plan-challenge.md`, `plan-socratic.md`, `plan-assumptions.md`.
+  - Created `.aitask-scripts/aitask_shadow_capture.sh` — on-demand pane capture
+    through the tmux gateway → escape-free stdout; `-` stdin mode (clean a
+    pre-captured buffer + test seam); exposes `shadow_strip_ansi` / `shadow_clean`
+    / `shadow_capture_pane`, with a `BASH_SOURCE==$0` main-guard.
+  - Created `tests/test_shadow_capture.sh` (11 assertions, all pass).
+  - Whitelisted `aitask_shadow_capture.sh` **and** `aitask_explain_context.sh`
+    across the 5 active touchpoints via
+    `aitask_audit_wrappers.sh apply-helper-whitelist`.
+  - Coordination (committed to task-data): corrected parent t986 + t986_5 to the
+    user-invocable / capture contract; created port follow-ups **t988** (Codex),
+    **t989** (OpenCode).
+- **Deviations from plan:** One addition not in the plan:
+  `aitask_explain_context.sh` also needed whitelisting (it had no prior
+  skill-facing reference — this skill is its first), so it was whitelisted too.
+  Also: capture is done **without** tmux `-e` (see Issues) rather than `-e` +
+  strip as the plan's step 1 literally wrote.
+- **Issues encountered:** Capturing with `-e` would require an ANSI-strip pass
+  whose `\x1b` shorthand is GNU-sed-only; resolved by capturing **without** `-e`
+  (tmux emits escape-free cell text) and keeping a portable literal-ESC strip as a
+  belt-and-suspenders safety net. shellcheck shows only SC1091 info (runtime
+  `$SCRIPT_DIR` source paths) — the repo-wide baseline, no real warnings.
+- **Key decisions:** (1) Skill is **user-invocable** (`/aitask-shadow`), not
+  `user-invocable: false` — a spawned agent CLI is only triggerable non-headlessly
+  by a slash command on argv. (2) Static (no profile/`.j2`/stub), modeled on
+  `aitask-contribute`. (3) Capture contract: launcher passes `<pane_id> [<task_id>]`;
+  the skill captures on demand (not a frozen launch-time snapshot). (4) Phase
+  autodetection (t986_2) dropped — Postponed, must not gate the shadow.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t986_5** must spawn `/aitask-shadow <followed_pane_id> [<task_id>]` (the
+    `shadow` codeagent-op command) and pass the pane id — NOT pre-captured
+    content. The skill self-captures via `aitask_shadow_capture.sh`.
+  - **t988 / t989** port the command wrapper to Codex (`.agents/skills/`) /
+    OpenCode (`.opencode/commands/` + `.opencode/skills/`); the body is
+    agent-agnostic.
+  - **t986_6 (docs)** should document `/aitask-shadow` as a user-invocable command.
+  - **t986_7 (manual verification)** is the live validation of dispatch routing +
+    advisory-only behavior (the prose dispatcher can't be unit-tested).
