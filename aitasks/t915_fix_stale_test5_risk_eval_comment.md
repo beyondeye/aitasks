@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [task_workflow, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-02 13:38
-updated_at: 2026-06-02 13:38
-boardidx: 80
+updated_at: 2026-06-14 09:51
 boardcol: now
+boardidx: 80
 ---
 
 ## Origin
