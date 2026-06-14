@@ -23,12 +23,15 @@ config. **Deps:** t986_1 (multi-agent window), t986_4 (the skill).
    `settings/settings_app.py:PROJECT_CONFIG_SCHEMA` + `seed/project_config.yaml`.
 2. **minimonitor** (`monitor/minimonitor_app.py`): add binding `e`
    (+ `action_launch_shadow`); identify the followed agent via
-   `_find_own_agent_snapshot()`; capture its output (`monitor.capture_pane()`);
-   resolve its task id (t986_1 pane→task map).
+   `_find_own_agent_snapshot()`; resolve its **pane id** (`snap.pane.pane_id`)
+   and its task id (t986_1 pane→task map). Do **not** pre-capture the followed
+   agent's output to feed it in — the t986_4 skill captures the pane on demand.
 3. **Spawn** via the codeagent-operation pattern (new op `shadow`) +
    `agent_launch_utils.launch_in_tmux()`, window name `agent-shadow-<task_id>`
    (so t986_1 classification recognizes/excludes it), same window by default,
-   new window when the toggle says so. Feed it the captured output + task id.
+   new window when the toggle says so. The `shadow` op emits
+   `/aitask-shadow <followed_pane_id> [<task_id>]` on argv (t986_4 contract);
+   the skill calls `aitask_shadow_capture.sh <followed_pane_id>` itself.
 4. All tmux via the gateway. Mirror `codebrowser_app.py:action_launch_agent()`
    and the pick spawn flows.
 

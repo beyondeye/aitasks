@@ -26,8 +26,9 @@ transitively via the skill.
   - Add a binding (free key `e`; `x` is the fallback) + `action_launch_shadow`.
     BINDINGS are at ~138-152. The followed agent pane comes from
     `_find_own_agent_snapshot()` (~403-422).
-  - Capture the followed pane's output (reuse `monitor.capture_pane()` /
-    `PaneSnapshot.content`) and resolve its task id (via the t986_1 pane→task map).
+  - Resolve the followed pane's **pane id** (`snap.pane.pane_id`) and its task id
+    (via the t986_1 pane→task map). Do **not** pre-capture the pane's output —
+    the t986_4 skill captures it on demand (see "Capture contract" below).
   - Spawn the `shadow` agent in the same window by default (config-gated).
     No mode selector — the user states their request to the shadow once running.
 - `.aitask-scripts/lib/agent_launch_utils.py`
@@ -83,10 +84,15 @@ lifecycle mechanism it implemented changes what this task must do at spawn time
 
 1. Add the `shadow` codeagent operation default to `codeagent_config.json` + seed.
 2. Add the placement toggle to `PROJECT_CONFIG_SCHEMA` + seed `project_config.yaml`.
-3. In minimonitor, add the binding + action: identify followed agent, capture
-   output + resolve task id, then spawn the shadow agent (same window by default,
-   new window if the toggle says so) feeding it the captured output + task id so
-   the t986_4 skill can fetch context. All tmux via the gateway.
+3. In minimonitor, add the binding + action: identify followed agent, resolve its
+   pane id + task id, then spawn the shadow agent (same window by default, new
+   window if the toggle says so). All tmux via the gateway.
+
+   **Capture contract (t986_4, LANDED):** the `shadow` op emits
+   `/aitask-shadow <followed_pane_id> [<task_id>]` on argv. The t986_4 skill
+   captures the followed pane on demand via `aitask_shadow_capture.sh
+   <followed_pane_id>` (escape-free stdout) — so this task passes the pane id,
+   NOT pre-captured content (argv can't carry a full screen buffer).
 4. Ensure the shadow window/pane name (`agent-shadow-*`) is what t986_1's
    classification keys on for helper-pane exclusion.
 

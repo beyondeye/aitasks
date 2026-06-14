@@ -51,6 +51,24 @@ Implications for the remaining children:
   phase. Its `depends:`/`children_to_implement` membership is unchanged; the
   t635_1 substrate is landed so reviving it is cheap.
 
+### Design update (during t986_4) — skill is a user-invocable command
+
+t986_4 landed the skill as a **user-invocable command** `/aitask-shadow`
+(`user-invocable: true`), NOT the originally-planned `user-invocable: false`
+skill. Reason: a spawned agent CLI can only be triggered non-headlessly by a
+**slash command on argv** (the same mechanism as `/aitask-pick`); a
+non-invocable skill is not discoverable as a slash command and can only be
+read-and-followed by a parent skill in the same session, which a freshly-spawned
+shadow does not have (and `claude -p` headless is ruled out). Shape: invocable +
+static (single `SKILL.md` + sub-procedure `.md` files, no profile/`.j2`/stub),
+modeled on `aitask-contribute`.
+
+**Capture contract (t986_4 ↔ t986_5):** the launcher passes only
+`/aitask-shadow <followed_pane_id> [<source_task_id>]`; the skill captures the
+followed pane **on demand** via the new `aitask_shadow_capture.sh`
+(escape-free stdout) so it always reads current output. The launcher does NOT
+pre-capture content into the spawn (argv can't carry 100+ KB of screen text).
+
 ## Key findings / blast radius (from exploration)
 
 **minimonitor is the host.** It already runs as a companion pane, captures the agent pane (`monitor_core.py:capture_pane()` → `tmux capture-pane -p -e`), maps window→task via `TaskInfoCache` (`_TASK_ID_RE = agent-(pick|qa)-(\d+...)`), and shows a `TaskDetailDialog` (`i`, with plan toggle `p`). The new work is the trigger/spawn glue + the skill + the substrate hardening.
@@ -66,7 +84,7 @@ Fix: key state by `pane_id`; extend companion classification (`_is_companion_pro
 
 **Config plumbing exists.** `codeagent_config.json` holds per-operation agent+model defaults (resolution chain in `lib/agent_string.sh` + `aitask_codeagent.sh`); `project_config.yaml` `tmux.*` + `settings/settings_app.py` (`PROJECT_CONFIG_SCHEMA`) is where the window-placement toggle goes. NOTE: the existing `defaults.explain` key is codebrowser's file-history explainer — use a new operation key (`shadow`), do not reuse `explain`.
 
-**Skill shape.** Non-user-invocable skill = `user-invocable: false`, plain `.md` procedure files, no stub/`.j2` pair (like `task-workflow`, `related-task-discovery`). Context fetch: `aitask_query_files.sh task-file <N>` / `plan-file <N>` / `sibling-context <parent>`, and `aitask_explain_context.sh` for historical plans. Per-agent (Codex/OpenCode) ports are follow-ups.
+**Skill shape.** User-invocable command (`user-invocable: true`) — see "Design update (during t986_4)" above for why a spawned shadow needs a slash-command surface. Invocable + static: single `SKILL.md` + sub-procedure `.md` files, no stub/`.j2` pair (modeled on `aitask-contribute`). Context fetch: `aitask_shadow_context.sh <task_id>` (wraps `aitask_query_files.sh`), `aitask_shadow_capture.sh <pane_id>` for the live screen, and `aitask_explain_context.sh` for historical plans. Per-agent (Codex/OpenCode) command-wrapper ports are follow-ups.
 
 ## Decomposition (finalized — see `aiplans/p986/` for per-child plans)
 
@@ -75,7 +93,7 @@ Testability-first: pure headless units extracted with their own tests.
 1. **t986_1 — Multi-agent-per-window substrate + shadow helper-pane exclusion** — re-key monitor state by `pane_id`; fix the 6 assumption sites; extend `_is_companion_process`/`classify_pane` so the `shadow` pane is excluded from agent lists; pure pane→task units + tests.
 2. **t986_2 — Phase-autodetection module** — pure headless; ledger-first (imports `derive_status`/`parse_gate_runs` from `gate_ledger.py`; coordinates `t635_8`), terminal-text-marker fallback; fixtures + tests.
 3. **t986_3 — Task/plan context-fetch utility** — given a source task id, fetch task file + most-recent plan + optional sibling context (wraps `aitask_query_files.sh` / `aitask_explain_context.sh`); tests.
-4. **t986_4 — The `shadow` non-invocable skill** — `SKILL.md` (single instruction-driven flow): autodetect phase (#2), fetch context (#3), serve the user's free-form request (explain / answer / challenge — same flow). Advisory-only; no mode selector.
+4. **t986_4 — The `/aitask-shadow` user-invocable command** — `SKILL.md` dispatcher (single instruction-driven flow): capture the followed pane on demand (`aitask_shadow_capture.sh`), fetch context (#3), serve the user's free-form request (explain / answer / challenge) inline or via per-analysis sub-procedure files (`plan-explain`/`plan-challenge`/`plan-socratic`/`plan-assumptions`). Phase (#2) dropped — Postponed. Advisory-only; no mode selector.
 5. **t986_5 — minimonitor trigger + spawn glue + settings/config** — keybinding/action on the followed agent; capture output; spawn the `shadow` agent (codeagent op + `agent_launch_utils`) in the same window by default; add `defaults.shadow` to `codeagent_config.json` + `project_config.yaml`/settings-TUI same-window-vs-new-window toggle.
 6. **t986_6 — Docs** — aidocs (`tmux_gateway.md` multi-agent note, `tui_conventions.md` shadow-companion update, `monitor_idle_and_prompt_detection.md` if phase markers added) + website docs.
 7. **t986_7 — Aggregate manual-verification sibling** (auto-created) — live flow: shadow launch in same window, explain/answer/challenge, multi-agent-window behavior, and shadow-pane-not-listed-among-agents.
