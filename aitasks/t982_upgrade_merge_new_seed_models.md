@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [installation, install_scripts, model_selection]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-12 18:14
-updated_at: 2026-06-12 18:14
+updated_at: 2026-06-14 09:48
 ---
 
 ## Problem
