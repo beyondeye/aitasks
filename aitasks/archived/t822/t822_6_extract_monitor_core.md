@@ -1,13 +1,17 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:40
-updated_at: 2026-06-14 09:51
+updated_at: 2026-06-14 11:06
+completed_at: 2026-06-14 11:06
 ---
 
 Extract the headless monitor core into `.aitask-scripts/monitor/monitor_core.py` so both the Textual TUIs (`ait monitor`, `ait minimonitor`) and the future applink WebSocket listener drive the same capture/control pipeline.
