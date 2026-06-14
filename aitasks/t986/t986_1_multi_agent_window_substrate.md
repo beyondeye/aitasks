@@ -95,3 +95,5 @@ to avoid conflicts).
 > **✅ gate:plan_approved** run=2026-06-14T13:38:38Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-14T13:38:40Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-14T14:05:00Z status=pass attempt=1 type=human
