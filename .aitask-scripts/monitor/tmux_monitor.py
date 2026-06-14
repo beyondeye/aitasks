@@ -28,4 +28,6 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     COMPARE_MODES,
     DEFAULT_COMPARE_MODE,
     _strip_ansi,
+    _TEXTUAL_TO_TMUX,
+    translate_key,
 )

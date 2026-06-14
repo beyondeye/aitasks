@@ -11,10 +11,11 @@ The `ait applink` command launches a Textual TUI that bridges a local `ait`
 workspace to the mobile companion app (developed in the sibling
 `aitasks_mobile` repo) over a paired, QR-bootstrapped LAN connection.
 
-This is the **pairing-bootstrap skeleton**: it generates a one-time pairing
-token, renders the `applink://` URI as a scannable QR code on the terminal,
-and shows a placeholder status screen. The actual WebSocket transport and
-remote command handling are tracked under a follow-up task.
+It generates a one-time pairing token, renders the `applink://` URI as a
+scannable QR code on the terminal, and runs a `wss://` WebSocket listener that
+pairs the companion app and routes its commands into the running session under
+a permission profile. Streaming pane content to the phone (the binary data
+plane) is tracked under follow-up tasks.
 
 > **Customizable keys:** every shortcut here can be rebound. Press `?` in this
 > TUI for the in-place editor, or open
@@ -54,11 +55,13 @@ their long-lived bearers and connection IDs.
 ### Screens
 
 - **Pairing** — QR code and a short hint footer.
-- **Status** — placeholder card showing "No client connected" until the
-  WebSocket listener is wired up.
+- **Devices** — paired-device list (name/model, platform, connection state,
+  pairing time, last-seen, and coarse location when the device provides one)
+  with per-device revoke.
 
-Switch with **s** (Status) and **p** (Pairing). Press **j** to jump to
-another TUI via the shared TUI switcher.
+Switch with **s** (Devices) and **p** (Pairing). Press **x** on the Devices
+screen to revoke the highlighted device. Press **j** to jump to another TUI
+via the shared TUI switcher.
 
 ---
 

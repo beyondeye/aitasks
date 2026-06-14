@@ -13,8 +13,9 @@ PYTHON="$(require_ait_python)"
 
 # Catch the "venv exists but lacks deps" case.
 missing=()
-"$PYTHON" -c "import textual" 2>/dev/null || missing+=(textual)
-"$PYTHON" -c "import segno"   2>/dev/null || missing+=(segno)
+"$PYTHON" -c "import textual"    2>/dev/null || missing+=(textual)
+"$PYTHON" -c "import segno"      2>/dev/null || missing+=(segno)
+"$PYTHON" -c "import websockets" 2>/dev/null || missing+=(websockets)
 if [[ ${#missing[@]} -gt 0 ]]; then
     die "Missing Python packages: ${missing[*]}. Run 'ait setup' to install all dependencies."
 fi

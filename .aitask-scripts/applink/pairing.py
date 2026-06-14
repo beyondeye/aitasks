@@ -80,12 +80,22 @@ def build_pairing_uri(
 
 
 def compute_self_signed_fingerprint() -> str:
-    """Return the SHA-256 fingerprint of the server's TLS certificate.
+    """Return the SHA-256/base64url fingerprint of the server's TLS certificate.
 
-    Stubbed in this child task — the full self-signed cert flow lands in the
-    follow-up task scoped by ``t822_3`` (monitor port design). Replacing this
-    function with the real implementation should be a single-function swap.
+    Ensures the persistent self-signed cert exists (generating it once via
+    ``openssl``) and returns its fingerprint for embedding in the pairing QR;
+    the mobile client pins this value at pairing time
+    (``aidocs/applink/protocol.md`` §Pairing flow step 2). Implemented in t822_7,
+    replacing the original stub as a single-function swap.
+
+    On failure (e.g. ``openssl`` missing) returns the sentinel ``"CERT-ERROR"``
+    so the TUI still opens — the WebSocket listener surfaces the same failure in
+    its connection-state display rather than crashing the app at construction.
     """
-    # TODO(t822_3): generate / load self-signed cert and compute its SHA-256
-    # fingerprint here. The mobile client pins this value at pairing time.
-    return "NOT-IMPLEMENTED"
+    from tls import CertManager, CertError
+    from paths import sessions_dir
+
+    try:
+        return CertManager(sessions_dir()).fingerprint()
+    except (CertError, OSError):
+        return "CERT-ERROR"

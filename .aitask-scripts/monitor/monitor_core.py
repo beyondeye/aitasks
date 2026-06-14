@@ -53,6 +53,68 @@ except ImportError:  # imported top-level (tests put MONITOR_DIR on PYTHONPATH)
     from prompt_patterns import PromptPattern, all_patterns  # noqa: E402
 
 
+# Abstract key name → tmux send-keys argument (for special keys). Lives here in
+# the headless core (not monitor_app) so both the desktop preview-zone key
+# forwarding and the applink `forward_key` verb translate identically
+# server-side (t822_7). monitor_app re-exports this name for back-compat.
+_TEXTUAL_TO_TMUX = {
+    "enter": "Enter",
+    "escape": "Escape",
+    "backspace": "BSpace",
+    "up": "Up",
+    "down": "Down",
+    "left": "Left",
+    "right": "Right",
+    "space": "Space",
+    "delete": "DC",
+    "home": "Home",
+    "end": "End",
+    "pageup": "PPage",
+    "pagedown": "NPage",
+    "insert": "IC",
+    "f1": "F1",
+    "f2": "F2",
+    "f3": "F3",
+    "f4": "F4",
+    "f5": "F5",
+    "f6": "F6",
+    "f7": "F7",
+    "f8": "F8",
+    "f9": "F9",
+    "f10": "F10",
+    "f11": "F11",
+    "f12": "F12",
+}
+
+
+def translate_key(key: str, character: str | None = None) -> tuple[str, bool] | None:
+    """Translate an abstract key name into tmux ``send-keys`` arguments.
+
+    Returns ``(keys, literal)`` suitable for :meth:`TmuxMonitor.send_keys`, or
+    ``None`` when the key cannot be mapped. Shared by the desktop key-forward
+    path (``monitor_app._forward_key_to_tmux``) and the applink ``forward_key``
+    verb so both sides resolve keys identically:
+
+      * special keys (``up``, ``escape``, ``f5`` …) → the tmux key name, non-literal
+      * ``ctrl+x`` → ``C-x``, non-literal
+      * a single printable character → sent literally
+
+    ``character`` is the desktop ``event.character`` (the resolved glyph for
+    keys whose abstract name is not itself the character, e.g. ``!`` arrives as
+    ``exclamation_mark``); mobile clients pass only ``key`` (the literal glyph
+    for plain characters) and leave ``character`` as ``None``.
+    """
+    if key in _TEXTUAL_TO_TMUX:
+        return _TEXTUAL_TO_TMUX[key], False
+    if key.startswith("ctrl+"):
+        return f"C-{key[5:]}", False
+    if character and len(character) == 1:
+        return character, True
+    if len(key) == 1:
+        return key, True
+    return None
+
+
 class PaneCategory(Enum):
     AGENT = "agent"
     TUI = "tui"
@@ -1123,6 +1185,21 @@ class TmuxMonitor:
         cmd.append(keys)
         rc, _ = self.tmux_run(cmd)
         return rc == 0
+
+    def forward_key(
+        self, pane_id: str, key: str, character: str | None = None
+    ) -> bool:
+        """Translate an abstract key name and forward it to a tmux pane.
+
+        Backs both the desktop preview-zone key forwarding and the applink
+        ``forward_key`` verb (t822_7). Returns ``False`` when the key is
+        unmappable (no tmux equivalent).
+        """
+        translated = translate_key(key, character)
+        if translated is None:
+            return False
+        keys, literal = translated
+        return self.send_keys(pane_id, keys, literal=literal)
 
     def switch_to_pane(self, pane_id: str, prefer_companion: bool = False) -> bool:
         pane = self._pane_cache.get(pane_id)

@@ -103,35 +103,10 @@ PREVIEW_SIZES = [
 ]
 PREVIEW_DEFAULT_SIZE = 1  # Medium
 
-# Textual key name → tmux send-keys argument (for special keys)
-_TEXTUAL_TO_TMUX = {
-    "enter": "Enter",
-    "escape": "Escape",
-    "backspace": "BSpace",
-    "up": "Up",
-    "down": "Down",
-    "left": "Left",
-    "right": "Right",
-    "space": "Space",
-    "delete": "DC",
-    "home": "Home",
-    "end": "End",
-    "pageup": "PPage",
-    "pagedown": "NPage",
-    "insert": "IC",
-    "f1": "F1",
-    "f2": "F2",
-    "f3": "F3",
-    "f4": "F4",
-    "f5": "F5",
-    "f6": "F6",
-    "f7": "F7",
-    "f8": "F8",
-    "f9": "F9",
-    "f10": "F10",
-    "f11": "F11",
-    "f12": "F12",
-}
+# The abstract-key-name → tmux send-keys map (`_TEXTUAL_TO_TMUX`) and its
+# translator moved to monitor_core (t822_7); the applink `forward_key` verb and
+# this preview-zone forwarder both resolve keys via monitor_core.translate_key,
+# reached here through TmuxMonitor.forward_key.
 
 
 # -- Widgets ------------------------------------------------------------------
@@ -1352,26 +1327,15 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             event.prevent_default()
 
     def _forward_key_to_tmux(self, event) -> None:
-        """Map a Textual key event to tmux send-keys and forward it."""
-        key = event.key
-        pane_id = self._focused_pane_id
+        """Map a Textual key event to tmux send-keys and forward it.
 
-        # Check special key mapping
-        if key in _TEXTUAL_TO_TMUX:
-            self._monitor.send_keys(pane_id, _TEXTUAL_TO_TMUX[key])
-            self.call_later(self._fast_preview_refresh)
-            return
-
-        # Ctrl+key → C-key in tmux
-        if key.startswith("ctrl+"):
-            char = key[5:]
-            self._monitor.send_keys(pane_id, f"C-{char}")
-            self.call_later(self._fast_preview_refresh)
-            return
-
-        # Regular character
-        if event.character and len(event.character) == 1:
-            self._monitor.send_keys(pane_id, event.character, literal=True)
+        Key translation lives in ``monitor_core.translate_key`` (shared with the
+        applink ``forward_key`` verb, t822_7); this method only forwards the
+        focused-pane key and wires the desktop fast-preview refresh.
+        """
+        if self._monitor.forward_key(
+            self._focused_pane_id, event.key, event.character
+        ):
             self.call_later(self._fast_preview_refresh)
 
     # -- Focus tracking --------------------------------------------------------
