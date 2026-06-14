@@ -322,3 +322,64 @@ test deliverables above; no separate before/after mitigation tasks are warranted
   `acquire_child_lock`/`release_child_lock` (aitask_create.sh:237);
   `merge_seed` + `install_seed_*` (install.sh); `setup_python_cache_gitignore`
   (aitask_setup.sh:1547).
+
+## Final Implementation Notes
+
+- **Actual work done:** Built the ledger engine (`lib/gate_ledger.py` importable
+  + CLI; `aitask_gate.sh` bash+POSIX-awk primary path with mkdir-lock and atomic
+  same-dir write); registered `gates:` in the write path (`aitask_update.sh`
+  parse+serialize+`--gates`, `aitask_create.sh` `--gates` on all 3 creation
+  paths, `aitask_fold_mark.sh` union); seeded `gates.yaml` (5 checkpoint gates)
+  via `install_seed_gates_registry` + setup data-branch copy; sidecar gitignore
+  (`.aitask-gates/`, root + `setup_gate_logs_gitignore`); whitelisted
+  `aitask_gate.sh` across all 5 allowlist touchpoints; two test suites
+  (`test_gate_ledger.sh` 27/27, `test_gate_frontmatter_roundtrip.sh` 9/9).
+
+- **Deviations from plan:**
+  - **create `--gates` also added to `create_draft_file`** (not just
+    `create_task_file`). Discovered the batch-create flow is draft→finalize, and
+    `finalize_draft` `sed`-copies the draft (it never calls `create_task_file`),
+    so `--gates` would have been silently lost on the common path otherwise.
+  - **Board edit widget deferred** (decision #3 confirmed): the board's PyYAML
+    `serialize_frontmatter` already round-trips `gates:`; the gate UI belongs to
+    t635_9.
+  - **Tests consolidated 3→2 files** (engine+CLI merged into `test_gate_ledger.sh`)
+    to avoid redundant coverage; durability/registration in the roundtrip file.
+  - **No `ait` dispatcher entry** (decision #6, from plan review): full-path
+    helper only; the user-facing `ait gate`/`ait gates` surface lands later with
+    its first real human command (e.g. `ait gate pass`, t635_15).
+
+- **Issues encountered:**
+  - My own portability guard false-positived: a 2-arg `match()` and a `substr()`
+    on the *same awk line* matched the (loose, documented) 3-arg-match sweep
+    regex. Fixed by splitting match/substr onto separate lines — keeps the
+    documented sweep clean and is no real 3-arg match.
+  - update.sh resolves task files relative to cwd/data-worktree; tests must run
+    from inside the temp dir with a relative `TASK_DIR` (how `ait` invokes it),
+    not an absolute `TASK_DIR` from another repo root.
+  - Full `install.sh` end-to-end run isn't feasible in-sandbox (dies early in
+    pre-existing `confirm_install`/download machinery, before extraction).
+    Verified the gate seed via `install.sh --source-only` + direct
+    `install_seed_gates_registry` call instead (gates.yaml installs correctly).
+
+- **Key decisions:** marker/derivation format is byte-identical between the awk
+  and python paths (parity-tested) so the fallback is a true drop-in; `gates:`
+  is omitted (never `[]`) when empty to keep Phase-1 "no behavior change"; the
+  registry is a strict 2-level YAML parsed with POSIX awk / stdlib `re` (no
+  PyYAML, so the fallback works without it).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t635_2** (checkpoint recording): call `./.aitask-scripts/aitask_gate.sh
+    append <id> <gate> <status> [k=v...]` (full path — no `ait gate` dispatcher
+    entry yet; it whitelisted across all 5 touchpoints here). Supported keys:
+    marker = run/attempt/duration/type, body = verifier/result/log/note. The 5
+    seeded checkpoint gates (`plan_approved`, `risk_evaluated`, `build_verified`,
+    `review_approved`, `merge_approved`) are ready to record against.
+  - **t635_8** (shared TUI parser): extend `lib/gate_ledger.py`
+    (`parse_gate_runs`/`derive_status`) — do NOT fork the derivation logic.
+  - Derivation = last marker per gate wins; markers matched anywhere (not only
+    inside `## Gate Runs`), so a missing section header never loses runs.
+  - awk must stay POSIX (2-arg `match`+`substr` on *separate lines*; no 3-arg
+    `match`, no `gensub`). A static guard test enforces this.

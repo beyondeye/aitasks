@@ -1,0 +1,33 @@
+# aitasks gate registry
+#
+# Declares the named verification checkpoints ("gates") a task can opt into via
+# its `gates:` frontmatter list. The task file remains authoritative for *which*
+# gates apply and *what happened* (the "## Gate Runs" ledger appended by
+# `./.aitask-scripts/aitask_gate.sh`); this registry declares *how* each gate is
+# described and classified.
+#
+# Phase 1 (t635_1) is the minimal substrate: each gate carries `type` and
+# `description` only. The verifier / max_retries / unlocks DAG fields arrive with
+# the orchestrator (t635_11). See aidocs/gates/aitask-gate-framework.md.
+#
+# type:
+#   machine - verified programmatically (build, tests, automated evaluation)
+#   human   - requires a person's sign-off (the interactive approval, or later an
+#             async signal)
+
+gates:
+  plan_approved:
+    type: human
+    description: "Implementation plan reviewed and approved before coding begins"
+  risk_evaluated:
+    type: machine
+    description: "Plan assessed for code-health and goal-achievement risk"
+  build_verified:
+    type: machine
+    description: "Project build/verify command(s) pass after implementation"
+  review_approved:
+    type: human
+    description: "Implemented changes reviewed and approved before commit"
+  merge_approved:
+    type: human
+    description: "Merge of the task branch into the base branch approved"
