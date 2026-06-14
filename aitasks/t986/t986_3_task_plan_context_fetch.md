@@ -72,3 +72,5 @@ sequential sibling dep only orders it).
 > **✅ gate:plan_approved** run=2026-06-14T15:49:12Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-14T15:49:13Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-14T16:02:26Z status=pass attempt=1 type=human
