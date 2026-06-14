@@ -6,7 +6,7 @@ issue_type: feature
 status: Ready
 labels: [gates, python, tui]
 created_at: 2026-06-10 18:54
-updated_at: 2026-06-10 18:54
+updated_at: 2026-06-14 17:36
 ---
 
 ## Context
@@ -30,9 +30,21 @@ marker blocks from task bodies.
   regress board startup (markers are greppable by design —
   `^> \*\*` prefilter before full parse).
 
+## Coordination (from t635_3)
+
+t635_3 added the dependency-unblock decision to the SAME module this task makes
+the shared parser: `lib/gate_ledger.py` `dependents_status` /
+`required_unblock_gates` (reads the registry `blocks_dependents` flag + the
+per-task `also_blocks_dependents` list; `read_registry` now carries
+`blocks_dependents`; `_read_frontmatter_list` generalizes `read_declared_gates`).
+Treat these as part of the shared derivation surface — extend/expose them for the
+TUIs, do NOT fork. `aitask_ls.sh` already consumes `aitask_gate.sh deps-unblock`;
+the board (t635_9) should consume the same module.
+
 ## References
 
 - `aidocs/gates/integration-roadmap.md` (Phase 3, D6)
 - `aidocs/gates/aitask-gate-framework.md` ("Gate run marker format",
   "Format rules")
+- `aidocs/gates/dependency-unblock-semantics.md` (t635_3 — decision in gate_ledger.py)
 - `aidocs/framework/tui_conventions.md`

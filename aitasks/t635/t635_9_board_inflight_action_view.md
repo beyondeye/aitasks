@@ -6,7 +6,7 @@ issue_type: feature
 status: Ready
 labels: [gates, aitask_board, tui]
 created_at: 2026-06-10 18:54
-updated_at: 2026-06-10 18:54
+updated_at: 2026-06-14 17:36
 ---
 
 ## Context
@@ -47,7 +47,21 @@ view grouping tasks by NEXT REQUIRED ACTION.
     │   t49  schema migration       ⛔ upstream    │
     └─────────────────────────────────────────────┘
 
+## Coordination (from t635_3)
+
+The board computes dependency-blocking INDEPENDENTLY of `ait ls`
+(`aitask_board.py`, the `unresolved_deps` computation: a dep is unresolved while
+`status != 'Done'`). t635_3 made `aitask_ls.sh` gate-aware — a gated active
+upstream whose required (`blocks_dependents`) gates pass unblocks its dependents
+before archival — but deliberately left the board to this task (per the
+shared-parser rule). Wire the same decision into the board's dependency
+computation via `lib/gate_ledger.py dependents_status` (the shared parser from
+t635_8) — do not fork. Note the interim window: after t635_4 (deferred archival)
+lands but before this task, `ait board` and `ait ls` can disagree on whether a
+gated, machine-passed task still blocks its dependents.
+
 ## References
 
 - `aidocs/gates/integration-roadmap.md` (Phase 3, D7)
+- `aidocs/gates/dependency-unblock-semantics.md` (t635_3 — CLI is gate-aware; board is this task)
 - `aidocs/framework/tui_conventions.md`

@@ -6,7 +6,7 @@ issue_type: feature
 status: Ready
 labels: [gates, task-archive, task_workflow]
 created_at: 2026-06-10 18:53
-updated_at: 2026-06-10 18:53
+updated_at: 2026-06-14 17:36
 ---
 
 ## Context
@@ -36,8 +36,22 @@ exist (human review pending, manual verification pending, ...).
 Depends on t635_3 (dependency-unblock semantics) — deferring archival
 without an explicit unblock point regresses dependent-task availability.
 
+## Coordination (from t635_3)
+
+Dependency-unblock semantics landed in t635_3 (design:
+`aidocs/gates/dependency-unblock-semantics.md`). The unblock decision lives in
+`lib/gate_ledger.py` `dependents_status` (surfaced as `aitask_gate.sh
+deps-unblock`, consumed by `aitask_ls.sh`): a gated active task releases its
+dependents once its required (`blocks_dependents`) gates pass. Keep **archival**
+here a DISTINCT, later event — the *all-gates-pass* point — so a task can release
+its dependents (integration gates pass) yet stay active and re-enterable while
+slow human/async gates pend. Do not collapse unblock into archival. t635_3 is
+dormant until this task makes a gated task linger active; it lands first per the
+roadmap sequencing constraint.
+
 ## References
 
 - `aidocs/gates/integration-roadmap.md` (Phase 2, D5)
 - `aidocs/gates/aitask-gate-framework.md` ("Relationship to existing status
   field", integration table row for aitask-archive)
+- `aidocs/gates/dependency-unblock-semantics.md` (t635_3 — unblock vs archival)
