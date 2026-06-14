@@ -326,3 +326,78 @@ archival is unaffected by the guard it adds.
 ### Planned mitigations
 None — all risks are bounded and mitigated **in-task** by the test deliverables;
 no separate before/after mitigation tasks are warranted.
+
+## Final Implementation Notes
+
+- **Actual work done:** Made archival gate-guarded (decision D5). `lib/gate_ledger.py`
+  gained `archive_status()` (every *declared* gate must be `pass`; no registry
+  filtering, unlike `dependents_status`) + CLI verb `archive-ready`
+  (`NO_GATES`/`ALL_PASS`/`BLOCKED:<csv>`). `aitask_gate.sh` gained an
+  `archive-ready <task-id>` subcommand (python-delegated; degrades to `NO_GATES`
+  if Python is absent). `aitask_archive.sh` gained `gate_guard()` — mirrors the
+  existing `verification_gate_and_carryover()` exit-2 pattern: on `BLOCKED` it
+  prints `GATE_PENDING:<csv>` + `GATE_BLOCKED` and exits 2 (refusing to archive);
+  self-gating (no declared gates → no-op) — plus an `--ignore-gates` escape-hatch
+  flag. `task-workflow/SKILL.md` (profile-invariant): Step 9 handles the exit-2
+  case with **"Resolve now & archive"** (satisfy the pending gate in-session via
+  `aitask_gate.sh append`, re-check `archive-ready`, archive immediately on
+  `ALL_PASS` — the user-requested immediate offer) and **"Defer — keep in-flight"**
+  (stays `Implementing`, lock held, re-pick later); Step 3 added **Check 4**
+  (next-pick backstop offering archival when `archive-ready` → `ALL_PASS`). New
+  design doc `aidocs/gates/gate-guarded-archival.md` + roadmap back-link. New
+  test `tests/test_gate_guarded_archival.sh` (31/31: unit decision + bash/python
+  parity + archive integration incl. `--ignore-gates`, dormancy, child path).
+  Regenerated all 3 `SKILL-*` goldens (profile-invariant → identical adds) +
+  rerendered the committed `task-workflow-remote-` prerenders (claude/codex/
+  opencode). Render test 99/99; `aitask_skill_verify.sh` OK; shellcheck + macOS
+  sweep clean.
+
+- **Deviations from plan:** One. The Step 9 "Resolve now & archive" branch
+  initially referenced `aitask_gate_record.sh` (the `record_gates`-gated
+  persistence helper); the render test (`test_skill_render_task_workflow.sh`,
+  from t635_2) asserts the `default` render must NOT mention that script, so I
+  switched to the profile-invariant substrate recorder `aitask_gate.sh append`
+  — persistence comes from the subsequent archival commit instead of a
+  per-recording commit. Behaviour is equivalent for the immediate-archive path
+  and keeps the Step 9 guard profile-invariant.
+
+- **Issues encountered:** In the new test, the unit layer `export`s `TASK_DIR`
+  (temp fixture dir); that leaked into the integration layer and broke
+  `resolve_task_file`. Fixed by `unset TASK_DIR` at the top of
+  `setup_archive_project` (the archive flow uses the relative `aitasks` default,
+  as in production).
+
+- **Key decisions:** (1) Guard = all *declared* gates pass, derived from the
+  ledger (D5/D6) — no registry lookup, no new status value. (2) Deferred-archival
+  state = stays `Implementing` with ledger entries (the in-flight resume signal
+  for t635_5/_7); lock left held. (3) Archival offered at the EARLIEST point
+  (immediate in-session when the last gate passes) — re-entry/next-pick is a
+  backstop, never required (per user steer). (4) Escape hatch = `--ignore-gates`
+  flag; profile-gating of it + `auto_complete_on_all_gates_pass` auto-apply
+  deferred to t635_17. (5) Profile-invariant skill edits (the guard keys off
+  declared `gates:`, orthogonal to `record_gates`). (6) Dormant until t635_14
+  populates `gates:` — zero behavior change today (no task declares gates).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t635_5 (re-entry):** a deferred-archival task is `Implementing` + has
+    `## Gate Runs` entries + lock held = the in-flight resume signal. Owns
+    resume + lock/crash-recovery generalization; this task does not touch lock
+    semantics.
+  - **t635_7 (gate-aware pick):** Step 3 Check 4 already offers archival when
+    `archive-ready` → `ALL_PASS`. Consume `aitask_gate.sh archive-ready` /
+    `gate_ledger.archive_status` for the in-flight pick section — do NOT fork
+    the decision.
+  - **t635_14 (gate declaration):** once `gates:` is populated, the guard goes
+    live; t635_2's recorded `build_verified`/`review_approved`/`merge_approved`
+    archive normally — only async/human/`docs_updated` gates defer archival.
+  - **t635_17 (autonomous lane):** owns `auto_complete_on_all_gates_pass`
+    (profile auto-apply of the archival offers) and profile-gating of the
+    `--ignore-gates` escape hatch. The board (`aitask_board.py`) and
+    `manual-verification.md` also call `aitask_archive.sh`; they are unaffected
+    while dormant but will see exit-2 once gates are live — board surfacing is
+    t635_9's scope.
+  - **`archive_status` vs `dependents_status`:** archival needs ALL declared
+    gates; dependency-unblock needs only `blocks_dependents` gates. Two distinct
+    decisions in `gate_ledger.py`; do not conflate.
