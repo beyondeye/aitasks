@@ -20,7 +20,9 @@ Add **shadow** (the "shadow agent"; code identifier `shadow`) — a minimonitor-
 
 1. **Explain a plan / output that is too technical or buried.** Implementation plans produced in the task-workflow can be hard to follow because they're overly technical, or because the info the user cares about is buried deep. `shadow` reads the captured output and explains it in plain terms.
 2. **Help answer an `AskUserQuestion` shown WITHOUT its source context.** Some workflow prompts appear in the terminal without the source task/plan visible (observed example: a session working `t635_3`). In this case `shadow` must **auto-fetch the most recent stored task file + plan file** for that task to give the user enough context to understand and answer. Advisory only — it explains/suggests; the user types the answer themselves (it does NOT inject keystrokes into the source agent).
-3. **Challenge / probe / Socratic questioning of a plan.** Beyond explaining, `shadow` can act as a critical interlocutor: read the produced implementation plan (from the captured output and/or the fetched plan file) and generate **probing, adversarial, and Socratic questions** that pressure-test it — surfacing hidden assumptions, unaddressed edge cases, blast-radius/cleanliness concerns, and "what if someone edits this unaware?" risks. Purpose: help the user (or the source agent, via the user) find weaknesses before approving the plan. Still advisory-only; the questions are presented to the user, not injected into the source agent. This is a distinct **mode** of the shadow agent (explain vs. challenge) — expose it via an explicit mode selector at launch, not an implicit signal.
+3. **Challenge / probe / Socratic questioning of a plan.** Beyond explaining, `shadow` can act as a critical interlocutor: read the produced implementation plan (from the captured output and/or the fetched plan file) and generate **probing, adversarial, and Socratic questions** that pressure-test it — surfacing hidden assumptions, unaddressed edge cases, blast-radius/cleanliness concerns, and "what if someone edits this unaware?" risks. Purpose: help the user (or the source agent, via the user) find weaknesses before approving the plan. Still advisory-only; the questions are presented to the user, not injected into the source agent.
+
+**Single mode, instruction-driven (NOT a mode selector).** Use cases 1–3 are *capabilities*, not separate launch modes. The shadow runs **one unified flow**; which capability applies is decided by the user's free-form request to the shadow agent once it is running. The skill workflow embeds the user's instruction and serves it (autodetecting phase + fetching context as needed). There is no explain-vs-challenge selector.
 
 ## Design decisions (confirmed with user during exploration)
 
@@ -46,17 +48,17 @@ Fix: key state by `pane_id`; extend companion classification (`_is_companion_pro
 
 **Skill shape.** Non-user-invocable skill = `user-invocable: false`, plain `.md` procedure files, no stub/`.j2` pair (like `task-workflow`, `related-task-discovery`). Context fetch: `aitask_query_files.sh task-file <N>` / `plan-file <N>` / `sibling-context <parent>`, and `aitask_explain_context.sh` for historical plans. Per-agent (Codex/OpenCode) ports are follow-ups.
 
-## Suggested decomposition (for the planning phase to formalize)
+## Decomposition (finalized — see `aiplans/p986/` for per-child plans)
 
-Testability-first: pull pure headless units early; each child owns its tests.
-1. **Multi-agent-per-window substrate refactor** — re-key monitor state by `pane_id`; fix the 6 assumption sites; extract pure pane→task mapping units + unit tests.
-2. **`shadow` companion-pane classification** — exclude the pane from agent lists in monitor/minimonitor (extend `_is_companion_process`/`classify_pane`); tests.
-3. **Phase-autodetection module** — pure headless; ledger-first (uses the gate ledger / `t635_8` parser), terminal-text-marker fallback; fixture transcripts + tests.
-4. **Task/plan context-fetch utility** — given a source task id, fetch task file + most-recent plan + optional sibling context (wraps `aitask_query_files.sh` / `aitask_explain_context.sh`); tests.
-5. **The `shadow` non-invocable skill** — `SKILL.md` + sub-procedures (phase wiring, context fetch, plan-explanation, AskUserQuestion helper, **challenge/Socratic plan-interrogation**); advisory-only; mode-aware (explain vs challenge); consumes #3 + #4.
-6. **minimonitor trigger + spawn glue** — keybinding/action on the followed agent; **explicit mode selector (explain vs challenge)**; capture output; spawn the `shadow` agent (codeagent operation pattern + `agent_launch_utils`) in the same window by default.
-7. **Settings/config** — new `shadow` codeagent operation default (agent+model) + `project_config.yaml`/settings-TUI toggle for same-window-vs-new-window.
-8. **Docs + manual verification** — aidocs (`tmux_gateway.md` multi-agent note, `tui_conventions.md` companion update, `monitor_idle_and_prompt_detection.md` if phase markers added), website docs, and a final manual-verification child.
+Approved split: **6 child tasks + 1 aggregate manual-verification sibling.**
+Testability-first: pure headless units extracted with their own tests.
+1. **t986_1 — Multi-agent-per-window substrate + shadow helper-pane exclusion** — re-key monitor state by `pane_id`; fix the 6 assumption sites; extend `_is_companion_process`/`classify_pane` so the `shadow` pane is excluded from agent lists; pure pane→task units + tests.
+2. **t986_2 — Phase-autodetection module** — pure headless; ledger-first (imports `derive_status`/`parse_gate_runs` from `gate_ledger.py`; coordinates `t635_8`), terminal-text-marker fallback; fixtures + tests.
+3. **t986_3 — Task/plan context-fetch utility** — given a source task id, fetch task file + most-recent plan + optional sibling context (wraps `aitask_query_files.sh` / `aitask_explain_context.sh`); tests.
+4. **t986_4 — The `shadow` non-invocable skill** — `SKILL.md` (single instruction-driven flow): autodetect phase (#2), fetch context (#3), serve the user's free-form request (explain / answer / challenge — same flow). Advisory-only; no mode selector.
+5. **t986_5 — minimonitor trigger + spawn glue + settings/config** — keybinding/action on the followed agent; capture output; spawn the `shadow` agent (codeagent op + `agent_launch_utils`) in the same window by default; add `defaults.shadow` to `codeagent_config.json` + `project_config.yaml`/settings-TUI same-window-vs-new-window toggle.
+6. **t986_6 — Docs** — aidocs (`tmux_gateway.md` multi-agent note, `tui_conventions.md` shadow-companion update, `monitor_idle_and_prompt_detection.md` if phase markers added) + website docs.
+7. **t986_7 — Aggregate manual-verification sibling** (auto-created) — live flow: shadow launch in same window, explain/answer/challenge, multi-agent-window behavior, and shadow-pane-not-listed-among-agents.
 
 ## Coordination dependencies (not folds)
 
