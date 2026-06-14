@@ -3,10 +3,9 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask_monitormini, tmux, codeagent, claudeskills, gates]
 children_to_implement: [t986_1, t986_2, t986_3, t986_4, t986_5, t986_6]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 15:36
 updated_at: 2026-06-14 16:04
 ---
