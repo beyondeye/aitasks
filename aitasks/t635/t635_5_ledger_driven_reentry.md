@@ -37,6 +37,18 @@ The standalone resume skill (t635_6) and pick integration (t635_7) — this
 child makes task-workflow itself re-entrant when it is (re)entered with an
 in-flight task.
 
+## Coordination (from t635_4)
+
+Gate-guarded archival (t635_4) landed: when Step 9 archival is deferred because a
+declared gate is not yet `pass`, the task stays **`Implementing`** with its
+`## Gate Runs` ledger entries and its **lock held** — that state IS the in-flight
+resume signal this task keys on. t635_4 deliberately does NOT touch lock/resume
+semantics (it leaves the lock held and defers); generalizing crash-recovery to be
+ledger-driven and deciding lock handling on resume are THIS task's job. The
+all-gates-pass archival is already handled by t635_4 (Step 9 immediate offer +
+Step 3 Check 4 backstop) — re-entry should resume from the first unmet
+checkpoint, not re-archive. See `aidocs/gates/gate-guarded-archival.md`.
+
 ## References
 
 - `aidocs/gates/integration-roadmap.md` (Phase 2)

@@ -38,8 +38,21 @@ registered in `.aitask-scripts/lib/profile_editor.py` under the "Gates"
 `auto_complete_on_all_gates_pass`, register it the same way (schema + field info
 + the "Gates" group).
 
+## Coordination (from t635_4)
+
+Gate-guarded archival (t635_4) added the archival guard + the `--ignore-gates`
+escape-hatch flag on `aitask_archive.sh`, and the **interactive** archival offers
+(Step 9 immediate "Resolve now & archive" + Step 3 Check 4). This task owns:
+(1) `auto_complete_on_all_gates_pass` — the profile auto-apply of those offers
+(register it in `profile_editor.py` under the "Gates" group, per the t635_2 note
+above); (2) making the archive guard **profile-enforced** for headless lanes (the
+scope bullet above) — attended profiles keep the `--ignore-gates` escape hatch
+available, headless profiles must NOT pass it. See
+`aidocs/gates/gate-guarded-archival.md`.
+
 ## References
 
 - `aidocs/gates/aitask-gate-framework.md` (integration table,
   aitask-pickrem row)
+- `aidocs/gates/gate-guarded-archival.md` (t635_4 — archival guard + --ignore-gates)
 - `aidocs/gates/integration-roadmap.md` (Phase 6)

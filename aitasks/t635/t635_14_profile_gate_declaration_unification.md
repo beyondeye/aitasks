@@ -61,8 +61,23 @@ gates a profile declares determine which become unblock requirements;
 `also_blocks_dependents` is the per-task escape hatch on top of the
 profile/registry defaults. See `aidocs/gates/dependency-unblock-semantics.md`.
 
+## Coordination (from t635_4)
+
+Gate-guarded archival (t635_4) is **dormant until this task** populates `gates:`.
+The archival guard (`aitask_archive.sh` `gate_guard()` via
+`aitask_gate.sh archive-ready` / `gate_ledger.archive_status`) keys off the
+declared `gates:` field, which no task carries until profiles / `default_gates`
+declare them here. Once live: t635_2's recorded integration gates
+(`build_verified` / `review_approved` / `merge_approved`) pass during the
+workflow and archive normally — only post-integration gates that pass out of band
+(async human review, `docs_updated`, manual verification) defer archival. The
+guard is profile-INVARIANT (it reads declared gates, not `record_gates`), so the
+profile→declaration mapping you build is exactly what activates it. See
+`aidocs/gates/gate-guarded-archival.md`.
+
 ## References
 
 - `aidocs/gates/integration-roadmap.md` (Phase 4)
 - `aidocs/gates/dependency-unblock-semantics.md` (t635_3 — blocks_dependents / also_blocks_dependents)
+- `aidocs/gates/gate-guarded-archival.md` (t635_4 — declared-gate archival guard)
 - `.claude/skills/task-workflow/profiles.md`

@@ -36,6 +36,16 @@ a second "gates workflow" growing beside it.
 Board In-Flight view (t635_9); pickrem/pickweb autonomous-lane behavior
 (t635_17).
 
+## Coordination (from t635_4)
+
+Gate-guarded archival (t635_4) added Step 3 **Check 4**: on pick, a task whose
+declared gates now all pass (`aitask_gate.sh archive-ready` → `ALL_PASS`) is
+offered archival. The in-flight pick section this task builds should surface
+those deferred-archival tasks (status `Implementing` + `## Gate Runs` entries,
+not archived) and route an `ALL_PASS` one to that archival offer. **Consume**
+`aitask_gate.sh archive-ready` / `gate_ledger.archive_status` for the derived
+state — do NOT fork the decision. See `aidocs/gates/gate-guarded-archival.md`.
+
 ## References
 
 - `aidocs/gates/integration-roadmap.md` (Phase 2, D8)
