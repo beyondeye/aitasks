@@ -250,3 +250,60 @@ open with remaining children). Pre-existing defect to note at Step 8b:
 `_tm._run_tmux_async`, a symbol already deleted in t952_3 — the benchmark is
 already broken independent of this task; this refactor neither fixes nor
 worsens it.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/monitor/monitor_core.py`
+  (~1640 lines) holding the headless symbols: constants/helpers (`PaneCategory`,
+  compare-mode block, `_strip_ansi`, `_is_companion_process`), the
+  `TmuxPaneInfo`/`PaneSnapshot` dataclasses, the `tmux -C` control-mode trio
+  (`TmuxControlClient`/`TmuxControlState`/`TmuxControlBackend` — completing the
+  relocation deferred from t952_3), `TmuxMonitor`, `load_monitor_config`, and
+  `_TASK_ID_RE`/`TaskInfo`/`TaskInfoCache`. Converted `tmux_monitor.py` and
+  `tmux_control.py` to re-export shims; moved the task-context out of
+  `monitor_shared.py` (re-exported there for back-compat) and kept its Textual
+  dialogs + render helpers. Moved the `tests/test_no_raw_tmux.sh` allowlist
+  entry from `tmux_control.py` to `monitor_core.py`.
+- **Deviations from plan:** Two beyond the plan, both minor:
+  1. `monitor_core` needed the **`board/` dir** on `sys.path` (not just `lib/`)
+     because `TaskInfoCache` depends on `task_yaml.parse_frontmatter`, which
+     lives in `.aitask-scripts/board/`. Added both `lib/` and `board/` inserts
+     (matching `monitor_shared`'s original path setup). Caught immediately by
+     the import smoke test.
+  2. Removed three now-dead imports from `monitor_shared.py` (`os`,
+     `dataclasses.dataclass`, `task_yaml.parse_frontmatter`) — all were used
+     only by the moved task-context code.
+  The two same-module defer-imports inside `TmuxMonitor` (`start_control_client`,
+  `control_state`) were collapsed to direct references and the `control_state`
+  docstring's defer-import note was dropped, as planned.
+- **Issues encountered:** Initial `monitor_core` import failed with
+  `ModuleNotFoundError: task_yaml` — resolved by the `board/` path insert above.
+  No other surprises; the seam was as clean as the design doc predicted.
+- **Key decisions:** Physical move + thin shims (not a re-export facade), per the
+  design contract — this is what collapses the `tmux_monitor`↔`tmux_control`
+  circular-import defer pattern and gives the control client its natural home.
+  Shims use the package-absolute `from monitor.monitor_core import …` form
+  (every consumer imports `monitor` as a package). Definition order inside the
+  core is runtime-safe under `from __future__ import annotations`.
+- **Verification performed:** `monitor_core` has no Textual/rich import and keeps
+  the `lib/tmux_exec` delegation seam (greps); all four modules `py_compile`;
+  shim re-exports are object-identical to the core definitions; **76 Python
+  tests pass** (test_tmux_exec 41, test_git_tui_config 17, test_idle_compare_modes
+  5, test_prompt_detection 6, test_task_info_cache_archived 7) and
+  `tests/test_no_raw_tmux.sh` 5/5; all six monitor modules — including
+  `monitor_app.py` / `minimonitor_app.py` — import cleanly at runtime. Live-TUI
+  launch deferred to sibling t822_4 (aggregate manual verification).
+- **Upstream defects identified:** `aidocs/benchmarks/bench_monitor_refresh.py:94` —
+  monkeypatches `_tm._run_tmux_async`, a `TmuxMonitor` method already deleted by
+  t952_3; the benchmark is already broken independent of this task (this refactor
+  neither fixes nor worsens it — `from monitor import tmux_monitor` still resolves
+  via the shim, but the attribute access still `AttributeError`s as before).
+- **Notes for sibling tasks:** The headless seam the applink work (t822_7+) needs
+  is now `from monitor.monitor_core import …`. monitor_core is the single home for
+  pane discovery/capture, the control-mode client, and `TaskInfoCache` — and it is
+  Textual-free by contract (enforced by the design's no-Textual grep and the
+  `test_no_raw_tmux.sh` allowlist now pointing at `monitor_core.py`). The future
+  deltifier / row-hash cache (content_transport Stage 2) belongs **in
+  monitor_core, next to capture**, so the Textual UI and the applink listener
+  share one pipeline/cache per pane. Continue to **delegate** tmux exec to
+  `lib/tmux_exec.py`; do not re-own the dispatcher in monitor_core.
