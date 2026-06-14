@@ -80,3 +80,23 @@ See **Step 9 (Post-Implementation)** of the shared workflow for commit/archive.
 ### Goal-achievement risk: low
 - None identified. The task is precisely to correct this comment; the rewrite
   states the verified facts and plainly delivers the goal.
+
+## Final Implementation Notes
+- **Actual work done:** Rewrote the stale sentence in the Test 5 header comment
+  of `tests/test_skill_render_task_workflow.sh` (lines 215–217 → 215–220). The
+  comment now states that `fast.yaml` sets `risk_evaluation: true` (so the
+  committed `planning-fast` / `SKILL-fast` goldens carry the gated steps, while
+  `default`/`remote` omit them — proven by Test 1's per-profile goldens), and
+  that the synthetic `risk_evaluation: true` profile still proves both branches
+  fire independently of any committed profile while `default` proves absence.
+- **Deviations from plan:** None. Implemented exactly as planned.
+- **Issues encountered:** None.
+- **Key decisions:** Kept the accurate parts of the original comment (the
+  zero-footprint Jinja-wrap description and the two dispatch sites) and replaced
+  only the inaccurate "No committed profile sets the key …" sentence, matching
+  the task's "pure comment edit" scope.
+- **Upstream defects identified:** None.
+- **Verification:** `bash tests/test_skill_render_task_workflow.sh` → 85/85 pass
+  (comment-only change, no assertion or golden impact). `shellcheck` reports only
+  pre-existing info-level findings (SC1091 source-not-followed, SC2016 on the
+  unrelated line 179) — none in the edited block.
