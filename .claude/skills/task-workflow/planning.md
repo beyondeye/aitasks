@@ -451,6 +451,10 @@ If "Revise plan":
 Do NOT return to the beginning of Step 6 — that re-triggers the 6.0 existing-plan preference check and, on profiles with `plan_preference: use_current`, skips plan mode entirely and bounces straight back here without ever showing or revising the plan.
 
 If "Approve and stop here":
+{%- if profile.record_gates is defined and profile.record_gates %}
+
+Execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=plan_approved`, `status=pass`, `fields="type=human note=deferred"` (the plan is approved; implementation is deferred to a later session — this is the resume signal).
+{%- endif %}
 
 1. Ensure the plan file is committed (idempotent — may be a no-op if the Plan Externalization Procedure already committed it):
    ```bash

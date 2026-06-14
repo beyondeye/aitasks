@@ -57,6 +57,7 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "post_plan_action": ("enum", ["start_implementation", "ask"]),
     "post_plan_action_for_child": ("enum", ["start_implementation", "ask"]),
     "risk_evaluation": ("bool", None),
+    "record_gates": ("bool", None),
     "enableFeedbackQuestions": ("bool", None),
     "manual_verification_followup_mode": ("enum", ["ask", "never"]),
     "manual_verification_mode": (
@@ -180,6 +181,17 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "to spawn risk-mitigation follow-up tasks. Gates both the risk-evaluation "
         "step and the mitigation follow-up offer.\n"
         "  true    — run risk evaluation and offer mitigation follow-ups\n"
+        "  false   — disabled\n"
+        "  (unset) — disabled (opt-in feature)"
+    ),
+    "record_gates": (
+        "Record approval checkpoints as gate runs",
+        "When true, task-workflow records its approval checkpoints (plan, "
+        "review, and merge approval — plus build and risk evaluation when they "
+        "run) as gate-run entries in the task's '## Gate Runs' ledger, committed "
+        "so the gate state is visible from every PC. The interactive prompts are "
+        "unchanged; this only witnesses their outcome, enabling later resume.\n"
+        "  true    — record checkpoints into the gate ledger\n"
         "  false   — disabled\n"
         "  (unset) — disabled (opt-in feature)"
     ),
@@ -321,6 +333,7 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
         "post_plan_action_for_child",
         "risk_evaluation",
     ]),
+    ("Gates", ["record_gates"]),
     ("Feedback", ["enableFeedbackQuestions"]),
     ("Manual Verification", [
         "manual_verification_followup_mode",

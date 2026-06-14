@@ -383,6 +383,8 @@ Do NOT return to the beginning of Step 6 — that re-triggers the 6.0 existing-p
 
 If "Approve and stop here":
 
+Execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=plan_approved`, `status=pass`, `fields="type=human note=deferred"` (the plan is approved; implementation is deferred to a later session — this is the resume signal).
+
 1. Ensure the plan file is committed (idempotent — may be a no-op if the Plan Externalization Procedure already committed it):
    ```bash
    ./ait git add aiplans/<plan_file>

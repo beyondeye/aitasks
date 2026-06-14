@@ -189,14 +189,27 @@ Candidate shapes to evaluate:
   gates unblock, human gates don't) — declared once where the gate semantics
   live. *Current lean, not yet decided.*
 
-### 2. Record-by-default vs opt-in (t635_2)
+### 2. Record-by-default vs opt-in (t635_2) — RESOLVED
 
-The framework doc says "no `gates:` field = behaves exactly like today", but
-Phase 1's checkpoint recording is what makes Phase 2 re-entry work for
-*every* task, not just gate-declaring ones. Proposal to evaluate: a
-`gate_ledger` profile flag, default on for the core checkpoints
-(plan/review/merge/build), so resume is universal. This deliberately bends
-the doc's opt-in stance and must be decided when t635_2 is planned.
+Resolved during t635_2 planning: **opt-in, default off**, via a `record_gates`
+execution-profile key (same polarity as `risk_evaluation`). Shipped enabled on
+the `fast` profile; the `default` profile and the framework doc's "no `gates:`
+field = behaves exactly like today" contract are preserved. Trade-off: Phase-2
+re-entry (t635_5) works wherever `record_gates` is enabled rather than
+universally — accepted as the price of not bending the opt-in stance.
+
+### 3. Gate-ledger multi-PC merge safety (t635_21 — blocks t635_15)
+
+Gate-run blocks are append-only at EOF and a task is locked while worked, so
+single-lane recording (t635_2) merges cleanly under the existing `ait git`
+rebase + `aitask_merge.py` frontmatter auto-merge. But once a gate can be
+*passed from a different PC than the lock-holder* (async human gates, t635_15;
+remote projection, t635_16), two machines may append to the same `## Gate Runs`
+section concurrently. `aitask_merge.py merge_body()` has no gate-section
+special-casing and there is no `.gitattributes`, so that would surface as a
+manual body conflict. t635_21 adds a `merge=union` driver for the gate region
+(or teaches `aitask_merge.py` to union-merge append-only gate blocks) and must
+land before t635_15.
 
 ## t635 child decomposition
 
@@ -222,6 +235,7 @@ the doc's opt-in stance and must be decided when t635_2 is planned.
 | t635_18 website documentation | docs | 7, 9, 10, 12, 14 | Comprehensive website sweep: concepts, workflows, skills, TUIs, commands, config |
 | t635_19 docs_updated gate | 4 | 11 | New documentation gate (no pseudo-gate ancestor); change-scoped skip |
 | t635_20 stats multi-stage completion | 3 | 4, 8 | Design pass + implement: redefine completion stats under deferred archival; ledger-enabled metrics |
+| t635_21 gate-ledger multi-PC merge safety | 2 | 1 | Union-merge for concurrent `## Gate Runs` appends (gitattributes driver or aitask_merge.py); blocks t635_15 (open problem 3) |
 
 ## See also
 

@@ -279,6 +279,10 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
 **Repository structure awareness:** Before starting implementation, read `repo-structure.md`
 
 **Cross-repo child assignment (post-approval creation):** If `cross_repo_planned` is `true` (set in `planning.md` §6.1 — the approved plan is a cross-repo paired design), execute the **Cross-Repo Child Assignment Procedure** (see `cross-repo-child-assignment.md`) now. It creates the cross-repo parent first, then assigns all children (local + cross-repo) to their parents with their plans, demotes the local parent to a parent-of-children, and presents its own child checkpoint. When it returns, the workflow has ended (via that checkpoint's "Start first child" / "Stop here") — do **NOT** continue with the normal single-task implementation below or proceed to Step 8. (This is the post-approval creation gate: planning runs in read-only plan mode, so no tasks were created during Step 6.)
+{%- if profile.record_gates is defined and profile.record_gates %}
+
+**Record plan-approved gate:** Reaching Step 7 means the Step 6 checkpoint approved the plan. Execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=plan_approved`, `status=pass`, `fields="type=human"`.
+{%- endif %}
 {%- if profile.risk_evaluation is defined and profile.risk_evaluation %}
 
 **Risk fields (post-approval write):** If the approved plan contains a `## Risk` section (authored by the Risk Evaluation Procedure during planning), write the two decided levels to the task's frontmatter now:
@@ -290,6 +294,10 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
 ```
 
 Skip silently if the plan has no `## Risk` section (e.g. the evaluation was not run). This is the post-approval write gate: planning runs in read-only plan mode, so the fields are not written during Step 6.
+{%- if profile.record_gates is defined and profile.record_gates %}
+
+**Record risk-evaluated gate:** When the plan has a `## Risk` section, execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=risk_evaluated`, `status=pass`, `fields="type=machine"`.
+{%- endif %}
 {%- endif %}
 {%- if profile.risk_evaluation is defined and profile.risk_evaluation %}
 
@@ -411,6 +419,9 @@ After implementation is complete, the user MUST be given the opportunity to revi
     - **Plan/task file commits** use the `ait:` prefix (e.g., `ait: Update plan for t16`). Administrative commits (status changes, archival) also use `ait:` and must NOT include the `(t<task_id>)` tag.
     - **Never mix** code files and `aitasks/`/`aiplans/` files in the same `git add` or commit. Code uses regular `git`; task/plan files use `./ait git`. This separation is required when task data lives on a separate branch, and is safe in legacy mode where `./ait git` passes through to plain `git`.
   - **Note:** For test coverage analysis and test plan generation, run `/aitask-qa <task_id>` after implementation.
+{%- if profile.record_gates is defined and profile.record_gates %}
+  - **Record review-approved gate:** Execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=review_approved`, `status=pass`, `fields="type=human"`.
+{%- endif %}
   - Proceed to Step 8b
 
 - **If "Need more changes":**
@@ -480,6 +491,10 @@ covering Step 9 merge approval (currently: none) or the user explicitly
 authorizing the merge in chat before the prompt fires.
 
 **IMPORTANT:** Use `AskUserQuestion` to ask: "Proceed with merge of code changes to main branch?" with options "Yes, proceed with merge" / "No, not yet". Do NOT proceed until the user approves.
+{%- if profile.record_gates is defined and profile.record_gates %}
+
+**Record merge-approved gate:** Once the user approves the merge, execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=merge_approved`, `status=pass`, `fields="type=human"`.
+{%- endif %}
 
 - **Check for uncommitted changes:**
   ```bash
@@ -503,6 +518,10 @@ authorizing the merge in chat before the prompt fires.
     1. Analyze the error output and compare against the changes introduced by this task (`git diff` against the base)
     2. **If the failure is caused by this task's changes:** Go back to the implementation to fix the build errors. After fixing, re-run the build command(s). Repeat until the build passes.
     3. **If the failure is NOT related to this task's changes** (pre-existing issue, environment problem, etc.): Log the build failure details in the plan file's "Final Implementation Notes" section under a "Build verification" entry and proceed with the workflow. Do not attempt to fix pre-existing issues.
+{%- if profile.record_gates is defined and profile.record_gates %}
+
+**Record build-verified gate:** When `verify_build` ran, execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=build_verified`, `status=pass` (use `fail` if the build failed for reasons unrelated to this task and you proceeded), `fields="type=machine verifier=<command>"`. Skip if no `verify_build` is configured.
+{%- endif %}
 
 - **Clean up branch and worktree:**
   ```bash
@@ -635,6 +654,9 @@ The following procedures are in individual files — read on demand when referen
 - **Execution Profile Selection Procedure** (`execution-profile-selection.md`) — Interactive profile scan and selection. Referenced from Step 0a in calling skills.
 - **Execution Profile Selection Procedure — Auto-Select** (`execution-profile-selection-auto.md`) — Non-interactive auto-select for remote/web skills. Referenced from Step 1 in aitask-pickrem/aitask-pickweb.
 - **Batch Task Creation Procedure** (`task-creation-batch.md`) — Canonical command templates for creating tasks via `aitask_create.sh --batch`. Referenced from planning.md and multiple skills (explore, review, qa, wrap, pr-import, revert).
+{%- if profile.record_gates is defined and profile.record_gates %}
+- **Gate Recording Procedure** (`gate-recording.md`) — Record a workflow checkpoint into the task's gate ledger and persist it (path-scoped commit + best-effort push) via `aitask_gate_record.sh`. Gated behind the `record_gates` profile key; referenced from Step 7 (plan_approved, risk_evaluated), Step 8 (review_approved), Step 9 (build_verified, merge_approved), and `planning.md` Checkpoint (plan_approved).
+{%- endif %}
 
 ---
 

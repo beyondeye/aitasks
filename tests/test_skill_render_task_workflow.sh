@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # test_skill_render_task_workflow.sh - Regression tests for the wrapped
 # shared workflow under .claude/skills/task-workflow/:
-#   - 11 wrapped .md files (6 profile-varying + 5 profile-invariant)
-#   - 23 golden files under tests/golden/procs/task-workflow/
+#   - 12 wrapped .md files (6 profile-varying + 6 profile-invariant)
+#   - 24 golden files under tests/golden/procs/task-workflow/
 # Coverage:
 #   1.  Per-(file, profile) golden diff for the 4 profile-varying wrapped
 #       files × 3 profiles.
@@ -65,6 +65,7 @@ WRAPPED_FILES_INVARIANT=(
     "cross-repo-child-assignment.md"
     "risk-evaluation.md"
     "risk-mitigation-followup.md"
+    "gate-recording.md"
 )
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)
@@ -258,6 +259,52 @@ assert_not_contains "default profile: no Step 8d" \
 # Step 8c's default pointer to Step 9 must be byte-stable when the key is absent.
 assert_contains "default profile: Step 8c points to Step 9" \
     'proceed to Step 9.' "$DEFAULT_RISK_SKILL"
+
+# === Test 6: synthetic record_gates: true fires the gated recording sites (t635_2) ===
+#
+# The record_gates gate is a zero-footprint {%- if profile.record_gates
+# is defined and profile.record_gates %} wrap at six dispatch sites:
+# SKILL.md Step 7 (plan_approved; risk_evaluated nested in the risk_evaluation
+# block), Step 8 (review_approved), Step 9 (build_verified, merge_approved),
+# the Procedures list, and planning.md's "Approve and stop here" branch
+# (deferred plan_approved). fast.yaml sets record_gates: true, so the committed
+# fast goldens carry these sites while default/remote omit them (Test 1). The
+# synthetic profile sets risk_evaluation too, so the nested risk_evaluated
+# recording is also exercised.
+echo "=== Test 6: synthetic record_gates: true profile ==="
+TMP_REC="$(mktemp "${TMPDIR:-/tmp}/test_record_XXXXXX.yaml")"
+trap 'rm -f "$TMP_PROFILE" "$TMP_RISK" "$TMP_REC"' EXIT
+cat > "$TMP_REC" <<'YAML'
+name: test_record_gates
+description: "Synthetic profile for t635_2 test (record_gates true)"
+record_gates: true
+risk_evaluation: true
+YAML
+REC_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$TMP_REC" claude 2>&1)"
+REC_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$TMP_REC" claude 2>&1)"
+assert_contains "record_gates true: SKILL.md emits plan_approved recording" \
+    'gate_name=plan_approved' "$REC_SKILL"
+assert_contains "record_gates true: SKILL.md emits risk_evaluated recording (nested)" \
+    'gate_name=risk_evaluated' "$REC_SKILL"
+assert_contains "record_gates true: SKILL.md emits review_approved recording" \
+    'gate_name=review_approved' "$REC_SKILL"
+assert_contains "record_gates true: SKILL.md emits build_verified recording" \
+    'gate_name=build_verified' "$REC_SKILL"
+assert_contains "record_gates true: SKILL.md emits merge_approved recording" \
+    'gate_name=merge_approved' "$REC_SKILL"
+assert_contains "record_gates true: SKILL.md lists the Gate Recording Procedure" \
+    'Gate Recording Procedure' "$REC_SKILL"
+assert_contains "record_gates true: planning.md emits deferred plan_approved recording" \
+    'gate_name=plan_approved' "$REC_PLAN"
+# Default profile (key absent) shows none — guards the zero-footprint claim.
+DEFAULT_REC_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+DEFAULT_REC_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+assert_not_contains "default profile: no SKILL.md gate recording references" \
+    'Gate Recording Procedure' "$DEFAULT_REC_SKILL"
+assert_not_contains "default profile: no SKILL.md gate-record script mention" \
+    'aitask_gate_record.sh' "$DEFAULT_REC_SKILL"
+assert_not_contains "default profile: no planning.md gate recording" \
+    'gate_name=plan_approved' "$DEFAULT_REC_PLAN"
 
 # === Summary ===
 

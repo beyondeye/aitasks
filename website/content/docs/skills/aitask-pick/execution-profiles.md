@@ -39,6 +39,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 | `manual_verification_followup_mode` | string | `"ask"` (default) or `"never"` — used by task-workflow Step 8c to control whether the post-implementation manual-verification follow-up prompt fires |
 | `manual_verification_mode` | string | `"ask"` (default), `"manual"`, `"autonomous"`, or `"autonomous_with_plan"` — pre-answers the [Manual Verification](../../workflows/manual-verification/#autonomous-verification) up-front offer to let an AI agent run the checklist. Controls only that offer; the per-item `auto` verb stays available regardless |
 | `risk_evaluation` | bool | `true` runs the [risk-evaluation step](../../workflows/risk-evaluation/) at the end of planning and offers risk-mitigation follow-ups; omit or `false` = disabled (opt-in, off by default) |
+| `record_gates` | bool | `true` records approval checkpoints (plan/review/merge approval, plus build and risk evaluation when they run) as gate-run entries in the task's gate ledger — committed for cross-PC visibility and later resume; omit or `false` = disabled (opt-in, off by default) |
 
 Omitting a key means that question is asked interactively. `enableFeedbackQuestions` is enabled by default when the key is absent.
 

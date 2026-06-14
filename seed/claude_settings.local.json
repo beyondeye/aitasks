@@ -68,6 +68,7 @@
       "Bash(./.aitask-scripts/aitask_verification_parse.sh:*)",
       "Bash(./.aitask-scripts/aitask_verified_update.sh:*)",
       "Bash(./.aitask-scripts/aitask_gate.sh:*)",
+      "Bash(./.aitask-scripts/aitask_gate_record.sh:*)",
       "Bash(./.aitask-scripts/aitask_usage_update.sh:*)",
       "Bash(./.aitask-scripts/aitask_pr_close.sh:*)",
       "Bash(./.aitask-scripts/aitask_pr_import.sh:*)",
