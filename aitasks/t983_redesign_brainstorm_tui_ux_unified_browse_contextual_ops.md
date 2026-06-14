@@ -5,7 +5,7 @@ depends: []
 issue_type: refactor
 status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
-children_to_implement: [t983_1]
+children_to_implement: [t983_1, t983_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 10:52
 updated_at: 2026-06-14 11:38
