@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t635_1]
 issue_type: feature
 status: Implementing
 labels: [gates, task_workflow]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:52
-updated_at: 2026-06-14 11:55
+updated_at: 2026-06-14 13:17
 ---
 
 ## Context
@@ -57,6 +60,25 @@ The ledger substrate is available:
   (runtime claude/codex + 3 seed files) — no permission work needed here.
 - **Python parser:** derivation logic lives in `lib/gate_ledger.py`
   (`parse_gate_runs` / `derive_status`) — reuse it; t635_8 extends it.
+
+## Spun-off follow-up (t635_21)
+
+Planning surfaced a multi-PC merge-safety gap: once a gate can be passed from a
+non-lock-holder PC (t635_15+), two machines may append to the same `## Gate
+Runs` section concurrently — which `aitask_merge.py` would surface as a manual
+body conflict (no gate-section union; no `.gitattributes`). **t635_2 itself is
+safe** (a task is locked → only the lock-holder records its gates; append-only
+EOF + `task_push` rebase merge cleanly). Created **t635_21** to add union-merge
+for the gate region; wired as a `depends:` blocker on **t635_15**. See roadmap
+"open design problem 3".
+
+## Decision recorded (roadmap open problem 2)
+
+Record-by-default vs opt-in → **opt-in, default off** via the `record_gates`
+execution-profile key (mirrors `risk_evaluation`). Shipped enabled on `fast`;
+recording is encapsulated in `./.aitask-scripts/aitask_gate_record.sh`
+(append + path-scoped commit + best-effort push), gated at the Step 6/7/8/9
+call-sites by `{% if profile.record_gates %}`.
 
 ## References
 

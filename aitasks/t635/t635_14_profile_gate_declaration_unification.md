@@ -6,7 +6,7 @@ issue_type: refactor
 status: Ready
 labels: [gates, execution_profiles, task_workflow]
 created_at: 2026-06-10 18:55
-updated_at: 2026-06-10 18:55
+updated_at: 2026-06-14 13:34
 ---
 
 ## Context
@@ -39,6 +39,15 @@ Never configure the same checkpoint in two places.
   keep their Jinja gating untouched — they migrate only if/when converted.
 - Read `aidocs/framework/agent_runtime_guards_audit.md` before moving any
   runtime guard into a Jinja gate or vice versa.
+
+## Coordination (from t635_2)
+
+t635_2 added the first gate-related execution-profile key, `record_gates`
+(opt-in bool), and registered it in `.aitask-scripts/lib/profile_editor.py`
+(`PROFILE_SCHEMA` + `PROFILE_FIELD_INFO`) under a new **"Gates"**
+`PROFILE_FIELD_GROUPS` entry. When this task introduces `default_gates`,
+register it the same way (schema + field info + the existing "Gates" group) and
+pick a clear user-facing name consistent with `record_gates`.
 
 ## References
 

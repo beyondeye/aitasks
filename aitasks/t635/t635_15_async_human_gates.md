@@ -1,12 +1,12 @@
 ---
 priority: low
 effort: medium
-depends: [t635_11]
+depends: [t635_11, t635_21]
 issue_type: feature
 status: Ready
 labels: [gates, task_workflow]
 created_at: 2026-06-10 18:56
-updated_at: 2026-06-10 18:56
+updated_at: 2026-06-14 13:34
 ---
 
 ## Context

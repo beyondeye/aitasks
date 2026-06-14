@@ -6,7 +6,7 @@ issue_type: feature
 status: Ready
 labels: [gates, aitakspickrem, remote]
 created_at: 2026-06-10 18:56
-updated_at: 2026-06-10 18:56
+updated_at: 2026-06-14 13:34
 ---
 
 ## Context
@@ -29,6 +29,14 @@ by using machine gates as hard verification the lane cannot skip.
 - pickweb constraint: no cross-branch operations — gate ledger appends and
   sidecar logs follow the existing `.aitask-data-updated/` local-storage
   model.
+
+## Coordination (from t635_2)
+
+t635_2 established the gate execution-profile key pattern (`record_gates`,
+registered in `.aitask-scripts/lib/profile_editor.py` under the "Gates"
+`PROFILE_FIELD_GROUPS` entry). When this task adds
+`auto_complete_on_all_gates_pass`, register it the same way (schema + field info
++ the "Gates" group).
 
 ## References
 
