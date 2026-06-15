@@ -1868,6 +1868,89 @@ def prev_step_id(ctx: dict, step_id: str) -> str | None:
     return ids[i - 1] if i > 0 else None
 
 
+# ---------------------------------------------------------------------------
+# Node selection model (t983_2)
+#
+# Pure, headless model backing the Browse-tab selection (parent t983 IA
+# redesign). Like the wizard step model above, it reads/writes only its own
+# state — no Textual import, no session-file I/O — so it is exhaustively
+# unit-testable without a running App (see tests/test_brainstorm_node_selection.py).
+# Purely additive: the legacy single-selection `_current_focused_node_id` path
+# is untouched until t983_3 wires this model in.
+# ---------------------------------------------------------------------------
+
+
+class NodeSelection:
+    """Selection state for the Browse UI: a ``primary`` cursor + a ``marked`` set.
+
+    The target IA replaces single-node selection with ``space``-marking (single
+    OR multi); the Operations dialog (t983_4) greys ops by selection
+    *cardinality*. This model fixes the primary-vs-marked semantics:
+
+      * ``primary`` is the cursor / focused node. SINGLE-node operations act on
+        ``primary``. The cursor moves independently of marking (arrows move it;
+        ``space`` marks the node under it).
+      * ``marked`` is the explicitly space-marked set. MULTI-node operations act
+        on ``marked``. Marking is what promotes a selection from single to multi.
+      * :attr:`cardinality` is the EFFECTIVE selection size the dialog greys ops
+        by: ``len(marked)`` when anything is marked, else ``1`` when a ``primary``
+        cursor exists, else ``0``.
+      * :meth:`effective` is the concrete target set an operation runs on — the
+        runnable form of the cardinality rule.
+    """
+
+    def __init__(self, primary: str | None = None, marked: set[str] | None = None):
+        self.primary = primary
+        self.marked: set[str] = set(marked) if marked else set()
+
+    def set_primary(self, node_id: str | None) -> None:
+        """Move the cursor to ``node_id`` (or clear it with ``None``)."""
+        self.primary = node_id
+
+    def mark(self, node_id: str) -> None:
+        """Add ``node_id`` to the marked set (idempotent)."""
+        self.marked.add(node_id)
+
+    def unmark(self, node_id: str) -> None:
+        """Remove ``node_id`` from the marked set (no-op if absent)."""
+        self.marked.discard(node_id)
+
+    def toggle(self, node_id: str) -> None:
+        """Flip ``node_id``'s marked state."""
+        if node_id in self.marked:
+            self.marked.discard(node_id)
+        else:
+            self.marked.add(node_id)
+
+    def clear(self) -> None:
+        """Clear the marked set only — the cursor (``primary``) persists."""
+        self.marked.clear()
+
+    def remove(self, node_id: str) -> None:
+        """Drop ``node_id`` from the selection entirely (e.g. when it is deleted
+        from the graph): unmark it AND clear it as ``primary`` if it was the
+        cursor. Single-call cleanup so consumers don't have to remember a
+        two-step purge. No-op if ``node_id`` is in neither."""
+        self.marked.discard(node_id)
+        if self.primary == node_id:
+            self.primary = None
+
+    @property
+    def cardinality(self) -> int:
+        """Effective selection size: marked count if any, else 1 for a lone
+        cursor, else 0."""
+        if self.marked:
+            return len(self.marked)
+        return 1 if self.primary is not None else 0
+
+    def effective(self) -> set[str]:
+        """Node ids an operation targets: the marked set if any are marked, else
+        the primary as a singleton, else empty."""
+        if self.marked:
+            return set(self.marked)
+        return {self.primary} if self.primary is not None else set()
+
+
 class CompareNodeSelectModal(ShortcutsMixin, ModalScreen):
     """Modal for selecting 2-4 nodes to compare in the dimension matrix."""
 
