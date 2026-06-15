@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: [t986_4]
 issue_type: chore
-status: Implementing
+status: Done
 labels: [claudeskills, codeagent]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: codex/gpt5_5
 created_at: 2026-06-14 22:55
-updated_at: 2026-06-15 10:37
+updated_at: 2026-06-15 10:47
+completed_at: 2026-06-15 10:47
 ---
 
 Port the `/aitask-shadow` user-invocable command to OpenCode.
