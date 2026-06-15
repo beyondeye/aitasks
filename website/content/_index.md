@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.25.0: Task gates that actually drive the workflow, Your phone can now talk to your workspace, and Meet the shadow companion](blog/v0250-task-gates-that-actually-drive-the-workflow-your-phone-can-now-talk-to-you/)** -- Jun 15, 2026
 - **[v0.24.0: See your proposal while you work, Your tmux sessions stop dying, and Smarter module decomposition](blog/v0240-see-your-proposal-while-you-work-your-tmux-sessions-stop-dying-smarter-mod/)** -- Jun 12, 2026
 - **[v0.23.1: Installs that just re-run cleanly, and Less untracked clutter from generated skills](blog/v0231-installs-that-just-re-run-cleanly-less-untracked-clutter-from-generated-sk/)** -- Jun 4, 2026
-- **[v0.23.0: Brainstorm module decomposition, Risk evaluation in planning, Cross-repo planning, and  straight from explore](blog/v0230-brainstorm-module-decomposition-risk-evaluation-in-planning-cross-repo-pla/)** -- Jun 3, 2026
 
 [All releases &rarr;](blog/)
 
