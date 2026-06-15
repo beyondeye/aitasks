@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [t986_5]
 issue_type: documentation
 status: Implementing
 labels: [web_site, aitask_monitormini, development]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 16:04
-updated_at: 2026-06-15 17:04
+updated_at: 2026-06-15 18:34
 ---
 
 ## Context
@@ -59,3 +62,8 @@ documenting). Reflects t986_1..t986_5.
 - Cross-references updated (no dangling links to renamed/added sections).
 - Doc prose follows `documentation_conventions.md` (current-state-only;
   generic agent naming; placeholder project names).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-15T15:34:01Z status=pass attempt=1 type=human
