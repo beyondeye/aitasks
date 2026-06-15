@@ -265,6 +265,16 @@ TMUX_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
         "type": "bool",
         "default": "true",
     },
+    "shadow_pane_width": {
+        "summary": "Width (cols) of the shadow agent pane",
+        "detail": (
+            "Column width for the shadow companion pane spawned next to the "
+            "followed agent by minimonitor 'e' when shadow_same_window is "
+            "enabled (default: 60)"
+        ),
+        "type": "int",
+        "default": "60",
+    },
 }
 
 
@@ -2395,7 +2405,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             stype = info.get("type", "string")
             current = tmux.get(key)
 
-            if stype == "string":
+            if stype in ("string", "int"):
                 display = str(current) if current is not None else info["default"]
                 container.mount(ConfigRow(
                     key, display, config_layer="project", row_key=key,
@@ -2456,6 +2466,18 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     val = (row.raw_value or "").strip()
                     if val:
                         tmux_data[key] = val
+                except Exception:
+                    pass
+            elif stype == "int":
+                widget_id = f"tmux_cfg_{_safe_id(key)}_{rc}"
+                try:
+                    row = self.query_one(f"#{widget_id}", ConfigRow)
+                    val = (row.raw_value or "").strip()
+                    if val:
+                        try:
+                            tmux_data[key] = int(val)
+                        except ValueError:
+                            tmux_data[key] = int(info["default"])
                 except Exception:
                     pass
             elif stype in ("enum", "bool"):

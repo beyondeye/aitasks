@@ -259,6 +259,21 @@ tmux:
   # shadow_same_window: true
 
   # ──────────────────────────────────────────────────────────────────
+  # shadow_pane_width — width (columns) of the shadow agent pane.
+  #
+  # When shadow_same_window is true, `ait minimonitor` ('e') spawns the
+  # shadow companion as a pane next to the followed agent (between the agent
+  # and the minimonitor), sized to this width. tmux applies it as the pane's
+  # initial width.
+  #
+  # Default: 60.
+  #
+  # Example:
+  #   shadow_pane_width: 60
+  # ──────────────────────────────────────────────────────────────────
+  # shadow_pane_width: 60
+
+  # ──────────────────────────────────────────────────────────────────
   # syncer — `ait syncer` TUI for remote desync tracking.
   #
   # The syncer TUI tracks ahead/behind state for the project's tracked

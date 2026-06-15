@@ -68,6 +68,22 @@ class TmuxLaunchConfig:
     new_session: bool
     new_window: bool
     split_direction: str = "horizontal"  # only used when new_window=False
+    # Split-pane placement/size, only used by the split branch (new_window=False
+    # and new_session=False). ``split_before`` adds tmux ``-b`` so the new pane
+    # is placed *before* the target (left for a horizontal split, above for a
+    # vertical one) instead of the default after (right/below). ``split_size``
+    # adds tmux ``-l <N>`` to size the new pane (columns for a horizontal split,
+    # rows for a vertical one). Both default to no-op so every other caller's
+    # split behavior is unchanged.
+    split_before: bool = False
+    split_size: int | None = None
+    # When set, split this specific pane (``-t <pane_id>``) instead of the
+    # window's active pane. Required when the caller is itself a narrow pane in
+    # the target window (e.g. minimonitor spawning a shadow): splitting the
+    # active pane would size ``split_size`` against the wrong, narrow pane and
+    # collapse the new pane to width 1. Defaults to None (split the active pane,
+    # the historical behavior). Only used by the split branch.
+    split_target_pane: str | None = None
     # Working directory for the new tmux pane. When set, ``launch_in_tmux``
     # passes ``-c <cwd>`` to tmux so the launched command runs in this dir
     # rather than inheriting the calling pane's cwd. Required for cross-
@@ -600,18 +616,21 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
     else:
         # Split existing window into a new pane
         split_flag = "-h" if config.split_direction == "horizontal" else "-v"
-        target = tmux_window_target(config.session, config.window)
-        rc, out = _TMUX.run([
-            "split-window",
-            "-P", "-F", "#{pane_pid}",
-            split_flag, "-t", target,
-            *cwd_args,
-            command,
-        ])
+        window_target = tmux_window_target(config.session, config.window)
+        # Split a specific pane when requested (so split_size sizes against that
+        # pane), else the window's active pane.
+        split_target = config.split_target_pane or window_target
+        split_args = ["split-window", "-P", "-F", "#{pane_pid}", split_flag]
+        if config.split_before:
+            split_args.append("-b")
+        if config.split_size is not None:
+            split_args += ["-l", str(config.split_size)]
+        split_args += ["-t", split_target, *cwd_args, command]
+        rc, out = _TMUX.run(split_args)
         if rc != 0:
             return None, f"tmux split-window failed (rc={rc})"
         # Switch to the target window so the user sees the new pane
-        _TMUX.spawn(["select-window", "-t", target])
+        _TMUX.spawn(["select-window", "-t", window_target])
         return _parse_pane_pid(out), None
 
 

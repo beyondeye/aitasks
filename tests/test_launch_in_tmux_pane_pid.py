@@ -143,6 +143,66 @@ class TestLaunchInTmuxSplitWindow(unittest.TestCase):
         idx = argv.index("-F")
         self.assertEqual(argv[idx + 1], "#{pane_pid}")
 
+    def _capture_split_argv(self, config) -> list:
+        captured = {}
+
+        def fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            return _FakeRunResult(0, "1\n", "")
+
+        with patch.object(subprocess, "run", side_effect=fake_run), \
+             patch.object(subprocess, "Popen"):
+            launch_in_tmux("echo hi", config)
+        return captured["argv"]
+
+    def test_default_split_has_no_before_or_size(self):
+        # Without the new fields, neither -b nor -l should appear (existing
+        # callers stay byte-for-byte unchanged).
+        argv = self._capture_split_argv(self.config)
+        self.assertIn("-h", argv)
+        self.assertNotIn("-b", argv)
+        self.assertNotIn("-l", argv)
+
+    def test_split_before_adds_b_flag(self):
+        config = TmuxLaunchConfig(
+            session="testsess", window="testwin",
+            new_session=False, new_window=False,
+            split_before=True,
+        )
+        argv = self._capture_split_argv(config)
+        self.assertIn("-b", argv)
+
+    def test_split_size_adds_l_flag_with_value(self):
+        config = TmuxLaunchConfig(
+            session="testsess", window="testwin",
+            new_session=False, new_window=False,
+            split_before=True, split_size=80,
+        )
+        argv = self._capture_split_argv(config)
+        self.assertIn("-b", argv)
+        idx = argv.index("-l")
+        self.assertEqual(argv[idx + 1], "80")
+
+    def test_default_target_is_window(self):
+        # Without split_target_pane, -t targets the window.
+        argv = self._capture_split_argv(self.config)
+        idx = argv.index("-t")
+        self.assertEqual(argv[idx + 1],
+                         tmux_window_target("testsess", "testwin"))
+
+    def test_split_target_pane_overrides_window_target(self):
+        # With split_target_pane, -t targets that pane so the size is applied
+        # against it, not the window's active pane.
+        config = TmuxLaunchConfig(
+            session="testsess", window="testwin",
+            new_session=False, new_window=False,
+            split_before=True, split_size=80,
+            split_target_pane="%28",
+        )
+        argv = self._capture_split_argv(config)
+        idx = argv.index("-t")
+        self.assertEqual(argv[idx + 1], "%28")
+
 
 class TestLaunchInTmuxNewSession(unittest.TestCase):
     def setUp(self):

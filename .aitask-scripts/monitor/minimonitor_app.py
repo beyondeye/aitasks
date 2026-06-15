@@ -14,6 +14,7 @@ import contextlib
 import os
 import subprocess
 import sys
+import textwrap
 import time
 from pathlib import Path
 
@@ -149,7 +150,6 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("q", "quit", "Quit", show=False),
         Binding("s", "switch_to", "Switch", show=False),
         Binding("i", "show_task_info", "Task Info", show=False),
-        Binding("r", "refresh", "Refresh", show=False),
         Binding("m", "switch_to_monitor", "Full Monitor", show=False),
         Binding("M", "toggle_multi_session", "Multi", show=False),
         Binding("d", "cycle_compare_mode", "Detect", show=False),
@@ -199,10 +199,11 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         yield VerticalScroll(id="mini-own-agent")
         yield VerticalScroll(id="mini-pane-list")
         yield Static(
-            "tab:agent  s/\u2191\u2193:switch  i:info\n"
-            "k:kill  n:next  enter:send\n"
-            "j:jump  r:refresh  q:quit\n"
-            "m:full monitor  d:detect (\u2248 strip, = raw)",
+            "i:info  q:quit  tab:agent\n"
+            "s/\u2191\u2193:switch  enter:send\n"
+            "d:detect (\u2248 strip, = raw)\n"
+            "j:tui switcher  m:full monitor\n"
+            "k:kill  n:next  e:shadow",
             id="mini-key-hints",
         )
 
@@ -560,10 +561,16 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if task_id:
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
-                title = info.title
-                if len(title) > 30:
-                    title = title[:29] + "…"
-                line += f"\n  [dim]{title}[/]"
+                # Wrap the task description over up to two lines, sized to the
+                # companion column (minus its padding + the 2-space indent).
+                wrap_width = max(20, self._target_width - 4)
+                wrapped = textwrap.wrap(info.title, wrap_width)[:2]
+                if len(wrapped) == 2 and len(info.title) > sum(
+                    len(w) for w in wrapped
+                ) + 1:
+                    wrapped[1] = wrapped[1][: max(1, wrap_width - 1)] + "…"
+                for wline in wrapped:
+                    line += f"\n  [dim]{wline}[/]"
         return line
 
     async def _maybe_build_own_agent_panel(self) -> None:
@@ -976,12 +983,24 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         same_window = bool(tmux_cfg.get("shadow_same_window", True))
         sess = snap.pane.session_name or self._session
         if same_window:
+            try:
+                shadow_width = int(tmux_cfg.get("shadow_pane_width", 60))
+            except (TypeError, ValueError):
+                shadow_width = 60
             cfg = TmuxLaunchConfig(
                 session=sess,
                 window=snap.pane.window_name,
                 new_session=False,
                 new_window=False,
                 split_direction=str(tmux_cfg.get("default_split", "horizontal")),
+                # Insert the shadow to the RIGHT of the followed AGENT pane
+                # (between the agent and this minimonitor), sized to the
+                # configured width (t994). Target the agent pane (not the
+                # window's active pane, which is this narrow minimonitor) so the
+                # width is sized against the wide agent pane; keep the agent
+                # anchored on the left (no split_before).
+                split_size=shadow_width,
+                split_target_pane=followed_pane,
                 cwd=str(target_root),
             )
         else:
@@ -1048,11 +1067,6 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         suffix = " (default)" if is_default else " (override)"
         self.notify(f"Idle detect: {new_mode}{suffix}", timeout=3)
         self.call_later(self._refresh_data)
-
-    def action_refresh(self) -> None:
-        """Force an immediate data refresh."""
-        self.call_later(self._refresh_data)
-        self.notify("Refreshed")
 
     def action_toggle_multi_session(self) -> None:
         """Flip the multi-session view ON/OFF in memory.
