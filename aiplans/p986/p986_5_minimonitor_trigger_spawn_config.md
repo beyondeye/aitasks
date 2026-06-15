@@ -212,3 +212,64 @@ value._
 Standard cleanup/archival/merge per `task-workflow` Step 9 (child-task path:
 archive to `aitasks/archived/t986/` + `aiplans/archived/p986/`; parent t986
 archives only when all children complete).
+
+## Final Implementation Notes
+
+- **Actual work done:** All 5 plan steps implemented.
+  - `aitask_codeagent.sh`: `shadow` added to `SUPPORTED_OPERATIONS`; dispatch
+    cases for claudecode (`/aitask-shadow ${args[*]}`), opencode (`--prompt
+    /aitask-shadow ...`), and codex (`build_skill_prompt "$aitask-shadow"`).
+  - `lib/codex_plan_policy.sh`: `shadow` added to the relaxed (default-mode)
+    skill set alongside `qa|explain` — the shadow is advisory/read-only, so it
+    must NOT be routed through the `/plan` PTY wrapper.
+  - `lib/agent_launch_utils.py`: new `resolve_pane_id_by_pid(session, pid)`
+    (matches the pid `launch_in_tmux` returns to the new pane's id) and
+    `attach_shadow_cleanup_hook(agent_pane, companion_pane)` (factors out the
+    `remain-on-exit on` + `pane-died → aitask_companion_cleanup.sh` wiring that
+    was inlined in `tui_switcher`). Both gateway-only.
+  - `monitor/minimonitor_app.py`: `Binding("e", "launch_shadow", ...)` +
+    `action_launch_shadow()` — resolves followed pane + task id, builds the
+    `shadow` command via `resolve_dry_run_command`, launches same-window (split)
+    by default or separate-window (`agent-shadow-<id>`) per
+    `tmux.shadow_same_window`, stamps `@aitask_shadow_target` on the resolved
+    shadow pane, and attaches the cleanup hook. Imports `SHADOW_TARGET_OPTION`,
+    `resolve_pane_id_by_pid`, `attach_shadow_cleanup_hook`.
+  - `settings/settings_app.py`: `OPERATION_DESCRIPTIONS["shadow"]` (labels the
+    auto-rendered Agent-Defaults row) + `TMUX_CONFIG_SCHEMA["shadow_same_window"]`
+    (bool, default true).
+  - `codeagent_config.json` (seed + project) `defaults.shadow`; seed
+    `project_config.yaml` commented `shadow_same_window` example.
+  - `tests/test_shadow_spawn_config.sh` (15 assertions): per-agent dry-run
+    resolution, op support, codex-plan-policy relaxation, and the
+    `resolve_pane_id_by_pid` unit (faked gateway).
+- **Deviations from plan:** (1) Plan said the toggle went in `PROJECT_CONFIG_SCHEMA`;
+  the verify pass corrected this to the dedicated `TMUX_CONFIG_SCHEMA` (done).
+  (2) The project-level `defaults.shadow` was set to `claudecode/sonnet4_6` (the
+  seed default remains `claudecode/opus4_8`) — a lighter model suits the
+  advisory companion; both layers are valid since project config overrides seed.
+  (3) Added the `OPERATION_DESCRIPTIONS` entry (surfaced during the plan-review
+  Q on settings configurability) so the data-driven settings row is labeled.
+- **Issues encountered:** None. `launch_in_tmux` returns `pane_pid` (not the new
+  `pane_id`), so the `@aitask_shadow_target` stamp needs `resolve_pane_id_by_pid`
+  — anticipated in the plan and implemented as a read-only pid→pane_id match,
+  avoiding a blast-radius change to `launch_in_tmux`'s shared return tuple.
+- **Key decisions:** (1) Codex shadow runs in default/analysis mode, not plan
+  mode. (2) The pane-died cleanup hook is attached to the *followed agent* pane
+  at shadow-spawn time (the agent had none before — only the git-TUI path wired
+  it); this also makes the agent's minimonitor companion despawn on agent death,
+  a beneficial side effect consistent with git-TUI behavior. (3) The hook logic
+  is factored into `attach_shadow_cleanup_hook` so the new call site and the
+  existing `tui_switcher` block can share one implementation.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t986_6 (docs):** document `/aitask-shadow` launch via minimonitor `e`, the
+    `tmux.shadow_same_window` toggle, and the `defaults.shadow` agent+model
+    config (editable in `ait settings` → Agent Defaults, project + local layers).
+  - **t986_7 (manual verification):** live-verify `e` spawns the shadow in the
+    same window, the shadow pane is absent from the agent list (carries
+    `@aitask_shadow_target`), and killing the followed agent auto-kills the shadow.
+  - **t988 / t989:** the codeagent dispatch already emits the opencode/codex
+    `/aitask-shadow` command; those tasks add the actual command-wrapper skills.
+  - **tui_switcher.py** can now switch its inlined `remain-on-exit`/`pane-died`
+    block (≈1078–1087) to `attach_shadow_cleanup_hook` — small dedup, not done
+    here to keep this task's blast radius tight.
