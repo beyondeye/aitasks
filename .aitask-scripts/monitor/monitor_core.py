@@ -936,7 +936,8 @@ class TmuxMonitor:
 
     def _parse_list_panes(self, stdout: str, session_name: str) -> list[TmuxPaneInfo]:
         panes: list[TmuxPaneInfo] = []
-        for line in stdout.strip().splitlines():
+        # Preserve an empty final @aitask_shadow_target field on non-shadow panes.
+        for line in stdout.splitlines():
             parts = line.split("\t")
             if len(parts) != 9:
                 continue

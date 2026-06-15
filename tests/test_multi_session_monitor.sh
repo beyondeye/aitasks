@@ -24,6 +24,8 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 LIB_DIR="$PROJECT_DIR/.aitask-scripts/lib"
 MONITOR_DIR="$PROJECT_DIR/.aitask-scripts/monitor"
+BOARD_DIR="$PROJECT_DIR/.aitask-scripts/board"
+PYPATH="$LIB_DIR:$MONITOR_DIR:$BOARD_DIR:$PROJECT_DIR/.aitask-scripts"
 
 # shellcheck source=lib/venv_python.sh
 . "$SCRIPT_DIR/lib/venv_python.sh"
@@ -37,9 +39,9 @@ TOTAL=0
 
 # --- Tier 1: Python dataclass + TmuxMonitor (mock-based, always run) ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" -c "
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" -c "
 from dataclasses import fields
-import tmux_monitor as tm
+import monitor.monitor_core as tm
 
 names = {f.name for f in fields(tm.TmuxPaneInfo)}
 print('HAS_SESSION_NAME:' + str('session_name' in names))
@@ -53,9 +55,9 @@ assert_eq "TmuxPaneInfo.session_name default is ''" "DEFAULT_SESSION_NAME:''" "$
 
 # --- Tier 1b: discover_panes aggregates across sessions (mock-based) ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
-from unittest.mock import patch, MagicMock
-import tmux_monitor as tm
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+from unittest.mock import patch
+import monitor.monitor_core as tm
 from agent_launch_utils import AitasksSession
 from pathlib import Path
 
@@ -67,32 +69,26 @@ fake_sessions = [
 
 # Build a synthetic list-panes stdout (one agent pane per session).
 def make_row(widx, wname, pidx, pane_id, pid):
-    parts = [widx, wname, pidx, pane_id, str(pid), "bash", "80", "24"]
+    parts = [widx, wname, pidx, pane_id, str(pid), "bash", "80", "24", ""]
     return "\t".join(parts)
 
 rows_a = make_row("1", "agent-t42-claudecode", "0", "%1", 1001) + "\n"
 rows_b = make_row("1", "agent-t43-claudecode", "0", "%2", 1002) + "\n"
 
-def fake_run(cmd, *args, **kwargs):
-    result = MagicMock()
-    result.returncode = 0
+def fake_tmux_run(cmd, *args, **kwargs):
     # list-panes -s -t =sessA or =sessB
-    if len(cmd) >= 6 and cmd[1] == "list-panes":
-        target = cmd[4] if "-t" in cmd else ""
+    if len(cmd) >= 6 and cmd[0] == "list-panes":
+        target = cmd[cmd.index("-t") + 1] if "-t" in cmd else ""
         if "sessA" in target:
-            result.stdout = rows_a
+            return 0, rows_a
         elif "sessB" in target:
-            result.stdout = rows_b
-        else:
-            result.stdout = ""
-    else:
-        result.stdout = ""
-    return result
+            return 0, rows_b
+    return 0, ""
 
 # _is_companion_process must return False so panes aren't filtered out.
 with patch.object(tm, "discover_aitasks_sessions", return_value=fake_sessions), \
      patch.object(tm, "_is_companion_process", return_value=False), \
-     patch.object(tm.subprocess, "run", side_effect=fake_run):
+     patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
     mon = tm.TmuxMonitor(session="ignored", multi_session=True)
     panes = mon.discover_panes()
 
@@ -111,25 +107,22 @@ assert_contains "sessA panes come first after sort" "PANE:sessA:%1" "${lines[1]:
 
 # --- Tier 1c: single-session mode still issues exactly one list-panes call ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
-from unittest.mock import patch, MagicMock
-import tmux_monitor as tm
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+from unittest.mock import patch
+import monitor.monitor_core as tm
 
 calls = []
 
-def fake_run(cmd, *args, **kwargs):
+def fake_tmux_run(cmd, *args, **kwargs):
     calls.append(list(cmd))
-    result = MagicMock()
-    result.returncode = 0
-    result.stdout = ""
-    return result
+    return 0, ""
 
 with patch.object(tm, "_is_companion_process", return_value=False), \
-     patch.object(tm.subprocess, "run", side_effect=fake_run):
+     patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
     mon = tm.TmuxMonitor(session="solo", multi_session=False)
     mon.discover_panes()
 
-list_pane_calls = [c for c in calls if len(c) > 2 and c[1] == "list-panes"]
+list_pane_calls = [c for c in calls if c and c[0] == "list-panes"]
 print("LP_CALLS:" + str(len(list_pane_calls)))
 if list_pane_calls:
     target = list_pane_calls[0]
@@ -145,10 +138,10 @@ assert_contains "single-session mode targets self.session" \
 
 # --- Tier 1d: switch_to_pane cross-session routes through switch_to_pane_anywhere ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
-from unittest.mock import patch, MagicMock
-import tmux_monitor as tm
-from tmux_monitor import TmuxPaneInfo, PaneCategory
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+from unittest.mock import patch
+import monitor.monitor_core as tm
+from monitor.monitor_core import TmuxPaneInfo, PaneCategory
 
 pane = TmuxPaneInfo(
     window_index="1", window_name="agent-t42-cc", pane_index="0",
@@ -165,14 +158,12 @@ def fake_switch_anywhere(pane_id):
 
 direct_tmux_calls = []
 
-def fake_run(cmd, *args, **kwargs):
+def fake_tmux_run(cmd, *args, **kwargs):
     direct_tmux_calls.append(list(cmd))
-    result = MagicMock()
-    result.returncode = 0
-    return result
+    return 0, ""
 
 with patch.object(tm, "switch_to_pane_anywhere", side_effect=fake_switch_anywhere), \
-     patch.object(tm.subprocess, "run", side_effect=fake_run):
+     patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
     mon = tm.TmuxMonitor(session="self_sess", multi_session=True)
     mon._pane_cache["%7"] = pane
     ok = mon.switch_to_pane("%7")
@@ -181,7 +172,7 @@ print("OK:" + str(ok))
 print("TELEPORT_CALLS:" + str(len(switch_calls)))
 print("TELEPORT_PANE:" + (switch_calls[0] if switch_calls else ""))
 # Direct tmux select-window / select-pane MUST NOT have fired in cross-session path.
-select_window = [c for c in direct_tmux_calls if len(c) > 1 and c[1] == "select-window"]
+select_window = [c for c in direct_tmux_calls if c and c[0] == "select-window"]
 print("DIRECT_SELECT_WINDOW:" + str(len(select_window)))
 PY
 )
@@ -195,10 +186,10 @@ assert_contains "cross-session switch does NOT call select-window directly" \
 
 # --- Tier 1e: switch_to_pane same-session uses existing path ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
-from unittest.mock import patch, MagicMock
-import tmux_monitor as tm
-from tmux_monitor import TmuxPaneInfo, PaneCategory
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+from unittest.mock import patch
+import monitor.monitor_core as tm
+from monitor.monitor_core import TmuxPaneInfo, PaneCategory
 
 pane = TmuxPaneInfo(
     window_index="2", window_name="agent-t42-cc", pane_index="0",
@@ -215,14 +206,12 @@ def fake_switch_anywhere(pane_id):
 
 direct_calls = []
 
-def fake_run(cmd, *args, **kwargs):
+def fake_tmux_run(cmd, *args, **kwargs):
     direct_calls.append(list(cmd))
-    result = MagicMock()
-    result.returncode = 0
-    return result
+    return 0, ""
 
 with patch.object(tm, "switch_to_pane_anywhere", side_effect=fake_switch_anywhere), \
-     patch.object(tm.subprocess, "run", side_effect=fake_run):
+     patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
     mon = tm.TmuxMonitor(session="self_sess", multi_session=True)
     mon._pane_cache["%8"] = pane
     ok = mon.switch_to_pane("%8")
@@ -230,7 +219,7 @@ with patch.object(tm, "switch_to_pane_anywhere", side_effect=fake_switch_anywher
 print("OK:" + str(ok))
 print("TELEPORT_CALLS:" + str(len(teleport_calls)))
 # select-window should have been called for same-session.
-select_window = [c for c in direct_calls if len(c) > 1 and c[1] == "select-window"]
+select_window = [c for c in direct_calls if c and c[0] == "select-window"]
 print("DIRECT_SELECT_WINDOW:" + str(len(select_window)))
 PY
 )
@@ -242,10 +231,10 @@ assert_contains "same-session switch DOES call select-window directly" \
 
 # --- Tier 1f: kill_agent_pane_smart uses pane.session_name ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
-from unittest.mock import patch, MagicMock
-import tmux_monitor as tm
-from tmux_monitor import TmuxPaneInfo, PaneCategory
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+from unittest.mock import patch
+import monitor.monitor_core as tm
+from monitor.monitor_core import TmuxPaneInfo, PaneCategory
 
 pane = TmuxPaneInfo(
     window_index="3", window_name="agent-t42-cc", pane_index="0",
@@ -256,19 +245,19 @@ pane = TmuxPaneInfo(
 
 captured_targets = []
 
-def fake_run(cmd, *args, **kwargs):
+def fake_tmux_run(cmd, *args, **kwargs):
     # Capture the list-panes -t target argument.
-    if len(cmd) > 3 and cmd[1] == "list-panes" and "-t" in cmd:
+    if len(cmd) > 3 and cmd[0] == "list-panes" and "-t" in cmd:
         idx = cmd.index("-t")
         captured_targets.append(cmd[idx + 1])
-    result = MagicMock()
-    result.returncode = 0
-    # Simulate one sibling agent pane so we go through kill_pane path (not kill_window)
-    result.stdout = "%99\t1234\n%9\t999\n"
-    return result
+        # Simulate one sibling agent pane so we go through kill_pane path
+        # (not kill_window). Keep the third field empty: it is the shadow
+        # target marker, and non-empty values are classified as helpers.
+        return 0, "%99\t1234\t\n%9\t999\t\n"
+    return 0, ""
 
 with patch.object(tm, "_is_companion_process", return_value=False), \
-     patch.object(tm.subprocess, "run", side_effect=fake_run):
+     patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
     mon = tm.TmuxMonitor(session="self_sess", multi_session=True)
     mon._pane_cache["%9"] = pane
     mon.kill_agent_pane_smart("%9")
@@ -285,9 +274,9 @@ assert_not_contains "kill_agent_pane_smart does NOT use self.session" \
 
 # --- Tier 1g: _is_companion_process filter still applies in multi mode ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
-from unittest.mock import patch, MagicMock
-import tmux_monitor as tm
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+from unittest.mock import patch
+import monitor.monitor_core as tm
 from agent_launch_utils import AitasksSession
 from pathlib import Path
 
@@ -296,17 +285,14 @@ fake_sessions = [
 ]
 
 def make_row(widx, wname, pidx, pane_id, pid):
-    return "\t".join([widx, wname, pidx, pane_id, str(pid), "python3", "80", "24"])
+    return "\t".join([widx, wname, pidx, pane_id, str(pid), "python3", "80", "24", ""])
 
 # Two agent panes, one is a companion (minimonitor).
 stdout = make_row("1", "agent-t1", "0", "%1", 1001) + "\n" + \
          make_row("1", "agent-t1", "1", "%2", 1002) + "\n"
 
-def fake_run(cmd, *args, **kwargs):
-    result = MagicMock()
-    result.returncode = 0
-    result.stdout = stdout if cmd[1] == "list-panes" else ""
-    return result
+def fake_tmux_run(cmd, *args, **kwargs):
+    return 0, stdout if cmd and cmd[0] == "list-panes" else ""
 
 # Mark PID 1002 as a companion.
 def fake_companion(pid):
@@ -314,7 +300,7 @@ def fake_companion(pid):
 
 with patch.object(tm, "discover_aitasks_sessions", return_value=fake_sessions), \
      patch.object(tm, "_is_companion_process", side_effect=fake_companion), \
-     patch.object(tm.subprocess, "run", side_effect=fake_run):
+     patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
     mon = tm.TmuxMonitor(session="sessX", multi_session=True)
     panes = mon.discover_panes()
 
@@ -330,9 +316,9 @@ assert_not_contains "companion pane is filtered out" "PANE:%2" "$out"
 
 # --- Tier 1h: exclude_pane still filters in multi mode ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
-from unittest.mock import patch, MagicMock
-import tmux_monitor as tm
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+from unittest.mock import patch
+import monitor.monitor_core as tm
 from agent_launch_utils import AitasksSession
 from pathlib import Path
 
@@ -341,20 +327,17 @@ fake_sessions = [
 ]
 
 def make_row(widx, wname, pidx, pane_id, pid):
-    return "\t".join([widx, wname, pidx, pane_id, str(pid), "bash", "80", "24"])
+    return "\t".join([widx, wname, pidx, pane_id, str(pid), "bash", "80", "24", ""])
 
 stdout = make_row("1", "agent-t1", "0", "%exclude_me", 1001) + "\n" + \
          make_row("1", "agent-t2", "0", "%keep_me", 1002) + "\n"
 
-def fake_run(cmd, *args, **kwargs):
-    result = MagicMock()
-    result.returncode = 0
-    result.stdout = stdout if cmd[1] == "list-panes" else ""
-    return result
+def fake_tmux_run(cmd, *args, **kwargs):
+    return 0, stdout if cmd and cmd[0] == "list-panes" else ""
 
 with patch.object(tm, "discover_aitasks_sessions", return_value=fake_sessions), \
      patch.object(tm, "_is_companion_process", return_value=False), \
-     patch.object(tm.subprocess, "run", side_effect=fake_run):
+     patch.object(tm.TmuxMonitor, "tmux_run", side_effect=fake_tmux_run):
     mon = tm.TmuxMonitor(
         session="sessY", multi_session=True, exclude_pane="%exclude_me",
     )
@@ -371,8 +354,8 @@ assert_contains "other pane survives" "PANE:%keep_me" "$out"
 
 # --- Tier 1i: MonitorApp M binding + action_toggle_multi_session ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
-import monitor_app as mon_app
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+from monitor import monitor_app as mon_app
 
 # Ensure M is present in BINDINGS.
 keys = []
@@ -424,10 +407,10 @@ taskinfo_cleanup() {
 trap taskinfo_cleanup EXIT
 
 out=$(PROJ_A="$PROJ_A" PROJ_B="$PROJ_B" \
-    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
+    PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 import os
 from pathlib import Path
-from monitor_shared import TaskInfoCache
+from monitor.monitor_core import TaskInfoCache
 
 a = Path(os.environ["PROJ_A"])
 b = Path(os.environ["PROJ_B"])
@@ -466,10 +449,10 @@ effort: medium
 EOF
 
 out=$(PROJ_A="$PROJ_A" PROJ_B="$PROJ_B" \
-    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
+    PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 import os
 from pathlib import Path
-from monitor_shared import TaskInfoCache
+from monitor.monitor_core import TaskInfoCache
 
 a = Path(os.environ["PROJ_A"])
 b = Path(os.environ["PROJ_B"])
@@ -486,10 +469,10 @@ assert_contains "find_next_sibling resolves sessB sibling" "SIB_B:10_3" "$out"
 # --- Tier 1l: empty session_name falls back to local project_root ---
 
 out=$(PROJ_A="$PROJ_A" PROJ_B="$PROJ_B" \
-    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
+    PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 import os
 from pathlib import Path
-from monitor_shared import TaskInfoCache
+from monitor.monitor_core import TaskInfoCache
 
 a = Path(os.environ["PROJ_A"])
 b = Path(os.environ["PROJ_B"])
@@ -513,10 +496,10 @@ assert_contains "unknown session_name falls back to local project" \
 # --- Tier 1m: update_session_mapping is picked up on subsequent calls ---
 
 out=$(PROJ_A="$PROJ_A" PROJ_B="$PROJ_B" \
-    PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
+    PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 import os
 from pathlib import Path
-from monitor_shared import TaskInfoCache
+from monitor.monitor_core import TaskInfoCache
 
 a = Path(os.environ["PROJ_A"])
 b = Path(os.environ["PROJ_B"])
@@ -537,9 +520,9 @@ assert_contains "after update_session_mapping resolves via sessB → project B" 
 
 # --- Tier 1n: TmuxMonitor.get_session_to_project_mapping() returns dict ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch
-import tmux_monitor as tm
+import monitor.monitor_core as tm
 from agent_launch_utils import AitasksSession
 from pathlib import Path
 
@@ -567,7 +550,7 @@ assert_contains "mapping resolves s2 to project_root /tmp/p2" \
 # Required for cross-session "n" pick: the new agent pane must run in the
 # target project's root, not the monitor's cwd.
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 from unittest.mock import patch, MagicMock
 import agent_launch_utils as alu
 
@@ -633,7 +616,7 @@ assert_contains "cwd=None omits -c (back-compat)" "DEFAULT_NO_C:True" "$out"
 
 # --- Tier 1p: AgentCommandScreen.build_config populates cwd from project_root ---
 
-out=$(PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" <<'PY'
+out=$(PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
 from pathlib import Path
 import inspect
 from agent_command_screen import AgentCommandScreen
@@ -678,8 +661,8 @@ else
     else
         tmux new-session -d -s "$SB" -c "$FAKE_B" -n agent-t2 'sleep 300'
 
-        out=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$LIB_DIR:$MONITOR_DIR" "$AITASK_PYTHON" -c "
-import tmux_monitor as tm
+        out=$(TMUX_TMPDIR="$TEST_TMUX_DIR" PYTHONPATH="$PYPATH" "$AITASK_PYTHON" -c "
+import monitor.monitor_core as tm
 mon = tm.TmuxMonitor(session='$SA', multi_session=True)
 panes = mon.discover_panes()
 print('COUNT:' + str(len(panes)))
