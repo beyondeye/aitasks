@@ -71,16 +71,18 @@ OpenCode without duplicating the dispatcher or its sub-procedure files.
 
 ## Final Implementation Notes
 
-- Created `.opencode/commands/aitask-shadow.md` with the canonical OpenCode
-  command wrapper body.
-- Created `.opencode/skills/aitask-shadow/SKILL.md` with the canonical OpenCode
-  skill wrapper body.
-- Verified `./.aitask-scripts/aitask_skill_verify.sh` passes.
-- Verified `aitask_audit_wrappers.sh discover` no longer reports
-  `aitask-shadow` gaps.
-- Verified helper whitelist audits for `aitask_shadow_capture.sh`,
-  `aitask_shadow_context.sh`, and `aitask_explain_context.sh` emit no missing
-  entries.
-- Verified `opencode --help` and `opencode run --help` outside the sandbox; the
-  installed CLI exposes top-level `--prompt` and `run --command` invocation
-  surfaces.
+- **Actual work done:** Created `.opencode/commands/aitask-shadow.md` and
+  `.opencode/skills/aitask-shadow/SKILL.md` with the canonical generated
+  OpenCode wrapper bodies.
+- **Deviations from plan:** None.
+- **Issues encountered:** The sandboxed `opencode` wrapper could not write to
+  the npm cache, so OpenCode CLI help checks were rerun outside the sandbox.
+- **Key decisions:** Kept the Claude `aitask-shadow` skill as the only behavior
+  source and added wrappers only; no helper permissions or launcher code needed
+  changes.
+- **Verification completed:** `aitask_skill_verify.sh` passed; wrapper discovery
+  no longer reports `aitask-shadow` gaps; helper whitelist audits for
+  `aitask_shadow_capture.sh`, `aitask_shadow_context.sh`, and
+  `aitask_explain_context.sh` emitted no missing entries; `opencode --help` and
+  `opencode run --help` confirmed the installed CLI surfaces.
+- **Upstream defects identified:** None.
