@@ -65,3 +65,5 @@ is already built — **consume it, do not fork**:
 > **✅ gate:plan_approved** run=2026-06-15T13:21:07Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T13:21:10Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T13:27:55Z status=pass attempt=1 type=human
