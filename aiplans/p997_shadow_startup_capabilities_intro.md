@@ -173,9 +173,45 @@ The advisory-only Guardrail section remains the file's last load-bearing section
 9. Read the final skill file top-to-bottom to confirm flow reads cleanly:
    Step 0 (greet) → Step 1 (capture + proactive surfacing) → Step 2 → Step 3 → Guardrail.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-06-15 12:55)
+- **Requested by user:** Proactive capability surfacing should fire after *every*
+  refresh of the followed agent's state, not only the first capture.
+- **Changes made:** Reworded Change #2's paragraph header from "(after the first
+  capture)" to "(after every capture)" and added "the first capture *and every
+  later refetch*" plus "re-evaluate on each one" — since the followed agent moves
+  through states, relevance changes between refetches.
+- **Files affected:** `.claude/skills/aitask-shadow/SKILL.md` (Step 1 proactive
+  paragraph).
+
 ## Step 9 (Post-Implementation)
 
 Per the shared task-workflow: review/approve (Step 8), commit code (the skill
 file) with `enhancement: ... (t997)`, commit/consolidate the plan via `./ait git`,
 then archive via `aitask_archive.sh 997`. No worktree/branch (profile fast,
 current branch).
+
+## Final Implementation Notes
+
+- **Actual work done:** Edited `.claude/skills/aitask-shadow/SKILL.md` only:
+  (1) added `## Step 0 — Greet the user and present your capabilities` with a
+  `<!-- MAINTAINER -->` guard + bold sentence instructing the greeting to *derive*
+  its capability list from Step 3 (no hardcoded duplicate); (2) added a
+  proactive-surfacing paragraph at the end of Step 1 that fires after *every*
+  capture/refetch (not just the first); (3) removed the trailing
+  `## Note — workflow-phase autodetection (deferred)` section. Also corrected
+  t997's own Scope + AC (Change 0) to record that the ports need no edits.
+- **Deviations from plan:** Two user-driven refinements during review/planning:
+  the capability list is *derived from Step 3* rather than a hardcoded list
+  (DRY single-source-of-truth, with a maintainer guard), and proactive surfacing
+  fires on every refetch rather than only the first capture (logged under
+  Post-Review Changes).
+- **Issues encountered:** None. `aitask_skill_verify.sh` passes; all 9
+  verification checks pass.
+- **Key decisions:** Codex (`.agents/skills/aitask-shadow/SKILL.md`) and OpenCode
+  (`.opencode/skills/aitask-shadow/SKILL.md`, `.opencode/commands/aitask-shadow.md`)
+  are thin delegating wrappers that read the Claude source at runtime, so the
+  change propagates automatically — no port edits, no port follow-up tasks. The
+  task AC was corrected to match (decision made explicit, not silently dropped).
+- **Upstream defects identified:** None.
