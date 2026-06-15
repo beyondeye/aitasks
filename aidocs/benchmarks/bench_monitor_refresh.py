@@ -37,6 +37,7 @@ PANES_DEFAULT = 5
 def setup_fixture(panes: int) -> tuple[str, Path]:
     tmpdir = Path(tempfile.mkdtemp(prefix="ait_bench_"))
     os.environ["TMUX_TMPDIR"] = str(tmpdir)
+    os.environ["AITASKS_TMUX_SOCKET"] = ""
     os.environ.pop("TMUX", None)
     session = f"bench_{os.getpid()}"
     subprocess.run(
@@ -83,22 +84,21 @@ def main() -> None:
 
     repo_root = Path(__file__).resolve().parent.parent.parent
     sys.path.insert(0, str(repo_root / ".aitask-scripts"))
+    sys.path.insert(0, str(repo_root / ".aitask-scripts" / "lib"))
     from monitor.tmux_monitor import TmuxMonitor  # noqa: E402
-    from monitor import tmux_monitor as _tm  # noqa: E402
+    from tmux_exec import TmuxClient  # noqa: E402
 
-    # Fork-count instrumentation: monkey-patch the module-level
-    # `_run_tmux_async` with a counting wrapper so we can report fork
-    # counts per mode. The control-client path bypasses this wrapper
-    # entirely (it goes through self._control.request), so any non-zero
-    # count in control mode reflects fallback subprocess invocations.
-    _orig = _tm._run_tmux_async
+    # Fork-count instrumentation: monkey-patch the tmux gateway's async
+    # subprocess primitive so `forks=` keeps meaning "fallback subprocesses".
+    # The control-client path bypasses this wrapper unless it falls back.
+    _orig_run_async = TmuxClient.run_async
     counts = {"n": 0}
 
-    async def _counting(args, timeout: float = 5.0):
+    async def _counting_run_async(self, args, timeout: float = 5.0):
         counts["n"] += 1
-        return await _orig(args, timeout=timeout)
+        return await _orig_run_async(self, args, timeout=timeout)
 
-    _tm._run_tmux_async = _counting
+    TmuxClient.run_async = _counting_run_async
 
     session, tmpdir = setup_fixture(args.panes)
     try:
@@ -144,7 +144,7 @@ def main() -> None:
         else:
             print(f"fork ratio: subprocess={forks_sub} forks vs control=0 forks")
     finally:
-        _tm._run_tmux_async = _orig
+        TmuxClient.run_async = _orig_run_async
         teardown_fixture(tmpdir)
 
 
