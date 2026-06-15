@@ -24,6 +24,7 @@ Core workflow skills for picking and implementing tasks.
 | Skill | Description |
 |-------|-------------|
 | [`/aitask-pick`](aitask-pick/) | The central skill — select and implement the next task (planning, branching, implementation, archival) |
+| [`/aitask-resume`](aitask-resume/) | Resume an in-flight task from its gate-ledger checkpoint — programmatic re-entry surface |
 | [`/aitask-pickrem`](aitask-pickrem/) | Autonomous remote variant of /aitask-pick — zero interactive prompts, profile-driven |
 | [`/aitask-pickweb`](aitask-pickweb/) | Sandboxed variant for Claude Code Web — local metadata storage, requires follow-up with /aitask-web-merge |
 | [`/aitask-web-merge`](aitask-web-merge/) | Merge completed Claude Web branches to main and archive task data |
