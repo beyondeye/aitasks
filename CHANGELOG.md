@@ -1,5 +1,51 @@
 # Changelog
 
+## v0.25.0
+
+### Features
+
+- **Gate ledger substrate** (t635_1): Tasks can now carry named approval checkpoints ("gates") recorded in a durable ledger — the foundation for gate-aware dependency, archival, and resume behavior.
+- **Task-workflow checkpoint recording** (t635_2): With the new `record_gates` profile option, the task workflow records its approval checkpoints (plan approved, risk evaluated, build verified, review approved, merge approved) as gate runs. Enabled by default on the `fast` profile.
+- **Dependency-unblock semantics** (t635_3): A task's dependents are now released as soon as its integration gates pass, rather than waiting for the task to fully complete.
+- **Gate-guarded archival** (t635_4): A task that declares gates won't archive until all of them pass, with an in-session "resolve now & archive" offer and an `--ignore-gates` escape hatch.
+- **Ledger-driven re-entry** (t635_5): The task workflow is now re-entrant — picking up an in-flight task resumes it at the right point (planning, implementation, or post-implementation) based on its recorded checkpoints.
+- **Applink WebSocket listener** (t822_7): Added the applink control plane — a paired, TLS-secured `wss://` listener that lets the mobile companion app connect, plus a Devices screen for viewing and revoking paired devices.
+- **Shadow context fetch** (t986_3): Added a helper that resolves a task's file and most-recent plan (and optionally sibling context) to feed the shadow companion.
+- **Shadow companion command** (t986_4): Added `/aitask-shadow`, an advisory companion that reads a followed agent's terminal output to explain it, help answer a prompt, or critically challenge its plan.
+- **Minimonitor shadow trigger** (t986_5): The minimonitor can now launch a shadow companion for the followed agent (the `e` key), with a configurable agent/model and same-window-vs-separate-window placement.
+
+### Bug Fixes
+
+- **Preserve local models on upgrade** (t982): Upgrading now merges new seed models into your model configuration instead of overwriting it — local entries are kept and new ones appended.
+- **Monitor refresh benchmark** (t984): Fixed the monitor-refresh benchmark to patch the current monitor internals instead of a removed symbol.
+- **Cross-repo deps in board detail** (t990): The board detail view now shows cross-repo dependencies, and opening a linked cross-repo task renders its metadata and body correctly instead of raw YAML.
+- **Project resolver whitelist** (t991): Whitelisted the project-resolver helper so code agents can resolve cross-repo project names without a permission prompt.
+- **Archived tasks in board dialogs** (t992): Board relation dialogs (Depends / Verifies) now resolve and open archived tasks read-only instead of failing to find them.
+- **Narrow-pane sibling dialogs** (t998): Fixed cramped rendering of the minimonitor's next-sibling dialogs in narrow panes — they now widen and stack their buttons vertically.
+
+### Enhancements
+
+- **Minimonitor shadow layout** (t994): Improved the minimonitor shadow pane (placement and configurable width), reorganized the footer, added an `r` refresh binding, and wrapped the task description onto two lines.
+- **Trim kill-confirm dialog** (t995): Trimmed the minimonitor's kill-confirmation dialog so it fits in narrow panes.
+- **Shadow startup greeting** (t997): The shadow companion now greets you with its capabilities at startup and proactively surfaces relevant observations after each capture.
+
+### Improvements
+
+- **Extract monitor core** (t822_6): Extracted a Textual-free headless monitor core module — the shared substrate for the monitor TUIs and the new applink listener (no user-visible behavior change).
+- **Brainstorm node detail panel** (t983_1): Refactored the brainstorm node-detail view into a reusable panel widget.
+- **Brainstorm node-selection model** (t983_2): Added a headless node-selection model (primary cursor + marked set) for the brainstorm TUI.
+- **Pane-keyed monitor state** (t986_1): Re-keyed monitor state by pane so multiple agents per window — and shadow panes — are tracked and excluded correctly.
+
+### Tests
+
+- **Multi-session monitor test update** (t999): Aligned the multi-session monitor test suite with the monitor_core package and the new shadow-target pane field.
+
+### Maintenance
+
+- **Stale test comment fix** (t915): Fixed a stale comment in the skill-render test suite.
+- **Port shadow to Codex** (t988): Ported the `/aitask-shadow` command to Codex CLI.
+- **Port shadow to OpenCode** (t989): Ported the `/aitask-shadow` command to OpenCode.
+
 ## v0.24.0
 
 ### Features
