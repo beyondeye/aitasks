@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 11:06
-updated_at: 2026-06-14 11:06
+updated_at: 2026-06-15 10:52
 ---
 
 ## Origin
