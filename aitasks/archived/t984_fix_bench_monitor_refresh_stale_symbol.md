@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: codex/gpt5_5
 created_at: 2026-06-14 11:06
-updated_at: 2026-06-15 10:57
+updated_at: 2026-06-15 11:02
+completed_at: 2026-06-15 11:02
 ---
 
 ## Origin
