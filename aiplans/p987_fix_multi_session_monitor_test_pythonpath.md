@@ -112,3 +112,29 @@ No mitigations planned (before/after) — risk is low on both axes.
 
 Post-implementation: profile 'fast' works on the current branch (no
 worktree/merge). Step 8 review + Step 9 archival apply; no branch merge step.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `unset TMUX_PANE` to `require_isolated_tmux()` in
+  `tests/lib/tmux_isolation.sh` (step 1, next to the existing `unset TMUX`),
+  with an explanatory comment. No production code changed.
+- **Deviations from plan:** None. Implemented exactly as planned. Confirmed
+  before starting that the task's original PYTHONPATH symptom was already
+  resolved by t999 (commit `63089dd00`); the remaining failure was the
+  `$TMUX_PANE` inheritance leak, which is what this change fixes.
+- **Issues encountered:** None. Root cause was mechanically traced
+  (`monitor_core.py:809` auto-excludes `os.environ["TMUX_PANE"]`; outer session
+  pane `%2` collided with the synthetic sessB pane id).
+- **Key decisions:** Fixed centrally in the shared isolation helper rather than
+  locally in the one test, because the helper's documented mandate already
+  covers "pane-id collisions" and the leak affects any tmux test that
+  constructs a `TmuxMonitor`. Blast radius verified: no isolation-using test
+  reads the inherited `$TMUX_PANE` (only two comment-line references exist, in
+  `test_monitor_rename_window_target.sh`, which does not source the helper).
+- **Upstream defects identified:** None. The production auto-exclude behavior
+  (`monitor_core.py:809`) is correct; the only defect was the test inheriting
+  the outer `$TMUX_PANE`.
+- **Verification:** `bash tests/test_multi_session_monitor.sh` → 43/43 (was
+  41/43 inside tmux). Sibling `test_kill_agent_pane_smart.sh` and
+  `test_multi_session_primitives.sh` (20/20) pass. `shellcheck
+  tests/lib/tmux_isolation.sh` clean.

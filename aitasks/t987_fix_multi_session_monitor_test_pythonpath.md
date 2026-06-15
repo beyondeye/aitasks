@@ -30,6 +30,22 @@ While verifying t986_1 (multi-agent-per-window substrate), the monitor test suit
 
 Set `PYTHONPATH="$REPO_ROOT/.aitask-scripts"` (or source the same venv/path bootstrap the passing monitor tests use) before the embedded `python` invocation in `tests/test_multi_session_monitor.sh`, then confirm the test exercises the multi-session discovery path end-to-end (it covers the live `_LIST_PANES_FORMAT` / `_parse_list_panes` discovery path that t986_1's 9-field change touched).
 
+## Resolution note (scope deviation — see plan)
+
+The PYTHONPATH root cause was **already fixed** by t999 (commit `63089dd00`),
+which set `PYPATH="$LIB_DIR:$MONITOR_DIR:$BOARD_DIR:$PROJECT_DIR/.aitask-scripts"`
+and migrated imports to `monitor.monitor_core` — the `ModuleNotFoundError` no
+longer reproduces.
+
+The **remaining** defect blocking the multi-session discovery path end-to-end
+was a different one: when run inside a live tmux session, the test inherited the
+outer session's `$TMUX_PANE` (e.g. `%2`), which `TmuxMonitor.__init__`
+auto-excludes from discovery (`monitor_core.py:809`). Colliding with a synthetic
+test pane id, this silently dropped the second session's pane (Tier 1b
+`COUNT:1`, expected `COUNT:2`). Fixed by adding `unset TMUX_PANE` to
+`require_isolated_tmux` in `tests/lib/tmux_isolation.sh` (alongside the existing
+`unset TMUX`), making all mock-based tmux tests hermetic. Test now 43/43.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
