@@ -5,6 +5,7 @@
     "batch-review": "claudecode/sonnet4_6",
     "qa": "claudecode/sonnet4_6",
     "raw": "claudecode/sonnet4_6",
-    "explore": "claudecode/opus4_8"
+    "explore": "claudecode/opus4_8",
+    "shadow": "claudecode/opus4_8"
   }
 }

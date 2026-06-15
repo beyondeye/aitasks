@@ -25,7 +25,7 @@ source "$SCRIPT_DIR/lib/codex_plan_policy.sh"
 # come from lib/agent_string.sh.
 
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
-SUPPORTED_OPERATIONS=(pick explain batch-review qa explore raw)
+SUPPORTED_OPERATIONS=(pick explain batch-review qa explore raw shadow)
 
 # --- Global flags (set by argument parser) ---
 
@@ -427,6 +427,10 @@ build_invoke_command() {
                 explore)
                     CMD+=("/aitask-explore")
                     ;;
+                shadow)
+                    # claude --model <id> "/aitask-shadow <pane_id> [<task_id>]"
+                    CMD+=("/aitask-shadow ${args[*]}")
+                    ;;
                 batch-review)
                     # Interactive by default (no billing surcharge); opt into
                     # headless `--print` only when --headless was passed.
@@ -458,6 +462,7 @@ build_invoke_command() {
                         explain) prompt=$(build_skill_prompt "\$aitask-explain" "${args[@]}") ;;
                         qa)      prompt=$(build_skill_prompt "\$aitask-qa" "${args[@]}") ;;
                         explore) prompt=$(build_skill_prompt "\$aitask-explore") ;;
+                        shadow)  prompt=$(build_skill_prompt "\$aitask-shadow" "${args[@]}") ;;
                     esac
                     if codex_skill_forces_plan_mode "$operation"; then
                         CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
@@ -480,6 +485,9 @@ build_invoke_command() {
                     ;;
                 explore)
                     CMD+=("--prompt" "/aitask-explore")
+                    ;;
+                shadow)
+                    CMD+=("--prompt" "/aitask-shadow ${args[*]}")
                     ;;
                 batch-review|raw)
                     CMD+=("${args[@]}")

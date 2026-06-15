@@ -242,6 +242,23 @@ tmux:
   git_tui:
 
   # ──────────────────────────────────────────────────────────────────
+  # shadow_same_window — placement of the shadow companion agent.
+  #
+  # The shadow agent is launched from `ait minimonitor` (press 'e' on a
+  # followed coding agent). It reads the followed agent's terminal output
+  # and helps the user reason about it (explain / answer / interrogate a
+  # plan) — advisory only.
+  #
+  # When `true` (default), the shadow opens as a new pane in the followed
+  # agent's tmux window. When `false`, it opens in a separate window
+  # (`agent-shadow-<task_id>`).
+  #
+  # Example:
+  #   shadow_same_window: true
+  # ──────────────────────────────────────────────────────────────────
+  # shadow_same_window: true
+
+  # ──────────────────────────────────────────────────────────────────
   # syncer — `ait syncer` TUI for remote desync tracking.
   #
   # The syncer TUI tracks ahead/behind state for the project's tracked

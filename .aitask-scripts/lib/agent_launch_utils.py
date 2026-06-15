@@ -615,6 +615,58 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
         return _parse_pane_pid(out), None
 
 
+def resolve_pane_id_by_pid(session: str, pid: int) -> str | None:
+    """Resolve a tmux pane id (e.g. ``%42``) from a pane pid in a session.
+
+    ``launch_in_tmux`` returns the launched pane's ``pane_pid`` (the process
+    tmux fork-exec'd), not its ``pane_id``. The shadow spawn glue (t986_5)
+    needs the ``pane_id`` to stamp the ``@aitask_shadow_target`` pane option
+    that classifies the pane as a shadow helper. Match the pid against the
+    session's panes and return the owning ``pane_id``, or ``None`` if no pane
+    has that pid (e.g. the launch failed to capture a pid, or the pane already
+    exited). Read-only; routed through the gateway.
+    """
+    if not pid:
+        return None
+    rc, out = _TMUX.run(
+        ["list-panes", "-s", "-t", tmux_session_target(session),
+         "-F", "#{pane_id} #{pane_pid}"]
+    )
+    if rc != 0:
+        return None
+    for line in out.strip().splitlines():
+        pane_id, _, pane_pid = line.partition(" ")
+        if pane_pid.strip() == str(pid):
+            return pane_id.strip() or None
+    return None
+
+
+def attach_shadow_cleanup_hook(agent_pane: str, companion_pane: str) -> None:
+    """Wire the ``pane-died`` companion-cleanup hook onto a primary agent pane.
+
+    Sets ``remain-on-exit on`` (so the pane fires ``pane-died`` instead of
+    closing silently) and a pane-scoped ``pane-died`` hook that runs
+    ``aitask_companion_cleanup.sh <agent_pane> <companion_pane>``. The cleanup
+    script (t986_1) kills any shadow bound to ``agent_pane`` (via
+    ``@aitask_shadow_target``) and despawns ``companion_pane`` once no real
+    agent sibling remains. Used by the shadow spawn glue so a shadowed agent
+    that was not launched with this hook still auto-kills its bound shadow on
+    exit. Mirrors the git-TUI companion wiring in ``tui_switcher``. Gateway-only.
+    """
+    _TMUX.spawn(
+        ["set-option", "-p", "-t", agent_pane, "remain-on-exit", "on"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    script_path = str(
+        Path(__file__).resolve().parent.parent / "aitask_companion_cleanup.sh"
+    )
+    hook_cmd = f"run-shell '{script_path} {agent_pane} {companion_pane}'"
+    _TMUX.spawn(
+        ["set-hook", "-p", "-t", agent_pane, "pane-died", hook_cmd],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
 def _lookup_window_name(session: str, window_index: str) -> str | None:
     """Look up a tmux window name from its index."""
     rc, out = _TMUX.run(

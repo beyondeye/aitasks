@@ -117,6 +117,7 @@ OPERATION_DESCRIPTIONS: dict[str, str] = {
     "qa": "Model used for QA analysis on completed tasks (used when launching QA from the Code Browser TUI history screen)",
     "raw": "Model used for direct/ad-hoc code agent invocations (passthrough mode)",
     "explore": "Model used for interactive codebase exploration (launched via TUI switcher shortcut 'x')",
+    "shadow": "Model used for the shadow companion agent (launched from minimonitor with 'e' to explain/interrogate a followed agent's output)",
     "brainstorm-explorer": "Model for exploring solution space in brainstorming sessions",
     "brainstorm-comparator": "Model for comparing and analyzing design proposals",
     "brainstorm-synthesizer": "Model for merging and synthesizing design proposals",
@@ -253,6 +254,16 @@ TMUX_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
         "type": "enum",
         "options": "lazygit,gitui,tig,none",
         "default": "none",
+    },
+    "shadow_same_window": {
+        "summary": "Spawn shadow agent in the same window",
+        "detail": (
+            "When enabled, the shadow companion agent (minimonitor 'e') opens "
+            "as a new pane in the followed agent's tmux window. When disabled, "
+            "it opens in a separate window (default: true)"
+        ),
+        "type": "bool",
+        "default": "true",
     },
 }
 

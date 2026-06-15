@@ -26,6 +26,7 @@ sys.path.insert(0, str(_SCRIPT_DIR / "board"))
 from monitor.tmux_monitor import (  # noqa: E402
     PaneCategory,
     PaneSnapshot,
+    SHADOW_TARGET_OPTION,
     TmuxMonitor,
     load_monitor_config,
 )
@@ -44,6 +45,8 @@ from agent_launch_utils import (  # noqa: E402
     TmuxLaunchConfig,
     launch_in_tmux,
     maybe_spawn_minimonitor,
+    resolve_pane_id_by_pid,
+    attach_shadow_cleanup_hook,
     tmux_session_target,
     tmux_window_target,
 )
@@ -141,6 +144,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("enter", "send_enter_to_sibling", "Send Enter", show=False),
         Binding("k", "kill_own_agent", "Kill", show=False),
         Binding("n", "pick_next_for_own", "Next", show=False),
+        Binding("e", "launch_shadow", "Shadow", show=False),
         Binding("j", "tui_switcher", "TUI switcher", show=False),
         Binding("q", "quit", "Quit", show=False),
         Binding("s", "switch_to", "Switch", show=False),
@@ -933,6 +937,88 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.call_later(self._refresh_data)
 
         self.push_screen(screen, on_pick_result)
+
+    def action_launch_shadow(self) -> None:
+        """Spawn the shadow companion agent for the followed coding agent.
+
+        Builds ``/aitask-shadow <followed_pane_id> [<task_id>]`` and launches
+        the ``shadow`` codeagent — by default a new pane in the followed
+        agent's window, or a separate window when ``tmux.shadow_same_window``
+        is false. The launcher passes only the pane id; the shadow skill
+        captures the followed pane on demand. After spawn it stamps
+        ``@aitask_shadow_target`` on the new pane (the t986_1 classifier that
+        keeps the shadow out of agent lists and binds its lifecycle) and wires
+        the followed agent's ``pane-died`` cleanup hook so the shadow dies with
+        its agent.
+        """
+        if self._monitor is None:
+            return
+        snap = self._find_own_agent_snapshot()
+        if snap is None:
+            self.notify("No followed agent to shadow", severity="warning")
+            return
+        followed_pane = snap.pane.pane_id
+        if not followed_pane:
+            self.notify("Followed agent pane id unavailable", severity="warning")
+            return
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+
+        target_root = self._root_for_snap(snap)
+        args = [followed_pane] + ([task_id] if task_id else [])
+        full_cmd = resolve_dry_run_command(target_root, "shadow", *args)
+        if not full_cmd:
+            self.notify("Failed to resolve shadow command", severity="error")
+            return
+
+        # Placement: same window (split) by default; separate window if the
+        # project config opts out.
+        tmux_cfg = _load_project_tmux_config(target_root)
+        same_window = bool(tmux_cfg.get("shadow_same_window", True))
+        sess = snap.pane.session_name or self._session
+        if same_window:
+            cfg = TmuxLaunchConfig(
+                session=sess,
+                window=snap.pane.window_name,
+                new_session=False,
+                new_window=False,
+                split_direction=str(tmux_cfg.get("default_split", "horizontal")),
+                cwd=str(target_root),
+            )
+        else:
+            cfg = TmuxLaunchConfig(
+                session=sess,
+                window=f"agent-shadow-{task_id or 'x'}",
+                new_session=False,
+                new_window=True,
+                cwd=str(target_root),
+            )
+
+        pane_pid, err = launch_in_tmux(full_cmd, cfg)
+        if err:
+            self.notify(f"Shadow launch failed: {err}", severity="error")
+            return
+
+        # Resolve the new shadow pane id from its pid and stamp the
+        # authoritative @aitask_shadow_target option. Without it a same-window
+        # shadow (sharing the agent's window name) would be listed as an agent
+        # and never auto-killed.
+        shadow_pane = resolve_pane_id_by_pid(sess, pane_pid) if pane_pid else None
+        if shadow_pane:
+            self._monitor.tmux_run(
+                ["set-option", "-p", "-t", shadow_pane,
+                 SHADOW_TARGET_OPTION, followed_pane]
+            )
+            # Ensure the followed agent auto-kills its bound shadow on exit.
+            companion_pane = os.environ.get("TMUX_PANE", "") or shadow_pane
+            attach_shadow_cleanup_hook(followed_pane, companion_pane)
+            self.notify("Launched shadow agent")
+        else:
+            self.notify(
+                "Shadow launched, but its pane could not be classified "
+                "— it may appear in the agent list",
+                severity="warning",
+            )
+        self.call_later(self._refresh_data)
 
     def action_switch_to(self) -> None:
         """Switch tmux focus to the focused pane's window (prefer minimonitor pane)."""
