@@ -52,3 +52,5 @@ test pane id, this silently dropped the second session's pane (Tier 1b
 > **✅ gate:plan_approved** run=2026-06-15T13:06:24Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T13:06:26Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T13:13:11Z status=pass attempt=1 type=human
