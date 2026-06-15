@@ -3,10 +3,12 @@ priority: medium
 effort: medium
 depends: [978]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-12 11:28
-updated_at: 2026-06-12 11:28
+updated_at: 2026-06-15 16:28
+boardidx: 30
 ---
 
 ## Failed verification item from t978

@@ -10,7 +10,7 @@ folded_tasks: [776]
 created_at: 2026-06-03 14:06
 updated_at: 2026-06-05 11:22
 boardcol: now
-boardidx: 20
+boardidx: 30
 ---
 
 ## Context

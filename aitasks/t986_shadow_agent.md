@@ -8,6 +8,7 @@ labels: [aitask_monitormini, tmux, codeagent, claudeskills, gates]
 children_to_implement: [t986_2, t986_6, t986_7]
 created_at: 2026-06-14 15:36
 updated_at: 2026-06-15 06:36
+boardidx: 60
 ---
 
 ## Goal
