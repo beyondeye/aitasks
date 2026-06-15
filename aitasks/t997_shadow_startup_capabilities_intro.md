@@ -43,27 +43,31 @@ can ask the shadow to refetch the followed agent's screen.
 
 ## Scope
 
-Edit the shadow skill source (`.claude/skills/aitask-shadow/SKILL.md`), then
-apply the identical edits to the two existing ports so they stay in parity
-(both are plain, non-`.j2` skills — no rerender driver covers them):
-- `.agents/skills/aitask-shadow/SKILL.md` (Codex)
-- `.opencode/skills/aitask-shadow/SKILL.md` and
-  `.opencode/commands/aitask-shadow.md` (OpenCode)
+Edit the shadow skill source only: `.claude/skills/aitask-shadow/SKILL.md`.
 
-Per the user's decision, NO separate Codex/OpenCode port follow-up tasks are
-needed — the parity edits are part of this task.
+The Codex (`.agents/skills/aitask-shadow/SKILL.md`) and OpenCode
+(`.opencode/skills/aitask-shadow/SKILL.md`, `.opencode/commands/aitask-shadow.md`)
+versions are **thin wrappers that delegate to the Claude source** — they read and
+follow `.claude/skills/aitask-shadow/SKILL.md` at runtime and do not duplicate
+its body or sub-procedures (they carry only their own copied `description:`,
+which this task does not change). **Verified.** The edits therefore propagate to
+both ports automatically: no port-file edits and no separate port follow-up
+tasks are needed. (This corrects the original assumption that the ports duplicate
+the body; the AC below is updated to match.)
 
 ## Changes
 
 1. **Startup capability greeting (plain text).**
    Add a startup step (before/around Step 1) that emits a short markdown intro
-   to the user listing the shadow's own capabilities:
-   - explain the current output / what the agent is doing;
-   - help answer an `AskUserQuestion`;
-   - explain a plan to a non-expert (plan-explain);
-   - adversarially challenge a plan (plan-challenge);
-   - Socratic questioning of a plan (plan-socratic);
-   - surface a plan's assumptions (plan-assumptions).
+   to the user presenting the shadow's own capabilities. **The greeting derives
+   the capability list at runtime from Step 3** (the single source of truth that
+   maps each capability to its inline handling or `plan-*.md` sub-procedure) —
+   it must NOT hardcode a second copy of the list, which would drift from
+   Step 3. The capabilities are: explain the current output / what the agent is
+   doing; help answer an `AskUserQuestion`; explain a plan to a non-expert
+   (plan-explain); adversarially challenge a plan (plan-challenge); Socratic
+   questioning of a plan (plan-socratic); surface a plan's assumptions
+   (plan-assumptions).
    The greeting must also tell the user they can ask the shadow to **refetch**
    the followed agent's screen at any time (it re-runs
    `aitask_shadow_capture.sh`) so advice tracks the agent's latest state as it
@@ -96,14 +100,17 @@ needed — the parity edits are part of this task.
 ## Acceptance criteria
 
 - Launching `/aitask-shadow <pane_id>` presents a concise capability greeting
-  + refetch reminder before waiting for the user's ask.
+  + refetch reminder before waiting for the user's ask. The greeting derives its
+  capability list from Step 3 (no hardcoded duplicate), with a visible
+  maintainer guard in Step 0 against future hardcoding.
 - The skill explicitly instructs proactive, advisory surfacing of
   stage-relevant capabilities (verified against current wording; explicit, not
   implicit).
 - The `## Note - workflow-phase autodetection (deferred)` section is gone.
 - Advisory-only guardrail is intact and unweakened.
-- Codex and OpenCode shadow skill/command files carry the same changes
-  (parity), with no separate port follow-up tasks.
+- Codex and OpenCode ports are thin wrappers delegating to the Claude source —
+  verified — so they require no edits; the change propagates automatically. No
+  separate port follow-up tasks.
 - `./.aitask-scripts/aitask_skill_verify.sh` passes.
 
 ## Gate Runs
