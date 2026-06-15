@@ -34,8 +34,23 @@ task / run these specific gates" control without the full pick funnel.
 - Claude Code is the source of truth; suggest follow-up tasks for
   agent-specific surfaces in Codex/OpenCode if any are touched.
 
+## Coordination (from t635_5)
+
+Ledger-driven re-entry (t635_5) **landed**. The resume engine this skill wraps
+is already built — **consume it, do not fork**:
+
+- `aitask_gate.sh resume-point <task-id>` / `gate_ledger.resume_point()` →
+  the 3-state resume API: `PLAN` | `IMPLEMENT` | `POSTIMPL` (keyed off the
+  recorded `plan_approved`/`review_approved` checkpoints; distinct from
+  `archive_status`/`dependents_status` — see `aidocs/gates/ledger-driven-reentry.md`).
+- task-workflow Step 3 **Check 5** + the **Re-entry Routing** subsection
+  (end of Step 4) implement the in-conversation resume; the generalized
+  `crash-recovery.md` is the ledger-driven survey. `aitask-resume` should be a
+  thin programmatic front over the same derivation + routing contract.
+
 ## References
 
+- `aidocs/gates/ledger-driven-reentry.md` (the resume derivation + routing this skill wraps)
 - `aidocs/gates/integration-roadmap.md` (Phase 2, D8)
 - `aidocs/gates/aitask-gate-framework.md` ("Orchestrator skill" — invocation
   shape and re-entry contract to stay compatible with)

@@ -46,7 +46,23 @@ not archived) and route an `ALL_PASS` one to that archival offer. **Consume**
 `aitask_gate.sh archive-ready` / `gate_ledger.archive_status` for the derived
 state — do NOT fork the decision. See `aidocs/gates/gate-guarded-archival.md`.
 
+## Coordination (from t635_5)
+
+Ledger-driven re-entry (t635_5) **landed**. The resume routing this task's
+in-flight pick section must drive is already implemented in task-workflow —
+**consume it, do not re-derive**:
+
+- `aitask_gate.sh resume-point <task-id>` / `gate_ledger.resume_point()` →
+  `PLAN` | `IMPLEMENT` | `POSTIMPL` (the derived resume stage; for the
+  pick-list's "3/4 — pending review" style state, read `aitask_gate.sh status`).
+- Picking an in-flight task should set the `resume_point` context var and let
+  task-workflow Step 3 **Check 5** + **Re-entry Routing** (end of Step 4) do the
+  resume — the routing is keyed on `resume_point` at end of Step 4 on any
+  ownership-success path (not on the crash-recovery `reclaim` branch). See
+  `aidocs/gates/ledger-driven-reentry.md`.
+
 ## References
 
+- `aidocs/gates/ledger-driven-reentry.md` (resume derivation + Check 5 / Re-entry Routing)
 - `aidocs/gates/integration-roadmap.md` (Phase 2, D8)
 - `.claude/skills/aitask-pick/SKILL.md.j2` (Steps 0b-2d task listing)
