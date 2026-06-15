@@ -33,7 +33,16 @@ if [[ -z "${_AIT_TMUX_ISOLATION_LOADED:-}" ]]; then
         #    server via $TMUX. Sourced, so this persists for the whole test
         #    process (the per-fixture `unset TMUX` in callers is now redundant
         #    but harmless).
+        #
+        #    Also drop $TMUX_PANE: it names the *outer* session's current pane
+        #    (e.g. "%2"). Mock-based tests fabricate synthetic pane ids (%1, %2,
+        #    …) and construct app objects that auto-exclude their own pane via
+        #    os.environ["TMUX_PANE"] (see TmuxMonitor.__init__). If the inherited
+        #    value collides with a synthetic id, that pane is silently excluded
+        #    from discovery — a pane-id collision leak this helper exists to
+        #    prevent. Unsetting it keeps synthetic-pane tests hermetic.
         unset TMUX
+        unset TMUX_PANE
 
         # 2. Redirect tmux's *default* socket directory away from the user's
         #    (/tmp/tmux-$UID) to a private, per-user location. Per-case
