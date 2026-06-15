@@ -855,6 +855,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             NextSiblingDialog(
                 task_id, current_title, current_status,
                 suggested_id, suggested_title, parent_id,
+                narrow=True,
             ),
             callback=lambda r: self._on_own_next_result(r, pane_id, task_id, sess),
         )
@@ -878,7 +879,9 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if sib_id:
                 self._launch_pick_for_own(sib_id, pane_id, task_id, sess)
 
-        self.push_screen(ChooseSiblingModal(payload, siblings), callback=_on_picked)
+        self.push_screen(
+            ChooseSiblingModal(payload, siblings, narrow=True), callback=_on_picked
+        )
 
     def _launch_pick_for_own(
         self, target_id: str, pane_id: str, task_id: str, sess: str

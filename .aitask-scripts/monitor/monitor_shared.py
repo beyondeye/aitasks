@@ -259,6 +259,12 @@ class NextSiblingDialog(ModalScreen):
     #next-sib-details { margin: 0 0 1 0; }
     #next-sib-buttons { width: 100%; height: auto; layout: horizontal; }
     #next-sib-buttons Button { margin: 0 1; }
+
+    /* Narrow variant (minimonitor companion pane, ~40 cols): three buttons
+       cannot fit horizontally, so widen the dialog and stack them vertically. */
+    NextSiblingDialog.narrow #next-sib-dialog { width: 90%; min-width: 30; }
+    NextSiblingDialog.narrow #next-sib-buttons { layout: vertical; height: auto; }
+    NextSiblingDialog.narrow #next-sib-buttons Button { width: 1fr; margin: 0 0 1 0; }
     """
 
     def __init__(
@@ -269,6 +275,7 @@ class NextSiblingDialog(ModalScreen):
         suggested_id: str,
         suggested_title: str,
         parent_id: str,
+        narrow: bool = False,
     ) -> None:
         super().__init__()
         self._current_task_id = current_task_id
@@ -277,8 +284,11 @@ class NextSiblingDialog(ModalScreen):
         self._suggested_id = suggested_id
         self._suggested_title = suggested_title
         self._parent_id = parent_id
+        self._narrow = narrow
 
     def compose(self) -> ComposeResult:
+        if self._narrow:
+            self.add_class("narrow")
         is_parent_with_children = "_" not in self._current_task_id
         will_kill = self._current_status == "Done" or is_parent_with_children
         with Container(id="next-sib-dialog"):
@@ -391,14 +401,27 @@ class ChooseSiblingModal(ModalScreen):
     #choose-sib-help { color: $text-muted; margin: 0 0 1 0; }
     #choose-sib-buttons { width: 100%; height: auto; layout: horizontal; }
     #choose-sib-buttons Button { margin: 0 1; }
+
+    /* Narrow variant (minimonitor companion pane, ~40 cols): widen the dialog
+       so the header, sibling rows, and OK/Cancel render fully. The two short
+       buttons still fit horizontally within the widened pane. */
+    ChooseSiblingModal.narrow #choose-sib-dialog { width: 90%; min-width: 30; }
     """
 
-    def __init__(self, parent_id: str, siblings: list[tuple[str, str, list[str]]]) -> None:
+    def __init__(
+        self,
+        parent_id: str,
+        siblings: list[tuple[str, str, list[str]]],
+        narrow: bool = False,
+    ) -> None:
         super().__init__()
         self._parent_id = parent_id
         self._siblings = siblings
+        self._narrow = narrow
 
     def compose(self) -> ComposeResult:
+        if self._narrow:
+            self.add_class("narrow")
         with Container(id="choose-sib-dialog"):
             yield Static("[bold]Choose Sibling[/]", id="choose-sib-header")
             yield Static(
