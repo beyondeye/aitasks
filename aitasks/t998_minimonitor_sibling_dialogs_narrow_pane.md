@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, tui, tmux]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-15 12:44
-updated_at: 2026-06-15 12:44
+updated_at: 2026-06-15 12:50
 ---
 
 ## Goal
