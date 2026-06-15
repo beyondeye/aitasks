@@ -32,6 +32,8 @@ Before prompting, the procedure runs a read-only survey of any uncommitted work 
 Prior in-progress work:
 - Worktree: aiwork/t42_add_login
 - 5 modified, 2 staged, 1 untracked
+- Recorded checkpoints: plan_approved: pass, review_approved: pass
+- Resume target: post-implementation (Step 9)
 - Plan: Steps 1-3 complete, "Final Implementation Notes" not yet written
 ```
 
@@ -39,7 +41,8 @@ Each line:
 
 - **Worktree.** Resolved by parsing `git worktree list --porcelain` for a `branch refs/heads/aitask/<task_name>` entry. When no separate worktree exists (the prior pick worked on the current branch), this reads `(current branch)`.
 - **File counts.** Derived from `git status --porcelain` and `git diff --stat HEAD` against the resolved worktree. The split surfaces "you have 2 staged commits ready, 5 modifications still unstaged, 1 untracked file" at a glance — much more useful than a single total.
-- **Plan.** A one-line progress hint extracted from the plan file at `aiplans/p<N>_<name>.md` (or `aiplans/p<parent>/p<parent>_<child>_<name>.md` for child tasks). The procedure looks for the most-recent marker — a "Final Implementation Notes" stub, checked-step markers (`- [x]`), or a "Post-Review Changes" section — to convey how far the prior agent got.
+- **Recorded checkpoints / Resume target.** The primary progress signal. When the task recorded gate checkpoints during its earlier session (see [Resuming From the First Unmet Checkpoint](#resuming-from-the-first-unmet-checkpoint) below), the survey shows the derived checkpoint state and the stage the workflow will resume at.
+- **Plan.** A one-line progress hint extracted from the plan file at `aiplans/p<N>_<name>.md` (or `aiplans/p<parent>/p<parent>_<child>_<name>.md` for child tasks). When no checkpoints were recorded, this plan-file marker is the fallback progress hint; the procedure looks for the most-recent marker — a "Final Implementation Notes" stub, checked-step markers (`- [x]`), or a "Post-Review Changes" section — to convey how far the prior agent got.
 
 When the prior agent crashed before making any changes (or the worktree was already cleaned up), the block reads:
 
@@ -79,7 +82,7 @@ The prompt header is `Reclaim`. The question text is case-specific; the two opti
 
 ### Options
 
-- **Reclaim and continue** — The lock is now held on this host with a fresh PID anchor. Prior in-progress changes remain intact in the worktree (or current branch). The picker continues into Step 5/6 as if the original pick never crashed. This is the option to pick when the survey looks like work worth saving.
+- **Reclaim and continue** — The lock is now held on this host with a fresh PID anchor. Prior in-progress changes remain intact in the worktree (or current branch). The picker resumes from the recorded resume target (see below) rather than always restarting at planning. This is the option to pick when the survey looks like work worth saving.
 
 - **Pick a different task** — Releases the lock, reverts the task to `Ready`, clears `assigned_to`, commits and pushes. Control returns to the calling skill's task selection. **Important:** declining only resets the task's metadata. Uncommitted files in the worktree (and the worktree itself, if a separate one was created) are left in place — clean them up manually with `git stash`, `git restore`, or `git worktree remove` if you don't intend to come back.
 
@@ -94,6 +97,16 @@ The headline `RECLAIM_CRASH` case as a single narrative:
 5. The user picks **Reclaim and continue**. The picker writes a new lock with the resumed agent's PID, the workflow proceeds to Step 5, and prior changes are intact and visible to the resumed agent.
 
 Without this flow the same scenario would have surfaced as the older "no PID anchor matches your environment" wording with no survey of leftover files — leaving the user to discover by hand what the prior agent had touched.
+
+## Resuming From the First Unmet Checkpoint
+
+When a profile records gate checkpoints (the `record_gates` execution-profile key — on by default for the `fast` profile), task-workflow appends a checkpoint to the task's ledger as each one is reached: the plan is approved, the change is reviewed, and so on. On re-pick, the recovery flow reads that ledger and resumes from the **first unmet checkpoint** instead of replaying planning and implementation from the top:
+
+- **No checkpoints recorded** (the task crashed before its plan was approved, or the profile does not record gates) — the workflow plans from scratch, exactly as before. This is the default for profiles without `record_gates`.
+- **Plan approved, not yet reviewed** — the workflow reclaims the lock and resumes directly at implementation, following the already-approved plan.
+- **Review approved** — the code was already committed and reviewed in the earlier session; the workflow resumes at post-implementation (merge, if a branch was used, and archival). The merge approval is still required — re-entry never auto-merges.
+
+The reclaim prompt's survey shows the recorded checkpoints and the resume target, so reclaiming is an informed choice. Resume is conservative by design: if a checkpoint was recorded but the plan file is missing, the workflow falls back to planning from scratch.
 
 ## Tips
 

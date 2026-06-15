@@ -88,9 +88,9 @@ Each phase is independently shippable and leaves the framework consistent.
   re-enterable. Archival is offered immediately in-session when the last gate
   passes, with the next pick as a backstop (or profile-gated auto-applied,
   t635_17).
-- **Ledger-driven resume**: task-workflow Step 3 learns to read the ledger
-  and resume from the first unmet checkpoint instead of restarting —
-  a generalization of the existing crash-recovery procedure.
+- **Ledger-driven resume** (see [[ledger-driven-reentry]]): task-workflow Step 3
+  learns to read the ledger and resume from the first unmet checkpoint instead
+  of restarting — a generalization of the existing crash-recovery procedure.
 - **`aitask-resume` skill**: thin re-entrant orchestration scoped to "resume
   this task / run these gates"; the programmatic surface TUIs call.
 - **Gate-aware aitask-pick**: in-flight tasks appear in their own pick-list

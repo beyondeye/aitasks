@@ -8,6 +8,10 @@ user's decision (`reclaim` | `decline`).
 ## Inputs (from caller context)
 
 - `task_id`, `task_name`, `task_file`, `EMAIL`
+- `resume_point` — the ledger-derived re-entry stage
+  (`PLAN` | `IMPLEMENT` | `POSTIMPL`), if Step 3 Check 5 already computed it.
+  If unset (e.g. when called from the Step 7 ownership guard), compute it here:
+  `./.aitask-scripts/aitask_gate.sh resume-point <task_id>`.
 - Parsed signal fields. When multiple signals are emitted, prefer in this
   order: `LOCK_RECLAIM` > `RECLAIM_CRASH` > `RECLAIM_STATUS`.
   - `LOCK_RECLAIM:<prev_hostname>|<prev_locked_at>|<current_hostname>`
@@ -38,7 +42,17 @@ about before deciding. Run these read-only checks:
    Count modified files (M+A+D), staged files (entries starting with
    non-space in column 1), and untracked (`??`).
 
-3. Plan progress:
+3. Recorded checkpoints (the **primary** progress signal — the gate ledger is
+   the source of truth for *where* work stopped):
+   ```bash
+   ./.aitask-scripts/aitask_gate.sh status <task_id>
+   ```
+   Summarize the derived per-gate state as a single line. Resolve the resume
+   target from `resume_point` (`IMPLEMENT` → "implementation, Step 7";
+   `POSTIMPL` → "post-implementation, Step 9"; `PLAN` → "planning, from
+   scratch").
+
+4. Plan progress (fallback detail, used mainly when the ledger is empty):
    ```bash
    ./.aitask-scripts/aitask_query_files.sh plan-file <task_id>
    ```
@@ -47,17 +61,19 @@ about before deciding. Run these read-only checks:
    markers (`- [x]`), or a "Post-Review Changes" section. Summarize as a
    single line.
 
-Build a short summary block (3-6 lines):
+Build a short summary block (3-7 lines):
 
 ```
 Prior in-progress work:
 - Worktree: <path or "(current branch)">
 - N modified, M staged, K untracked
+- Recorded checkpoints: <derived gate state, or "none recorded">
+- Resume target: <implementation (Step 7) | post-implementation (Step 9) | planning>
 - Plan: <progress hint or "no plan file">
 ```
 
-If there are no uncommitted changes and no plan progress, the summary is
-"Prior in-progress work: none detected".
+If there are no uncommitted changes, no recorded checkpoints, and no plan
+progress, the summary is "Prior in-progress work: none detected".
 
 ## Step 2 — Case-specific prompt
 
@@ -96,7 +112,11 @@ Options:
 
 ## Step 3 — Handle decision
 
-If "Reclaim and continue": return `reclaim` to the caller.
+If "Reclaim and continue": return `reclaim` to the caller. The caller's
+**Re-entry Routing** gate (task-workflow Step 4) reads the `resume_point`
+context variable to decide where to resume — this procedure only *surveys and
+displays* the resume target (Step 1); it does not itself route or need to return
+`resume_point`.
 
 If "Pick a different task": run lock release, revert status, commit, push,
 then return `decline`:

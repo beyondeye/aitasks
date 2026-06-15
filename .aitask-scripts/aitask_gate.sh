@@ -18,6 +18,8 @@
 #                                                dependents (t635_3; python-only)
 #   archive-ready <task-id>                      Decide if this task may archive
 #                                                (t635_4; python-only)
+#   resume-point <task-id>                       Derive task-workflow re-entry
+#                                                stage (t635_5; python-only)
 #
 # Primary path is bash + POSIX awk. The Python module lib/gate_ledger.py is the
 # documented fallback (drop-in, identical output): used when AIT_GATES_BACKEND=python
@@ -354,6 +356,21 @@ cmd_archive_ready() {
     delegate_python archive-ready "$file" || echo "NO_GATES"
 }
 
+# resume-point: derive the task-workflow re-entry stage from the recorded
+# checkpoint ledger (t635_5). Python-only (parallels archive-ready). Keys off the
+# recorded plan_approved / review_approved runs, NOT the declared `gates:` field.
+# Prints one of: PLAN (nothing durable recorded → plan from scratch),
+# IMPLEMENT (plan approved, review pending → resume implementation), or
+# POSTIMPL (reviewed → resume at post-implementation). If python is unavailable,
+# degrades to PLAN so the workflow plans from scratch as today.
+cmd_resume_point() {
+    local task_id="${1:-}"
+    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh resume-point <task-id>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+    delegate_python resume-point "$file" || echo "PLAN"
+}
+
 # --- usage / dispatch ------------------------------------------------------
 
 show_help() {
@@ -391,6 +408,14 @@ Commands:
         NO_GATES (no declared gates → archive as today). Unlike deps-unblock,
         ALL declared gates must pass (no `blocks_dependents` filtering).
 
+  resume-point <task-id>
+        Derive the task-workflow re-entry stage from the recorded checkpoint
+        ledger (t635_5). Prints PLAN (nothing durable recorded → plan from
+        scratch), IMPLEMENT (plan_approved pass, review_approved pending →
+        resume implementation), or POSTIMPL (review_approved pass → resume at
+        post-implementation). Keys off the recorded plan_approved/review_approved
+        runs, not the declared `gates:` field.
+
 Backend:
   Primary path is bash + awk. Set AIT_GATES_BACKEND=python to force the
   lib/gate_ledger.py fallback (identical output).
@@ -405,6 +430,7 @@ main() {
         list)   shift; cmd_list "$@" ;;
         deps-unblock) shift; cmd_deps_unblock "$@" ;;
         archive-ready) shift; cmd_archive_ready "$@" ;;
+        resume-point) shift; cmd_resume_point "$@" ;;
         --help|-h|help|"") show_help ;;
         *) die "Unknown command: $cmd (try --help)" ;;
     esac

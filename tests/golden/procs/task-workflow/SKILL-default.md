@@ -84,7 +84,20 @@ After a task is selected and confirmed, perform these checks before proceeding t
   - If "Yes, archive it" → skip Steps 4-8, proceed directly to **Step 9** (Post-Implementation) for archival
   - If "No, keep it active" → end the workflow
 
-**Note:** Check 1, Check 2, and Check 4 should NOT set the task status to "Implementing" — the task is already done (or its work is complete and gated). Skip Step 4 (Assign Task) entirely when archiving via Check 1, Check 2, or Check 4. Check 3 does run Step 4 as normal.
+**Check 5 - In-flight task, resume from first unmet checkpoint:**
+
+This makes task-workflow re-entrant: a task left `Implementing` (crash, session loss, multi-day work) resumes from the first unmet recorded checkpoint instead of restarting at planning.
+
+- Read the task file's frontmatter `status`. If it is **not** `Implementing`, skip this check (a fresh task plans from scratch).
+- Run `./.aitask-scripts/aitask_gate.sh resume-point <taskid>` and parse the single-word result:
+  - `PLAN` → skip this check. Nothing durable was recorded (empty/early ledger), so the normal flow runs: Step 4 reclaims the lock and planning re-runs as today. This is the common case for profiles that do not record gates (the ledger stays empty → always `PLAN`), so they are behaviorally unchanged.
+  - `IMPLEMENT` or `POSTIMPL` → the task has recorded checkpoints and is being re-entered. Set the context variable `resume_point` to that value. Show the recorded state and the resume target, e.g.:
+    ```bash
+    ./.aitask-scripts/aitask_gate.sh status <taskid>
+    ```
+    Display a banner: "Re-entering in-flight task t\<id\> — \<recorded checkpoints\> → will resume at \<implementation (Step 7) | post-implementation (Step 9)\> after the lock is reclaimed." Then **proceed to Step 4 normally** — ownership MUST be (re)claimed before any work resumes. The actual step-skipping happens after Step 4 (see **Re-entry Routing**).
+
+**Note:** Check 1, Check 2, and Check 4 should NOT set the task status to "Implementing" — the task is already done (or its work is complete and gated). Skip Step 4 (Assign Task) entirely when archiving via Check 1, Check 2, or Check 4. Check 3 does run Step 4 as normal. **Check 5 also runs Step 4** (the in-flight lock must be reclaimed) — it does **not** skip it; step-skipping happens post-reclaim via **Re-entry Routing**.
 
 If none of the checks trigger, proceed to Step 4 as normal.
 
@@ -155,7 +168,7 @@ If none of the checks trigger, proceed to Step 4 as normal.
     - `RECLAIM_STATUS:<prev_status>|<prev_assigned_to>` — anomaly fallback (lock missing or pre-PID-anchor lock).
 
     When the procedure returns:
-    - `reclaim` → proceed to Step 5 normally — `OWNED:` confirms the lock is now held here.
+    - `reclaim` → ownership is held here (`OWNED:` confirms). Continue to the **Re-entry Routing** gate at the end of Step 4 (it checks `resume_point`); if no resume applies, proceed to Step 5 normally.
     - `decline` → return to the calling skill's task selection. Do NOT proceed. (The procedure has already released the lock and reverted the task to `Ready`.)
   - `LOCK_FAILED:<owner>|<locked_at>|<hostname>` — Task is locked by another user/PC. Parse the `|`-separated fields for lock details. Use `AskUserQuestion`:
     - Question: "Task t\<N\> is locked by \<owner\> (since \<locked_at\>, hostname: \<hostname\>). Force unlock?"
@@ -184,6 +197,22 @@ If none of the checks trigger, proceed to Step 4 as normal.
   **Note:** The script handles email storage, lock acquisition, task metadata update (`status` → Implementing, `assigned_to`), and git add/commit/push internally. If the script fails entirely (non-zero exit without structured output), display the error and abort.
 
 - **Store previous status for potential abort** (remember the `previous_status` from context)
+
+- **Re-entry Routing gate:** After ownership is held (via **any** success path above — `OWNED`, `FORCE_UNLOCKED` + `OWNED`, or crash-recovery → `reclaim`), check the `resume_point` context variable set by Step 3 Check 5. If it is `IMPLEMENT` or `POSTIMPL`, follow the **Re-entry Routing** procedure below **instead of** proceeding to Step 5 → Step 6. Otherwise (unset, or `PLAN`), proceed to Step 5 normally. (The routing is gated on `resume_point`, not on which ownership path was taken — a force-unlock takeover of an in-flight task returns plain `OWNED` with no reclaim signal, and its resume must not be lost.)
+
+### Re-entry Routing
+
+Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL` and Step 4 left ownership held. It resumes the in-flight task from the first unmet checkpoint instead of restarting at planning. Profile-invariant.
+
+- **Plan-existence guard:** Run `./.aitask-scripts/aitask_query_files.sh plan-file <taskid>`. If `NOT_FOUND` (a checkpoint was recorded but no plan was externalized — e.g. a failed externalization), discard the resume: clear `resume_point` and fall back to the normal flow (Step 5 → Step 6, re-plan). If `PLAN_FILE:<path>`, read the plan and continue below.
+
+- **Environment setup (Step 5) with reuse:** If a worktree for `<task_name>` already exists — `git worktree list --porcelain` shows a `branch refs/heads/aitask/<task_name>` line — reuse it (work in that directory); do **NOT** recreate the branch/worktree. Otherwise run Step 5 as normal. For current-branch profiles (no worktree), Step 5 is a no-op and you work on the current branch.
+
+- **Route by `resume_point`:**
+  - **`IMPLEMENT`** → resume at Step 7's **"Follow the approved plan"** implementation body. Re-run **only** the **Pre-implementation ownership guard** and the **Agent Attribution Procedure** (both idempotent; attribution re-records the *resuming* agent), then go straight to implementation. **Skip** Step 7's post-approval one-time gates:
+    - Cross-Repo Child Assignment and the risk-mitigation pre-task creation (the post-approval "before" follow-ups) — these are **non-idempotent task creators** that *end the workflow* when they fire, so a task that is still a normal `Implementing` single task is necessarily past them; re-running would double-create.
+    - The `plan_approved` / `risk_evaluated` gate re-recordings and the risk-level field write — already done in the original session; re-running only adds redundant commits.
+  - **`POSTIMPL`** → resume at **Step 9** (Post-Implementation), skipping Steps 6–8 (the code is already committed and `review_approved` was recorded after the Step 8 commit). Step 9 is safe to re-enter: its merge approval is NON-SKIPPABLE (re-asked), a re-merge of an already-merged branch is a git no-op, and archival just moves and commits the task file. For child tasks, the "verify plan completeness before archival" sub-step backstops the Final Implementation Notes.
 
 ### Step 5: Environment and Branch Setup
 

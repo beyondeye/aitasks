@@ -26,6 +26,8 @@ CLI:
                                  -> SATISFIED | BLOCKED:<csv> | NO_GATES (t635_3)
     gate_ledger.py archive-ready <task-file>
                                  -> ALL_PASS | BLOCKED:<csv> | NO_GATES (t635_4)
+    gate_ledger.py resume-point  <task-file>
+                                 -> PLAN | IMPLEMENT | POSTIMPL (t635_5)
 
 Supported append keys (anything else is ignored with a warning):
     marker line : run, status, attempt, duration, type
@@ -367,6 +369,39 @@ def archive_status(task_file: str) -> tuple[str, list[str]]:
     return ("BLOCKED", nonpass) if nonpass else ("ALL_PASS", [])
 
 
+# --- Ledger-driven re-entry decision (t635_5) -----------------------------
+
+def resume_point(task_file: str) -> str:
+    """Derive the task-workflow resume stage from the *recorded checkpoint* ledger.
+
+    Keys off the recorded ``## Gate Runs`` checkpoints (t635_2:
+    ``plan_approved`` / ``review_approved``), NOT the declared ``gates:`` field —
+    so it is independent of :func:`archive_status` / :func:`dependents_status`.
+    State is derived back-to-front (last block per gate wins) via
+    :func:`derive_status`, so a re-opened checkpoint (e.g. ``pass`` → ``fail``)
+    correctly demotes the resume stage.
+
+    Returns one of:
+      - ``"PLAN"``      — ``plan_approved`` not ``pass`` (incl. an empty ledger):
+        nothing durable recorded → plan from scratch (today's flow).
+      - ``"IMPLEMENT"`` — ``plan_approved`` ``pass`` but ``review_approved`` not
+        ``pass`` → resume at the Step 7 implementation body.
+      - ``"POSTIMPL"``  — ``review_approved`` ``pass`` → resume at Step 9
+        (merge / build / archive pending).
+    """
+    with open(task_file, encoding="utf-8") as fh:
+        state = derive_status(fh.read())
+
+    def passed(gate: str) -> bool:
+        return state.get(gate, {}).get("status") == "pass"
+
+    if not passed("plan_approved"):
+        return "PLAN"
+    if not passed("review_approved"):
+        return "IMPLEMENT"
+    return "POSTIMPL"
+
+
 # --- CLI ------------------------------------------------------------------
 
 def _parse_kv(args: list[str]) -> dict:
@@ -445,6 +480,13 @@ def main(argv: list[str]) -> int:
             sys.stdout.write("BLOCKED:" + ",".join(nonpass) + "\n")
         else:
             sys.stdout.write(decision + "\n")
+        return 0
+
+    if cmd == "resume-point":
+        if len(argv) < 2:
+            sys.stderr.write("Usage: gate_ledger.py resume-point <file>\n")
+            return 2
+        sys.stdout.write(resume_point(argv[1]) + "\n")
         return 0
 
     sys.stderr.write(f"Unknown command: {cmd}\n")
