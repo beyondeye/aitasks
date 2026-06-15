@@ -39,6 +39,13 @@ out=$(run_dry explain src/main.py)
 assert_not_contains_ci "skillrun explain bypasses plan helper" "aitask_codex_plan_invoke" "$out"
 assert_contains_ci "skillrun explain prompts aitask-explain" "aitask-explain" "$out"
 
+echo "--- shadow launches directly in Codex default mode ---"
+out=$(run_dry shadow %7 100_2)
+assert_not_contains_ci "skillrun shadow bypasses plan helper" "aitask_codex_plan_invoke" "$out"
+assert_contains_ci "skillrun shadow prompts aitask-shadow" "aitask-shadow" "$out"
+assert_contains_ci "skillrun shadow forwards pane id" "%7" "$out"
+assert_contains_ci "skillrun shadow forwards task id" "100_2" "$out"
+
 # --- Planning skills go through the /plan PTY helper ---
 echo "--- pick uses the plan-mode helper ---"
 out=$(run_dry pick 42)
