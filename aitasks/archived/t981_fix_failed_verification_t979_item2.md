@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [978]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-12 11:28
-updated_at: 2026-06-15 16:28
+updated_at: 2026-06-15 16:48
+completed_at: 2026-06-15 16:48
 boardidx: 30
 ---
 
