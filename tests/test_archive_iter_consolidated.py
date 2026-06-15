@@ -23,6 +23,7 @@ sys.path.insert(0, str(_lib_dir))
 
 from archive_iter import (
     _is_child_filename,
+    find_archived_markdown_by_id,
     iter_all_archived_markdown,
     iter_archived_frontmatter,
 )
@@ -198,6 +199,65 @@ class TestIterAllArchivedMarkdown(unittest.TestCase):
         contents = [r[1] for r in results if r[0] == "t50_task.md"]
         self.assertEqual(len(contents), 1)
         self.assertEqual(contents[0], "zst content")
+
+
+class TestFindArchivedMarkdownById(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.archived = Path(self.tmp.name) / "archived"
+        self.archived.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_finds_loose_parent(self):
+        (self.archived / "t12_parent.md").write_text("parent", encoding="utf-8")
+
+        result = find_archived_markdown_by_id("12", self.archived)
+
+        self.assertEqual(result, ("t12_parent.md", "parent"))
+
+    def test_finds_loose_child(self):
+        child_dir = self.archived / "t12"
+        child_dir.mkdir()
+        (child_dir / "t12_2_child.md").write_text("child", encoding="utf-8")
+
+        result = find_archived_markdown_by_id("t12_2", self.archived)
+
+        self.assertEqual(result, ("t12_2_child.md", "child"))
+
+    def test_finds_numbered_tar_parent(self):
+        _make_archive(
+            self.archived / "_b0" / "old0.tar.zst",
+            {"t50_task.md": "tar parent"},
+        )
+
+        result = find_archived_markdown_by_id("50", self.archived)
+
+        self.assertEqual(result, ("t50_task.md", "tar parent"))
+
+    def test_finds_numbered_tar_child(self):
+        _make_archive(
+            self.archived / "_b0" / "old0.tar.zst",
+            {"t50/t50_2_child.md": "tar child"},
+        )
+
+        result = find_archived_markdown_by_id("50_2", self.archived)
+
+        self.assertEqual(result, ("t50_2_child.md", "tar child"))
+
+    def test_falls_back_to_legacy_archive(self):
+        _make_archive(
+            self.archived / "old.tar.zst",
+            {"t999_legacy.md": "legacy"},
+        )
+
+        result = find_archived_markdown_by_id("999", self.archived)
+
+        self.assertEqual(result, ("t999_legacy.md", "legacy"))
+
+    def test_missing_returns_none(self):
+        self.assertIsNone(find_archived_markdown_by_id("404", self.archived))
 
 
 class TestIterArchivedFrontmatter(unittest.TestCase):

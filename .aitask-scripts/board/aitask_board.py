@@ -35,6 +35,7 @@ from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 from shortcuts_mixin import ShortcutsMixin, get_label
 from cross_repo_notation import parse as parse_cross_repo_notation
 from task_levels import LEVELS_ASCENDING
+from archive_iter import find_archived_markdown_by_id
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
@@ -161,10 +162,29 @@ class Task:
         self.content = ""
         self.metadata = {}
         self._original_key_order: list = []
+        self.archived = False
         self.load()
+
+    @classmethod
+    def from_text(cls, filepath: Path, raw: str, archived: bool = False) -> "Task":
+        task = cls.__new__(cls)
+        task.filepath = filepath
+        task.filename = filepath.name
+        task.content = ""
+        task.metadata = {}
+        task._original_key_order = []
+        task.archived = archived
+        result = parse_frontmatter(raw)
+        if result:
+            task.metadata, task.content, task._original_key_order = result
+        else:
+            task.content = raw
+        return task
 
     def load(self):
         """Load task from disk. Returns True on success, False on failure."""
+        if self.archived and not self.filepath.exists():
+            return True
         try:
             with open(self.filepath, "r", encoding="utf-8") as f:
                 raw = f.read()
@@ -234,6 +254,7 @@ class TaskManager:
     def __init__(self):
         self.task_datas: dict[str, Task] = {} # Filename -> Task (parents)
         self.child_task_datas: dict[str, Task] = {} # Filename -> Task (children)
+        self.archived_task_cache: dict[str, Task | None] = {}
         self.columns: list[dict] = []
         self.column_order: list[str] = []
         self.modified_files: set = set()  # Relative paths of git-modified .md files
@@ -289,6 +310,7 @@ class TaskManager:
 
     def load_tasks(self):
         self.task_datas.clear()
+        self.archived_task_cache.clear()
         for f in glob.glob(str(TASKS_DIR / "*.md")):
             path = Path(f)
             task = Task(path)
@@ -348,6 +370,35 @@ class TaskManager:
             if filename.startswith(prefix):
                 return task
         return None
+
+    def find_task_including_archived(self, task_id: str):
+        """Find an active task first, then lazily resolve archived tasks."""
+        active = self.find_task_by_id(task_id)
+        if active:
+            return active
+
+        normalized = str(task_id).lstrip("t")
+        if normalized not in self.archived_task_cache:
+            self.archived_task_cache[normalized] = self._load_archived_task(normalized)
+        return self.archived_task_cache[normalized]
+
+    def _load_archived_task(self, normalized_task_id: str):
+        archived = find_archived_markdown_by_id(
+            normalized_task_id,
+            TASKS_DIR / "archived",
+        )
+        if not archived:
+            return None
+        filename, raw = archived
+        if "_" in normalized_task_id:
+            parent = normalized_task_id.split("_", 1)[0]
+            path = TASKS_DIR / "archived" / f"t{parent}" / filename
+        else:
+            path = TASKS_DIR / "archived" / filename
+        task = Task.from_text(path, raw, archived=True)
+        if self._is_phantom_stub(task):
+            return None
+        return task
 
     def get_child_tasks_for_parent(self, parent_num: str) -> list[Task]:
         """Get all child tasks for a parent like 't47'."""
@@ -1084,13 +1135,18 @@ class DependsField(Static):
     def _find_task_by_number(self, num):
         num_str = str(num)
         task_id = num_str if num_str.startswith('t') else f"t{num_str}"
-        return self.manager.find_task_by_id(task_id)
+        return self.manager.find_task_including_archived(task_id)
 
     def _open_dep(self):
         if len(self.deps) == 1:
             task = self._find_task_by_number(self.deps[0])
             if task:
-                self.app.push_screen(TaskDetailScreen(task, self.manager))
+                self.app.push_screen(
+                    TaskDetailScreen(
+                        task, self.manager,
+                        read_only=getattr(task, "archived", False),
+                    )
+                )
             else:
                 self._ask_remove_dep(self.deps[0])
         else:
@@ -1157,13 +1213,18 @@ class VerifiesField(Static):
     def _find_task_by_number(self, num):
         num_str = str(num)
         task_id = num_str if num_str.startswith('t') else f"t{num_str}"
-        return self.manager.find_task_by_id(task_id)
+        return self.manager.find_task_including_archived(task_id)
 
     def _open_verify(self):
         if len(self.verifies) == 1:
             task = self._find_task_by_number(self.verifies[0])
             if task:
-                self.app.push_screen(TaskDetailScreen(task, self.manager))
+                self.app.push_screen(
+                    TaskDetailScreen(
+                        task, self.manager,
+                        read_only=getattr(task, "archived", False),
+                    )
+                )
             else:
                 self._ask_remove_verify(self.verifies[0])
         else:
@@ -1807,7 +1868,12 @@ class DepPickerItem(Static):
         if event.key == "enter":
             if self.dep_task:
                 self.screen.dismiss()
-                self.app.push_screen(TaskDetailScreen(self.dep_task, self.manager))
+                self.app.push_screen(
+                    TaskDetailScreen(
+                        self.dep_task, self.manager,
+                        read_only=getattr(self.dep_task, "archived", False),
+                    )
+                )
             else:
                 self._ask_remove_dep()
             event.prevent_default()

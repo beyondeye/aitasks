@@ -24,6 +24,49 @@ def archive_path_for_id(task_id: int, archived_dir: Path) -> Path:
     return archived_dir / f"_b{dir_num}" / f"old{bundle}.tar.zst"
 
 
+def find_archived_markdown_by_id(
+    task_id: str,
+    archived_dir: Path,
+) -> Tuple[str, str] | None:
+    """Return ``(filename, text)`` for one archived task ID, if present.
+
+    The lookup mirrors the shell resolver's precedence: loose archived files,
+    then the numbered bundle for the parent ID, then legacy ``old.tar.*``. It
+    avoids scanning every numbered bundle for each lookup.
+    """
+    normalized = str(task_id).lstrip("t")
+    match = re.fullmatch(r"(\d+)(?:_(\d+))?", normalized)
+    if not match:
+        return None
+    parent_id = int(match.group(1))
+
+    if archived_dir.exists():
+        if match.group(2):
+            child_dir = archived_dir / f"t{match.group(1)}"
+            loose = sorted(child_dir.glob(f"t{normalized}_*.md"))
+        else:
+            loose = [
+                path for path in sorted(archived_dir.glob(f"t{normalized}_*.md"))
+                if not _is_child_filename(path.name)
+            ]
+        for path in loose:
+            try:
+                return path.name, path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+    zst_path = archive_path_for_id(parent_id, archived_dir)
+    archive_paths = [zst_path, zst_path.with_suffix("").with_suffix(".tar.gz")]
+    for archive_path in archive_paths:
+        if not archive_path.exists():
+            continue
+        found = _find_in_archive_iter(normalized, _iter_single_archive(archive_path))
+        if found:
+            return found
+
+    return _find_in_archive_iter(normalized, iter_legacy_archive(archived_dir))
+
+
 def iter_numbered_archives(archived_dir: Path) -> Iterable[Tuple[str, str]]:
     """Yield (filename, text_content) from all numbered archives."""
     # Primary: .tar.zst
@@ -111,6 +154,25 @@ def iter_archived_frontmatter(
 def _is_child_filename(name: str) -> bool:
     """Check if filename matches child task pattern t<N>_<M>_*.md."""
     return bool(re.match(r"t\d+_\d+_", name))
+
+
+def _filename_matches_task_id(name: str, task_id: str) -> bool:
+    if "_" in task_id:
+        return bool(re.match(rf"^t{re.escape(task_id)}_", name))
+    return (
+        bool(re.match(rf"^t{re.escape(task_id)}_", name))
+        and not _is_child_filename(name)
+    )
+
+
+def _find_in_archive_iter(
+    task_id: str,
+    entries: Iterable[Tuple[str, str]],
+) -> Tuple[str, str] | None:
+    for filename, text in entries:
+        if _filename_matches_task_id(filename, task_id):
+            return filename, text
+    return None
 
 
 def _iter_single_archive(archive_path: Path) -> Iterable[Tuple[str, str]]:
