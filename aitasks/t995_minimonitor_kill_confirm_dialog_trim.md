@@ -62,3 +62,5 @@ dialog area.
 > **✅ gate:plan_approved** run=2026-06-15T09:13:57Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T09:13:57Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T09:19:21Z status=pass attempt=1 type=human
