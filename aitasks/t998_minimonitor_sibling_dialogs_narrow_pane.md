@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -7,7 +9,7 @@ status: Implementing
 labels: [aitask_monitormini, tui, tmux]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-15 12:44
-updated_at: 2026-06-15 12:50
+updated_at: 2026-06-15 13:41
 ---
 
 ## Goal
