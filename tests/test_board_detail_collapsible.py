@@ -36,8 +36,15 @@ class DetailCollapsibleTests(unittest.TestCase):
     def setUpClass(cls):
         cls._orig_cwd = os.getcwd()
         os.chdir(REPO_ROOT)
-        from aitask_board import KanbanApp, TaskDetailScreen  # noqa: E402
+        from aitask_board import (  # noqa: E402
+            CrossRepoDepsField,
+            CrossRepoTaskScreen,
+            KanbanApp,
+            TaskDetailScreen,
+        )
 
+        cls.CrossRepoDepsField = CrossRepoDepsField
+        cls.CrossRepoTaskScreen = CrossRepoTaskScreen
         cls.KanbanApp = KanbanApp
         cls.TaskDetailScreen = TaskDetailScreen
 
@@ -218,6 +225,112 @@ class DetailCollapsibleTests(unittest.TestCase):
                     "no risk section when risk is unset",
                 )
         self._run(go())
+
+    def test_cross_repo_deps_field_formats_live_statuses(self):
+        """xdeps/xdeprepo render in the detail relations section with the same
+        Done / active / unreachable semantics as task cards."""
+        from textual.widgets import Collapsible
+
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                task = self._first_parent_task(app)
+                if task is None:
+                    self.skipTest("no parent tasks loaded on the board")
+                task.metadata["xdeprepo"] = "sister"
+                task.metadata["xdeps"] = [1, "t2_3", "99"]
+                statuses = {
+                    ("sister", "1"): "Done",
+                    ("sister", "2_3"): "Implementing",
+                    ("sister", "99"): "NOT_FOUND",
+                }
+                app.manager.get_xdep_status = (
+                    lambda repo, task_id: statuses.get((repo, task_id), "")
+                )
+
+                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                await pilot.pause()
+
+                relations = app.screen.query_one("#sec_relations", Collapsible)
+                field = relations.query_one(self.CrossRepoDepsField)
+                self.assertEqual(
+                    field.render(),
+                    "  [b]Cross-repo deps:[/b] ↗ "
+                    "sister#1, sister#2_3 [Implementing], sister#99 (UNREACHABLE)",
+                )
+        self._run(go())
+
+    def test_cross_repo_deps_field_omitted_without_both_frontmatter_fields(self):
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                task = self._first_parent_task(app)
+                if task is None:
+                    self.skipTest("no parent tasks loaded on the board")
+                task.metadata["xdeprepo"] = "sister"
+                task.metadata.pop("xdeps", None)
+
+                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                await pilot.pause()
+
+                self.assertFalse(
+                    app.screen.query(self.CrossRepoDepsField),
+                    "cross-repo deps require both xdeprepo and xdeps",
+                )
+        self._run(go())
+
+    def test_enter_on_single_cross_repo_dep_opens_readonly_ref(self):
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                task = self._first_parent_task(app)
+                if task is None:
+                    self.skipTest("no parent tasks loaded on the board")
+                task.metadata["xdeprepo"] = "sister"
+                task.metadata["xdeps"] = ["t42"]
+                app.manager.get_xdep_status = lambda repo, task_id: "Ready"
+                opened = []
+                app._open_cross_repo_task = lambda repo, task_id: opened.append(
+                    (repo, task_id)
+                )
+
+                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                await pilot.pause()
+                field = app.screen.query_one(self.CrossRepoDepsField)
+                field.focus()
+                await pilot.pause()
+
+                await pilot.press("enter")
+                await pilot.pause()
+
+                self.assertEqual(opened, [("sister", "42")])
+                self.assertIsInstance(app.screen, self.TaskDetailScreen)
+        self._run(go())
+
+    def test_cross_repo_task_screen_strips_frontmatter_from_markdown_body(self):
+        content = """---
+priority: medium
+effort: low
+depends: []
+issue_type: bug
+status: Ready
+labels: [voyager, build]
+---
+## Origin
+
+Body text.
+"""
+        screen = self.CrossRepoTaskScreen("↗ sister#15", content)
+
+        self.assertEqual(screen._body, "## Origin\n\nBody text.\n")
+        self.assertEqual(screen._metadata["status"], "Ready")
+        formatted = screen._format_metadata()
+        self.assertIn("[b]priority:[/b] medium", formatted)
+        self.assertIn("[b]labels:[/b] voyager, build", formatted)
+        self.assertNotIn("---", screen._body)
 
     def test_view_indicator_in_title_bar(self):
         """The view-mode indicator lives inside the title bar and starts as Task."""

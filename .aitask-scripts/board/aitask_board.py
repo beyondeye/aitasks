@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from rich.markup import escape
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for, task_dir
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal, spawn_in_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
@@ -1205,6 +1206,52 @@ def _remove_verify_from_task(task, v_num):
     task.save_with_timestamp()
 
 
+class CrossRepoDepsField(Static):
+    """Focusable cross-repo dependency field. Enter opens refs read-only."""
+
+    can_focus = True
+
+    def __init__(self, repo: str, xdeps: list, manager: "TaskManager", **kwargs):
+        super().__init__(**kwargs)
+        self.repo = repo
+        self.refs = [(repo, str(xd).lstrip("t")) for xd in (xdeps or [])]
+        self.manager = manager
+
+    def render(self) -> str:
+        refs = ", ".join(self._format_ref(repo, task_id) for repo, task_id in self.refs)
+        return f"  [b]Cross-repo deps:[/b] ↗ {refs}"
+
+    def _format_ref(self, repo: str, task_id: str) -> str:
+        ref = f"{repo}#{task_id}"
+        status = self.manager.get_xdep_status(repo, task_id)
+        if status == "Done":
+            return ref
+        if not status or status == "NOT_FOUND":
+            return f"{ref} (UNREACHABLE)"
+        return f"{ref} [{status}]"
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self._open_ref()
+            event.prevent_default()
+            event.stop()
+
+    def _open_ref(self):
+        if not self.refs:
+            return
+        if len(self.refs) == 1:
+            repo, task_id = self.refs[0]
+            self.app._open_cross_repo_task(repo, task_id)
+        else:
+            self.app.push_screen(CrossRepoRefPickerScreen(self.refs))
+
+    def on_focus(self):
+        self.add_class("ro-focused")
+
+    def on_blur(self):
+        self.remove_class("ro-focused")
+
+
 def _reload_detail_screen(app, task, manager):
     """Dismiss the current detail screen and re-push it with updated task data."""
     task.load()
@@ -1960,6 +2007,11 @@ class CrossRepoTaskScreen(ModalScreen):
         padding: 1;
     }
     #xrepo_view { margin: 1 0; border: solid $secondary-background; }
+    #xrepo_meta {
+        padding: 0 1 1 1;
+        color: $text-muted;
+        border-bottom: solid $secondary-background;
+    }
     #xrepo_error { padding: 1 2; color: $warning; }
     #xrepo_buttons { dock: bottom; height: 3; align: center middle; }
     """
@@ -1975,6 +2027,24 @@ class CrossRepoTaskScreen(ModalScreen):
         self._title = title
         self._content = content
         self._is_error = is_error
+        self._metadata = {}
+        self._metadata_order = []
+        self._body = content
+        if not is_error:
+            parsed = parse_frontmatter(content)
+            if parsed:
+                self._metadata, self._body, self._metadata_order = parsed
+
+    def _format_metadata(self) -> str:
+        lines = []
+        for key in self._metadata_order:
+            value = self._metadata.get(key)
+            if value in (None, "", []):
+                continue
+            if isinstance(value, list):
+                value = ", ".join(str(item) for item in value)
+            lines.append(f"[b]{escape(str(key))}:[/b] {escape(str(value))}")
+        return "\n".join(lines)
 
     def compose(self):
         with Container(id="xrepo_dialog"):
@@ -1983,7 +2053,9 @@ class CrossRepoTaskScreen(ModalScreen):
                 if self._is_error:
                     yield Static(self._content, id="xrepo_error")
                 else:
-                    yield Markdown(self._content)
+                    if self._metadata:
+                        yield Static(self._format_metadata(), id="xrepo_meta")
+                    yield Markdown(self._body)
             with Horizontal(id="xrepo_buttons"):
                 yield Button("Close", variant="default", id="btn_xrepo_close")
 
@@ -2434,6 +2506,18 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
             elif deps:
                 dep_str = ", ".join(str(d) for d in deps)
                 out.append(ReadOnlyField(f"[b]Depends:[/b] {dep_str}", classes="meta-ro"))
+        xdeprepo = meta.get("xdeprepo")
+        xdeps = meta.get("xdeps", []) or []
+        if xdeprepo and xdeps:
+            if self.manager:
+                out.append(CrossRepoDepsField(xdeprepo, xdeps, self.manager,
+                                              classes="meta-ro"))
+            else:
+                xdep_str = ", ".join(
+                    f"{xdeprepo}#{str(xd).lstrip('t')}" for xd in xdeps
+                )
+                out.append(ReadOnlyField(
+                    f"[b]Cross-repo deps:[/b] ↗ {xdep_str}", classes="meta-ro"))
         if meta.get("verifies"):
             verifies = meta["verifies"]
             if verifies and self.manager:
