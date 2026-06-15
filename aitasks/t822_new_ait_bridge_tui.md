@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [ait_bridge]
-children_to_implement: [t822_4, t822_5, t822_8, t822_9, t822_10, t822_11, t822_12, t822_13]
+children_to_implement: [t822_5, t822_8, t822_9, t822_10, t822_11, t822_12, t822_13]
 created_at: 2026-05-24 08:40
-updated_at: 2026-06-14 12:30
+updated_at: 2026-06-15 18:22
 boardcol: now
 boardidx: 20
 ---
