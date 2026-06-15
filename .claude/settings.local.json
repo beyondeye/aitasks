@@ -28,6 +28,7 @@
       "Bash(./.aitask-scripts/aitask_add_model.sh:*)",
       "Bash(./.aitask-scripts/aitask_explain_context.sh:*)",
       "Bash(./.aitask-scripts/aitask_ls.sh:*)",
+      "Bash(./.aitask-scripts/aitask_project_resolve.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_capture.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_context.sh:*)",
       "Bash(./.aitask-scripts/aitask_update.sh:*)",

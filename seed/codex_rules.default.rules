@@ -37,6 +37,7 @@ prefix_rule(pattern = ["./.aitask-scripts/aitask_plan_externalize.sh"], decision
 prefix_rule(pattern = ["./.aitask-scripts/aitask_plan_verified.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_pr_close.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_pr_import.sh"], decision = "allow", justification = "Aitasks helper script")
+prefix_rule(pattern = ["./.aitask-scripts/aitask_project_resolve.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_query_files.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_remote_drift_check.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_resolve_detected_agent.sh"], decision = "allow", justification = "Aitasks helper script")
