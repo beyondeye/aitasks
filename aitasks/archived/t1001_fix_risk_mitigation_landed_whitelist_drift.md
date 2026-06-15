@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [claudeskills, whitelists]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-15 17:59
-updated_at: 2026-06-15 18:25
+updated_at: 2026-06-15 18:28
+completed_at: 2026-06-15 18:28
 ---
 
 ## Problem
