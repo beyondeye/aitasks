@@ -55,3 +55,8 @@ checkpoint, not re-archive. See `aidocs/gates/gate-guarded-archival.md`.
 - `aidocs/gates/integration-roadmap.md` (Phase 2)
 - `aidocs/gates/aitask-gate-framework.md` ("Decision tree (re-entry)",
   "Re-entry contract")
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-15T10:05:46Z status=pass attempt=1 type=human
