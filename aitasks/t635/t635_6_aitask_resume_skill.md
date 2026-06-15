@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: [t635_5]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [gates, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 18:53
-updated_at: 2026-06-10 18:53
+updated_at: 2026-06-15 15:47
 ---
 
 ## Context
