@@ -54,3 +54,5 @@ working until t983_3 wires the model into the Browse UI.
 > **✅ gate:plan_approved** run=2026-06-15T08:48:36Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T08:48:38Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T09:09:47Z status=pass attempt=1 type=human
