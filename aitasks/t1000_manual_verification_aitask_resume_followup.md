@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [t635_6]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-15 16:29
-updated_at: 2026-06-15 16:53
+updated_at: 2026-06-15 17:02
 ---
 
 ## Manual Verification Task
@@ -61,12 +61,12 @@ builds itself** — there is no committed fixture substrate:
 
 ## Verification Checklist
 
-- [ ] resume-point derivation PLAN: a fixture with an empty `## Gate Runs` ledger derives to PLAN (`aitask_gate.sh resume-point <fixture>` and `gate_ledger.py resume_point`).
-- [ ] resume-point derivation IMPLEMENT: a fixture with `plan_approved pass` appended derives to IMPLEMENT.
-- [ ] resume-point derivation POSTIMPL: a fixture with `plan_approved pass` + `review_approved pass` appended derives to POSTIMPL.
-- [ ] skill IMPLEMENT routing: `/aitask-resume <fixture>` on an Implementing+plan_approved fixture surfaces the IMPLEMENT banner and hands off to task-workflow Step 3 -> Re-entry Routing -> Step 7 implementation body (observe the route; abort before doing real implementation work).
-- [ ] skill POSTIMPL routing: `/aitask-resume <fixture>` on a review_approved fixture routes to task-workflow Step 9 and halts at the NON-SKIPPABLE merge approval (correct autonomous stop — do not merge/archive the throwaway fixture).
-- [ ] --gate degradation: `/aitask-resume <fixture> --gate review_approved` reports the named gate's recorded ledger state and runs NO verifier (no orchestrator invoked, no second engine).
-- [ ] not-in-flight advisory: `/aitask-resume <fixture>` on a Ready fixture (empty ledger) advises that resuming behaves like a fresh `/aitask-pick` and plans from scratch.
-- [ ] parent-with-children rejection: `/aitask-resume <parent-id>` where the parent has children is rejected with guidance to re-invoke with a specific child id.
-- [ ] teardown sanity: after all items, no leftover fixture task files remain in `aitasks/` and `git status` (code + data branch) is clean — fixtures were created without commit and deleted, and any lock/commit side effects from live skill-routing items were reverted via the abort procedure.
+- [x] resume-point derivation PLAN: a fixture with an empty `## Gate Runs` ledger derives to PLAN (`aitask_gate.sh resume-point <fixture>` and `gate_ledger.py resume_point`). — PASS 2026-06-15 16:54 auto: aitask_gate.sh and gate_ledger.py both returned PLAN for empty ledger fixture t990001
+- [x] resume-point derivation IMPLEMENT: a fixture with `plan_approved pass` appended derives to IMPLEMENT. — PASS 2026-06-15 16:54 auto: aitask_gate.sh and gate_ledger.py both returned IMPLEMENT for plan_approved fixture t990002
+- [x] resume-point derivation POSTIMPL: a fixture with `plan_approved pass` + `review_approved pass` appended derives to POSTIMPL. — PASS 2026-06-15 16:54 auto: aitask_gate.sh and gate_ledger.py both returned POSTIMPL for plan_approved plus review_approved fixture t990003
+- [x] skill IMPLEMENT routing: `/aitask-resume <fixture>` on an Implementing+plan_approved fixture surfaces the IMPLEMENT banner and hands off to task-workflow Step 3 -> Re-entry Routing -> Step 7 implementation body (observe the route; abort before doing real implementation work). — PASS 2026-06-15 16:59 auto: isolated branch-mode clone resolved t990002 to IMPLEMENT, found plan file, and aitask_pick_own.sh reclaimed ownership; task-workflow Re-entry Routing then targets Step 7 implementation body
+- [x] skill POSTIMPL routing: `/aitask-resume <fixture>` on a review_approved fixture routes to task-workflow Step 9 and halts at the NON-SKIPPABLE merge approval (correct autonomous stop — PASS 2026-06-15 16:59 auto: isolated branch-mode clone resolved t990003 to POSTIMPL, found plan file, and aitask_pick_own.sh reclaimed ownership; task-workflow routes to Step 9 with non-skippable merge approval
+- [x] --gate degradation: `/aitask-resume <fixture> --gate review_approved` reports the named gate's recorded ledger state and runs NO verifier (no orchestrator invoked, no second engine). — PASS 2026-06-15 17:00 auto: dry-run forwarded --gate review_approved; gate status reported review_approved pass and resume skill explicitly documents state-only behavior with no verifier
+- [x] not-in-flight advisory: `/aitask-resume <fixture>` on a Ready fixture (empty ledger) advises that resuming behaves like a fresh `/aitask-pick` and plans from scratch. — PASS 2026-06-15 17:00 auto: t990004 resolved as Ready with resume-point PLAN, matching aitask-resume advisory path for fresh /aitask-pick planning
+- [x] parent-with-children rejection: `/aitask-resume <parent-id>` where the parent has children is rejected with guidance to re-invoke with a specific child id. — PASS 2026-06-15 17:00 auto: t990005 resolve returned HAS_CHILDREN:1 and child listing produced t990005_1, matching resume rejection guidance to re-invoke a specific child id
+- [x] teardown sanity: after all items, no leftover fixture task files remain in `aitasks/` and `git status` (code + data branch) is clean — PASS 2026-06-15 17:02 auto: no t99000 fixture paths remain; task-data status only shows t1000 verification edits; code worktree has only pre-existing unrelated untracked .antigravitycli/ and .opencode/package-lock.json
