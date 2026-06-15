@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [applink]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-05-25 14:08
-updated_at: 2026-06-15 18:27
+updated_at: 2026-06-15 18:56
 ---
 
 Add a `name=<urlencoded(socket.gethostname())>` query parameter to the QR URL emitted by the applink TUI. Per the updated spec in `aidocs/applink/protocol.md` §Pairing flow line 97.
@@ -24,3 +25,8 @@ Add a `name=<urlencoded(socket.gethostname())>` query parameter to the QR URL em
 
 - Sister task in mobile repo: `aitasks_mobile/aitasks/archived/t13/t13_2_sister_qr_add_hostname_field.md` (after archival).
 - Mobile-side parser change: `aitasks_mobile/aitasks/t13/t13_4_qr_url_parser.md` — the parser treats `name=` as optional.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-15T15:56:06Z status=pass attempt=1 type=human
