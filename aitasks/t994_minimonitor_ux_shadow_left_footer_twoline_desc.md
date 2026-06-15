@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, tmux, tui]
+assigned_to: daelyasy@hotmail.com
 created_at: 2026-06-15 10:20
-updated_at: 2026-06-15 10:20
+updated_at: 2026-06-15 10:28
 ---
 
 ## Goal
