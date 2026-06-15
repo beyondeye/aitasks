@@ -69,3 +69,5 @@ documenting). Reflects t986_1..t986_5.
 > **✅ gate:plan_approved** run=2026-06-15T15:34:01Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T15:34:03Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T16:01:28Z status=pass attempt=1 type=human
