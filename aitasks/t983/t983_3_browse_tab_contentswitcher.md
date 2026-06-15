@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 11:39
-updated_at: 2026-06-15 18:26
+updated_at: 2026-06-15 18:33
 ---
 
 ## Context
@@ -56,3 +57,8 @@ panel + selection model, plus a pure view-state helper.
   across toggles, `space` marks reflect in `NodeSelection`.
 - Update + green: `test_brainstorm_node_export.py`; full `test_brainstorm*.py`.
 - Manual: `ait brainstorm <session>` → `v` toggles, detail shared, `space` marks.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-15T15:33:05Z status=pass attempt=1 type=human
