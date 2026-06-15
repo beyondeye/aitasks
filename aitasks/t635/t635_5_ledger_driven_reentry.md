@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t635_2]
 issue_type: feature
@@ -7,7 +9,7 @@ status: Implementing
 labels: [gates, task_workflow, crash_recovery]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 18:53
-updated_at: 2026-06-15 10:55
+updated_at: 2026-06-15 13:05
 ---
 
 ## Context
@@ -60,3 +62,5 @@ checkpoint, not re-archive. See `aidocs/gates/gate-guarded-archival.md`.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-15T10:05:46Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-15T10:05:48Z status=pass attempt=1 type=machine
