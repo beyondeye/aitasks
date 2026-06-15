@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
 status: Implementing
 labels: [aitask_monitormini]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_5
 created_at: 2026-06-15 10:36
-updated_at: 2026-06-15 12:03
+updated_at: 2026-06-15 12:13
 ---
 
 Trim the kill-agent confirmation dialog (`KillConfirmDialog`, defined in
@@ -52,3 +55,8 @@ dialog area.
 - The dialog is a Textual TUI — see `aidocs/framework/tui_conventions.md`.
 - Verify the button fit by opening the dialog in a deliberately narrow
   minimonitor split pane.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-15T09:13:57Z status=pass attempt=1 type=human
