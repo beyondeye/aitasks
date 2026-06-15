@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [claudeskills, whitelists]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-15 17:59
-updated_at: 2026-06-15 18:21
+updated_at: 2026-06-15 18:25
 ---
 
 ## Problem
@@ -60,3 +61,8 @@ allowlist, matching `seed/claude_settings.local.json`:
   already-whitelistable drift fix; distinct scope.
 - While fixing, optionally spot-check whether other `seed/`-whitelisted helpers
   are likewise missing from this repo's live `.claude/settings.local.json`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-15T15:25:07Z status=pass attempt=1 type=human
