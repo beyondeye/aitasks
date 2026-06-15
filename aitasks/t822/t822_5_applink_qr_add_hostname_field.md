@@ -34,3 +34,5 @@ Add a `name=<urlencoded(socket.gethostname())>` query parameter to the QR URL em
 > **✅ gate:plan_approved** run=2026-06-15T15:56:06Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T15:56:07Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T16:01:02Z status=pass attempt=1 type=human
