@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: low
-depends: [986_4]
+depends: [t986_4]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [claudeskills, codeagent]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 22:55
-updated_at: 2026-06-14 22:55
+updated_at: 2026-06-15 10:27
 ---
 
 Port the `/aitask-shadow` user-invocable command to OpenCode.
