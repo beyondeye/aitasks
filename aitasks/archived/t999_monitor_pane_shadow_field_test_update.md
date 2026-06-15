@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Done
 labels: [aitask_monitor, tmux, tests]
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-15 14:48
-updated_at: 2026-06-15 14:48
+updated_at: 2026-06-15 14:49
+completed_at: 2026-06-15 14:49
 ---
 
 ## Summary
