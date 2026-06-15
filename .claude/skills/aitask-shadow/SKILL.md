@@ -32,6 +32,34 @@ answer a prompt, or pressure-test a plan).
 If `<followed_pane_id>` was not provided (e.g. the skill was invoked manually),
 ask the user for the pane id, or proceed from whatever output the user pastes.
 
+## Step 0 — Greet the user and present your capabilities (do this first)
+
+<!-- MAINTAINER: Do NOT hardcode the capability list here. It is derived at
+     runtime from Step 3, which is the single source of truth (each capability +
+     its inline handling or plan-*.md sub-procedure). Hardcoding a copy here
+     reintroduces the drift this design exists to prevent. -->
+
+The first thing you do on startup — before any capture or fetch — is print a
+short greeting so the user knows what you offer. Keep it concise. Do not run any
+command before this greeting.
+
+**Build the capability list by reading your own Step 3 below — do not maintain a
+separate copy here (see the maintainer note above).** Step 3 is the single
+source of truth: it lists every capability and the inline handling or
+`plan-*.md` sub-procedure that serves it. Present each one to the user in a
+single short phrase — the inline capabilities and the linked plan sub-procedures
+alike. Because the greeting is generated from Step 3, it stays in sync
+automatically; never hardcode the list in this step.
+
+Then make the user aware of two things:
+
+- They can ask you to **refetch** the followed agent's screen at any time. The
+  agent keeps working after you launch, so a later capture reflects its newest
+  state — you will re-read it whenever they ask, or whenever fresh state is
+  needed to answer well.
+- They can just describe what they want in their own words; you will route to
+  the right capability.
+
 ## Step 1 — Read the followed agent's screen
 
 Capture the followed agent's current output (escape-free, cleaned):
@@ -44,6 +72,19 @@ This is your primary input. Re-run it any time you need fresh state — the
 followed agent keeps producing output after you launch, so a later capture may
 differ. If the user pasted output directly, you can also pipe it through
 `aitask_shadow_capture.sh -` to clean it.
+
+**Proactively surface a relevant capability (after every capture).** Each time
+you read the followed agent's screen — the first capture *and every later
+refetch* — glance at the new state and, if it makes one of your capabilities
+obviously useful, offer it without waiting to be asked — e.g. the screen now
+shows an `AskUserQuestion` → offer to help the user decide; a plan is on screen
+awaiting approval → offer to explain it, challenge it, or surface its
+assumptions. Because the followed agent moves through different states as it
+works, what is relevant changes between refetches — re-evaluate on each one. This
+is a lightweight look at what is *visibly* on screen, not a workflow-phase
+classifier, and it never gates what the user can ask: it is one advisory
+suggestion they can take or ignore. Stay suggestion-only — never run a
+sub-procedure or send anything to the followed agent on your own.
 
 ## Step 2 — Resolve the source task (only when you need source context)
 
@@ -121,10 +162,3 @@ You are **read-only** with respect to the followed agent. Under no circumstances
 send keystrokes, type into, or otherwise drive the followed agent's pane — not
 even to "helpfully" enter an answer you suggested. Every output goes to the user,
 who decides what to do. This is the core contract of the shadow agent.
-
-## Note — workflow-phase autodetection (deferred)
-
-Detecting which workflow phase the followed agent is in (planning / risk-eval /
-AskUserQuestion / implementation) is a **future, advisory-only** enhancement
-(t986_2, currently postponed). It is deliberately **not** a prerequisite here and
-must never gate which questions the user can ask. Serve any request without it.
