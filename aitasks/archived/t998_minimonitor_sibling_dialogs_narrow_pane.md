@@ -5,11 +5,12 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitormini, tui, tmux]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-15 12:44
-updated_at: 2026-06-15 13:41
+updated_at: 2026-06-15 14:42
+completed_at: 2026-06-15 14:42
 ---
 
 ## Goal
