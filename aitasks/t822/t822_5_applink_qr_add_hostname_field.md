@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t822_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [applink]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-05-25 14:08
-updated_at: 2026-05-25 14:08
+updated_at: 2026-06-15 18:27
 ---
 
 Add a `name=<urlencoded(socket.gethostname())>` query parameter to the QR URL emitted by the applink TUI. Per the updated spec in `aidocs/applink/protocol.md` §Pairing flow line 97.
