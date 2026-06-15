@@ -5,12 +5,13 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t635_5]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [gates, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:53
-updated_at: 2026-06-15 16:21
+updated_at: 2026-06-15 16:30
+completed_at: 2026-06-15 16:30
 ---
 
 ## Context
