@@ -24,4 +24,4 @@ tmux:
   default_split: horizontal
   prefer_tmux: true
   git_tui: lazygit
-  shadow_pane_width: 80
+  shadow_pane_width: 60

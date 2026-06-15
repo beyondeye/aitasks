@@ -208,3 +208,65 @@ message `enhancement: <desc> (t994)`, then archival per the standard flow.
 
 _No before/after mitigation tasks proposed — the manual-verification step in the
 Verification section covers the medium goal-achievement risk._
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-15)
+- **Requested by user:** Live test showed the shadow pane spawning at width 1
+  ("almost zero width") in window `agent-pick-987`.
+- **Root cause:** `launch_in_tmux`'s split targeted the *window* (`-t
+  session:window`), so tmux split the window's **active pane** — which is the
+  narrow (~40-col) minimonitor pane from which `e` was pressed. Requesting
+  `-l 80` against a 40-col pane made tmux collapse the new pane to width 1.
+  Reproduced empirically: split active narrow pane → shadow `w=1`.
+- **Changes made:** Added `split_target_pane` to `TmuxLaunchConfig`; when set,
+  `launch_in_tmux` splits that specific pane (`-t <pane_id>`) instead of the
+  window's active pane (and `select-window` still uses the window target).
+  `action_launch_shadow` now passes `split_target_pane=followed_pane` so the
+  split sizes against the **wide agent pane**. Verified empirically: split the
+  123-col agent pane with `-h -b -l 80` → shadow `w=80`, agent→42, minimonitor
+  stays 40. Added two unit tests (`test_default_target_is_window`,
+  `test_split_target_pane_overrides_window_target`).
+- **Files affected:** `.aitask-scripts/lib/agent_launch_utils.py`,
+  `.aitask-scripts/monitor/minimonitor_app.py`,
+  `tests/test_launch_in_tmux_pane_pid.py`.
+
+### Change Request 2 (2026-06-15)
+- **Requested by user:** Shadow-on-far-left put the main agent in the middle
+  (not ideal); 80-col default too wide.
+- **Changes made:** Dropped `split_before` from the shadow launch so the shadow
+  is inserted to the **right of the agent pane** (still sized against the wide
+  agent pane) — final layout left→right is **agent | shadow | minimonitor**,
+  keeping the agent anchored on the left. Verified empirically: agent w=62,
+  shadow w=60, minimonitor w=40. Lowered the default `shadow_pane_width` from
+  80 to **60** across the settings schema, seed config, live config, and the
+  in-code fallbacks. (`split_before` and its `-b` flag remain available in
+  `TmuxLaunchConfig`/`launch_in_tmux` for general use; the shadow just doesn't
+  use it.)
+- **Files affected:** `.aitask-scripts/monitor/minimonitor_app.py`,
+  `.aitask-scripts/settings/settings_app.py`, `seed/project_config.yaml`,
+  `aitasks/metadata/project_config.yaml`.
+
+## Final Implementation Notes
+- **Actual work done:** All four planned changes landed — (1) shadow pane
+  placement/width via new `split_before`/`split_size`/`split_target_pane` fields
+  on `TmuxLaunchConfig` + a new `int`-typed `shadow_pane_width` setting (default
+  60); (2) 5-line footer reorg; (3) `r:refresh` binding + `action_refresh`
+  removed; (4) two-line wrapped task description via `textwrap` in
+  `_own_agent_identity_text`.
+- **Deviations from plan:** Two post-review iterations. (a) The plan's
+  `split_before=True` placed the shadow far-left and sized `-l` against the
+  window's active pane (the narrow minimonitor), collapsing the shadow to width
+  1; fixed by adding `split_target_pane` so the split sizes against the wide
+  agent pane. (b) Final layout chosen is **agent | shadow | minimonitor** (no
+  `split_before`), keeping the agent anchored left; default width lowered 80→60.
+- **Issues encountered:** tmux `-l` collapses the new pane to width 1 when the
+  requested size exceeds the split pane's width — the active-pane-vs-target-pane
+  distinction was the root cause. Verified both bug and fix empirically on a
+  throwaway tmux server.
+- **Key decisions:** "Minimum width" is realized as tmux `-l` initial width (no
+  persistent per-pane minimum); a self-pin like the minimonitor's
+  `_maybe_pin_width` was noted as a possible future enhancement but left out of
+  scope. `split_before` is retained as general `TmuxLaunchConfig` capability
+  even though the shadow no longer uses it.
+- **Upstream defects identified:** None
