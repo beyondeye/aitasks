@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [aitask_monitormini]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-15 10:36
-updated_at: 2026-06-15 10:36
+updated_at: 2026-06-15 12:03
 ---
 
 Trim the kill-agent confirmation dialog (`KillConfirmDialog`, defined in
