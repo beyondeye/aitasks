@@ -120,3 +120,10 @@ Per task-workflow: review/commit (`bug: ... (t998)`), then archive via
 - Final fit depends on exact label widths vs. the ~40-col pane; mitigated by
   vertical full-width buttons (no horizontal 3-button packing) and a live visual
   check in the verification step. · severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+- **Actual work done:** Added an opt-in `narrow: bool = False` constructor param to `NextSiblingDialog` and `ChooseSiblingModal` in `.aitask-scripts/monitor/monitor_shared.py`. Each toggles a `narrow` CSS class in `compose()`. Narrow-scoped `DEFAULT_CSS` overrides widen both dialogs (`width: 90%; min-width: 30`) and stack `NextSiblingDialog`'s three buttons vertically (`layout: vertical; Button { width: 1fr }`). The minimonitor opts in by passing `narrow=True` at the two `push_screen` sites in `minimonitor_app.py` (NextSiblingDialog ~L855, ChooseSiblingModal ~L881).
+- **Deviations from plan:** None. Implemented exactly as planned.
+- **Issues encountered:** Headless Textual CSS validation isn't possible standalone — `DEFAULT_CSS` references app theme vars (`$surface`, `$warning`) that resolve only inside a running App, so a standalone `Stylesheet.parse()` raises `UnresolvedVariableError` on the pre-existing CSS (false positive). Verified instead via AST parse + import/construct (narrow defaults to False; True only at minimonitor sites) and deferred the visual render check to the live minimonitor pane, which the user confirmed during Step 8 review.
+- **Key decisions:** Chose an explicit `narrow` flag over applying the change unconditionally (as `KillConfirmDialog` did) so the *shared* full-monitor surface is provably unchanged — `KillConfirmDialog`'s 2 short buttons fit horizontally everywhere, but the 3-button next-sibling dialog cannot fit in a ~40-col pane at any dialog width, forcing the vertical stack only in the narrow context.
+- **Upstream defects identified:** None
