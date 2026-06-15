@@ -238,3 +238,45 @@ the OpenCode/Codex stubs split out — flag at review if so.
 Post-implementation cleanup/archival follow the shared **Step 9** flow (current
 branch — `fast` profile; no worktree/merge). This child declares no `gates:`, so
 its own archival is unaffected.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added the `aitask-resume` entry-point skill exactly to
+  plan. New files: `.claude/skills/aitask-resume/SKILL.md.j2` (profile-aware
+  template) + 4 per-agent stubs (`.claude/skills/aitask-resume/SKILL.md`,
+  `.agents/skills/aitask-resume/SKILL.md`, `.opencode/commands/aitask-resume.md`,
+  `.opencode/skills/aitask-resume/SKILL.md`), resolver key `resume`; 3 goldens
+  under `tests/golden/skills/aitask-resume/`; `tests/test_skill_render_aitask_resume.sh`
+  (102 assertions); website page `website/content/docs/skills/aitask-resume.md`
+  + a Task-Implementation row in `_index.md`. The skill parses
+  `<task-id> [--gate <name>]`, resolves parent/child via `aitask_query_files.sh`,
+  surfaces `aitask_gate.sh resume-point`/`status`, and hands off to
+  `task-workflow` Step 3 (Check 5 + Re-entry Routing do the resume — the t635_5
+  engine is consumed, never forked).
+- **Deviations from plan:** None. The smoke check in the plan predicted
+  `resume-point 635_6 → PLAN`; by the time it ran the task's own ledger already
+  carried the `plan_approved` gate recorded in Step 7, so it correctly returned
+  `IMPLEMENT` — a live confirmation of the shared engine, not a deviation.
+- **Issues encountered:** None. `aitask_skill_verify.sh` auto-discovered the new
+  `.j2`; the skill declares no `prerender_for_headless`, so no committed
+  prerender / `rerender remote` burden (per the user's headless decision —
+  on-demand `remote` render is the headless variant).
+- **Key decisions:** (1) Headless = on-demand `remote`-profile render, NOT
+  committed prerenders (in-scope consumers are local; Web is t635_17). (2)
+  `--gate` accepted for orchestrator invocation-contract compatibility but
+  degrades to a ledger-state report — no second engine (orchestrator is t635_11).
+  (3) Parent-with-children is rejected (resume is single-task scoped). (4)
+  Behavioral routing correctness is deferred to an autonomous manual-verification
+  follow-up (Step 8c) driving ephemeral PLAN/IMPLEMENT/POSTIMPL gate fixtures.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t635_7 (gate-aware aitask-pick):** the in-flight pick section should set
+    the same Step 3 hand-off context (`skill_name`, `resume_point` via Check 5)
+    and route through Re-entry Routing — do not re-derive. `aitask-resume` and a
+    gate-aware pick share the one engine.
+  - **t635_9 (board In-Flight view):** launch this skill locally via
+    `ait skillrun resume --profile <p> -- <id>` (verified `--dry-run` emits the
+    expected `/aitask-resume … <id>` command); no committed prerender needed.
+  - **t635_11 (orchestrator):** `aitask-resume` is the intended conversational
+    front. Wire the real `--gate`/run-gates behavior into Step 2 here (replacing
+    the current report-only degradation); keep it a front, not a second engine.
