@@ -5,12 +5,13 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t986_4]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_monitormini, codeagent, ait_settings, tmux]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 16:04
-updated_at: 2026-06-14 23:46
+updated_at: 2026-06-15 06:36
+completed_at: 2026-06-15 06:36
 ---
 
 ## Context
