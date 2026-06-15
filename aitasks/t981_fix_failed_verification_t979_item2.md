@@ -81,3 +81,8 @@ Note `tmux_exec.py:resize_pane` was added with no callers using the subprocess
 Repro scripts used live under `/tmp/auto_verify_979/` at diagnosis time
 (`pty_ctrl2.py` reproduces the failure with no minimonitor); see
 `aiplans/p979_manual_verification_auto.md` for the full execution log.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:review_approved** run=2026-06-15T13:48:39Z status=pass attempt=1 type=human
