@@ -63,3 +63,5 @@ See `aidocs/framework/tui_conventions.md` for board/TUI conventions.
 > **✅ gate:plan_approved** run=2026-06-15T07:58:20Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T07:58:20Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T08:03:40Z status=pass attempt=1 type=human
