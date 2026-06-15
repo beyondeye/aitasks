@@ -512,7 +512,7 @@
         },
         "explore": {
           "all_time": {
-            "runs": 17
+            "runs": 18
           },
           "prev_month": {
             "period": "2026-05",
@@ -520,11 +520,11 @@
           },
           "month": {
             "period": "2026-06",
-            "runs": 13
+            "runs": 14
           },
           "week": {
-            "period": "2026-W24",
-            "runs": 7
+            "period": "2026-W25",
+            "runs": 1
           }
         },
         "changelog": {
