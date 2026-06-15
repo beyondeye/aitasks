@@ -110,3 +110,5 @@ needed — the parity edits are part of this task.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-15T09:51:09Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-15T09:51:11Z status=pass attempt=1 type=machine
