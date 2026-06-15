@@ -119,3 +119,5 @@ the body; the AC below is updated to match.)
 > **✅ gate:plan_approved** run=2026-06-15T09:51:09Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T09:51:11Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T10:00:03Z status=pass attempt=1 type=human
