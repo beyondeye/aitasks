@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [aitask_monitormini]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: codex/gpt5_5
 created_at: 2026-06-15 10:36
-updated_at: 2026-06-15 12:13
+updated_at: 2026-06-15 12:24
+completed_at: 2026-06-15 12:24
 ---
 
 Trim the kill-agent confirmation dialog (`KillConfirmDialog`, defined in
