@@ -582,6 +582,23 @@
             "period": "2026-W25",
             "runs": 1
           }
+        },
+        "resume": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W25",
+            "runs": 1
+          }
         }
       }
     },
