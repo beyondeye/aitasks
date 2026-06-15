@@ -265,6 +265,29 @@ Canonical helper lives at `.aitask-scripts/aitask_companion_cleanup.sh` (shell
 script, called via `tmux run-shell`, not from a code-agent skill — no
 whitelisting touchpoints).
 
+### The shadow agent is a second companion-pane case
+
+minimonitor is no longer the only companion pane. The **shadow** agent
+(`aidocs/framework/shadow_agent.md`) is a second kind of companion: an advisory
+coding agent spawned, by default, as a split in the **same window** as the agent
+it follows (configurable to a separate window). Code that reasons about the panes
+in an agent window must account for it on two fronts:
+
+- **It must never be counted as a real agent.** The shadow pane carries the
+  pane-scoped tmux user option `@aitask_shadow_target` (set to the followed
+  agent's `pane_id`). monitor / minimonitor exclude any pane carrying that option
+  from agent snapshots, and `kill_agent_pane_smart`'s window-vs-pane decision
+  excludes it from the real-agent sibling count — exactly as the
+  minimonitor / monitor panes are excluded. Per-agent state is keyed by
+  `pane_id` (see `tmux_gateway.md`), so several real agents can share one window
+  without a shadow being mistaken for one.
+- **It is bound to one followed agent.** When the followed agent's pane dies, its
+  bound shadow is killed automatically (`aitask_companion_cleanup.sh` matches
+  `@aitask_shadow_target` against the dying pane) even if other agents remain in
+  the window; killing a *different* agent leaves an unrelated shadow alive. A
+  shadow pane never keeps the minimonitor companion alive once the last real
+  agent in the window is gone.
+
 ## TUI footer must surface every operation on the affected tab/screen
 
 When a plan adds keybindings to a Textual TUI tab/screen, the same plan must

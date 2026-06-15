@@ -106,6 +106,21 @@ For agent panes whose window name carries a task ID (e.g., `agent-t42-claudecode
 
 The task cache is refreshed and the task detail dialog appears with the task's metadata and content. If the focused card has no task ID in its window name, a warning notification is shown instead.
 
+### How to Launch a Shadow Agent
+
+Press **e** to launch a *shadow agent* next to the code agent you are following — an advisory companion that reads that agent's terminal output and helps you make sense of it. By default the shadow opens as a new pane in the **same tmux window** as the followed agent, so it sits right beside the work it is watching.
+
+The shadow is read-only and advisory: it can explain what the agent is doing, help you answer a prompt the agent is stuck on, or critically interrogate a plan before you approve it — but it never types into the followed agent's pane. You stay the driver.
+
+Like minimonitor itself, the shadow pane is a companion: it never appears in the agent list, and it closes automatically when the agent it shadows exits.
+
+For what the shadow can do and how to drive it once it is running, see the [Shadow Agent]({{< relref "/docs/workflows/shadow-agent" >}}) workflow guide.
+
+> **Configuration:** two settings control the shadow, both editable in [`ait settings`]({{< relref "/docs/tuis/settings" >}}):
+>
+> - **Placement** — `tmux.shadow_same_window` (Tmux tab): `true` (default) splits the shadow into the followed agent's window; `false` opens it in its own window.
+> - **Agent and model** — the `shadow` row on the Agent Defaults tab selects which coding agent and model the shadow runs as.
+
 ### How to Jump to Another TUI
 
 Press **j** to open the TUI switcher overlay. The overlay lists the TUIs integrated with the tmux workflow:
@@ -175,6 +190,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `Enter` | Send an `Enter` keystroke to the sibling pane |
 | `s` | Switch tmux focus to the selected agent's window |
 | `i` | Show task info for the selected agent |
+| `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
 | `j` | Open the TUI switcher |
 | `r` | Refresh the agent list |
 | `M` | Toggle the multi-session view ON/OFF |

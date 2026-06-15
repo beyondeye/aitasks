@@ -108,10 +108,32 @@ backends that already reach the gateway socket — not as an escape hatch.
 4. Don't add yourself to the `test_no_raw_tmux.sh` allowlist.
 5. Run `bash tests/test_no_raw_tmux.sh` before committing.
 
+## Multiple real agents per window — state keyed by `pane_id`
+
+A tmux **window** may hold more than one real coding agent. The monitor /
+minimonitor layer therefore keys its per-agent state by **`pane_id`**, not by
+`window_name` — once a window holds N agents (or an agent plus a companion),
+`window_name` no longer identifies a single agent. The gateway and
+`capture-pane` were already pane-keyed; the app layer was brought in line so the
+window-vs-pane kill decision, task-id resolution, and sibling-pane lookup all
+resolve per pane.
+
+The **shadow** companion — an advisory second agent spawned beside the agent it
+follows (see `shadow_agent.md`) — is excluded from the agent lists via a
+pane-scoped tmux **user option**, `@aitask_shadow_target`, set to the followed
+agent's `pane_id`. That option is the *authoritative* shadow classifier: a
+same-window shadow shares its neighbor's window name, so a window-name marker
+alone cannot identify it. It doubles as the lifecycle binding — see the
+companion-pane section in `tui_conventions.md`. Enumerate it through the gateway
+(`list-panes -F '#{@aitask_shadow_target}'`); never hand-spawn raw `tmux` to
+read or set it.
+
 ## See also
 
 - `aidocs/framework/tui_conventions.md` — single tmux session per project,
   companion-pane auto-despawn, and the "tmux-stress tasks run outside the main
   aitasks tmux" rule.
+- `aidocs/framework/shadow_agent.md` — the shadow companion agent architecture
+  (capture → context-fetch → skill) and the `@aitask_shadow_target` binding.
 - `aidocs/framework/shell_conventions.md` — general shell-script conventions,
   including platform/archive CLI encapsulation.

@@ -70,6 +70,10 @@ Because auto-spawn is the primary mode, manual `ait minimonitor` invocations are
 
 For a full dashboard with previews, pane classification, and kill/switch controls, use [monitor](../monitor/) instead.
 
+## Launching a shadow agent
+
+Minimonitor is also where you launch a [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}): press **e** on a followed agent to spawn an advisory companion that reads its terminal output and helps you reason about it. The shadow is a *second* kind of companion pane alongside minimonitor — where minimonitor is a passive status sidebar, the shadow is an interactive, read-only coding agent that explains, helps answer prompts, and interrogates plans. By default it opens in the same window as the agent it watches and, like minimonitor, never shows up in the agent list and closes when that agent exits. See [How to Launch a Shadow Agent](how-to/#how-to-launch-a-shadow-agent).
+
 ---
 
 **Next:** [How-To Guides](how-to/) — layouts and launch recipes for the narrow sidebar.

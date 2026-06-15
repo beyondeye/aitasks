@@ -214,6 +214,13 @@ skill files.
 > vs. "awaiting user input" is detected. The patterns live in
 > `.aitask-scripts/monitor/prompt_patterns.py` and are edited in-place when
 > a new agent's prompt wording shows up.
+>
+> **Read `aidocs/framework/shadow_agent.md`** when editing the `aitask-shadow`
+> skill, its capture / context helpers (`aitask_shadow_capture.sh`,
+> `aitask_shadow_context.sh`), the minimonitor `e` trigger, or any code that
+> classifies or cleans up shadow panes. The shadow is an advisory-only companion
+> agent (capture → context-fetch → skill) spawned beside a followed agent and
+> bound to it via the `@aitask_shadow_target` pane option.
 
 ## Planning / Testing / Code Conventions
 
