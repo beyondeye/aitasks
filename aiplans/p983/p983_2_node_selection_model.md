@@ -186,5 +186,43 @@ Decisions:
   · severity: low · → mitigation: n/a
 - None other identified.
 
+## Final Implementation Notes
+
+- **Actual work done:** Added the module-level `NodeSelection` class to
+  `.aitask-scripts/brainstorm/brainstorm_app.py` (right after the wizard step
+  helpers, before `CompareNodeSelectModal`) — `primary` cursor + `marked` set
+  with `set_primary`/`mark`/`unmark`/`toggle`/`clear`/`remove`, the
+  `cardinality` property, and `effective()`. No Textual import, no I/O. Added
+  `tests/test_brainstorm_node_selection.py` (24 headless `unittest` tests),
+  mirroring the `test_brainstorm_wizard_steps.py` harness.
+- **Deviations from plan:** (1) Added `effective()` beyond the task's bare
+  method list — the runnable form of the primary-vs-marked rule, giving the
+  t983_4 consumer the target set, not just a count. (2) Added `remove(node_id)`
+  at the user's request during plan review: single-call both-sided cleanup
+  (unmark + clear-primary-if-cursor) so the t983_3 deletion path is one call,
+  not a two-step purge; it generalizes the legacy purge at
+  `brainstorm_app.py:4333-4334`.
+- **Issues encountered:** None. `pytest` is not installed in the project venv;
+  ran the tests via `python -m unittest` instead.
+- **Key decisions:** `clear()` clears marks only (cursor persists); `mark`/
+  `unmark` idempotent; cursor and marks independent (`toggle` never moves
+  `primary`); `cardinality` = `len(marked)` if marked else 1-for-lone-cursor
+  else 0 (marked overrides primary — the case the Operations dialog depends on);
+  constructor copies the seeded `marked` set (caller isolation).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t983_3 (Browse tab)** should hold one `NodeSelection` instance and drive
+    it: `set_primary(node_id)` on cursor move, `toggle(node_id)` on `space`,
+    `remove(node_id)` when a node is deleted (replaces the legacy
+    `_current_focused_node_id in deleted` purge at `:4333-4334`). Read selection
+    state via `.primary`, `.effective()`, and `.cardinality`.
+  - **t983_4 (Operations dialog)** greys ops by `selection.cardinality` and
+    runs them over `selection.effective()`. Single-node ops target `.primary`;
+    multi-node ops target the marked set — both surfaced by `effective()`.
+  - The model is pure/headless — keep wiring (DOM queries, key handlers) in the
+    App, never reach back into Textual from `NodeSelection`.
+  - 13 legacy `_current_focused_node_id` sites remain in `brainstorm_app.py`;
+    t983_3 migrates them to the model. This task left them untouched (additive).
+
 ## Step 9
 Archive via `./.aitask-scripts/aitask_archive.sh 983_2`.
