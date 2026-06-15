@@ -70,3 +70,5 @@ allowlist, matching `seed/claude_settings.local.json`:
 > **✅ gate:plan_approved** run=2026-06-15T15:25:07Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T15:25:09Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T15:27:05Z status=pass attempt=1 type=human
