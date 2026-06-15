@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_board, tui]
 file_references: [.aitask-scripts/board/aitask_board.py:2427-2476]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-15 08:30
-updated_at: 2026-06-15 08:30
+updated_at: 2026-06-15 10:17
 ---
 
 ## Problem
