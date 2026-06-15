@@ -104,3 +104,5 @@ only that unless it looks inconsistent.
 > **✅ gate:plan_approved** run=2026-06-15T07:51:06Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T07:51:08Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T08:51:49Z status=pass attempt=1 type=human
