@@ -84,3 +84,12 @@ Base branch: main
 
 - Temporary tmux session/window used for verification: `aitverify8224`; removed after verification.
 - Temporary Hugo output: `/tmp/aitverify8224_site`; removed after verification.
+
+## Final Implementation Notes
+
+- **Actual work done:** Ran the manual-verification checklist for the App Linker TUI. Recorded 9 passes and 1 failure, with evidence captured in the execution log above.
+- **Deviations from plan:** Used static/user-approved evidence for the fresh-venv `segno` setup item instead of running `./ait setup` against the real `~/.aitask/venv`.
+- **Issues encountered:** The exact `shellcheck .aitask-scripts/aitask_applink.sh` checklist command fails with SC1091 on dynamic `source "$SCRIPT_DIR/..."` lines.
+- **Key decisions:** Treated the shellcheck output as a real verification failure because the checklist command was explicit and returned non-zero.
+- **Upstream defects identified:** None beyond the recorded verification failure, which created follow-up task `t1002`.
+- **Notes for sibling tasks:** App Linker launched, regenerated QR content, switched to Devices and back, round-tripped through the TUI switcher, and quit cleanly in tmux. Docs render under the TUIs nav in generated Hugo HTML.
