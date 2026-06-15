@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
 status: Implementing
 labels: [aitask_board, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_5
 created_at: 2026-06-15 08:34
-updated_at: 2026-06-15 10:51
+updated_at: 2026-06-15 10:57
 ---
 
 ## Problem
@@ -53,3 +56,8 @@ Prefer the Python helper from the board.
 - Board lookup performance is not regressed for the common (active-only) case.
 
 See `aidocs/framework/tui_conventions.md` for board/TUI conventions.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-15T07:58:20Z status=pass attempt=1 type=human
