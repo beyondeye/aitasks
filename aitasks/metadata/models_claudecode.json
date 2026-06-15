@@ -453,8 +453,8 @@
         },
         "explore": {
           "all_time": {
-            "runs": 22,
-            "score_sum": 2200
+            "runs": 23,
+            "score_sum": 2300
           },
           "prev_month": {
             "period": "2026-05",
@@ -463,13 +463,13 @@
           },
           "month": {
             "period": "2026-06",
-            "runs": 18,
-            "score_sum": 1800
+            "runs": 19,
+            "score_sum": 1900
           },
           "week": {
             "period": "2026-W25",
-            "runs": 6,
-            "score_sum": 600
+            "runs": 7,
+            "score_sum": 700
           }
         },
         "changelog": {
