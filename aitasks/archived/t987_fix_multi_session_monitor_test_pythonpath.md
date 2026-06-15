@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitor, python]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 17:06
-updated_at: 2026-06-15 16:06
+updated_at: 2026-06-15 16:16
+completed_at: 2026-06-15 16:16
 boardidx: 50
 ---
 
