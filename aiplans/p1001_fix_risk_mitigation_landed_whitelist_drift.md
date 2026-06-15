@@ -88,5 +88,25 @@ immediately after it.
 
 Per task-workflow Step 9: review (Step 8), then archival via
 `./.aitask-scripts/aitask_archive.sh 1001`. No code-branch merge (fast profile,
-current branch). Note: the only edited file (`.claude/settings.local.json`) is
-gitignored, so there is no source commit — just the plan/task commits.
+current branch).
+
+## Final Implementation Notes
+
+- **Actual work done:** Added the single line
+  `"Bash(./.aitask-scripts/aitask_risk_mitigation_landed.sh:*)",` to
+  `.claude/settings.local.json` immediately after the `aitask_plan_verified.sh`
+  entry, matching `seed/claude_settings.local.json` and the existing
+  `.codex/rules/default.rules` entry. JSON validated; `grep` confirms one match.
+- **Deviations from plan:** The plan assumed `.claude/settings.local.json` was a
+  gitignored per-user file requiring no source commit. **It is in fact
+  git-tracked in this repo** (`git check-ignore` returns nothing;
+  `git status` shows it modified). Consequence: the change is a normal tracked
+  code commit (using plain `git`, `style:` prefix per issue_type bug → actually
+  committed with the task's `bug:` type), and the fix is now shared via git
+  rather than purely local. This is a strictly stronger outcome that still
+  satisfies the AC.
+- **Issues encountered:** None.
+- **Key decisions:** Inserted next to `aitask_plan_verified.sh` (functional
+  grouping the live file uses) rather than alphabetically, since both helpers
+  are invoked together in `planning.md` §6.0a/6.1.
+- **Upstream defects identified:** None.
