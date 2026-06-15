@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [aitask_monitormini, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-15 12:19
-updated_at: 2026-06-15 12:51
+updated_at: 2026-06-15 13:04
+completed_at: 2026-06-15 13:04
 ---
 
 ## Goal
