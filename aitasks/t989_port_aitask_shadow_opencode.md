@@ -25,3 +25,5 @@ This task creates the OpenCode surfaces: `.opencode/commands/aitask-shadow.md` (
 > **✅ gate:plan_approved** run=2026-06-15T07:37:29Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T07:37:29Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T07:43:51Z status=pass attempt=1 type=human
