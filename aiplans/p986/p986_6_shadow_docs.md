@@ -178,3 +178,50 @@ Standard cleanup/archival/merge per `task-workflow` Step 9 (child-task path:
 archive to `aitasks/archived/t986/` + `aiplans/archived/p986/`; parent t986
 archives only when all children complete — t986_7 manual-verification sibling
 remains).
+
+## Final Implementation Notes
+
+- **Actual work done:** Documented the landed shadow agent feature across aidocs
+  and the website (docs-only, no code touched).
+  - `aidocs/framework/tmux_gateway.md` — new "Multiple real agents per window —
+    state keyed by `pane_id`" section + a `shadow_agent.md` See-also link.
+  - `aidocs/framework/tui_conventions.md` — new "The shadow agent is a second
+    companion-pane case" subsection under "Companion pane auto-despawn" (exclusion
+    via `@aitask_shadow_target`, pane_id-keyed accounting, bound-agent auto-kill).
+  - `aidocs/framework/shadow_agent.md` (NEW) — architecture: capture →
+    context-fetch → skill pipeline; the **current** skill surface (Step 0
+    greeting + Step-3-derived capability list, proactive after-capture
+    suggestion, inline + four `plan-*.md` sub-procedures); `@aitask_shadow_target`
+    binding; minimonitor `e` spawn + `shadow` codeagent op; `defaults.shadow` and
+    `tmux.shadow_same_window` config; advisory-only; phase-detect deferred.
+  - `CLAUDE.md` — pointer to `shadow_agent.md` in the TUI Development section.
+  - `website/content/docs/tuis/minimonitor/how-to.md` — "How to Launch a Shadow
+    Agent" section, `e` row in the Key Bindings Quick Reference, config note.
+  - `website/content/docs/tuis/minimonitor/_index.md` — "Launching a shadow
+    agent" subsection distinguishing the shadow companion from minimonitor.
+  - `website/content/docs/workflows/shadow-agent.md` (NEW, weight 83) +
+    `workflows/_index.md` bullet under the Review & Quality grouping.
+- **Deviations from plan:** (1) `monitor_idle_and_prompt_detection.md` was
+  **not** touched — verification confirmed t986_2 (phase autodetection) was
+  Postponed/dropped, so no AskUserQuestion/phase markers exist to document
+  (anticipated in the plan's verification findings). (2) Per user steer mid-pick,
+  the docs were written against the **current** `aitask-shadow` skill (read
+  2026-06-15: Step 0 greeting, proactive after-capture suggestion, four
+  sub-procedures), not the older t986_4 description.
+- **Issues encountered:** None. `hugo build --gc --minify` passes (214 pages, no
+  broken refs; only pre-existing `LanguageDirection`/`AllPages` deprecation
+  warnings, unrelated to this change).
+- **Key decisions:** Split user-facing coverage between the minimonitor TUI docs
+  (where the `e` trigger lives) and a dedicated workflows page (the feature's
+  capabilities), with the durable architecture in a new `aidocs/` specialist
+  page; kept agent naming generic in the workflow prose and limited literal
+  `claudecode/...` config tokens to config-reference contexts.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t986_7 (manual verification):** the docs now describe the expected live
+    behavior to verify — `e` spawns the shadow same-window, it is absent from the
+    agent list, killing the followed agent auto-kills the shadow, and the skill's
+    greeting + proactive suggestion + advisory-only flow work as documented.
+  - **t988 / t989 (Codex / OpenCode `/aitask-shadow` ports):** the
+    `shadow_agent.md` and workflow page are agent-agnostic; no doc changes needed
+    when those wrappers land unless they introduce agent-specific surfaces.
