@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-15 12:19
-updated_at: 2026-06-15 12:19
+updated_at: 2026-06-15 12:21
 ---
 
 ## Goal
