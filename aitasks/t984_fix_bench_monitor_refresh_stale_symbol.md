@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_5
 created_at: 2026-06-14 11:06
-updated_at: 2026-06-15 10:52
+updated_at: 2026-06-15 10:57
 ---
 
 ## Origin
