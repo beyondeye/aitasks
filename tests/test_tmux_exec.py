@@ -34,6 +34,7 @@ from tmux_exec import (  # noqa: E402
     tmux_socket_args,
     window_target,
 )
+from monitor.monitor_core import TmuxMonitor  # noqa: E402
 from monitor.tmux_control import TmuxControlClient  # noqa: E402
 
 
@@ -355,7 +356,7 @@ class TestRunViaControl(unittest.TestCase):
 
 
 class TestResizePane(unittest.TestCase):
-    """resize_pane: arg construction + control-mode dispatch (t978)."""
+    """resize_pane: arg construction + optional control-mode dispatch."""
 
     def test_x_only_argv(self):
         client = TmuxClient(socket_args=["-L", "sock"])
@@ -376,7 +377,7 @@ class TestResizePane(unittest.TestCase):
         m.assert_called_once_with(["resize-pane", "-t", "%1"], timeout=tmux_exec._DEFAULT_TIMEOUT)
 
     def test_backend_dispatches_via_control(self):
-        # With a live backend, resize routes through run_via_control (not run).
+        # Direct gateway callers can still opt into control-mode dispatch.
         client = TmuxClient(socket_args=[])
         backend = _FakeBackend(alive=True, sync_result=(0, ""))
         with patch.object(client, "run") as m:
@@ -384,6 +385,21 @@ class TestResizePane(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(backend.sync_calls, [["resize-pane", "-t", "%2", "-x", "40"]])
         m.assert_not_called()
+
+
+class TestMonitorResizePane(unittest.TestCase):
+    """TmuxMonitor resize uses subprocess to avoid tmux growth reflow races."""
+
+    def test_monitor_resize_does_not_forward_control_backend(self):
+        monitor = TmuxMonitor(session="s")
+        monitor._backend = _FakeBackend(alive=True, sync_result=(0, "ctrl"))
+
+        with patch.object(monitor._tmux, "resize_pane", return_value=(0, "")) as m:
+            rc, out = monitor.resize_pane("%2", x=40, timeout=2.0)
+
+        self.assertEqual((rc, out), (0, ""))
+        m.assert_called_once_with("%2", x=40, y=None, timeout=2.0)
+        self.assertEqual(monitor._backend.sync_calls, [])
 
 
 class TestControlAttachArgv(unittest.TestCase):

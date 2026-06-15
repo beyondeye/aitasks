@@ -884,14 +884,15 @@ class TmuxMonitor:
         self, pane: str, *, x: int | None = None, y: int | None = None,
         timeout: float = 2.0,
     ) -> tuple[int, str]:
-        """Resize a pane via the gateway (control client when alive, else subprocess).
+        """Resize a pane via the gateway's subprocess path.
 
-        Thin delegation mirroring :meth:`tmux_run`; the ``resize-pane`` verb is
-        owned by ``TmuxClient.resize_pane``.
+        ``resize-pane`` is still owned by ``TmuxClient.resize_pane`` so socket
+        selection and argv construction stay centralized. This intentionally
+        does not pass the control backend: minimonitor re-pinning happens from
+        Textual's resize handler, and tmux can lose immediate control-mode
+        resize commands during a window-growth reflow.
         """
-        return self._tmux.resize_pane(
-            pane, x=x, y=y, backend=self._backend, timeout=timeout
-        )
+        return self._tmux.resize_pane(pane, x=x, y=y, timeout=timeout)
 
     def _discover_sessions_cached(self) -> list[AitasksSession]:
         """Return the list of aitasks-like tmux sessions, memoized for TTL seconds."""
