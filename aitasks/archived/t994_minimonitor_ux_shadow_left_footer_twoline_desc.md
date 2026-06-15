@@ -5,12 +5,13 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [aitask_monitormini, tmux, tui]
 assigned_to: daelyasy@hotmail.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-15 10:20
-updated_at: 2026-06-15 10:51
+updated_at: 2026-06-15 12:03
+completed_at: 2026-06-15 12:03
 ---
 
 ## Goal
