@@ -797,7 +797,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             task_info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
         pane_id = snap.pane.pane_id
         self.push_screen(
-            KillConfirmDialog(snap, task_info),
+            KillConfirmDialog(snap, task_info, show_preview=False),
             callback=lambda ok: self._on_own_kill_confirmed(ok, pane_id),
         )
 

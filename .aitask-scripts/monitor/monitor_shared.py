@@ -168,6 +168,7 @@ class KillConfirmDialog(ModalScreen):
     KillConfirmDialog { align: center middle; }
     #kill-dialog {
         width: 80%;
+        min-width: 28;
         height: auto;
         max-height: 85%;
         background: $surface;
@@ -178,14 +179,20 @@ class KillConfirmDialog(ModalScreen):
     #kill-details { margin: 0 0 1 0; }
     #kill-preview-label { text-style: bold; color: $text-muted; margin: 1 0 0 0; }
     #kill-preview { max-height: 17; margin: 0 0 1 0; background: #1a1a1a; color: #d4d4d4; padding: 0 1; }
-    #kill-buttons { width: 100%; height: auto; layout: horizontal; }
-    #kill-buttons Button { margin: 0 1; }
+    #kill-buttons { width: 100%; height: 3; layout: horizontal; align: center middle; }
+    #kill-buttons Button { width: auto; min-width: 10; margin: 0; }
     """
 
-    def __init__(self, snap: PaneSnapshot, task_info: TaskInfo | None) -> None:
+    def __init__(
+        self,
+        snap: PaneSnapshot,
+        task_info: TaskInfo | None,
+        show_preview: bool = True,
+    ) -> None:
         super().__init__()
         self._snap = snap
         self._task_info = task_info
+        self._show_preview = show_preview
 
     def compose(self) -> ComposeResult:
         snap = self._snap
@@ -215,15 +222,16 @@ class KillConfirmDialog(ModalScreen):
 
             yield Static("\n".join(detail_parts), id="kill-details")
 
-            lines = snap.content.rstrip().splitlines()
-            preview_lines = lines[-15:] if len(lines) > 15 else lines
-            if preview_lines:
-                preview_content = _ansi_to_rich_text("\n".join(preview_lines))
-            else:
-                preview_content = "(empty)"
+            if self._show_preview:
+                lines = snap.content.rstrip().splitlines()
+                preview_lines = lines[-15:] if len(lines) > 15 else lines
+                if preview_lines:
+                    preview_content = _ansi_to_rich_text("\n".join(preview_lines))
+                else:
+                    preview_content = "(empty)"
 
-            yield Static("[bold]Window Content Preview:[/]", id="kill-preview-label")
-            yield Static(preview_content, id="kill-preview")
+                yield Static("[bold]Window Content Preview:[/]", id="kill-preview-label")
+                yield Static(preview_content, id="kill-preview")
 
             with Container(id="kill-buttons"):
                 yield Button("Kill", variant="error", id="btn-kill")
