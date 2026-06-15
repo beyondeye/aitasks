@@ -5,11 +5,12 @@ risk_goal_achievement: medium
 effort: high
 depends: [t635_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [gates, task_workflow, crash_recovery]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 18:53
-updated_at: 2026-06-15 13:05
+updated_at: 2026-06-15 13:52
+completed_at: 2026-06-15 13:52
 ---
 
 ## Context
