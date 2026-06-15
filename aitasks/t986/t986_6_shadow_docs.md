@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t986_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [web_site, aitask_monitormini, development]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 16:04
-updated_at: 2026-06-14 16:04
+updated_at: 2026-06-15 17:04
 ---
 
 ## Context
