@@ -93,3 +93,34 @@ worktree): commit the new test, write Final Implementation Notes into the plan
 (documenting that the production change pre-landed in t822_2/t822_7 and this task
 delivered only the test), archive via `./.aitask-scripts/aitask_archive.sh 822_5`,
 push via `./ait git push`. Parent t822 keeps its other pending children.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `tests/test_applink_pairing.sh` — a stdlib-only bash
+  test (no textual/segno, hence no dep-skip guard) that imports `pairing` directly
+  and exercises `build_pairing_uri()`'s `&name=` field with 6 assertions:
+  (1) `name=` matches `urlencoded(socket.gethostname())`; (2) a space + non-ASCII
+  hostname percent-encodes to `name=my%20host.%C3%B6rg` (asserts `quote(safe='')`);
+  (3–5) `hostname=None`, `hostname=""`, and the default (no kwarg) all omit `name=`
+  and leave the base URI unchanged (additive/optional → older clients unaffected).
+  All 6 pass; `shellcheck -S warning` is clean.
+- **Deviations from plan:** None functional. The production half of the AC (the QR
+  builder emitting `&name=`) was **already implemented** by siblings t822_2 (added the
+  optional `hostname` kwarg to `build_pairing_uri` + `ApplinkApp` passing
+  `socket.gethostname()`) and t822_7 (cert/fingerprint refinements). This task
+  therefore delivered only the missing unit-test half of the AC — confirmed with the
+  user at Step 8 before committing. No change to `pairing.py` / `applink_app.py`.
+- **Issues encountered:** None. `shellcheck` emits `SC1091` (info: "not following"
+  the sourced `python_resolve.sh`) — this is identical to the pre-existing
+  `tests/test_applink_devices.sh` and is info-level only (zero findings at severity
+  ≥ warning), so it matches the established applink-test convention.
+- **Key decisions:** Tested the pure `build_pairing_uri` builder directly rather than
+  constructing `AppLinkRuntime` (which does cert/session-table filesystem I/O at
+  mount — already covered by `test_applink_smoke.sh`). The AC names the QR-URL
+  *builder*, so the unit-level target is correct and dependency-free.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** `build_pairing_uri(token, ip, port, fingerprint,
+  hostname=None)` in `.aitask-scripts/applink/pairing.py` is now test-covered for the
+  `&name=` field; the `name=` param is strictly optional/additive (omitted when
+  hostname is falsy) — sibling work that touches the pairing URI can rely on that
+  invariant being guarded by `tests/test_applink_pairing.sh`.
