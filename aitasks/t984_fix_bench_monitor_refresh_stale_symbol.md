@@ -38,3 +38,8 @@ Re-point the benchmark's instrumentation at the current delegation seam — coun
 calls by patching `TmuxClient.run_async_via_control` (in `lib/tmux_exec.py`) or
 `TmuxMonitor._tmux_async` (now in `monitor_core.py`) instead of the removed
 `_run_tmux_async`. Alternatively, retire the benchmark if it is no longer used.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-15T08:00:52Z status=pass attempt=1 type=human
