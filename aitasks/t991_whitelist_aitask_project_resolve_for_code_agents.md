@@ -44,3 +44,8 @@ Then re-run `audit-helper-whitelist aitask_project_resolve.sh` to confirm zero M
 `aitask_projects.sh` (the `ait projects` wrapper) shows the identical MISSING pattern across the same 5 touchpoints. It is user-facing (`ait projects`) rather than skill-invoked, so it is lower priority — decide during implementation whether to whitelist it in the same pass.
 
 See `aidocs/framework/skill_authoring_conventions.md` (helper-script whitelist coverage) and the `aitask-audit-wrappers` skill.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-15T07:12:22Z status=pass attempt=1 type=human
