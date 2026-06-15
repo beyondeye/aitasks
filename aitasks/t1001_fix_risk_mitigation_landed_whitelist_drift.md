@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [claudeskills, whitelists]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-15 17:59
-updated_at: 2026-06-15 17:59
+updated_at: 2026-06-15 18:21
 ---
 
 ## Problem
