@@ -54,3 +54,5 @@ See `aidocs/framework/skill_authoring_conventions.md` (helper-script whitelist c
 > **✅ gate:plan_approved** run=2026-06-15T07:12:22Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T07:12:30Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-15T07:20:44Z status=pass attempt=1 type=human
