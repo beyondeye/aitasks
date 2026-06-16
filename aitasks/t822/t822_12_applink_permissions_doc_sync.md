@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: documentation
 status: Implementing
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:42
-updated_at: 2026-06-16 17:06
+updated_at: 2026-06-16 17:26
 ---
 
 Sync the canonical verb inventory from `aidocs/applink/monitor_port_design.md` back into `aidocs/applink/permissions.md` (verb gating table) and align the shipped `applink_profiles/*.yaml` allowed_verbs lists.
@@ -62,3 +65,8 @@ syncing.
 - Every verb in monitor_port_design.md's table appears in permissions.md's table with the same gate, and vice versa (no orphans either direction).
 - Each profile YAML's `allowed_verbs` equals the set of ✓ verbs for its column (when YAMLs exist).
 - Cross-reference links between the two docs still resolve.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T14:26:28Z status=pass attempt=1 type=human
