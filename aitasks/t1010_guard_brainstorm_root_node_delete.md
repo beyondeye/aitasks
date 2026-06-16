@@ -46,3 +46,8 @@ Identify the root robustly (it has no parent / is the earliest node) rather than
 ## Note
 
 Discovered while exploring the brainstorm code from the `aitasks_go` checkout; the brainstorm source lives in this framework repo, so the task is tracked here.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T13:11:15Z status=pass attempt=1 type=human
