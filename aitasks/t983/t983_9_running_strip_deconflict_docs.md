@@ -17,6 +17,19 @@ footer / CSS / docs deconflict. Every prior child already fixed its own test
 assertions, so this child only owns its own surfaces' tests. Coordinates with
 **t535** (its kill/cleanup/retry actions land here).
 
+### Coordination with t983_7 (landed — compare overlay)
+t983_7 deleted the Compare **tab** and re-homed the dimension matrix into a
+`CompareMatrixModal` overlay, which changes the Browse keymap this child
+finalizes:
+- **`c`** is now bound to `compare_matrix` (opens the overlay on the marked
+  set), **not** `tab_compare`. Pick the final Browse keymap (`b`/`s`/`r` tabs)
+  around this — `c` is a Browse action key, not a tab key.
+- **`r`** (was `compare_regenerate`) is **freed** — t983_7 removed it, so this
+  child can take `r` for the Running tab without a collision.
+- **`D`** (was the app-level `compare_diff`) is **gone from the app level** — it
+  now lives inside `CompareMatrixModal`. Do **NOT** re-scope `D` in
+  `_TAB_SCOPED_ACTIONS` / `check_action` (there is no app-level `D` to scope).
+
 ## Key Files to Modify
 - `.aitask-scripts/brainstorm/brainstorm_app.py` — rename Status→Running (`r`);
   add a custom header status-strip widget with the count/state derivation as a
@@ -43,9 +56,10 @@ assertions, so this child only owns its own surfaces' tests. Coordinates with
    from runtime state) and render it in a custom header widget always-on above
    the tabs.
 3. Implement t535's agent actions (kill/cleanup/retry) within the Running tab.
-4. Final keybinding deconflict: `b`/`s`/`r` tabs, `v` toggle, `space` mark;
-   re-scope `f` (toggle_deferred), `H` (op_help), `D` (diff) to the new tab ids
-   in `_TAB_SCOPED_ACTIONS` + `check_action`.
+4. Final keybinding deconflict: `b`/`s`/`r` tabs, `v` toggle, `space` mark, `c`
+   compare-overlay (from t983_7); re-scope `f` (toggle_deferred), `H` (op_help)
+   to the new tab ids in `_TAB_SCOPED_ACTIONS` + `check_action`. (`D`/diff is no
+   longer app-level — it moved into `CompareMatrixModal` in t983_7.)
 5. Update inline CSS, `tui_conventions.md`, website TUI pages.
 
 ## Verification
