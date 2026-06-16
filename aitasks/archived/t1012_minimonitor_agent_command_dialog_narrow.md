@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitormini, tui, agent_chooser]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 17:22
-updated_at: 2026-06-16 17:32
+updated_at: 2026-06-16 17:40
+completed_at: 2026-06-16 17:40
 ---
 
 ## Problem
