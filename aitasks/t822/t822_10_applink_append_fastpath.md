@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:42
-updated_at: 2026-06-16 12:19
+updated_at: 2026-06-16 12:53
 ---
 
 Implement Stage 3 of the applink data plane: the `append` fast path for log-streaming panes — bottom-cursor + no-upper-changes detection and `append` frame emission.
@@ -45,3 +46,8 @@ Fifth §"Deferred follow-up tasks" bullet of `aidocs/applink/monitor_port_design
 - Streaming `seq 1 1000` in a subscribed pane produces predominantly `append` frames (assert via scripted client).
 - vim-style mid-screen edits never produce `append`.
 - Client-rendered buffer matches a requested keyframe after a long append run.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T09:53:47Z status=pass attempt=1 type=human
