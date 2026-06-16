@@ -110,6 +110,8 @@ Sent: on subscribe, on resume, every N seconds (keyframe interval), when delta e
 ```
 
 - Only **changed** rows are included. Unchanged rows on the client retain their previous content.
+- A row whose span array is **empty** (`[row_id, []]`) **clears that row to blank** on the client. This is how a delta expresses a row that went from content to empty within unchanged dimensions (e.g. a trailing line was removed); without it the client would retain the stale content and diverge from a fresh keyframe.
+- The optional `osc8` sidecar's flat span-offsets are **row-major over the delta's own `rows` array** (the changed rows only), exactly as keyframe `osc8` is row-major over its rows — *not* over the full pane grid.
 - `prev_frame_id` is the frame_id this delta is computed against. If the client's last known frame_id does not match `prev_frame_id`, the client **must** request a keyframe (see [Recovery](#frame-integrity-and-recovery)).
 
 ### `append`

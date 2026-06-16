@@ -137,6 +137,97 @@ async def main():
     tags = [b[0] for b in binaries(ws)]
     check("resize -> dim then keyframe", tags == [C.FRAME_DIM, C.FRAME_KEYFRAME])
 
+    # === t822_9 delta engine ===============================================
+    # INDEPENDENT in-test client: reconstruct the pane buffer ONLY by decoding the
+    # actual wire bytes, and compare to a DIRECT parse of the content (truth) —
+    # never to another pusher-produced frame. A systematic bug (row order, frame
+    # threading, encode layout) then can't pass by corrupting both sides alike.
+    def decode_apply(client, frame):
+        tag = frame[0]
+        body = msgpack.unpackb(frame[1:], raw=False, strict_map_key=False)
+        if tag == C.FRAME_KEYFRAME:          # [pane,fid,cols,rows,cursor,rowlist,osc8?]
+            client.clear()
+            for rid, spans in body[5]:
+                if spans:
+                    client[rid] = spans
+        elif tag == C.FRAME_DELTA:           # [pane,fid,prev,cursor,rowlist,osc8?]
+            for rid, spans in body[4]:
+                if spans:
+                    client[rid] = spans
+                else:
+                    client.pop(rid, None)    # empty spans clears the row
+        return tag, body
+
+    def truth(text):                          # ground truth: a direct full parse
+        return {rid: spans for rid, spans in C.snapshot_to_rows(text)[0] if spans}
+
+    subd = C.Subscription()
+    subd.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000, "cadence_focused_ms": 300})
+    wsd, mond, paned = FakeWS(), FakeMonitor(), FakePane("%1")
+    mond.snaps["%1"] = FakeSnap(paned, "line0\nline1\nline2\n")
+    nd = {"t": 5000.0}
+    schedd = PushScheduler(FakeConn(subd), wsd, mond, clock=lambda: nd["t"])
+    client = {}
+
+    # pass 1: subscribe-seeded force -> keyframe
+    await schedd._run_once()
+    kb = binaries(wsd)
+    check("delta block: first frame is a keyframe", len(kb) == 1 and kb[0][0] == C.FRAME_KEYFRAME)
+    _kt, kf_body = decode_apply(client, kb[0])
+    kf_fid = kf_body[1]
+    check("post-keyframe client == direct parse", client == truth("line0\nline1\nline2\n"))
+
+    # pass 2: change one row -> a delta against the keyframe's frame_id
+    nd["t"] += 2.0; wsd.sent.clear()
+    mond.snaps["%1"] = FakeSnap(paned, "line0\nCHANGED\nline2\n")
+    await schedd._run_once()
+    db = binaries(wsd)
+    check("content change -> exactly one binary frame", len(db) == 1)
+    check("frame is a delta (0x02)", db[0][0] == C.FRAME_DELTA)
+    _dt, dbody = decode_apply(client, db[0])
+    check("delta prev_frame_id == previous keyframe frame_id", dbody[2] == kf_fid)
+    check("delta frame_id == prev + 1", dbody[1] == kf_fid + 1)
+    check("delta carries only the changed row", [r[0] for r in dbody[4]] == [1])
+    check("CONVERGENCE: wire-decoded client == direct content parse",
+          client == truth("line0\nCHANGED\nline2\n"))
+
+    # single-row delta is smaller than the equivalent full keyframe
+    kf_equiv = C.encode_keyframe("%1", 99, paned.width, paned.height, list(mond.cursor),
+                                 [[r, s] for r, s, _u in C.parse_snapshot("line0\nCHANGED\nline2\n")], None)
+    check("single-row delta < equivalent keyframe", len(db[0]) < len(kf_equiv))
+
+    # second delta chains on the first; convergence holds
+    nd["t"] += 2.0; wsd.sent.clear()
+    mond.snaps["%1"] = FakeSnap(paned, "line0\nCHANGED\nLINE2X\n")
+    await schedd._run_once()
+    _d2t, d2body = decode_apply(client, binaries(wsd)[0])
+    check("second delta chains on the first", d2body[2] == dbody[1])
+    check("convergence holds after second delta", client == truth("line0\nCHANGED\nLINE2X\n"))
+
+    # removed row -> [row_id, []] clears it; convergence still holds
+    nd["t"] += 2.0; wsd.sent.clear()
+    mond.snaps["%1"] = FakeSnap(paned, "line0\nCHANGED\n")    # row 2 dropped at fixed dims
+    await schedd._run_once()
+    _d3t, d3body = decode_apply(client, binaries(wsd)[0])
+    check("removed row emitted as blank [row_id, []]", [2, []] in d3body[4])
+    check("convergence after removed-row clear", client == truth("line0\nCHANGED\n"))
+
+    # recovery: request_keyframe -> a fresh keyframe rebuilds full state
+    nd["t"] += 2.0; wsd.sent.clear()
+    subd.request_keyframe("%1")
+    await schedd._run_once()
+    rb = binaries(wsd)
+    check("request_keyframe -> recovery keyframe (0x01)", rb[0][0] == C.FRAME_KEYFRAME)
+    fresh = {}
+    decode_apply(fresh, rb[0])
+    check("recovery keyframe alone reconstructs full state", fresh == truth("line0\nCHANGED\n"))
+
+    # cost fallback: every row changes -> a keyframe, not a delta
+    nd["t"] += 2.0; wsd.sent.clear()
+    mond.snaps["%1"] = FakeSnap(paned, "AAA\nBBB\n")
+    await schedd._run_once()
+    check("all-rows-changed -> keyframe (cost fallback)", binaries(wsd)[0][0] == C.FRAME_KEYFRAME)
+
     # --- lifecycle teardown -------------------------------------------------
     sub2 = C.Subscription()
     sub2.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})

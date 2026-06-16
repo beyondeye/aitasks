@@ -7,10 +7,12 @@ per-connection :class:`Subscription` state that drives the push scheduler
 ``aidocs/applink/content_transport.md`` — this module *consumes* it, it does not
 redefine it.
 
-Stage 1 (this task) implements ``keyframe`` (0x01), ``cursor`` (0x04) and
-``dim`` (0x05). ``delta`` (0x02, t822_9) and ``append`` (0x03, t822_10) reuse
-this module's parser and the per-pane frame state already tracked on
-:class:`Subscription`.
+Stage 1 (t822_8) implemented ``keyframe`` (0x01), ``cursor`` (0x04) and ``dim``
+(0x05). Stage 2 (t822_9) adds ``delta`` (0x02): :func:`deltify` /
+:func:`row_signature` / :func:`build_osc8` collect the changed rows against the
+per-connection baseline (``Subscription.PaneState.row_sigs``) and
+:func:`encode_delta` frames them. ``append`` (0x03, t822_10) reuses the same
+parser and per-pane frame state.
 
 ``msgpack`` is imported **lazily** inside the ``encode_*`` functions so importing
 the parser / :class:`Subscription` (e.g. from the router unit test) needs no
@@ -238,28 +240,99 @@ def parse_sgr_line(line: str):
     return spans, urls
 
 
-def snapshot_to_rows(content: str):
-    """Parse a ``PaneSnapshot.content`` blob into ``(rows, osc8)``.
+def parse_snapshot(content: str):
+    """Parse a ``PaneSnapshot.content`` blob into a list of ``(row_id, spans, urls)``.
 
-    ``rows`` is a list of ``[row_id, [span, ...]]`` (``row_id`` 0 == top of the
-    captured viewport). ``osc8`` is the frame-level sidecar map
-    ``{flat_span_offset: url}`` (offset is frame-global, row-major) — populated
-    only for spans carrying a hyperlink.
+    ``row_id`` 0 == top of the captured viewport. ``spans`` is the list of
+    fixed-arity ``[text, fg, bg, attrs, width]`` arrays for the row; ``urls`` is
+    the parallel per-span OSC8 hyperlink list (``""`` when not a hyperlink). This
+    is the low-level parse that retains per-span URLs so a delta can build its
+    ``osc8`` sidecar over a *subset* of rows (:func:`build_osc8`); the keyframe
+    path uses it via :func:`snapshot_to_rows`.
     """
-    rows: list = []
-    osc8: dict = {}
-    span_index = 0
+    parsed: list = []
     lines = content.split("\n")
     if lines and lines[-1] == "":
         lines = lines[:-1]  # drop the trailing empty cell from a final newline
     for row_id, line in enumerate(lines):
         spans, urls = parse_sgr_line(line)
+        parsed.append((row_id, spans, urls))
+    return parsed
+
+
+def build_osc8(parsed) -> dict:
+    """Frame-level OSC8 sidecar ``{flat_span_offset: url}`` over a parsed row list.
+
+    ``parsed`` is a list of ``(row_id, spans, urls)`` (full snapshot or a delta's
+    changed subset). The flat span offset is **row-major over the given list** —
+    so a delta passing only its changed rows gets offsets relative to its own
+    ``rows`` array, exactly as the keyframe gets frame-global offsets when passed
+    the full snapshot. Only spans carrying a hyperlink are recorded.
+    """
+    osc8: dict = {}
+    idx = 0
+    for _row_id, _spans, urls in parsed:
         for url in urls:
             if url:
-                osc8[span_index] = url
-            span_index += 1
-        rows.append([row_id, spans])
-    return rows, osc8
+                osc8[idx] = url
+            idx += 1
+    return osc8
+
+
+def row_signature(spans) -> int:
+    """In-process-stable hash of one row's spans, for delta change detection.
+
+    Stable for the lifetime of a connection's :class:`PaneState` (same basis as
+    t822_8's whole-pane ``hash(snap.content)``); not persisted across processes.
+    """
+    return hash(tuple((s[0], s[1], s[2], s[3], s[4]) for s in spans))
+
+
+def deltify(prev_sigs, parsed):
+    """Collect the rows that changed vs the client's last-sent baseline.
+
+    Returns ``(changed_wire, removed_ids, new_sigs, changed_subset)``:
+      * ``changed_wire`` — ``[[row_id, spans], ...]`` for rows whose signature is
+        new or changed.
+      * ``removed_ids`` — row_ids present in ``prev_sigs`` but absent now (the
+        client holds them; they must be cleared, see the convergence note below).
+      * ``new_sigs`` — ``{row_id: sig}`` for the full current snapshot (the new
+        baseline to store).
+      * ``changed_subset`` — ``(row_id, spans, urls)`` for the changed rows (the
+        :func:`build_osc8` source for the delta's sidecar).
+
+    **Requires a prior keyframe baseline** — ``prev_sigs`` must not be ``None``;
+    the caller routes the first / forced frame through the keyframe path. A
+    ``removed`` row is emitted by the caller as ``[row_id, []]`` (empty spans),
+    which clears the row on the client: delta semantics retain *unlisted* rows, so
+    a row that went from content to absent within fixed dims must be explicitly
+    cleared or the client would diverge from a fresh keyframe.
+    """
+    assert prev_sigs is not None, "deltify requires a prior keyframe baseline"
+    new_sigs: dict = {}
+    changed_subset: list = []
+    for row_id, spans, urls in parsed:
+        sig = row_signature(spans)
+        new_sigs[row_id] = sig
+        if prev_sigs.get(row_id) != sig:
+            changed_subset.append((row_id, spans, urls))
+    removed = [row_id for row_id in prev_sigs if row_id not in new_sigs]
+    changed_wire = [[row_id, spans] for row_id, spans, _urls in changed_subset]
+    return changed_wire, removed, new_sigs, changed_subset
+
+
+def snapshot_to_rows(content: str):
+    """Parse a ``PaneSnapshot.content`` blob into ``(rows, osc8)`` for a keyframe.
+
+    ``rows`` is a list of ``[row_id, [span, ...]]`` (``row_id`` 0 == top of the
+    captured viewport). ``osc8`` is the frame-global sidecar map
+    ``{flat_span_offset: url}`` (row-major over all rows). Thin wrapper over
+    :func:`parse_snapshot` + :func:`build_osc8` — byte-for-byte identical output
+    to the pre-t822_9 implementation.
+    """
+    parsed = parse_snapshot(content)
+    rows = [[row_id, spans] for row_id, spans, _urls in parsed]
+    return rows, build_osc8(parsed)
 
 
 # -- Frame encoders (lazy msgpack) --------------------------------------------
@@ -277,6 +350,21 @@ def encode_keyframe(pane_id, frame_id, cols, rows, cursor, row_list, osc8=None) 
     if osc8:
         arr.append(osc8)
     return bytes([FRAME_KEYFRAME]) + _packb(arr)
+
+
+def encode_delta(pane_id, frame_id, prev_frame_id, cursor, row_list, osc8=None) -> bytes:
+    """``delta`` (0x02): changed rows only, computed against ``prev_frame_id``.
+
+    ``row_list`` is the list of ``[row_id, spans]`` changed rows (a row with an
+    empty spans list clears that row on the client); ``cursor`` is
+    ``[row, col, visible, style]``; ``osc8`` is the optional sidecar built over
+    the changed rows (omitted from the wire when falsy). Wire array per
+    content_transport.md §delta:
+    ``[pane_id, frame_id, prev_frame_id, cursor, row_list, osc8?]``."""
+    arr = [pane_id, frame_id, prev_frame_id, cursor, row_list]
+    if osc8:
+        arr.append(osc8)
+    return bytes([FRAME_DELTA]) + _packb(arr)
 
 
 def encode_cursor(pane_id, frame_id, cursor) -> bytes:
@@ -310,6 +398,9 @@ class PaneState:
     last_keyframe_t: float = 0.0
     last_send_t: float = 0.0
     last_status_t: float = 0.0
+    # Per-row signatures the client currently holds ({row_id: sig}); ``None`` means
+    # no baseline yet -> the next frame must be a keyframe (t822_9 delta engine).
+    row_sigs: Optional[dict] = None
 
 
 class Subscription:

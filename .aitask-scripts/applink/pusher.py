@@ -12,10 +12,13 @@ against a fake WebSocket (any object with an async ``send``) and a fake monitor
 ``tests/test_applink_pusher.sh``. ``_run_once`` is the single deterministic emit
 pass; ``_loop`` is the thin timer driver.
 
-Stage 1 emits ``keyframe`` (on change / forced / keyframe-interval) and ``dim``
-(on resize). The ``cursor`` (0x04) encoder exists and is folded into keyframes;
-standalone cursor-only frames are deferred so idle panes cost zero binary bytes
-(detecting cursor-only motion would need a per-tick cursor fetch per pane).
+Stage 2 (t822_9): on a content change ``_push_pane`` emits a ``delta`` (0x02,
+changed rows only against the per-connection ``PaneState.row_sigs`` baseline) and
+falls back to a full ``keyframe`` (0x01) on the first / forced / keyframe-interval
+frame or when the delta is not cheaper. ``dim`` (0x05) is sent on resize. The
+``cursor`` (0x04) encoder is folded into keyframes/deltas; standalone cursor-only
+frames remain deferred so idle panes cost zero binary bytes (detecting cursor-only
+motion would need a per-tick cursor fetch per pane).
 """
 from __future__ import annotations
 
@@ -130,14 +133,54 @@ class PushScheduler:
 
         cursor = await self._monitor.capture_cursor_async(pane_id)
         cursor = list(cursor) if cursor is not None else [0, 0, False, 0]
-        rows, osc8 = content.snapshot_to_rows(snap.content)
-        frame_id = sub.next_frame_id(pane_id)
-        await self._send(content.encode_keyframe(
-            pane_id, frame_id, dims[0], dims[1], cursor, rows, osc8 or None,
-        ))
+        parsed = content.parse_snapshot(snap.content)
+        new_sigs = {row_id: content.row_signature(spans) for row_id, spans, _u in parsed}
+
+        # Stage 2 (t822_9): emit a `delta` (changed rows only) against the
+        # per-connection baseline when one exists; fall back to a full `keyframe`
+        # on the first / forced / keyframe-interval frame, or when the delta would
+        # not be cheaper than a keyframe.
+        emit_keyframe = forced or interval_due or st.row_sigs is None
+        sent_keyframe = False
+        if not emit_keyframe:
+            changed_wire, removed, _ns, changed_subset = content.deltify(st.row_sigs, parsed)
+            if not changed_wire and not removed:
+                # Whole-pane hash moved but no visible row changed (e.g. a trailing
+                # blank line dropped by parse_snapshot) -> nothing to send.
+                st.last_hash = content_hash
+                return
+            # Cost proxy: a delta covering >= every row is never smaller than a
+            # keyframe (each row is bounded by pane width), so use the row count to
+            # decide and skip a second full encode. Errs CONSERVATIVELY (may pick a
+            # keyframe when a byte-accurate compare would have kept a delta) — never
+            # incorrect, only more keyframes; single encode per tick. The escape
+            # hatch if dense-terminal keyframe frequency ever bites is a byte-accurate
+            # compare (encode both, send the smaller).
+            if len(changed_wire) + len(removed) >= len(parsed):
+                emit_keyframe = True
+            else:
+                delta_wire = changed_wire + [[row_id, []] for row_id in removed]
+                prev_frame_id = st.frame_id
+                frame_id = sub.next_frame_id(pane_id)        # = prev_frame_id + 1
+                await self._send(content.encode_delta(
+                    pane_id, frame_id, prev_frame_id, cursor, delta_wire,
+                    content.build_osc8(changed_subset) or None,
+                ))
+
+        if emit_keyframe:
+            full_rows = [[row_id, spans] for row_id, spans, _u in parsed]
+            frame_id = sub.next_frame_id(pane_id)
+            await self._send(content.encode_keyframe(
+                pane_id, frame_id, dims[0], dims[1], cursor, full_rows,
+                content.build_osc8(parsed) or None,
+            ))
+            sent_keyframe = True
+
+        st.row_sigs = new_sigs
         st.last_hash = content_hash
         st.last_dims = dims
-        st.last_keyframe_t = now
+        if sent_keyframe:
+            st.last_keyframe_t = now      # any keyframe (forced/interval/cost-fallback) resets drift
         st.last_send_t = now
         sub.force.discard(pane_id)
 

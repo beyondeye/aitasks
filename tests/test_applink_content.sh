@@ -120,6 +120,64 @@ check("dim type tag 0x05", dim[0] == C.FRAME_DIM)
 check("dim fields round-trip (palette_hash default 0)",
       msgpack.unpackb(dim[1:], raw=False) == ["%1", 100, 30, 0])
 
+# --- t822_9 delta engine: parse_snapshot / build_osc8 / row_signature ------
+parsed = C.parse_snapshot("a\n\x1b]8;;u\x1b\\b\x1b]8;;\x1b\\\n")
+check("parse_snapshot yields (row_id, spans, urls)",
+      [p[0] for p in parsed] == [0, 1] and parsed[0][1][0][0] == "a")
+check("parse_snapshot retains per-span urls", parsed[1][2] == ["u"])
+check("snapshot_to_rows unchanged after refactor",
+      C.snapshot_to_rows("a\n\x1b]8;;u\x1b\\b\x1b]8;;\x1b\\\n") ==
+      ([[0, [["a", None, None, 0, 1]]],
+        [1, [["b", None, None, C.ATTR_HYPERLINK, 1]]]], {1: "u"}))
+
+# build_osc8 over a row SUBSET -> offsets relative to the subset, not the grid.
+psub = C.parse_snapshot("plain\n\x1b]8;;z\x1b\\link\x1b]8;;\x1b\\\n")
+check("build_osc8 over subset -> subset-relative offset", C.build_osc8([psub[1]]) == {0: "z"})
+check("build_osc8 over full -> global offset", C.build_osc8(psub) == {1: "z"})
+
+# row_signature: equal for identical spans, differs on any field change.
+check("row_signature stable for equal spans",
+      C.row_signature([["x", 1, None, 0, 1]]) == C.row_signature([["x", 1, None, 0, 1]]))
+check("row_signature differs on field change",
+      C.row_signature([["x", 1, None, 0, 1]]) != C.row_signature([["x", 2, None, 0, 1]]))
+
+# deltify: change 1 row of 3 -> 1 changed row, nothing removed.
+base = C.parse_snapshot("l0\nl1\nl2\n")
+prev = {rid: C.row_signature(spans) for rid, spans, _u in base}
+changed, removed, new_sigs, subset = C.deltify(prev, C.parse_snapshot("l0\nXX\nl2\n"))
+check("deltify -> exactly one changed row", len(changed) == 1 and changed[0][0] == 1)
+check("deltify changed row carries new content", changed[0][1][0][0] == "XX")
+check("deltify nothing removed when count stable", removed == [])
+check("deltify new_sigs covers all current rows", set(new_sigs) == {0, 1, 2})
+check("deltify changed_subset matches changed rows", [s[0] for s in subset] == [1])
+
+# deltify: unchanged snapshot -> empty changed + removed.
+c2, r2, _n2, _s2 = C.deltify(prev, C.parse_snapshot("l0\nl1\nl2\n"))
+check("deltify unchanged -> empty changed and removed", c2 == [] and r2 == [])
+
+# deltify: a dropped trailing line -> its row_id in `removed`.
+c3, r3, _n3, _s3 = C.deltify(prev, C.parse_snapshot("l0\nl1\n"))
+check("deltify dropped row -> removed (cleared by caller)", r3 == [2] and c3 == [])
+
+# deltify: None baseline is a programming error (caller routes via the keyframe path).
+try:
+    C.deltify(None, base)
+    check("deltify(None) raises", False)
+except AssertionError:
+    check("deltify(None) raises AssertionError", True)
+
+# --- encode_delta (0x02) ---------------------------------------------------
+d = C.encode_delta("%1", 5, 4, [1, 2, True, 0], [[1, [["XX", None, None, 0, 2]]]], None)
+check("delta type tag 0x02", d[0] == C.FRAME_DELTA)
+ddec = msgpack.unpackb(d[1:], raw=False)
+check("delta fields round-trip [pane,fid,prev,cursor,rows]",
+      ddec == ["%1", 5, 4, [1, 2, True, 0], [[1, [["XX", None, None, 0, 2]]]]])
+check("delta omits osc8 when empty", len(ddec) == 5)
+d2 = C.encode_delta("%1", 6, 5, [0, 0, False, 0],
+                    [[1, [["L", None, None, C.ATTR_HYPERLINK, 1]]]], {0: "z"})
+d2dec = msgpack.unpackb(d2[1:], raw=False, strict_map_key=False)
+check("delta includes osc8 when present", len(d2dec) == 6 and d2dec[5] == {0: "z"})
+
 # --- Subscription ----------------------------------------------------------
 sub = C.Subscription()
 accepted = sub.apply_subscribe({
