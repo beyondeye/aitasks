@@ -5,9 +5,9 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [brainstorming, tui, ait_brainstorm]
-children_to_implement: [t983_5, t983_6, t983_7, t983_8, t983_9, t983_10]
+children_to_implement: [t983_6, t983_7, t983_8, t983_9, t983_10]
 created_at: 2026-06-14 10:52
-updated_at: 2026-06-16 11:20
+updated_at: 2026-06-16 14:17
 boardidx: 10
 ---
 
