@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t822_8]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 10:41
-updated_at: 2026-06-11 10:41
+updated_at: 2026-06-16 11:00
 ---
 
 Implement Stage 2 of the applink data plane: server-side delta encoding — per-row hashing + changed-row collection — emitting `delta` frames against `prev_frame_id`, with the `request_keyframe` recovery path.
