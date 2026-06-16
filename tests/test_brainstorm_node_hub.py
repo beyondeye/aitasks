@@ -335,9 +335,11 @@ class NodeHubEnterRoutingTests(unittest.TestCase):
         app._open_operations_dialog = lambda nid: app.opened.append(nid)
         app._on_node_hub_result(NodeHubResult(NODE_HUB_OPERATIONS, "n001_test"))
         self.assertEqual(app.opened, ["n001_test"])
-        # None (Escape/Close) and unknown verbs are no-ops.
+        # None (Escape/Close) and unknown verbs are no-ops. (`compare` is now a
+        # handled verb — t983_7 — so use a genuinely unregistered verb here; the
+        # compare branch is covered in test_brainstorm_compare_overlay.py.)
         app._on_node_hub_result(None)
-        app._on_node_hub_result(NodeHubResult("compare", "n001_test"))
+        app._on_node_hub_result(NodeHubResult("nonexistent_verb", "n001_test"))
         self.assertEqual(app.opened, ["n001_test"])
 
 

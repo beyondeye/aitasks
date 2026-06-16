@@ -1232,9 +1232,9 @@ class NodeDetailModal(ModalScreen):
 
 # Node Hub dismiss protocol (t983_5). The Hub dismisses with None (closed) or a
 # NodeHubResult carrying one of the NODE_HUB_* action verbs. Adding a launch
-# surface (t983_6 wizard re-host, t983_7 Compare overlay) = add a verb here +
-# a branch in BrainstormApp._on_node_hub_result.
+# surface = add a verb here + a branch in BrainstormApp._on_node_hub_result.
 NODE_HUB_OPERATIONS = "operations"
+NODE_HUB_COMPARE = "compare"  # t983_7: open the dimension-matrix overlay
 
 
 class NodeHubResult(NamedTuple):
@@ -1253,13 +1253,17 @@ class NodeHub(NodeDetailModal):
     points and is the second launch surface (besides ``A``) that t983_6/t983_7
     plug into."""
 
-    BINDINGS = [Binding("a", "operations", "Operations")]
+    BINDINGS = [
+        Binding("a", "operations", "Operations"),
+        Binding("c", "compare", "Compare"),
+    ]
 
     def _dialog_title_text(self) -> str:
         return f"Node Hub: {self.node_id}"
 
     def _dialog_buttons(self):
         yield Button("Operations", variant="primary", id="btn_node_hub_ops")
+        yield Button("Compare", variant="default", id="btn_node_hub_compare")
         yield Button("Close", variant="default", id="btn_close_detail")
 
     def action_operations(self) -> None:
@@ -1270,6 +1274,91 @@ class NodeHub(NodeDetailModal):
     @on(Button.Pressed, "#btn_node_hub_ops")
     def _open_operations(self) -> None:
         self.dismiss(NodeHubResult(NODE_HUB_OPERATIONS, self.node_id))
+
+    def action_compare(self) -> None:
+        """`c` → dismiss with the Compare launch verb (t983_7); the app callback
+        opens the matrix overlay on this node unioned with the marked set."""
+        self.dismiss(NodeHubResult(NODE_HUB_COMPARE, self.node_id))
+
+    @on(Button.Pressed, "#btn_node_hub_compare")
+    def _open_compare(self) -> None:
+        self.dismiss(NodeHubResult(NODE_HUB_COMPARE, self.node_id))
+
+
+class CompareMatrixModal(ModalScreen):
+    """Dimension-comparison matrix overlay (t983_7).
+
+    Re-homes the former Compare-tab matrix as a modal opened from the marked set
+    (Browse ``c``), the Node Hub (``c`` / Compare button), or the graph
+    ``x``/Enter picker. Builds the matrix from 2-4 node ids via the pure
+    ``compare_matrix_rows`` and offers an in-modal ``D`` to diff the first two
+    proposals (pushed *over* this modal, returning to the matrix on dismiss —
+    the same ``self.app.push_screen`` pattern ``NodeDetailModal`` uses for its
+    fullscreen view)."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Close", show=False),
+        Binding("D", "diff", "Diff"),
+    ]
+
+    def __init__(self, session_path: Path, node_ids: list[str]):
+        super().__init__()
+        self.session_path = session_path
+        self.node_ids = node_ids
+
+    def compose(self) -> ComposeResult:
+        with Container(id="compare_matrix_dialog"):
+            yield Label(
+                f"Compare: {', '.join(self.node_ids)}",
+                id="compare_matrix_title",
+            )
+            yield VerticalScroll(id="compare_matrix_content")
+            yield Footer()
+
+    def on_mount(self) -> None:
+        node_dims = {
+            nid: extract_dimensions(read_node(self.session_path, nid))
+            for nid in self.node_ids
+        }
+        container = self.query_one("#compare_matrix_content", VerticalScroll)
+        rows = compare_matrix_rows(node_dims, self.node_ids)
+        if rows is None:
+            container.mount(Label("No dimension fields found in selected nodes"))
+            return
+        # DataTable assembly needs an active App (add_column measures widths),
+        # so it lives here, not in the pure compare_matrix_rows.
+        table = DataTable(id="compare_table", cursor_type="row")
+        table.add_column("Dimension", key="dim")
+        for nid in self.node_ids:
+            table.add_column(nid, key=nid)
+        for row_key, cells in rows:
+            table.add_row(*cells, key=row_key)
+        container.mount(table)
+        self.call_after_refresh(table.focus)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_diff(self) -> None:
+        """`D` → open the proposal diff of the first two compared nodes, stacked
+        over this modal (re-homed from the old app-level ``action_compare_diff``;
+        body otherwise verbatim)."""
+        if len(self.node_ids) < 2:
+            return
+        n1, n2 = self.node_ids[:2]
+        p1 = self.session_path / "br_proposals" / f"{n1}.md"
+        p2 = self.session_path / "br_proposals" / f"{n2}.md"
+        missing = [p for p in (p1, p2) if not p.is_file()]
+        if missing:
+            self.notify(
+                f"Proposal file missing: {missing[0].name}",
+                severity="warning",
+            )
+            return
+        from diffviewer.diff_viewer_screen import DiffViewerScreen
+        self.app.push_screen(
+            DiffViewerScreen(str(p1), [str(p2)], mode="classical")
+        )
 
 
 def _open_node_detail_visible(active_tab: str, focused_is_node_row: bool) -> bool:
@@ -1440,7 +1529,7 @@ class OperationDetailScreen(ModalScreen):
         # paints first. The worker is async so we can await each
         # mount/remove (Textual's mount/remove return AwaitMount /
         # AwaitRemove — racing them produces "id already mounted" or
-        # silent-dismiss crashes, cf. _build_compare_matrix).
+        # silent-dismiss crashes).
         self._populate_content_worker()
 
     @work
@@ -1808,6 +1897,92 @@ def _next_checkbox_index(current: int | None, total: int, direction: int) -> int
     return new_idx
 
 
+def compare_matrix_rows(
+    node_dims: dict[str, dict], node_ids: list[str]
+) -> "list[tuple[str, list]] | None":
+    """Compute the dimension-comparison matrix rows (pure, no I/O, no App, t983_7).
+
+    Takes already-extracted per-node dimension dicts (``node_dims[node_id] ->
+    {dim: value}``) and the column order ``node_ids``; returns the rows as
+    ``[(row_key, cells), ...]`` where ``cells`` is the Dimension-column value
+    followed by one cell per node id (rich ``Text`` / str), or ``None`` when no
+    node has any dimension field. ``CompareMatrixModal.on_mount`` assembles the
+    ``DataTable`` from these rows — ``DataTable.add_column`` needs an active App,
+    so the *assembly* lives in the modal while this *logic* stays unit-testable
+    without a running App. Logic lifted verbatim from the former
+    ``_build_compare_matrix`` / ``_add_similarity_row``."""
+    # Collect all dimension keys (preserving first-seen order)
+    all_keys: list[str] = []
+    seen: set[str] = set()
+    for nid in node_ids:
+        for k in node_dims.get(nid, {}):
+            if k not in seen:
+                all_keys.append(k)
+                seen.add(k)
+
+    if not all_keys:
+        return None
+
+    n = len(node_ids)
+    rows: list[tuple[str, list]] = []
+
+    # Dimension rows with color-coded values
+    for key in all_keys:
+        raw_values = [str(node_dims.get(nid, {}).get(key, "—")) for nid in node_ids]
+        unique = set(raw_values)
+
+        if len(unique) == 1:
+            # Equal values: collapse to a single visible value (DataTable
+            # cannot span cells, so use a "← same" marker for n == 2).
+            if n == 2:
+                node_cells = [
+                    Text(raw_values[0], style="green"),
+                    Text("← same", style="dim green"),
+                ]
+            else:
+                node_cells = [Text(v, style="green") for v in raw_values]
+        elif n == 2:
+            # Differing values, two nodes: inline word-diff.
+            v1, v2 = raw_values
+            node_cells = list(word_diff_texts(
+                v1, v2,
+                TAG_STYLES["replace"], TAG_STYLES["replace"],
+                TAG_STYLES["replace_dim"], TAG_STYLES["replace_dim"],
+            ))
+        else:
+            # Differing values, 3-4 nodes: color by max pairwise similarity.
+            max_sim = 0.0
+            for i, x in enumerate(raw_values):
+                for y in raw_values[i + 1:]:
+                    sim = SequenceMatcher(None, x, y).ratio()
+                    if sim > max_sim:
+                        max_sim = sim
+            color = "yellow" if max_sim > 0.6 else "red"
+            node_cells = [Text(v, style=color) for v in raw_values]
+        rows.append((key, [key, *node_cells]))
+
+    # Average-similarity summary row
+    from itertools import combinations
+
+    pair_avgs: list[float] = []
+    for n1, n2 in combinations(node_ids, 2):
+        scores = []
+        for key in all_keys:
+            v1 = str(node_dims.get(n1, {}).get(key, ""))
+            v2 = str(node_dims.get(n2, {}).get(key, ""))
+            scores.append(SequenceMatcher(None, v1, v2).ratio())
+        pair_avgs.append(sum(scores) / len(scores) if scores else 0.0)
+
+    avg = sum(pair_avgs) / len(pair_avgs) if pair_avgs else 0.0
+    sim_cells = [
+        Text("— Avg Similarity —", style="bold"),
+        Text(f"{avg:.0%}", style="bold cyan"),
+    ] + [Text("")] * (n - 1)
+    rows.append(("sim_score", sim_cells))
+
+    return rows
+
+
 def _filter_labels(query: str, labels: list[str]) -> list[str]:
     """Case-insensitive substring filter for wizard fuzzy-search boxes.
 
@@ -2135,105 +2310,6 @@ def format_node_id_summary(ids, prefix: str, cap: int = 5) -> str:
     shown = ", ".join(ids[:cap])
     suffix = f" (+{n - cap} more)" if n > cap else ""
     return f"{prefix} ({n}): {shown}{suffix}"
-
-
-class CompareNodeSelectModal(ShortcutsMixin, ModalScreen):
-    """Modal for selecting 2-4 nodes to compare in the dimension matrix."""
-
-    _shortcuts_scope = "brainstorm.compare_select"
-
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel", show=False),
-        Binding("c", "confirm", "Compare"),
-    ]
-
-    def __init__(self, node_ids: list[str]):
-        super().__init__()
-        self.node_ids = node_ids
-
-    def compose(self) -> ComposeResult:
-        with Container(id="compare_select_dialog"):
-            yield Label("Select 2\u20134 nodes to compare", id="compare_select_title")
-            yield Label(
-                "[dim]\u2191\u2193 Navigate  Space/Enter Toggle  c Compare[/dim]",
-                id="compare_select_hint",
-            )
-            with VerticalScroll(id="compare_checkbox_list"):
-                for nid in self.node_ids:
-                    yield Checkbox(nid, id=f"chk_cmp_{nid}")
-            with Horizontal(id="compare_select_buttons"):
-                yield Button(self.label("confirm", "Compare"), variant="primary", id="btn_compare")
-                yield Button("Cancel", variant="default", id="btn_compare_cancel")
-
-    def on_mount(self) -> None:
-        self._update_compare_button()
-
-    def _get_selected(self) -> list[str]:
-        return [
-            nid
-            for nid in self.node_ids
-            if self.query_one(f"#chk_cmp_{nid}", Checkbox).value
-        ]
-
-    def _update_compare_button(self) -> None:
-        try:
-            btn = self.query_one("#btn_compare", Button)
-        except Exception:
-            return
-        count = len(self._get_selected())
-        btn.disabled = not (2 <= count <= 4)
-
-    @on(Checkbox.Changed)
-    def _on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        self._update_compare_button()
-
-    def on_key(self, event) -> None:
-        if event.key in ("up", "down"):
-            direction = 1 if event.key == "down" else -1
-            if self._navigate_checkboxes(direction):
-                event.prevent_default()
-                event.stop()
-
-    def _navigate_checkboxes(self, direction: int) -> bool:
-        try:
-            container = self.query_one("#compare_checkbox_list", VerticalScroll)
-        except Exception:
-            return False
-        checkboxes = [
-            w for w in container.children
-            if isinstance(w, Checkbox) and w.can_focus
-        ]
-        if not checkboxes:
-            return False
-        focused = self.focused
-        current = checkboxes.index(focused) if focused in checkboxes else None
-        new_idx = _next_checkbox_index(current, len(checkboxes), direction)
-        if new_idx is None:
-            return False
-        checkboxes[new_idx].focus()
-        checkboxes[new_idx].scroll_visible()
-        return True
-
-    @on(Button.Pressed, "#btn_compare")
-    def _on_compare_pressed(self) -> None:
-        self.action_confirm()
-
-    def action_confirm(self) -> None:
-        selected = self._get_selected()
-        if len(selected) < 2:
-            self.notify("Select at least 2 nodes", severity="warning")
-            return
-        if len(selected) > 4:
-            self.notify("Select at most 4 nodes", severity="warning")
-            return
-        self.dismiss(selected)
-
-    @on(Button.Pressed, "#btn_compare_cancel")
-    def cancel(self) -> None:
-        self.dismiss(None)
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)
 
 
 class FuzzyCheckList(Container):
@@ -3062,25 +3138,6 @@ class ProcessRow(Static, can_focus=True):
         self.refresh()
 
 
-class CompareDataTable(DataTable):
-    """DataTable for the Compare tab.
-
-    When the cursor is at row 0 and Up is pressed, focus returns to the
-    tab bar (matching the Dashboard's NodeRow escape behavior). Otherwise
-    Up moves the row cursor as normal.
-    """
-
-    def action_cursor_up(self) -> None:
-        if self.cursor_row == 0:
-            try:
-                tabbed = self.app.query_one(TabbedContent)
-                tabbed.query_one(Tabs).focus()
-                return
-            except Exception:
-                pass
-        super().action_cursor_up()
-
-
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
@@ -3265,51 +3322,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         margin-top: 1;
     }
 
-    /* Compare tab */
-    #compare_hint {
-        width: 100%;
-        content-align: center middle;
-        text-style: italic;
-        color: $text-muted;
-        height: 100%;
-    }
-
+    /* Compare matrix overlay table (t983_7) */
     #compare_table {
         height: 1fr;
-    }
-
-    /* Compare node selection modal */
-    #compare_select_dialog {
-        width: 60;
-        height: auto;
-        max-height: 70%;
-        background: $surface;
-        border: thick $primary;
-        padding: 1 2;
-    }
-
-    #compare_select_title {
-        text-style: bold;
-        text-align: center;
-        width: 100%;
-        margin-bottom: 1;
-    }
-
-    #compare_select_hint {
-        text-align: center;
-        width: 100%;
-        margin-bottom: 1;
-    }
-
-    #compare_checkbox_list {
-        max-height: 20;
-        padding: 0 1;
-    }
-
-    #compare_select_buttons {
-        height: 3;
-        align: center middle;
-        margin-top: 1;
     }
 
     /* Node action selection modal */
@@ -3614,6 +3629,29 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         align: center middle;
     }
 
+    /* Compare matrix overlay (t983_7) — mirrors the node-detail dialog. */
+    #compare_matrix_dialog {
+        width: 80%;
+        height: 90%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #compare_matrix_title {
+        text-style: bold;
+        text-align: center;
+        dock: top;
+        width: 100%;
+        padding: 1;
+        background: $secondary;
+    }
+
+    #compare_matrix_content {
+        height: 1fr;
+        padding: 1 2;
+    }
+
     /* Operation detail modal (t749_5) */
     #op_detail_dialog {
         width: 80%;
@@ -3796,12 +3834,14 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("g", "tab_graph", "Browse (graph)", show=False),
         Binding("v", "browse_toggle_view", "Toggle view", show=False),
         Binding("space", "browse_mark", "Mark node", show=False),
-        Binding("c", "tab_compare", "Compare", show=False),
+        # t983_7: `c` opens the dimension-matrix overlay on the marked set (the
+        # Compare *tab* is gone). NOTE coordinate the final Browse keymap with
+        # t983_9 (running-strip/keybinding deconflict: tabs b/s/r), which
+        # reclaims `r` for "Running".
+        Binding("c", "compare_matrix", "Compare", show=False),
         Binding("a", "tab_actions", "Actions", show=False),
         Binding("s", "tab_status", "Status", show=False),
         Binding("enter", "open_node_detail", "Open detail"),
-        Binding("r", "compare_regenerate", "Regenerate"),
-        Binding("D", "compare_diff", "Diff"),
         Binding("A", "node_action", "Node action"),
         Binding("f", "toggle_deferred", "Defer module"),
         Binding("H", "op_help", "Op help"),
@@ -3817,8 +3857,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     # Maps action_name -> required tab id. check_action() hides the binding
     # from the footer when the active tab does not match.
     _TAB_SCOPED_ACTIONS: dict[str, str] = {
-        "compare_regenerate": "tab_compare",
-        "compare_diff": "tab_compare",
         "open_node_detail": "tab_browse",
     }
 
@@ -4006,14 +4044,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         ),
                         id="browse_detail_pane",
                     )
-            with TabPane("(C)ompare", id="tab_compare"):
-                yield VerticalScroll(
-                    Label(
-                        "Press 'r' to (re)select nodes, 'D' to open full diff",
-                        id="compare_hint",
-                    ),
-                    id="compare_content",
-                )
             with TabPane("(A)ctions", id="tab_actions"):
                 yield VerticalScroll(id="actions_content")
             with TabPane("(S)tatus", id="tab_status"):
@@ -4042,18 +4072,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if event.key == "down":
             tabs_widget = tabbed.query_one(Tabs)
             if self.focused is tabs_widget:
-                # Compare tab: single DataTable, focus it directly so its
-                # built-in up/down cursor bindings drive section navigation.
-                if tabbed.active == "tab_compare":
-                    try:
-                        table = self.query_one("#compare_table", DataTable)
-                    except Exception:
-                        table = None
-                    if table is not None:
-                        table.focus()
-                        event.prevent_default()
-                        event.stop()
-                        return
                 # Browse tab: focus depends on the current view. Graph view →
                 # focus the DAGDisplay directly (it manages its own layer/column
                 # navigation). List view → focus the first NodeRow.
@@ -4363,10 +4381,19 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _on_node_hub_result(self, result) -> None:
         """Node Hub dismissed (t983_5): a ``NodeHubResult`` dispatches its
-        action; ``None`` (Escape/Close) is a no-op. New launch verbs (t983_6
-        wizard re-host, t983_7 Compare overlay) add a branch here."""
-        if isinstance(result, NodeHubResult) and result.action == NODE_HUB_OPERATIONS:
+        action; ``None`` (Escape/Close) is a no-op. New launch verbs add a
+        branch here."""
+        if not isinstance(result, NodeHubResult):
+            return
+        if result.action == NODE_HUB_OPERATIONS:
             self._open_operations_dialog(result.node_id)
+        elif result.action == NODE_HUB_COMPARE:
+            # Compare the Hub's focal node WITH the marked peers (union, so the
+            # node you were viewing always participates) — t983_7.
+            node_ids = sorted(set(self._selection.marked) | {result.node_id})
+            self._open_compare_matrix(
+                node_ids, anchor=result.node_id
+            )
 
     def _set_browse_view(self, view: str) -> None:
         """Switch the Browse ContentSwitcher to ``view`` ("graph"|"list") and
@@ -4452,6 +4479,38 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         self._selection.toggle(node_id)
         self._refresh_node_marks()
+
+    def action_compare_matrix(self) -> None:
+        """`c` on Browse → open the dimension-matrix overlay on the marked set
+        (t983_7). In Browse the marked set IS the selection; the cursor is not
+        auto-included (mark explicitly to compare)."""
+        if isinstance(self.screen, ModalScreen):
+            return
+        if self.query_one(TabbedContent).active != "tab_browse":
+            return
+        self._open_compare_matrix(sorted(self._selection.marked))
+
+    def _open_compare_matrix(
+        self, node_ids: list[str], anchor: str | None = None
+    ) -> None:
+        """Open :class:`CompareMatrixModal` on ``node_ids``, enforcing the 2-4
+        cardinality the dimension matrix needs (t983_7). Shared by Browse ``c``,
+        the Node Hub Compare verb, and the graph ``x``/Enter picker. ``anchor``
+        (the Node Hub's focal node, when set) tailors the too-few message."""
+        n = len(node_ids)
+        if n < 2:
+            if anchor:
+                self.notify(
+                    f"Mark 1–3 more nodes to compare with {anchor}",
+                    severity="warning",
+                )
+            else:
+                self.notify("Mark 2–4 nodes to compare", severity="warning")
+            return
+        if n > 4:
+            self.notify("Compare at most 4 nodes", severity="warning")
+            return
+        self.push_screen(CompareMatrixModal(self.session_path, node_ids))
 
     def _node_action_op_states(self, node_id: str, cardinality: int) -> dict:
         """Thin I/O wrapper over the pure :func:`op_states_for_selection`.
@@ -4805,55 +4864,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if getattr(w, "can_focus", False) and w.display:
                 w.focus()
                 return
-
-    def _open_compare_select_modal(self) -> None:
-        nodes = list_nodes(self.session_path)
-        if len(nodes) < 2:
-            self.notify("Need at least 2 nodes to compare", severity="warning")
-            return
-        self.push_screen(
-            CompareNodeSelectModal(nodes),
-            callback=self._on_compare_selected,
-        )
-
-    def action_tab_compare(self) -> None:
-        if isinstance(self.screen, ModalScreen):
-            return
-        tabbed = self.query_one(TabbedContent)
-        if tabbed.active == "tab_compare":
-            self._open_compare_select_modal()
-            return
-        tabbed.active = "tab_compare"
-
-    def action_compare_regenerate(self) -> None:
-        if isinstance(self.screen, ModalScreen):
-            return
-        self._open_compare_select_modal()
-
-    def action_compare_diff(self) -> None:
-        if isinstance(self.screen, ModalScreen):
-            return
-        nodes = getattr(self, "_compare_nodes", None)
-        if not nodes or len(nodes) < 2:
-            self.notify(
-                "Pick nodes to compare first (press 'r')",
-                severity="warning",
-            )
-            return
-        n1, n2 = nodes[:2]
-        p1 = self.session_path / "br_proposals" / f"{n1}.md"
-        p2 = self.session_path / "br_proposals" / f"{n2}.md"
-        missing = [p for p in (p1, p2) if not p.is_file()]
-        if missing:
-            self.notify(
-                f"Proposal file missing: {missing[0].name}",
-                severity="warning",
-            )
-            return
-        from diffviewer.diff_viewer_screen import DiffViewerScreen
-        self.push_screen(
-            DiffViewerScreen(str(p1), [str(p2)], mode="classical")
-        )
 
     def action_tab_actions(self) -> None:
         if isinstance(self.screen, ModalScreen):
@@ -6465,36 +6475,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
 
     @on(DAGDisplay.CompareRequested)
-    async def on_dag_display_compare_requested(
+    def on_dag_display_compare_requested(
         self, event: DAGDisplay.CompareRequested
     ) -> None:
-        """Render Compare-tab matrix for [anchor, picked] and switch tabs."""
-        # Shift focus off DAGDisplay first: DAGDisplay lives in the Browse tab,
-        # so if it remains focused while we activate tab_compare, Textual
-        # auto-reverts the active tab to keep the focused widget visible
-        # (manifests as "Compare flashes, then Graph comes back").
-        tabbed = self.query_one(TabbedContent)
-        try:
-            tabbed.query_one(Tabs).focus()
-        except Exception:
-            pass
-        tabbed.active = "tab_compare"
-        # Pre-flush #compare_content so a previously-mounted #compare_table
-        # is fully gone before _build_compare_matrix re-mounts. Otherwise
-        # the second consecutive compare attempt fails with "id already
-        # mounted" (remove_children is async; mount in the same sync tick
-        # races the removal).
-        container = self.query_one("#compare_content", VerticalScroll)
-        await container.remove_children()
-        try:
-            self._build_compare_matrix(
-                [event.anchor_id, event.picked_id]
-            )
-        except Exception as e:
-            self.notify(
-                f"Compare build failed: {e!s}",
-                severity="error",
-            )
+        """Open the dimension-matrix overlay for the graph picker's [anchor,
+        picked] pair (t983_7). A fresh modal each time, so the old
+        Compare-tab remove/re-mount race is moot."""
+        self._open_compare_matrix([event.anchor_id, event.picked_id])
 
     @on(DAGDisplay.FocusChanged)
     def on_dag_display_focus_changed(
@@ -6523,111 +6510,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.push_screen(
             OperationDetailScreen(event.group_name, self.session_path)
         )
-
-    def _on_compare_selected(self, selected: list[str] | None) -> None:
-        """Handle CompareNodeSelectModal result."""
-        if selected:
-            self._build_compare_matrix(selected)
-
-    def _build_compare_matrix(self, selected_nodes: list[str]) -> None:
-        """Build dimension comparison matrix DataTable."""
-        container = self.query_one("#compare_content", VerticalScroll)
-        container.remove_children()
-
-        # Extract dimensions for each node
-        node_dims: dict[str, dict] = {}
-        for nid in selected_nodes:
-            data = read_node(self.session_path, nid)
-            node_dims[nid] = extract_dimensions(data)
-
-        # Collect all dimension keys (preserving first-seen order)
-        all_keys: list[str] = []
-        seen: set[str] = set()
-        for dims in node_dims.values():
-            for k in dims:
-                if k not in seen:
-                    all_keys.append(k)
-                    seen.add(k)
-
-        if not all_keys:
-            container.mount(Label("No dimension fields found in selected nodes"))
-            return
-
-        table = CompareDataTable(id="compare_table", cursor_type="row")
-        table.add_column("Dimension", key="dim")
-        for nid in selected_nodes:
-            table.add_column(nid, key=nid)
-
-        # Add dimension rows with color-coded values
-        for key in all_keys:
-            raw_values = [str(node_dims[nid].get(key, "\u2014")) for nid in selected_nodes]
-            unique = set(raw_values)
-            n = len(selected_nodes)
-
-            if len(unique) == 1:
-                # Equal values: collapse to a single visible value (DataTable
-                # cannot span cells, so use a "\u2190 same" marker for n == 2).
-                if n == 2:
-                    styled = [
-                        Text(raw_values[0], style="green"),
-                        Text("\u2190 same", style="dim green"),
-                    ]
-                else:
-                    styled = [Text(v, style="green") for v in raw_values]
-                table.add_row(key, *styled, key=key)
-                continue
-
-            # Differing values
-            if n == 2:
-                v1, v2 = raw_values
-                t1, t2 = word_diff_texts(
-                    v1, v2,
-                    TAG_STYLES["replace"], TAG_STYLES["replace"],
-                    TAG_STYLES["replace_dim"], TAG_STYLES["replace_dim"],
-                )
-                table.add_row(key, t1, t2, key=key)
-            else:
-                max_sim = 0.0
-                for i, x in enumerate(raw_values):
-                    for y in raw_values[i + 1:]:
-                        sim = SequenceMatcher(None, x, y).ratio()
-                        if sim > max_sim:
-                            max_sim = sim
-                color = "yellow" if max_sim > 0.6 else "red"
-                styled = [Text(v, style=color) for v in raw_values]
-                table.add_row(key, *styled, key=key)
-
-        # Add similarity score summary row
-        self._add_similarity_row(table, selected_nodes, node_dims, all_keys)
-
-        container.mount(table)
-        self._compare_nodes = selected_nodes
-        self.call_after_refresh(table.focus)
-
-    def _add_similarity_row(
-        self,
-        table: DataTable,
-        nodes: list[str],
-        node_dims: dict[str, dict],
-        all_keys: list[str],
-    ) -> None:
-        """Add an average similarity score row to the compare table."""
-        from itertools import combinations
-
-        pair_avgs: list[float] = []
-        for n1, n2 in combinations(nodes, 2):
-            scores = []
-            for key in all_keys:
-                v1 = str(node_dims[n1].get(key, ""))
-                v2 = str(node_dims[n2].get(key, ""))
-                scores.append(SequenceMatcher(None, v1, v2).ratio())
-            pair_avgs.append(sum(scores) / len(scores) if scores else 0.0)
-
-        avg = sum(pair_avgs) / len(pair_avgs) if pair_avgs else 0.0
-        label = Text("\u2014 Avg Similarity \u2014", style="bold")
-        score = Text(f"{avg:.0%}", style="bold cyan")
-        cells = [label, score] + [Text("")] * (len(nodes) - 1)
-        table.add_row(*cells, key="sim_score")
 
     # ------------------------------------------------------------------
     # Actions wizard
