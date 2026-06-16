@@ -1177,6 +1177,17 @@ class TmuxMonitor:
             return None
         return self._finalize_capture(pane, content)
 
+    def get_pane(self, pane_id: str) -> "TmuxPaneInfo | None":
+        """Return the cached pane metadata for ``pane_id`` (no subprocess).
+
+        Lightweight accessor over ``_pane_cache`` (populated by discovery) for
+        callers that need a pane's ``window_name`` / ``session_name`` without a
+        live ``capture-pane`` — e.g. the applink router resolving a pane to its
+        task family for the modal handshakes (t822_11). Returns ``None`` when the
+        pane is unknown (not yet discovered or already gone).
+        """
+        return self._pane_cache.get(pane_id)
+
     async def capture_pane_async(self, pane_id: str) -> PaneSnapshot | None:
         pane = self._pane_cache.get(pane_id)
         if pane is None:

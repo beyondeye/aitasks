@@ -27,6 +27,9 @@ DEFAULT_ALLOWED = {
         "snapshot", "subscribe", "request_keyframe", "task_detail",
         "send_enter", "send_keys", "forward_key", "focus", "cycle_compare_mode",
         "kill_pane", "kill_window", "spawn_tui",
+        # Workflow modal handshakes (t822_11). Kept in sync by hand with the
+        # shipped applink_profiles/full.yaml — this is the no-config fallback.
+        "pick_next_sibling", "restart_task",
     ],
 }
 

@@ -80,7 +80,7 @@ Error frame payload:
 
 ```json
 {
-  "code": "AUTH_FAILED|PERMISSION_DENIED|UNKNOWN_VERB|BAD_PAYLOAD|INTERNAL",
+  "code": "AUTH_FAILED|PERMISSION_DENIED|UNKNOWN_VERB|BAD_PAYLOAD|INTERNAL|NOT_IMPLEMENTED",
   "message": "<human-readable>",
   "detail": { ... }
 }

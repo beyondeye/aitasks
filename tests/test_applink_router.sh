@@ -27,6 +27,7 @@ fi
 import shutil
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 root = Path(sys.argv[1])
 sys.path.insert(0, str(root / ".aitask-scripts"))
@@ -46,9 +47,17 @@ def check(label, cond):
 
 
 class StubMonitor:
-    """Records dispatch calls; returns canned successes."""
+    """Records dispatch calls; returns canned successes.
+
+    For the t822_11 handshakes it also fakes pane metadata: ``panes`` maps
+    pane_id -> (window_name, session_name) and ``idle`` maps
+    pane_id -> (is_idle, idle_seconds). ``get_pane`` returns cached metadata
+    (no subprocess); ``capture_pane`` returns a live-style snapshot.
+    """
     def __init__(self):
         self.calls = []
+        self.panes = {}   # pane_id -> (window_name, session_name)
+        self.idle = {}    # pane_id -> (is_idle, idle_seconds)
     def send_enter(self, p):
         self.calls.append(("send_enter", p)); return True
     def send_keys(self, p, k, literal=False):
@@ -65,6 +74,43 @@ class StubMonitor:
         self.calls.append(("kill_window", p)); return True
     def spawn_tui(self, n):
         self.calls.append(("spawn_tui", n)); return True
+    def get_pane(self, p):
+        meta = self.panes.get(p)
+        if meta is None:
+            return None
+        window_name, session_name = meta
+        return SimpleNamespace(pane_id=p, window_name=window_name, session_name=session_name)
+    def capture_pane(self, p):
+        meta = self.panes.get(p)
+        if meta is None:
+            return None
+        window_name, session_name = meta
+        is_idle, idle_seconds = self.idle.get(p, (True, 99.0))
+        pane = SimpleNamespace(pane_id=p, window_name=window_name, session_name=session_name)
+        return SimpleNamespace(pane=pane, is_idle=is_idle, idle_seconds=idle_seconds)
+
+
+class StubTasks:
+    """Stub TaskInfoCache: maps window_name -> task_id and records the
+    ``session_name`` each call receives (guards cross-project resolution)."""
+    def __init__(self):
+        self.task_for_window = {}   # window_name -> task_id
+        self.calls = []             # (method, task_id, session_name)
+    def get_task_id_for_pane(self, pane):
+        return self.task_for_window.get(getattr(pane, "window_name", ""))
+    def get_parent_id(self, task_id):
+        return task_id.split("_", 1)[0] if "_" in task_id else None
+    def invalidate(self, task_id, session_name=""):
+        self.calls.append(("invalidate", task_id, session_name))
+    def get_task_info(self, task_id, session_name=""):
+        self.calls.append(("get_task_info", task_id, session_name))
+        return SimpleNamespace(title=f"title-{task_id}", status="Ready")
+    def find_next_sibling(self, task_id, session_name=""):
+        self.calls.append(("find_next_sibling", task_id, session_name))
+        return ("823_2", "second sibling")
+    def find_ready_siblings(self, task_id, session_name=""):
+        self.calls.append(("find_ready_siblings", task_id, session_name))
+        return [("823_2", "second sibling", []), ("823_3", "third sibling", ["823_2"])]
 
 
 def req(verb, payload=None, auth=None, mid="m1"):
@@ -154,11 +200,91 @@ r = router.handle(req("kill_pane", {"pane_id": "%2", "confirmed": True}, auth=fu
 check("kill_pane confirmed -> executes", ("kill_pane", "%2") in mon.calls and r["payload"]["ok"] is True)
 
 # --- deferred + unknown verbs ----------------------------------------------
-r = router.handle(req("pick_next_sibling", {"pane_id": "%1"}, auth=full.bearer), ConnState())
-check("pick_next_sibling -> UNKNOWN_VERB(deferred)",
+r = router.handle(req("snapshot", {}, auth=full.bearer), ConnState())
+check("snapshot -> UNKNOWN_VERB(deferred)",
       r["payload"]["code"] == "UNKNOWN_VERB" and r["payload"]["detail"]["reason"] == "deferred")
 r = router.handle(req("frobnicate", {}, auth=full.bearer), ConnState())
 check("unknown verb -> UNKNOWN_VERB", r["payload"]["code"] == "UNKNOWN_VERB")
+
+# --- modal-dialog handshakes (t822_11) -------------------------------------
+# A second router wired with a task resolver + pane metadata, exercising the
+# kill-target enrichment, the idle-gated restart confirm, and the sibling
+# suggest/choose round-trip (execution deferred).
+tasks = StubTasks()
+mon.panes = {
+    "%9": ("agent-t823_1-foo", "projA"),   # idle pane, resolves to task 823_1
+    "%8": ("agent-t823_1-busy", "projA"),  # busy pane (not idle)
+    "%7": ("shell-no-task", "projA"),       # idle pane, window has no task id
+}
+mon.idle = {"%9": (True, 42.0), "%8": (False, 1.0), "%7": (True, 10.0)}
+tasks.task_for_window = {"agent-t823_1-foo": "823_1", "agent-t823_1-busy": "823_1"}
+rt = FrameRouter(st, gate, mon, pair_profile="monitor_control", task_resolver=tasks)
+
+# kill_pane confirm target now carries window_name + task (degrades when absent)
+r = rt.handle(req("kill_pane", {"pane_id": "%9"}, auth=full.bearer), ConnState())
+tgt = r["payload"]["target"]
+check("kill_pane target enriched with window_name", tgt.get("window_name") == "agent-t823_1-foo")
+check("kill_pane target enriched with task", tgt.get("task") == "823_1")
+r = rt.handle(req("kill_pane", {"pane_id": "%404"}, auth=full.bearer), ConnState())
+check("kill_pane target degrades to pane_id when pane unknown",
+      r["payload"]["target"] == {"pane_id": "%404"})
+
+# restart_task: idle pane -> confirm details; confirmed -> NOT_IMPLEMENTED(deferred)
+r = rt.handle(req("restart_task", {"pane_id": "%9"}, auth=full.bearer), ConnState())
+check("restart_task idle -> confirm_required", r["payload"].get("confirm_required") is True)
+check("restart_task confirm details carry task/idle",
+      r["payload"]["task_id"] == "823_1" and r["payload"]["status"] == "Ready"
+      and r["payload"]["idle_seconds"] == 42.0)
+r = rt.handle(req("restart_task", {"pane_id": "%9", "confirmed": True}, auth=full.bearer), ConnState())
+check("restart_task confirmed -> NOT_IMPLEMENTED(deferred)",
+      r["payload"]["code"] == "NOT_IMPLEMENTED" and r["payload"]["detail"]["reason"] == "deferred")
+r = rt.handle(req("restart_task", {"pane_id": "%8"}, auth=full.bearer), ConnState())
+check("restart_task busy pane -> BAD_PAYLOAD not_idle",
+      r["payload"]["code"] == "BAD_PAYLOAD" and r["payload"]["detail"]["reason"] == "not_idle")
+r = rt.handle(req("restart_task", {"pane_id": "%7"}, auth=full.bearer), ConnState())
+check("restart_task pane with no task id -> BAD_PAYLOAD no_task",
+      r["payload"]["code"] == "BAD_PAYLOAD" and r["payload"]["detail"]["reason"] == "no_task")
+r = rt.handle(req("restart_task", {"pane_id": "%404"}, auth=full.bearer), ConnState())
+check("restart_task unknown pane -> BAD_PAYLOAD not_found",
+      r["payload"]["code"] == "BAD_PAYLOAD" and r["payload"]["detail"]["reason"] == "not_found")
+
+# pick_next_sibling: suggest phase -> res; choose phase -> deferred
+tasks.calls.clear()
+r = rt.handle(req("pick_next_sibling", {"pane_id": "%9"}, auth=full.bearer), ConnState())
+p = r["payload"]
+check("pick_next_sibling suggest -> res", r["kind"] == "res")
+check("pick_next_sibling suggested", p["suggested"] == {"id": "823_2", "title": "second sibling"})
+check("pick_next_sibling current", p["current"]["id"] == "823_1" and p["current"]["status"] == "Ready")
+check("pick_next_sibling parent_id", p["parent_id"] == "823")
+check("pick_next_sibling ready_siblings carries blocked_by",
+      p["ready_siblings"][1] == {"id": "823_3", "title": "third sibling", "blocked_by": ["823_2"]})
+# session_name threaded into the task-cache calls (cross-project resolution)
+check("pick_next_sibling threads pane.session_name to task cache",
+      all(s == "projA" for (_m, _t, s) in tasks.calls)
+      and ("find_next_sibling", "823_1", "projA") in tasks.calls)
+r = rt.handle(req("pick_next_sibling", {"pane_id": "%9", "sibling_id": "823_2"}, auth=full.bearer), ConnState())
+check("pick_next_sibling choose -> NOT_IMPLEMENTED(deferred)",
+      r["payload"]["code"] == "NOT_IMPLEMENTED" and r["payload"]["detail"]["reason"] == "deferred")
+r = rt.handle(req("pick_next_sibling", {"pane_id": "%7"}, auth=full.bearer), ConnState())
+check("pick_next_sibling no task id -> BAD_PAYLOAD no_task",
+      r["payload"]["code"] == "BAD_PAYLOAD" and r["payload"]["detail"]["reason"] == "no_task")
+
+# gating: pick_next_sibling/restart_task are full-only
+mc = st.issue_bearer("monitor_control")
+r = rt.handle(req("restart_task", {"pane_id": "%9"}, auth=mc.bearer), ConnState())
+check("restart_task under monitor_control -> PERMISSION_DENIED",
+      r["payload"]["code"] == "PERMISSION_DENIED" and r["payload"]["detail"]["required_profile"] == "full")
+r = rt.handle(req("pick_next_sibling", {"pane_id": "%9"}, auth=mc.bearer), ConnState())
+check("pick_next_sibling under monitor_control -> PERMISSION_DENIED",
+      r["payload"]["code"] == "PERMISSION_DENIED")
+
+# fallback built-in defaults permit the new verbs under `full`
+_missing = root / "aitasks" / "metadata" / "applink_profiles_does_not_exist"
+gate_default = P.ProfileGate.load(_missing)
+check("fallback DEFAULT_ALLOWED[full] permits pick_next_sibling",
+      gate_default.is_allowed("full", "pick_next_sibling"))
+check("fallback DEFAULT_ALLOWED[full] permits restart_task",
+      gate_default.is_allowed("full", "restart_task"))
 
 # --- data-plane control verbs (subscribe / focus / request_keyframe) -------
 dconn = ConnState()

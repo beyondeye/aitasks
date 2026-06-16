@@ -28,6 +28,11 @@ ERR_PERMISSION_DENIED = "PERMISSION_DENIED"
 ERR_UNKNOWN_VERB = "UNKNOWN_VERB"
 ERR_BAD_PAYLOAD = "BAD_PAYLOAD"
 ERR_INTERNAL = "INTERNAL"
+# Returned when a known, gated verb's *execution* leg is not yet wired — used by
+# the t822_11 modal handshakes whose kill-old-pane + relaunch-agent orchestration
+# is deferred until the applink workflow launch policy lands. Additive error code
+# per protocol.md §Versioning (clients ignore unknown codes).
+ERR_NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
 
 # Connection-state labels not already in sessions.py (transport-level).
 STATE_DISCOVERING = "Discovering"
@@ -44,16 +49,20 @@ IMPLEMENTED_COMMAND_VERBS = frozenset({
     # Data-plane control verbs (t822_8): mutate the per-connection Subscription;
     # the actual binary pushes are driven by server's pusher.PushScheduler.
     "subscribe", "request_keyframe",
+    # Workflow modal handshakes (t822_11): the suggest/choose + idle-gated confirm
+    # round-trips are served here; their final kill+relaunch execution is deferred
+    # (returns NOT_IMPLEMENTED) until the applink launch policy lands.
+    "pick_next_sibling", "restart_task",
 })
 
-# Destructive verbs that use the pull-model confirm handshake.
-CONFIRM_VERBS = frozenset({"kill_pane", "kill_window"})
+# Destructive / workflow verbs that use the pull-model confirm handshake
+# (first call returns details, a re-send with `confirmed:true` executes).
+CONFIRM_VERBS = frozenset({"kill_pane", "kill_window", "restart_task"})
 
 # Recognized-but-deferred verbs. `snapshot` is the push-direction read-capability
-# token (gated in profiles, never pulled); the workflow verbs are t822_11.
+# token (gated in profiles, never pulled).
 DEFERRED_VERBS = frozenset({
     "snapshot",
-    "pick_next_sibling", "restart_task",
 })
 
 # Session-management verbs (not profile-gated).
@@ -280,25 +289,16 @@ class FrameRouter:
             return self._res(msg_id, verb, {"ok": bool(self._monitor.spawn_tui(tui_name))})
 
         if verb == "kill_pane":
-            pane_id = self._req_str(payload, "pane_id")
-            if pane_id is None:
-                return self._bad_field(msg_id, verb, "pane_id")
-            if not payload.get("confirmed"):
-                return self._res(msg_id, verb, {
-                    "confirm_required": True, "target": {"pane_id": pane_id},
-                })
-            ok, killed_window = self._monitor.kill_agent_pane_smart(pane_id)
-            return self._res(msg_id, verb, {"ok": bool(ok), "killed_window": bool(killed_window)})
+            return self._kill_pane(msg_id, payload)
 
         if verb == "kill_window":
-            window_id = self._req_str(payload, "window_id")
-            if window_id is None:
-                return self._bad_field(msg_id, verb, "window_id")
-            if not payload.get("confirmed"):
-                return self._res(msg_id, verb, {
-                    "confirm_required": True, "target": {"window_id": window_id},
-                })
-            return self._res(msg_id, verb, {"ok": bool(self._monitor.kill_window(window_id))})
+            return self._kill_window(msg_id, payload)
+
+        if verb == "restart_task":
+            return self._restart_task(msg_id, payload)
+
+        if verb == "pick_next_sibling":
+            return self._pick_next_sibling(msg_id, payload)
 
         if verb == "task_detail":
             task_id = self._req_str(payload, "task_id")
@@ -308,6 +308,186 @@ class FrameRouter:
 
         # Should be unreachable (verb membership checked by the caller).
         return self._err(msg_id, verb, ERR_INTERNAL, f"no dispatcher for '{verb}'")
+
+    # -- Modal-dialog handshakes (t822_11) -------------------------------------
+
+    def _two_phase(self, msg_id, verb, payload, *, build_details, execute):
+        """Pull-model confirm round-trip shared by kill/restart.
+
+        ``build_details`` returns either a ``dict`` of detail fields for the
+        ``confirm_required`` reply, or an ``err`` frame (``kind == "err"``) that
+        short-circuits **both** phases (e.g. a ``not_idle`` / ``not_found``
+        rejection). The client re-sends the same verb with ``confirmed:true`` to
+        run ``execute``; the server never blocks waiting for a reply, so the
+        action stays client-initiated and idempotent.
+        """
+        details = build_details()
+        if isinstance(details, dict) and details.get("kind") == "err":
+            return details
+        if not payload.get("confirmed"):
+            reply = {"confirm_required": True}
+            reply.update(details)
+            return self._res(msg_id, verb, reply)
+        return execute()
+
+    def _resolve_pane_task(self, pane_id):
+        """Resolve ``(pane, task_id, session_name)`` from a pane id.
+
+        Uses the monitor's cached pane metadata (no live capture) and the task
+        resolver. ``session_name`` is threaded into every downstream task-cache
+        call so a pane owned by another project/session resolves against the
+        right task family (mirrors the desktop's ``snap.pane.session_name``
+        plumbing). Returns ``(None, None, "")`` when the pane is unknown.
+        """
+        pane = None
+        get_pane = getattr(self._monitor, "get_pane", None)
+        if callable(get_pane):
+            pane = get_pane(pane_id)
+        if pane is None:
+            return None, None, ""
+        session_name = getattr(pane, "session_name", "") or ""
+        task_id = None
+        if self._tasks is not None:
+            task_id = self._tasks.get_task_id_for_pane(pane)
+        return pane, task_id, session_name
+
+    def _pane_target(self, pane_id):
+        """Confirm-dialog target for a pane: ``{pane_id, window_name?, task?}``.
+
+        Degrades to just ``pane_id`` when the pane is not in the monitor cache
+        (the design table marks ``window_name``/``task`` optional)."""
+        target = {"pane_id": pane_id}
+        pane, task_id, _session = self._resolve_pane_task(pane_id)
+        if pane is not None:
+            window_name = getattr(pane, "window_name", "") or ""
+            if window_name:
+                target["window_name"] = window_name
+        if task_id:
+            target["task"] = task_id
+        return target
+
+    def _kill_pane(self, msg_id, payload):
+        pane_id = self._req_str(payload, "pane_id")
+        if pane_id is None:
+            return self._bad_field(msg_id, "kill_pane", "pane_id")
+
+        def build_details():
+            return {"target": self._pane_target(pane_id)}
+
+        def execute():
+            ok, killed_window = self._monitor.kill_agent_pane_smart(pane_id)
+            return self._res(msg_id, "kill_pane",
+                             {"ok": bool(ok), "killed_window": bool(killed_window)})
+
+        return self._two_phase(msg_id, "kill_pane", payload,
+                               build_details=build_details, execute=execute)
+
+    def _kill_window(self, msg_id, payload):
+        window_id = self._req_str(payload, "window_id")
+        if window_id is None:
+            return self._bad_field(msg_id, "kill_window", "window_id")
+
+        def build_details():
+            return {"target": {"window_id": window_id}}
+
+        def execute():
+            return self._res(msg_id, "kill_window",
+                             {"ok": bool(self._monitor.kill_window(window_id))})
+
+        return self._two_phase(msg_id, "kill_window", payload,
+                               build_details=build_details, execute=execute)
+
+    def _restart_task(self, msg_id, payload):
+        """Idle-gated restart confirm (gate: full). Execution is deferred."""
+        pane_id = self._req_str(payload, "pane_id")
+        if pane_id is None:
+            return self._bad_field(msg_id, "restart_task", "pane_id")
+
+        def build_details():
+            snap = self._monitor.capture_pane(pane_id)
+            if snap is None:
+                return self._err(msg_id, "restart_task", ERR_BAD_PAYLOAD,
+                                 f"pane '{pane_id}' not found",
+                                 detail={"reason": "not_found"})
+            if not getattr(snap, "is_idle", False):
+                return self._err(msg_id, "restart_task", ERR_BAD_PAYLOAD,
+                                 "pane is not idle", detail={"reason": "not_idle"})
+            pane = snap.pane
+            session_name = getattr(pane, "session_name", "") or ""
+            task_id = None
+            if self._tasks is not None:
+                task_id = self._tasks.get_task_id_for_pane(pane)
+            if not task_id:
+                return self._err(msg_id, "restart_task", ERR_BAD_PAYLOAD,
+                                 "pane has no resolvable task id",
+                                 detail={"reason": "no_task"})
+            title, status = "", ""
+            if self._tasks is not None:
+                self._tasks.invalidate(task_id, session_name)
+                info = self._tasks.get_task_info(task_id, session_name)
+                if info is not None:
+                    title, status = info.title, info.status
+            return {
+                "task_id": task_id, "title": title, "status": status,
+                "idle_seconds": getattr(snap, "idle_seconds", 0),
+            }
+
+        def execute():
+            _pane, task_id, _session = self._resolve_pane_task(pane_id)
+            return self._err(msg_id, "restart_task", ERR_NOT_IMPLEMENTED,
+                             "restart execution is deferred (no launch policy yet)",
+                             detail={"reason": "deferred", "task_id": task_id})
+
+        return self._two_phase(msg_id, "restart_task", payload,
+                               build_details=build_details, execute=execute)
+
+    def _pick_next_sibling(self, msg_id, payload):
+        """Suggest/choose sibling round-trip (gate: full). Execution deferred."""
+        pane_id = self._req_str(payload, "pane_id")
+        if pane_id is None:
+            return self._bad_field(msg_id, "pick_next_sibling", "pane_id")
+        pane, task_id, session_name = self._resolve_pane_task(pane_id)
+        if pane is None:
+            return self._err(msg_id, "pick_next_sibling", ERR_BAD_PAYLOAD,
+                             f"pane '{pane_id}' not found",
+                             detail={"reason": "not_found"})
+        if not task_id:
+            return self._err(msg_id, "pick_next_sibling", ERR_BAD_PAYLOAD,
+                             "pane has no resolvable task id",
+                             detail={"reason": "no_task"})
+
+        sibling_id = payload.get("sibling_id")
+        if isinstance(sibling_id, str) and sibling_id:
+            # Choose phase — the kill+relaunch execution is deferred.
+            return self._err(msg_id, "pick_next_sibling", ERR_NOT_IMPLEMENTED,
+                             "sibling launch is deferred (no launch policy yet)",
+                             detail={"reason": "deferred", "sibling_id": sibling_id})
+
+        if self._tasks is None:
+            return self._err(msg_id, "pick_next_sibling", ERR_INTERNAL,
+                             "task resolver unavailable")
+        # Suggest phase — force-refresh current task info, then suggest + list.
+        self._tasks.invalidate(task_id, session_name)
+        info = self._tasks.get_task_info(task_id, session_name)
+        current_title = info.title if info is not None else ""
+        current_status = info.status if info is not None else "Done"
+        suggested = self._tasks.find_next_sibling(task_id, session_name)
+        ready = self._tasks.find_ready_siblings(task_id, session_name)
+        parent_id = self._tasks.get_parent_id(task_id) or task_id
+        suggested_payload = None
+        if suggested is not None:
+            sug_id, sug_title = suggested
+            suggested_payload = {"id": sug_id, "title": sug_title}
+        ready_payload = [
+            {"id": sid, "title": stitle, "blocked_by": list(blocked)}
+            for (sid, stitle, blocked) in ready
+        ]
+        return self._res(msg_id, "pick_next_sibling", {
+            "suggested": suggested_payload,
+            "current": {"id": task_id, "title": current_title, "status": current_status},
+            "parent_id": parent_id,
+            "ready_siblings": ready_payload,
+        })
 
     def _task_detail(self, msg_id, task_id):
         if self._tasks is None:
