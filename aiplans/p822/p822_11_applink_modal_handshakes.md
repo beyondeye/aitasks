@@ -240,7 +240,7 @@ Extend the inline Python harness:
 - Confirmed-execution of `restart_task`/`pick_next_sibling` is **intentionally
   deferred** — partial surface by design, not a gap. The handshakes + idle gate
   are complete; only the relaunch leg is stubbed. · severity: medium
-  · → mitigation: applink_workflow_launch_policy (after)
+  · → mitigation: t1011 (applink_workflow_launch_policy, after)
 - The `restart_task` idle gate relies on `capture_pane` finding the pane in the
   monitor's `_pane_cache`, which is populated by the push loop; a client acting
   without an active subscription could see `not_found`. · severity: low
@@ -248,7 +248,7 @@ Extend the inline Python harness:
   subscribed to in normal flow.
 
 ### Planned mitigations
-- timing: after | name: applink_workflow_launch_policy | type: feature | priority: medium | effort: medium | addresses: goal-achievement "confirmed-execution deferred" | desc: Design and implement the applink workflow launch policy (server-side/mobile) to execute restart_task and pick_next_sibling after the deferred handshake, and reevaluate the NOT_IMPLEMENTED execution leg.
+- timing: after | name: applink_workflow_launch_policy (created as t1011) | type: feature | priority: medium | effort: medium | addresses: goal-achievement "confirmed-execution deferred" | desc: Design and implement the applink workflow launch policy (server-side/mobile) to execute restart_task and pick_next_sibling after the deferred handshake, and reevaluate the NOT_IMPLEMENTED execution leg.
 
 ## Step 9 (Post-Implementation)
 
