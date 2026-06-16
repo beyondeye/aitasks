@@ -7,6 +7,7 @@ depends: [t822_7]
 issue_type: feature
 status: Implementing
 labels: [ait_bridge]
+risk_mitigation_tasks: [1011]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 10:42
 updated_at: 2026-06-16 16:56
