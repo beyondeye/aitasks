@@ -425,3 +425,58 @@ unchanged and at the bottom row; it sends a `delta` instead whenever the cursor
 changed or an appended row carries a hyperlink (so append rows never set the OSC8
 attr bit). Gap recovery for a lost append relies on ordered/reliable WS transport
 + the periodic keyframe interval — there is no per-append `prev_frame_id` chain.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented Stage 3 of the applink data plane as planned.
+  - `applink/content.py`: `encode_append` (0x03 = 1 raw tag byte + msgpack
+    `[pane_id, frame_id, row_list]`, no cursor/prev/osc8); `detect_append`
+    (pure `{row_id: sig}` prefix comparison — returns the smallest `k` for which
+    the new grid equals the baseline scrolled up by `k`, else `None`);
+    `PaneState.last_cursor` per-connection full-cursor baseline.
+  - `applink/pusher.py`: `_push_pane` tries the append path *before* the delta
+    path — gated on `detect_append` + cursor at the bottom row + the full cursor
+    tuple unchanged (`st.last_cursor == cursor`) + no hyperlink in the appended
+    rows; bumps `frame_id` so a later delta chains; updates `st.last_cursor` in
+    the common send tail. Falls back to the existing delta/keyframe selection
+    otherwise.
+  - Docs: pinned the append detection / row-id / no-cursor / no-osc8 /
+    frame_id-adoption / gap-recovery conventions in `content_transport.md`
+    §append and `monitor_port_design.md` §Append fast-path detection (with the
+    explicit "alt-screen not detected — conservative exact-shift substitute"
+    note); added a t822_10 cross-repo contract note to t822_12.
+  - Tests: +10 `test_applink_content.sh` checks (`encode_append` shape +
+    `detect_append` scroll-by-1/2, repeated-line, mid-screen, full-replacement,
+    differing-counts, None-baseline); +15 `test_applink_pusher.sh` checks (an
+    independent **positional** wire-decoder: keyframe seed → append → chain →
+    convergence vs a direct content parse, append frame_id monotonic, no
+    cursor/prev/osc8, delta-after-append chains on the append's frame_id,
+    cursor-moved-col → not append, cursor-not-at-bottom → not append, hyperlink →
+    not append).
+- **Deviations from plan:**
+  - The hyperlink guard is `any(u for _r, _s, urls in appended for u in urls)`
+    (flatten to url *strings*), not `any(urls for ...)` as first drafted — `urls`
+    is a per-span list (`['']` for a non-hyperlink span), so the list-level check
+    was always truthy and suppressed every append. Caught by the failing
+    scroll-by-1 test before commit.
+  - Step 9 said the two `aidocs/applink/*.md` edits commit "via `./ait git`", but
+    `aidocs/` is a real directory on the **code** branch (not symlinked to
+    `aitask-data`), so they were committed with the code via plain `git`. Only
+    the t822_12 task-file pointer used `./ait git`.
+- **Issues encountered:** the hyperlink-guard list-vs-string bug above; no others.
+  All pre-existing applink tests stayed green.
+- **Key decisions:** correctness rests on **exact full-viewport shift detection**
+  (the client converges to the same grid a keyframe would produce), with the
+  cursor-unchanged gate protecting the uncarried cursor and the in-order-transport
+  + periodic-keyframe model covering lost-append recovery. Alt-screen is not
+  detected explicitly (no snapshot signal) — a deliberate conservative substitute.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **Mobile (`aitasks_mobile`):** `append` decode = `[0x03][msgpack([pane_id,
+    frame_id, row_list])]`; no cursor (keep the prior one), no `prev_frame_id`, no
+    `osc8`; drop the top `len(row_list)` rows, shift up, append `row_list` at the
+    bottom (rows carry their new absolute row_ids `H-k … H-1`); adopt the append's
+    `frame_id` as current so the next `delta`'s `prev_frame_id` chains. Pinned in
+    `content_transport.md` §append and flagged in t822_12.
+  - The unrelated working-tree changes under `.aitask-scripts/brainstorm/` present
+    during this task were **not** part of t822_10 and were excluded from the commit.
