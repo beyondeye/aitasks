@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [gates, aitask_monitor, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:54
-updated_at: 2026-06-16 15:26
+updated_at: 2026-06-16 16:37
 ---
 
 ## Context
@@ -28,3 +29,8 @@ integration table row for the monitor TUI: a per-task gate status column
 
 - `aidocs/gates/integration-roadmap.md` (Phase 3)
 - `aidocs/gates/aitask-gate-framework.md` (integration table, Monitor TUI row)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T13:37:07Z status=pass attempt=1 type=human
