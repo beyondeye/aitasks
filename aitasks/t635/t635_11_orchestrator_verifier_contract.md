@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t635_6]
 issue_type: feature
@@ -46,3 +48,5 @@ the framework doc lands, behind the already-shipped `aitask-resume` front
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-16T15:06:23Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-16T15:06:33Z status=pass attempt=1 type=machine
