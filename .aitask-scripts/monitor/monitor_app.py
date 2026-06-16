@@ -32,7 +32,7 @@ from monitor.tmux_monitor import (  # noqa: E402
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
-    _ansi_to_rich_text, _TASK_ID_RE, TaskInfo, TaskInfoCache,
+    _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
     TaskDetailDialog, KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     format_compare_mode_glyph, format_pane_status,
 )
@@ -453,6 +453,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._refresh_timer: Timer | None = None
         self._preview_size_idx: int = PREVIEW_DEFAULT_SIZE
         self._task_cache = TaskInfoCache(project_root)
+        self._gate_cache = GateSummaryCache()
         self._auto_switch: bool = False
 
     def compose(self) -> ComposeResult:
@@ -696,6 +697,9 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._task_cache.update_session_mapping(
             self._monitor.get_session_to_project_mapping()
         )
+        # Drop last cycle's gate summaries so a live-growing ledger re-derives
+        # this refresh (mirrors the board's per-refresh gate cache).
+        self._gate_cache.clear()
 
         # Drop saved scroll state for panes that no longer exist.
         stale = [
@@ -984,6 +988,9 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
                 text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
+                gates = self._gate_cache.summary_for(info)
+                if gates:
+                    text += f"\n     [dim]gates: {gates}[/]"
         return text
 
     def _format_other_card_text(self, snap: PaneSnapshot) -> str:

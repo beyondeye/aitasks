@@ -251,6 +251,31 @@ def format_status(text: str) -> str:
     return "\n".join(_format_gate_run_status_line(n, current[n]) for n in order)
 
 
+def compact_gate_summary(state: TaskGateState) -> str:
+    """Compact one-line gate summary for monitor TUI columns.
+
+    Derived from the recorded gate runs (``state.current``, i.e. the last run
+    per gate) — not ``declared_gates``, which is empty framework-wide today, so
+    a declared-based count would read ``0/0`` for every task. Returns ``""``
+    when no gate runs are recorded, so callers can show no column for ungated
+    tasks. Example output: ``"3/4 pass, 1 pending"``, ``"2/2 pass"``, or
+    ``"1/3 pass, 1 pending, 1 failed"``.
+    """
+    runs = list(state.current.values())
+    if not runs:
+        return ""
+    total = len(runs)
+    n_pass = sum(1 for r in runs if r.status == "pass")
+    n_fail = sum(1 for r in runs if r.status in ("fail", "error"))
+    n_pending = total - n_pass - n_fail
+    parts = [f"{n_pass}/{total} pass"]
+    if n_pending:
+        parts.append(f"{n_pending} pending")
+    if n_fail:
+        parts.append(f"{n_fail} failed")
+    return ", ".join(parts)
+
+
 # --- Append ---------------------------------------------------------------
 
 def build_block(text: str, gate: str, status: str, fields: dict) -> str:

@@ -47,6 +47,7 @@ from agent_launch_utils import (  # noqa: E402
     tmux_window_target,
 )
 from task_yaml import parse_frontmatter  # noqa: E402
+import gate_ledger  # noqa: E402  (shared gate-ledger parser; single derivation path)
 
 try:
     from .prompt_patterns import PromptPattern, all_patterns
@@ -1494,6 +1495,53 @@ class TaskInfo:
     status: str
     body: str
     plan_content: str | None
+    # Absolute path to the task file. ``task_file`` stays relative to the owning
+    # project root (display value, asserted by tests); ``task_file_abs`` is what
+    # gate-ledger parsing must use, since a relative path is cwd-dependent and
+    # wrong under cross-session / multi-project monitoring. Defaulted so the one
+    # keyword-arg test stub keeps constructing TaskInfo unchanged.
+    task_file_abs: str = ""
+
+
+class GateSummaryCache:
+    """Per-refresh compact gate-summary cache for the monitor TUIs.
+
+    Mirrors the board's gate cache (``aitask_board.TaskManager.gate_state_for``):
+    cleared each refresh cycle so a live-growing ledger updates, while a re-read
+    is avoided when the same card is formatted twice within one frame. Fails
+    closed to ``""`` (no column) on any parse/IO error — a malformed ledger must
+    never break the monitor. Keyed by the resolved **absolute** task-file path
+    (``TaskInfo.task_file_abs``), so it is correct under cross-session /
+    multi-project monitoring regardless of the process's working directory.
+    """
+
+    def __init__(self) -> None:
+        self._cache: dict[str, str] = {}
+
+    def clear(self) -> None:
+        self._cache.clear()
+
+    def summary_for(self, info: "TaskInfo | None") -> str:
+        # Key + parse off the ABSOLUTE path, never the relative ``task_file`` —
+        # the relative form is cwd-dependent and resolves wrong in cross-session
+        # monitor mode.
+        if info is None or not info.task_file_abs:
+            return ""
+        key = info.task_file_abs
+        if key in self._cache:
+            return self._cache[key]
+        summary = ""
+        try:
+            # Cheap prefilter on the already-loaded body before the full parse;
+            # the full state re-reads the file (matches the board: has_ledger
+            # from content, state from filepath).
+            if gate_ledger.has_gate_markers(info.body or ""):
+                state = gate_ledger.read_task_gate_state(info.task_file_abs)
+                summary = gate_ledger.compact_gate_summary(state)
+        except Exception:
+            summary = ""
+        self._cache[key] = summary
+        return summary
 
 
 class TaskInfoCache:
@@ -1831,4 +1879,5 @@ class TaskInfoCache:
             status=str(metadata.get("status", "")),
             body=body,
             plan_content=plan_content,
+            task_file_abs=str(task_path),
         )

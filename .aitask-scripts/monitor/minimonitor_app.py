@@ -33,9 +33,9 @@ from monitor.tmux_monitor import (  # noqa: E402
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
-    _TASK_ID_RE, TaskInfoCache, TaskDetailDialog, KillConfirmDialog,
-    NextSiblingDialog, ChooseSiblingModal, format_compare_mode_glyph,
-    format_pane_status,
+    _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
+    KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
+    format_compare_mode_glyph, format_pane_status,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
@@ -186,6 +186,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._refresh_timer: Timer | None = None
         self._project_root = project_root
         self._task_cache = TaskInfoCache(project_root)
+        self._gate_cache = GateSummaryCache()
         self._mount_time: float = 0.0
         self._own_window_id: str | None = None
         self._own_window_index: str | None = None
@@ -355,6 +356,9 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._task_cache.update_session_mapping(
             self._monitor.get_session_to_project_mapping()
         )
+        # Drop last cycle's gate summaries so a live-growing ledger re-derives
+        # this refresh (mirrors the board's per-refresh gate cache).
+        self._gate_cache.clear()
 
         # Keep window index fresh (handles tmux renumber-windows)
         self._update_own_window_info()
@@ -547,6 +551,12 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 if len(title) > 30:
                     title = title[:29] + "…"
                 line1 += f"\n  [dim]{title}[/]"
+                # General pane list only — the docked followed-agent panel
+                # (_own_agent_identity_text) is intentionally static and is left
+                # untouched. Shown only for tasks that have a gate ledger.
+                gates = self._gate_cache.summary_for(info)
+                if gates:
+                    line1 += f"\n  [dim]gates: {gates}[/]"
         return line1
 
     def _own_agent_identity_text(self, snap: PaneSnapshot) -> str:

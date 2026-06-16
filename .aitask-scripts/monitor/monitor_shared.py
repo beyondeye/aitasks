@@ -21,6 +21,7 @@ sys.path.insert(0, str(_SCRIPT_DIR / "board"))
 from monitor.monitor_core import (  # noqa: E402,F401
     PaneSnapshot,
     _TASK_ID_RE,
+    GateSummaryCache,
     TaskInfo,
     TaskInfoCache,
 )

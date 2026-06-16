@@ -149,6 +149,53 @@ def test_task_gate_state() -> None:
         assert_true("status text includes current build pass", "build_verified: pass (attempt 2" in state.status_text)
 
 
+def _summary_for(text: str) -> str:
+    """Build a TaskGateState from fixture text and return its compact summary."""
+    with tempfile.TemporaryDirectory(prefix="gate_summary_") as tmp:
+        task = Path(tmp) / "t10_demo.md"
+        task.write_text(text, encoding="utf-8")
+        state = gate_ledger.read_task_gate_state(str(task))
+        return gate_ledger.compact_gate_summary(state)
+
+
+def test_compact_gate_summary() -> None:
+    header = "---\nstatus: Implementing\n---\n\n## Gate Runs\n\n"
+
+    # No recorded gate runs → empty (caller shows no column).
+    assert_eq("no runs -> empty", "", _summary_for("---\nstatus: Ready\n---\n\nBody only.\n"))
+
+    # All pass.
+    all_pass = header + (
+        "> **✅ gate:plan_approved** run=2026-01-01T00:00:00Z status=pass attempt=1 type=human\n\n"
+        "> **✅ gate:review_approved** run=2026-01-01T00:01:00Z status=pass attempt=1 type=human\n"
+    )
+    assert_eq("all pass", "2/2 pass", _summary_for(all_pass))
+
+    # Mixed pass + pending (matches the roadmap example).
+    mixed = header + (
+        "> **✅ gate:plan_approved** run=2026-01-01T00:00:00Z status=pass attempt=1 type=human\n\n"
+        "> **✅ gate:risk_evaluated** run=2026-01-01T00:01:00Z status=pass attempt=1 type=machine\n\n"
+        "> **✅ gate:build_verified** run=2026-01-01T00:02:00Z status=pass attempt=1 type=machine\n\n"
+        "> **⏳ gate:review_approved** run=2026-01-01T00:03:00Z status=pending type=human\n"
+    )
+    assert_eq("mixed pass/pending", "3/4 pass, 1 pending", _summary_for(mixed))
+
+    # A failed gate is surfaced distinctly.
+    failed = header + (
+        "> **✅ gate:plan_approved** run=2026-01-01T00:00:00Z status=pass attempt=1 type=human\n\n"
+        "> **⏳ gate:review_approved** run=2026-01-01T00:01:00Z status=pending type=human\n\n"
+        "> **❌ gate:build_verified** run=2026-01-01T00:02:00Z status=fail attempt=1 type=machine\n"
+    )
+    assert_eq("with failed gate", "1/3 pass, 1 pending, 1 failed", _summary_for(failed))
+
+    # Last-run-wins: a gate re-recorded pass after a fail counts once as pass.
+    requalified = header + (
+        "> **❌ gate:build_verified** run=2026-01-01T00:00:00Z status=fail attempt=1 type=machine\n\n"
+        "> **✅ gate:build_verified** run=2026-01-01T00:02:00Z status=pass attempt=2 type=machine\n"
+    )
+    assert_eq("last run wins (fail then pass)", "1/1 pass", _summary_for(requalified))
+
+
 def test_bash_status_parity() -> None:
     with tempfile.TemporaryDirectory(prefix="gate_status_parity_") as tmp:
         task_dir = Path(tmp) / "aitasks"
@@ -166,6 +213,7 @@ def main() -> int:
     test_current_state_and_legacy_compat()
     test_prefilter_and_empty()
     test_task_gate_state()
+    test_compact_gate_summary()
     test_bash_status_parity()
 
     print("")
