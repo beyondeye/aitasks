@@ -6,14 +6,57 @@
 # `./.aitask-scripts/aitask_gate.sh`); this registry declares *how* each gate is
 # described and classified.
 #
-# Phase 1 (t635_1) is the minimal substrate: each gate carries `type` and
-# `description` only. The verifier / max_retries / unlocks DAG fields arrive with
-# the orchestrator (t635_11). See aidocs/gates/aitask-gate-framework.md.
+# Phase 1 (t635_1) seeded the minimal substrate (`type` + `description`). The
+# orchestrator schema below (t635_11) adds verifier / max_retries / unlocks /
+# timeout_seconds / signal. See aidocs/gates/aitask-gate-framework.md.
 #
 # type:
 #   machine - verified programmatically (build, tests, automated evaluation)
 #   human   - requires a person's sign-off (the interactive approval, or later an
 #             async signal)
+#
+# Orchestrator schema (t635_11) — read by lib/gate_orchestrator.py:
+#   verifier        - command the orchestrator runs as
+#                     `<verifier> <task-id> <attempt> <run-id>`, exit codes
+#                     0=pass 1=fail 2=skip 3=error (4=pending is HUMAN-ONLY). A
+#                     bare `aitask-gate-<x>` resolves to
+#                     .aitask-scripts/aitask_gate_<x>.sh; a path runs directly.
+#                     EMPTY (or absent) = no auto-run (recorded by the workflow /
+#                     a human, not executed). Concrete verifiers land in later
+#                     children (build/tests t635_12, risk t635_13, docs t635_19);
+#                     they stay empty here.
+#   max_retries     - re-attempts after a failure (int, default 0 = single shot).
+#   timeout_seconds - max wall-clock for one machine-gate run (optional).
+#   unlocks         - gates this gate unlocks on pass. ABSENT (key omitted) =
+#                     LINEAR default (unlocks the next gate in the task's `gates:`
+#                     list). An explicit list overrides — e.g. `unlocks: [b, c]`
+#                     for a parallel fan-out — while an explicit `unlocks: []`
+#                     means TERMINAL (unlocks nothing). Absent and `[]` are
+#                     DISTINCT: do NOT write `unlocks: []` just to "fill in" a
+#                     gate, or it stops being linear. (None below declare it, so
+#                     gate order follows each task's `gates:` list.)
+#   skip (exit 2)   - "evaluated, not applicable": TERMINAL-SATISFIED — unlocks
+#                     successors and never blocks archive/dependents, but stays
+#                     distinct from `pass` in the ledger history.
+#   signal / signal_target (HUMAN gates) - t635_11 ships READ-SIDE `file-touch`
+#                     detection only: the orchestrator appends `pass` when
+#                     `signal_target` exists (`<task-id>`→`t<id>`, `<gate>`
+#                     substituted), else `pending`; it NEVER creates the signal.
+#                     Signal CREATION (`ait gate pass`), `signal: comment`, and
+#                     polling arrive in t635_15. The interactive checkpoint gates
+#                     below are signalled by the workflow's approval, not
+#                     file-touch, so they declare no signal_target.
+#
+#   Parallel fan-out example (illustrative — not enabled here):
+#     lint:
+#       type: machine
+#       verifier: aitask-gate-lint
+#       unlocks: [tests_pass]        # lint must pass before tests run
+#     tests_pass:
+#       type: machine
+#       verifier: aitask-gate-tests
+#       max_retries: 3
+#       unlocks: [docs_updated, review]   # parallel fan-out once tests pass
 #
 # blocks_dependents (t635_3):
 #   true  - this gate is REQUIRED to pass before tasks that `depends:` on the
@@ -35,10 +78,17 @@ gates:
     type: machine
     description: "Plan assessed for code-health and goal-achievement risk"
     blocks_dependents: false
+    # verifier populated by t635_13 (risk-evaluation gate); empty = no auto-run.
+    verifier: ""
+    max_retries: 0
   build_verified:
     type: machine
     description: "Project build/verify command(s) pass after implementation"
     blocks_dependents: true
+    # verifier populated by t635_12 (build/tests machine gate); empty = no auto-run.
+    verifier: ""
+    max_retries: 1
+    timeout_seconds: 600
   review_approved:
     type: human
     description: "Implemented changes reviewed and approved before commit"
