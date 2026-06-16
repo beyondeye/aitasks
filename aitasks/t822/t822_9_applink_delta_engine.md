@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:41
-updated_at: 2026-06-16 11:00
+updated_at: 2026-06-16 11:31
 ---
 
 Implement Stage 2 of the applink data plane: server-side delta encoding — per-row hashing + changed-row collection — emitting `delta` frames against `prev_frame_id`, with the `request_keyframe` recovery path.
@@ -43,3 +44,8 @@ Fourth §"Deferred follow-up tasks" bullet of `aidocs/applink/monitor_port_desig
 - Scripted WS client: applies deltas over a keyframe and matches a freshly requested keyframe byte-for-byte (row content equality).
 - A single-row change produces a frame well under the full-keyframe size.
 - Dropping a delta client-side and sending `request_keyframe` recovers within one tick.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T08:31:22Z status=pass attempt=1 type=human
