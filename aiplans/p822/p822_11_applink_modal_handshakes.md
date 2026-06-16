@@ -257,3 +257,54 @@ code via `git`; `full.yaml` + the t822_12 note + plan via `./ait git`; push via
 `./ait git push`; archive via `./.aitask-scripts/aitask_archive.sh 822_11`.
 Parent t822 keeps t822_12..t822_14 pending. The `applink_workflow_launch_policy`
 "after" mitigation is created at Step 8d.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. `router.py`:
+  `pick_next_sibling`/`restart_task` moved from `DEFERRED_VERBS` into the gated
+  `IMPLEMENTED_COMMAND_VERBS` (+ `restart_task` in `CONFIRM_VERBS`); added
+  `ERR_NOT_IMPLEMENTED`; added a shared `_two_phase(build_details, execute)`
+  confirm helper and refactored `kill_pane`/`kill_window` onto it; added the
+  session-aware `_resolve_pane_task` + `_pane_target` helpers (kill_pane target
+  now `{pane_id, window_name?, task?}`, degrading gracefully); `restart_task`
+  (idle-gated via `capture_pane`, rejects `not_found`/`not_idle`/`no_task`,
+  confirm details `{task_id,title,status,idle_seconds}`, confirmed →
+  `NOT_IMPLEMENTED(deferred)`); `pick_next_sibling` (suggest →
+  `{suggested,current,parent_id,ready_siblings}` via the existing TaskInfoCache
+  helpers; choose → `NOT_IMPLEMENTED(deferred)`). `monitor_core.py`:
+  `TmuxMonitor.get_pane` cached accessor. `profiles.py` + `full.yaml`: both gain
+  the two verbs (shipped config + no-config fallback). `protocol.md`:
+  `NOT_IMPLEMENTED` added to the error enum. `tests/test_applink_router.sh`:
+  full handshake coverage incl. session-name threading and the missing-dir
+  fallback-defaults path.
+- **Deviations from plan:** None.
+- **Issues encountered:** The working tree contained a **separate, concurrent
+  feature** (monitor gate-summary: `GateSummaryCache`/`task_file_abs` in
+  `monitor_core.py`, plus `gate_ledger.py`, `minimonitor_app.py`,
+  `monitor_app.py`, `monitor_shared.py`, `brainstorm_app.py`, and 3 test files)
+  not part of this task. Committed **only this task's hunks** — `monitor_core.py`
+  was staged via a single-hunk `git apply --cached` (the `get_pane` hunk only) to
+  avoid sweeping the foreign work into this commit. Those foreign changes remain
+  uncommitted in the working tree for their owner.
+- **Key decisions:** Pull-model two-phase helper unifies kill/restart so the
+  suggest/choose + confirm flows share one code path; `session_name` threaded
+  through every task-cache call (cross-project correctness); confirmed-execution
+  intentionally deferred to `NOT_IMPLEMENTED` until a launch policy exists
+  (follow-up created at Step 8d). `NOT_IMPLEMENTED` is an additive protocol error
+  code (no `v` bump, per protocol.md §Versioning).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t822_12 (permissions doc sync):** `full.yaml` **and** `profiles.py`
+    `DEFAULT_ALLOWED["full"]` already carry `pick_next_sibling`/`restart_task` —
+    t822_12 only needs to mirror them into `permissions.md`'s gating table; the
+    YAML/fallback alignment for these two is done. Keep the "mobile execution
+    deferred" flag (they return `NOT_IMPLEMENTED`).
+  - **Mobile (`aitasks_mobile`, cross-repo):** the modal handshakes are
+    pane-anchored (`pane_id`). `restart_task`/`pick_next_sibling` return
+    `err NOT_IMPLEMENTED detail:{reason:"deferred", ...}` on the
+    confirmed/chosen leg until the launch policy lands — the client should treat
+    that as "handshake OK, execution not yet available". `restart_task` confirm
+    rejects busy panes with `BAD_PAYLOAD detail.reason:"not_idle"`.
+  - **Launch policy (after mitigation):** the deferred execution legs are the
+    single integration point — wiring real execution only touches the two
+    `execute()`/choose branches in `router.py`.
