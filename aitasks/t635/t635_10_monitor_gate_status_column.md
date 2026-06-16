@@ -38,3 +38,5 @@ integration table row for the monitor TUI: a per-task gate status column
 > **✅ gate:plan_approved** run=2026-06-16T13:37:07Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-16T13:37:08Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-16T13:55:52Z status=pass attempt=1 type=human
