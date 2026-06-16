@@ -30,7 +30,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 import yaml  # noqa: E402
 
 from textual.screen import ModalScreen  # noqa: E402
-from textual.widgets import ContentSwitcher  # noqa: E402
+from textual.widgets import ContentSwitcher, Label  # noqa: E402
 
 from brainstorm.brainstorm_app import (  # noqa: E402
     BROWSE_DEFAULT_VIEW,
@@ -210,6 +210,53 @@ class BrowseTabPilotTests(unittest.TestCase):
                     await pilot.pause()
                     self.assertNotIn("n001_test", app._selection.marked)
                     self.assertFalse(rows[0].marked)
+                finally:
+                    await cm.__aexit__(None, None, None)
+
+        self._run(runner())
+
+    def test_space_mark_populates_marked_summary_in_both_views(self):
+        """`#browse_marked_info` lists the marked node names (t983_4); it lives
+        in the shared detail pane so it shows in list AND graph views, and
+        clears when the marked set empties."""
+        async def runner():
+            with tempfile.TemporaryDirectory() as td:
+                session = _make_session(td, "n001_test")
+                app = _BrowseSmokeApp("smoke")
+                app.session_path = session
+                cm = app.run_test(size=(160, 48))
+                pilot = await cm.__aenter__()
+                await pilot.pause()
+                await _dismiss_modals(app, pilot)
+                try:
+                    app._populate_node_list()
+                    app._set_browse_view("list")
+                    await pilot.pause()
+                    rows = list(app.query(NodeRow))
+                    app.set_focus(rows[0])
+                    await pilot.pause()
+
+                    summary = app.query_one("#browse_marked_info", Label)
+                    # Nothing marked yet -> empty.
+                    self.assertEqual(str(summary.render()).strip(), "")
+
+                    await pilot.press("space")
+                    await pilot.pause()
+                    rendered = str(summary.render())
+                    self.assertIn("Marked (1)", rendered)
+                    self.assertIn("n001_test", rendered)
+
+                    # Shared detail pane: switch to graph view, summary persists.
+                    app._set_browse_view("graph")
+                    await pilot.pause()
+                    self.assertIn("n001_test", str(summary.render()))
+
+                    # Unmark (back in list view) -> summary clears.
+                    app._set_browse_view("list")
+                    await pilot.pause()
+                    await pilot.press("space")
+                    await pilot.pause()
+                    self.assertEqual(str(summary.render()).strip(), "")
                 finally:
                     await cm.__aexit__(None, None, None)
 

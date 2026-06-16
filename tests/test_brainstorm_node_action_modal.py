@@ -39,6 +39,7 @@ from textual.widgets import Label  # noqa: E402
 from brainstorm.brainstorm_app import (  # noqa: E402
     BrainstormApp,
     NodeActionSelectModal,
+    OperationHelpModal,
     OperationRow,
 )
 
@@ -50,10 +51,11 @@ from brainstorm.brainstorm_app import (  # noqa: E402
 class _ModalHost(App):
     """Minimal host App that pushes a NodeActionSelectModal on mount."""
 
-    def __init__(self, node_id: str, op_states=None) -> None:
+    def __init__(self, node_id: str, op_states=None, targets=None) -> None:
         super().__init__()
         self._node_id = node_id
         self._op_states = op_states
+        self._targets = targets
         self.result = "UNSET"
 
     def compose(self) -> ComposeResult:
@@ -61,7 +63,9 @@ class _ModalHost(App):
 
     def on_mount(self) -> None:
         self.push_screen(
-            NodeActionSelectModal(self._node_id, self._op_states),
+            NodeActionSelectModal(
+                self._node_id, self._op_states, targets=self._targets
+            ),
             self._record,
         )
 
@@ -76,9 +80,9 @@ class NodeActionSelectModalTests(unittest.TestCase):
 
     def test_all_ops_listed_and_enabled_without_op_states(self):
         async def runner():
-            # No op_states -> every op renders enabled (module ops/delete
-            # default-enabled). The relevance filtering itself is unit-tested
-            # separately.
+            # No op_states -> every op renders enabled (default-enabled). The
+            # relevance/cardinality filtering itself is unit-tested separately.
+            # Order is the contextual t983_4 order (compare/synthesize added).
             app = _ModalHost("n001_x")
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
@@ -86,12 +90,32 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 rows = list(app.screen.query(OperationRow))
                 self.assertEqual(
                     [r.op_key for r in rows],
-                    ["explore", "fast_track",
+                    ["explore", "compare", "synthesize",
                      "module_decompose", "module_merge", "module_sync",
-                     "delete"],
+                     "fast_track", "delete"],
                 )
                 self.assertTrue(all(not r.op_disabled for r in rows))
                 self.assertTrue(all(r.can_focus for r in rows))
+
+        self._run(runner())
+
+    def test_op_states_grey_multi_ops_at_single_selection(self):
+        async def runner():
+            # Cardinality-style op_states: single-node ops enabled, multi-node
+            # ops greyed with reason (as the wrapper produces at cardinality 1).
+            states = {
+                "compare": (True, "mark 2+ nodes"),
+                "synthesize": (True, "mark 2+ nodes"),
+            }
+            app = _ModalHost("n001_x", op_states=states)
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                rows = {r.op_key: r for r in app.screen.query(OperationRow)}
+                self.assertTrue(rows["compare"].op_disabled)
+                self.assertTrue(rows["synthesize"].op_disabled)
+                self.assertIn("mark 2+ nodes", str(rows["compare"].render()))
+                self.assertFalse(rows["explore"].op_disabled)
 
         self._run(runner())
 
@@ -128,22 +152,85 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 await pilot.pause()
                 rows = {r.op_key: r for r in app.screen.query(OperationRow)}
                 self.assertIn("Fast-track this module", str(rows["fast_track"].render()))
-                # explore -> fast_track, then Enter selects.
-                await pilot.press("down")
+                # New order: explore, compare, synthesize, module_*×3,
+                # fast_track(6), delete. Six downs from explore -> fast_track.
+                for _ in range(6):
+                    await pilot.press("down")
                 await pilot.press("enter")
                 await pilot.pause()
                 self.assertEqual(app.result, "fast_track")
 
         self._run(runner())
 
-    def test_title_widget_carries_node_id(self):
+    def test_title_is_operations_and_targets_carries_node_id(self):
         async def runner():
             app = _ModalHost("n042_special")
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 await pilot.pause()
                 title = app.screen.query_one("#node_action_title", Label)
-                self.assertIn("n042_special", str(title.render()))
+                self.assertIn("Operations", str(title.render()))
+                # The contextual target set is surfaced in its own summary line.
+                targets = app.screen.query_one("#node_action_targets", Label)
+                rendered = str(targets.render())
+                self.assertIn("n042_special", rendered)
+                self.assertIn("Targets (1)", rendered)
+
+        self._run(runner())
+
+    def test_targets_summary_lists_marked_set(self):
+        async def runner():
+            app = _ModalHost(
+                "n1", targets=["n1", "n2", "n3"]
+            )
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                rendered = str(
+                    app.screen.query_one("#node_action_targets", Label).render()
+                )
+                self.assertIn("Targets (3)", rendered)
+                for nid in ("n1", "n2", "n3"):
+                    self.assertIn(nid, rendered)
+
+        self._run(runner())
+
+    def test_h_opens_help_for_help_bearing_op(self):
+        async def runner():
+            app = _ModalHost("n1")
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                # First enabled row is explore, which HAS an _OPERATION_HELP
+                # entry -> H pushes the OperationHelpModal.
+                await pilot.press("H")
+                await pilot.pause()
+                self.assertIsInstance(app.screen, OperationHelpModal)
+
+        self._run(runner())
+
+    def test_h_on_helpless_op_notifies_without_crash(self):
+        async def runner():
+            app = _ModalHost("n1")
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                notices = []
+                app.notify = lambda msg, **kw: notices.append((msg, kw))
+                # fast_track is the only op with NO _OPERATION_HELP entry (the
+                # session-level delete/pause/etc. DO have help). It is row index
+                # 6 — 6 downs from explore reach it.
+                for _ in range(6):
+                    await pilot.press("down")
+                focused = app.screen.focused
+                self.assertIsInstance(focused, OperationRow)
+                self.assertEqual(focused.op_key, "fast_track")
+                await pilot.press("H")
+                await pilot.pause()
+                # No help modal pushed; the dialog stays up and a notice fired.
+                self.assertIsInstance(app.screen, NodeActionSelectModal)
+                self.assertTrue(notices)
+                self.assertIn("No help available", notices[0][0])
 
         self._run(runner())
 
@@ -159,18 +246,18 @@ class NodeActionSelectModalTests(unittest.TestCase):
 
         self._run(runner())
 
-    def test_down_navigates_then_enter_selects_fast_track(self):
+    def test_down_navigates_then_enter_selects_compare(self):
         async def runner():
             app = _ModalHost("n1")
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 await pilot.pause()
-                # Focusable order: explore -> fast_track. One down lands on the
-                # second focusable row.
+                # Contextual order: explore -> compare. One down lands on the
+                # second focusable row (compare, t983_4).
                 await pilot.press("down")
                 await pilot.press("enter")
                 await pilot.pause()
-                self.assertEqual(app.result, "fast_track")
+                self.assertEqual(app.result, "compare")
 
         self._run(runner())
 
@@ -368,6 +455,27 @@ class OnNodeActionResultTests(unittest.TestCase):
         self.assertEqual(
             app._wizard_subgraph, _node_module(app.session_path, "n1")
         )
+        self.assertIn("config", app.calls)
+        self.assertNotIn("node_select", app.calls)
+        self.assertIn("after_refresh", app.calls)
+
+    def test_compare_routes_to_config_not_node_select(self):
+        # Multi-node ops pick nodes in the config step (cmp_nodes/syn_nodes),
+        # so the t983_4 branch must render config directly — NOT the explore-only
+        # node-select branch, which would mis-drive them (seedless-launch guard).
+        self._write_node("n1")
+        app = self._make_app()
+        app._on_node_action_result("n1", "compare")
+        self.assertEqual(app._wizard_op, "compare")
+        self.assertIn("config", app.calls)
+        self.assertNotIn("node_select", app.calls)
+        self.assertIn("after_refresh", app.calls)
+
+    def test_synthesize_routes_to_config_not_node_select(self):
+        self._write_node("n1")
+        app = self._make_app()
+        app._on_node_action_result("n1", "synthesize")
+        self.assertEqual(app._wizard_op, "synthesize")
         self.assertIn("config", app.calls)
         self.assertNotIn("node_select", app.calls)
         self.assertIn("after_refresh", app.calls)

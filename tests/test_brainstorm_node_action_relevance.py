@@ -1,10 +1,16 @@
-"""Relevance-filter tests for the brainstorm node-action picker (t925).
+"""Relevance-filter tests for the brainstorm Operations dialog (t925, t983_4).
 
-Unit-tests ``BrainstormApp._node_action_op_states`` — the map of
-``{op_key: (disabled, reason)}`` the picker uses to grey out ops that do not
-apply to the focused node. Runs over synthetic (dummy-data) sessions on disk
-with ``BrainstormApp.__init__`` bypassed (the pattern established by
-``test_brainstorm_node_action_modal.py``); no Textual runtime is needed.
+Two layers:
+
+- ``OpStatesForSelectionPureTests`` — the pure, headless
+  ``op_states_for_selection(node_ctx, cardinality)`` decision (t983_4): the
+  cardinality greying (single-node ops grey at N>1; compare/synthesize grey at
+  N<2) plus the module-op preconditions, with NO Textual and NO session I/O.
+  This is the testability centerpiece.
+- ``NodeActionOpStatesTests`` — the thin I/O wrapper
+  ``BrainstormApp._node_action_op_states`` over synthetic on-disk sessions with
+  ``BrainstormApp.__init__`` bypassed (asserts the session reads map to the
+  right ``node_ctx``); now called with an explicit ``cardinality``.
 """
 
 from __future__ import annotations
@@ -21,7 +27,89 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
 import yaml  # noqa: E402
 
-from brainstorm.brainstorm_app import BrainstormApp  # noqa: E402
+from brainstorm.brainstorm_app import (  # noqa: E402
+    BrainstormApp,
+    op_states_for_selection,
+)
+
+_SINGLE = ("explore", "fast_track", "delete")
+_MODULE = ("module_decompose", "module_merge", "module_sync")
+_MULTI = ("compare", "synthesize")
+
+
+class OpStatesForSelectionPureTests(unittest.TestCase):
+    """Pure cardinality + precondition greying — no App, no I/O."""
+
+    # A non-umbrella module node with an ancestor and a linked task: all module
+    # preconditions satisfied, so at cardinality 1 only the multi-node ops grey.
+    _FULL_CTX = {
+        "is_umbrella": False,
+        "has_ancestor": True,
+        "has_linked_task": True,
+    }
+
+    def test_single_selection_enables_single_ops_greys_multi(self):
+        states = op_states_for_selection(self._FULL_CTX, 1)
+        for op in _SINGLE + _MODULE:
+            self.assertFalse(states[op][0], f"{op} should be enabled at N=1")
+        for op in _MULTI:
+            self.assertTrue(states[op][0], f"{op} should grey at N=1")
+            self.assertEqual(states[op][1], "mark 2+ nodes")
+
+    def test_multi_selection_greys_single_ops_enables_multi(self):
+        states = op_states_for_selection(self._FULL_CTX, 3)
+        for op in _SINGLE + _MODULE:
+            self.assertTrue(states[op][0], f"{op} should grey at N>1")
+            self.assertEqual(states[op][1], "select a single node")
+        for op in _MULTI:
+            self.assertFalse(states[op][0], f"{op} should enable at N>1")
+
+    def test_module_preconditions_apply_at_single_selection(self):
+        # Empty ctx: not umbrella, no ancestor, no linked task.
+        states = op_states_for_selection(
+            {"is_umbrella": False, "has_ancestor": False,
+             "has_linked_task": False},
+            1,
+        )
+        self.assertFalse(states["module_decompose"][0])
+        self.assertTrue(states["module_merge"][0])
+        self.assertIn("no ancestor subgraph", states["module_merge"][1])
+        self.assertTrue(states["module_sync"][0])
+        self.assertIn("no linked task", states["module_sync"][1])
+
+    def test_umbrella_root_greys_all_module_ops_at_single(self):
+        states = op_states_for_selection(
+            {"is_umbrella": True, "has_ancestor": False,
+             "has_linked_task": False},
+            1,
+        )
+        for op in _MODULE:
+            self.assertTrue(states[op][0])
+            self.assertIn("root design", states[op][1])
+
+    def test_cardinality_reason_wins_over_precondition(self):
+        # Umbrella (precondition would say "root design") but N>1 → the
+        # cardinality reason takes precedence.
+        states = op_states_for_selection(
+            {"is_umbrella": True, "has_ancestor": False,
+             "has_linked_task": False},
+            2,
+        )
+        for op in _MODULE:
+            self.assertTrue(states[op][0])
+            self.assertEqual(states[op][1], "select a single node")
+
+    def test_cardinality_roundtrip_flips_states(self):
+        # 1 -> 2 -> 1: single ops and multi ops swap enabled/disabled both ways.
+        at1 = op_states_for_selection(self._FULL_CTX, 1)
+        at2 = op_states_for_selection(self._FULL_CTX, 2)
+        back = op_states_for_selection(self._FULL_CTX, 1)
+        self.assertFalse(at1["explore"][0])
+        self.assertTrue(at1["compare"][0])
+        self.assertTrue(at2["explore"][0])
+        self.assertFalse(at2["compare"][0])
+        # Returning to a single selection restores the N=1 states exactly.
+        self.assertEqual(back, at1)
 
 
 class NodeActionOpStatesTests(unittest.TestCase):
@@ -62,7 +150,7 @@ class NodeActionOpStatesTests(unittest.TestCase):
         self._node("n000_init", [])
         self._graph_state(current_heads={"_umbrella": "n000_init"})
 
-        states = self._app()._node_action_op_states("n000_init")
+        states = self._app()._node_action_op_states("n000_init", 1)
 
         self.assertTrue(states["module_decompose"][0])
         self.assertTrue(states["module_merge"][0])
@@ -78,7 +166,7 @@ class NodeActionOpStatesTests(unittest.TestCase):
             module_tasks={"parser": 123},
         )
 
-        states = self._app()._node_action_op_states("n010_p")
+        states = self._app()._node_action_op_states("n010_p", 1)
 
         self.assertFalse(states["module_decompose"][0])
         self.assertFalse(states["module_merge"][0])   # _umbrella is an ancestor
@@ -93,7 +181,7 @@ class NodeActionOpStatesTests(unittest.TestCase):
             module_tasks={"solo": 55},
         )
 
-        states = self._app()._node_action_op_states("n020_s")
+        states = self._app()._node_action_op_states("n020_s", 1)
 
         self.assertTrue(states["module_merge"][0])
         self.assertIn("no ancestor subgraph", states["module_merge"][1])
@@ -109,7 +197,7 @@ class NodeActionOpStatesTests(unittest.TestCase):
             module_tasks={},
         )
 
-        states = self._app()._node_action_op_states("n010_p")
+        states = self._app()._node_action_op_states("n010_p", 1)
 
         self.assertTrue(states["module_sync"][0])
         self.assertIn("no linked task", states["module_sync"][1])

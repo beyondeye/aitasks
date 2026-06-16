@@ -1981,6 +1981,98 @@ def browse_toggle_view(current: str) -> str:
     return "list" if current == "graph" else "graph"
 
 
+# ---------------------------------------------------------------------------
+# Operations-dialog op-relevance model (t983_4)
+#
+# Pure, headless decision for which node operations are enabled for the current
+# selection, greyed by *cardinality* (t983_2 NodeSelection). Mirrors the wizard
+# step / NodeSelection / browse-view models: no Textual import, no session I/O.
+# The App wrapper (_node_action_op_states) gathers node_ctx via session reads
+# and calls this; the Operations dialog (NodeActionSelectModal) renders the
+# result via the existing op_states + OperationRow disabled-with-reason path.
+# ---------------------------------------------------------------------------
+
+# Ops acting on ONE node — greyed when more than one node is selected.
+_SINGLE_NODE_OPS = ("explore", "fast_track", "delete")
+# Module ops are single-node too, but ALSO carry their own subgraph
+# preconditions (computed into node_ctx by the wrapper from the primary node).
+_MODULE_OPS = ("module_decompose", "module_merge", "module_sync")
+# Ops needing 2+ nodes — greyed when fewer than two are selected.
+_MULTI_NODE_OPS = ("compare", "synthesize")
+
+_SINGLE_NODE_REASON = "select a single node"
+_MULTI_NODE_REASON = "mark 2+ nodes"
+
+
+def op_states_for_selection(node_ctx: dict, cardinality: int) -> dict:
+    """Return ``{op_key: (disabled, reason)}`` for the Operations dialog, greyed
+    by selection *cardinality* (t983_4).
+
+    Pure / headless — no Textual, no session I/O. ``node_ctx`` carries the
+    per-(primary-)node facts the module-op preconditions need —
+    ``is_umbrella`` / ``has_ancestor`` / ``has_linked_task`` — gathered by the
+    App wrapper :meth:`BrainstormApp._node_action_op_states`. ``cardinality`` is
+    :attr:`NodeSelection.cardinality` (marked count, else 1 for a lone cursor,
+    else 0).
+
+    Greying rules:
+      * single-node ops (explore / fast_track / delete) and module ops are
+        disabled when ``cardinality > 1`` (reason "select a single node");
+      * module ops are *also* disabled when their own precondition is unmet
+        (umbrella root / no ancestor subgraph / no linked task) — the
+        cardinality reason takes precedence when both apply;
+      * multi-node ops (compare / synthesize) are disabled when
+        ``cardinality < 2`` (reason "mark 2+ nodes").
+    """
+    multi = cardinality > 1
+    states: dict[str, tuple[bool, str]] = {}
+
+    for op in _SINGLE_NODE_OPS:
+        states[op] = (True, _SINGLE_NODE_REASON) if multi else (False, "")
+
+    is_umbrella = bool(node_ctx.get("is_umbrella"))
+    has_ancestor = bool(node_ctx.get("has_ancestor"))
+    has_linked_task = bool(node_ctx.get("has_linked_task"))
+    # Per-module-op (disabled, reason) from the primary node's preconditions,
+    # used only when the selection is a single node (cardinality == 1).
+    module_precond = {
+        "module_decompose": (is_umbrella, "no module on the root design"),
+        "module_merge": (
+            is_umbrella or not has_ancestor,
+            "no module on the root design" if is_umbrella
+            else "no ancestor subgraph",
+        ),
+        "module_sync": (
+            is_umbrella or not has_linked_task,
+            "no module on the root design" if is_umbrella
+            else "module has no linked task",
+        ),
+    }
+    for op in _MODULE_OPS:
+        states[op] = (True, _SINGLE_NODE_REASON) if multi else module_precond[op]
+
+    for op in _MULTI_NODE_OPS:
+        states[op] = (False, "") if multi else (True, _MULTI_NODE_REASON)
+
+    return states
+
+
+def format_node_id_summary(ids, prefix: str, cap: int = 5) -> str:
+    """Compact, overflow-capped one-line render of a node-id list (t983_4).
+
+    Shared by the Operations dialog header (``Targets``) and the Browse
+    marked-node summary (``Marked``) so the cap logic lives in one place. Shows
+    the first ``cap`` ids and a ``(+K more)`` suffix for the rest, keeping the
+    label bounded regardless of selection size — e.g.
+    ``Targets (12): n001, n002, n003, n004, n005 (+7 more)``.
+    """
+    ids = list(ids)
+    n = len(ids)
+    shown = ", ".join(ids[:cap])
+    suffix = f" (+{n - cap} more)" if n > cap else ""
+    return f"{prefix} ({n}): {shown}{suffix}"
+
+
 class CompareNodeSelectModal(ShortcutsMixin, ModalScreen):
     """Modal for selecting 2-4 nodes to compare in the dimension matrix."""
 
@@ -2468,29 +2560,36 @@ class OperationRow(Static):
 
 
 class NodeActionSelectModal(ModalScreen):
-    """Modal to pick an operation for a focused DAG node.
+    """The contextual **Operations** dialog for the current Browse selection.
 
-    Surfaced via the `A` keybinding on the Graph and Dashboard tabs. Offers
-    every operation that can run from a focused node — the single-node op
-    (explore), the fast-track preset, the module ops
-    (module_decompose / module_merge / module_sync, seeded from the node's
-    subgraph), and delete. Each op is shown disabled with a reason when it does
-    not apply to this node (per the ``op_states`` map passed by the caller).
-    Returns the chosen op_key string via dismiss(), or None on cancel.
+    Surfaced via the `A` keybinding on the Browse tab. Offers every operation
+    that can run from the selection — the single-node ops (explore, the
+    fast-track preset, delete), the module ops (module_decompose / module_merge
+    / module_sync, seeded from the node's subgraph), and the multi-node ops
+    (compare / synthesize). Each op is shown disabled with a reason when it does
+    not apply to the current selection — single-node ops grey when 2+ nodes are
+    marked, multi-node ops grey when fewer than 2 are — per the ``op_states``
+    map (computed by the caller via :func:`op_states_for_selection`). ``H`` on a
+    focused row opens its :class:`OperationHelpModal`. Returns the chosen op_key
+    string via dismiss(), or None on cancel.
     """
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
+        Binding("H", "op_help", "Help", show=False),
     ]
 
-    # Operation keys offered, in display order. Labels/descriptions are
-    # pulled from _OP_LABELS so the picker stays in sync with the wizard.
-    # ``fast_track`` (UC-3 preset, t756_6) and ``delete`` are NOT wizard ops in
-    # _OP_LABELS — fast_track seeds a single-module module_decompose, delete is
-    # handled inline via DeleteNodeModal — so their labels live in _LOCAL_LABELS.
+    # Operation keys offered, in contextual display order (parent t983 design:
+    # explore · compare · synthesize · module_* · fast_track · delete).
+    # Labels/descriptions are pulled from _OP_LABELS so the picker stays in sync
+    # with the wizard. ``fast_track`` (UC-3 preset, t756_6) and ``delete`` are
+    # NOT wizard ops in _OP_LABELS — fast_track seeds a single-module
+    # module_decompose, delete is handled inline via DeleteNodeModal — so their
+    # labels live in _LOCAL_LABELS.
     _OPS = [
-        "explore", "fast_track",
-        "module_decompose", "module_merge", "module_sync", "delete",
+        "explore", "compare", "synthesize",
+        "module_decompose", "module_merge", "module_sync",
+        "fast_track", "delete",
     ]
 
     _LOCAL_LABELS = {
@@ -2504,21 +2603,29 @@ class NodeActionSelectModal(ModalScreen):
         ),
     }
 
-    def __init__(self, node_id: str, op_states: dict | None = None):
+    def __init__(self, node_id, op_states=None, targets=None):
         super().__init__()
         self.node_id = node_id
         # op_states[op_key] = (disabled: bool, reason: str). Computed by the
         # caller (action_node_action) so the modal stays session-free/testable.
         self.op_states = op_states or {}
+        # Effective target node ids the chosen op acts on
+        # (NodeSelection.effective()); defaults to the lone primary node so the
+        # dialog still works when opened with no marked set (t983_4).
+        self.targets = list(targets) if targets else [node_id]
+
+    def _targets_summary(self) -> str:
+        """One-line render of the effective target set for the dialog header,
+        capped via :func:`format_node_id_summary` so a large marked set cannot
+        overflow the height-bounded modal (t983_4)."""
+        return f"[dim]{format_node_id_summary(self.targets, 'Targets')}[/]"
 
     def compose(self) -> ComposeResult:
         with Container(id="node_action_dialog"):
+            yield Label("Operations", id="node_action_title")
+            yield Label(self._targets_summary(), id="node_action_targets")
             yield Label(
-                f"Operate on node [bold]{self.node_id}[/]",
-                id="node_action_title",
-            )
-            yield Label(
-                "[dim]↑↓ Navigate  Enter Select  Esc Cancel[/dim]",
+                "[dim]↑↓ Navigate  Enter Select  H Help  Esc Cancel[/dim]",
                 id="node_action_hint",
             )
             with VerticalScroll(id="node_action_list"):
@@ -2597,6 +2704,26 @@ class NodeActionSelectModal(ModalScreen):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def action_op_help(self) -> None:
+        """`H`: open the OperationHelpModal for the focused op row (t983_4).
+
+        Preserves the `_OPERATION_HELP` discoverability the Actions-tab wizard
+        offers, now from the Operations dialog. fast_track / delete have no
+        help entry — surface an explicit notice rather than a silent no-op so
+        `H` always gives feedback.
+        """
+        focused = self.focused
+        if not isinstance(focused, OperationRow):
+            return
+        op_key = focused.op_key
+        if op_key in _OPERATION_HELP:
+            self.app.push_screen(OperationHelpModal(op_key))
+        else:
+            self.app.notify(
+                "No help available for this operation.",
+                severity="information",
+            )
 
 
 class ModulePreviewScreen(ModalScreen):
@@ -3138,6 +3265,14 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         margin-bottom: 1;
     }
 
+    /* Effective-target summary line for the Operations dialog (t983_4). */
+    #node_action_targets {
+        height: auto;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+    }
+
     #node_action_hint {
         text-align: center;
         width: 100%;
@@ -3230,6 +3365,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     #module_status_info {
         height: auto;
+        margin-bottom: 2;
+    }
+
+    /* Marked-node textual summary (t983_4); empty until nodes are space-marked. */
+    #browse_marked_info {
+        height: auto;
+        color: $warning;
         margin-bottom: 2;
     }
 
@@ -3785,6 +3927,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         Label("Loading...", id="session_status_info"),
                         Label("Modules", id="module_status_title"),
                         Label("", id="module_status_info"),
+                        # Explicit textual list of the space-marked nodes (t983_4)
+                        # — complements the per-row ● glyph and shows in both
+                        # list and graph views. Empty when nothing is marked.
+                        Label("", id="browse_marked_info"),
                         NodeDetailPanel(
                             self.session_path,
                             title_id="browse_node_title",
@@ -4176,6 +4322,25 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         marked = self._selection.marked
         for row in self.query(NodeRow):
             row.marked = row.node_id in marked
+        # Companion refresh: keep the textual marked-node summary in lock-step
+        # with the per-row glyphs (glyphs + textual summary) — t983_4.
+        self._refresh_marked_summary()
+
+    def _refresh_marked_summary(self) -> None:
+        """Update the Browse ``#browse_marked_info`` label from
+        ``self._selection.marked`` (t983_4).
+
+        The explicit textual list complements the per-row ``●`` glyph and — being
+        in the shared ``#browse_detail_pane`` (a persistent sibling of the
+        ContentSwitcher) — shows in BOTH list and graph views, covering the
+        graph-view glyph gap (``dag_node_mark_rendering``). Empty when nothing is
+        marked."""
+        try:
+            label = self.query_one("#browse_marked_info", Label)
+        except Exception:
+            return
+        ids = sorted(self._selection.marked)
+        label.update(format_node_id_summary(ids, "Marked") if ids else "")
 
     def action_tab_dashboard(self) -> None:
         """`d`: select Browse and show the list view (muscle memory)."""
@@ -4211,15 +4376,16 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._selection.toggle(node_id)
         self._refresh_node_marks()
 
-    def _node_action_op_states(self, node_id: str) -> dict:
-        """Compute the disabled/reason map for the node-action picker.
+    def _node_action_op_states(self, node_id: str, cardinality: int) -> dict:
+        """Thin I/O wrapper over the pure :func:`op_states_for_selection`.
 
-        Returns ``{op_key: (disabled, reason)}`` for the relevance-filtered ops
-        offered by ``NodeActionSelectModal``. Module ops are seeded from the
-        node's subgraph (like the fast_track preset), so they are disabled on
-        the ``_umbrella`` root and when their per-op precondition is unmet
-        (merge needs an ancestor subgraph; sync needs a linked task). Ops not
-        in the map default to enabled in the modal.
+        Gathers the primary node's module facts (``node_ctx``) via session reads
+        — the only I/O — and delegates the greying decision to the pure function,
+        which now returns ``{op_key: (disabled, reason)}`` for **every** op in the
+        Operations dialog (single-node, module, and multi-node), greyed by
+        ``cardinality`` (t983_4). Module preconditions are read from the primary
+        node; when ``cardinality > 1`` the module ops are greyed by cardinality
+        regardless, so the primary is the correct single source.
         """
         module = _node_module(self.session_path, node_id)
         is_umbrella = module == UMBRELLA_SUBGRAPH
@@ -4229,19 +4395,12 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # _ancestor_subgraphs takes a subgraph NAME (matches _config_module_merge,
         # which passes self._wizard_subgraph). The _umbrella root has none.
         ancestors = [] if is_umbrella else self._ancestor_subgraphs(module)
-        return {
-            "module_decompose": (is_umbrella, "no module on the root design"),
-            "module_merge": (
-                is_umbrella or not ancestors,
-                "no module on the root design" if is_umbrella
-                else "no ancestor subgraph",
-            ),
-            "module_sync": (
-                is_umbrella or not has_linked_task,
-                "no module on the root design" if is_umbrella
-                else "module has no linked task",
-            ),
+        node_ctx = {
+            "is_umbrella": is_umbrella,
+            "has_ancestor": bool(ancestors),
+            "has_linked_task": has_linked_task,
         }
+        return op_states_for_selection(node_ctx, cardinality)
 
     def action_node_action(self) -> None:
         """Open the node-action operation picker for the focused node.
@@ -4281,9 +4440,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 f"Node '{node_id}' no longer exists.", severity="error"
             )
             return
-        op_states = self._node_action_op_states(node_id)
+        cardinality = self._selection.cardinality
+        op_states = self._node_action_op_states(node_id, cardinality)
+        # The effective target set the chosen op will act on (marked set if any,
+        # else the lone primary) — surfaced in the dialog header (t983_4).
+        targets = sorted(self._selection.effective()) or [node_id]
         self.push_screen(
-            NodeActionSelectModal(node_id, op_states),
+            NodeActionSelectModal(node_id, op_states, targets=targets),
             lambda result, nid=node_id: self._on_node_action_result(
                 nid, result
             ),
@@ -4371,6 +4534,23 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._wizard_op = op_key
             self._set_total_steps()
             self._wizard_subgraph = _node_module(self.session_path, node_id)
+            self._wizard_config = {}
+            self._actions_show_config()
+            self.call_after_refresh(self._enter_actions_tab)
+            return
+        if op_key in ("compare", "synthesize"):
+            # Multi-node ops pick their source nodes INSIDE the config step
+            # (cmp_nodes / syn_nodes FuzzyCheckList) — they have NO wizard
+            # node-select step (_NODE_SELECT_OPS == {"explore"}). So render config
+            # directly, exactly like the module-op branch above, but WITHOUT a
+            # subgraph seed (these ops are not subgraph-scoped). Routing through
+            # the generic node-select branch below would call
+            # _actions_show_node_select(), which is explore-only and would
+            # mis-drive them. Pre-seeding the checklist from the marked set is
+            # deferred to t983_6 (wizard re-host) / t983_7 (compare overlay);
+            # for now the user picks the source nodes in the config step.
+            self._wizard_op = op_key
+            self._set_total_steps()
             self._wizard_config = {}
             self._actions_show_config()
             self.call_after_refresh(self._enter_actions_tab)
