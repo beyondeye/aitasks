@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [gates, claudeskills]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:54
-updated_at: 2026-06-16 17:04
+updated_at: 2026-06-16 18:06
 ---
 
 ## Context
@@ -40,3 +41,8 @@ the framework doc lands, behind the already-shipped `aitask-resume` front
 - `aidocs/gates/aitask-gate-framework.md` ("Orchestrator skill", "Verifier
   skill contract", "Tooling", "Worked example")
 - `aidocs/gates/integration-roadmap.md` (Phase 4)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T15:06:23Z status=pass attempt=1 type=human
