@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t983_3]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 11:39
-updated_at: 2026-06-14 11:39
+updated_at: 2026-06-16 09:48
 ---
 
 ## Context
