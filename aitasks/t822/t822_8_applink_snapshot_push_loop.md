@@ -56,3 +56,5 @@ Third §"Deferred follow-up tasks" bullet of `aidocs/applink/monitor_port_design
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-16T07:35:19Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-16T07:35:21Z status=pass attempt=1 type=machine
