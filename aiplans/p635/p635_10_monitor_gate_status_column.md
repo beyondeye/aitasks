@@ -352,3 +352,51 @@ Standard archival per `task-workflow` Step 9: merge approval, archive via
 - Minimonitor layout: a conditional third line could crowd the ~40-col pane, but
   it appears only for gated tasks (rare today) and reuses the existing
   wrapped-line pattern. · severity: low · → mitigation: none needed
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  1. `gate_ledger.compact_gate_summary(state)` — pure formatter over
+     `state.current` (last-run-per-gate): `"N/M pass[, K pending][, J failed]"`,
+     or `""` when no runs.
+  2. `TaskInfo.task_file_abs` (absolute, defaulted to `""`) set in
+     `TaskInfoCache._resolve`; `task_file` kept relative (display value + asserted
+     by `test_task_info_cache_archived.py`). New `GateSummaryCache` in
+     `monitor_core.py` — per-refresh, fail-closed to `""`, keyed/parsed off the
+     **absolute** path; re-exported via `monitor_shared.py`.
+  3. `monitor_app.py` — instantiate `_gate_cache`, `clear()` in `_refresh_data`,
+     render a `gates: …` dim line in `_format_agent_card_text`.
+  4. `minimonitor_app.py` — same wiring in the **general pane list**
+     (`_agent_card_text`) only; the static docked followed-agent panel
+     (`_own_agent_identity_text`) is intentionally left untouched.
+- **Deviations from plan:** None.
+- **Issues encountered:** The aggregate `tests/run_all_python_tests.sh` reports 3
+  failures in `tests/test_brainstorm_node_action_modal.py`
+  (`BrainstormApp._selection` AttributeError). These are **pre-existing,
+  unrelated, and order-dependent**: `brainstorm_app.py` and the brainstorm tests
+  were already uncommitted/dirty at session start (separate WIP), the test passes
+  cleanly in isolation (`python -m unittest tests.test_brainstorm_node_action_modal`
+  → 25/25 OK), and this task touches no brainstorm code. Not addressed here.
+- **Key decisions:** Single derivation path — reuse `lib/gate_ledger.py` (the
+  t635_8 shared parser) and mirror the board's per-refresh cache + fail-closed
+  discipline rather than forking a second parser. The summary derives over
+  recorded runs (`state.current`), not `declared_gates` (empty framework-wide
+  today). The relative-vs-absolute `task_file` split was the key correctness fix
+  (caught in plan review): a relative path is cwd-dependent and wrong under
+  cross-session/multi-project monitoring — covered by a `cwd != project-root` test.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - `gate_ledger.compact_gate_summary(state)` is the reusable compact formatter;
+    `monitor_core.GateSummaryCache` is the reusable monitor-side cache (both
+    re-exported from `monitor_shared`). Future TUI gate displays should consume
+    these, not re-parse.
+  - `TaskInfo.task_file` is **relative** to the project root; use the new
+    `TaskInfo.task_file_abs` whenever you need to open the task file from monitor
+    code (the relative form breaks in cross-session mode).
+  - Minimonitor's docked followed-agent panel is built once and static by design;
+    covering it with live gate status is a deliberate v1 gap (optional follow-up).
+- **Verification:** `python tests/test_gate_ledger_python_parser.py` (33/33);
+  `python tests/test_monitor_gate_summary.py` (6/6);
+  `python tests/test_task_info_cache_archived.py`, `tests/test_kill_confirm_dialog.py`
+  (TaskInfo stub OK); `python -m py_compile` of all 5 touched modules + both test
+  files.
