@@ -13,3 +13,5 @@ allowed_verbs:
   - kill_pane
   - kill_window
   - spawn_tui
+  - pick_next_sibling
+  - restart_task
