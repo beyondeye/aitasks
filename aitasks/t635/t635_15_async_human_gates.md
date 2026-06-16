@@ -6,7 +6,7 @@ issue_type: feature
 status: Ready
 labels: [gates, task_workflow]
 created_at: 2026-06-10 18:56
-updated_at: 2026-06-14 13:34
+updated_at: 2026-06-16 17:30
 ---
 
 ## Context
@@ -35,6 +35,30 @@ gates as genuine async human gates and stop cleanly at pending-human.
 
 Remote comment/label signals and projection (t635_16); autonomous-lane
 auto-completion policy (t635_17).
+
+## Coordination note — already landed in t635_11
+
+t635_11 (orchestrator + verifier contract) shipped the **read side** of human
+gates, so this task owns only the **write/create side** plus the hybrid switch.
+Already in place — do NOT rebuild:
+
+- **Read-side `file-touch` detection.** The orchestrator
+  (`lib/gate_orchestrator.py`) already substitutes `signal_target`
+  (`<task-id>`→`t<id>`, `<gate>`) and, when the signal file exists, appends
+  `pass`; when absent, appends `pending` — and NEVER self-signals. So
+  pending-block semantics + the exit-code-4-pending mapping for human gates
+  already work for the read path.
+- **`ait gate fail <task-id> <gate> [--reason]`** already exists
+  (`aitask_gate_fail.sh`, wired into the `ait gate` dispatcher).
+- The **non-negotiable autonomy rule** is already documented verbatim in the
+  registry header (`aitasks/metadata/gates.yaml`) and the `aitask-gate-template`
+  skill.
+
+**This task's remaining scope:** signal **CREATION** — `ait gate pass
+<task-id> <gate>` (refuses machine gates; records signer + timestamp) — plus the
+hybrid switch (headless profiles resolve review/merge approvals as async human
+gates that stop pending instead of AskUserQuestion). Build on the read-side
+detection above; do not fork the gate semantics.
 
 ## References
 
