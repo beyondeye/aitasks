@@ -210,3 +210,69 @@ siblings (with bidirectional `./ait git` links per the coordination convention):
 Post-implementation cleanup/archival follow the shared **Step 9** flow (current
 branch — `fast` profile; no worktree/merge). This child declares no `gates:`, so
 its own archival is unaffected.
+
+## Final Implementation Notes
+
+- **Actual work done:** Made `aitask-pick` gate-aware exactly to plan. (1) New
+  `inflight` subcommand in the already-whitelisted `.aitask-scripts/aitask_query_files.sh`
+  (`cmd_inflight`): scans active parents (`$TASK_DIR/t*_*.md`) and active children
+  (`$TASK_DIR/t*/t*_*.md`) for `status: Implementing` AND a recorded `## Gate Runs`
+  ledger, then delegates the derived state to `aitask_gate.sh resume-point` /
+  `archive-ready` (never re-implementing it) and emits
+  `INFLIGHT:<id>|<path>|<resume_point>|<archive_status>` per task or `NO_INFLIGHT`.
+  Wired into the usage block, `show_help`, the example list, and the `main()`
+  dispatch. (2) `.claude/skills/aitask-pick/SKILL.md.j2`: a profile-invariant
+  **§2.0 In-Flight Tasks (resume candidates)** subsection at the top of Step 2
+  (lists in-flight tasks in their own `AskUserQuestion` "Resume" section with a
+  derived-state label, routes a picked task through Step 3 — Check 5 resume /
+  Check 4 archival — setting only task-selection vars), plus a Notes bullet
+  documenting the consumed engine and the "free" board re-entry (no Step 0b
+  change). (3) New `tests/test_query_files_inflight.sh` (6/6: include parent +
+  child, exclude no-ledger Implementing + Ready-with-ledger, IMPLEMENT/POSTIMPL,
+  NO_GATES, NO_INFLIGHT). (4) Extended `tests/test_skill_render_aitask_pick.sh`
+  with Test 6 (section renders in all 3 profiles). (5) Regenerated all 3
+  `SKILL-{default,fast,remote}-claude.md` goldens (identical 49-line invariant
+  adds). `shellcheck` clean (only pre-existing SC1091 source infos);
+  `aitask_skill_verify.sh` OK; render test 97/97; gate/query regressions green.
+
+- **Deviations from plan:** None. Lexical `sort` (not GNU `sort -V`) was used in
+  `cmd_inflight` for macOS portability — deterministic ordering is all the skill
+  needs (it presents the list).
+
+- **Issues encountered:** None. The enumerator surfaced t635_7 itself once it
+  reached `Implementing` + `plan_approved` (`INFLIGHT:635_7|…|IMPLEMENT|NO_GATES`)
+  — a live confirmation that the predicate and the consumed `resume-point`
+  derivation work end-to-end.
+
+- **Key decisions:** (1) **Extend `aitask_query_files.sh`, don't add a new
+  script** — zero whitelist change (subcommand of an already-whitelisted helper),
+  the exact t635_5 precedent that added `resume-point` to `aitask_gate.sh`. (2)
+  **Consume, never re-derive** — §2.0 sets only task-selection vars and hands to
+  Step 3; Check 5 derives `resume_point`, Check 4 derives archival (both
+  NON-SKIPPABLE downstream, so a stale enumeration cannot cause silent harm).
+  (3) **Profile-invariant prose** (no new Jinja gate) — renders identically into
+  all 3 goldens, keying off ledger *presence* not the `record_gates` profile key
+  (mirrors t635_4 Check 4 / t635_5 Check 5). (4) **No Step 0b change** — direct
+  `/aitask-pick <n>` (incl. the board launch) of an in-flight task already
+  resumes via Step 3 Check 5; documented in Notes. (5) **Website docs deferred to
+  t635_18** (user-confirmed) — the comprehensive sweep owns the aitask-pick docs
+  section + the "resuming in-flight tasks" workflow page.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t635_8 (Python gate-ledger parser):** the bash `inflight` subcommand is the
+    **skill-facing** enumerator; the Python parser is the **TUI-facing** shared
+    derivation. Keep them separate — do not conflate (mirrors the
+    `resume_point` vs `archive_status` vs `dependents_status` separation in
+    `gate_ledger.py`). Both should ultimately route picks through the same
+    `task-workflow` Step 3 engine.
+  - **t635_9 (board In-Flight view):** may reuse `aitask_query_files.sh inflight`
+    for a quick launch, or the t635_8 parser for the richer action-grouped view;
+    either way, launch via `ait skillrun pick … <id>` / `/aitask-pick <id>` so the
+    pick resumes through Step 3 — no board change is needed for re-entry.
+  - **Behavioral coverage:** an autonomous manual-verification task
+    (`verify_inflight_pick_routing`, the confirmed `after` mitigation) is created
+    post-implementation to drive `/aitask-pick` against ephemeral in-flight
+    fixtures and assert live pick→resume routing — the live counterpart to the
+    static render/unit tests here.
