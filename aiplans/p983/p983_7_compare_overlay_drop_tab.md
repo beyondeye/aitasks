@@ -274,5 +274,70 @@ overlay. Keep the matrix-build logic unit-testable.
   coordinated with t983_9 (design §6). · severity: low · → mitigation: in-plan —
   bidirectional t983_9 note.
 
+## Final Implementation Notes
+
+- **Actual work done:** All code in `.aitask-scripts/brainstorm/brainstorm_app.py`
+  (net −116 lines). Added the pure `compare_matrix_rows(node_dims, node_ids)`
+  (App-free row/color/similarity logic) and `CompareMatrixModal(ModalScreen)`
+  (assembles the `DataTable` from those rows in `on_mount`, hosts an in-modal
+  `D`→diff stacked over itself). Added the Node Hub `NODE_HUB_COMPARE` verb (`c`
+  binding + Compare button) with the `_on_node_hub_result` branch resolving
+  `sorted(set(self._selection.marked) | {focal})`; the Browse `c`
+  (`action_compare_matrix`) + shared `_open_compare_matrix(node_ids, anchor=None)`
+  helper enforcing the 2-4 guard. Re-pointed the graph picker
+  (`on_dag_display_compare_requested`) at the overlay (now sync — the old
+  remove/re-mount race is moot). Deleted the Compare `TabPane`,
+  `CompareNodeSelectModal`, `CompareDataTable`, `_build_compare_matrix` /
+  `_add_similarity_row` / `_on_compare_selected` / `_open_compare_select_modal` /
+  `action_tab_compare` / `action_compare_regenerate` / `action_compare_diff`,
+  `self._compare_nodes`, the `r` + app-level `D` bindings, the `tab_compare`
+  `_TAB_SCOPED_ACTIONS` + `on_key` branch, and orphaned CSS. Renamed
+  `tests/test_brainstorm_compare_modal.py` → `test_brainstorm_compare_overlay.py`
+  (retained `NextCheckboxIndexTests`, added pure-rows / 2-4-guard / Hub-union /
+  render + diff-stack pilots). Fixed two stale assumptions in sibling tests
+  (`tab_compare` string in `test_brainstorm_node_export.py`; the `"compare"`-as-
+  unknown-verb case in `test_brainstorm_node_hub.py`). Added the bidirectional
+  keymap coordination note to `aitasks/t983/t983_9`.
+
+- **Deviations from plan:** One material change, driven by an empirical finding
+  during implementation: the planned `build_compare_table(...) -> DataTable`
+  could NOT be a pure unit-testable function because `DataTable.add_column`
+  requires an active App (it measures column widths via `self.app.console`,
+  raising `NoActiveAppError` otherwise). Refactored to a truly pure
+  `compare_matrix_rows(...) -> list[(row_key, cells)] | None` (no App, no I/O —
+  rich `Text` needs no App) with the minimal DataTable *assembly* kept in the
+  modal's `on_mount`. This better serves the task's "keep the matrix-build logic
+  unit-testable" goal than the original signature would have.
+
+- **Issues encountered:** (1) The `DataTable`/App-context constraint above.
+  (2) `_next_checkbox_index` is shared with a second modal (Finding 2) — kept it
+  and its tests when deleting `CompareNodeSelectModal`. (3) `pytest` is absent in
+  the venv; ran via `python -m unittest`.
+
+- **Key decisions (review-driven):** (a) Node Hub Compare = marked set **unioned
+  with the focal node** so the viewed node always participates (resolves the
+  ambiguous contract). (b) `D` stacks a `DiffViewerScreen` *over* the modal via
+  `self.app.push_screen` (the precedented `NodeDetailModal` fullscreen pattern)
+  and returns to the matrix on pop. (c) The overlay uses a plain `DataTable`;
+  `CompareDataTable` (which escaped focus to the base-screen tab bar at row 0)
+  was deleted, not reused, since that would jump focus behind the modal. All
+  three are pilot/unit-tested.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t983_9 (running-strip/keybinding deconflict):** `c` is now a Browse action
+    (`compare_matrix`), `r` is freed (was `compare_regenerate`), and the
+    app-level `D` is **gone** (moved into `CompareMatrixModal`) — do NOT re-scope
+    `D` in `_TAB_SCOPED_ACTIONS`/`check_action`. A coordination note was added to
+    t983_9's task body.
+  - The compare matrix overlay is `CompareMatrixModal(session_path, node_ids)`;
+    its build logic is the pure `compare_matrix_rows(node_dims, node_ids)`. The
+    Node Hub launch contract grew a `NODE_HUB_COMPARE` verb (pattern: add a verb
+    + a `_on_node_hub_result` branch).
+  - The comparator-**agent** `compare` op (Operations dialog, t983_4) remains a
+    SEPARATE surface from this dimension matrix — they were intentionally not
+    conflated.
+
 ## Step 9
 Archive via `./.aitask-scripts/aitask_archive.sh 983_7`.
