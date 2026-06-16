@@ -987,10 +987,14 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if task_id:
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
-                text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
+                # Gate summary sits at the END of the status row (row 1), after
+                # the status, rather than on its own line — keeps the card
+                # compact in the full monitor. (Minimonitor keeps it on a
+                # separate line; its rows are too narrow to append here.)
                 gates = self._gate_cache.summary_for(info)
                 if gates:
-                    text += f"\n     [dim]gates: {gates}[/]"
+                    text += f"  [dim]gates: {gates}[/]"
+                text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
         return text
 
     def _format_other_card_text(self, snap: PaneSnapshot) -> str:
