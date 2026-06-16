@@ -8,8 +8,9 @@ issue_type: chore
 status: Implementing
 labels: [brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 12:16
-updated_at: 2026-06-16 12:54
+updated_at: 2026-06-16 13:04
 ---
 
 Scrub residual references to the dropped "Detail" operation and node-level plans
@@ -92,3 +93,5 @@ The corrected first-operation flow on a blank-initialized session is:
 > **✅ gate:plan_approved** run=2026-06-16T09:54:55Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-16T09:54:56Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-16T10:04:48Z status=pass attempt=1 type=human
