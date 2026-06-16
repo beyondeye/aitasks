@@ -168,6 +168,44 @@ Per task-workflow Step 8 (review) → Step 9 (commit on current branch, no merge
 for profile 'fast'; `documentation:` commit type) → archival via
 `aitask_archive.sh 822_12`.
 
+## Final Implementation Notes
+
+- **Actual work done:** Edited `aidocs/applink/permissions.md` only. Re-anchored
+  the Overview + table intro (permissions.md is the profile-band view of the
+  canonical inventory, not a "seed"). Rebuilt the verb gating table to match
+  `monitor_port_design.md` §Command verb table exactly: added `subscribe`/
+  `request_keyframe`, `task_detail`, `forward_key`, `pick_next_sibling`,
+  `restart_task`; renamed `switch_to_pane` → `focus (= switch_to_pane)`; moved
+  `kill_pane`'s citation to `kill_agent_pane_smart`; refreshed all call-site
+  citations to `monitor_core.py`/`monitor_app.py` symbols (no line numbers).
+  Rewrote the notes block (dropped the obsolete forward_key interim note; updated
+  the modal note for the four modal verbs; added pick_next_sibling/restart_task
+  mobile-deferred + rename_session desktop-only notes). Updated the YAML shape
+  example to the shipped `monitor_control.yaml`.
+- **Deviations from plan:** None. Followed the plan as approved.
+- **Issues encountered:** None. AC verification (verb parity, YAML↔column parity,
+  link resolution, no stale citations) all passed. The `switch_to_pane`
+  "table-only" flag in the parity script was a false positive — it is the
+  parenthetical alias inside `focus`'s cell, not a separate verb; the YAMLs use
+  `focus`, which matches.
+- **Key decisions:** (1) YAMLs were already aligned (t822_7 + t822_11 shipped them
+  matching the canonical bands), so they are verify-only — no YAML edits. (2) No
+  "Modal?" column added to permissions.md — it stays gating-focused and points to
+  the canonical doc for handshake detail (derive/point, don't duplicate).
+  (3) Cited symbols (module + symbol name), not line numbers, since the t822_6
+  extraction proved line refs drift.
+- **Upstream defects identified:**
+  - `aidocs/applink/monitor_port_design.md:61 — §Command verb intro still calls permissions.md the "seed table … which predates forward_key, pick_next_sibling, restart_task"; after this sync permissions.md no longer lacks them, so the parenthetical is historically-stale.`
+  - `aidocs/applink/monitor_port_design.md:67-78 — canonical table's own call-site line numbers (tmux_monitor.py:526 capture_all, monitor_shared.py:311 TaskInfoCache._resolve, tmux_monitor.py:552/556/569/643, etc.) are stale post-t822_6; those symbols now live in monitor_core.py.`
+  Both are in the canonical doc (out of scope for this seed→canonical sync); worth a small follow-up to refresh the canonical doc's own self-citations.
+- **Notes for sibling tasks:** The t822_6 `monitor_core.py` extraction is the new
+  home for the monitor command surface (`capture_all`, `send_*`, `switch_to_pane`,
+  `kill_*`, `spawn_tui`, `cycle_compare_mode`, `TaskInfoCache`, `_TEXTUAL_TO_TMUX`).
+  UI-bound action handlers (`_forward_key_to_tmux`, `action_cycle_compare_mode`,
+  `action_pick_next_sibling`, `action_restart_task`) stay in `monitor_app.py`. Any
+  sibling (t822_13 headless flag, t822_14 push scheduler) citing monitor symbols
+  should reference `monitor_core.py`, not `tmux_monitor.py`.
+
 ## Risk
 
 ### Code-health risk: low
