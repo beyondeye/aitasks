@@ -1066,9 +1066,7 @@ class NodeDetailModal(ModalScreen):
     def compose(self) -> ComposeResult:
         from section_viewer import SectionAwareMarkdown, SectionMinimap
         with Container(id="node_detail_dialog"):
-            yield Label(
-                f"Node Detail: {self.node_id}", id="node_detail_title"
-            )
+            yield Label(self._dialog_title_text(), id="node_detail_title")
             with TabbedContent(id="node_detail_tabs"):
                 with TabPane("Metadata", id="tab_metadata"):
                     yield VerticalScroll(
@@ -1087,10 +1085,18 @@ class NodeDetailModal(ModalScreen):
                         )
                         yield SectionAwareMarkdown(id="proposal_content")
             with Horizontal(id="node_detail_buttons"):
-                yield Button(
-                    "Close", variant="default", id="btn_close_detail"
-                )
+                yield from self._dialog_buttons()
             yield Footer()
+
+    def _dialog_title_text(self) -> str:
+        """Dialog title text. Overridden by NodeHub to read "Node Hub: …"."""
+        return f"Node Detail: {self.node_id}"
+
+    def _dialog_buttons(self):
+        """Yield the dialog's footer buttons. NodeHub overrides this to prepend
+        an Operations button. The Close button id (``#btn_close_detail``) is
+        load-bearing — ``close_detail`` and the CSS target it."""
+        yield Button("Close", variant="default", id="btn_close_detail")
 
     def on_mount(self) -> None:
         """Load node data into both tabs."""
@@ -1221,6 +1227,48 @@ class NodeDetailModal(ModalScreen):
 
     def action_close(self) -> None:
         self.dismiss(None)
+
+
+# Node Hub dismiss protocol (t983_5). The Hub dismisses with None (closed) or a
+# NodeHubResult carrying one of the NODE_HUB_* action verbs. Adding a launch
+# surface (t983_6 wizard re-host, t983_7 Compare overlay) = add a verb here +
+# a branch in BrainstormApp._on_node_hub_result.
+NODE_HUB_OPERATIONS = "operations"
+
+
+class NodeHubResult(NamedTuple):
+    """Typed result a :class:`NodeHub` dismisses with: ``action`` is one of the
+    ``NODE_HUB_*`` verbs, ``node_id`` is the Hub's node."""
+
+    action: str
+    node_id: str
+
+
+class NodeHub(NodeDetailModal):
+    """Node Hub overlay (Enter, t983_5): the shared Detail surface (Metadata
+    ``NodeDetailPanel`` + Proposal/minimap, inherited from ``NodeDetailModal``)
+    plus an **Operations** entry that launches the contextual Operations dialog
+    (t983_4) seeded from the current selection. Unifies the node-detail entry
+    points and is the second launch surface (besides ``A``) that t983_6/t983_7
+    plug into."""
+
+    BINDINGS = [Binding("a", "operations", "Operations")]
+
+    def _dialog_title_text(self) -> str:
+        return f"Node Hub: {self.node_id}"
+
+    def _dialog_buttons(self):
+        yield Button("Operations", variant="primary", id="btn_node_hub_ops")
+        yield Button("Close", variant="default", id="btn_close_detail")
+
+    def action_operations(self) -> None:
+        """`a` → dismiss with the Operations launch verb (the app callback
+        opens the Operations dialog once the Hub is closed)."""
+        self.dismiss(NodeHubResult(NODE_HUB_OPERATIONS, self.node_id))
+
+    @on(Button.Pressed, "#btn_node_hub_ops")
+    def _open_operations(self) -> None:
+        self.dismiss(NodeHubResult(NODE_HUB_OPERATIONS, self.node_id))
 
 
 def _open_node_detail_visible(active_tab: str, focused_is_node_row: bool) -> bool:
@@ -3543,6 +3591,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     #node_detail_buttons {
         dock: bottom;
         height: 3;
+        /* Lift the button row one line above the docked Footer (height 1) so
+           the buttons' bottom border isn't overdrawn by the footer (t983_5). */
+        margin-bottom: 1;
         align: center middle;
     }
 
@@ -4276,7 +4327,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     # ------------------------------------------------------------------
 
     def action_open_node_detail(self) -> None:
-        """Enter on a focused NodeRow → open NodeDetailModal.
+        """Enter on a focused NodeRow → open the Node Hub (t983_5).
 
         Falls through (SkipAction) when focus is anything else, so the
         existing on_key handlers for GroupRow/StatusLogRow keep working.
@@ -4286,9 +4337,19 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             raise SkipAction()
         focused = self.focused
         if isinstance(focused, NodeRow):
-            self.push_screen(NodeDetailModal(focused.node_id, self.session_path))
+            self.push_screen(
+                NodeHub(focused.node_id, self.session_path),
+                self._on_node_hub_result,
+            )
             return
         raise SkipAction()
+
+    def _on_node_hub_result(self, result) -> None:
+        """Node Hub dismissed (t983_5): a ``NodeHubResult`` dispatches its
+        action; ``None`` (Escape/Close) is a no-op. New launch verbs (t983_6
+        wizard re-host, t983_7 Compare overlay) add a branch here."""
+        if isinstance(result, NodeHubResult) and result.action == NODE_HUB_OPERATIONS:
+            self._open_operations_dialog(result.node_id)
 
     def _set_browse_view(self, view: str) -> None:
         """Switch the Browse ContentSwitcher to ``view`` ("graph"|"list") and
@@ -4402,11 +4463,12 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return op_states_for_selection(node_ctx, cardinality)
 
     def action_node_action(self) -> None:
-        """Open the node-action operation picker for the focused node.
+        """Open the Operations dialog for the focused node.
 
-        Bound to `A` on the Dashboard and Graph tabs. On pick, the dismiss
-        callback seeds the operation wizard and switches to the Actions tab
-        (or, for delete, opens the cascade-delete confirmation modal).
+        Bound to `A` on the Browse tab. Holds the keybinding-context guards
+        (modal-active, tab_browse, a focused node) then delegates to the shared
+        `_open_operations_dialog`. The Node Hub's Operations entry (t983_5)
+        reaches the same dialog through that helper.
         """
         if isinstance(self.screen, ModalScreen):
             return
@@ -4417,6 +4479,22 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if not node_id:
             self.notify("Focus a node first", severity="warning")
             return
+        self._open_operations_dialog(node_id)
+
+    def _open_operations_dialog(self, node_id: str) -> None:
+        """Open the contextual Operations dialog (t983_4) for ``node_id``.
+
+        Shared launch path for the `A` keybinding (`action_node_action`) and the
+        Node Hub's Operations entry (`_on_node_hub_result`, t983_5). On pick, the
+        dismiss callback seeds the operation wizard and switches to the Actions
+        tab (or, for delete, opens the cascade-delete confirmation modal).
+        """
+        # Anchor the cursor to node_id so the dialog's single-node target is
+        # unambiguous regardless of event ordering (no-op on the `A` path, where
+        # primary already equals node_id; does not disturb a marked set —
+        # effective() returns the marked set when non-empty).
+        self._current_focused_node_id = node_id
+        self._selection.set_primary(node_id)
         if self.read_only:
             self.notify(
                 "Session is read-only — no operations available.",
@@ -6306,8 +6384,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     @on(DAGDisplay.NodeSelected)
     def on_dag_display_node_selected(self, event: DAGDisplay.NodeSelected) -> None:
-        """Open node detail modal from DAG view."""
-        self.push_screen(NodeDetailModal(event.node_id, self.session_path))
+        """Enter on a DAG node → open the Node Hub (t983_5)."""
+        self.push_screen(
+            NodeHub(event.node_id, self.session_path),
+            self._on_node_hub_result,
+        )
 
     @on(DAGDisplay.HeadChanged)
     def on_dag_display_head_changed(self, event: DAGDisplay.HeadChanged) -> None:
@@ -6973,8 +7054,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def on_section_minimap_section_selected(self, event) -> None:
         """Route an Actions-tab preview minimap selection to its pane.
 
-        NodeDetailModal handles its own minimap (it is a separate ModalScreen);
-        only the config-step preview pane's minimap bubbles up to the App. The
+        NodeDetailModal / NodeHub handle their own minimap (each is a separate
+        ModalScreen); only the config-step preview pane's minimap bubbles up to
+        the App. The
         ``preview_proposal_minimap`` class guards against any other source.
         """
         ctrl = getattr(event, "control", None)
