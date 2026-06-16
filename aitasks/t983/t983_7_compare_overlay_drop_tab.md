@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t983_6]
 issue_type: refactor
@@ -56,3 +58,5 @@ seeding handled in t983_4/_6). This child handles the matrix surface.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-16T15:03:15Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-16T15:03:17Z status=pass attempt=1 type=machine
