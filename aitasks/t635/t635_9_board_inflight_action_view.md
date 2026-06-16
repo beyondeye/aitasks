@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t635_6, t635_8]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [gates, aitask_board, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 18:54
-updated_at: 2026-06-14 17:36
+updated_at: 2026-06-16 12:28
 ---
 
 ## Context
