@@ -127,6 +127,10 @@ Server emits `append` instead of `delta` when:
 - No rows above the bottom changed.
 - No scroll-region shenanigans (alt-screen activations break the fast path; server falls back to `delta`).
 
+**Detection convention (server-authoritative).** The server emits `append` only on an **exact full-viewport scroll**: the new grid equals the previous grid shifted up by *k* rows (`1 ≤ k < rows`) with *k* brand-new rows at the bottom, the cursor unchanged from the previous frame and at the bottom row. The appended rows carry their **new absolute `row_id`s** (`rows-k … rows-1`) — after the client drops *k* top rows and shifts the rest up, they land at exactly those positions (row-id is the viewport position, as for `keyframe`/`delta`). The server does **not** inspect for alt-screen explicitly (the captured snapshot exposes no such flag); exact-shift detection is the conservative substitute, since an alt-screen redraw is not a clean shift and falls back to `delta` (and even a coincidental shift converges correctly).
+
+`append` carries **no cursor** and **no `osc8` sidecar**. The client keeps the cursor from the previous frame (the server only appends when the cursor did not change), and the server emits a `delta` instead whenever an appended row carries a hyperlink — so `append` rows never set the OSC8 attr bit. The client **adopts the append's `frame_id` as its current frame_id**, so a subsequent `delta`'s `prev_frame_id` equals that `frame_id` and the linear gap-check still works. A run of `append`s cannot self-detect a *lost* `append` (no `prev_frame_id` chain); recovery rests on the ordered, reliable WebSocket transport (a dropped frame breaks the connection → reconnect → fresh keyframe) and the periodic keyframe interval that re-syncs accumulated drift — the same recovery model deltas rely on.
+
 ### `cursor`
 
 ```

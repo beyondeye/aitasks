@@ -12,7 +12,9 @@ Stage 1 (t822_8) implemented ``keyframe`` (0x01), ``cursor`` (0x04) and ``dim``
 :func:`row_signature` / :func:`build_osc8` collect the changed rows against the
 per-connection baseline (``Subscription.PaneState.row_sigs``) and
 :func:`encode_delta` frames them. ``append`` (0x03, t822_10) reuses the same
-parser and per-pane frame state.
+parser and per-pane frame state: :func:`detect_append` spots a pure bottom-growth
+scroll against the same ``row_sigs`` baseline and :func:`encode_append` frames the
+new bottom rows.
 
 ``msgpack`` is imported **lazily** inside the ``encode_*`` functions so importing
 the parser / :class:`Subscription` (e.g. from the router unit test) needs no
@@ -321,6 +323,36 @@ def deltify(prev_sigs, parsed):
     return changed_wire, removed, new_sigs, changed_subset
 
 
+def detect_append(prev_sigs, new_sigs):
+    """Detect a pure bottom-growth scroll for the ``append`` (0x03) fast path.
+
+    Returns ``k`` (``>= 1``) when the new grid is the baseline scrolled **up** by
+    ``k`` rows with ``k`` brand-new rows at the bottom, else ``None`` (the caller
+    falls back to :func:`deltify`). ``prev_sigs`` / ``new_sigs`` are
+    ``{row_id: sig}`` over a *full* snapshot each (contiguous ``0..H-1``, as
+    :func:`parse_snapshot` produces). Requires equal row counts ``H`` (a clean
+    scroll keeps the viewport height) and ``1 <= k < H`` (at least one shared row;
+    a full replacement is a keyframe, not an append).
+
+    The check is the cheap prefix comparison the design doc calls for:
+    ``new[i] == prev[i+k]`` for all ``i`` in ``[0, H-1-k]``. The smallest matching
+    ``k`` is returned and is the correct one — the shift condition is fully
+    verified for it, so a client that drops ``k`` top rows, shifts up, and appends
+    the new bottom ``k`` rows converges exactly to ``new`` (``content_transport.md``
+    §append). Cursor / alt-screen / hyperlink gating is the caller's
+    responsibility (``pusher._push_pane``); this is pure signature math.
+    """
+    if prev_sigs is None:
+        return None
+    H = len(new_sigs)
+    if H == 0 or len(prev_sigs) != H:
+        return None
+    for k in range(1, H):
+        if all(new_sigs.get(i) == prev_sigs.get(i + k) for i in range(H - k)):
+            return k
+    return None
+
+
 def snapshot_to_rows(content: str):
     """Parse a ``PaneSnapshot.content`` blob into ``(rows, osc8)`` for a keyframe.
 
@@ -367,6 +399,19 @@ def encode_delta(pane_id, frame_id, prev_frame_id, cursor, row_list, osc8=None) 
     return bytes([FRAME_DELTA]) + _packb(arr)
 
 
+def encode_append(pane_id, frame_id, row_list) -> bytes:
+    """``append`` (0x03): rows appended at the bottom of the client buffer; the
+    client drops the topmost rows to keep the row count from the latest keyframe.
+
+    Carries **no** ``prev_frame_id`` (each ``append`` stacks on the latest visible
+    state) and **no** ``osc8`` sidecar — the caller (``pusher._push_pane``) emits a
+    ``delta`` instead whenever an appended row carries a hyperlink, and likewise
+    sends no ``append`` when the cursor changed (``append`` has no cursor field).
+    Wire array per ``content_transport.md`` §append:
+    ``[pane_id, frame_id, row_list]``."""
+    return bytes([FRAME_APPEND]) + _packb([pane_id, frame_id, row_list])
+
+
 def encode_cursor(pane_id, frame_id, cursor) -> bytes:
     """``cursor`` (0x04): cursor-only update."""
     return bytes([FRAME_CURSOR]) + _packb([pane_id, frame_id, cursor])
@@ -401,6 +446,10 @@ class PaneState:
     # Per-row signatures the client currently holds ({row_id: sig}); ``None`` means
     # no baseline yet -> the next frame must be a keyframe (t822_9 delta engine).
     row_sigs: Optional[dict] = None
+    # Full cursor [row, col, visible, style] at the last sent frame; ``None`` until
+    # the first send. The ``append`` fast path (t822_10) fires only when the cursor
+    # is unchanged from this, since ``append`` carries no cursor of its own.
+    last_cursor: Optional[list] = None
 
 
 class Subscription:

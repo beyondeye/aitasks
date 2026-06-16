@@ -122,7 +122,9 @@ content_transport.md assigns delta computation to the server (row hashing + chan
 
 ### Append fast-path detection
 
-The Stage 3 `append` fast path requires bottom-cursor + no-upper-changes detection ([content_transport.md §append](content_transport.md#append)). This check lives next to the deltifier in `applink/content.py`, keyed off the same per-connection `Subscription.PaneState` row state: it already has the previous and current row sets in hand, so the bottom-growth test is a cheap prefix comparison before falling back to a full delta.
+The Stage 3 `append` fast path ([content_transport.md §append](content_transport.md#append)) is implemented by `detect_append` in `applink/content.py`, next to `deltify` and keyed off the same per-connection `Subscription.PaneState.row_sigs` baseline: it already has the previous and current row signatures in hand, so the bottom-growth test is a cheap prefix comparison — the new grid is the baseline scrolled up by *k* rows (`new[i] == prev[i+k]`). The emit slots into `pusher._push_pane` *before* the delta path. Beyond the shift match, the cursor gate requires the **full cursor tuple unchanged and at the bottom row** (a new `PaneState.last_cursor`), because `append` carries no cursor — emitting one while the cursor moved would strand the client with a stale cursor.
+
+Alt-screen is **not** detected explicitly — `PaneSnapshot` exposes no alt-screen flag. Exact-shift detection is the deliberate conservative substitute: a vim/htop redraw is not a clean full-viewport shift and falls back to `delta`, and a coincidental alt-screen shift is still convergence-correct (the client reaches the same grid a keyframe would produce). So the implemented condition is "exact shift + unchanged cursor", not a literal "no scroll-region/alt-screen" check.
 
 ## Modal-dialog handshakes
 

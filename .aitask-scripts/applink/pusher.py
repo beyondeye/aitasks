@@ -19,6 +19,14 @@ frame or when the delta is not cheaper. ``dim`` (0x05) is sent on resize. The
 ``cursor`` (0x04) encoder is folded into keyframes/deltas; standalone cursor-only
 frames remain deferred so idle panes cost zero binary bytes (detecting cursor-only
 motion would need a per-tick cursor fetch per pane).
+
+Stage 3 (t822_10): before the delta path, ``_push_pane`` tries the ``append``
+(0x03) fast path for log-streaming panes — when the new grid is the baseline
+scrolled up by ``k`` rows with ``k`` brand-new bottom rows
+(:func:`content.detect_append`) and the cursor is unchanged and at the bottom row,
+it sends only the new bottom rows. It falls back to ``delta`` when the shift does
+not hold, the cursor moved, or an appended row carries a hyperlink (``append``
+carries no cursor and no ``osc8`` sidecar).
 """
 from __future__ import annotations
 
@@ -142,7 +150,28 @@ class PushScheduler:
         # not be cheaper than a keyframe.
         emit_keyframe = forced or interval_due or st.row_sigs is None
         sent_keyframe = False
+        sent_append = False
+        bottom_row = dims[1] - 1
         if not emit_keyframe:
+            # Stage 3 (t822_10): try the `append` (0x03) fast path before the delta
+            # path. It applies only when the new grid is the baseline scrolled up by
+            # k with k brand-new bottom rows (detect_append), the cursor is UNCHANGED
+            # from the last sent frame and at the bottom row (append carries no
+            # cursor, so the client keeps the prior one), and no appended row carries
+            # a hyperlink (append carries no osc8 sidecar). Otherwise fall back to a
+            # delta, which carries both the cursor and the osc8 sidecar.
+            k = content.detect_append(st.row_sigs, new_sigs)
+            if (k is not None
+                    and cursor[0] == bottom_row
+                    and st.last_cursor == cursor):
+                appended = parsed[len(parsed) - k:]          # (row_id, spans, urls)
+                if not any(u for _r, _s, urls in appended for u in urls):
+                    append_wire = [[row_id, spans] for row_id, spans, _u in appended]
+                    frame_id = sub.next_frame_id(pane_id)    # bump the monotonic chain
+                    await self._send(content.encode_append(pane_id, frame_id, append_wire))
+                    sent_append = True
+
+        if not emit_keyframe and not sent_append:
             changed_wire, removed, _ns, changed_subset = content.deltify(st.row_sigs, parsed)
             if not changed_wire and not removed:
                 # Whole-pane hash moved but no visible row changed (e.g. a trailing
@@ -179,6 +208,7 @@ class PushScheduler:
         st.row_sigs = new_sigs
         st.last_hash = content_hash
         st.last_dims = dims
+        st.last_cursor = list(cursor)     # full before-cursor for the next tick's append gate
         if sent_keyframe:
             st.last_keyframe_t = now      # any keyframe (forced/interval/cost-fallback) resets drift
         st.last_send_t = now

@@ -178,6 +178,38 @@ d2 = C.encode_delta("%1", 6, 5, [0, 0, False, 0],
 d2dec = msgpack.unpackb(d2[1:], raw=False, strict_map_key=False)
 check("delta includes osc8 when present", len(d2dec) == 6 and d2dec[5] == {0: "z"})
 
+# --- t822_10 append fast path: encode_append + detect_append ---------------
+ap = C.encode_append("%1", 11, [[2, [["new", None, None, 0, 3]]]])
+check("append type tag 0x03", ap[0] == C.FRAME_APPEND)
+apdec = msgpack.unpackb(ap[1:], raw=False)
+check("append fields round-trip [pane,fid,rows]",
+      apdec == ["%1", 11, [[2, [["new", None, None, 0, 3]]]]])
+check("append has no cursor/prev/osc8 (exactly 3 elements)", len(apdec) == 3)
+
+def _sigs(text):
+    return {rid: C.row_signature(spans) for rid, spans, _u in C.parse_snapshot(text)}
+
+# clean scroll-by-1: new == prev shifted up by 1, one brand-new bottom row.
+check("detect_append scroll-by-1 -> 1",
+      C.detect_append(_sigs("a\nb\nc\n"), _sigs("b\nc\nd\n")) == 1)
+# clean scroll-by-2.
+check("detect_append scroll-by-2 -> 2",
+      C.detect_append(_sigs("a\nb\nc\nd\n"), _sigs("c\nd\ne\nf\n")) == 2)
+# repeated lines: smallest matching k is still convergence-safe.
+check("detect_append repeated-line scroll -> 1",
+      C.detect_append(_sigs("a\na\na\n"), _sigs("a\na\nb\n")) == 1)
+# mid-screen edit (only row 1 changed) -> not a shift.
+check("detect_append mid-screen edit -> None",
+      C.detect_append(_sigs("a\nb\nc\n"), _sigs("a\nX\nc\n")) is None)
+# full replacement (no shared row) -> None.
+check("detect_append full replacement -> None",
+      C.detect_append(_sigs("a\nb\n"), _sigs("c\nd\n")) is None)
+# differing row counts -> None.
+check("detect_append differing row counts -> None",
+      C.detect_append(_sigs("a\nb\nc\n"), _sigs("b\nc\n")) is None)
+# None baseline -> None (caller routes the first frame via the keyframe path).
+check("detect_append None baseline -> None", C.detect_append(None, _sigs("a\nb\n")) is None)
+
 # --- Subscription ----------------------------------------------------------
 sub = C.Subscription()
 accepted = sub.apply_subscribe({

@@ -228,6 +228,123 @@ async def main():
     await schedd._run_once()
     check("all-rows-changed -> keyframe (cost fallback)", binaries(wsd)[0][0] == C.FRAME_KEYFRAME)
 
+    # === t822_10 append fast path =========================================
+    # Positional in-test client (rows by viewport position), reconstructed ONLY
+    # from wire bytes and compared to a DIRECT parse of the content. The append
+    # shift semantics (drop k top, append k bottom) are applied by the test
+    # client itself — never copied from a pusher artifact (the t822_9 discipline,
+    # adapted to append).
+    def apply_kf_list(frame):
+        body = msgpack.unpackb(frame[1:], raw=False, strict_map_key=False)
+        return [spans for _rid, spans in body[5]]            # full grid, in order
+    def apply_append_list(buf, frame):
+        body = msgpack.unpackb(frame[1:], raw=False, strict_map_key=False)
+        newrows = [spans for _rid, spans in body[2]]         # append rowlist
+        return buf[len(newrows):] + newrows                  # drop k top, append k bottom
+    def truth_list(text):
+        rows = dict(C.snapshot_to_rows(text)[0])
+        return [rows[i] for i in range(len(rows))]
+
+    # Pane height MUST match the parsed row count or cursor[0] (== 2) never equals
+    # bottom_row (dims[1]-1); detect_append keys off len(new_sigs), the gate off dims.
+    subA = C.Subscription()
+    subA.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000, "cadence_focused_ms": 300})
+    wsA, monA, paneA = FakeWS(), FakeMonitor(), FakePane("%1", height=3)
+    monA.cursor = (2, 0, True, 0)                            # at bottom row 2, col 0
+    monA.snaps["%1"] = FakeSnap(paneA, "a\nb\nc\n")          # exactly 3 parsed rows
+    nA = {"t": 8000.0}
+    schedA = PushScheduler(FakeConn(subA), wsA, monA, clock=lambda: nA["t"])
+
+    # pass 1: subscribe-seeded force -> keyframe; positional client == truth
+    await schedA._run_once()
+    kbA = binaries(wsA)
+    check("append block: first frame is a keyframe", len(kbA) == 1 and kbA[0][0] == C.FRAME_KEYFRAME)
+    buf = apply_kf_list(kbA[0])
+    check("append block: post-keyframe client == direct parse", buf == truth_list("a\nb\nc\n"))
+
+    # pass 2: scroll by 1 (append "d") -> a 0x03 append frame
+    nA["t"] += 2.0; wsA.sent.clear()
+    monA.snaps["%1"] = FakeSnap(paneA, "b\nc\nd\n")
+    await schedA._run_once()
+    abins = binaries(wsA)
+    check("scroll-by-1 -> exactly one binary frame", len(abins) == 1)
+    check("frame is an append (0x03)", abins[0][0] == C.FRAME_APPEND)
+    abody = msgpack.unpackb(abins[0][1:], raw=False, strict_map_key=False)
+    check("append carries no cursor/prev/osc8 (exactly 3 elements)", len(abody) == 3)
+    check("append carries exactly the one new bottom row", [r[0] for r in abody[2]] == [2])
+    buf = apply_append_list(buf, abins[0])
+    check("CONVERGENCE: wire-decoded client == direct content parse after append",
+          buf == truth_list("b\nc\nd\n"))
+
+    # pass 3: scroll again (append "e") -> chains; convergence holds; frame_id monotonic
+    nA["t"] += 2.0; wsA.sent.clear()
+    monA.snaps["%1"] = FakeSnap(paneA, "c\nd\ne\n")
+    await schedA._run_once()
+    a2 = binaries(wsA)[0]
+    check("second scroll -> append again (0x03)", a2[0] == C.FRAME_APPEND)
+    a2body = msgpack.unpackb(a2[1:], raw=False, strict_map_key=False)
+    check("append frame_id monotonic (prev + 1)", a2body[1] == abody[1] + 1)
+    buf = apply_append_list(buf, a2)
+    check("convergence holds after second append", buf == truth_list("c\nd\ne\n"))
+
+    # delta-after-append chains: a mid-screen edit -> a delta whose prev_frame_id
+    # equals the last append's frame_id (the client adopts the append's frame_id
+    # despite append carrying no prev_frame_id of its own).
+    nA["t"] += 2.0; wsA.sent.clear()
+    monA.snaps["%1"] = FakeSnap(paneA, "c\nX\ne\n")
+    await schedA._run_once()
+    dpost = binaries(wsA)[0]
+    check("mid-screen edit after appends -> a delta (0x02), not an append", dpost[0] == C.FRAME_DELTA)
+    dpostbody = msgpack.unpackb(dpost[1:], raw=False, strict_map_key=False)
+    check("delta-after-append chains on the last append's frame_id", dpostbody[2] == a2body[1])
+
+    # cursor moved (same row, different column) -> NOT an append (full-tuple gate).
+    subB = C.Subscription()
+    subB.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000, "cadence_focused_ms": 300})
+    wsB, monB, paneB = FakeWS(), FakeMonitor(), FakePane("%1", height=3)
+    monB.cursor = (2, 0, True, 0)
+    monB.snaps["%1"] = FakeSnap(paneB, "a\nb\nc\n")
+    nB = {"t": 9000.0}
+    schedB = PushScheduler(FakeConn(subB), wsB, monB, clock=lambda: nB["t"])
+    await schedB._run_once()                                 # keyframe seed (last_cursor=[2,0,True,0])
+    nB["t"] += 2.0; wsB.sent.clear()
+    monB.cursor = (2, 5, True, 0)                            # same row, different column
+    monB.snaps["%1"] = FakeSnap(paneB, "b\nc\nd\n")          # a clean scroll
+    await schedB._run_once()
+    check("cursor moved (col) on a scroll -> NOT an append (full cursor-tuple gate)",
+          binaries(wsB)[0][0] != C.FRAME_APPEND)
+
+    # cursor not at the bottom row -> NOT an append (row gate).
+    subC = C.Subscription()
+    subC.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000, "cadence_focused_ms": 300})
+    wsC, monC, paneC = FakeWS(), FakeMonitor(), FakePane("%1", height=3)
+    monC.cursor = (0, 0, True, 0)                            # NOT at bottom row 2
+    monC.snaps["%1"] = FakeSnap(paneC, "a\nb\nc\n")
+    nC = {"t": 9500.0}
+    schedC = PushScheduler(FakeConn(subC), wsC, monC, clock=lambda: nC["t"])
+    await schedC._run_once()
+    nC["t"] += 2.0; wsC.sent.clear()
+    monC.snaps["%1"] = FakeSnap(paneC, "b\nc\nd\n")
+    await schedC._run_once()
+    check("cursor not at bottom on a scroll -> NOT an append (row gate)",
+          binaries(wsC)[0][0] != C.FRAME_APPEND)
+
+    # hyperlink in the appended row -> NOT an append (append has no osc8 sidecar);
+    # the scroll makes every absolute row change, so the fallback is a keyframe.
+    subH = C.Subscription()
+    subH.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000, "cadence_focused_ms": 300})
+    wsH, monH, paneH = FakeWS(), FakeMonitor(), FakePane("%1", height=3)
+    monH.cursor = (2, 0, True, 0)
+    monH.snaps["%1"] = FakeSnap(paneH, "a\nb\nc\n")
+    nH = {"t": 9800.0}
+    schedH = PushScheduler(FakeConn(subH), wsH, monH, clock=lambda: nH["t"])
+    await schedH._run_once()                                 # keyframe seed
+    nH["t"] += 2.0; wsH.sent.clear()
+    monH.snaps["%1"] = FakeSnap(paneH, "b\nc\n\x1b]8;;https://x\x1b\\link\x1b]8;;\x1b\\\n")
+    await schedH._run_once()
+    check("hyperlink in appended row on a scroll -> NOT an append (no osc8)",
+          binaries(wsH)[0][0] != C.FRAME_APPEND)
+
     # --- lifecycle teardown -------------------------------------------------
     sub2 = C.Subscription()
     sub2.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
