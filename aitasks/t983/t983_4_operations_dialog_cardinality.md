@@ -63,3 +63,5 @@ extends it and makes the enable/disable logic pure.
 > **✅ gate:plan_approved** run=2026-06-16T08:01:02Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-16T08:01:03Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-16T08:19:49Z status=pass attempt=1 type=human
