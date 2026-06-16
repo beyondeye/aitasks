@@ -454,3 +454,66 @@ pending-human; NO frontmatter writes; append-only; task-level lock around append
 
 ### Planned mitigations
 - timing: after | name: gate_orchestrator_live_verify | type: manual_verification | priority: medium | effort: medium | addresses: goal-achievement "no concrete verifier exercises the engine until t635_12" | desc: autonomous manual-verification driving the live orchestrator end-to-end against the first real verifier — parallel dispatch, retry-within-budget, the stopping heuristic on a real fail→fix→pass loop, and pending-human observation; coordinate to run after t635_12 lands a concrete verifier.
+
+## Final Implementation Notes
+
+- **Actual work done:** Built the two-layer gate engine exactly as planned.
+  New: `lib/gate_orchestrator.py` (engine), `aitask_run_gates.sh` (wrapper),
+  `aitask_gate_log.sh`, `aitask_gate_fail.sh`, skills `aitask-run-gates` +
+  `aitask-gate-template`, tests `test_gate_orchestrator.sh` (33),
+  `test_gate_orchestrator_registry.py` (25), `test_gate_cli_wiring.sh` (12).
+  Edited: `gate_ledger.py` (registry keys + skip-satisfied), `aitask_gate.sh`
+  (`--only-if-running`), `ait` (gate/gates cases), `gates.yaml` (schema+docs),
+  `aitask-resume` `.md.j2` refit (+goldens), `profile_editor.py`/`fast.yaml`/
+  `profiles.md` (`max_parallel_gates`), whitelists (4 framework touchpoints),
+  t635_15 coordination note. All confirmed design decisions implemented:
+  exit-code-authoritative reconcile, code-surface stopping heuristic
+  (staged+unstaged+untracked), global linear-vs-DAG unlock mode, atomic
+  `--only-if-running`, gate-type-aware exit map, parse-and-shift wrapper args.
+
+- **Deviations from plan:** The two new skills were authored as PLAIN Claude
+  skills (no profile-aware stub + `.md.j2` + goldens) instead of profile-aware
+  stubs, because they have zero profile-varying behavior — matching the
+  established plain-skill pattern (`aitask-shadow`, `aitask-create`) and avoiding
+  the stub/render/goldens overhead for no benefit. Codex/OpenCode ports are
+  filed as follow-up **t635_23** (plain skills do not auto-render). The
+  `aitask-resume` refit remains a `.md.j2` edit (it IS profile-aware) with
+  regenerated goldens. Decision surfaced explicitly at review; approved.
+
+- **Issues encountered:** The new tests caught THREE real engine bugs during
+  development — (1) parallel fan-out was re-chained by an implicit linear edge
+  (fixed: GLOBAL linear-vs-DAG mode, not per-gate); (2) `is_stuck` compared
+  historical fail digests to each other, so it never re-enabled after a code fix
+  (fixed: compare trailing fails against the CURRENT code digest); (3) the
+  fixpoint loop cap `len(declared)+1` cut off legitimate retries (fixed:
+  budget-aware backstop). Also: a gate with an empty `verifier` that was unlocked
+  produced no report (fixed: report non-runnable unlocked gates). The live
+  `.claude/settings.local.json` whitelist edit was blocked by the auto-mode
+  self-modification guard — the 4 framework-artifact touchpoints are done; the
+  user may add the 3 helpers to their live settings.
+
+- **Key decisions:** Verifiers are resolvable COMMANDS (positional args + exit
+  codes), not skills — forced by headless `ait gates run` / autonomous-lane
+  needs. Human gates ship READ-SIDE file-touch detection only (creation →
+  t635_15, coordinated). `verifier:` values stay empty (populated by t635_12/13/
+  19). Stopping-heuristic state lives in the ledger `note=stuckhash:` on the
+  engine-authored running block.
+
+- **Upstream defects identified:** None. (Two PRE-EXISTING, unrelated test
+  failures were surfaced — board-load AttributeError in
+  test_settings_shortcuts_tab.py / test_shortcut_scopes.py, and the
+  task-workflown source-file-list parity drift missing gate-recording.md — but
+  neither seeded a t635_11 symptom; both are filed as follow-up **t1014**.)
+
+- **Notes for sibling tasks:** The orchestrator engine is COMPLETE and the
+  contract is frozen — t635_12 (build/tests), t635_13 (risk), t635_19 (docs)
+  just set a gate's `verifier:` in `gates.yaml` to an `aitask-gate-<name>` (→
+  `.aitask-scripts/aitask_gate_<name>.sh`) honoring the `aitask-gate-template`
+  contract (exit 0/1/2/3; `4`=pending is human-only). The engine handles
+  retries, parallelism, the stopping heuristic, and ledger appends — verifiers
+  must NOT re-implement those. `skip` (exit 2) is terminal-satisfied. Whitelist
+  any new `aitask_gate_<name>.sh`. t635_14 (profile→gate unification) can declare
+  gates per profile; `max_parallel_gates` is already a profile key. t635_15 owns
+  human-signal CREATION only (read-side already done) — see its coordination
+  note. t635_16 (remote projection / Appendix A) is the post-append hook layer,
+  not yet present.
