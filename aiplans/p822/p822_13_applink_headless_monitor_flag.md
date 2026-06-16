@@ -403,3 +403,57 @@ t822_14 pending. Sibling note for **t822_14** (push-scheduler resilience): the
 headless runner is now a second long-lived host for `AppLinkServer` +
 per-connection `PushScheduler` with no Textual event loop babysitting it — any
 scheduler-resilience work must hold under this headless host too.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `applink/headless.py` (NEW): the Textual-free runner. `render_pairing_block`
+    (pure stdout builder, ASCII QR via `segno.make(uri).terminal(buf, border=1)`),
+    `serve()` (profile-validate-first → cert/fingerprint → mint token → start
+    `AppLinkServer` → print pairing block → SIGINT/SIGTERM stop, SIGHUP re-mint +
+    reprint), `main()`/argparse with `--port`/`--profile`/`--no-qr`.
+  - `aitask_monitor.sh`: parse `--headless-for-applink`, applink dep-probe
+    (websockets/msgpack/segno/pyyaml — NOT textual), `exec` `applink/headless.py`
+    with bash-3.2-safe `${fwd[@]+"${fwd[@]}"}` forwarding; normal TUI path
+    untouched.
+  - `monitor_app.py`: registered the flag in argparse so `ait monitor --help`
+    lists it + a defensive guard (direct `python monitor_app.py
+    --headless-for-applink` prints a launcher pointer and exits 2).
+  - `server.py`: `DEFAULT_PORT`/`DEFAULT_PAIR_PROFILE` constants; constructor
+    default now `pair_profile=DEFAULT_PAIR_PROFILE`. `applink_app.py`: imports
+    both from `server` (dedupe, alias keeps `DEFAULT_PROFILE`).
+  - Docs: headless section in `website/content/docs/tuis/applink/how-to.md`.
+  - Tests: `tests/test_applink_headless.sh` (no-Textual import contract, render
+    purity, `--help`, bad-profile **spy** ordering, launcher routing) and
+    `tests/test_applink_headless_live.sh` (no-TTY `setsid` launch → cert-pinned
+    `wss://` pair → real keyframe → SIGHUP reprint → clean SIGTERM).
+- **Deviations from plan:** None of substance. The live test exceeded the
+  plan's "best-effort keyframe" — on this box it created a throwaway repo-cwd
+  tmux session that discovery picked up, so a real `0x01` keyframe was received
+  and asserted (still SKIP-capable if no session/keyframe is available).
+- **Issues encountered:** None. All collaborators were already Textual-free, so
+  the runner assembled cleanly; the spy test confirmed validation precedes any
+  `CertManager`/`SessionTable` construction.
+- **Key decisions:** Separate `headless.py` (never import `applink_app`/
+  `qr_widget`, both Textual) is the only way to honor "skip Textual startup".
+  Profile validation runs before any side effect (token mint / cert gen /
+  socket). Pairing-profile/port defaults centralized in `server.py` (Textual-free
+  single source). Pairing in headless mode = print URL+fingerprint+ASCII QR;
+  SIGHUP = no-TTY "regenerate" (rotates only the unused token, preserves the
+  t822_2 stable-connection-ID invariant).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t822_14 (push-scheduler resilience):** `headless.py` is a second
+    long-lived host for `AppLinkServer` + per-connection `PushScheduler` with no
+    Textual event loop — resilience work must hold here too. The runner installs
+    SIGINT/SIGTERM→stop and SIGHUP→reprint via `loop.add_signal_handler`; a
+    scheduler that needs its own signal/lifecycle hooks should compose with
+    these, not assume a Textual worker context.
+  - **Verification harness reuse:** `tests/test_applink_headless_live.sh` shows
+    a safe pattern for driving the real `wss://` server in a test — free port,
+    cert-pinned client, throwaway repo-cwd tmux session for discovery, signal
+    teardown. Reuse it for any future end-to-end applink server test.
+  - **Real mobile client (`../aitasks_mobile`, cross-repo):** on-device pairing
+    + keyframe rendering against the headless bridge is the Step 8c
+    manual-verification follow-up — same wire contract as the TUI server (no
+    protocol change; headless only changes the host process).
