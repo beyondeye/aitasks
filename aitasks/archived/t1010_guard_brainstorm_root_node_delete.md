@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [brainstorm]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: codex/gpt5_5
 created_at: 2026-06-16 14:22
-updated_at: 2026-06-16 15:32
+updated_at: 2026-06-16 16:16
+completed_at: 2026-06-16 16:16
 ---
 
 ## Problem
