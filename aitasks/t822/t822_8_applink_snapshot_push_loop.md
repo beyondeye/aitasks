@@ -3,10 +3,11 @@ priority: high
 effort: high
 depends: [t822_7]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 10:41
-updated_at: 2026-06-11 10:41
+updated_at: 2026-06-16 09:49
 ---
 
 Implement Stage 1 of the applink data plane: the snapshot push loop that parses `tmux capture-pane -e` output into the row/span schema and emits `keyframe`/`cursor`/`dim` MessagePack frames, driven by `subscribe`/`focus` cadences.
