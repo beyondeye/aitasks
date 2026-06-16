@@ -6,7 +6,7 @@ issue_type: documentation
 status: Ready
 labels: [ait_bridge]
 created_at: 2026-06-11 10:42
-updated_at: 2026-06-16 12:20
+updated_at: 2026-06-16 14:00
 ---
 
 Sync the canonical verb inventory from `aidocs/applink/monitor_port_design.md` back into `aidocs/applink/permissions.md` (verb gating table) and align the shipped `applink_profiles/*.yaml` allowed_verbs lists.
@@ -18,7 +18,7 @@ Seventh §"Deferred follow-up tasks" bullet of `aidocs/applink/monitor_port_desi
 ## Discrepancies to resolve (from monitor_port_design.md §Permission profile cross-check)
 
 - Add `forward_key` (gate: monitor_control) — and update/remove the seed table's interim note telling clients to send literal escape sequences.
-- Add `pick_next_sibling`, `restart_task` (gate: full; flag mobile execution as deferred if still true at pick time).
+- Add `pick_next_sibling`, `restart_task` (gate: full; flag mobile execution as deferred if still true at pick time). **NOTE (t822_11 landed 2026-06-16):** the modal-handshake task already added both verbs to `applink_profiles/full.yaml` **and** to `profiles.py` `DEFAULT_ALLOWED["full"]` (the no-config fallback). So this task only needs to mirror them into `permissions.md`'s gating table — the YAML/fallback alignment for these two is done. Their execution is still deferred (`NOT_IMPLEMENTED`), so keep the "mobile execution deferred" flag.
 - Add `task_detail` (gate: read_only).
 - `rename_session` — add a row only if implemented by then; otherwise keep desktop-only note.
 - Move `kill_pane`'s call-site citation from raw `kill_pane` to `kill_agent_pane_smart`.
