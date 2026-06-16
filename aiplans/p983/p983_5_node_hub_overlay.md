@@ -330,5 +330,103 @@ is by design — `A` is unchanged.
   surface, `NodeActionSelectModal`, `self._selection`) is verified present. ·
   severity: low · → mitigation: n/a
 
+## Post-Review Changes
+
+### Change Request 1 (2026-06-16 12:35)
+- **Requested by user:** In the live `ait brainstorm` TUI, the Node Hub dialog's
+  bottom buttons (Operations / Close) were slightly truncated — only their top
+  border + label rendered, the bottom border was clipped.
+- **Root cause:** `#node_detail_dialog` docks both the `#node_detail_buttons`
+  row (`dock: bottom; height: 3`) and the `Footer` (`dock: bottom; height: 1`)
+  to the dialog bottom; they overlapped by one row, so the footer overdrew the
+  button row's bottom border. Pre-existing in `NodeDetailModal`'s shared CSS;
+  the Hub surfaced it.
+- **Changes made:** Added `margin-bottom: 1` to `#node_detail_buttons`
+  (`BrainstormApp.CSS`) to lift the button row one line above the docked footer.
+  Added a geometry regression test `NodeHubLayoutTests.test_button_row_clears_the_footer`
+  (a CSS-bearing host asserts `buttons.region.bottom <= footer.region.y` at the
+  live 164×43 size and a smaller 120×30). Verified empirically under the real
+  dialog CSS: NO_OVERLAP (buttons rows 34–36, footer row 37).
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`,
+  `tests/test_brainstorm_node_hub.py`.
+- **Result:** full brainstorm suite 544 tests green (was 543 + 1 new layout test).
+
+## Final Implementation Notes
+
+- **Actual work done:** All in `.aitask-scripts/brainstorm/brainstorm_app.py`.
+  Refactored `NodeDetailModal.compose` to source its title + footer buttons from
+  two overridable hooks (`_dialog_title_text`, `_dialog_buttons`) — base output
+  unchanged. Added the typed `NodeHubResult` NamedTuple + `NODE_HUB_OPERATIONS`
+  constant and `NodeHub(NodeDetailModal)`: it inherits the whole Detail surface
+  (Metadata `NodeDetailPanel` + Proposal/minimap/fullscreen/export) and adds an
+  `a` binding + an "Operations" button (`#btn_node_hub_ops`), both dismissing
+  with `NodeHubResult(NODE_HUB_OPERATIONS, node_id)`. Split `action_node_action`
+  into keybinding guards + a shared `_open_operations_dialog(node_id)` (used by
+  both `A` and the Hub) prefaced by the cursor-anchor invariant
+  (`set_primary(node_id)`). Repointed both `Enter` sites
+  (`action_open_node_detail`, `on_dag_display_node_selected`) to push `NodeHub`
+  with the new `_on_node_hub_result` callback. New `tests/test_brainstorm_node_hub.py`
+  (14 tests).
+- **Deviations from plan:** None of substance. One review-driven addition (CR1
+  below): a shared-CSS `margin-bottom: 1` on `#node_detail_buttons` to stop the
+  docked `Footer` overdrawing the button row's bottom border, plus a geometry
+  regression test.
+- **Issues encountered:** (1) The dialog CSS (`#node_detail_dialog` etc.) lives
+  on `BrainstormApp.CSS`, **not** on the modal — so a bare-host pilot does NOT
+  style the Hub. The button-geometry test needs a host that sets
+  `CSS = BrainstormApp.CSS`. (2) `_node_action_op_states` reads
+  `br_graph_state.yaml` via `_read_graph_state`, which raises `FileNotFoundError`
+  when absent — the Operations-launch fixture must write it. (3) Full
+  `BrainstormApp` boot is not a test pattern in this suite; the handler-logic
+  tests use `BrainstormApp.__new__` + stubbed `push_screen`/`notify` (mirroring
+  `test_brainstorm_node_action_modal.py`), and the bare-host pilots cover widget
+  rendering / real key bindings.
+- **Key decisions:** Subclass rather than rename `NodeDetailModal` (keeps the 3
+  existing modal test files green — they construct it directly) or wrap it
+  (nested modals). The Hub→app contract is the typed `NodeHubResult` so
+  t983_6/t983_7 extend it by adding a verb + a `_on_node_hub_result` branch. The
+  cursor-anchor invariant pins the Operations dialog's single-node target to the
+  Hub's node regardless of DAG message ordering, without disturbing a marked set.
+- **Upstream defects identified:** None. (The button/footer truncation fixed in
+  CR1 was latent in `NodeDetailModal`'s own dialog, not a separate module —
+  fixed in-scope via the shared CSS.)
+- **Notes for sibling tasks:**
+  - **t983_6 (wizard re-host) / t983_7 (Compare overlay):** the Node Hub is the
+    second launch surface besides `A`. To add one, add a `NODE_HUB_*` verb +
+    dismiss a `NodeHubResult(<verb>, node_id)` from the Hub, and add a branch to
+    `BrainstormApp._on_node_hub_result`. t983_6 can also drop the dialog→
+    `_actions_show_config` hop in favour of a seeded re-host and pre-seed
+    compare/synthesize from `self._selection.effective()`.
+  - The shared Operations launch path is `BrainstormApp._open_operations_dialog(
+    node_id)` (guards + cardinality/op_states/targets + push). Reuse it; it
+    anchors `self._selection.primary`/`_current_focused_node_id` to `node_id`.
+  - The Detail dialog's title/buttons are now hook-driven
+    (`_dialog_title_text` / `_dialog_buttons` on `NodeDetailModal`) — override
+    them to extend the surface rather than duplicating `compose`.
+  - Test harness for the Hub lives in `tests/test_brainstorm_node_hub.py`
+    (`_make_session` writes `br_graph_state.yaml`; `_bare_app` for handler logic;
+    `_StyledHubHost` with `CSS = BrainstormApp.CSS` for dialog geometry).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-16 12:35)
+- **Requested by user:** In the live `ait brainstorm` TUI, the Node Hub dialog's
+  bottom buttons (Operations / Close) were slightly truncated — only their top
+  border + label rendered, the bottom border was clipped.
+- **Root cause:** `#node_detail_dialog` docks both the `#node_detail_buttons`
+  row (`dock: bottom; height: 3`) and the `Footer` (`dock: bottom; height: 1`)
+  to the dialog bottom; they overlapped by one row, so the footer overdrew the
+  button row's bottom border. Pre-existing in `NodeDetailModal`'s shared CSS;
+  the Hub surfaced it.
+- **Changes made:** Added `margin-bottom: 1` to `#node_detail_buttons`
+  (`BrainstormApp.CSS`) to lift the button row one line above the docked footer.
+  Added a geometry regression test `NodeHubLayoutTests.test_button_row_clears_the_footer`
+  (a CSS-bearing host asserts `buttons.region.bottom <= footer.region.y` at the
+  live 164×43 size and a smaller 120×30). Verified empirically under the real
+  dialog CSS: NO_OVERLAP (buttons rows 34–36, footer row 37).
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`,
+  `tests/test_brainstorm_node_hub.py`.
+- **Result:** full brainstorm suite 544 tests green (was 543 + 1 new layout test).
+
 ## Step 9
 Archive via `./.aitask-scripts/aitask_archive.sh 983_5`.
