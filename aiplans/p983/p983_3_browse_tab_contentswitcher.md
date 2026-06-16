@@ -271,14 +271,14 @@ and merge. Archive via `./.aitask-scripts/aitask_archive.sh 983_3`.
 - **Dual cursor state (`_current_focused_node_id` + `self._selection.primary`)**
   kept in sync by hand creates a temporary implicit contract: a future edit that
   sets one but not the other drifts the selection. Documented debt, to collapse
-  in a later child. · severity: medium · → mitigation: collapse_browse_cursor_state
+  in a later child. · severity: medium · → mitigation: t1003
 - **Best-effort graph marks** may leave list and graph views visually
   inconsistent on marked state until a follow-up. · severity: low · →
-  mitigation: dag_node_mark_rendering
+  mitigation: t1004
 
 ### Planned mitigations
-- timing: after | name: collapse_browse_cursor_state | type: refactor | priority: medium | effort: medium | addresses: dual cursor state (code-health medium) | desc: migrate the 13 `_current_focused_node_id` sites onto `selection.primary` so there is one cursor source of truth; retire the dual-state debt
-- timing: after | name: dag_node_mark_rendering | type: enhancement | priority: low | effort: medium | addresses: best-effort graph marks (code-health low) | desc: render marked state on DAGDisplay nodes so list and graph views show selection marks consistently
+- timing: after | name: t1003 (collapse_browse_cursor_state) | type: refactor | priority: medium | effort: medium | addresses: dual cursor state (code-health medium) | desc: migrate the 13 `_current_focused_node_id` sites onto `selection.primary` so there is one cursor source of truth; retire the dual-state debt
+- timing: after | name: t1004 (dag_node_mark_rendering) | type: enhancement | priority: low | effort: medium | addresses: best-effort graph marks (code-health low) | desc: render marked state on DAGDisplay nodes so list and graph views show selection marks consistently
 
 ### Goal-achievement risk: low
 - Approach is the parent-mandated one (ContentSwitcher + shared panel +

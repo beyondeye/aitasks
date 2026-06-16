@@ -7,10 +7,11 @@ depends: [t983_2]
 issue_type: refactor
 status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
+risk_mitigation_tasks: [1003, 1004]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 11:39
-updated_at: 2026-06-15 18:33
+updated_at: 2026-06-16 08:50
 ---
 
 ## Context
