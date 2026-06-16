@@ -27,11 +27,11 @@ from brainstorm.brainstorm_app import (  # noqa: E402
 
 
 class OpenNodeDetailVisibleTests(unittest.TestCase):
-    def test_visible_only_on_dashboard_with_noderow(self):
-        self.assertTrue(_open_node_detail_visible("tab_dashboard", True))
+    def test_visible_only_on_browse_with_noderow(self):
+        self.assertTrue(_open_node_detail_visible("tab_browse", True))
 
     def test_hidden_when_focus_is_not_noderow(self):
-        self.assertFalse(_open_node_detail_visible("tab_dashboard", False))
+        self.assertFalse(_open_node_detail_visible("tab_browse", False))
 
     def test_hidden_on_other_tabs_regardless_of_focus(self):
         for tab in ("tab_proposal", "tab_compare", "tab_status", ""):

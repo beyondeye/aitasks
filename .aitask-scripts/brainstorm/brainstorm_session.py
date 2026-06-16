@@ -1167,6 +1167,33 @@ def _write_module_deferred(wt: Path, module: str, deferred: bool) -> None:
     write_yaml(str(path), gs)
 
 
+def _read_browse_view(wt: Path) -> str:
+    """Return the persisted Browse view ("graph" | "list"); "graph" by default.
+
+    The Browse-tab graph⇄list toggle (t983_3) persists per session under the
+    ``browse_view`` key of ``br_graph_state.yaml``. Mirrors
+    ``_module_deferred_map`` so all graph-state reads look the same. An absent
+    or unrecognized value falls back to the graph default.
+    """
+    path = wt / GRAPH_STATE_FILE
+    gs = read_yaml(str(path)) if path.exists() else {}
+    view = gs.get("browse_view")
+    return view if view in ("graph", "list") else "graph"
+
+
+def _write_browse_view(wt: Path, view: str) -> None:
+    """Persist the Browse view ("graph" | "list") to ``br_graph_state.yaml``.
+
+    The per-session toggle marker (t983_3) so the chosen view survives a TUI
+    reload. Mirrors ``_write_module_deferred``; an invalid value is coerced to
+    the graph default rather than written through.
+    """
+    path = wt / GRAPH_STATE_FILE
+    gs = read_yaml(str(path)) if path.exists() else {}
+    gs["browse_view"] = view if view in ("graph", "list") else "graph"
+    write_yaml(str(path), gs)
+
+
 def _create_linked_module_task(
     task_num: int | str, module: str, description: str,
 ) -> str:

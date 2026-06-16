@@ -24,6 +24,7 @@ from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     Checkbox,
+    ContentSwitcher,
     DataTable,
     DirectoryTree,
     Footer,
@@ -87,6 +88,8 @@ from brainstorm.brainstorm_op_refs import (
 from brainstorm.polling_indicator import PollingIndicator
 from brainstorm.brainstorm_session import (
     _module_deferred_map,
+    _read_browse_view,
+    _write_browse_view,
     _write_module_deferred,
     archive_session,
     crew_worktree,
@@ -1222,9 +1225,10 @@ class NodeDetailModal(ModalScreen):
 
 
 def _open_node_detail_visible(active_tab: str, focused_is_node_row: bool) -> bool:
-    """check_action helper: Enter Open-detail is shown only when the
-    Dashboard tab is active AND a NodeRow is currently focused."""
-    return active_tab == "tab_dashboard" and focused_is_node_row
+    """check_action helper: Enter Open-detail is shown only when the Browse tab
+    is active AND a NodeRow is currently focused (list view — a NodeRow is only
+    focusable there)."""
+    return active_tab == "tab_browse" and focused_is_node_row
 
 
 def _validate_export_dir(dir_str: str):
@@ -1951,6 +1955,32 @@ class NodeSelection:
         return {self.primary} if self.primary is not None else set()
 
 
+# ---------------------------------------------------------------------------
+# Browse view-state helper (t983_3)
+#
+# Pure, headless model for the Browse tab's graph⇄list toggle (parent t983 IA
+# redesign). Mirrors the wizard step / NodeSelection models: no Textual import,
+# no session-file I/O — the App owns the ContentSwitcher and persistence
+# (brainstorm_session._read_browse_view / _write_browse_view). Graph is the
+# default; the toggle persists per session.
+# ---------------------------------------------------------------------------
+
+BROWSE_DEFAULT_VIEW = "graph"
+BROWSE_VIEWS = ("graph", "list")
+# Map a logical view to the id of the ContentSwitcher child that renders it.
+BROWSE_VIEW_TO_PANE = {"graph": "dag_content", "list": "node_list_pane"}
+BROWSE_PANE_TO_VIEW = {pane: view for view, pane in BROWSE_VIEW_TO_PANE.items()}
+
+
+def browse_toggle_view(current: str) -> str:
+    """Return the other Browse view (graph⇄list).
+
+    Any unrecognized ``current`` flips relative to the default, so a corrupt
+    persisted value still toggles deterministically.
+    """
+    return "list" if current == "graph" else "graph"
+
+
 class CompareNodeSelectModal(ShortcutsMixin, ModalScreen):
     """Modal for selecting 2-4 nodes to compare in the dimension matrix."""
 
@@ -2149,6 +2179,10 @@ class NodeRow(Static):
         Binding("o", "open_operation", "Operation", show=True),
     ]
 
+    # Space-marked state (t983_3): reflects membership in the Browse
+    # NodeSelection.marked set. Reactive so toggling it re-renders the glyph.
+    marked = reactive(False)
+
     class OperationOpened(Message):
         """Emitted when 'o' is pressed on a focused NodeRow."""
 
@@ -2165,7 +2199,11 @@ class NodeRow(Static):
 
     def render(self) -> str:
         head_marker = " [bold green]HEAD[/]" if self.is_head else ""
-        return f"[bold]{self.node_id}[/]{head_marker}  {self.node_description}"
+        mark = "[bold yellow]●[/] " if self.marked else "  "
+        return (
+            f"{mark}[bold]{self.node_id}[/]{head_marker}  "
+            f"{self.node_description}"
+        )
 
     def action_open_operation(self) -> None:
         """Post OperationOpened for this row's generating group (o key)."""
@@ -3131,19 +3169,25 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         padding: 1 2;
     }
 
-    /* Dashboard split pane */
-    #dashboard_split {
+    /* Browse split pane (t983_3): switcher (graph⇄list) | shared detail */
+    #browse_split {
         height: 1fr;
     }
 
-    #node_list_pane {
-        width: 40%;
+    #browse_switcher {
+        width: 60%;
+        height: 1fr;
         border-right: solid $primary;
+    }
+
+    #node_list_pane {
+        width: 1fr;
+        height: 1fr;
         padding: 1 1;
     }
 
-    #detail_pane {
-        width: 60%;
+    #browse_detail_pane {
+        width: 40%;
         padding: 1 2;
     }
 
@@ -3189,38 +3233,20 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         margin-bottom: 2;
     }
 
-    #dash_node_title {
+    #browse_node_title {
         text-style: bold;
         margin-bottom: 1;
     }
 
-    #dash_node_info {
+    #browse_node_info {
         height: auto;
         padding: 0;
     }
 
-    /* Graph tab split pane */
-    #dag_split {
-        height: 1fr;
-    }
-
+    /* Graph view fills the Browse switcher when selected. */
     #dag_content {
-        width: 60%;
-    }
-
-    #dag_detail_pane {
-        width: 40%;
-        padding: 0 1;
-    }
-
-    #dag_node_title {
-        text-style: bold;
-        margin-bottom: 1;
-    }
-
-    #dag_node_info {
-        height: auto;
-        padding: 0;
+        width: 1fr;
+        height: 1fr;
     }
 
     .meta_field {
@@ -3557,8 +3583,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
         *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("q", "quit", "Quit"),
-        Binding("d", "tab_dashboard", "Dashboard", show=False),
-        Binding("g", "tab_graph", "Graph", show=False),
+        Binding("d", "tab_dashboard", "Browse (list)", show=False),
+        Binding("g", "tab_graph", "Browse (graph)", show=False),
+        Binding("v", "browse_toggle_view", "Toggle view", show=False),
+        Binding("space", "browse_mark", "Mark node", show=False),
         Binding("c", "tab_compare", "Compare", show=False),
         Binding("a", "tab_actions", "Actions", show=False),
         Binding("s", "tab_status", "Status", show=False),
@@ -3582,7 +3610,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     _TAB_SCOPED_ACTIONS: dict[str, str] = {
         "compare_regenerate": "tab_compare",
         "compare_diff": "tab_compare",
-        "open_node_detail": "tab_dashboard",
+        "open_node_detail": "tab_browse",
     }
 
     def __init__(self, task_num: str):
@@ -3648,6 +3676,12 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._module_review_accepted: set[str] = set()
         self._module_steer: dict[str, list[str]] = {}
         self._current_focused_node_id: str | None = None
+        # Browse selection model (t983_3). Runs alongside the legacy
+        # `_current_focused_node_id` cursor (kept in sync by
+        # `_show_browse_node_detail`); `space` toggles marks here. The dual
+        # cursor state is documented debt to collapse in a later child
+        # (risk-mitigation `collapse_browse_cursor_state`).
+        self._selection = NodeSelection()
         # Remembered for the lifetime of the app; pre-fills the export modal's
         # directory input so repeated exports default to the previous choice.
         self._last_export_dir: str | None = None
@@ -3676,7 +3710,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 tabbed = self.query_one(TabbedContent)
             except Exception:
                 return None
-            if tabbed.active not in ("tab_dashboard", "tab_dag"):
+            if tabbed.active != "tab_browse":
                 return None
             if not self._current_focused_node_id:
                 return None
@@ -3734,9 +3768,18 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             yield Static("", id="initializer_apply_banner", classes="initializer-banner")
             yield PollingIndicator(id="initializer_polling_indicator")
         with TabbedContent(id="brainstorm_tabs"):
-            with TabPane("(D)ashboard", id="tab_dashboard"):
-                with Horizontal(id="dashboard_split"):
-                    yield VerticalScroll(id="node_list_pane")
+            with TabPane("(B)rowse", id="tab_browse"):
+                with Horizontal(id="browse_split"):
+                    # graph⇄list toggle (t983_3): one ContentSwitcher hosts both
+                    # views; `v` flips `current`. Graph is the default; on_mount
+                    # overrides it from the persisted per-session view.
+                    with ContentSwitcher(
+                        id="browse_switcher", initial="dag_content"
+                    ):
+                        yield VerticalScroll(id="node_list_pane")
+                        yield DAGDisplay(id="dag_content")
+                    # ONE shared detail panel, a persistent sibling of the
+                    # switcher so it survives `v` toggles.
                     yield VerticalScroll(
                         Label("Session Status", id="session_status_title"),
                         Label("Loading...", id="session_status_info"),
@@ -3744,23 +3787,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         Label("", id="module_status_info"),
                         NodeDetailPanel(
                             self.session_path,
-                            title_id="dash_node_title",
-                            info_id="dash_node_info",
-                            id="dash_node_panel",
+                            title_id="browse_node_title",
+                            info_id="browse_node_info",
+                            id="browse_node_panel",
                         ),
-                        id="detail_pane",
-                    )
-            with TabPane("(G)raph", id="tab_dag"):
-                with Horizontal(id="dag_split"):
-                    yield DAGDisplay(id="dag_content")
-                    yield VerticalScroll(
-                        NodeDetailPanel(
-                            self.session_path,
-                            title_id="dag_node_title",
-                            info_id="dag_node_info",
-                            id="dag_node_panel",
-                        ),
-                        id="dag_detail_pane",
+                        id="browse_detail_pane",
                     )
             with TabPane("(C)ompare", id="tab_compare"):
                 yield VerticalScroll(
@@ -3810,20 +3841,25 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         event.prevent_default()
                         event.stop()
                         return
-                # Graph tab: focus the DAGDisplay directly. It manages its
-                # own layer/column navigation via internal bindings.
-                if tabbed.active == "tab_dag":
-                    try:
-                        dag = self.query_one(DAGDisplay)
-                    except Exception:
-                        dag = None
-                    if dag is not None:
-                        dag.focus()
+                # Browse tab: focus depends on the current view. Graph view →
+                # focus the DAGDisplay directly (it manages its own layer/column
+                # navigation). List view → focus the first NodeRow.
+                if tabbed.active == "tab_browse":
+                    if self._browse_current_view() == "graph":
+                        try:
+                            dag = self.query_one(DAGDisplay)
+                        except Exception:
+                            dag = None
+                        if dag is not None:
+                            dag.focus()
+                            event.prevent_default()
+                            event.stop()
+                            return
+                    elif self._navigate_rows(1, "node_list_pane", (NodeRow,)):
                         event.prevent_default()
                         event.stop()
                         return
                 tab_to_container = {
-                    "tab_dashboard": ("node_list_pane", (NodeRow,)),
                     "tab_actions": ("actions_content", (OperationRow,)),
                     "tab_status": ("status_content", (GroupRow, AgentStatusRow, StatusLogRow)),
                 }
@@ -3834,51 +3870,29 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         event.stop()
                         return
 
-        # Up/down: navigate NodeRow items in Dashboard, or DimensionRow items
-        # in the detail pane once focus has moved into it.
-        if event.key in ("up", "down") and tabbed.active == "tab_dashboard":
+        # Up/down on Browse: navigate DimensionRows in the shared detail pane
+        # once focus has moved into it; otherwise, in list view, navigate the
+        # NodeRow list. In graph view with the DAG focused, DAGDisplay's own
+        # up/down bindings drive layer navigation (we don't intercept).
+        if event.key in ("up", "down") and tabbed.active == "tab_browse":
             direction = 1 if event.key == "down" else -1
             if isinstance(self.focused, DimensionRow):
-                if self._navigate_rows(direction, "dash_node_info", (DimensionRow,)):
+                if self._navigate_rows(direction, "browse_node_info", (DimensionRow,)):
                     event.prevent_default()
                     event.stop()
                     return
-            elif self._navigate_rows(direction, "node_list_pane", (NodeRow,)):
-                event.prevent_default()
-                event.stop()
-                return
+            elif self._browse_current_view() == "list":
+                if self._navigate_rows(direction, "node_list_pane", (NodeRow,)):
+                    event.prevent_default()
+                    event.stop()
+                    return
 
-        # Up/down on Graph tab when a DimensionRow in the right pane is
-        # focused: navigate among DimensionRow widgets in #dag_node_info.
-        # When DAGDisplay itself is focused, its own up/down bindings handle
-        # layer navigation (so we don't intercept here).
-        if (
-            event.key in ("up", "down")
-            and tabbed.active == "tab_dag"
-            and isinstance(self.focused, DimensionRow)
-        ):
-            direction = 1 if event.key == "down" else -1
-            if self._navigate_rows(direction, "dag_node_info", (DimensionRow,)):
-                event.prevent_default()
-                event.stop()
-                return
-
-        # Tab / Shift+Tab on Dashboard: toggle focus between the node list (left)
-        # and the dimension list (right). Only fires when there is at least one
-        # DimensionRow in the detail pane (i.e., a node with dimensions is
-        # currently displayed).
-        if event.key in ("tab", "shift+tab") and tabbed.active == "tab_dashboard":
-            if self._dashboard_toggle_pane_focus():
-                event.prevent_default()
-                event.stop()
-                return
-
-        # Tab / Shift+Tab on Graph: toggle focus between DAGDisplay (left)
-        # and the detail pane DimensionRows (right). Only fires when there
-        # is at least one DimensionRow in #dag_node_info, mirroring the
-        # Dashboard behavior.
-        if event.key in ("tab", "shift+tab") and tabbed.active == "tab_dag":
-            if self._graph_toggle_pane_focus():
+        # Tab / Shift+Tab on Browse: toggle focus between the active view (node
+        # list or DAG, depending on the switcher) and the shared detail pane's
+        # DimensionRows. Only fires when there is at least one DimensionRow in
+        # #browse_node_info (i.e., a node with dimensions is displayed).
+        if event.key in ("tab", "shift+tab") and tabbed.active == "tab_browse":
+            if self._browse_toggle_pane_focus():
                 event.prevent_default()
                 event.stop()
                 return
@@ -4131,15 +4145,71 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         raise SkipAction()
 
+    def _set_browse_view(self, view: str) -> None:
+        """Switch the Browse ContentSwitcher to ``view`` ("graph"|"list") and
+        persist the choice per session."""
+        try:
+            switcher = self.query_one("#browse_switcher", ContentSwitcher)
+        except Exception:
+            return
+        switcher.current = BROWSE_VIEW_TO_PANE.get(view, "dag_content")
+        try:
+            _write_browse_view(self.session_path, view)
+        except Exception:
+            pass
+
+    def _browse_current_view(self) -> str:
+        """Return the Browse switcher's current logical view ("graph"|"list")."""
+        try:
+            switcher = self.query_one("#browse_switcher", ContentSwitcher)
+        except Exception:
+            return BROWSE_DEFAULT_VIEW
+        return BROWSE_PANE_TO_VIEW.get(switcher.current, BROWSE_DEFAULT_VIEW)
+
+    def _refresh_node_marks(self) -> None:
+        """Reflect ``self._selection.marked`` on the list-view NodeRow glyphs.
+
+        List-view only (the hard bar for t983_3); the DAG-node marked glyph is
+        a best-effort follow-up (``dag_node_mark_rendering``). NodeRows stay
+        mounted inside the switcher even when the graph view is showing, so a
+        mark made in graph view is visible the moment the list view is shown."""
+        marked = self._selection.marked
+        for row in self.query(NodeRow):
+            row.marked = row.node_id in marked
+
     def action_tab_dashboard(self) -> None:
+        """`d`: select Browse and show the list view (muscle memory)."""
         if isinstance(self.screen, ModalScreen):
             return
-        self.query_one(TabbedContent).active = "tab_dashboard"
+        self.query_one(TabbedContent).active = "tab_browse"
+        self._set_browse_view("list")
 
     def action_tab_graph(self) -> None:
+        """`g`: select Browse and show the graph view (muscle memory)."""
         if isinstance(self.screen, ModalScreen):
             return
-        self.query_one(TabbedContent).active = "tab_dag"
+        self.query_one(TabbedContent).active = "tab_browse"
+        self._set_browse_view("graph")
+
+    def action_browse_toggle_view(self) -> None:
+        """`v`: flip the Browse view graph⇄list and persist it."""
+        if isinstance(self.screen, ModalScreen):
+            return
+        if self.query_one(TabbedContent).active != "tab_browse":
+            return
+        self._set_browse_view(browse_toggle_view(self._browse_current_view()))
+
+    def action_browse_mark(self) -> None:
+        """`space`: toggle the marked state of the primary (cursor) node."""
+        if isinstance(self.screen, ModalScreen):
+            return
+        if self.query_one(TabbedContent).active != "tab_browse":
+            return
+        node_id = self._selection.primary
+        if not node_id:
+            return
+        self._selection.toggle(node_id)
+        self._refresh_node_marks()
 
     def _node_action_op_states(self, node_id: str) -> dict:
         """Compute the disabled/reason map for the node-action picker.
@@ -4183,7 +4253,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if isinstance(self.screen, ModalScreen):
             return
         tabbed = self.query_one(TabbedContent)
-        if tabbed.active not in ("tab_dashboard", "tab_dag"):
+        if tabbed.active != "tab_browse":
             return
         node_id = self._current_focused_node_id
         if not node_id:
@@ -4206,6 +4276,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if node_id not in list_nodes(self.session_path):
             # Node was deleted between focus and keypress.
             self._current_focused_node_id = None
+            self._selection.remove(node_id)
             self.notify(
                 f"Node '{node_id}' no longer exists.", severity="error"
             )
@@ -4230,7 +4301,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if isinstance(self.screen, ModalScreen):
             return
         tabbed = self.query_one(TabbedContent)
-        if tabbed.active not in ("tab_dashboard", "tab_dag"):
+        if tabbed.active != "tab_browse":
             return
         node_id = self._current_focused_node_id
         if not node_id:
@@ -4415,6 +4486,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         deleted = report.get("deleted", [])
         if self._current_focused_node_id in deleted:
             self._current_focused_node_id = None
+        # Keep the Browse selection model coherent: drop every deleted node from
+        # both the marked set and the primary cursor in one call each (t983_3).
+        for nid in deleted:
+            self._selection.remove(nid)
         self.notify(f"Deleted {len(deleted)} node(s).")
         self._load_existing_session()
 
@@ -4521,39 +4596,21 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     # Keyboard navigation helper
     # ------------------------------------------------------------------
 
-    def _dashboard_toggle_pane_focus(self) -> bool:
-        """Tab toggle between the Dashboard's node list and dimension list.
+    def _browse_toggle_pane_focus(self) -> bool:
+        """Tab toggle between the active Browse view and the shared detail pane.
 
-        Returns True if focus was moved (caller should stop the event).
-        Returns False (so default Tab traversal still applies) when the
-        target pane has no focusable rows — e.g. dimension list is empty.
+        Branches on the current switcher view: in list view it toggles between
+        the NodeRow list and the dimension list (the old Dashboard behavior); in
+        graph view it toggles between the DAGDisplay and the dimension list (the
+        old Graph behavior). Returns True if focus was moved (caller should stop
+        the event), False otherwise so default Tab traversal still applies.
         """
         focused = self.focused
-        # Right → left: dimension row → corresponding (or first) node row.
-        if isinstance(focused, DimensionRow):
+        view = self._browse_current_view()
+
+        def _focus_first_dim_row() -> bool:
             try:
-                list_pane = self.query_one("#node_list_pane", VerticalScroll)
-            except Exception:
-                return False
-            node_rows = [
-                w for w in list_pane.children
-                if isinstance(w, NodeRow) and w.can_focus
-            ]
-            if not node_rows:
-                return False
-            target = node_rows[0]
-            if self._current_focused_node_id:
-                for r in node_rows:
-                    if r.node_id == self._current_focused_node_id:
-                        target = r
-                        break
-            target.focus()
-            target.scroll_visible()
-            return True
-        # Left → right: node row → first dimension row (only if any exist).
-        if isinstance(focused, NodeRow):
-            try:
-                container = self.query_one("#dash_node_info")
+                container = self.query_one("#browse_node_info")
             except Exception:
                 return False
             dim_rows = [
@@ -4565,16 +4622,35 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             dim_rows[0].focus()
             dim_rows[0].scroll_visible()
             return True
-        return False
 
-    def _graph_toggle_pane_focus(self) -> bool:
-        """Tab toggle between the Graph tab's DAG (left) and detail pane (right).
+        if view == "list":
+            # Right → left: dimension row → corresponding (or first) node row.
+            if isinstance(focused, DimensionRow):
+                try:
+                    list_pane = self.query_one("#node_list_pane", VerticalScroll)
+                except Exception:
+                    return False
+                node_rows = [
+                    w for w in list_pane.children
+                    if isinstance(w, NodeRow) and w.can_focus
+                ]
+                if not node_rows:
+                    return False
+                target = node_rows[0]
+                if self._current_focused_node_id:
+                    for r in node_rows:
+                        if r.node_id == self._current_focused_node_id:
+                            target = r
+                            break
+                target.focus()
+                target.scroll_visible()
+                return True
+            # Left → right: node row → first dimension row (only if any exist).
+            if isinstance(focused, NodeRow):
+                return _focus_first_dim_row()
+            return False
 
-        Mirrors `_dashboard_toggle_pane_focus`: returns True if focus was
-        moved (caller should stop the event), False otherwise so default
-        Tab traversal still applies.
-        """
-        focused = self.focused
+        # Graph view.
         try:
             dag = self.query_one(DAGDisplay)
         except Exception:
@@ -4585,19 +4661,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return True
         # Left → right: DAGDisplay → first dimension row (only if any exist).
         if focused is dag:
-            try:
-                container = self.query_one("#dag_node_info")
-            except Exception:
-                return False
-            dim_rows = [
-                w for w in container.children
-                if isinstance(w, DimensionRow) and w.can_focus
-            ]
-            if not dim_rows:
-                return False
-            dim_rows[0].focus()
-            dim_rows[0].scroll_visible()
-            return True
+            return _focus_first_dim_row()
         return False
 
     def _navigate_rows(self, direction: int, container_id: str, row_types: tuple) -> bool:
@@ -4790,6 +4854,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._update_module_status()
         self._populate_node_list()
         self.query_one(DAGDisplay).load_dag(self.session_path)
+        # Restore the persisted Browse view (graph default) so the toggle
+        # choice survives a TUI reload (t983_3).
+        try:
+            view = _read_browse_view(self.session_path)
+            self.query_one("#browse_switcher", ContentSwitcher).current = (
+                BROWSE_VIEW_TO_PANE.get(view, "dag_content")
+            )
+        except Exception:
+            pass
         self._actions_show_step1()
         try:
             self.query_one("#status_polling_indicator", PollingIndicator).start()
@@ -5964,32 +6037,42 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             pane.mount(Label("No nodes yet"))
             return
 
+        marked = self._selection.marked
         for nid in nodes:
             node_data = read_node(self.session_path, nid)
             desc = node_data.get("description", "")
             row = NodeRow(nid, desc, is_head=(nid == head))
+            # Reflect the Browse marked set on the freshly-built rows (t983_3),
+            # so marks survive a list rebuild (reload, HEAD change, delete).
+            row.marked = nid in marked
             pane.mount(row)
 
-    def _show_node_detail(self, node_id: str) -> None:
-        """Update the Dashboard right pane with detail for the focused node."""
-        self._current_focused_node_id = node_id
-        self.query_one("#dash_node_panel", NodeDetailPanel).update(node_id)
+    def _show_browse_node_detail(self, node_id: str) -> None:
+        """Update the shared Browse detail panel for the focused node.
 
-    def _show_dag_node_detail(self, node_id: str) -> None:
-        """Update the Graph tab's inline detail pane for the focused DAG node."""
+        Both Browse views feed this one handler: list-view NodeRow focus
+        (``on_descendant_focus``) and graph-view DAG focus
+        (``on_dag_display_focus_changed``). It keeps the legacy
+        ``_current_focused_node_id`` cursor (still read at the legacy sites) and
+        the new ``NodeSelection`` primary cursor in sync until the dual cursor
+        state is collapsed in a later child (t983 risk-mitigation
+        ``collapse_browse_cursor_state``).
+        """
         self._current_focused_node_id = node_id
-        self.query_one("#dag_node_panel", NodeDetailPanel).update(node_id)
+        self._selection.set_primary(node_id)
+        self.query_one("#browse_node_panel", NodeDetailPanel).update(node_id)
 
     def _show_brief_in_detail(self, spec: str) -> None:
         """Show the full initial_spec in the detail pane (press b to toggle)."""
         self._current_focused_node_id = None
+        self._selection.set_primary(None)
         # Truncate for the Static widget; full text is in n000_init proposal
         lines = spec.splitlines()
         if len(lines) > 30:
             preview = "\n".join(lines[:30]) + "\n\n… (truncated — see n000_init proposal for full text)"
         else:
             preview = spec
-        self.query_one("#dash_node_panel", NodeDetailPanel).show_content(
+        self.query_one("#browse_node_panel", NodeDetailPanel).show_content(
             "Task Brief", [Static(preview)])
 
     def on_dimension_row_activated(self, event: DimensionRow.Activated) -> None:
@@ -6026,7 +6109,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def on_descendant_focus(self, event) -> None:
         """When a NodeRow gets focus, update the detail pane. Track wizard node selection."""
         if isinstance(event.widget, NodeRow):
-            self._show_node_detail(event.widget.node_id)
+            self._show_browse_node_detail(event.widget.node_id)
         if isinstance(event.widget, OperationRow):
             tabbed = self.query_one(TabbedContent)
             if tabbed.active == "tab_actions" and self._wizard_step_id == "node_select":
@@ -6089,7 +6172,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self, event: DAGDisplay.CompareRequested
     ) -> None:
         """Render Compare-tab matrix for [anchor, picked] and switch tabs."""
-        # Shift focus off DAGDisplay first: DAGDisplay lives in tab_dag,
+        # Shift focus off DAGDisplay first: DAGDisplay lives in the Browse tab,
         # so if it remains focused while we activate tab_compare, Textual
         # auto-reverts the active tab to keep the focused widget visible
         # (manifests as "Compare flashes, then Graph comes back").
@@ -6120,8 +6203,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def on_dag_display_focus_changed(
         self, event: DAGDisplay.FocusChanged
     ) -> None:
-        """Refresh the Graph tab's inline detail pane on focus change."""
-        self._show_dag_node_detail(event.node_id)
+        """Refresh the shared Browse detail panel on graph focus change."""
+        self._show_browse_node_detail(event.node_id)
 
     @on(DAGDisplay.TopBoundaryHit)
     def on_dag_display_top_boundary_hit(

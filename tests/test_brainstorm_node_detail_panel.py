@@ -258,41 +258,31 @@ class BrainstormAppComposeSmokeTests(unittest.TestCase):
                 pilot = await cm.__aenter__()
                 await pilot.pause()
                 try:
-                    # Both inline panes are now NodeDetailPanel instances...
+                    # t983_3 collapsed the two inline panes into ONE shared
+                    # Browse panel.
                     self.assertIsInstance(
-                        app.query_one("#dash_node_panel", NodeDetailPanel),
-                        NodeDetailPanel,
-                    )
-                    self.assertIsInstance(
-                        app.query_one("#dag_node_panel", NodeDetailPanel),
+                        app.query_one("#browse_node_panel", NodeDetailPanel),
                         NodeDetailPanel,
                     )
 
-                    # Dashboard detail handler drives the panel.
-                    app._show_node_detail("n001_test")
+                    # The merged detail handler drives the shared panel (both
+                    # list-view NodeRow focus and graph-view DAG focus call it).
+                    app._show_browse_node_detail("n001_test")
                     await pilot.pause()
                     self.assertEqual(
-                        _text(app.query_one("#dash_node_title", Label)),
+                        _text(app.query_one("#browse_node_title", Label)),
                         "Node: n001_test",
                     )
                     self.assertTrue(any(
                         isinstance(c, DimensionRow)
-                        for c in app.query_one("#dash_node_info", Container).children
+                        for c in app.query_one("#browse_node_info", Container).children
                     ))
-
-                    # Graph detail handler drives its panel.
-                    app._show_dag_node_detail("n001_test")
-                    await pilot.pause()
-                    self.assertEqual(
-                        _text(app.query_one("#dag_node_title", Label)),
-                        "Node: n001_test",
-                    )
 
                     # Task Brief toggle routes through the panel's public API.
                     app._show_brief_in_detail("brief line 1\nbrief line 2")
                     await pilot.pause()
                     self.assertEqual(
-                        _text(app.query_one("#dash_node_title", Label)),
+                        _text(app.query_one("#browse_node_title", Label)),
                         "Task Brief",
                     )
                     self.assertIsNone(app._current_focused_node_id)

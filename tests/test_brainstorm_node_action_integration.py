@@ -164,7 +164,7 @@ class NodeActionIntegrationTests(unittest.TestCase):
                 await self._settle(pilot, 8)
 
                 self.assertNotIsInstance(app.screen, NodeActionSelectModal)
-                self.assertEqual(tabbed.active, "tab_dag")
+                self.assertEqual(tabbed.active, "tab_browse")
 
         self._run(runner())
 

@@ -29,7 +29,11 @@ import yaml  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.widgets import Button, Label  # noqa: E402
 
-from brainstorm.brainstorm_app import BrainstormApp, DeleteNodeModal  # noqa: E402
+from brainstorm.brainstorm_app import (  # noqa: E402
+    BrainstormApp,
+    DeleteNodeModal,
+    NodeSelection,
+)
 
 
 # --------------------------------------------------------------------------
@@ -162,6 +166,9 @@ class DeleteGuardAndCallbackTests(unittest.TestCase):
     def _app(self):
         app = BrainstormApp.__new__(BrainstormApp)
         app.session_path = self.wt
+        # __init__ is bypassed here; the Browse selection model (t983_3) is
+        # touched by the delete-cascade purge, so provide it explicitly.
+        app._selection = NodeSelection()
         return app
 
     def test_running_agent_on_affected_node_is_a_casualty(self):
