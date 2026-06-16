@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t822_7]
 issue_type: feature
@@ -7,7 +9,7 @@ status: Implementing
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 10:42
-updated_at: 2026-06-16 15:25
+updated_at: 2026-06-16 16:56
 ---
 
 Implement the applink modal-dialog handshake plumbing: the pull-model confirm/prompt/choose round-trips that replace the desktop Textual modals for mobile-issued verbs.
@@ -42,3 +44,8 @@ Correlation is by envelope `id`; gating applies to the underlying verb tier.
 - Scripted client kills a scratch pane only after the second (confirmed) request; the first request alone never kills.
 - `restart_task` on a busy pane returns `not_idle`.
 - `pick_next_sibling` returns a coherent suggestion + ready list for a task family with pending children.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T13:56:01Z status=pass attempt=1 type=human
