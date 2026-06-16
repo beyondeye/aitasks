@@ -53,3 +53,5 @@ overlay (t983_7) a second launch surface besides `A`.
 > **✅ gate:plan_approved** run=2026-06-16T10:05:58Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-16T10:05:59Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-16T11:16:21Z status=pass attempt=1 type=human
