@@ -72,3 +72,5 @@ syncing.
 > **✅ gate:plan_approved** run=2026-06-16T14:26:28Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-16T14:26:29Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-16T14:31:04Z status=pass attempt=1 type=human
