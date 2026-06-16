@@ -20,6 +20,15 @@ archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t635_7
 
+**Run in autonomous mode** (`auto-verification.md` §2a): the checklist builds
+and tears down its own ephemeral in-flight fixtures inline, so no human setup is
+required. This is the live behavioral counterpart to t635_7's static render/unit
+tests — it confirms the gate-aware `aitask-pick` §2.0 section lists in-flight
+tasks with the correct derived state and routes each pick to the matching
+`task-workflow` step (Check 5 resume / Check 4 archival). For the POSTIMPL case,
+assert the route reaches Step 9's NON-SKIPPABLE merge approval and then abort —
+do not complete destructive steps.
+
 ## Verification Checklist
 
 - [ ] Setup: build ephemeral in-flight fixtures (do NOT commit) — create throwaway tasks via aitask_create.sh --batch, set each to status Implementing (aitask_update.sh --batch <id> --status Implementing), and populate the ## Gate Runs ledger with aitask_gate.sh append to land each resume stage: PLAN (no gate runs), IMPLEMENT (plan_approved pass), POSTIMPL (plan_approved + review_approved pass). Create at least one parent fixture and one child fixture.

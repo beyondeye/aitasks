@@ -184,11 +184,11 @@ siblings (with bidirectional `./ait git` links per the coordination convention):
   include (parent + child) and exclude (no-ledger Implementing, Ready+ledger).
 - Live **routing** correctness (does picking an in-flight task actually resume at
   the right step?) runs through a live task-workflow hand-off — unprovable by
-  render/unit tests · severity: medium · → mitigation: verify_inflight_pick_routing
-  (committed 'after' manual-verification task — see Planned mitigations).
+  render/unit tests · severity: medium · → mitigation: t1005
+  (verify_inflight_pick_routing — committed 'after' manual-verification task).
 
 ### Planned mitigations
-- timing: after | name: verify_inflight_pick_routing | type: manual_verification | priority: high | effort: low | addresses: goal-achievement (live pick→resume routing) | desc: autonomous MV driving /aitask-pick against ephemeral in-flight fixtures (parent + child × ALL_PASS/POSTIMPL/IMPLEMENT/PLAN), asserting the in-flight section lists them with correct derived state and routes each to the matching task-workflow step (Check 5 resume / Check 4 archival), then tears the fixtures down (clean git status). Created post-implementation via `aitask_create_manual_verification.sh` (seeded checklist), recorded in the original's `risk_mitigation_tasks`.
+- timing: after | name: verify_inflight_pick_routing | task: t1005 | type: manual_verification | priority: high | effort: low | addresses: goal-achievement (live pick→resume routing) | desc: autonomous MV driving /aitask-pick against ephemeral in-flight fixtures (parent + child × ALL_PASS/POSTIMPL/IMPLEMENT/PLAN), asserting the in-flight section lists them with correct derived state and routes each to the matching task-workflow step (Check 5 resume / Check 4 archival), then tears the fixtures down (clean git status). Created post-implementation via `aitask_create_manual_verification.sh` (seeded checklist), recorded in the original's `risk_mitigation_tasks`.
 
 ## Verification
 
