@@ -66,3 +66,5 @@ panel + selection model, plus a pure view-state helper.
 > **✅ gate:plan_approved** run=2026-06-15T15:33:05Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-15T15:33:06Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-16T05:49:18Z status=pass attempt=1 type=human
