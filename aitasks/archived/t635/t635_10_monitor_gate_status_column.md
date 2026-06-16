@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: [t635_8]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [gates, aitask_monitor, tui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:54
-updated_at: 2026-06-16 16:37
+updated_at: 2026-06-16 16:56
+completed_at: 2026-06-16 16:56
 ---
 
 ## Context
