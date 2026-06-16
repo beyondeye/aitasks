@@ -344,3 +344,56 @@ over the delta's own rows array; on `prev_frame_id` mismatch send `request_keyfr
 **Sibling note (t822_10 append):** extends the same `_push_pane` selection branch —
 `append` (0x03) slots in *before* the delta path on bottom-growth detection; the
 per-connection `row_sigs` / `changed_subset` / `removed` machinery is reusable.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented Stage 2 of the applink data plane as planned, in
+  the confirmed per-connection `content.py` shape.
+  - `applink/content.py`: `encode_delta` (0x02 = 1 raw type byte + msgpack
+    `[pane_id, frame_id, prev_frame_id, cursor, row_list, osc8?]`); parser split
+    into `parse_snapshot` (retains per-span urls), `build_osc8` (row-major offsets
+    over *any* row list — full grid or a delta subset), `row_signature`
+    (in-process-stable per-row hash); `deltify` (changed-row collection + `removed`
+    ids, with an `assert prev_sigs is not None` baseline guard); `snapshot_to_rows`
+    kept byte-for-byte identical (thin wrapper); `PaneState.row_sigs` per-connection
+    baseline.
+  - `applink/pusher.py`: `_push_pane` selects delta-vs-keyframe — keyframe on
+    first/forced/keyframe-interval, else a delta; `prev_frame_id = st.frame_id`
+    before the bump (linear chain); a single-encode **row-count cost proxy**
+    (`changed + removed >= total_rows → keyframe`) avoids a double encode per tick;
+    `removed` rows emitted as `[row_id, []]`; `request_keyframe` recovery + resize
+    both route through the keyframe path, resetting `row_sigs`.
+  - Docs: pinned the delta `osc8` offset basis (subset-relative) + the
+    empty-spans-clears-row convention in `content_transport.md` §delta; corrected
+    `monitor_port_design.md` §Deltification + §Append to the per-connection
+    `content.py` placement *with rationale*; corrected the t822_9 AC and added a
+    cross-repo contract note to t822_12.
+- **Deviations from plan:** None of substance. Original task wording named
+  `monitor_core` / a "single shared hash cache"; the confirmed decision (and AC
+  correction) is per-connection state in `content.py` (the diff baseline is
+  irreducibly per-client). Cost comparison is a row-count proxy, not a byte-accurate
+  double encode — deliberate and conservative (never a delta when a keyframe is
+  smaller; may over-keyframe on dense terminals; documented escape hatch is a
+  byte-accurate compare).
+- **Issues encountered:** None. Existing tests passed unchanged after the
+  `snapshot_to_rows` refactor (regression-guarded); `msgpack` stays lazily imported.
+- **Key decisions:** Per-connection deltifier in `content.py`; the convergence test
+  reconstructs the client buffer **from decoded wire bytes** and compares to a
+  *direct parse of the content* (not a second pusher-produced keyframe), so a
+  systematic encode/threading/order bug cannot pass by corrupting both sides
+  identically; standalone `cursor` (0x04) frames remain folded into
+  keyframes/deltas (carried-forward t822_8 limitation).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t822_10 (append):** emit `append` (0x03) *before* the delta path when the
+    change is pure bottom-growth (cursor at bottom before+after, no upper rows
+    changed, no alt-screen). The per-connection `PaneState.row_sigs` baseline plus
+    `deltify`'s `changed_subset` / `removed` are reusable for the bottom-growth test;
+    `FRAME_APPEND = 0x03` is reserved in `content.py`; `append` carries no
+    `prev_frame_id`.
+  - **Mobile (`aitasks_mobile`):** `delta` decode =
+    `[0x02][msgpack([pane_id, frame_id, prev_frame_id, cursor, rows, osc8?])]`;
+    unlisted rows retain prior content; `[row_id, []]` clears a row; `osc8` offsets
+    are row-major over the delta's **own** rows array (allow int map keys); on
+    `prev_frame_id` mismatch send `request_keyframe`. Both conventions are now pinned
+    in `content_transport.md` §delta and flagged in t822_12.
