@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t983_6, t983_8]
 issue_type: refactor
 status: Ready
 labels: [brainstorming, tui, ait_brainstorm]
