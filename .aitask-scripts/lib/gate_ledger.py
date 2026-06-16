@@ -36,6 +36,7 @@ Supported append keys (anything else is ignored with a warning):
 from __future__ import annotations
 
 import datetime
+from dataclasses import dataclass, field
 import os
 import re
 import sys
@@ -58,7 +59,9 @@ ICONS = {
 
 # Marker line: "> **<icon> gate:<name>** key=val key=val ..."
 MARKER_RE = re.compile(r"^>\s*\*\*(\S+)\s+gate:([A-Za-z0-9_]+)\*\*(.*)$")
+MARKER_SEARCH_RE = re.compile(r"(?m)^>\s*\*\*\S+\s+gate:[A-Za-z0-9_]+\*\*")
 KV_RE = re.compile(r"(\w+)=(\S+)")
+BODY_FIELD_RE = re.compile(r"^>\s*([^:>\n][^:\n]*):\s*(.*?)\s*$")
 
 # Keys that live on the marker line, in this fixed order.
 MARKER_KEYS = ("run", "status", "attempt", "duration", "type")
@@ -73,12 +76,134 @@ BODY_KEYS = (
 SUPPORTED_KEYS = set(MARKER_KEYS) | {k for k, _, _ in BODY_KEYS}
 
 
+@dataclass(frozen=True)
+class GateRun:
+    """One parsed gate-run marker block."""
+
+    name: str
+    icon: str
+    fields: dict[str, str]
+    body_fields: dict[str, str] = field(default_factory=dict)
+    line_number: int = 0
+    raw_marker: str = ""
+    raw_body_lines: tuple[str, ...] = ()
+
+    @property
+    def status(self) -> str:
+        return self.fields.get("status", "?")
+
+    @property
+    def run_id(self) -> str:
+        return self.fields.get("run", "")
+
+    @property
+    def attempt(self) -> str:
+        return self.fields.get("attempt", "")
+
+    def as_legacy_dict(self) -> dict:
+        """Return the historical dict shape used by existing call sites."""
+        out = {"name": self.name, "icon": self.icon}
+        out.update(self.fields)
+        return out
+
+
+@dataclass(frozen=True)
+class TaskGateState:
+    """Structured gate state for TUI consumers."""
+
+    task_file: str
+    declared_gates: list[str]
+    runs: list[GateRun]
+    current: dict[str, GateRun]
+    status_text: str
+    archive_decision: str
+    archive_pending: list[str]
+    dependents_decision: str
+    dependents_pending: list[str]
+    resume_point: str
+
+
+def _normalize_body_key(label: str) -> str:
+    """Normalize a rendered blockquote label to a stable dict key."""
+    return re.sub(r"[^A-Za-z0-9]+", "_", label.strip().lower()).strip("_")
+
+
+def _strip_wrapping_backticks(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == "`" and value[-1] == "`":
+        return value[1:-1]
+    return value
+
+
 def iso_now() -> str:
     """Current UTC timestamp as ISO-8601-Z (second precision)."""
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # --- Parsing / derivation -------------------------------------------------
+
+def has_gate_markers(text: str) -> bool:
+    """Cheap prefilter for task files that contain gate-run markers."""
+    return bool(MARKER_SEARCH_RE.search(text))
+
+
+def parse_gate_run_blocks(text: str) -> list[GateRun]:
+    """Return every gate-run marker block in file order.
+
+    This is the structured parser for Python consumers. It keeps the marker
+    metadata and body summary fields together, while preserving the historical
+    marker-only behavior through :func:`parse_gate_runs`.
+    """
+    runs: list[GateRun] = []
+    lines = text.splitlines()
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
+        m = MARKER_RE.match(line)
+        if not m:
+            idx += 1
+            continue
+
+        marker_line_number = idx + 1
+        raw_body: list[str] = []
+        body_fields: dict[str, str] = {}
+        idx += 1
+        while idx < len(lines):
+            nxt = lines[idx]
+            if MARKER_RE.match(nxt) or re.match(r"^##\s+", nxt):
+                break
+            if nxt.startswith(">"):
+                raw_body.append(nxt)
+                bm = BODY_FIELD_RE.match(nxt)
+                if bm:
+                    key = _normalize_body_key(bm.group(1))
+                    if key:
+                        body_fields[key] = _strip_wrapping_backticks(bm.group(2))
+                idx += 1
+                continue
+            if not nxt.strip():
+                idx += 1
+                continue
+            break
+
+        runs.append(GateRun(
+            name=m.group(2),
+            icon=m.group(1),
+            fields=dict(KV_RE.findall(m.group(3))),
+            body_fields=body_fields,
+            line_number=marker_line_number,
+            raw_marker=line,
+            raw_body_lines=tuple(raw_body),
+        ))
+    return runs
+
+
+def derive_gate_runs(text: str) -> dict[str, GateRun]:
+    """Map gate name -> current structured run (last marker wins)."""
+    current: dict[str, GateRun] = {}
+    for run in parse_gate_run_blocks(text):
+        current[run.name] = run
+    return current
 
 def parse_gate_runs(text: str) -> list[dict]:
     """Return every gate-run marker in file order as a list of dicts.
@@ -89,23 +214,12 @@ def parse_gate_runs(text: str) -> list[dict]:
     does not appear in ordinary task prose — so a missing/renamed section header
     never loses runs.
     """
-    runs: list[dict] = []
-    for line in text.splitlines():
-        m = MARKER_RE.match(line)
-        if not m:
-            continue
-        run = {"name": m.group(2), "icon": m.group(1)}
-        run.update(dict(KV_RE.findall(m.group(3))))
-        runs.append(run)
-    return runs
+    return [run.as_legacy_dict() for run in parse_gate_run_blocks(text)]
 
 
 def derive_status(text: str) -> dict[str, dict]:
     """Map gate name -> its current run (the last marker in file order wins)."""
-    current: dict[str, dict] = {}
-    for run in parse_gate_runs(text):
-        current[run["name"]] = run
-    return current
+    return {name: run.as_legacy_dict() for name, run in derive_gate_runs(text).items()}
 
 
 def _format_status_line(name: str, run: dict) -> str:
@@ -121,16 +235,20 @@ def _format_status_line(name: str, run: dict) -> str:
     return f"{name}: {status}{suffix}"
 
 
+def _format_gate_run_status_line(name: str, run: GateRun) -> str:
+    return _format_status_line(name, run.as_legacy_dict())
+
+
 def format_status(text: str) -> str:
     """Render derived state, one gate per line, in first-seen order."""
     order: list[str] = []
     seen: set[str] = set()
-    for run in parse_gate_runs(text):
-        if run["name"] not in seen:
-            seen.add(run["name"])
-            order.append(run["name"])
-    current = derive_status(text)
-    return "\n".join(_format_status_line(n, current[n]) for n in order)
+    for run in parse_gate_run_blocks(text):
+        if run.name not in seen:
+            seen.add(run.name)
+            order.append(run.name)
+    current = derive_gate_runs(text)
+    return "\n".join(_format_gate_run_status_line(n, current[n]) for n in order)
 
 
 # --- Append ---------------------------------------------------------------
@@ -207,16 +325,18 @@ def _atomic_write(path: str, content: str) -> None:
 
 # --- Registry (minimal, stdlib-only 2-level parse) ------------------------
 
-def _read_frontmatter_list(task_file: str, field: str) -> list[str]:
-    """Read a frontmatter list ``field`` (inline ``[a, b]`` or block ``- a``).
+def _frontmatter_text(text: str) -> str:
+    m = re.match(r"(?s)\A---\n(.*?)\n---\n", text)
+    return m.group(1) if m else text
+
+
+def _read_frontmatter_list_from_text(text: str, field: str) -> list[str]:
+    """Read a frontmatter list ``field`` from raw task text.
 
     Returns ``[]`` when the field is absent or empty. Used for both ``gates:``
     and ``also_blocks_dependents:`` (t635_3).
     """
-    with open(task_file, encoding="utf-8") as fh:
-        text = fh.read()
-    m = re.match(r"(?s)\A---\n(.*?)\n---\n", text)
-    fm = m.group(1) if m else text
+    fm = _frontmatter_text(text)
     # Inline: field: [a, b]
     inline = re.search(rf"(?m)^{re.escape(field)}:\s*\[(.*?)\]\s*$", fm)
     if inline:
@@ -229,9 +349,20 @@ def _read_frontmatter_list(task_file: str, field: str) -> list[str]:
     return []
 
 
+def _read_frontmatter_list(task_file: str, field: str) -> list[str]:
+    """Read a frontmatter list ``field`` (inline ``[a, b]`` or block ``- a``)."""
+    with open(task_file, encoding="utf-8") as fh:
+        return _read_frontmatter_list_from_text(fh.read(), field)
+
+
 def read_declared_gates(task_file: str) -> list[str]:
     """Read the task's ``gates:`` frontmatter list (inline or block style)."""
     return _read_frontmatter_list(task_file, "gates")
+
+
+def read_declared_gates_from_text(text: str) -> list[str]:
+    """Read the task's ``gates:`` frontmatter list from raw task text."""
+    return _read_frontmatter_list_from_text(text, "gates")
 
 
 def _truthy(value: str) -> bool:
@@ -322,6 +453,16 @@ def required_unblock_gates(declared: list[str], also: list[str],
     return req
 
 
+def _dependents_status_from_state(declared: list[str], also: list[str],
+                                  registry: dict[str, dict],
+                                  state: dict[str, GateRun]) -> tuple[str, list[str]]:
+    required = required_unblock_gates(declared, also, registry)
+    if not required:
+        return ("NO_GATES", [])
+    pending = [g for g in required if (state.get(g).status if state.get(g) else None) != "pass"]
+    return ("BLOCKED", pending) if pending else ("SATISFIED", [])
+
+
 def dependents_status(task_file: str, registry_file: str | None) -> tuple[str, list[str]]:
     """Decide whether ``task_file`` releases its dependents.
 
@@ -333,19 +474,23 @@ def dependents_status(task_file: str, registry_file: str | None) -> tuple[str, l
         dependents may proceed even while non-required gates still pend.
       - ``("BLOCKED", pending)`` — one or more required gates are not ``pass``.
     """
-    declared = read_declared_gates(task_file)
-    also = _read_frontmatter_list(task_file, "also_blocks_dependents")
-    registry = read_registry(registry_file) if registry_file else {}
-    required = required_unblock_gates(declared, also, registry)
-    if not required:
-        return ("NO_GATES", [])
     with open(task_file, encoding="utf-8") as fh:
-        state = derive_status(fh.read())
-    pending = [g for g in required if state.get(g, {}).get("status") != "pass"]
-    return ("BLOCKED", pending) if pending else ("SATISFIED", [])
+        text = fh.read()
+    declared = read_declared_gates_from_text(text)
+    also = _read_frontmatter_list_from_text(text, "also_blocks_dependents")
+    registry = read_registry(registry_file) if registry_file else {}
+    return _dependents_status_from_state(declared, also, registry, derive_gate_runs(text))
 
 
 # --- Gate-guarded archival decision (t635_4) ------------------------------
+
+def _archive_status_from_state(declared: list[str],
+                               state: dict[str, GateRun]) -> tuple[str, list[str]]:
+    if not declared:
+        return ("NO_GATES", [])
+    nonpass = [g for g in declared if (state.get(g).status if state.get(g) else None) != "pass"]
+    return ("BLOCKED", nonpass) if nonpass else ("ALL_PASS", [])
+
 
 def archive_status(task_file: str) -> tuple[str, list[str]]:
     """Decide whether ``task_file`` may archive (D5: every declared gate pass).
@@ -360,13 +505,9 @@ def archive_status(task_file: str) -> tuple[str, list[str]]:
       - ``("ALL_PASS", [])``   — every declared gate has derived status ``pass``.
       - ``("BLOCKED", nonpass)`` — one or more declared gates are not ``pass``.
     """
-    declared = read_declared_gates(task_file)
-    if not declared:
-        return ("NO_GATES", [])
     with open(task_file, encoding="utf-8") as fh:
-        state = derive_status(fh.read())
-    nonpass = [g for g in declared if state.get(g, {}).get("status") != "pass"]
-    return ("BLOCKED", nonpass) if nonpass else ("ALL_PASS", [])
+        text = fh.read()
+    return _archive_status_from_state(read_declared_gates_from_text(text), derive_gate_runs(text))
 
 
 # --- Ledger-driven re-entry decision (t635_5) -----------------------------
@@ -390,16 +531,53 @@ def resume_point(task_file: str) -> str:
         (merge / build / archive pending).
     """
     with open(task_file, encoding="utf-8") as fh:
-        state = derive_status(fh.read())
+        state = derive_gate_runs(fh.read())
+    return _resume_point_from_state(state)
 
+
+def _resume_point_from_state(state: dict[str, GateRun]) -> str:
     def passed(gate: str) -> bool:
-        return state.get(gate, {}).get("status") == "pass"
+        run = state.get(gate)
+        return run is not None and run.status == "pass"
 
     if not passed("plan_approved"):
         return "PLAN"
     if not passed("review_approved"):
         return "IMPLEMENT"
     return "POSTIMPL"
+
+
+def read_task_gate_state(task_file: str, registry_file: str | None = None) -> TaskGateState:
+    """Read a task file once and derive all gate state needed by TUIs."""
+    with open(task_file, encoding="utf-8") as fh:
+        text = fh.read()
+    runs = parse_gate_run_blocks(text)
+    current: dict[str, GateRun] = {}
+    for run in runs:
+        current[run.name] = run
+    declared = read_declared_gates_from_text(text)
+    also = _read_frontmatter_list_from_text(text, "also_blocks_dependents")
+    registry = read_registry(registry_file) if registry_file else {}
+    archive_decision, archive_pending = _archive_status_from_state(declared, current)
+    dep_decision, dep_pending = _dependents_status_from_state(declared, also, registry, current)
+    order: list[str] = []
+    seen: set[str] = set()
+    for run in runs:
+        if run.name not in seen:
+            seen.add(run.name)
+            order.append(run.name)
+    return TaskGateState(
+        task_file=task_file,
+        declared_gates=declared,
+        runs=runs,
+        current=current,
+        status_text="\n".join(_format_gate_run_status_line(n, current[n]) for n in order),
+        archive_decision=archive_decision,
+        archive_pending=archive_pending,
+        dependents_decision=dep_decision,
+        dependents_pending=dep_pending,
+        resume_point=_resume_point_from_state(current),
+    )
 
 
 # --- CLI ------------------------------------------------------------------
