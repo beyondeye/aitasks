@@ -247,6 +247,61 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
     .hidden {
         display: none;
     }
+
+    /* Narrow variant (minimonitor companion pane, ~40 cols): the default
+       80%-wide dialog with horizontal rows overflows. Widen the dialog, trim
+       chrome, and stack every horizontal row vertically so labels sit above
+       their controls and buttons span the full width. Mirrors the narrow mode
+       of NextSiblingDialog/ChooseSiblingModal in monitor_shared.py. */
+    AgentCommandScreen.narrow #agent_cmd_dialog {
+        width: 100%;
+        min-width: 30;
+        padding: 0 1;
+        border: round $accent;
+    }
+    AgentCommandScreen.narrow #agent_cmd_tabs {
+        max-height: 1fr;
+    }
+    AgentCommandScreen.narrow #agent_row,
+    AgentCommandScreen.narrow #profile_row,
+    AgentCommandScreen.narrow .agent-cmd-copy-row,
+    AgentCommandScreen.narrow .agent-cmd-buttons {
+        layout: vertical;
+        height: auto;
+        align: left top;
+    }
+    AgentCommandScreen.narrow #agent_row Button,
+    AgentCommandScreen.narrow #profile_row Button,
+    AgentCommandScreen.narrow .agent-cmd-copy-row Button,
+    AgentCommandScreen.narrow .agent-cmd-buttons Button {
+        width: 1fr;
+        margin: 0 0 1 0;
+    }
+    AgentCommandScreen.narrow #agent_cmd_prompt_label {
+        width: 1fr;
+        height: auto;
+    }
+    AgentCommandScreen.narrow .tmux-field-row,
+    AgentCommandScreen.narrow #tmux_new_session_row,
+    AgentCommandScreen.narrow #tmux_new_window_row,
+    AgentCommandScreen.narrow #tmux_split_row {
+        layout: vertical;
+        height: auto;
+    }
+    AgentCommandScreen.narrow .tmux-field-row Label,
+    AgentCommandScreen.narrow #tmux_new_session_row Label,
+    AgentCommandScreen.narrow #tmux_new_window_row Label,
+    AgentCommandScreen.narrow #tmux_split_row Label {
+        width: auto;
+        height: 1;
+    }
+    AgentCommandScreen.narrow .tmux-field-row Select,
+    AgentCommandScreen.narrow .tmux-field-row Input,
+    AgentCommandScreen.narrow #tmux_new_session_input,
+    AgentCommandScreen.narrow #tmux_new_window_input,
+    AgentCommandScreen.narrow #tmux_split_row Button {
+        width: 1fr;
+    }
     """
 
     AUTO_FOCUS = ""
@@ -288,6 +343,7 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
         default_tmux_window: str | None = None,
         skill_name: str | None = None,
         default_profile: str | None = None,
+        narrow: bool = False,
     ):
         super().__init__()
         self.title_text = title
@@ -313,9 +369,14 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
         self.default_profile = default_profile
         self.current_profile_name: str | None = default_profile
         self._profile_override_name: str | None = None
+        # Narrow layout for the minimonitor companion pane (~40 cols). When set,
+        # compose() adds the `narrow` CSS class that stacks rows vertically.
+        self._narrow = narrow
         _prune_stale_skillrun_overrides()
 
     def compose(self):
+        if self._narrow:
+            self.add_class("narrow")
         with Container(id="agent_cmd_dialog"):
             yield Label(self.title_text, id="agent_cmd_title")
             if self.skill_name:

@@ -932,6 +932,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             default_agent_string=agent_string,
             skill_name="pick",
             default_profile=resolve_skill_profile("pick", target_root),
+            narrow=True,
         )
 
         def on_pick_result(pick_result):
