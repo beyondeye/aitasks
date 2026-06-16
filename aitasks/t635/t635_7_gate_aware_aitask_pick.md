@@ -77,3 +77,5 @@ in-flight pick section must drive is already implemented in task-workflow —
 > **✅ gate:plan_approved** run=2026-06-16T07:18:15Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-16T07:18:16Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-16T07:26:38Z status=pass attempt=1 type=human
