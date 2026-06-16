@@ -14,6 +14,31 @@ description: "Pairing a mobile device with ait applink"
 4. The companion app decodes the URI and (once the transport lands) opens a
    TLS WebSocket back to the host using the pinned certificate fingerprint.
 
+## Run the bridge headless (unattended host)
+
+On a host nobody is watching, run the bridge without the TUI:
+
+```
+ait monitor --headless-for-applink [--port N] [--profile <name>] [--no-qr]
+```
+
+This skips the terminal UI entirely and serves only the applink listener
+(control plane + screen push loop). At startup it prints the pairing URL, the
+certificate fingerprint, and an ASCII QR to standard output — scan the QR (or
+open the URL) with the companion app exactly as you would from the Pairing
+screen. Pass `--no-qr` to print just the URL and fingerprint (handy when
+redirecting output to a log file). `--profile` sets the permission profile
+assigned to a newly paired device (default `monitor_control`).
+
+Because there is no keyboard, control the running bridge with signals:
+
+- **SIGHUP** — mint a fresh pairing token and reprint the block (the headless
+  equivalent of pressing **r**). Already-paired devices keep their bearer.
+- **SIGINT** / **SIGTERM** — stop the bridge cleanly.
+
+Paired devices are persisted, so they survive a restart and resume
+automatically.
+
 ## Regenerate the token
 
 Press **r** on the Pairing screen. A new 256-bit token is drawn and the QR

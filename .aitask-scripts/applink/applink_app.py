@@ -40,13 +40,14 @@ from paths import profiles_dir, sessions_dir  # noqa: E402
 from sessions import SessionTable  # noqa: E402
 from profiles import ProfileGate  # noqa: E402
 from tls import CertManager  # noqa: E402
-from server import AppLinkServer  # noqa: E402
-
-
-DEFAULT_PORT = 8765
-# v1 default permission profile assigned to a paired device. A richer QR-time
-# profile selector in the TUI is a noted follow-up.
-DEFAULT_PROFILE = "monitor_control"
+# Pairing-profile/port defaults live in server.py (the Textual-free single
+# source of truth shared with the headless runner). A richer QR-time profile
+# selector in the TUI is a noted follow-up.
+from server import (  # noqa: E402
+    AppLinkServer,
+    DEFAULT_PORT,
+    DEFAULT_PAIR_PROFILE as DEFAULT_PROFILE,
+)
 
 
 def _hostname() -> str:

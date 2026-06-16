@@ -1846,7 +1846,24 @@ def main() -> None:
     parser.add_argument("--session", "-s", default=None, help="tmux session name")
     parser.add_argument("--interval", "-i", type=int, default=None, help="refresh interval in seconds")
     parser.add_argument("--lines", "-n", type=int, default=None, help="lines to capture per pane")
+    parser.add_argument(
+        "--headless-for-applink", action="store_true",
+        help="Run the applink bridge headless (no TUI), serving only the mobile "
+             "listener. See 'ait monitor --headless-for-applink --help' for options.",
+    )
     args = parser.parse_args()
+
+    # The launcher (aitask_monitor.sh) intercepts --headless-for-applink before
+    # exec and routes to applink/headless.py, so this branch only fires on a
+    # direct `python monitor_app.py --headless-for-applink` that bypassed the
+    # launcher's dep-probe and routing. Fail clearly instead of opening the TUI.
+    if args.headless_for_applink:
+        print(
+            "Run the applink headless bridge via the launcher: "
+            "ait monitor --headless-for-applink",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
 
     project_root = Path(__file__).resolve().parents[2]
     config = load_monitor_config(project_root)

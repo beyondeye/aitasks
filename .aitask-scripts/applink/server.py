@@ -33,6 +33,11 @@ import paths  # noqa: E402
 
 DEFAULT_HOST = "0.0.0.0"   # accept from the LAN; the QR carries the routable IP
 DEFAULT_SESSION = "aitasks"
+DEFAULT_PORT = 8765
+# v1 default permission profile assigned to a freshly paired device. The single
+# source of truth for this default across the package (the TUI runtime, the
+# server constructor, and the headless runner all reference it).
+DEFAULT_PAIR_PROFILE = "monitor_control"
 
 
 class AppLinkServer:
@@ -46,7 +51,7 @@ class AppLinkServer:
         ssl_context,
         host: str = DEFAULT_HOST,
         port: int,
-        pair_profile: str = "monitor_control",
+        pair_profile: str = DEFAULT_PAIR_PROFILE,
         on_change=None,
     ) -> None:
         self._host = host
