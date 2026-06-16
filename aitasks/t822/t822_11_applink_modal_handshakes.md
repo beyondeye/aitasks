@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t822_7]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 10:42
-updated_at: 2026-06-11 10:42
+updated_at: 2026-06-16 15:25
 ---
 
 Implement the applink modal-dialog handshake plumbing: the pull-model confirm/prompt/choose round-trips that replace the desktop Textual modals for mobile-issued verbs.
