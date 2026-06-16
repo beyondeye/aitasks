@@ -2,4 +2,6 @@ name: read_only
 description: "Read-only mirror of ait monitor: snapshots and task detail; no control."
 allowed_verbs:
   - snapshot
+  - subscribe
+  - request_keyframe
   - task_detail

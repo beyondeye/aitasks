@@ -2,6 +2,8 @@ name: monitor_control
 description: "Snapshots plus key forwarding and pane focus; no destructive verbs."
 allowed_verbs:
   - snapshot
+  - subscribe
+  - request_keyframe
   - task_detail
   - send_enter
   - send_keys

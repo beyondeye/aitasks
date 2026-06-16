@@ -2,6 +2,8 @@ name: full
 description: "Full terminal companion: snapshots, control, and destructive pane lifecycle."
 allowed_verbs:
   - snapshot
+  - subscribe
+  - request_keyframe
   - task_detail
   - send_enter
   - send_keys
