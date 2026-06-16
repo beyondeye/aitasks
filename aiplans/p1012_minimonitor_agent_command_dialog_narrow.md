@@ -131,3 +131,37 @@ worktree/merge). Commit code (`bug: …(t1012)`), update + commit the plan via
   a `min-width`/label width is mis-tuned). Bounded and self-checking: the runtime
   test asserts every control fits within the dialog region, so a mis-tune fails
   the test rather than shipping. · severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Added a `narrow: bool =
+  False` parameter to `AgentCommandScreen.__init__`, set `self._narrow`, and call
+  `self.add_class("narrow")` at the top of `compose()`. Appended a `.narrow` CSS
+  block to `DEFAULT_CSS` widening `#agent_cmd_dialog` to `width: 100%`
+  / `min-width: 30` with `padding: 0 1` and a `round` border, and stacking the
+  profile/agent/copy/button rows and all tmux field rows vertically (labels
+  `width: auto` above their controls; buttons/selects/inputs `width: 1fr`). Set
+  `narrow=True` at the single minimonitor call site
+  (`minimonitor_app.py` `_launch_pick_for_own`). Added
+  `tests/test_agent_command_dialog_narrow.py` (3 runtime tests via
+  `App.run_test`).
+- **Deviations from plan:** None to the source changes. One test fix during
+  development: the `narrow` CSS class is added to the **screen**
+  (`AgentCommandScreen`), not the inner `#agent_cmd_dialog` Container — the CSS
+  selector `AgentCommandScreen.narrow #agent_cmd_dialog` matches the screen
+  class. The class-presence assertions check `app.screen.classes` accordingly.
+- **Issues encountered:** Initial test asserted `narrow` on the dialog Container
+  and failed; corrected to assert on the screen. No `pytest` in the env — ran via
+  `python3 -m unittest`.
+- **Key decisions:** Reused the established narrow pattern from
+  `NextSiblingDialog`/`ChooseSiblingModal` (`monitor_shared.py`) and the
+  `KillConfirmDialog` minimonitor-variant precedent rather than inventing new
+  structure. Kept `narrow` defaulting to `False` so the 11 full-width callers
+  (board/codebrowser/monitor/syncer) are byte-for-byte unchanged.
+- **Upstream defects identified:** None
+- **Verification:** `python3 -m unittest tests.test_agent_command_dialog_narrow`
+  → 3/3 pass (controls-fit test ran inside tmux, exercising the tmux Select
+  boxes). `python3 -m unittest tests.test_agent_command_dialog_default_session`
+  → 7/7 pass (no regression). Live manual proof (press `n` in a fresh ~40-col
+  minimonitor) deferred to a manual-verification check — the currently-running
+  minimonitor holds an old in-memory copy of the code until restarted.
