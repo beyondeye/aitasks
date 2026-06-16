@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
 status: Implementing
 labels: [aitask_monitormini, tui, agent_chooser]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 17:22
-updated_at: 2026-06-16 17:26
+updated_at: 2026-06-16 17:32
 ---
 
 ## Problem
@@ -92,3 +95,5 @@ Mirror the established `narrow` pattern from `NextSiblingDialog`:
 > **✅ gate:plan_approved** run=2026-06-16T14:31:47Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-16T14:31:48Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-16T14:36:40Z status=pass attempt=1 type=human
