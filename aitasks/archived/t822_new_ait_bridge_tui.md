@@ -3,11 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [ait_bridge]
-children_to_implement: [t822_13]
 created_at: 2026-05-24 08:40
-updated_at: 2026-06-16 17:36
+updated_at: 2026-06-17 00:49
+completed_at: 2026-06-17 00:49
 boardcol: now
 boardidx: 20
 ---

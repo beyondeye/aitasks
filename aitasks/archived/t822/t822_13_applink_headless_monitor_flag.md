@@ -5,12 +5,13 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t822_8]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:43
-updated_at: 2026-06-17 00:30
+updated_at: 2026-06-17 00:49
+completed_at: 2026-06-17 00:49
 ---
 
 Add an applink-mode flag to `aitask_monitor.sh` — a `--headless-for-applink` mode that skips Textual startup and exposes `monitor_core` only via the applink listener, for running the bridge on a box nobody is watching.
