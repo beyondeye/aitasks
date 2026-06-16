@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 10:42
-updated_at: 2026-06-16 14:00
+updated_at: 2026-06-16 17:06
 ---
 
 Sync the canonical verb inventory from `aidocs/applink/monitor_port_design.md` back into `aidocs/applink/permissions.md` (verb gating table) and align the shipped `applink_profiles/*.yaml` allowed_verbs lists.
