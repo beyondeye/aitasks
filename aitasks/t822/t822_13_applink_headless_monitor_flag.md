@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:43
-updated_at: 2026-06-16 17:43
+updated_at: 2026-06-17 00:30
 ---
 
 Add an applink-mode flag to `aitask_monitor.sh` — a `--headless-for-applink` mode that skips Textual startup and exposes `monitor_core` only via the applink listener, for running the bridge on a box nobody is watching.
@@ -40,3 +41,8 @@ Eighth (final) §"Deferred follow-up tasks" bullet of `aidocs/applink/monitor_po
 - `ait monitor --headless-for-applink` starts without a TTY (e.g. under `setsid`/redirected stdout) and serves a pairing endpoint.
 - A scripted client pairs and receives keyframes — no Textual process/screen involved.
 - Plain `ait monitor` behavior unchanged.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T21:30:45Z status=pass attempt=1 type=human
