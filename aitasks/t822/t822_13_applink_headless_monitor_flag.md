@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t822_8]
 issue_type: feature
@@ -46,3 +48,5 @@ Eighth (final) §"Deferred follow-up tasks" bullet of `aidocs/applink/monitor_po
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-16T21:30:45Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-16T21:30:47Z status=pass attempt=1 type=machine
