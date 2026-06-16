@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t635_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [gates, python, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 18:54
-updated_at: 2026-06-14 17:36
+updated_at: 2026-06-16 10:54
 ---
 
 ## Context

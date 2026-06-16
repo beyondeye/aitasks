@@ -5,13 +5,14 @@ risk_goal_achievement: medium
 effort: high
 depends: [t822_7]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_bridge]
 risk_mitigation_tasks: [1007]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:41
 updated_at: 2026-06-16 10:54
+completed_at: 2026-06-16 10:54
 ---
 
 Implement Stage 1 of the applink data plane: the snapshot push loop that parses `tmux capture-pane -e` output into the row/span schema and emits `keyframe`/`cursor`/`dim` MessagePack frames, driven by `subscribe`/`focus` cadences.
