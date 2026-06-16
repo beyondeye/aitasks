@@ -49,3 +49,8 @@ the board (t635_9) should consume the same module.
   "Format rules")
 - `aidocs/gates/dependency-unblock-semantics.md` (t635_3 — decision in gate_ledger.py)
 - `aidocs/framework/tui_conventions.md`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T07:55:12Z status=pass attempt=1 type=human
