@@ -19,6 +19,7 @@
 #   ./.aitask-scripts/aitask_query_files.sh resolve <N>
 #   ./.aitask-scripts/aitask_query_files.sh recent-archived [limit]
 #   ./.aitask-scripts/aitask_query_files.sh task-status <N|N_M>
+#   ./.aitask-scripts/aitask_query_files.sh inflight
 #
 # Add `--project <name>` before the subcommand to redirect the call to a
 # sibling aitasks project registered in the per-user index. The sibling's
@@ -65,6 +66,10 @@ Subcommands:
   task-status <N|N_M>          Emit STATUS:<value> for task N (or child N_M);
                                value is Ready/Editing/Implementing/Postponed/
                                Done/Folded/NOT_FOUND. Archived tasks → Done.
+  inflight                     List in-flight gated tasks (status Implementing
+                               with a recorded "## Gate Runs" ledger), parents
+                               and children, with derived re-entry state. Used
+                               by aitask-pick's in-flight resume section.
 
 Output format (structured lines):
   TASK_FILE:<path>           Active task file found
@@ -86,6 +91,12 @@ Output format (structured lines):
   NO_ARCHIVED_CHILDREN       No archived children found
   RECENT_ARCHIVED:<path>|<completed_at>|<issue_type>|<task_name>
   NO_RECENT_ARCHIVED         No recently archived tasks found
+  INFLIGHT:<id>|<path>|<resume_point>|<archive_status>
+                             In-flight gated task. <resume_point> is
+                             PLAN|IMPLEMENT|POSTIMPL (aitask_gate.sh
+                             resume-point); <archive_status> is
+                             NO_GATES|ALL_PASS|BLOCKED:<csv> (archive-ready).
+  NO_INFLIGHT                No in-flight gated tasks found
 
 All subcommands exit 0. Use output lines (not exit codes) for status.
 
@@ -101,6 +112,7 @@ Examples:
   ./.aitask-scripts/aitask_query_files.sh archived-task 16
   ./.aitask-scripts/aitask_query_files.sh recent-archived 5
   ./.aitask-scripts/aitask_query_files.sh task-status 16_2
+  ./.aitask-scripts/aitask_query_files.sh inflight
   ./.aitask-scripts/aitask_query_files.sh --project sibling task-file 16
 EOF
 }
@@ -489,6 +501,62 @@ cmd_task_status() {
     echo "STATUS:NOT_FOUND"
 }
 
+# cmd_inflight
+# List in-flight gated tasks: status Implementing AND a recorded "## Gate Runs"
+# ledger (a prior session deferred archival, crashed, or spanned days). Scans
+# both active parents and active children — aitask_ls.sh defaults to Ready and
+# lists parents only, so it cannot surface in-flight children. The derived
+# re-entry state is NOT re-implemented here: it delegates to the already-built
+# aitask_gate.sh deriver (resume-point / archive-ready), the single source of
+# truth (t635_5). Consumed by aitask-pick's in-flight resume section (t635_7).
+cmd_inflight() {
+    local entries=()
+    local f status id base
+
+    # Active parent task files (directly under TASK_DIR; children live in subdirs)
+    for f in "$TASK_DIR"/t*_*.md; do
+        [[ -e "$f" ]] || continue
+        status=$(read_task_status "$f")
+        [[ "$status" == "Implementing" ]] || continue
+        grep -qE '^##[[:space:]]+Gate Runs[[:space:]]*$' "$f" || continue
+        base=$(basename "$f" .md)   # tN_name
+        base="${base#t}"            # N_name
+        id="${base%%_*}"            # N
+        entries+=("${id}|${f}")
+    done
+
+    # Active child task files (one level down: TASK_DIR/tN/tN_M_name.md)
+    for f in "$TASK_DIR"/t*/t*_*.md; do
+        [[ -e "$f" ]] || continue
+        status=$(read_task_status "$f")
+        [[ "$status" == "Implementing" ]] || continue
+        grep -qE '^##[[:space:]]+Gate Runs[[:space:]]*$' "$f" || continue
+        base=$(basename "$f" .md)   # tP_C_name
+        base="${base#t}"            # P_C_name
+        if [[ "$base" =~ ^([0-9]+)_([0-9]+)_ ]]; then
+            id="${BASH_REMATCH[1]}_${BASH_REMATCH[2]}"
+            entries+=("${id}|${f}")
+        fi
+    done
+
+    if [[ ${#entries[@]} -eq 0 ]]; then
+        echo "NO_INFLIGHT"
+        return
+    fi
+
+    # Deterministic order (lexical by id|path; portable — no GNU `sort -V`).
+    local sorted rp as
+    sorted=$(printf '%s\n' "${entries[@]}" | sort)
+    while IFS='|' read -r id f; do
+        [[ -z "$id" ]] && continue
+        rp=$("$SCRIPT_DIR/aitask_gate.sh" resume-point "$id" 2>/dev/null | head -n1)
+        [[ -z "$rp" ]] && rp="PLAN"
+        as=$("$SCRIPT_DIR/aitask_gate.sh" archive-ready "$id" 2>/dev/null | head -n1)
+        [[ -z "$as" ]] && as="NO_GATES"
+        echo "INFLIGHT:${id}|${f}|${rp}|${as}"
+    done <<< "$sorted"
+}
+
 # --- Main dispatch ---
 main() {
     # Cross-repo redirect (t832_1): if `--project <name>` appears anywhere
@@ -560,6 +628,10 @@ main() {
         task-status)
             shift
             cmd_task_status "$@"
+            ;;
+        inflight)
+            shift
+            cmd_inflight "$@"
             ;;
         *)
             die "Unknown subcommand: '$1'. Use --help for usage."

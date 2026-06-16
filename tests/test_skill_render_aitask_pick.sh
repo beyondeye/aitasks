@@ -168,6 +168,21 @@ assert_contains "codex stub: reads from .agents/skills/aitask-pick-<profile>-" \
 assert_contains "opencode stub: reads from .opencode/skills/aitask-pick-<profile>-" \
     ".opencode/skills/aitask-pick-<profile>-/SKILL.md" "$(cat "$OPENCODE_STUB")"
 
+# === Test 6: in-flight resume section (profile-invariant, t635_7) ===
+#
+# The gate-aware in-flight pick section is profile-invariant prose (no
+# {% if profile %} gate), so it must render identically into all 3 profiles.
+echo "=== Test 6: in-flight resume section renders in all profiles ==="
+for profile in "${PROFILES[@]}"; do
+    rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    assert_contains "in-flight heading present ($profile)" \
+        "2.0: In-Flight Tasks (resume candidates)" "$rendered"
+    assert_contains "in-flight enumerator call present ($profile)" \
+        "aitask_query_files.sh inflight" "$rendered"
+    assert_contains "in-flight 'pick a new task' option present ($profile)" \
+        "Pick a new (Ready) task instead" "$rendered"
+done
+
 # === Summary ===
 
 echo ""

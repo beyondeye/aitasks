@@ -91,6 +91,54 @@ Before retrieving tasks, ask the user if they want to filter by labels.
 
 ### Step 2: List and Select Task
 
+#### 2.0: In-Flight Tasks (resume candidates)
+
+Before listing fresh `Ready` tasks, surface any **in-flight** tasks — already
+`Implementing` with a recorded `## Gate Runs` ledger because a prior session
+deferred archival, crashed, or spanned multiple days. These are resume
+candidates and are kept in their own section, distinct from `Ready` tasks
+(`aitask_ls.sh` in 2a lists only `Ready` parents, so in-flight tasks — including
+children — never appear there).
+
+```bash
+./.aitask-scripts/aitask_query_files.sh inflight
+```
+
+Parse the output:
+- `NO_INFLIGHT` → no in-flight tasks. Skip the rest of this subsection and
+  proceed to **2a**.
+- `INFLIGHT:<id>|<path>|<resume_point>|<archive_status>` lines → one per
+  in-flight task. `<resume_point>` is `PLAN|IMPLEMENT|POSTIMPL`;
+  `<archive_status>` is `NO_GATES|ALL_PASS|BLOCKED:<csv>`.
+
+For each in-flight task, read its task file and render a one-line derived-state
+summary (run `./.aitask-scripts/aitask_gate.sh status <id>` for the recorded
+checkpoints, e.g. "3/4 — pending review"). Map the derived state to a label:
+- `<archive_status>` = `ALL_PASS` → "all gates pass — ready to archive"
+- else `<resume_point>` = `POSTIMPL` → "reviewed — resume at merge / post-implementation"
+- else `<resume_point>` = `IMPLEMENT` → "plan approved — resume implementation"
+- else (`PLAN`) → "in flight — resume (re-plan from recorded state)"
+
+Present the in-flight tasks via `AskUserQuestion` (these are distinct from Ready
+tasks — use header "Resume"; paginate as in 2c if there are more than 3):
+- Question: "These tasks are already in flight. Resume one, or pick a new task?"
+- Header: "Resume"
+- Options:
+  - One per in-flight task: label = `t<id>`, description = the derived-state summary
+  - "Pick a new (Ready) task instead" (description: "Skip resume; show the normal Ready task list")
+
+Handle the selection:
+- **An in-flight task selected** → set it as the working task and go to **Step 3**.
+  Derive `is_child` from the id (`<parent>_<child>` → child; bare `<N>` → parent).
+  For a child, gather sibling context (`aitask_query_files.sh sibling-context
+  <parent>`, read the parent task file + `ARCHIVED_PLAN:` files). Do **NOT**
+  re-derive resume or archival here — Step 3 owns it: **Check 5** detects the
+  `Implementing` status and resumes from the first unmet checkpoint, and
+  **Check 4** offers archival when `<archive_status>` is `ALL_PASS`. Set only the
+  task-selection context variables (Step 3 list); leave `resume_point` for
+  Check 5 to derive.
+- **"Pick a new (Ready) task instead"** → proceed to **2a**.
+
 #### 2a: Get Top Tasks
 
 Run the task selection script to get the top 15 prioritized **parent** tasks:
@@ -203,5 +251,6 @@ At this point, a task has been selected and confirmed. Set the following context
 - Parent tasks with pending children show as "Has children" and are sorted normally by priority/effort
 - The `--children` flag of `aitask_ls.sh` lists only children of a specific parent
 - When invoked with a child task argument (e.g., `/aitask-pick 10_2`), the skill goes directly to that child task
+- **In-flight tasks (gate re-entry):** Step 2.0 lists tasks left `Implementing` with a recorded `## Gate Runs` ledger in their own resume section (via `aitask_query_files.sh inflight`); picking one routes through the shared `task-workflow` Step 3 engine — **Check 5** resumes from the first unmet checkpoint and **Check 4** offers archival when all gates pass. The pick skill consumes that engine and never re-derives resume/archival state. Direct selection (`/aitask-pick <n>`, including the board's agent launch) of an in-flight task resumes the same way for free: Step 0b resolves it and Step 3 Check 5 surfaces the derived-state banner and reclaim confirmation — no Step 0b change needed.
 - For the full Execution Profiles schema, shared workflow notes, and customization guide, see `.claude/skills/task-workflow/SKILL.md`
 - Manual-verification tasks (`issue_type: manual_verification`) dispatch to a dedicated Pass/Fail/Skip/Defer checklist loop instead of the plan+implement flow — handled at Step 3 Check 3 (see `.claude/skills/task-workflow/manual-verification.md`). Aggregate-sibling verification tasks are offered during parent-task planning when ≥2 children are created; single-task follow-ups are offered at Step 8c after "Commit changes" (`manual-verification-followup.md`). See `website/content/docs/workflows/manual-verification.md` for the end-to-end workflow.
