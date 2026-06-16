@@ -34,6 +34,16 @@ Seventh §"Deferred follow-up tasks" bullet of `aidocs/applink/monitor_port_desi
 - `aidocs/applink/monitor_port_design.md` — §Command verb → applink protocol mapping (source of truth), §Permission profile cross-check
 - `aidocs/applink/permissions.md` — target
 
+## Cross-repo contract note (from t822_9, applink delta engine)
+
+t822_9 pinned two `delta` (0x02) wire conventions in `content_transport.md` §delta
+that the mobile decoder in `../aitasks_mobile` must match (server is authoritative
+per design goal 5): (1) `osc8` sidecar offsets are row-major over the **delta's own
+`rows` array** (changed rows only), not the full grid; (2) a row with an **empty
+spans array** (`[row_id, []]`) **clears that row to blank**. Surface these in the
+mobile decoder contract when syncing — if mobile began parsing `osc8` under a
+different assumption, reconcile to the pinned spec.
+
 ## Verification Steps
 
 - Every verb in monitor_port_design.md's table appears in permissions.md's table with the same gate, and vice versa (no orphans either direction).
