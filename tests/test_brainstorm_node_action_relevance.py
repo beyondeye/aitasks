@@ -87,15 +87,24 @@ class OpStatesForSelectionPureTests(unittest.TestCase):
             self.assertTrue(states[op][0])
             self.assertIn("root design", states[op][1])
 
+    def test_root_greys_delete_at_single_selection(self):
+        states = op_states_for_selection(
+            {"is_root": True, "is_umbrella": True, "has_ancestor": False,
+             "has_linked_task": False},
+            1,
+        )
+        self.assertTrue(states["delete"][0])
+        self.assertIn("root design", states["delete"][1])
+
     def test_cardinality_reason_wins_over_precondition(self):
         # Umbrella (precondition would say "root design") but N>1 → the
         # cardinality reason takes precedence.
         states = op_states_for_selection(
-            {"is_umbrella": True, "has_ancestor": False,
+            {"is_root": True, "is_umbrella": True, "has_ancestor": False,
              "has_linked_task": False},
             2,
         )
-        for op in _MODULE:
+        for op in _MODULE + ("delete",):
             self.assertTrue(states[op][0])
             self.assertEqual(states[op][1], "select a single node")
 
@@ -157,6 +166,8 @@ class NodeActionOpStatesTests(unittest.TestCase):
         self.assertTrue(states["module_sync"][0])
         for op in ("module_decompose", "module_merge", "module_sync"):
             self.assertIn("root design", states[op][1])
+        self.assertTrue(states["delete"][0])
+        self.assertIn("root design", states["delete"][1])
 
     def test_module_node_with_task_and_ancestor_enables_all(self):
         self._node("n000_init", [])

@@ -225,7 +225,8 @@ class DeleteGuardAndCallbackTests(unittest.TestCase):
         self.assertTrue((self.wt / "br_nodes" / "n001_b.yaml").is_file())
 
     def test_on_delete_node_result_blocks_when_agent_appears(self):
-        self._node("n001_b", [])
+        self._node("n000_init", [])
+        self._node("n001_b", ["n000_init"])
         (self.wt / "br_graph_state.yaml").write_text(
             yaml.safe_dump({"current_heads": {"_umbrella": "n001_b"}}),
             encoding="utf-8",
@@ -238,6 +239,26 @@ class DeleteGuardAndCallbackTests(unittest.TestCase):
         # Guard re-check blocks the delete; node survives.
         self.assertTrue((self.wt / "br_nodes" / "n001_b.yaml").is_file())
         self.assertTrue(any("blocked" in m.lower() for m in app.notices))
+
+    def test_on_delete_node_result_refuses_root(self):
+        self._node("n000_init", [])
+        self._node("n001_b", ["n000_init"])
+        (self.wt / "br_graph_state.yaml").write_text(
+            yaml.safe_dump({"current_heads": {"_umbrella": "n001_b"}}),
+            encoding="utf-8",
+        )
+        app = self._app()
+        app.notices = []
+        app.refreshed = False
+        app.notify = lambda msg, **kw: app.notices.append(msg)
+        app._load_existing_session = lambda: setattr(app, "refreshed", True)
+
+        app._on_delete_node_result("n000_init", True)
+
+        self.assertTrue((self.wt / "br_nodes" / "n000_init.yaml").is_file())
+        self.assertTrue((self.wt / "br_nodes" / "n001_b.yaml").is_file())
+        self.assertFalse(app.refreshed)
+        self.assertTrue(any("root design" in m for m in app.notices))
 
 
 if __name__ == "__main__":

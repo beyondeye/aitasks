@@ -58,6 +58,7 @@ from brainstorm.brainstorm_dag import (
     get_dimension_fields,
     get_head,
     is_ancestor_subgraph,
+    is_root_node,
     list_nodes,
     list_subgraphs,
     node_descendants_closure,
@@ -2049,6 +2050,7 @@ _MULTI_NODE_OPS = ("compare", "synthesize")
 
 _SINGLE_NODE_REASON = "select a single node"
 _MULTI_NODE_REASON = "mark 2+ nodes"
+_ROOT_DELETE_REASON = "cannot delete the root design"
 
 
 def op_states_for_selection(node_ctx: dict, cardinality: int) -> dict:
@@ -2056,17 +2058,18 @@ def op_states_for_selection(node_ctx: dict, cardinality: int) -> dict:
     by selection *cardinality* (t983_4).
 
     Pure / headless — no Textual, no session I/O. ``node_ctx`` carries the
-    per-(primary-)node facts the module-op preconditions need —
-    ``is_umbrella`` / ``has_ancestor`` / ``has_linked_task`` — gathered by the
-    App wrapper :meth:`BrainstormApp._node_action_op_states`. ``cardinality`` is
-    :attr:`NodeSelection.cardinality` (marked count, else 1 for a lone cursor,
-    else 0).
+    per-(primary-)node facts the delete/module-op preconditions need —
+    ``is_root`` / ``is_umbrella`` / ``has_ancestor`` / ``has_linked_task`` —
+    gathered by the App wrapper :meth:`BrainstormApp._node_action_op_states`.
+    ``cardinality`` is :attr:`NodeSelection.cardinality` (marked count, else 1
+    for a lone cursor, else 0).
 
     Greying rules:
       * single-node ops (explore / fast_track / delete) and module ops are
         disabled when ``cardinality > 1`` (reason "select a single node");
+      * delete is disabled for the canonical root node;
       * module ops are *also* disabled when their own precondition is unmet
-        (umbrella root / no ancestor subgraph / no linked task) — the
+        (umbrella subgraph / no ancestor subgraph / no linked task) — the
         cardinality reason takes precedence when both apply;
       * multi-node ops (compare / synthesize) are disabled when
         ``cardinality < 2`` (reason "mark 2+ nodes").
@@ -2078,8 +2081,13 @@ def op_states_for_selection(node_ctx: dict, cardinality: int) -> dict:
         states[op] = (True, _SINGLE_NODE_REASON) if multi else (False, "")
 
     is_umbrella = bool(node_ctx.get("is_umbrella"))
+    is_root = bool(node_ctx.get("is_root"))
     has_ancestor = bool(node_ctx.get("has_ancestor"))
     has_linked_task = bool(node_ctx.get("has_linked_task"))
+
+    if not multi and is_root:
+        states["delete"] = (True, _ROOT_DELETE_REASON)
+
     # Per-module-op (disabled, reason) from the primary node's preconditions,
     # used only when the selection is a single node (cardinality == 1).
     module_precond = {
@@ -4457,6 +4465,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         ancestors = [] if is_umbrella else self._ancestor_subgraphs(module)
         node_ctx = {
             "is_umbrella": is_umbrella,
+            "is_root": is_root_node(self.session_path, node_id),
             "has_ancestor": bool(ancestors),
             "has_linked_task": has_linked_task,
         }
@@ -4695,6 +4704,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Computes the deletion closure, the affected linked-task modules (warn),
         and the blocking running-agent casualties, then pushes DeleteNodeModal.
         """
+        if is_root_node(self.session_path, node_id):
+            self.notify("Cannot delete the root design.", severity="error")
+            return
         closure_list = node_descendants_closure(self.session_path, node_id)
         closure = set(closure_list)
         # Affected modules with a linked aitask — warn-only.
@@ -4726,6 +4738,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 f"Node '{node_id}' no longer exists.", severity="error"
             )
             return
+        if is_root_node(self.session_path, node_id):
+            self.notify("Cannot delete the root design.", severity="error")
+            return
         closure = set(node_descendants_closure(self.session_path, node_id))
         if self._delete_agent_casualties(closure):
             self.notify(
@@ -4739,6 +4754,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify(
                 f"Node '{node_id}' no longer exists.", severity="error"
             )
+            return
+        if report.get("refused_root"):
+            self.notify("Cannot delete the root design.", severity="error")
             return
         deleted = report.get("deleted", [])
         if self._current_focused_node_id in deleted:

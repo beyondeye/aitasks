@@ -683,21 +683,42 @@ class TestDeleteNodeCascade(BrainstormTestBase):
         # History pruned to surviving ids.
         self.assertEqual(gs["history"]["_umbrella"], ["n000_a"])
 
-    def test_delete_head_with_no_parent_clears_head(self):
-        self._node("n000_a", [])
+    def test_delete_non_root_parentless_head_clears_head(self):
+        self._node("n000_root", [])
+        self._node("n010_a", [])
         self._set_gs(
-            current_head="n000_a",
-            current_heads={"_umbrella": "n000_a"},
-            history={"_umbrella": ["n000_a"]},
+            current_head="n010_a",
+            current_heads={"_umbrella": "n010_a"},
+            history={"_umbrella": ["n000_root", "n010_a"]},
         )
 
-        report = delete_node_cascade(self.wt_path, "n000_a")
+        report = delete_node_cascade(self.wt_path, "n010_a")
 
-        self.assertEqual(report["deleted"], ["n000_a"])
+        self.assertEqual(report["deleted"], ["n010_a"])
         self.assertEqual(report["head_repoints"], {"_umbrella": None})
         gs = self._gs()
         self.assertNotIn("_umbrella", gs.get("current_heads", {}))
         self.assertIsNone(gs.get("current_head"))
+        self.assertTrue(self._node_exists("n000_root"))
+
+    def test_root_delete_is_refused_without_mutation(self):
+        self._node("n000_root", [])
+        self._node("n001_child", ["n000_root"])
+        self._set_gs(
+            current_head="n001_child",
+            current_heads={"_umbrella": "n001_child"},
+            history={"_umbrella": ["n000_root", "n001_child"]},
+        )
+
+        before = self._gs()
+        report = delete_node_cascade(self.wt_path, "n000_root")
+
+        self.assertFalse(report["missing_root"])
+        self.assertTrue(report["refused_root"])
+        self.assertEqual(report["deleted"], [])
+        self.assertTrue(self._node_exists("n000_root"))
+        self.assertTrue(self._node_exists("n001_child"))
+        self.assertEqual(self._gs(), before)
 
     def test_linked_module_task_preserved(self):
         # Umbrella root + a 'parser' module subgraph linked to a task.
@@ -758,6 +779,7 @@ class TestDeleteNodeCascade(BrainstormTestBase):
         self._set_gs(current_heads={"_umbrella": "n000_a"})
         report = delete_node_cascade(self.wt_path, "nope")
         self.assertTrue(report["missing_root"])
+        self.assertFalse(report["refused_root"])
         self.assertEqual(report["deleted"], [])
 
     def test_closure_parity_with_report(self):

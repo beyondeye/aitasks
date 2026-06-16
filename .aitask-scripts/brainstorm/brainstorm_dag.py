@@ -270,6 +270,27 @@ def _first_surviving_parent(
     return None
 
 
+def root_node_id(session_path: Path) -> str | None:
+    """Return the canonical DAG root: the earliest parentless node, if any."""
+    roots = [
+        nid for nid in list_nodes(session_path)
+        if not get_parents(session_path, nid)
+    ]
+    if not roots:
+        return None
+
+    def sort_key(nid: str) -> tuple[bool, int, str]:
+        ordinal = _node_id_ordinal(nid)
+        return (ordinal < 0, ordinal, nid)
+
+    return min(roots, key=sort_key)
+
+
+def is_root_node(session_path: Path, node_id: str) -> bool:
+    """Return True when ``node_id`` is the canonical DAG root."""
+    return root_node_id(session_path) == node_id
+
+
 def delete_node_cascade(session_path: Path, node_id: str) -> dict:
     """Delete ``node_id`` and all its descendants, repointing affected HEADs.
 
@@ -288,7 +309,8 @@ def delete_node_cascade(session_path: Path, node_id: str) -> dict:
     Returns a report dict::
 
         {"deleted": [...], "head_repoints": {module: new_head_or_None},
-         "history_pruned": {module: [removed_id, ...]}, "missing_root": bool}
+         "history_pruned": {module: [removed_id, ...]}, "missing_root": bool,
+         "refused_root": bool}
     """
     if node_id not in list_nodes(session_path):
         return {
@@ -296,6 +318,16 @@ def delete_node_cascade(session_path: Path, node_id: str) -> dict:
             "head_repoints": {},
             "history_pruned": {},
             "missing_root": True,
+            "refused_root": False,
+        }
+
+    if is_root_node(session_path, node_id):
+        return {
+            "deleted": [],
+            "head_repoints": {},
+            "history_pruned": {},
+            "missing_root": False,
+            "refused_root": True,
         }
 
     closure_list = node_descendants_closure(session_path, node_id)
@@ -351,6 +383,7 @@ def delete_node_cascade(session_path: Path, node_id: str) -> dict:
         "head_repoints": head_repoints,
         "history_pruned": history_pruned,
         "missing_root": False,
+        "refused_root": False,
     }
 
 
