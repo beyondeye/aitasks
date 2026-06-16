@@ -272,7 +272,6 @@ _OPERATION_HELP: dict[str, dict] = {
             "A new YAML metadata file (description, dimensions, "
             "reference_files, created_by_group).",
             "A new proposal markdown.",
-            "No plan — use Detail later to derive a plan from this proposal.",
         ],
         "use_cases": [
             "Branch off a parent node to try an alternate architecture under "

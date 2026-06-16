@@ -10,9 +10,8 @@ Read your `_input.md` file (see your `_instructions.md` for the path). It contai
 1. An exploration mandate describing what to explore or change
 2. The baseline node's YAML metadata path (flat key-value dimensions)
 3. The baseline node's proposal Markdown path (full architectural narrative)
-4. Baseline node's plan path (if one exists)
-5. Reference files: local file paths and cached URL paths
-6. Active dimensions from br_graph_state.yaml
+4. Reference files: local file paths and cached URL paths
+5. Active dimensions from br_graph_state.yaml
 
 Read all referenced files using your tools (Read, Glob, Grep). For remote
 references, read the cached file; if the cache is missing, fetch via WebFetch.
@@ -126,7 +125,6 @@ applies primarily to the targeted areas.
 - Read your `_input.md` file for the exploration mandate and baseline node references
 - Read the baseline node YAML metadata file (path provided in input)
 - Read the baseline node proposal Markdown file (path provided in input)
-- If a baseline plan exists, read it for additional context
 - Read the reference files listed in the baseline node's `reference_files` field
   - For local file paths: read using your file tools
   - For remote URL cache paths: read the cached file (source URL noted in input)
