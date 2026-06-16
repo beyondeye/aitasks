@@ -83,3 +83,8 @@ The corrected first-operation flow on a blank-initialized session is:
   touched, to be safe.
 - Out of scope: website / user-facing brainstorm docs (covered separately by
   t929_3 / doc tasks). This task is the in-code op-help + template prose only.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T09:54:55Z status=pass attempt=1 type=human
