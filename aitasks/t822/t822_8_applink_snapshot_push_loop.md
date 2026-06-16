@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t822_7]
 issue_type: feature
 status: Implementing
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:41
-updated_at: 2026-06-16 09:49
+updated_at: 2026-06-16 10:35
 ---
 
 Implement Stage 1 of the applink data plane: the snapshot push loop that parses `tmux capture-pane -e` output into the row/span schema and emits `keyframe`/`cursor`/`dim` MessagePack frames, driven by `subscribe`/`focus` cadences.
@@ -48,3 +51,8 @@ Third §"Deferred follow-up tasks" bullet of `aidocs/applink/monitor_port_design
 - A scripted WS client subscribes and decodes a valid `keyframe` for a live pane; receives `dim` + fresh keyframe after a resize.
 - Focused pane updates at ~0.3 s; idle pane costs zero bytes between changes.
 - `request_keyframe` returns a fresh keyframe within one tick.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T07:35:19Z status=pass attempt=1 type=human
