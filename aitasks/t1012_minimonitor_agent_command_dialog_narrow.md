@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, tui, agent_chooser]
+assigned_to: daelyasy@hotmail.com
 created_at: 2026-06-16 17:22
-updated_at: 2026-06-16 17:22
+updated_at: 2026-06-16 17:25
 ---
 
 ## Problem
