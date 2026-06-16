@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t635_8]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [gates, aitask_monitor, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 18:54
-updated_at: 2026-06-10 18:54
+updated_at: 2026-06-16 15:26
 ---
 
 ## Context
