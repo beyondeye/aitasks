@@ -287,3 +287,81 @@ and merge. Archive via `./.aitask-scripts/aitask_archive.sh 983_3`.
   panel are independently testable, and the scope calls (cursor-alongside,
   list-marks-now) are user-confirmed. · severity: low · → mitigation: n/a
 - None other identified.
+
+## Final Implementation Notes
+
+- **Actual work done:** Collapsed the `tab_dashboard` (list) and `tab_dag`
+  (graph) `TabPane`s into one `tab_browse` hosting a `ContentSwitcher`
+  (`#browse_switcher`) over the existing `#node_list_pane` and `#dag_content`,
+  with ONE persistent shared `NodeDetailPanel` (`#browse_node_panel`, inner ids
+  `browse_node_title`/`browse_node_info`) as a sibling of the switcher.
+  - Added the pure, headless view-state helper to `brainstorm_app.py`
+    (`BROWSE_DEFAULT_VIEW="graph"`, `BROWSE_VIEWS`, `BROWSE_VIEW_TO_PANE` /
+    `BROWSE_PANE_TO_VIEW` maps, `browse_toggle_view(current)`), plus session I/O
+    `_read_browse_view` / `_write_browse_view` in `brainstorm_session.py`
+    (`browse_view` key in `br_graph_state.yaml`, mirrors
+    `_module_deferred_map`/`_write_module_deferred`; both tolerate a missing
+    graph-state file → graph default).
+  - Wired `NodeSelection` in: `self._selection` in `__init__`,
+    `_show_browse_node_detail` keeps the legacy `_current_focused_node_id` AND
+    `_selection.set_primary` in sync, `space`→`action_browse_mark` toggles the
+    primary's mark, and `NodeRow` gained a `marked` reactive glyph reflected by
+    `_refresh_node_marks` and at list-build time in `_populate_node_list`. Both
+    node-deletion purges call `_selection.remove`.
+  - Merged `_show_node_detail`+`_show_dag_node_detail`→`_show_browse_node_detail`
+    and `_dashboard_toggle_pane_focus`+`_graph_toggle_pane_focus`→
+    `_browse_toggle_pane_focus` (branches on `switcher.current`). Repointed the
+    on_key down/up/Tab routing, `check_action`, `_TAB_SCOPED_ACTIONS`,
+    `_open_node_detail_visible`, `action_node_action`/`action_toggle_deferred`
+    gates, and `action_tab_dashboard`/`action_tab_graph` (now select Browse +
+    set list/graph view; `v`=`action_browse_toggle_view`). CSS collapsed the
+    `#dash_node_*`/`#dag_node_*` + split/detail-pane rules to the `#browse_*`
+    ids. `_load_existing_session` restores the persisted view.
+- **Deviations from plan:** (1) `ContentSwitcher` imports from `textual.widgets`,
+  not `textual.containers` (it is not in `textual.containers` in this Textual
+  version). (2) The plan's verification only named `test_brainstorm_node_export.py`
+  for updates, but the t983_1 `BrainstormAppComposeSmokeTests` in
+  `test_brainstorm_node_detail_panel.py` (referenced `#dash_node_panel`/
+  `#dag_node_panel`/`_show_node_detail`/`_show_dag_node_detail`), the graph-tab
+  assertion in `test_brainstorm_node_action_integration.py`, and the
+  `__new__`-bypass app in `test_brainstorm_node_delete.py` were all in the blast
+  radius — updated. (3) The `d`/`g` action *names* (`tab_dashboard`/`tab_graph`)
+  were kept (only their bodies + labels repointed) to avoid touching the
+  `Binding` action strings, per §8.
+- **Issues encountered:** The Textual `_SmokeApp` pattern (override `on_mount`
+  to skip session load) does NOT prevent the base `BrainstormApp.on_mount` from
+  running — Textual dispatches `on_mount` across the whole MRO, so
+  `InitSessionModal` is still pushed. The t983_1 smoke test tolerated this (it
+  queries base-screen widgets under the modal), but the new key-driven pilots
+  must pop the modal first (`_dismiss_modals`) so `v`/`space` reach the base
+  Browse screen. Also `read_yaml` raises `FileNotFoundError` on a missing file,
+  so the new session helpers guard with `path.exists()` and the test fixture
+  writes a minimal `br_graph_state.yaml`.
+- **Key decisions:** `ContentSwitcher` over nested `TabbedContent` (no
+  "switch-tab-to-change-shape" smell); ONE shared panel as a persistent switcher
+  sibling (survives `v`); `NodeSelection` alongside the legacy cursor (dual
+  state is documented debt → `collapse_browse_cursor_state`); marks reflected on
+  list NodeRows now, DAG-node marks deferred (`dag_node_mark_rendering`);
+  NodeRows stay mounted in the switcher even when the graph view shows, so a
+  mark made in graph view is visible on switch.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - The single shared detail panel is `#browse_node_panel` (`NodeDetailPanel`,
+    inner ids `browse_node_title`/`browse_node_info`); drive it via
+    `panel.update(node_id)` or `panel.show_content(title, widgets)`.
+    `_show_browse_node_detail(node_id)` is the one focus→detail entry point.
+  - The Browse selection lives on `self._selection` (`NodeSelection`).
+    **t983_4 (Operations dialog)** greys ops by `self._selection.cardinality`
+    and runs them over `self._selection.effective()`; the `space` mark path and
+    `remove`-on-delete are already wired.
+  - **Documented debt for a later child:** the dual cursor state
+    (`_current_focused_node_id` + `_selection.primary`, kept in sync by hand in
+    `_show_browse_node_detail`) — risk-mitigation `collapse_browse_cursor_state`
+    migrates the 13 legacy sites onto `_selection.primary`. DAG-node mark
+    rendering is the `dag_node_mark_rendering` follow-up.
+  - The current Browse view ("graph"|"list") is read via `_browse_current_view()`
+    and set/persisted via `_set_browse_view(view)`; routing that used to branch
+    on the active tab now branches on the switcher view.
+  - Test harness for Browse pilots lives in `tests/test_brainstorm_browse_view.py`
+    (`_BrowseSmokeApp`, `_dismiss_modals`, `_make_session` writing
+    `br_graph_state.yaml`) — mirror it; remember to pop the auto-pushed modal.
