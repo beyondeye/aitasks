@@ -13,7 +13,7 @@ This document defines:
 - How profiles are **stored and selected** on disk and in the TUI.
 - How to **add a new profile** without changing the protocol.
 
-Wire-protocol and pairing details live in [protocol.md](protocol.md). The canonical verb inventory (payload schemas, modal handshakes, push frames) is authored by sibling task t822_3 in [monitor_port_design.md](monitor_port_design.md); this document seeds the verb table with the v1 baseline.
+Wire-protocol and pairing details live in [protocol.md](protocol.md). The canonical verb inventory (payload schemas, modal handshakes, push frames) is authored in [monitor_port_design.md](monitor_port_design.md); this document gives the **profile-band assignment** for that inventory — which verbs each profile tier may invoke — and is kept in sync with it.
 
 ## Default profiles
 
@@ -29,25 +29,32 @@ Profile choice is per-pairing; revoking and re-pairing under a different profile
 
 ## Verb gating table
 
-The v1 verb set is derived from the existing `ait monitor` command surface in `.aitask-scripts/monitor/tmux_monitor.py:585-720` and `.aitask-scripts/monitor/monitor_app.py:1489` (`cycle_compare_mode`). Each verb maps to exactly one profile-tier; profiles include all verbs at their tier and below.
+The v1 verb set is the canonical inventory in [monitor_port_design.md §Command verb → applink protocol mapping](monitor_port_design.md#command-verb--applink-protocol-mapping); this table assigns each verb to a profile tier and is kept in sync with it (the canonical table carries the full payload/modal detail). The command surface those verbs invoke lives in `.aitask-scripts/monitor/monitor_core.py` (the headless monitor core), with the UI-bound action handlers in `monitor_app.py`. Each verb maps to exactly one profile-tier; profiles include all verbs at their tier and below.
 
-| Verb | Existing call site | `read_only` | `monitor_control` | `full` |
-|------|--------------------|:-----------:|:-----------------:|:------:|
-| `snapshot` (server push) | `tmux_monitor.py:capture_all` | ✓ | ✓ | ✓ |
-| `send_enter` | `tmux_monitor.py:585` | ✗ | ✓ | ✓ |
-| `send_keys` | `tmux_monitor.py:589` | ✗ | ✓ | ✓ |
-| `switch_to_pane` | `tmux_monitor.py:602` | ✗ | ✓ | ✓ |
-| `cycle_compare_mode` | `monitor_app.py:1489` (calls `tmux_monitor.py:480`) | ✗ | ✓ | ✓ |
-| `kill_pane` | `tmux_monitor.py:656` | ✗ | ✗ | ✓ |
-| `kill_window` | `tmux_monitor.py:666` | ✗ | ✗ | ✓ |
-| `spawn_tui` | `tmux_monitor.py:718` | ✗ | ✗ | ✓ |
+| Verb | Call site (`monitor_core.py` / `monitor_app.py` symbol) | `read_only` | `monitor_control` | `full` |
+|------|----------------------------------------------------------|:-----------:|:-----------------:|:------:|
+| `snapshot` (server push) | `monitor_core.py` (`capture_all`) | ✓ | ✓ | ✓ |
+| `subscribe` / `request_keyframe` (data-plane control) | [content_transport.md §Refresh control](content_transport.md#refresh-control-focus-back-pressure) | ✓ | ✓ | ✓ |
+| `task_detail` | `monitor_core.py` (`TaskInfoCache._resolve`) | ✓ | ✓ | ✓ |
+| `send_enter` | `monitor_core.py` (`send_enter`) | ✗ | ✓ | ✓ |
+| `send_keys` | `monitor_core.py` (`send_keys`) | ✗ | ✓ | ✓ |
+| `forward_key` | `monitor_app.py` (`_forward_key_to_tmux`; map `_TEXTUAL_TO_TMUX` in `monitor_core.py`) | ✗ | ✓ | ✓ |
+| `focus` (= `switch_to_pane`) | `monitor_core.py` (`switch_to_pane`) | ✗ | ✓ | ✓ |
+| `cycle_compare_mode` | `monitor_core.py` (`cycle_compare_mode`; handler `monitor_app.py` `action_cycle_compare_mode`) | ✗ | ✓ | ✓ |
+| `kill_pane` | `monitor_core.py` (`kill_agent_pane_smart`) | ✗ | ✗ | ✓ |
+| `kill_window` | `monitor_core.py` (`kill_window`) | ✗ | ✗ | ✓ |
+| `spawn_tui` | `monitor_core.py` (`spawn_tui`) | ✗ | ✗ | ✓ |
+| `pick_next_sibling` | `monitor_app.py` (`action_pick_next_sibling`) | ✗ | ✗ | ✓ |
+| `restart_task` | `monitor_app.py` (`action_restart_task`) | ✗ | ✗ | ✓ |
 
-`snapshot` is a server-initiated `push` frame (not a client `req`) — gating still applies on the client → server side because a `read_only` session has no verbs at all that the server will execute, but the server pushes snapshots regardless of profile.
+`snapshot` is a server-initiated `push` frame (not a client `req`) — gating still applies on the client → server side because a `read_only` session has no control verbs the server will execute, but the server pushes snapshots regardless of profile. The `subscribe` / `request_keyframe` data-plane control frames (refresh cadence, keyframe recovery) sit in the same read-only band: a `read_only` client steers its own snapshot stream without invoking any control action.
 
 Notes:
 
-- **`forward_key`** is intentionally absent from the v1 table. The Textual-to-tmux key map at `.aitask-scripts/monitor/monitor_app.py:84-111` (`_TEXTUAL_TO_TMUX`) will be folded into a single `forward_key` verb when t822_3 produces the canonical inventory; until then, mobile clients send individual `send_keys` frames with literal escape sequences.
-- **Modal-prompted operations** (kill-confirm dialogs, session rename) require a server → client `push` of type `modal_request` and a client `res`. The gating tier applies to the underlying destructive verb, not the modal handshake.
+- **`forward_key`** folds the Textual-to-tmux key map (`_TEXTUAL_TO_TMUX`, `monitor_core.py`) into a single verb resolved server-side: the mobile client sends an abstract key name (`up`, `escape`, `f5`, `ctrl+c`, …) and the server translates it to the tmux `send-keys` arguments. Mobile no longer sends literal escape sequences via `send_keys` for special keys. See [monitor_port_design.md](monitor_port_design.md#command-verb--applink-protocol-mapping).
+- **Modal-prompted operations** carry a confirmation/selection handshake: `kill_pane`, `kill_window`, `restart_task`, and `pick_next_sibling` round-trip a confirm (or suggest-then-choose) step before executing. The gating tier applies to the underlying verb, not the handshake frames. The round-trip wire detail (pull-model `confirmed:true` re-send, `pick_next_sibling` suggest/choose) lives in [monitor_port_design.md §Modal-dialog handshakes](monitor_port_design.md#modal-dialog-handshakes); it is not duplicated here.
+- **`pick_next_sibling` and `restart_task` are gated `full` but their mobile execution is deferred** (`NOT_IMPLEMENTED` past the v1 listener) per [monitor_port_design.md](monitor_port_design.md#command-verb--applink-protocol-mapping) — they are inventoried and gated for completeness; the launch-config flow has no mobile equivalent yet.
+- **`rename_session` is desktop-only in v1** and is not gated here. It is inventoried in [monitor_port_design.md §Modal-dialog handshakes](monitor_port_design.md#modal-dialog-handshakes); add a row to this table only when it gains a mobile implementation.
 - A `req` for a verb above the session's tier returns `err` with `code: "PERMISSION_DENIED"` and `detail: {"required_profile": "<name>"}`.
 
 ## Storage and selection
@@ -64,12 +71,16 @@ Profile YAML shape:
 
 ```yaml
 name: monitor_control
-description: "Snapshots plus key forwarding; no destructive verbs."
+description: "Snapshots plus key forwarding and pane focus; no destructive verbs."
 allowed_verbs:
   - snapshot
+  - subscribe
+  - request_keyframe
+  - task_detail
   - send_enter
   - send_keys
-  - switch_to_pane
+  - forward_key
+  - focus
   - cycle_compare_mode
 ```
 
