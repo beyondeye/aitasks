@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t635_5, t635_6]
 issue_type: feature
@@ -73,3 +75,5 @@ in-flight pick section must drive is already implemented in task-workflow —
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-16T07:18:15Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-16T07:18:16Z status=pass attempt=1 type=machine
