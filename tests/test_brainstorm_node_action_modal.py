@@ -34,10 +34,11 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 import yaml  # noqa: E402
 
 from textual.app import App, ComposeResult  # noqa: E402
-from textual.widgets import Label  # noqa: E402
+from textual.widgets import Checkbox, Label  # noqa: E402
 
 from brainstorm.brainstorm_app import (  # noqa: E402
     BrainstormApp,
+    FuzzyCheckList,
     NodeActionSelectModal,
     OperationHelpModal,
     OperationRow,
@@ -355,6 +356,16 @@ class AdvanceFromNodeSelectTests(unittest.TestCase):
 # _on_node_action_result — callback contract
 # --------------------------------------------------------------------------
 
+class _FakeSelection:
+    """Minimal NodeSelection stand-in for the callback harness (t983_6)."""
+
+    def __init__(self, marked=()):
+        self._marked = list(marked)
+
+    def effective(self):
+        return set(self._marked)
+
+
 class OnNodeActionResultTests(unittest.TestCase):
     """The modal callback: cancel is a no-op (no tab was switched); a valid
     pick seeds the wizard and schedules the deferred Actions-tab entry."""
@@ -382,7 +393,7 @@ class OnNodeActionResultTests(unittest.TestCase):
             _PROPOSAL_NO_SECTIONS, encoding="utf-8"
         )
 
-    def _make_app(self):
+    def _make_app(self, marked=()):
         app = BrainstormApp.__new__(BrainstormApp)
         app.session_path = self.wt
         app._wizard_op = ""
@@ -392,6 +403,10 @@ class OnNodeActionResultTests(unittest.TestCase):
         app._cmp_section_checks = {}
         app.calls = []
         app.notices = []
+        app.scheduled = []
+        # Minimal NodeSelection stand-in (t983_6): the compare/synthesize branch
+        # reads self._selection.effective() to pre-check the source checklist.
+        app._selection = _FakeSelection(marked)
 
         def fake_query_one(selector, *args):
             # The harness mounts no widgets; #actions_content lookups are
@@ -409,9 +424,15 @@ class OnNodeActionResultTests(unittest.TestCase):
         app._actions_advance_from_node_select = (
             lambda node: app.calls.append(("advance", node)) or True
         )
-        app.call_after_refresh = (
-            lambda cb, *a, **kw: app.calls.append("after_refresh")
+        app._preseed_multi_node_checklist = (
+            lambda op, m: app.calls.append(("preseed", op, tuple(m)))
         )
+
+        def fake_car(cb, *a, **kw):
+            app.calls.append("after_refresh")
+            app.scheduled.append(cb)
+
+        app.call_after_refresh = fake_car
         return app
 
     def test_cancel_is_a_noop(self):
@@ -429,13 +450,17 @@ class OnNodeActionResultTests(unittest.TestCase):
         self.assertIn("no longer exists", app.notices[0][0])
         self.assertEqual(app.calls, [])
 
-    def test_valid_pick_seeds_wizard_and_defers_tab_entry(self):
+    def test_valid_pick_seeds_wizard_and_drops_node_select(self):
+        # explore: the node is contextual, so the launch seeds _selected_node +
+        # pre_seeded_node and skips the in-wizard node-pick step (t983_6),
+        # advancing straight into section_select/config.
         self._write_node("n1")
         app = self._make_app()
         app._on_node_action_result("n1", "explore")
         self.assertEqual(app._wizard_op, "explore")
         self.assertEqual(app._wizard_config.get("_selected_node"), "n1")
-        self.assertIn("node_select", app.calls)
+        self.assertTrue(app._wizard_config.get("pre_seeded_node"))
+        self.assertNotIn("node_select", app.calls)  # node-pick step dropped
         self.assertIn(("advance", "n1"), app.calls)
         # Tab entry is deferred (call_after_refresh) until the modal pop
         # settles — see _on_node_action_result.
@@ -457,7 +482,20 @@ class OnNodeActionResultTests(unittest.TestCase):
         )
         self.assertIn("config", app.calls)
         self.assertNotIn("node_select", app.calls)
+        # pre_seeded_node drops the (over-counted) node_select step (t983_6).
+        self.assertTrue(app._wizard_config.get("pre_seeded_node"))
         self.assertIn("after_refresh", app.calls)
+
+    def test_module_decompose_sets_pre_seeded_node(self):
+        # Contextual module_decompose seeds the subgraph and flags
+        # pre_seeded_node so step numbering omits node_select (t983_6).
+        self._write_node("n1")
+        app = self._make_app()
+        app._on_node_action_result("n1", "module_decompose")
+        self.assertEqual(app._wizard_op, "module_decompose")
+        self.assertTrue(app._wizard_config.get("pre_seeded_node"))
+        self.assertIn("config", app.calls)
+        self.assertNotIn("node_select", app.calls)
 
     def test_compare_routes_to_config_not_node_select(self):
         # Multi-node ops pick nodes in the config step (cmp_nodes/syn_nodes),
@@ -479,6 +517,81 @@ class OnNodeActionResultTests(unittest.TestCase):
         self.assertIn("config", app.calls)
         self.assertNotIn("node_select", app.calls)
         self.assertIn("after_refresh", app.calls)
+
+    def test_compare_preseeds_checklist_from_marked_set(self):
+        # With a 2+ marked set driving the launch (t983_6), the source-node
+        # checklist is pre-checked from the marked ids. The pre-check is
+        # scheduled via call_after_refresh (boxes must be mounted first).
+        self._write_node("n1")
+        self._write_node("n2")
+        app = self._make_app(marked=["n1", "n2"])
+        app._on_node_action_result("n1", "compare")
+        for cb in app.scheduled:  # run the deferred callbacks
+            cb()
+        self.assertIn(("preseed", "compare", ("n1", "n2")), app.calls)
+
+    def test_synthesize_preseeds_checklist_from_marked_set(self):
+        self._write_node("n1")
+        self._write_node("n2")
+        app = self._make_app(marked=["n2", "n1"])
+        app._on_node_action_result("n1", "synthesize")
+        for cb in app.scheduled:
+            cb()
+        # marked is sorted before seeding
+        self.assertIn(("preseed", "synthesize", ("n1", "n2")), app.calls)
+
+    def test_compare_without_marked_set_does_not_preseed(self):
+        # A lone primary (no marked set) → no pre-check scheduled. (In the live
+        # app compare is greyed at cardinality 1; this guards the seedless path.)
+        self._write_node("n1")
+        app = self._make_app()  # no marked nodes
+        app._on_node_action_result("n1", "compare")
+        for cb in app.scheduled:
+            cb()
+        self.assertNotIn(
+            ("preseed", "compare", ()), [c for c in app.calls if isinstance(c, tuple) and c[0] == "preseed"]
+        )
+        self.assertFalse(
+            [c for c in app.calls if isinstance(c, tuple) and c[0] == "preseed"]
+        )
+
+
+class _FclHost(App):
+    """Minimal host mounting a syn_nodes FuzzyCheckList for the preseed pilot."""
+
+    def __init__(self, nodes) -> None:
+        super().__init__()
+        self._node_ids = nodes
+
+    def compose(self) -> ComposeResult:
+        yield FuzzyCheckList(
+            self._node_ids, item_class="chk_node", id="syn_nodes"
+        )
+
+
+class PreseedChecklistPilotTests(unittest.TestCase):
+    """Runtime check that _preseed_multi_node_checklist actually flips the
+    marked rows' Checkbox.value (the code the callback unit tests stub out)."""
+
+    def test_marked_nodes_get_checked(self):
+        async def run():
+            host = _FclHost(["n1", "n2", "n3"])
+            async with host.run_test() as pilot:
+                await pilot.pause()
+                # synthesize takes the no-refresh path (compare also calls the
+                # session-backed dimension/section refreshes).
+                BrainstormApp._preseed_multi_node_checklist(
+                    host, "synthesize", ["n1", "n3"]
+                )
+                await pilot.pause()
+                checked = {
+                    str(cb.label): cb.value
+                    for cb in host.query("Checkbox.chk_node")
+                }
+            return checked
+
+        checked = asyncio.run(run())
+        self.assertEqual(checked, {"n1": True, "n2": False, "n3": True})
 
 
 class SetTotalStepsResetsFastTrackTests(unittest.TestCase):

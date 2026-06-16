@@ -1861,7 +1861,16 @@ _WIZARD_STEPS: list[_WizardStep] = [
         and c.get("subgraph_count", 1) >= 2,
         True,
     ),
-    _WizardStep("node_select", lambda c: c.get("op") in _NODE_SELECT_STEP_OPS, True),
+    # Skipped when the launch already supplied the node contextually (t983_6):
+    # contextual ops (Operations dialog / Node Hub) seed the selection, so the
+    # in-wizard node-pick step is redundant. Kept (gated, not deleted) so the
+    # non-seeded op-select flow + its unit tests stay valid.
+    _WizardStep(
+        "node_select",
+        lambda c: c.get("op") in _NODE_SELECT_STEP_OPS
+        and not c.get("pre_seeded_node"),
+        True,
+    ),
     _WizardStep(
         "section_select",
         lambda c: c.get("op") in _NODE_SELECT_OPS and bool(c.get("node_has_sections")),
@@ -4602,7 +4611,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._set_total_steps()
             self._wizard_fast_track = True
             self._wizard_subgraph = _node_module(self.session_path, node_id)
-            self._wizard_config = {}
+            # pre_seeded_node drops the node_select step from the count
+            # (module_decompose is in _NODE_SELECT_STEP_OPS but the subgraph is
+            # already known here — t983_6).
+            self._wizard_config = {"pre_seeded_node": True}
             self._actions_show_config()
             self.call_after_refresh(self._enter_actions_tab)
             return
@@ -4620,7 +4632,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._wizard_op = op_key
             self._set_total_steps()
             self._wizard_subgraph = _node_module(self.session_path, node_id)
-            self._wizard_config = {}
+            # pre_seeded_node drops the node_select step from the count for
+            # module_decompose (in _NODE_SELECT_STEP_OPS); harmless for
+            # merge/sync whose node_select is already inactive (t983_6).
+            self._wizard_config = {"pre_seeded_node": True}
             self._actions_show_config()
             self.call_after_refresh(self._enter_actions_tab)
             return
@@ -4632,31 +4647,35 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # subgraph seed (these ops are not subgraph-scoped). Routing through
             # the generic node-select branch below would call
             # _actions_show_node_select(), which is explore-only and would
-            # mis-drive them. Pre-seeding the checklist from the marked set is
-            # deferred to t983_6 (wizard re-host) / t983_7 (compare overlay);
-            # for now the user picks the source nodes in the config step.
+            # mis-drive them.
             self._wizard_op = op_key
             self._set_total_steps()
             self._wizard_config = {}
             self._actions_show_config()
+            # Pre-check the source-node checklist from the contextual marked set
+            # (t983_6). These ops are only enabled with 2+ marked, so this fires
+            # exactly when a marked set drove the launch; the user can still
+            # adjust the checklist. After-refresh so the FuzzyCheckList's
+            # Checkboxes are mounted and queryable.
+            marked = sorted(self._selection.effective())
+            if len(marked) >= 2:
+                self.call_after_refresh(
+                    lambda op=op_key, m=marked: (
+                        self._preseed_multi_node_checklist(op, m)
+                    )
+                )
             self.call_after_refresh(self._enter_actions_tab)
             return
-        # Seed wizard state as if Step 1 (operation select) had completed.
+        # explore: the node is already contextual, so seed it and skip the
+        # in-wizard node-select step (t983_6). pre_seeded_node drops node_select
+        # from the active step set (see the _WIZARD_STEPS predicate); the seed
+        # then advances straight to section_select / config.
         self._wizard_op = op_key
         self._set_total_steps()
-        # Render Step 2 (node select) so #actions_content is in a consistent
-        # state, then seed the selected node — _actions_show_node_select
-        # clears _wizard_config, so the seed must happen after it.
-        self._actions_show_node_select()
-        self._wizard_config["_selected_node"] = node_id
-        try:
-            container = self.query_one("#actions_content", VerticalScroll)
-            for row in container.query(OperationRow):
-                row.selected = (row.op_key == node_id)
-            self.query_one(".btn_actions_next", Button).disabled = False
-        except Exception:
-            pass
-        # Advance past node-select into the config / section / confirm step.
+        self._wizard_config = {"_selected_node": node_id, "pre_seeded_node": True}
+        # Renders the next active step (section_select or config) into
+        # #actions_content; _actions_advance_from_node_select does the
+        # _node_has_sections disk read and picks the right step.
         self._actions_advance_from_node_select(node_id)
         # Switch to the Actions tab only once the picker modal has fully
         # closed. `Screen.dismiss` runs this callback *before* `pop_screen`,
@@ -6768,6 +6787,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             "op": self._wizard_op,
             "node_has_sections": self._wizard_has_sections,
             "subgraph_count": self._wizard_subgraph_count,
+            # Set by the contextual launch path (t983_6) to drop the node_select
+            # step when the node/marked-set is already known.
+            "pre_seeded_node": bool(self._wizard_config.get("pre_seeded_node")),
         }
 
     def _enter_wizard_step(self, step_id: str) -> None:
@@ -6993,6 +7015,29 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._config_module_merge(container)
         elif op == "module_sync":
             self._config_module_sync(container)
+
+    def _preseed_multi_node_checklist(self, op_key: str, marked: list[str]) -> None:
+        """Pre-check the compare/synthesize source-node FuzzyCheckList from the
+        contextual marked set (t983_6).
+
+        Called after ``_actions_show_config`` has mounted the config form for a
+        contextually-launched compare/synthesize op. Checks the rows for the
+        marked nodes; the user can still adjust the selection. For compare, the
+        section/dimension lists derive from the *checked* nodes and were
+        refreshed (empty) by ``_config_compare`` before these boxes were
+        checked, so re-run those refreshes here.
+        """
+        fcl_id = "cmp_nodes" if op_key == "compare" else "syn_nodes"
+        try:
+            fcl = self.query_one(f"#{fcl_id}", FuzzyCheckList)
+        except Exception:
+            return
+        wanted = set(marked)
+        for cb in fcl.query("Checkbox.chk_node"):
+            cb.value = str(cb.label) in wanted
+        if op_key == "compare":
+            self._refresh_compare_sections()
+            self._refresh_compare_dimensions()
 
     def _focus_fcl_filter(self, fcl_id: str) -> None:
         """Focus the filter Input of a FuzzyCheckList by widget id."""

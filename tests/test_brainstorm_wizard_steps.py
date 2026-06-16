@@ -214,5 +214,71 @@ class ModuleDecomposeNodeSelectTests(unittest.TestCase):
         )
 
 
+class PreSeededNodeTests(unittest.TestCase):
+    """Contextual-launch seeding drops the node_select step (t983_6).
+
+    When an op is launched from the Operations dialog / Node Hub the node (or
+    marked set) is already known, so the launch sets ``pre_seeded_node`` and the
+    in-wizard node-pick step must disappear from the active set. The step is
+    kept (gated) — not deleted — so the non-seeded op-select flow is unchanged
+    (the rest of this file is the regression guard for that).
+    """
+
+    def _ctx(self, op, pre_seeded_node, subgraph_count=1, node_has_sections=False):
+        return {
+            "op": op,
+            "node_has_sections": node_has_sections,
+            "subgraph_count": subgraph_count,
+            "pre_seeded_node": pre_seeded_node,
+        }
+
+    def test_explore_seeded_omits_node_select(self):
+        seeded = self._ctx("explore", pre_seeded_node=True)
+        self.assertEqual(
+            active_step_ids(seeded), ["op_select", "config", "confirm"]
+        )
+        # one fewer step than the non-seeded explore flow
+        self.assertEqual(step_position(seeded, "config"), (2, 3))
+        self.assertEqual(
+            active_step_ids(self._ctx("explore", pre_seeded_node=False)),
+            ["op_select", "node_select", "config", "confirm"],
+        )
+
+    def test_explore_seeded_with_sections_still_omits_node_select(self):
+        seeded = self._ctx("explore", pre_seeded_node=True, node_has_sections=True)
+        self.assertEqual(
+            active_step_ids(seeded),
+            ["op_select", "section_select", "config", "confirm"],
+        )
+        self.assertEqual(next_step_id(seeded, "op_select"), "section_select")
+
+    def test_module_decompose_seeded_omits_node_select(self):
+        seeded = self._ctx("module_decompose", pre_seeded_node=True)
+        self.assertEqual(
+            active_step_ids(seeded), ["op_select", "config", "confirm"]
+        )
+        # multi-subgraph: subgraph_select stays, node_select still gone
+        seeded_multi = self._ctx(
+            "module_decompose", pre_seeded_node=True, subgraph_count=2
+        )
+        self.assertEqual(
+            active_step_ids(seeded_multi),
+            ["op_select", "subgraph_select", "config", "confirm"],
+        )
+
+    def test_seed_flag_is_noop_for_ops_without_node_select(self):
+        # compare/synthesize never had a node_select step; the flag changes
+        # nothing for them.
+        for op in ("compare", "synthesize"):
+            self.assertEqual(
+                active_step_ids(self._ctx(op, pre_seeded_node=True)),
+                ["op_select", "config", "confirm"],
+            )
+
+    def test_missing_flag_defaults_to_node_select_present(self):
+        # A ctx without the key at all (legacy callers) keeps node_select.
+        self.assertIn("node_select", active_step_ids(ctx("explore")))
+
+
 if __name__ == "__main__":
     unittest.main()
