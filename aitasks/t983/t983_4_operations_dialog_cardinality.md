@@ -61,3 +61,5 @@ extends it and makes the enable/disable logic pure.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-16T08:01:02Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-16T08:01:03Z status=pass attempt=1 type=machine
