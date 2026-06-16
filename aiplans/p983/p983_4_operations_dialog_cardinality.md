@@ -300,5 +300,60 @@ t983_6/7 will rewrite anyway. Recorded here so the AC narrowing is explicit.
   user-confirmed. · severity: low · → mitigation: n/a
 - None other identified.
 
+## Final Implementation Notes
+
+- **Actual work done:** All in `.aitask-scripts/brainstorm/brainstorm_app.py`.
+  Added the pure `op_states_for_selection(node_ctx, cardinality)` and the shared
+  `format_node_id_summary(ids, prefix)` helper beside the headless models;
+  reduced `_node_action_op_states` to a thin I/O wrapper now taking
+  `cardinality`. Extended `NodeActionSelectModal` → the **Operations** dialog:
+  `_OPS` gains compare/synthesize (contextual order), title "Operations" + a
+  capped `Targets (N): …(+K more)` summary line driven by a new `targets`
+  ctor arg, and an in-modal `H` `action_op_help` (pushes `OperationHelpModal`,
+  with a "No help available" notify fallback). `action_node_action` computes
+  `self._selection.cardinality` / `effective()` and threads them in.
+  `_on_node_action_result` gained a compare/synthesize branch routing via the
+  module-op config pattern. Added the Browse `#browse_marked_info` label (shared
+  detail pane) + `_refresh_marked_summary()` called by `_refresh_node_marks`,
+  plus CSS for `#node_action_targets` / `#browse_marked_info`. Tests: rebuilt
+  `test_brainstorm_node_action_relevance.py` around the pure fn (cardinality +
+  precondition + roundtrip) and updated the wrapper calls to pass cardinality;
+  updated `test_brainstorm_node_action_modal.py` (new op order, title→targets,
+  H-help both branches, compare/synthesize routing) and added a
+  `#browse_marked_info` pilot to `test_brainstorm_browse_view.py`.
+- **Deviations from plan:** (1) **`delete` actually HAS an `_OPERATION_HELP`
+  entry** (so do the session ops pause/resume/finalize/archive) — the plan said
+  fast_track *and* delete were helpless. The code is correct (the no-help
+  fallback only fires for `fast_track`, the genuine helpless op); the helpless
+  test targets fast_track. (2) Extracted `format_node_id_summary` as a shared
+  module-level helper (not foreseen in the plan) so the cap logic lives in one
+  place for both the dialog `Targets` line and the Browse `Marked` line
+  (derive-don't-duplicate).
+- **Issues encountered:** `pytest` is not in the project venv — ran via
+  `python -m unittest`. In a pilot, `OperationRow.focus()` did not reliably move
+  the modal's focus; the H-fallback test navigates with `down` key-presses (the
+  real nav path) to land on the target row.
+- **Key decisions:** compare/synthesize route through the **module-op config
+  branch** (`_actions_show_config`), NOT the explore-only node-select branch —
+  verified safe because those ops pick nodes inside the config step
+  (`syn_nodes`/`cmp_nodes` FuzzyCheckList). The dialog `compare` op maps to the
+  comparator-agent op, not the `tab_compare` matrix. Marked-set launch-seeding
+  deferred to t983_6/t983_7 (user-confirmed scope).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t983_6 (wizard re-host):** the Operations dialog now supersedes the
+    wizard's `op_select` step as the op-entry point, but the wizard's physical
+    `op_select` step and its app-level `action_op_help` (`tab_actions`-gated)
+    are untouched — re-host unifies the two op-help paths (the dialog's in-modal
+    `H` vs the wizard's) and can drop the dialog→`_actions_show_config` hop in
+    favor of a seeded re-host. Pre-seed compare/synthesize from
+    `self._selection.effective()` when re-hosting.
+  - **t983_7 (compare overlay):** the dialog's `compare` op currently lands in
+    the comparator-agent config; the `tab_compare` dimension matrix
+    (`_open_compare_select_modal`) is still separate — fold it in here.
+  - The pure op-relevance decision is `op_states_for_selection(node_ctx,
+    cardinality)`; `node_ctx = {is_umbrella, has_ancestor, has_linked_task}`.
+    The marked-summary render helper is `format_node_id_summary(ids, prefix)`.
+
 ## Step 9
 Archive via `./.aitask-scripts/aitask_archive.sh 983_4`.
