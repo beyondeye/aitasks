@@ -319,7 +319,7 @@ as msgpack array[0]); `pane_status` is a `kind:"push"` JSON text frame.
   cancelled in `_handle`'s `finally`; scheduler split into a dependency-injected
   `_run_once` driven by `_loop`, with **direct async tests** (emit + lifecycle
   teardown) in `test_applink_pusher.sh`; router stays pure.
-  → mitigation: applink_dataplane_limits_hardening
+  → mitigation: t1007
 - New `msgpack` dependency in the install/probe flow. · severity: low ·
   → mitigation: lazy import + graceful test skips + `aitask_setup.sh`/launcher
   probe, mirroring the t822_7 `websockets` addition. → mitigation: TBD
@@ -333,7 +333,7 @@ as msgpack array[0]); `pane_status` is a `kind:"push"` JSON text frame.
   synthetic scripted WS client; payload-schema drift from what mobile expects is
   possible. · severity: medium · → mitigation: strict adherence to
   `content_transport.md`; explicit framing note for the mobile sibling; a
-  manual-verification follow-up for the live path. → mitigation: applink_dataplane_limits_hardening
+  manual-verification follow-up for the live path. → mitigation: t1007
 - **tmux/wcwidth parity** for span widths and cursor style is best-effort
   (stdlib `east_asian_width`, no utf8proc; block-cursor only). Wide-char rendering
   could be off by a cell in rare cases. · severity: low · → mitigation: server is
@@ -341,7 +341,7 @@ as msgpack array[0]); `pane_status` is a `kind:"push"` JSON text frame.
   self-consistent; documented. → mitigation: TBD
 
 ### Planned mitigations
-- timing: after | name: applink_dataplane_limits_hardening | type: chore | priority: medium | effort: low | addresses: code-health "asyncio push scheduler" + goal-achievement "no real mobile client / schema-drift & DoS" | desc: Enforce/verify applink data-plane resource limits — max subscribed panes per connection, cadence-floor clamping, msgpack frame-size cap, and decode-bomb guards — coordinated with t985 (applink security hardening) to avoid duplication.
+- timing: after | name: t1007 (applink_dataplane_limits_hardening) | type: chore | priority: medium | effort: low | addresses: code-health "asyncio push scheduler" + goal-achievement "no real mobile client / schema-drift & DoS" | desc: Enforce/verify applink data-plane resource limits — max subscribed panes per connection, cadence-floor clamping, msgpack frame-size cap, and decode-bomb guards — coordinated with t985 (applink security hardening) to avoid duplication.
 
 ## Final Implementation Notes
 
