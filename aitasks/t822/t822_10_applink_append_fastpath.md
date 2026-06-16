@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t822_9]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 10:42
-updated_at: 2026-06-11 10:42
+updated_at: 2026-06-16 12:19
 ---
 
 Implement Stage 3 of the applink data plane: the `append` fast path for log-streaming panes — bottom-cursor + no-upper-changes detection and `append` frame emission.
