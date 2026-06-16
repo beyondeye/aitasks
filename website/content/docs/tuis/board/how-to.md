@@ -82,41 +82,33 @@ The search is case-insensitive and matches against both the task filename and th
 
 ### How to Filter by View Mode
 
-The board provides three view modes that control which tasks are displayed. The active mode is shown in the View Selector widget at the top-left of the filter area, displayed as `a All │ g Git │ i Impl`. The active mode is highlighted in bold cyan; inactive modes appear dimmed.
+The View Selector at the top-left combines one base view with optional add-on filters. The active base and add-ons are highlighted.
 
-**Switching view modes (keyboard):**
+**Base views:**
 
-1. Press **a** to show all tasks (default)
-2. Press **g** to show only git-linked tasks
-3. Press **i** to show only implementing tasks
+1. Press **a** for All tasks.
+2. Press **l** for Locked tasks: tasks currently implementing or locked, with parent/sibling context for busy child tasks.
+3. Press **f** for Free tasks: tasks not currently implementing or locked.
+4. Press **i** for In-Flight tasks grouped by next action.
 
-**Switching view modes (mouse):**
+**Add-on filters:**
 
-Click the desired mode label directly in the View Selector widget.
+- Press **g** outside In-Flight view to restrict the current base view to tasks with `issue:` or `pull_request:` metadata.
+- Press **t** to restrict the current base view to selected issue types.
 
-**All view (`a`):**
+**In-Flight view (`i`):**
 
-The default view. Shows every task regardless of metadata. Press **a** to return to this view from any other mode.
+Shows tasks with `status: Implementing` in action groups:
 
-**Git view (`g`):**
+- **Needs your action** — tasks waiting for a human gate, a failed gate decision, or post-implementation/archive follow-up.
+- **Agent can continue** — tasks that can be resumed by an agent, including implementing tasks without a gate ledger.
+- **Blocked** — tasks still blocked by unresolved dependencies.
 
-Shows only tasks that have an `issue:` or `pull_request:` field in their frontmatter — i.e., tasks linked to a GitHub issue, GitLab merge request, Bitbucket pull request, or other external tracker URL. This applies to both parent and child tasks.
-
-This mode is useful for focusing on tasks that originate from or are tracked by your git platform. Tasks created by `ait pr-import` (the PR import workflow) automatically have a `pull_request:` field and will appear in this view.
-
-**Implementing view (`i`):**
-
-Shows only tasks with status "Implementing", plus contextual related tasks:
-
-- Parent tasks that have at least one implementing child are shown
-- All siblings of an implementing child task are shown (so you can see the full subtask list)
-- Parents with implementing children are **auto-expanded** — their child cards appear automatically without pressing **x**
-
-When you switch away from Implementing view, auto-expanded parents are collapsed back (unless you had manually expanded them before entering the view).
+With an In-Flight row focused, **p** launches the normal pick/resume flow, **g** launches direct resume, and **s** / **f** sign off or fail a pending human gate. If more than one human gate is pending, the board asks which gate to update.
 
 **Combining with text search:**
 
-View modes combine with the search box using AND logic. For example, if you are in "Git" view and type "auth" in the search box, you see only git-linked tasks that also match "auth". Clear the search box to show all tasks matching the current view mode.
+View modes combine with the search box using AND logic. For example, if you are in Locked view and type "auth", you see only locked tasks that also match "auth". Clear the search box to show all tasks matching the current view mode.
 
 ### How to Commit Changes from the Board
 

@@ -8,6 +8,7 @@ import json
 import glob
 import subprocess
 from datetime import datetime
+from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
@@ -36,6 +37,7 @@ from shortcuts_mixin import ShortcutsMixin, get_label
 from cross_repo_notation import parse as parse_cross_repo_notation
 from task_levels import LEVELS_ASCENDING
 from archive_iter import find_archived_markdown_by_id
+import gate_ledger
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
@@ -67,6 +69,28 @@ EMAILS_FILE = TASKS_DIR / "metadata" / "emails.txt"
 CODEAGENT_SCRIPT = Path(".aitask-scripts") / "aitask_codeagent.sh"
 CREATE_SCRIPT = Path(".aitask-scripts") / "aitask_create.sh"
 BRAINSTORM_TUI_SCRIPT = Path(".aitask-scripts") / "aitask_brainstorm_tui.sh"
+GATES_REGISTRY_FILE = TASKS_DIR / "metadata" / "gates.yaml"
+
+
+@dataclass
+class GateStateResult:
+    state: gate_ledger.TaskGateState | None = None
+    error: str = ""
+    has_ledger: bool = False
+
+
+@dataclass
+class InFlightItem:
+    task: "Task"
+    task_id: str
+    title: str
+    group: str
+    next_action: str
+    gate_summary: str
+    human_gates: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
+    state_error: str = ""
+    has_ledger: bool = False
 
 def _task_git_cmd() -> list[str]:
     """Return git command prefix for task data operations.
@@ -84,6 +108,14 @@ def _sanitize_name(name: str) -> str:
     name = re.sub(r'_+', '_', name)
     name = name.strip("_")
     return name[:60]
+
+
+def _task_id_sort_key(task_id: str):
+    parts = str(task_id).lstrip("t").split("_")
+    key = []
+    for part in parts:
+        key.append(int(part) if part.isdigit() else part)
+    return key
 
 def _load_task_types() -> list:
     """Load valid task types from task_types.txt, with fallback defaults."""
@@ -263,6 +295,9 @@ class TaskManager:
         # Populated lazily during card render and cleared each full refresh so
         # the task-status probe does not fire per redraw.
         self.xdep_status_cache: dict[tuple[str, str], str] = {}
+        self.gate_state_cache: dict[str, GateStateResult] = {}
+        self.gate_registry_cache: dict[str, dict] | None = None
+        self.gate_registry_error = ""
         self.settings: dict = {}
         self._ensure_paths()
         self.load_metadata()
@@ -311,6 +346,7 @@ class TaskManager:
     def load_tasks(self):
         self.task_datas.clear()
         self.archived_task_cache.clear()
+        self.clear_gate_cache()
         for f in glob.glob(str(TASKS_DIR / "*.md")):
             path = Path(f)
             task = Task(path)
@@ -470,6 +506,180 @@ class TaskManager:
                         }
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+
+    def clear_gate_cache(self):
+        self.gate_state_cache.clear()
+        self.gate_registry_cache = None
+        self.gate_registry_error = ""
+
+    def gate_registry(self) -> dict[str, dict]:
+        """Read gates.yaml once per refresh; missing/invalid registry is safe."""
+        if self.gate_registry_cache is not None:
+            return self.gate_registry_cache
+        try:
+            self.gate_registry_cache = gate_ledger.read_registry(str(GATES_REGISTRY_FILE))
+            self.gate_registry_error = ""
+        except Exception as exc:
+            self.gate_registry_cache = {}
+            self.gate_registry_error = str(exc)
+        return self.gate_registry_cache
+
+    def gate_state_for(self, task: Task) -> GateStateResult:
+        """Return cached gate derivation for a task, failing closed on errors."""
+        key = str(task.filepath)
+        cached = self.gate_state_cache.get(key)
+        if cached is not None:
+            return cached
+        has_ledger = False
+        try:
+            has_ledger = gate_ledger.has_gate_markers(task.content or "")
+            state = gate_ledger.read_task_gate_state(
+                str(task.filepath), str(GATES_REGISTRY_FILE)
+            )
+            result = GateStateResult(state=state, has_ledger=has_ledger)
+        except Exception as exc:
+            result = GateStateResult(error=str(exc), has_ledger=has_ledger)
+        self.gate_state_cache[key] = result
+        return result
+
+    def dependency_released_by_gates(self, task: Task) -> bool:
+        """Whether an active upstream dependency is satisfied for dependents."""
+        result = self.gate_state_for(task)
+        return bool(result.state and result.state.dependents_decision == "SATISFIED")
+
+    def unresolved_local_deps(self, task: Task) -> list[str]:
+        unresolved = []
+        for d in task.metadata.get('depends', []) or []:
+            d_str = str(d)
+            dep_id = d_str if d_str.startswith('t') else f"t{d_str}"
+            dep_task = self.find_task_by_id(dep_id)
+            if dep_task and dep_task.metadata.get('status') != 'Done' \
+                    and not self.dependency_released_by_gates(dep_task):
+                unresolved.append(dep_id)
+        return unresolved
+
+    def cross_repo_dep_display(self, task: Task) -> tuple[list[str], bool]:
+        xdep_display = []
+        xdep_blocked = False
+        xdeprepo = task.metadata.get('xdeprepo')
+        xdeps = task.metadata.get('xdeps', []) or []
+        if xdeprepo and xdeps:
+            for xd in xdeps:
+                xid = str(xd).lstrip('t')
+                ref = f"{xdeprepo}#{xid}"
+                xstatus = self.get_xdep_status(xdeprepo, xid)
+                if xstatus == 'Done':
+                    xdep_display.append(ref)
+                elif not xstatus or xstatus == 'NOT_FOUND':
+                    xdep_display.append(f"{ref} (UNREACHABLE)")
+                    xdep_blocked = True
+                else:
+                    xdep_display.append(f"{ref} [{xstatus}]")
+                    xdep_blocked = True
+        return xdep_display, xdep_blocked
+
+    def _gate_summary(self, result: GateStateResult) -> str:
+        state = result.state
+        if result.error:
+            return "gate state unavailable"
+        if not result.has_ledger:
+            return "no gate ledger"
+        if not state or not state.current:
+            return "no recorded gates"
+        parts = []
+        for run in state.current.values():
+            parts.append(f"{run.icon} {run.name}:{run.status}")
+        return "  ".join(parts)
+
+    def _human_pending_gates(self, result: GateStateResult) -> list[str]:
+        state = result.state
+        if not state:
+            return []
+        registry = self.gate_registry()
+        gates = []
+        for gate in state.declared_gates:
+            meta = registry.get(gate, {})
+            if meta.get("type") != "human":
+                continue
+            current = state.current.get(gate)
+            if current is None or current.status != "pass":
+                gates.append(gate)
+        return gates
+
+    def _has_failed_gate(self, result: GateStateResult) -> bool:
+        state = result.state
+        return bool(state and any(
+            run.status in ("fail", "error") for run in state.current.values()
+        ))
+
+    def _inflight_item_for(self, task: Task) -> InFlightItem | None:
+        if task.metadata.get("status") != "Implementing":
+            return None
+        task_id, title = TaskCard._parse_filename(task.filename)
+        if not task_id:
+            return None
+        result = self.gate_state_for(task)
+        blockers = self.unresolved_local_deps(task)
+        xdep_display, xdep_blocked = self.cross_repo_dep_display(task)
+        if xdep_blocked:
+            blockers.extend(xdep_display)
+
+        human_gates = self._human_pending_gates(result)
+        failed = self._has_failed_gate(result)
+        state = result.state
+
+        if blockers:
+            group = "blocked"
+            next_action = "blocked by dependencies"
+        elif result.error:
+            group = "agent"
+            next_action = "gate state unavailable"
+        elif not result.has_ledger:
+            group = "agent"
+            next_action = "no gate ledger — pick/resume"
+        elif state and state.archive_decision == "ALL_PASS":
+            group = "human"
+            next_action = "all gates pass — archive/re-enter"
+        elif state and state.resume_point == "POSTIMPL":
+            group = "human"
+            next_action = "reviewed — post-implementation"
+        elif failed:
+            group = "human"
+            next_action = "failed gate — inspect/sign off or fail"
+        elif human_gates:
+            group = "human"
+            next_action = "pending human gate"
+        elif state and state.resume_point == "IMPLEMENT":
+            group = "agent"
+            next_action = "plan approved — resume implementation"
+        else:
+            group = "agent"
+            next_action = "resume or continue planning"
+
+        return InFlightItem(
+            task=task,
+            task_id=task_id,
+            title=title,
+            group=group,
+            next_action=next_action,
+            gate_summary=self._gate_summary(result),
+            human_gates=human_gates,
+            blockers=blockers,
+            state_error=result.error,
+            has_ledger=result.has_ledger,
+        )
+
+    def get_inflight_items(self) -> list[InFlightItem]:
+        items = []
+        for task in self.task_datas.values():
+            item = self._inflight_item_for(task)
+            if item:
+                items.append(item)
+        for task in self.child_task_datas.values():
+            item = self._inflight_item_for(task)
+            if item:
+                items.append(item)
+        return sorted(items, key=lambda item: _task_id_sort_key(item.task_id))
 
     def get_xdep_status(self, repo: str, task_id: str) -> str:
         """Live status of a cross-repo dependency, cached per refresh cycle.
@@ -686,8 +896,8 @@ class ColumnHeader(Static):
 class ViewSelector(Static):
     """Shows the current filter state with clickable keyboard shortcuts.
 
-    Layout: ``[a All | l Locked | f Free]   g Git   t Type``
-    - Three mutually-exclusive base filters in brackets (radio).
+    Layout: ``[a All | l Locked | f Free | i In-Flight]   g Git   t Type``
+    - Four mutually-exclusive base filters in brackets (radio).
     - Two independent add-on toggles to the right.
     """
 
@@ -697,6 +907,7 @@ class ViewSelector(Static):
         ("view_all", "All", "all"),
         ("view_locked", "Locked", "locked"),
         ("view_free", "Free", "free"),
+        ("view_inflight", "In-Flight", "inflight"),
     ]
     ADDONS = [
         ("view_git", "Git", "git"),
@@ -763,7 +974,7 @@ class ViewSelector(Static):
         x = event.x - 1
         for start, end, target in self._click_targets:
             if start <= x < end:
-                if target in ("all", "locked", "free"):
+                if target in ("all", "locked", "free", "inflight"):
                     self.app._set_base_filter(target)
                 elif target == "git":
                     self.app._toggle_git_filter()
@@ -841,13 +1052,7 @@ class TaskCard(Static):
 
         unresolved_deps = []
         if self.manager:
-            deps = meta.get('depends', [])
-            for d in deps:
-                d_str = str(d)
-                dep_id = d_str if d_str.startswith('t') else f"t{d_str}"
-                dep_task = self.manager.find_task_by_id(dep_id)
-                if dep_task and dep_task.metadata.get('status') != 'Done':
-                    unresolved_deps.append(dep_id)
+            unresolved_deps = self.manager.unresolved_local_deps(self.task_data)
 
         # Cross-repo dependencies (xdeps + xdeprepo, t832_8). Build a per-ref
         # display string with live status; xdep_blocked drives the distinct
@@ -859,18 +1064,7 @@ class TaskCard(Static):
         xdeprepo = meta.get('xdeprepo')
         xdeps = meta.get('xdeps', []) or []
         if self.manager and xdeprepo and xdeps:
-            for xd in xdeps:
-                xid = str(xd).lstrip('t')
-                ref = f"{xdeprepo}#{xid}"
-                xstatus = self.manager.get_xdep_status(xdeprepo, xid)
-                if xstatus == 'Done':
-                    xdep_display.append(ref)
-                elif not xstatus or xstatus == 'NOT_FOUND':
-                    xdep_display.append(f"{ref} (UNREACHABLE)")
-                    xdep_blocked = True
-                else:
-                    xdep_display.append(f"{ref} [{xstatus}]")
-                    xdep_blocked = True
+            xdep_display, xdep_blocked = self.manager.cross_repo_dep_display(self.task_data)
 
         # Determine implementing children for parent tasks
         implementing_children = []
@@ -954,6 +1148,141 @@ class TaskCard(Static):
                     self.app.action_toggle_children()
                     return
             self.app.action_view_details()
+
+
+class InFlightTaskCard(TaskCard):
+    """Task card variant for the action-grouped In-Flight view."""
+
+    def __init__(self, item: InFlightItem, manager: "TaskManager", column_id: str):
+        super().__init__(item.task, manager, is_child="_" in item.task_id, column_id=column_id)
+        self.item = item
+
+    def compose(self):
+        with Horizontal(classes="task-title-row"):
+            yield Label(self.item.task_id, classes="task-number")
+            yield Label(self.item.title, classes="task-title")
+        yield Label(self.item.next_action, classes="task-info inflight-action")
+        if self.item.gate_summary:
+            yield Label(self.item.gate_summary, classes="task-info")
+        if self.item.blockers:
+            yield Label(f"blocked by: {', '.join(self.item.blockers)}", classes="task-info")
+
+        ops = ["p pick"]
+        if self.item.has_ledger:
+            ops.append("g resume")
+        if self.item.human_gates:
+            ops.append("s sign-off")
+            ops.append("f fail")
+        yield Label("  ".join(f"[{op}]" for op in ops), classes="task-info inflight-ops")
+
+    def _priority_border_color(self):
+        if self.item.group == "blocked":
+            return "red"
+        if self.item.group == "human":
+            return "yellow"
+        return "green"
+
+
+class InFlightColumn(VerticalScroll):
+    """A column in the In-Flight action view."""
+
+    TITLES = {
+        "human": "Needs your action",
+        "agent": "Agent can continue",
+        "blocked": "Blocked",
+    }
+    COLORS = {
+        "human": "#FFB86C",
+        "agent": "#50FA7B",
+        "blocked": "#FF5555",
+    }
+
+    def __init__(self, group: str, items: list[InFlightItem], manager: TaskManager):
+        super().__init__()
+        self.col_id = f"inflight-{group}"
+        self.group = group
+        self.items = items
+        self.manager = manager
+
+    def compose(self):
+        title = self.TITLES[self.group]
+        color = self.COLORS[self.group]
+        header = ColumnHeader(self.col_id, title, len(self.items), is_collapsed=False, editable=False)
+        header.styles.background = color
+        header.styles.color = "black"
+        header.styles.width = "100%"
+        header.styles.text_align = "center"
+        yield header
+        if not self.items:
+            yield Static("No tasks", classes="inflight-empty")
+        for item in self.items:
+            yield InFlightTaskCard(item, self.manager, column_id=self.col_id)
+
+    def on_mount(self):
+        self.styles.width = 44
+        self.styles.min_width = 34
+        self.styles.border = ("round", self.COLORS[self.group])
+        self.styles.margin = (0, 1)
+
+
+class GateChoiceItem(Static):
+    """Focusable row for selecting a human gate."""
+
+    can_focus = True
+
+    def __init__(self, gate_name: str):
+        super().__init__(gate_name)
+        self.gate_name = gate_name
+
+    def on_focus(self):
+        self.add_class("dep-item-focused")
+
+    def on_blur(self):
+        self.remove_class("dep-item-focused")
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self.screen.dismiss(self.gate_name)
+
+    def on_click(self, event):
+        self.screen.dismiss(self.gate_name)
+
+
+class GateChoiceScreen(ModalScreen):
+    """Modal used when sign-off/fail has more than one possible gate."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, task_id: str, gates: list[str], action_label: str):
+        super().__init__()
+        self.task_id = task_id
+        self.gates = gates
+        self.action_label = action_label
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label(
+                f"Select human gate to {self.action_label} for {self.task_id}:",
+                id="dep_picker_title",
+            )
+            for gate in self.gates:
+                yield GateChoiceItem(gate)
+            yield Button("Cancel", id="btn_dep_cancel")
+
+    def on_mount(self):
+        items = list(self.query(GateChoiceItem))
+        if items:
+            items[0].focus()
+
+    @on(Button.Pressed, "#btn_dep_cancel")
+    def cancel_button(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
 
 class KanbanColumn(VerticalScroll):
     """A vertical column of tasks."""
@@ -3652,11 +3981,14 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     .task-modified { color: #FFB86C; }
     .task-title { text-style: bold; width: 1fr; }
     .task-info { color: $text-muted; }
+    .inflight-action { color: $text; }
+    .inflight-ops { color: $accent; }
+    .inflight-empty { height: 1; padding: 0 1; color: $text-muted; }
     .child-wrapper { height: auto; }
     .child-wrapper TaskCard { width: 1fr; }
     .child-connector { width: auto; height: auto; padding: 0; margin: 1 0 0 0; color: $text-muted; }
     #filter_area { dock: top; height: auto; margin: 0 0 1 0; }
-    #view_col { width: 48; height: auto; }
+    #view_col { width: 62; height: auto; }
     #view_label { height: 1; padding: 0 1; color: $text-muted; }
     #view_selector { height: 1; padding: 0 1; }
     .type-filter-summary { height: auto; padding: 0 1; color: $text-muted; }
@@ -3831,10 +4163,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("X", "toggle_column_collapsed", "Collapse Col", show=False),
         # Settings
         Binding("O", "open_settings", "Options"),
-        # View filters: base radio (a/l/f) + add-on toggles (g/t)
+        # View filters: base radio (a/l/f/i) + add-on toggles (g/t)
         Binding("a", "view_all", "All", show=False),
         Binding("l", "view_locked", "Locked", show=False),
         Binding("f", "view_free", "Free", show=False),
+        Binding("i", "view_inflight", "In-Flight", show=False),
         Binding("g", "view_git", "Git", show=False),
         Binding("t", "view_type", "Type", show=False),
     ]
@@ -3844,7 +4177,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.current_tui_name = "board"
         self.manager = TaskManager()
         self.search_filter = ""
-        self.base_filter = "all"          # "all" | "locked" | "free"
+        self.base_filter = "all"          # "all" | "locked" | "free" | "inflight"
         self.git_filter_active = False
         self.type_filter_active = False
         self._view_auto_expanded: set = set()
@@ -3933,9 +4266,14 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 return None  # Hide unless the focused task has cross-repo refs
         elif action in ("move_task_right", "move_task_left", "move_task_up", "move_task_down",
                         "move_task_top", "move_task_bottom"):
+            if self.base_filter == "inflight":
+                return None
             focused = self._focused_card()
             if focused and focused.is_child:
                 return None  # Hide movement actions for child cards
+        elif action in ("move_col_right", "move_col_left", "toggle_column_collapsed"):
+            if self.base_filter == "inflight":
+                return None
         return True
 
     def compose(self):
@@ -4010,11 +4348,23 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.manager.refresh_git_status()
         if refresh_locks:
             self.manager.refresh_lock_map()
+        self.manager.clear_gate_cache()
         # New refresh cycle: drop cached cross-repo dep statuses so cards
         # re-probe live status (cards repopulate the cache on render).
         self.manager.xdep_status_cache.clear()
         container = self.query_one("#board_container")
         container.remove_children()
+
+        if self.base_filter == "inflight":
+            grouped = {"human": [], "agent": [], "blocked": []}
+            for item in self.manager.get_inflight_items():
+                grouped[item.group].append(item)
+            for group in ("human", "agent", "blocked"):
+                container.mount(InFlightColumn(group, grouped[group], self.manager))
+            self.call_after_refresh(self.apply_filter)
+            if refocus_filename:
+                self.call_after_refresh(self._refocus_card, refocus_filename)
+            return
 
         # 1. Unordered/Backlog Column (Dynamic)
         unordered_tasks = self.manager.get_column_tasks("unordered")
@@ -4119,7 +4469,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def apply_filter(self):
         """Apply base filter ∩ active add-ons ∩ search to all cards."""
-        if self.base_filter == "locked":
+        if self.base_filter == "inflight":
+            visible = None
+        elif self.base_filter == "locked":
             visible = self._locked_visible_set()
         elif self.base_filter == "free":
             visible = self._free_visible_set()
@@ -4251,9 +4603,18 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._set_base_filter("locked")
 
     def action_view_free(self):
+        if self.base_filter == "inflight" and isinstance(self._focused_card(), InFlightTaskCard):
+            self._record_focused_human_gate("fail")
+            return
         self._set_base_filter("free")
 
+    def action_view_inflight(self):
+        self._set_base_filter("inflight")
+
     def action_view_git(self):
+        if self.base_filter == "inflight" and isinstance(self._focused_card(), InFlightTaskCard):
+            self.action_gate_resume()
+            return
         self._toggle_git_filter()
 
     def action_view_type(self):
@@ -4345,7 +4706,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         selector.refresh()
 
     def _compute_search_placeholder(self) -> str:
-        if self.base_filter == "locked":
+        if self.base_filter == "inflight":
+            base = "Search in-flight tasks"
+        elif self.base_filter == "locked":
             base = "Search locked tasks"
         elif self.base_filter == "free":
             base = "Search free tasks"
@@ -4361,7 +4724,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self.base_filter == "all" and not addons:
             base += " (Tab to focus, Esc to return to board)"
         else:
-            base += " (a/l/f to switch base)"
+            base += " (a/l/f/i to switch base)"
         return base
 
     def _update_search_placeholder(self):
@@ -4420,7 +4783,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _get_visible_col_ids(self) -> list:
         """Return ordered list of column IDs currently on the board."""
-        return [col.col_id for col in self.query(KanbanColumn)]
+        cols = list(self.query(KanbanColumn)) + list(self.query(InFlightColumn))
+        return [col.col_id for col in cols]
 
     def _modal_is_active(self):
         return isinstance(self.screen, ModalScreen)
@@ -4687,9 +5051,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
         if not task_num:
             return
+        num = task_num.lstrip("t")
+        if self._focus_existing_agent_window(num):
+            self.refresh_board(refocus_filename=focused.task_data.filename)
+            return
         full_cmd = self._resolve_pick_command(task_num)
         if full_cmd:
-            num = task_num.lstrip("t")
             prompt_str = f"/aitask-pick {num}"
             agent_string = resolve_agent_string(Path("."), "pick")
             screen = AgentCommandScreen(
@@ -4783,6 +5150,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """Manually trigger a sync with remote."""
         if self._modal_is_active():
             return
+        if self.base_filter == "inflight" and isinstance(self._focused_card(), InFlightTaskCard):
+            self._record_focused_human_gate("pass")
+            return
         self.push_screen(LoadingOverlay("Syncing with remote..."))
         self._run_sync(show_notification=True, show_overlay=True)
 
@@ -4855,6 +5225,119 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """Resolve the active profile name for the pick skill."""
         return resolve_skill_profile("pick")
 
+    def _resolve_resume_command(self, task_num: str):
+        """Resolve the full resume command via --dry-run, return command string or None."""
+        num = task_num.lstrip("t")
+        return resolve_dry_run_command(Path("."), "resume", num)
+
+    def _resolve_resume_profile(self) -> str:
+        """Resolve the active profile name for the resume skill."""
+        return resolve_skill_profile("resume")
+
+    def _focus_existing_agent_window(self, num: str) -> bool:
+        session = (
+            _current_tmux_session()
+            or load_tmux_defaults(Path.cwd())["default_session"]
+        )
+        for window_name in (f"agent-pick-{num}", f"agent-resume-{num}"):
+            existing = find_window_by_name(window_name, session)
+            if existing:
+                sess, idx = existing
+                subprocess.Popen(
+                    ["tmux", "select-window", "-t", tmux_window_target(sess, idx)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                self.notify(f"Switched to existing agent window for t{num}")
+                return True
+        return False
+
+    def action_gate_resume(self):
+        """Open resume command dialog for the focused In-Flight task."""
+        if self._modal_is_active():
+            return
+        focused = self._focused_card()
+        if not isinstance(focused, InFlightTaskCard):
+            return
+        task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
+        if not task_num:
+            return
+        num = task_num.lstrip("t")
+        if self._focus_existing_agent_window(num):
+            self.refresh_board(refocus_filename=focused.task_data.filename)
+            return
+        full_cmd = self._resolve_resume_command(task_num)
+        if full_cmd:
+            prompt_str = f"/aitask-resume {num}"
+            agent_string = resolve_agent_string(Path("."), "resume")
+            screen = AgentCommandScreen(
+                f"Resume Task t{num}", full_cmd, prompt_str,
+                default_window_name=f"agent-resume-{num}",
+                project_root=Path("."),
+                operation="resume",
+                operation_args=[num],
+                default_agent_string=agent_string,
+                skill_name="resume",
+                default_profile=self._resolve_resume_profile(),
+            )
+            def on_resume_result(resume_result):
+                if resume_result == "run":
+                    self.run_codeagent_operation("resume", focused.task_data.filename)
+                elif isinstance(resume_result, TmuxLaunchConfig):
+                    _, err = launch_in_tmux(screen.full_command, resume_result)
+                    if err:
+                        self.notify(err, severity="error")
+                    elif resume_result.new_window:
+                        maybe_spawn_minimonitor(resume_result.session, resume_result.window)
+                self.refresh_board(refocus_filename=focused.task_data.filename)
+            self.push_screen(screen, on_resume_result)
+        else:
+            self.run_codeagent_operation("resume", focused.task_data.filename)
+
+    def _record_focused_human_gate(self, status: str):
+        focused = self._focused_card()
+        if not isinstance(focused, InFlightTaskCard):
+            return
+        gates = focused.item.human_gates
+        if not gates:
+            self.notify("No pending human gate for this task.", severity="warning")
+            return
+        if len(gates) == 1:
+            self._append_human_gate(focused, gates[0], status)
+            return
+
+        action_label = "sign off" if status == "pass" else "fail"
+        def on_gate(gate):
+            if gate:
+                self._append_human_gate(focused, gate, status)
+        self.push_screen(GateChoiceScreen(focused.item.task_id, gates, action_label), on_gate)
+
+    def _append_human_gate(self, focused: InFlightTaskCard, gate: str, status: str):
+        task_id = focused.item.task_id.lstrip("t")
+        try:
+            result = subprocess.run(
+                [
+                    "./.aitask-scripts/aitask_gate.sh",
+                    "append",
+                    task_id,
+                    gate,
+                    status,
+                    "type=human",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+            self.notify(f"Gate update failed: {exc}", severity="error")
+            return
+        if result.returncode != 0:
+            msg = result.stderr.strip() or result.stdout.strip() or "unknown error"
+            self.notify(f"Gate update failed: {msg}", severity="error")
+            return
+        self.notify(f"Recorded {status} for {gate} on {focused.item.task_id}")
+        self.manager.reload_task(focused.task_data.filename)
+        self.refresh_board(refocus_filename=focused.task_data.filename)
+
     @work(exclusive=True)
     async def run_aitask_pick(self, filename):
         """Launch code agent with /aitask-pick for the task."""
@@ -4869,6 +5352,25 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         else:
             with self.suspend():
                 ret = subprocess.call([wrapper, "invoke", "pick", num])
+            if ret != 0:
+                self.notify("Code agent invocation failed — check model configuration", severity="error")
+            self.manager.load_tasks()
+            self.refresh_board(refocus_filename=filename)
+
+    @work(exclusive=True)
+    async def run_codeagent_operation(self, operation: str, filename: str):
+        """Launch code agent operation for a task in a terminal or suspended app."""
+        task_num, _ = TaskCard._parse_filename(filename)
+        if not task_num:
+            return
+        num = task_num.lstrip("t")
+        wrapper = str(CODEAGENT_SCRIPT)
+        terminal = find_terminal()
+        if terminal:
+            spawn_in_terminal(terminal, [wrapper, "invoke", operation, num])
+        else:
+            with self.suspend():
+                ret = subprocess.call([wrapper, "invoke", operation, num])
             if ret != 0:
                 self.notify("Code agent invocation failed — check model configuration", severity="error")
             self.manager.load_tasks()

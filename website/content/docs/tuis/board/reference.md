@@ -27,6 +27,7 @@ depth: [advanced]
 | `a` | Switch base filter to All (show all tasks) | Board |
 | `l` | Switch base filter to Locked (busy tasks + context) | Board |
 | `f` | Switch base filter to Free (tasks ready to pick) | Board |
+| `i` | Switch base filter to In-Flight (action-grouped active work) | Board |
 | `g` | Toggle Git add-on (intersect with git-linked tasks) | Board |
 | `t` | Toggle Type add-on (intersect with selected issue types — opens picker dialog) | Board |
 
@@ -46,6 +47,9 @@ depth: [advanced]
 | `C` | Commit all modified tasks | Board (shown when any task is modified) |
 | `p` | Pick the focused task (start implementation) | Board (context-dependent — shown when task is pickable) |
 | `b` | Launch brainstorm for the focused task | Board (context-dependent — shown when task is brainstormable) |
+| `g` | Resume the focused In-Flight task directly | In-Flight row |
+| `s` | Sign off a pending human gate | In-Flight row with pending human gate |
+| `f` | Fail a pending human gate | In-Flight row with pending human gate |
 
 #### Column Operations
 
@@ -124,7 +128,7 @@ GitLab uses "MR" (Merge Request) terminology, which the indicator reflects.
 The View Selector widget at the top-left of the filter area renders as:
 
 ```
-[a All | l Locked | f Free]   g Git   t Type
+[a All | l Locked | f Free | i In-Flight]   g Git   t Type
 ```
 
 It splits filtering into a **base radio** (mutually exclusive — exactly one is always active) and two **independent add-on toggles**. The active base and any active toggle are highlighted in bold cyan; inactive segments are dimmed. All filters compose with text search using AND logic.
@@ -136,6 +140,7 @@ It splits filtering into a **base radio** (mutually exclusive — exactly one is
 | All | `a` | `a All` | All tasks (default) |
 | Locked | `l` | `l Locked` | Busy tasks: status `Implementing` **or** present in the lock list. When a *child* is busy, also includes its parent and all sibling children (context grouping). |
 | Free | `f` | `f Free` | Tasks that are ready to pick: neither `Implementing` nor locked. Parents are hidden when any of their children is busy. |
+| In-Flight | `i` | `i In-Flight` | Active `Implementing` tasks grouped by next required action: Needs your action, Agent can continue, and Blocked. |
 
 Pressing the key for the currently active base is a no-op. Locked and Free are leaf-level inverses (`Locked ∪ Free = All`, `Locked ∩ Free = ∅`) — the Locked view additionally includes parent/sibling cards as context.
 

@@ -30,7 +30,7 @@ The board reads all task files from `aitasks/*.md` and displays them as cards or
 The board has four main areas from top to bottom:
 
 1. **Header** — Application title bar
-2. **Filter area** — Contains a **View Selector** on the left (showing `a All │ g Git │ i Impl`) and a **Search box** on the right. The view selector switches between task view modes; the search box filters tasks by text. Both start unfocused.
+2. **Filter area** — Contains a **View Selector** on the left (showing base views such as `a All`, `l Locked`, `f Free`, and `i In-Flight`) and a **Search box** on the right. The view selector switches between task view modes; the search box filters tasks by text. Both start unfocused.
 3. **Board area** — Horizontally scrollable columns, each containing vertically stacked task cards
 4. **Footer** — Dynamic keybinding help that changes based on context
 
@@ -48,7 +48,8 @@ All navigation is keyboard-driven:
 
 - **Arrow Up / Down** — Move between task cards within a column
 - **Arrow Left / Right** — Jump to the adjacent column (skips empty columns, tries to preserve your vertical position)
-- **a / g / i** — Switch view modes: All tasks, Git-linked tasks, or Implementing tasks (see [How to Filter by View Mode](how-to/#how-to-filter-by-view-mode))
+- **a / l / f / i** — Switch base view modes: All, Locked, Free, or In-Flight (see [How to Filter by View Mode](how-to/#how-to-filter-by-view-mode))
+- **g / t** — Toggle Git-linked and issue-type add-on filters
 - **Tab** — Toggle focus to the search box
 - **Escape** — Return focus from the search box to the board, or dismiss an open dialog
 - **q** — Quit the application
