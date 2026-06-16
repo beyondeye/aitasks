@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t822_8]
 issue_type: feature
@@ -49,3 +51,5 @@ Fourth §"Deferred follow-up tasks" bullet of `aidocs/applink/monitor_port_desig
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-16T08:31:22Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-16T08:31:24Z status=pass attempt=1 type=machine
