@@ -5,9 +5,9 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [aitask_monitormini, tui, agent_chooser]
-assigned_to: daelyasy@hotmail.com
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-16 17:22
-updated_at: 2026-06-16 17:25
+updated_at: 2026-06-16 17:26
 ---
 
 ## Problem
