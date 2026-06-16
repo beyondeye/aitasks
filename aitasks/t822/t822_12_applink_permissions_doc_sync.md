@@ -6,7 +6,7 @@ issue_type: documentation
 status: Ready
 labels: [ait_bridge]
 created_at: 2026-06-11 10:42
-updated_at: 2026-06-11 10:42
+updated_at: 2026-06-16 12:20
 ---
 
 Sync the canonical verb inventory from `aidocs/applink/monitor_port_design.md` back into `aidocs/applink/permissions.md` (verb gating table) and align the shipped `applink_profiles/*.yaml` allowed_verbs lists.
@@ -43,6 +43,18 @@ per design goal 5): (1) `osc8` sidecar offsets are row-major over the **delta's 
 spans array** (`[row_id, []]`) **clears that row to blank**. Surface these in the
 mobile decoder contract when syncing — if mobile began parsing `osc8` under a
 different assumption, reconcile to the pinned spec.
+
+## Cross-repo contract note (from t822_10, applink append fast path)
+
+t822_10 pinned the `append` (0x03) conventions in `content_transport.md` §append
+that the mobile decoder must match: `append` carries **no cursor** (the client
+keeps the cursor from the previous frame — the server only appends when the cursor
+is unchanged) and **no `osc8` sidecar** (the server emits a `delta` instead when an
+appended row has a hyperlink, so `append` rows never set the OSC8 attr bit); the
+appended rows carry their **new absolute `row_id`s** (`rows-k … rows-1`) and the
+client **adopts the append's `frame_id` as its current frame_id** so a following
+`delta`'s `prev_frame_id` chains. Surface these in the mobile decoder contract when
+syncing.
 
 ## Verification Steps
 
