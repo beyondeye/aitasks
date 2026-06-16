@@ -48,6 +48,10 @@ SECTION_COMMENT = (
 )
 
 VALID_STATUSES = ("pass", "fail", "pending", "running", "skip", "error")
+# Statuses that count a gate as *satisfied* for unlock / archive / dependents
+# (t635_11). ``skip`` = "evaluated, not applicable" → terminal-satisfied, kept
+# distinct from ``pass`` in history but never blocking.
+SATISFIED_STATUSES = frozenset({"pass", "skip"})
 ICONS = {
     "pass": "✅",     # ✅
     "fail": "❌",     # ❌
@@ -395,51 +399,151 @@ def _truthy(value: str) -> bool:
     return value.strip().strip("'\"").lower() in ("true", "yes", "on", "1")
 
 
-def read_registry(registry_file: str) -> dict[str, dict]:
-    """Parse the minimal gates.yaml with re only.
+def _indent_width(ws: str) -> int:
+    """Indent width counting a tab as one level-ish (files use spaces)."""
+    return len(ws.replace("\t", "    "))
 
-    Returns ``name -> {type, description, blocks_dependents}``.
-    ``blocks_dependents`` (t635_3) marks a gate as required-to-pass before the
-    owning task's dependents unblock; defaults to ``False`` when absent.
+
+def _int_or(value: str, default):
+    """Parse an int from a YAML scalar; return ``default`` when not an int."""
+    try:
+        return int(value.strip().strip("'\""))
+    except (ValueError, AttributeError):
+        return default
+
+
+def _parse_inline_list(value: str):
+    """Parse an inline YAML list ``[a, b]`` → list (``[]`` for ``[]``).
+
+    Returns ``None`` when ``value`` is not bracketed (so the caller can fall
+    back to block-list parsing).
+    """
+    value = value.strip()
+    if value.startswith("[") and value.endswith("]"):
+        inner = value[1:-1]
+        return [x.strip().strip("'\"") for x in inner.split(",") if x.strip()]
+    return None
+
+
+def _default_gate_meta() -> dict:
+    """Default per-gate registry record.
+
+    ``unlocks`` defaults to ``None`` meaning the key is ABSENT — the
+    orchestrator uses the linear default (next gate in the task's ``gates:``
+    list) for that gate. An explicit ``unlocks: []`` parses to ``[]`` (terminal,
+    unlocks nothing) and is deliberately distinct from ``None`` (t635_11,
+    concern 1).
+    """
+    return {
+        "type": "", "description": "", "blocks_dependents": False,
+        "verifier": "", "max_retries": 0, "unlocks": None,
+        "timeout_seconds": None, "signal": "", "signal_target": "",
+    }
+
+
+def read_registry(registry_file: str) -> dict[str, dict]:
+    """Parse gates.yaml with ``re`` only (stdlib, no PyYAML).
+
+    Returns ``name -> {type, description, blocks_dependents, verifier,
+    max_retries, unlocks, timeout_seconds, signal, signal_target}``.
+
+    - ``blocks_dependents`` (t635_3) marks a gate required-to-pass before the
+      owning task's dependents unblock; defaults to ``False``.
+    - ``verifier`` (t635_11) — command the orchestrator runs; ``""`` = no
+      auto-run.
+    - ``max_retries`` (t635_11) — int, default ``0`` (single shot).
+    - ``unlocks`` (t635_11) — ``None`` when ABSENT (→ linear default) vs a
+      ``list[str]`` when present (``[]`` = terminal). Inline ``[a, b]`` or block
+      ``- a`` form.
+    - ``timeout_seconds`` (t635_11) — int or ``None``.
+    - ``signal`` / ``signal_target`` (t635_11) — human-gate signal kind + target.
+
+    The parser is **indent-aware**: a gate header is a ``name:`` at the first
+    gate's indent depth; deeper-indented ``name:`` lines (e.g. a block-form
+    ``unlocks:``) are fields of the current gate, not new gates.
     """
     gates: dict[str, dict] = {}
     if not registry_file or not os.path.exists(registry_file):
         return gates
-    cur = None
-    in_gates = False
     with open(registry_file, encoding="utf-8") as fh:
-        for line in fh:
-            if re.match(r"^gates:\s*$", line):
-                in_gates = True
+        lines = fh.read().splitlines()
+    in_gates = False
+    gate_indent = None
+    cur = None
+    i, n = 0, len(lines)
+    while i < n:
+        line = lines[i]
+        if re.match(r"^gates:\s*$", line):
+            in_gates = True
+            i += 1
+            continue
+        if not in_gates or not line.strip():
+            i += 1
+            continue
+        # A non-indented, non-blank line ends the gates: mapping.
+        if re.match(r"^\S", line):
+            in_gates = False
+            cur = None
+            i += 1
+            continue
+        m = re.match(r"^([ \t]+)([A-Za-z0-9_]+):\s*(.*)$", line)
+        if not m:
+            i += 1
+            continue
+        indent, key, val = _indent_width(m.group(1)), m.group(2), m.group(3).strip()
+        if gate_indent is None:
+            gate_indent = indent
+        if indent <= gate_indent:
+            # New gate header (its fields are more-indented).
+            cur = key
+            gates[cur] = _default_gate_meta()
+            i += 1
+            continue
+        if cur is None:
+            i += 1
+            continue
+        # A field of the current gate.
+        if key == "type":
+            gates[cur]["type"] = val.strip("'\"")
+        elif key == "description":
+            gates[cur]["description"] = val.strip("'\"")
+        elif key == "blocks_dependents":
+            gates[cur]["blocks_dependents"] = _truthy(val)
+        elif key == "verifier":
+            gates[cur]["verifier"] = val.strip("'\"")
+        elif key == "max_retries":
+            gates[cur]["max_retries"] = _int_or(val, 0)
+        elif key == "timeout_seconds":
+            gates[cur]["timeout_seconds"] = _int_or(val, None)
+        elif key == "signal":
+            gates[cur]["signal"] = val.strip("'\"")
+        elif key == "signal_target":
+            gates[cur]["signal_target"] = val.strip("'\"")
+        elif key == "unlocks":
+            inline = _parse_inline_list(val)
+            if inline is not None:
+                gates[cur]["unlocks"] = inline
+            elif val:
+                gates[cur]["unlocks"] = [val.strip("'\"")]
+            else:
+                # Block form: consume deeper-indented "- item" lines.
+                items: list[str] = []
+                j = i + 1
+                while j < n:
+                    bl = lines[j]
+                    if not bl.strip():
+                        j += 1
+                        continue
+                    bm = re.match(r"^([ \t]+)-[ \t]*(.+?)\s*$", bl)
+                    if bm and _indent_width(bm.group(1)) > indent:
+                        items.append(bm.group(2).strip().strip("'\""))
+                        j += 1
+                        continue
+                    break
+                gates[cur]["unlocks"] = items
+                i = j
                 continue
-            if not in_gates:
-                continue
-            # A gate header is an indented "name:" with no inline value.
-            hdr = re.match(r"^[ \t]+([A-Za-z0-9_]+):\s*$", line)
-            if hdr:
-                cur = hdr.group(1)
-                gates[cur] = {"type": "", "description": "", "blocks_dependents": False}
-                continue
-            if cur is None:
-                # A non-indented line ends the gates: mapping.
-                if re.match(r"^\S", line):
-                    in_gates = False
-                continue
-            mt = re.match(r"^[ \t]+type:\s*(.+?)\s*$", line)
-            if mt:
-                gates[cur]["type"] = mt.group(1).strip().strip("'\"")
-                continue
-            md = re.match(r"^[ \t]+description:\s*(.+?)\s*$", line)
-            if md:
-                gates[cur]["description"] = md.group(1).strip().strip("'\"")
-                continue
-            mbd = re.match(r"^[ \t]+blocks_dependents:\s*(.+?)\s*$", line)
-            if mbd:
-                gates[cur]["blocks_dependents"] = _truthy(mbd.group(1))
-                continue
-            if re.match(r"^\S", line):
-                in_gates = False
-                cur = None
+        i += 1
     return gates
 
 
@@ -484,7 +588,8 @@ def _dependents_status_from_state(declared: list[str], also: list[str],
     required = required_unblock_gates(declared, also, registry)
     if not required:
         return ("NO_GATES", [])
-    pending = [g for g in required if (state.get(g).status if state.get(g) else None) != "pass"]
+    pending = [g for g in required
+               if (state.get(g).status if state.get(g) else None) not in SATISFIED_STATUSES]
     return ("BLOCKED", pending) if pending else ("SATISFIED", [])
 
 
@@ -513,7 +618,8 @@ def _archive_status_from_state(declared: list[str],
                                state: dict[str, GateRun]) -> tuple[str, list[str]]:
     if not declared:
         return ("NO_GATES", [])
-    nonpass = [g for g in declared if (state.get(g).status if state.get(g) else None) != "pass"]
+    nonpass = [g for g in declared
+               if (state.get(g).status if state.get(g) else None) not in SATISFIED_STATUSES]
     return ("BLOCKED", nonpass) if nonpass else ("ALL_PASS", [])
 
 

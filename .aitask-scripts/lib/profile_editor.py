@@ -58,6 +58,7 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "post_plan_action_for_child": ("enum", ["start_implementation", "ask"]),
     "risk_evaluation": ("bool", None),
     "record_gates": ("bool", None),
+    "max_parallel_gates": ("int", None),
     "enableFeedbackQuestions": ("bool", None),
     "manual_verification_followup_mode": ("enum", ["ask", "never"]),
     "manual_verification_mode": (
@@ -194,6 +195,14 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "  true    — record checkpoints into the gate ledger\n"
         "  false   — disabled\n"
         "  (unset) — disabled (opt-in feature)"
+    ),
+    "max_parallel_gates": (
+        "Max machine gates the orchestrator runs in parallel",
+        "How many unlocked machine-gate verifiers the gate orchestrator "
+        "(aitask-run-gates / `ait gates run`) dispatches concurrently, capped by "
+        "the machine's core count.\n"
+        "  <int>   — parallel dispatch ceiling (e.g. 2)\n"
+        "  (unset) — defaults to 2"
     ),
     "enableFeedbackQuestions": (
         "Ask satisfaction feedback questions at the end of supported skills",
@@ -333,7 +342,7 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
         "post_plan_action_for_child",
         "risk_evaluation",
     ]),
-    ("Gates", ["record_gates"]),
+    ("Gates", ["record_gates", "max_parallel_gates"]),
     ("Feedback", ["enableFeedbackQuestions"]),
     ("Manual Verification", [
         "manual_verification_followup_mode",

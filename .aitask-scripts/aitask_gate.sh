@@ -11,7 +11,10 @@
 # `ait gates` surface arrives later with its first real human command.
 #
 # Subcommands:
-#   append <task-id> <gate> <status> [k=v ...]   Append a gate-run block
+#   append [--only-if-running <run-id>] <task-id> <gate> <status> [k=v ...]
+#                                                Append a gate-run block (the
+#                                                guard makes it a no-op once a
+#                                                terminal block exists for run-id)
 #   status <task-id>                             Print derived per-gate state
 #   list   <task-id>                             List declared gates (+ registry)
 #   deps-unblock <task-id>                       Decide if this task releases its
@@ -100,12 +103,43 @@ delegate_python() {
     "$py" "$GATE_LEDGER_PY" "$@"
 }
 
+# Return 0 iff the LAST marker carrying run=<run-id> has status=running — i.e. no
+# terminal block has been appended for that run yet. Used by the `--only-if-running`
+# conditional append (t635_11) so the orchestrator's terminal-block append is a
+# no-op when the verifier already appended its own block for the same run id.
+_gate_run_is_running() {
+    local file="$1" rid="$2" last
+    last="$(awk -v rid="$rid" '
+        /^>[[:space:]]*\*\*/ && /gate:/ {
+            if (match($0, /run=[^ ]+/)) {
+                r = substr($0, RSTART + 4, RLENGTH - 4)
+                if (r == rid && match($0, /status=[A-Za-z]+/)) {
+                    last = substr($0, RSTART + 7, RLENGTH - 7)
+                }
+            }
+        }
+        END { print last }
+    ' "$file" 2>/dev/null)"
+    [[ "$last" == "running" ]]
+}
+
 # --- append ----------------------------------------------------------------
 
 cmd_append() {
+    # Optional leading guard: `--only-if-running <run-id>` makes the append a
+    # no-op when a terminal block already exists for <run-id> (t635_11). The
+    # check + append run under the SAME per-task lock, so they are atomic.
+    local only_if_running=""
+    if [[ "${1:-}" == "--only-if-running" ]]; then
+        only_if_running="${2:-}"
+        [[ -z "$only_if_running" ]] && \
+            die "Usage: aitask_gate.sh append --only-if-running <run-id> <task-id> <gate> <status> [k=v ...]"
+        shift 2
+    fi
+
     local task_id="${1:-}" gate="${2:-}" status="${3:-}"
     [[ -z "$task_id" || -z "$gate" || -z "$status" ]] && \
-        die "Usage: aitask_gate.sh append <task-id> <gate> <status> [k=v ...]"
+        die "Usage: aitask_gate.sh append [--only-if-running <run-id>] <task-id> <gate> <status> [k=v ...]"
     is_valid_status "$status" || \
         die "Invalid status '$status' (one of: $VALID_STATUSES)"
     shift 3
@@ -119,6 +153,10 @@ cmd_append() {
         acquire_gate_lock "$key"
         # shellcheck disable=SC2064
         trap 'release_gate_lock' EXIT
+        if [[ -n "$only_if_running" ]] && ! _gate_run_is_running "$file" "$only_if_running"; then
+            release_gate_lock; trap - EXIT
+            return 0  # terminal block already exists for this run — no-op
+        fi
         delegate_python append "$file" "$gate" "$status" "$@" || die "python gate_ledger append failed"
         release_gate_lock
         trap - EXIT
@@ -150,6 +188,13 @@ cmd_append() {
     acquire_gate_lock "$key"
     # shellcheck disable=SC2064
     trap 'release_gate_lock' EXIT
+
+    # `--only-if-running` guard (atomic under the lock): if a terminal block was
+    # already written for this run id, do nothing.
+    if [[ -n "$only_if_running" ]] && ! _gate_run_is_running "$file" "$only_if_running"; then
+        release_gate_lock; trap - EXIT
+        return 0
+    fi
 
     # run id (ISO-8601-Z). date -u + this format is portable (no -d).
     [[ -z "$f_run" ]] && f_run="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -380,12 +425,15 @@ Usage: aitask_gate.sh <command> [args]
 Gate ledger substrate — record and derive per-task gate-run state.
 
 Commands:
-  append <task-id> <gate> <status> [k=v ...]
+  append [--only-if-running <run-id>] <task-id> <gate> <status> [k=v ...]
         Append a marker-first gate-run blockquote to the task's "## Gate Runs"
         section. <status>: pass | fail | pending | running | skip | error.
         Keys: run, attempt, duration, type (marker line);
               verifier, result, log, note (body lines).
         run defaults to now (ISO-8601-Z); attempt auto-increments for pass/fail.
+        --only-if-running <run-id>: append only if no terminal block exists yet
+        for <run-id> (the run is still "running"); else no-op. Used by the
+        orchestrator to write a terminal block exactly once per run (t635_11).
 
   status <task-id>
         Print derived current state per gate (last run wins).

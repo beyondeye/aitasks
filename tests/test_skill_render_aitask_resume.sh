@@ -82,8 +82,8 @@ for profile in "${PROFILES[@]}"; do
         '**skill_name**: `"resume"`' "$rendered"
     assert_contains "$profile: derives resume-point via the shared engine" \
         "aitask_gate.sh resume-point <task-id>" "$rendered"
-    assert_contains "$profile: --gate degrades (no verifier run)" \
-        "Do **not** run a verifier" "$rendered"
+    assert_contains "$profile: --gate runs the orchestrator engine" \
+        "aitask_run_gates.sh run <task-id> --gate <name>" "$rendered"
     assert_contains "$profile: hands off to task-workflow Step 3" \
         "starting from **Step 3: Task Status" "$rendered"
     # profile.name is baked into the rendered name + active_profile

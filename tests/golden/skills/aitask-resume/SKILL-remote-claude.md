@@ -95,14 +95,22 @@ fresh `/aitask-pick`: it will plan from scratch." Continue anyway —
 `task-workflow` handles this case identically; the user may still want to work
 the task.
 
-**`--gate <name>` (pre-orchestrator behavior):** the per-gate verifier engine is
-the orchestrator (`aitask-run-gates`), which is not yet available, and this skill
-must not fork a second engine. So, when `--gate <name>` is supplied:
-- Report the named gate's current recorded state from the `status` output above.
-- Note: "Automated per-gate verifier execution arrives with the orchestrator. For
-  now `--gate` reports state only; to record a human-gate pass use
-  `ait gate pass <task-id> <name>`."
-- Do **not** run a verifier. The resume hand-off below proceeds regardless.
+**`--gate <name>` (run the orchestrator):** the per-gate verifier engine has
+landed (`lib/gate_orchestrator.py`, via `aitask_run_gates.sh`), and this skill is
+its conversational front — it shells the engine, never forking a second one. When
+`--gate <name>` is supplied, run that gate through the engine before the resume
+hand-off:
+
+```bash
+./.aitask-scripts/aitask_run_gates.sh run <task-id> --gate <name>
+```
+
+- Narrate the engine's report (pass / fail / pending / error). On **pending**
+  (a human gate awaiting its signal), surface the next human action and do **not**
+  self-signal — signal *creation* (`ait gate pass`) is a later child (t635_15);
+  the engine only reads a `file-touch` signal.
+- The resume hand-off below proceeds regardless (running a gate does not change
+  the resume target derivation).
 
 ### Step 3: Hand off to the shared workflow
 
@@ -130,8 +138,9 @@ Routing** subsection resumes at the right step after ownership is (re)claimed:
 - This skill **shares** the re-entry engine landed with `task-workflow` Step 3
   Check 5 + Re-entry Routing (the 3-state `PLAN` / `IMPLEMENT` / `POSTIMPL`
   derivation from `aitask_gate.sh resume-point`). It never re-implements it.
-- It is the seed of the framework's `aitask-run-gates` orchestrator: when that
-  engine lands, `aitask-resume` becomes its conversational front. The `--gate`
-  argument is accepted now for invocation-contract compatibility.
+- It is a conversational front of the framework's gate orchestrator
+  (`lib/gate_orchestrator.py`, via `aitask_run_gates.sh`): with `--gate <name>`
+  it runs that gate through the engine (the `aitask-run-gates` skill / `ait gates
+  run` are the dedicated fronts). It never forks the engine's decision logic.
 - For the full Execution Profiles schema and shared workflow notes, see
   `.claude/skills/task-workflow/SKILL.md`.

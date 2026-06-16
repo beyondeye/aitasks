@@ -46,6 +46,15 @@ Task Management:
   git-health     Diagnose the .aitask-data worktree state
   lock           Lock/unlock tasks to prevent concurrent work
 
+Gates:
+  gates run      Run the gate orchestrator for a task
+  gates unlocked Show which gates are runnable now
+  gates status   Show derived per-gate state
+  gates list     List a task's declared gates
+  gate append    Append a gate-run block (used by verifiers)
+  gate fail      Append a manual fail marker for a gate
+  gate log       Print the sidecar log for a gate's latest run
+
 Integration:
   issue-import   Import tasks from GitHub/GitLab issues
   pr-import      Import tasks from GitHub/GitLab pull requests
@@ -276,6 +285,29 @@ case "${1:-help}" in
                 exit 0
                 ;;
             *)  echo "ait brainstorm: unknown subcommand '$subcmd'" >&2; echo "Available: init, status, list, archive, apply-initializer, apply-explorer, apply-synthesizer, delete" >&2; exit 1 ;;
+        esac
+        ;;
+    gates)
+        shift
+        subcmd="${1:-}"; shift || true
+        case "$subcmd" in
+            run)      exec "$SCRIPTS_DIR/aitask_run_gates.sh" run "$@" ;;
+            unlocked) exec "$SCRIPTS_DIR/aitask_run_gates.sh" unlocked "$@" ;;
+            list)     exec "$SCRIPTS_DIR/aitask_gate.sh" list "$@" ;;
+            status)   exec "$SCRIPTS_DIR/aitask_gate.sh" status "$@" ;;
+            --help|-h|"") echo "ait gates: run | unlocked | list | status <task-id>" ;;
+            *)        echo "ait gates: unknown subcommand '$subcmd'" >&2; echo "Available: run, unlocked, list, status" >&2; exit 1 ;;
+        esac
+        ;;
+    gate)
+        shift
+        subcmd="${1:-}"; shift || true
+        case "$subcmd" in
+            append) exec "$SCRIPTS_DIR/aitask_gate.sh" append "$@" ;;
+            fail)   exec "$SCRIPTS_DIR/aitask_gate_fail.sh" "$@" ;;
+            log)    exec "$SCRIPTS_DIR/aitask_gate_log.sh" "$@" ;;
+            --help|-h|"") echo "ait gate: append <task-id> <gate> <status> [k=v...] | fail <task-id> <gate> [--reason ...] | log <task-id> <gate>" ;;
+            *)      echo "ait gate: unknown subcommand '$subcmd'" >&2; echo "Available: append, fail, log" >&2; exit 1 ;;
         esac
         ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"
