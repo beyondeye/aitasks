@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: [t822_9]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:42
-updated_at: 2026-06-16 12:53
+updated_at: 2026-06-16 13:05
+completed_at: 2026-06-16 13:05
 ---
 
 Implement Stage 3 of the applink data plane: the `append` fast path for log-streaming panes — bottom-cursor + no-upper-changes detection and `append` frame emission.
