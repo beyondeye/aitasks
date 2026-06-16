@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [codex, codeagent]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5
 created_at: 2026-06-16 10:44
-updated_at: 2026-06-16 11:01
+updated_at: 2026-06-16 11:10
 ---
 
 ## Summary
