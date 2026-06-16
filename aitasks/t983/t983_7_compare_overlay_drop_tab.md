@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 11:40
-updated_at: 2026-06-16 17:20
+updated_at: 2026-06-16 18:03
 ---
 
 ## Context
@@ -50,3 +51,8 @@ seeding handled in t983_4/_6). This child handles the matrix surface.
 - Suite: `tests/test_brainstorm*.py` green (compare_modal removed/rewritten).
 - Manual: mark 2-4 nodes in Browse → open compare overlay → matrix renders; no
   Compare tab remains.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T15:03:15Z status=pass attempt=1 type=human
