@@ -23,9 +23,9 @@ AIT_VENV_PYTHON_PREFERRED="${AIT_VENV_PYTHON_PREFERRED:-3.13}"
 # *_IMPORTS arrays list the import names to verify after install (the import name
 # differs from the distribution name for some: pyyaml->yaml, linkify-it-py->linkify_it).
 AIT_PIP_SPECS_COMMON=('textual>=8.2.7,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3' 'pexpect>=4.9,<5')
-AIT_PIP_SPECS_CPYTHON_EXTRA=('minijinja>=2.0,<3' 'segno>=1.5,<2' 'plotext==5.3.2' 'websockets>=12,<17')
+AIT_PIP_SPECS_CPYTHON_EXTRA=('minijinja>=2.0,<3' 'segno>=1.5,<2' 'plotext==5.3.2' 'websockets>=12,<17' 'msgpack>=1,<2')
 AIT_IMPORTS_COMMON=(textual yaml linkify_it tomli pexpect)
-AIT_IMPORTS_CPYTHON_EXTRA=(minijinja segno plotext websockets)
+AIT_IMPORTS_CPYTHON_EXTRA=(minijinja segno plotext websockets msgpack)
 
 # verify_venv_imports <python> <module>... — populate global `missing_imports`
 # with the modules that fail to import under the given interpreter. Catches the

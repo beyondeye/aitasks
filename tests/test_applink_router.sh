@@ -160,6 +160,33 @@ check("pick_next_sibling -> UNKNOWN_VERB(deferred)",
 r = router.handle(req("frobnicate", {}, auth=full.bearer), ConnState())
 check("unknown verb -> UNKNOWN_VERB", r["payload"]["code"] == "UNKNOWN_VERB")
 
+# --- data-plane control verbs (subscribe / focus / request_keyframe) -------
+dconn = ConnState()
+r = router.handle(req("subscribe", {"panes": ["%1", "%2"], "cadence_idle_ms": 100}, auth=bearer), dconn)
+check("subscribe -> res ok (no longer UNKNOWN_VERB)", r["kind"] == "res" and r["payload"]["ok"] is True)
+check("subscribe populates subscription panes", dconn.subscription is not None and dconn.subscription.panes == {"%1", "%2"})
+check("subscribe seeds force set (initial keyframes)", dconn.subscription.force == {"%1", "%2"})
+check("subscribe clamps cadence to policy floor", dconn.subscription.cadence_idle_ms >= 500)
+
+r = router.handle(req("request_keyframe", {"pane_id": "%3"}, auth=bearer), dconn)
+check("request_keyframe -> res ok", r["payload"]["ok"] is True)
+check("request_keyframe adds pane to force set", "%3" in dconn.subscription.force)
+r = router.handle(req("request_keyframe", {}, auth=bearer), dconn)
+check("request_keyframe missing pane_id -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+
+mon.calls.clear()
+r = router.handle(req("focus", {"pane_id": "%1"}, auth=bearer), dconn)
+check("focus -> switch_to_pane reached monitor", ("focus", "%1", False) in mon.calls)
+check("focus sets subscription focused_pane (cadence)", dconn.subscription.focused_pane == "%1")
+
+# read_only: subscribe is allowed (gated like snapshot); focus stays denied.
+r = router.handle(req("subscribe", {"panes": ["%1"]}, auth=ro.bearer), ConnState())
+check("read_only subscribe allowed (not PERMISSION_DENIED)",
+      r["kind"] == "res" and r["payload"].get("code") != "PERMISSION_DENIED")
+r = router.handle(req("focus", {"pane_id": "%1"}, auth=ro.bearer), ConnState())
+check("read_only focus -> PERMISSION_DENIED (monitor_control+ only)",
+      r["payload"]["code"] == "PERMISSION_DENIED")
+
 # --- session verbs ---------------------------------------------------------
 conn = ConnState()
 r = router.handle(req("bye", auth=full.bearer), conn)

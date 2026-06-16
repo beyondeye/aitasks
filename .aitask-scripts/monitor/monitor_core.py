@@ -1186,6 +1186,31 @@ class TmuxMonitor:
             return None
         return self._finalize_capture(pane, content)
 
+    async def capture_cursor_async(
+        self, pane_id: str
+    ) -> tuple[int, int, bool, int] | None:
+        """Return the pane cursor as ``(row, col, visible, style)`` or ``None``.
+
+        Used by the applink push loop (t822_8) to populate the ``cursor`` field of
+        a ``keyframe`` (``capture-pane`` carries no cursor). ``row``/``col`` are
+        the cursor's 0-based position within the visible pane; ``visible`` from
+        ``cursor_flag``; ``style`` is block (``0``) in Stage 1 (tmux exposes no
+        portable cursor-shape field here).
+        """
+        rc, out = await self._tmux_async([
+            "display-message", "-p", "-t", pane_id,
+            "-F", "#{cursor_y} #{cursor_x} #{cursor_flag}",
+        ])
+        if rc != 0:
+            return None
+        parts = out.strip().split()
+        if len(parts) < 3:
+            return None
+        try:
+            return (int(parts[0]), int(parts[1]), parts[2] == "1", 0)
+        except ValueError:
+            return None
+
     def _clean_stale(self, current_ids: set[str]) -> None:
         stale = [pid for pid in self._last_content if pid not in current_ids]
         for pid in stale:

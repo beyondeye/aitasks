@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import time
 
+from content import Subscription
+
 PROTOCOL_VERSION = 1
 
 # Error codes (protocol.md §Message envelope error frame).
@@ -34,18 +36,23 @@ STATE_CONNECTED = "Connected"
 STATE_SUSPENDED = "Suspended"
 STATE_DISCONNECTED = "Disconnected"
 
-# Verbs executed by THIS listener (control plane). Each is profile-gated.
+# Verbs executed by THIS listener (control plane + data-plane control). Each is
+# profile-gated.
 IMPLEMENTED_COMMAND_VERBS = frozenset({
     "send_enter", "send_keys", "forward_key", "focus", "cycle_compare_mode",
     "kill_pane", "kill_window", "spawn_tui", "task_detail",
+    # Data-plane control verbs (t822_8): mutate the per-connection Subscription;
+    # the actual binary pushes are driven by server's pusher.PushScheduler.
+    "subscribe", "request_keyframe",
 })
 
 # Destructive verbs that use the pull-model confirm handshake.
 CONFIRM_VERBS = frozenset({"kill_pane", "kill_window"})
 
-# Recognized-but-deferred verbs (data plane = t822_8/9/10; workflow = t822_11).
+# Recognized-but-deferred verbs. `snapshot` is the push-direction read-capability
+# token (gated in profiles, never pulled); the workflow verbs are t822_11.
 DEFERRED_VERBS = frozenset({
-    "snapshot", "subscribe", "request_keyframe",
+    "snapshot",
     "pick_next_sibling", "restart_task",
 })
 
@@ -90,6 +97,9 @@ class ConnState:
         self.bearer: str | None = None
         self.session = None
         self.close_requested = False
+        # Data-plane subscription (None until the first `subscribe`). Mutated by
+        # the router; consumed by server's per-connection PushScheduler (t822_8).
+        self.subscription: Subscription | None = None
 
     def bind(self, session) -> None:
         self.bearer = session.bearer
@@ -162,7 +172,7 @@ class FrameRouter:
                     f"verb '{verb}' is not permitted for profile '{session.profile}'",
                     detail={"required_profile": self._gate.required_profile(verb)},
                 )
-            return self._dispatch(msg_id, verb, payload)
+            return self._dispatch(msg_id, verb, payload, conn)
 
         if verb in DEFERRED_VERBS:
             return self._err(
@@ -202,7 +212,7 @@ class FrameRouter:
 
     # -- Command dispatch ------------------------------------------------------
 
-    def _dispatch(self, msg_id, verb, payload):
+    def _dispatch(self, msg_id, verb, payload, conn):
         if verb == "send_enter":
             pane_id = self._req_str(payload, "pane_id")
             if pane_id is None:
@@ -232,7 +242,29 @@ class FrameRouter:
                 return self._bad_field(msg_id, verb, "pane_id")
             prefer = bool(payload.get("prefer_companion", False))
             ok = self._monitor.switch_to_pane(pane_id, prefer_companion=prefer)
+            # Raise this pane's data-plane cadence (single focused pane). Read-only
+            # clients cannot reach this verb (it is monitor_control+); they raise
+            # cadence by subscribing to the pane with a fast cadence instead.
+            if conn.subscription is not None:
+                conn.subscription.set_focus(pane_id)
             return self._res(msg_id, verb, {"ok": bool(ok)})
+
+        if verb == "subscribe":
+            panes = payload.get("panes")
+            if not isinstance(panes, list):
+                return self._bad_field(msg_id, verb, "panes")
+            if conn.subscription is None:
+                conn.subscription = Subscription()
+            accepted = conn.subscription.apply_subscribe(payload)
+            return self._res(msg_id, verb, {"ok": True, "panes": sorted(accepted)})
+
+        if verb == "request_keyframe":
+            pane_id = self._req_str(payload, "pane_id")
+            if pane_id is None:
+                return self._bad_field(msg_id, verb, "pane_id")
+            if conn.subscription is not None:
+                conn.subscription.request_keyframe(pane_id)
+            return self._res(msg_id, verb, {"ok": True})
 
         if verb == "cycle_compare_mode":
             pane_id = self._req_str(payload, "pane_id")

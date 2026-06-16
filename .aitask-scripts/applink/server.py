@@ -28,6 +28,7 @@ from router import (  # noqa: E402
     FrameRouter, ConnState, error_frame,
     ERR_BAD_PAYLOAD, STATE_DISCOVERING, STATE_SUSPENDED,
 )
+from pusher import PushScheduler  # noqa: E402
 import paths  # noqa: E402
 
 DEFAULT_HOST = "0.0.0.0"   # accept from the LAN; the QR carries the routable IP
@@ -55,6 +56,7 @@ class AppLinkServer:
         self._ws_server = None
         self._conns: set[ConnState] = set()
         self._live: dict[ConnState, object] = {}   # conn -> live websocket
+        self._pushers: dict[ConnState, PushScheduler] = {}  # conn -> data-plane loop
         self._sessions = session_table
         self.error: str | None = None
 
@@ -129,6 +131,11 @@ class AppLinkServer:
                     self._sessions.touch(conn.bearer)
                 if reply is not None:
                     await ws.send(json.dumps(reply))
+                # A live subscription means the data plane is active: start (once)
+                # a per-connection push loop and wake it so subscribe /
+                # request_keyframe flush their forced keyframes immediately.
+                if conn.subscription is not None and conn.subscription.panes:
+                    self._ensure_pusher(conn, ws).wake()
                 if conn.close_requested:
                     await ws.close()
                     break
@@ -136,6 +143,9 @@ class AppLinkServer:
             # Connection-closed and decode errors: just drop the connection.
             pass
         finally:
+            pusher = self._pushers.pop(conn, None)
+            if pusher is not None:
+                await pusher.stop()
             self._conns.discard(conn)
             self._live.pop(conn, None)
             # A socket that drops while still holding a valid bearer is
@@ -143,6 +153,15 @@ class AppLinkServer:
             if conn.session is not None and not conn.close_requested:
                 self._suspend(conn)
             self._notify()
+
+    def _ensure_pusher(self, conn: ConnState, ws) -> PushScheduler:
+        """Return the connection's PushScheduler, starting it on first use."""
+        pusher = self._pushers.get(conn)
+        if pusher is None:
+            pusher = PushScheduler(conn, ws, self._monitor)
+            self._pushers[conn] = pusher
+            pusher.start()
+        return pusher
 
     def _route_raw(self, raw, conn: ConnState):
         try:

@@ -18,13 +18,13 @@ PROFILE_TIERS = ["read_only", "monitor_control", "full"]
 # table in aidocs/applink/monitor_port_design.md. Used only when the on-disk
 # applink_profiles/ directory is missing or unreadable.
 DEFAULT_ALLOWED = {
-    "read_only": ["snapshot", "task_detail"],
+    "read_only": ["snapshot", "subscribe", "request_keyframe", "task_detail"],
     "monitor_control": [
-        "snapshot", "task_detail",
+        "snapshot", "subscribe", "request_keyframe", "task_detail",
         "send_enter", "send_keys", "forward_key", "focus", "cycle_compare_mode",
     ],
     "full": [
-        "snapshot", "task_detail",
+        "snapshot", "subscribe", "request_keyframe", "task_detail",
         "send_enter", "send_keys", "forward_key", "focus", "cycle_compare_mode",
         "kill_pane", "kill_window", "spawn_tui",
     ],

@@ -110,7 +110,7 @@ The applink listener reuses the same `capture_all_async` tick but drives per-pan
 
 ### Focus-state forwarding
 
-Mobile's `focus` control verb maps onto the per-pane focused-state the desktop tracks as `_focused_pane_id`: the focused pane gets `cadence_focused_ms`, all others drop to `cadence_idle_ms` (single focused pane, matching the desktop model). The same verb also performs the desktop `switch_to_pane` when the session has `monitor_control` or higher; under `read_only` the cadence change applies without touching desktop tmux focus. No wire change needed.
+Mobile's `focus` control verb maps onto the per-pane focused-state the desktop tracks as `_focused_pane_id`: the focused pane gets `cadence_focused_ms`, all others drop to `cadence_idle_ms` (single focused pane, matching the desktop model). The same verb also performs the desktop `switch_to_pane`. `focus` is gated `monitor_control` or higher (it is both a control action and a cadence change); a `read_only` client cannot call it, and instead raises a pane's cadence by **subscribing to just that pane with a fast `cadence_idle_ms`** (server-clamped to the policy floor). So cadence is purely a `subscribe`-payload concern and `focus` stays purely a control verb — no tier-conditional dispatch, no wire change needed.
 
 ### Scroll anchor — no wire impact
 
