@@ -5,12 +5,13 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t822_8]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-11 10:41
-updated_at: 2026-06-16 11:31
+updated_at: 2026-06-16 11:52
+completed_at: 2026-06-16 11:52
 ---
 
 Implement Stage 2 of the applink data plane: server-side delta encoding — per-row hashing + changed-row collection — emitting `delta` frames against `prev_frame_id`, with the `request_keyframe` recovery path.
