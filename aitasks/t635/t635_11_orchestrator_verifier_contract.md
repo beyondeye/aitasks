@@ -50,3 +50,5 @@ the framework doc lands, behind the already-shipped `aitask-resume` front
 > **✅ gate:plan_approved** run=2026-06-16T15:06:23Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-16T15:06:33Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-16T21:34:51Z status=pass attempt=1 type=human
