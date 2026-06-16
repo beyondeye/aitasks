@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_5
 created_at: 2026-06-16 14:22
-updated_at: 2026-06-16 15:21
+updated_at: 2026-06-16 15:32
 ---
 
 ## Problem
