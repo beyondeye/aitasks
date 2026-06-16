@@ -5,12 +5,13 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t822_7]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_bridge]
 risk_mitigation_tasks: [1011]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-11 10:42
-updated_at: 2026-06-16 16:56
+updated_at: 2026-06-16 16:57
+completed_at: 2026-06-16 16:57
 ---
 
 Implement the applink modal-dialog handshake plumbing: the pull-model confirm/prompt/choose round-trips that replace the desktop Textual modals for mobile-issued verbs.
