@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: chore
@@ -7,7 +9,7 @@ status: Implementing
 labels: [brainstorm]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-16 12:16
-updated_at: 2026-06-16 12:19
+updated_at: 2026-06-16 12:54
 ---
 
 Scrub residual references to the dropped "Detail" operation and node-level plans
@@ -88,3 +90,5 @@ The corrected first-operation flow on a blank-initialized session is:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-16T09:54:55Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-16T09:54:56Z status=pass attempt=1 type=machine
