@@ -193,5 +193,56 @@ App's default screen; the re-host that would change this is t983_11.)
   seeds `_selected_node`) and the pure step resolver; every touch point is
   verified against the current source. · severity: low · mitigation: n/a.
 
+## Final Implementation Notes
+- **Actual work done:** All in `.aitask-scripts/brainstorm/brainstorm_app.py`.
+  (1) Made the `node_select` `_WizardStep` predicate seed-aware
+  (`… and not c.get("pre_seeded_node")`) — kept, not deleted. (2) Added
+  `pre_seeded_node` to `_wizard_ctx()` (read from `_wizard_config`). (3) In
+  `_on_node_action_result`: explore now seeds
+  `_wizard_config = {"_selected_node": node_id, "pre_seeded_node": True}` and
+  calls `_actions_advance_from_node_select` directly (dropped the
+  `_actions_show_node_select()` render + OperationRow marking); module_decompose
+  and fast_track seed `{"pre_seeded_node": True}`; compare/synthesize schedule a
+  pre-check of their source `FuzzyCheckList` from `self._selection.effective()`
+  when 2+ are marked. (4) New `_preseed_multi_node_checklist(op_key, marked)`
+  helper sets the marked rows' `Checkbox.value` and re-runs the compare
+  section/dimension refreshes. Tests: new `PreSeededNodeTests` in
+  `test_brainstorm_wizard_steps.py`; updated routing tests + a runtime preseed
+  pilot (`PreseedChecklistPilotTests`) and a `_FakeSelection` stub in
+  `test_brainstorm_node_action_modal.py`.
+- **Deviations from plan:** **Scope narrowed (user-confirmed split).** The
+  original AC also required *physically re-hosting* the wizard off the
+  `tab_actions` `TabPane` into a dedicated `Screen`. Verify mode proved that half
+  far larger/riskier than the original plan assumed — empirically `App.query_one`
+  does NOT traverse a pushed screen (textual 8.2.7), so the ~28 wizard-internal
+  query sites would break, the `on_key` wizard-nav block would have to relocate
+  (a `ModalScreen` consumes keys), and 3 background-thread `_actions_show_step1`
+  refreshes would need guarding. The physical re-host was split out to
+  **t983_11** (`depends: [t983_6, t983_8]`); t983_6's task AC was updated and
+  effort lowered high→medium.
+- **Issues encountered:** `pytest` is not in the project venv — ran via
+  `python -m unittest` / the suite runner. In the preseed pilot host, naming the
+  attribute `self._nodes` shadowed Textual's internal `App._nodes` NodeList and
+  crashed mount; renamed to `_node_ids`.
+- **Key decisions:** Keep the `node_select` step gated (not deleted) so the
+  non-seeded op-select flow + its existing unit tests remain a live regression
+  guard. The seed flag rides in the existing `_wizard_config` dict (no new App
+  state). compare/synthesize pre-check is scheduled via `call_after_refresh`
+  (boxes must be mounted first) and, for compare, re-runs
+  `_refresh_compare_sections`/`_refresh_compare_dimensions` because
+  `_config_compare` scheduled those before the boxes were checked.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t983_11 (wizard re-host):** the seeding contract is in place —
+    `_wizard_ctx()` exposes `pre_seeded_node` and the `node_select` step is
+    seed-aware. When re-hosting, retarget the ~28 wizard-internal `self.query_one`
+    sites to the host screen (`App.query_one` does NOT see a pushed screen),
+    relocate the `on_key` wizard-nav block onto the host, and guard the
+    background-thread `_actions_show_step1` refreshes. Full findings are in the
+    t983_11 task body.
+  - The contextual marked set reaches the wizard via
+    `self._selection.effective()`; the compare/synthesize source-checklist
+    pre-check helper is `_preseed_multi_node_checklist(op_key, marked)`.
+
 ## Step 9
 Archive via `./.aitask-scripts/aitask_archive.sh 983_6`.
