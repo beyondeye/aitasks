@@ -159,3 +159,29 @@ Two dimensions assessed separately.
 
 No mitigations planned (before/after) — the change is too small and self-
 verifying to warrant follow-up tasks.
+
+## Final Implementation Notes
+
+- **Actual work done:** Removed three stale references exactly as planned —
+  (1) the `"No plan — use Detail later to derive a plan from this proposal."`
+  entry from the `explore` op's `produces` list in `brainstorm_app.py`;
+  (2) Input contract item 4 ("Baseline node's plan path") in `explorer.md`,
+  with items 5/6 renumbered to 4/5; (3) the "If a baseline plan exists, read
+  it for additional context" line in `explorer.md` Phase 1. Net diff: 2
+  files, 2 insertions / 5 deletions.
+- **Deviations from plan:** None. The plan anticipated three edits and all
+  three applied cleanly.
+- **Issues encountered:** Minor — `explorer.md` had to be opened with the Read
+  tool before editing (it had only been inspected via Bash/sed during
+  exploration); no functional impact.
+- **Key decisions:** Left the `compare`-op / `comparator.md` "do not read
+  proposals, plans, or codebase files" *negations* untouched (defensible as
+  what-not-to-read guidance; removing "plans" would be cosmetic only) — scope
+  held to the genuinely-misleading references.
+- **Upstream defects identified:** None.
+- **Verification:** All six checks passed — `grep` finds no `use Detail` /
+  `derive a plan` / node-`plan` references; `explorer.md` Input items renumber
+  1–5 with no gap; `brainstorm_app.py` passes `ast.parse`; legitimate
+  `aiplans/`, module_syncer "Linked Task Plan", and module_decomposer
+  "Decomposition Plan" references remain; `aitask_skill_verify.sh` reports
+  OK (12 templates / 3 agents).
