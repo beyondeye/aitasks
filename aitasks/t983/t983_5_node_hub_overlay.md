@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t983_4]
 issue_type: refactor
 status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 11:39
-updated_at: 2026-06-16 11:47
+updated_at: 2026-06-16 13:05
 ---
 
 ## Context
@@ -43,3 +46,8 @@ overlay (t983_7) a second launch surface besides `A`.
   renders the cursor node, the Operations entry opens the dialog.
 - Suite: `tests/test_brainstorm*.py` green.
 - Manual: `Enter` on a node in Browse (both list + graph views) opens the Hub.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-16T10:05:58Z status=pass attempt=1 type=human
