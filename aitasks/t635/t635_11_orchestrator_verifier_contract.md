@@ -7,10 +7,11 @@ depends: [t635_6]
 issue_type: feature
 status: Implementing
 labels: [gates, claudeskills]
+risk_mitigation_tasks: [1015]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:54
-updated_at: 2026-06-16 18:06
+updated_at: 2026-06-17 00:35
 ---
 
 ## Context

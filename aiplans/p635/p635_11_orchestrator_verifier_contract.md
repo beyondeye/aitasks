@@ -453,7 +453,7 @@ pending-human; NO frontmatter writes; append-only; task-level lock around append
   follow-up).
 
 ### Planned mitigations
-- timing: after | name: gate_orchestrator_live_verify | type: manual_verification | priority: medium | effort: medium | addresses: goal-achievement "no concrete verifier exercises the engine until t635_12" | desc: autonomous manual-verification driving the live orchestrator end-to-end against the first real verifier — parallel dispatch, retry-within-budget, the stopping heuristic on a real fail→fix→pass loop, and pending-human observation; coordinate to run after t635_12 lands a concrete verifier.
+- timing: after | name: t1015 (gate_orchestrator_live_verify) | type: manual_verification | priority: medium | effort: medium | addresses: goal-achievement "no concrete verifier exercises the engine until t635_12" | desc: autonomous manual-verification driving the live orchestrator end-to-end against the first real verifier — parallel dispatch, retry-within-budget, the stopping heuristic on a real fail→fix→pass loop, and pending-human observation; coordinate to run after t635_12 lands a concrete verifier.
 
 ## Final Implementation Notes
 
