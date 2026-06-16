@@ -82,3 +82,5 @@ in context. This keeps the pure step model + its tests valid.
 > **✅ gate:plan_approved** run=2026-06-16T13:40:07Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-16T13:40:09Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-16T13:56:23Z status=pass attempt=1 type=human
