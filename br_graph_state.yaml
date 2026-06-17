@@ -57,4 +57,4 @@ active_dimensions:
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}
-browse_view: list
+browse_view: graph

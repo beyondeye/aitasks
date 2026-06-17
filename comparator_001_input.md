@@ -1,3 +1,12 @@
-# Input for agent: comparator_001
+# Comparator Input
 
-This file is populated by the crew runner or upstream agents before this agent starts.
+## Comparison Request
+Nodes: n001_explorer_001a, n002_explorer_001b
+Dimensions: requirements_fixed, requirements_mutable, assumption_advisory_contract, assumption_intent_capturable, assumption_create_batch_available, assumption_ephemeral_session, assumption_loss_aversion_is_the_driver, assumption_followed_agent_pane, assumption_context_fetch_has_ac, assumption_developer_owns_decisions, assumption_no_auto_apply, component_intent_anchor, component_concern_triage, component_concern_ledger, component_spinoff_helper, component_steerability_guardrail, component_skill_flow, component_capture, component_context_fetch, component_spillover_ledger, component_defer_to_task_bridge, component_decision_withholding_guardrail, component_scope_drift_meter, component_triage_subprocedure, tradeoff_scope_creep_reduction, tradeoff_extra_friction, tradeoff_ledger_persistence, tradeoff_intent_anchor_overhead, tradeoff_draft_review_backlog, tradeoff_advisory_purity_preserved, tradeoff_decision_withholding_friction, tradeoff_ledger_overhead, tradeoff_scope_meter_false_drift, tradeoff_create_stub_accuracy
+
+## Node Files
+- .aitask-crews/crew-brainstorm-1017/br_nodes/n001_explorer_001a.yaml
+- .aitask-crews/crew-brainstorm-1017/br_nodes/n002_explorer_001b.yaml
+
+## Subgraph Context
+subgraph context: _umbrella

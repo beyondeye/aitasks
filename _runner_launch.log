@@ -136,3 +136,13 @@
 [07:05:48]   Interval:       30s
 [07:05:48]   Max concurrent: 3
 [07:05:48]   Mode:           continuous
+[07:05:49] --- Iteration 1 ---
+[07:05:49] Progress: 75% | Running: 0/3 | ETA: 9m
+[07:05:49] All agents in terminal state — stopping runner
+
+=== 2026-06-17 07:27:01 | start_runner(brainstorm-1017) ===
+[07:27:01] Starting runner for crew 'brainstorm-1017'
+[07:27:01]   Worktree:       .aitask-crews/crew-brainstorm-1017
+[07:27:01]   Interval:       30s
+[07:27:01]   Max concurrent: 3
+[07:27:01]   Mode:           continuous
