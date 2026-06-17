@@ -30,6 +30,20 @@ finalizes:
   now lives inside `CompareMatrixModal`. Do **NOT** re-scope `D` in
   `_TAB_SCOPED_ACTIONS` / `check_action` (there is no app-level `D` to scope).
 
+### Coordination with t983_8 (Session tab — landed)
+t983_8 added the **Session** tab and already took **`s`** for it, provisionally
+moving the Status tab to the free **`r`** key with a plain `"Status"` label
+(`tab_status` id/`action_tab_status` unchanged). So this child's "final b/s/r
+deconflict" no longer needs to *assign* the keys — `b`/`s`/`r` are already in
+place. What remains here:
+- Rename `tab_status` → `tab_running` and relabel `"Status"` → `"(R)unning"`
+  (the key is **already** `r`). Update the `tab_status` references in the
+  down-from-tab-bar focus map (`tab_to_container`), `on_pane`/`_refresh_status_tab`
+  guards, and `action_tab_status`.
+- Re-scope `f`/`H` (and any others) in `_TAB_SCOPED_ACTIONS` / `check_action`
+  to the new tab ids.
+- The Session tab (`tab_session`, key `s`) is final — leave it as-is.
+
 ## Key Files to Modify
 - `.aitask-scripts/brainstorm/brainstorm_app.py` — rename Status→Running (`r`);
   add a custom header status-strip widget with the count/state derivation as a
