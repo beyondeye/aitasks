@@ -23,6 +23,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
@@ -164,6 +165,65 @@ class BoardViewFilterTests(unittest.TestCase):
                 hidden = [c for c in cards if c.styles.display == "none"]
                 self.assertEqual(hidden, [],
                                  "press 'a' while in All view must be a no-op")
+        self._run(go())
+
+    # --- Inflight view auto-refresh (t1024) ---
+    # Entering the inflight (gate-status) view must re-read task files from
+    # disk so it reflects the latest on-disk gate state — equivalent to the
+    # data refresh that pressing 'r' performs. The logic lives at the
+    # convergent site `_set_base_filter`, so both the 'i' key and the
+    # selector-click path get it; these tests drive the real 'i' keypress.
+
+    def test_inflight_switch_reloads_from_disk(self):
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                with patch.object(app.manager, "load_tasks",
+                                  wraps=app.manager.load_tasks) as spy:
+                    await pilot.press("i")
+                    await pilot.pause()
+                    await pilot.pause()
+                self.assertEqual(app.base_filter, "inflight")
+                self.assertGreaterEqual(
+                    spy.call_count, 1,
+                    "switching to inflight must re-read tasks from disk")
+        self._run(go())
+
+    def test_noninflight_switch_does_not_reload(self):
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                self.assertEqual(app.base_filter, "all")
+                with patch.object(app.manager, "load_tasks",
+                                  wraps=app.manager.load_tasks) as spy:
+                    await pilot.press("l")  # switch to locked
+                    await pilot.pause()
+                    await pilot.pause()
+                self.assertEqual(app.base_filter, "locked")
+                self.assertEqual(
+                    spy.call_count, 0,
+                    "non-inflight switch must not re-read from disk")
+        self._run(go())
+
+    def test_inflight_repress_is_noop(self):
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await pilot.press("i")  # enter inflight
+                await pilot.pause()
+                await pilot.pause()
+                self.assertEqual(app.base_filter, "inflight")
+                with patch.object(app.manager, "load_tasks",
+                                  wraps=app.manager.load_tasks) as spy:
+                    await pilot.press("i")  # re-press while already in inflight
+                    await pilot.pause()
+                    await pilot.pause()
+                self.assertEqual(
+                    spy.call_count, 0,
+                    "re-pressing 'i' while already in inflight must be a no-op")
         self._run(go())
 
     def test_locked_and_git_compose(self):

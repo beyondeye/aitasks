@@ -4708,13 +4708,24 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if name == "locked":
             self._auto_expand_locked()
 
+        # The inflight view shows live gate status, so entering it should
+        # reflect the latest on-disk state: re-read task files + refresh the
+        # lock map (refresh_board already refreshes git status and clears the
+        # gate cache). This is the same data refresh as pressing 'r'. Only the
+        # transition INTO inflight refreshes — re-selecting it is a no-op via
+        # the early return above.
+        refresh_locks = False
+        if name == "inflight":
+            self.manager.load_tasks()
+            refresh_locks = True
+
         self._refresh_selector()
         self._update_search_placeholder()
 
         # Re-render board with new expansion state, then filter.
         focused = self._focused_card()
         refocus = focused.task_data.filename if focused else ""
-        self.refresh_board(refocus_filename=refocus)
+        self.refresh_board(refocus_filename=refocus, refresh_locks=refresh_locks)
 
     def _toggle_git_filter(self):
         """Flip the git add-on. No board re-render needed."""
