@@ -76,3 +76,5 @@ deferred. No code changes; permissions.md/profiles untouched (that was t822_12).
 > **✅ gate:plan_approved** run=2026-06-17T09:02:13Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-17T09:02:14Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-17T09:10:17Z status=pass attempt=1 type=human
