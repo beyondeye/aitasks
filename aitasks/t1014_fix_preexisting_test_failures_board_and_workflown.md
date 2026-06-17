@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [test]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 19:06
-updated_at: 2026-06-17 23:00
+updated_at: 2026-06-17 23:57
 boardidx: 90
 ---
 
@@ -37,3 +38,8 @@ Neither is related to the gate framework; both should be fixed independently.
 
 `python3 tests/test_settings_shortcuts_tab.py`, `python3 tests/test_shortcut_scopes.py`,
 and `bash tests/test_skill_render_task_workflown.sh` all green.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-17T20:57:55Z status=pass attempt=1 type=human
