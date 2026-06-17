@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [aitask_board, tui, gates]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-17 12:10
-updated_at: 2026-06-17 12:23
+updated_at: 2026-06-17 12:28
+completed_at: 2026-06-17 12:28
 ---
 
 ## Goal
