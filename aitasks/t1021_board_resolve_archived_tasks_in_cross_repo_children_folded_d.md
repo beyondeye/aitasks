@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
 status: Implementing
 labels: [ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-17 11:26
-updated_at: 2026-06-17 11:30
+updated_at: 2026-06-17 11:52
 boardidx: 150
 ---
 
@@ -39,3 +42,8 @@ The t992 fix added `TaskManager.find_task_including_archived()` (`.aitask-script
 - Prior fix: commit `c9e9383c2` (t992) — `aitasks/archived/t992_board_resolve_archived_tasks_in_verifies_dialog.md`
 - Key files: `.aitask-scripts/board/aitask_board.py`, `.aitask-scripts/lib/archive_iter.py`
 - Read `aidocs/framework/tui_conventions.md` (board TUI) before editing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-17T08:52:30Z status=pass attempt=1 type=human
