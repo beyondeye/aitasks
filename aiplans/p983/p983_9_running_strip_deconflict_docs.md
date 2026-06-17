@@ -139,3 +139,46 @@ re-reads the field (`:460`), and archives the parent **only if it is now empty**
 is non-empty, so no `PARENT_ARCHIVED` line fires and the parent stays active. (The
 archive decision is data-driven on `children_to_implement`, independent of any "final
 child" prose.)
+
+## Final Implementation Notes
+- **Actual work done:** Renamed Status→Running across all 9 verified sites in
+  `brainstorm_app.py` (grep-clean). Added pure `derive_runner_state` /
+  `format_status_strip` helpers + `_TERMINAL_AGENT_STATES`, an always-on
+  `#runtime_strip` `Static` above the tabs, and `_refresh_status_strip` /
+  `_refresh_runtime` (wired into the 30s interval, the post-mutation 2.0s
+  timers, and an initial on-load paint). Refactored `_refresh_status_tab` to
+  reuse `derive_runner_state` (removed the duplicated status→text/color ladder).
+  Added t535's two gaps: `x` Cleanup (new `CleanupAgentModal` confirm →
+  `_cleanup_agent` removes `_status/_alive/_output/_log` files) and `R` Retry
+  (`_retry_agent` = reset + `start_runner` if the runner is down). Added `b`→
+  Browse (`action_tab_browse`, preserves the persisted view). New CSS
+  `.runtime-strip`. Updated row hint strings. Docs: 3-tab IA note in
+  `aidocs/framework/tui_conventions.md`. Tests: new
+  `tests/test_brainstorm_header_strip.py` (pure derivations + b/s/r keymap +
+  rename-completeness lock), updated `tests/test_brainstorm_node_export.py`.
+- **Deviations from plan:** None material. Confirmed the original task's
+  "re-scope f/H/D" step was a misconception (they are not Running-scoped) and
+  dropped it; the AC was reconciled and committed before coding (no silent
+  deviation). `action_tab_browse` had to be **added** (it did not exist — Browse
+  was only reachable via `d`/`g`).
+- **Issues encountered:** A stray unrelated working-tree change
+  (`aidocs/applink/monitor_port_design.md`) from a concurrent session was
+  present; it was deliberately excluded from the code commit (path-scoped `git
+  add`).
+- **Key decisions:** Cleanup/Retry are per-row `on_key` handlers with render-time
+  hints (matching the existing `p`/`k`/`K`/`w`/`e`/`L` pattern), NOT footer
+  `Binding`s — they are contextual to a focused Running-tab row and must not show
+  globally. Retry goes through `start_runner` rather than duplicating launch
+  logic. The runtime strip refresh is tab-independent (unlike `_refresh_status_tab`,
+  which self-guards on the active tab).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The 3-tab IA (Browse/Session/Running) + always-on
+  runtime strip is now the canonical brainstorm shape — see the new
+  `tui_conventions.md` section. The Running tab keeps the ids `status_header` /
+  `status_content` / `status_polling_indicator` (only the *tab* id changed to
+  `tab_running`). An **Actions tab (`tab_actions`, `a`) still exists** hosting
+  the wizard — its folding into the contextual Operations dialog is **not** part
+  of this child (out of scope; see t983_11 wizard-rehost). Full website
+  brainstorm docs were spun out to **t1023**. Pending siblings: **t983_10**
+  (manual verification) and **t983_11** (wizard rehost) — the parent t983 stays
+  active until both land.
