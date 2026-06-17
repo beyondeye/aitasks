@@ -115,3 +115,5 @@ place. What remains here:
 > **✅ gate:plan_approved** run=2026-06-17T08:58:12Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-17T08:58:13Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-17T09:11:08Z status=pass attempt=1 type=human
