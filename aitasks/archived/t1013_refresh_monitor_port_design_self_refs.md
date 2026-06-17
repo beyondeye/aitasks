@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 17:35
-updated_at: 2026-06-17 12:02
+updated_at: 2026-06-17 12:10
+completed_at: 2026-06-17 12:10
 boardidx: 80
 ---
 
