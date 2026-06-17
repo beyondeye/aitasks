@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-17 10:31
-updated_at: 2026-06-17 10:40
+updated_at: 2026-06-17 10:44
 ---
 
 ## Problem
@@ -83,3 +84,8 @@ rule.
 - Visual: launch `ait brainstorm`, open the operation-definition wizard,
   Tab/focus the Launch mode field and confirm the text is legible; repeat
   for the other CycleField sites.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-17T07:44:19Z status=pass attempt=1 type=human
