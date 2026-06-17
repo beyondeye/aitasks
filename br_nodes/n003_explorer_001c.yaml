@@ -1,0 +1,79 @@
+node_id: n003_explorer_001c
+parents:
+- n000_init
+description: 'Triage-and-defer shadow: an intent anchor + concern ledger that routes
+  every shadow finding to steer-now / spin-off-task / drop, keeping the human as the
+  sole steerer and the active plan lean.'
+proposal_file: br_proposals/n003_explorer_001c.md
+created_at: 2026-06-17 07:59
+created_by_group: explore_001
+reference_files:
+- .claude/skills/aitask-shadow/SKILL.md
+- .claude/skills/aitask-shadow/plan-challenge.md
+- .claude/skills/aitask-shadow/plan-explain.md
+- .claude/skills/aitask-shadow/plan-socratic.md
+- .claude/skills/aitask-shadow/plan-assumptions.md
+- .claude/skills/aitask-shadow/plan-triage.md
+- .aitask-scripts/aitask_shadow_capture.sh
+- .aitask-scripts/aitask_shadow_context.sh
+- .aitask-scripts/aitask_shadow_defer.sh
+- .aitask-scripts/aitask_explain_context.sh
+- .aitask-scripts/aitask_create.sh
+- aidocs/framework/shadow_agent.md
+- aidocs/framework/planning_conventions.md
+- aidocs/framework/skill_authoring_conventions.md
+- tests/test_shadow_defer.sh
+requirements_fixed: "advisory_only \u2014 the shadow never sends keystrokes/answers\
+  \ into the followed pane; every steer originates as a human-edited message. human_is_steerer\
+  \ \u2014 the human is the sole authority over what lands in the active plan."
+requirements_mutable: "scope_discipline \u2014 secondary concerns are externalized\
+  \ as deferred aitasks rather than folded into the active plan; the active plan stays\
+  \ human-steerable."
+assumption_intent_anchor_available: The user can state, in one or two lines, the intended
+  scope/goal of the current task at the start of a shadow session (or the shadow can
+  infer a draft anchor from the task file's title + acceptance criteria for the user
+  to confirm).
+assumption_batch_create_available: '`ait create --batch` is available and can mint
+  a deferred task with --depends and a back-reference; the followed agent''s task
+  id is known or resolvable via aitask_shadow_context.sh.'
+assumption_single_active_task: A shadow session is bound to exactly one followed task
+  at a time (the pane/task binding from minimonitor), so 'the active plan' and 'the
+  intent anchor' are unambiguous.
+assumption_concern_volume: "An adversarial pass typically surfaces 3\u201312 concerns\
+  \ per plan \u2014 small enough to triage interactively one-by-one, not so many that\
+  \ a batch UI is required."
+component_intent_anchor: A one-line human-authored statement of the current task's
+  intended scope, captured at session start and used as the yardstick for in-scope
+  vs out-of-scope classification and plan-drift detection.
+component_triage_router: "Decision logic that maps each surfaced concern to one of\
+  \ three dispositions \u2014 STEER-NOW, DEFER-TASK, or DROP \u2014 against the intent\
+  \ anchor."
+component_concern_ledger: A durable per-task markdown ledger (.aitask-shadow/<task_id>/concerns.md)
+  that records every surfaced concern with its disposition, so nothing is 'lost' without
+  bloating the plan.
+component_deferral_helper: A whitelisted helper (aitask_shadow_defer.sh) wrapping
+  `ait create --batch` to spin off a DEFER-TASK concern as a real aitask with depends
+  + bidirectional back-reference, returning a LANDED line.
+component_steer_draft: "For STEER-NOW concerns, the shadow drafts an editable steering\
+  \ message the human reviews and types into the followed agent themselves \u2014\
+  \ never auto-sent."
+component_scope_drift_guard: A counter/heuristic that compares concerns folded into
+  the plan vs deferred and warns when the plan is drifting away from the intent anchor.
+component_triage_subprocedure: "plan-triage.md \u2014 the new sub-procedure orchestrating\
+  \ anchor \u2192 adversarial pass \u2192 per-concern triage \u2192 ledger/defer/steer,\
+  \ reusing plan-challenge.md as its finding source."
+tradeoff_friction_vs_discipline: Per-concern triage adds an interaction step per finding;
+  mitigated by a single multiSelect triage pass and DROP-by-default for low-severity
+  items, so the friction scales with the number of *kept* concerns, not all of them.
+tradeoff_ledger_persistence: The concern ledger is a new on-disk artifact under .aitask-shadow/
+  that needs lifecycle/cleanup; mitigated by co-locating it with the existing .aitask-shadow/
+  capture scratch space and pruning it in aitask_companion_cleanup.sh when the followed
+  agent dies.
+tradeoff_deferral_proliferation: Aggressive deferral can mint many tiny tasks that
+  clutter the board; mitigated by a 'batch-fold-on-create' option (group several deferred
+  concerns into one child task) and by routing them to boardcol=backlog with depends
+  on the current task.
+tradeoff_intent_anchor_staleness: If the human's intent legitimately changes mid-task,
+  the anchor can wrongly flag in-scope work as out-of-scope; mitigated by an explicit
+  'revise anchor' affordance and re-confirming the anchor after any STEER-NOW that
+  widens scope.

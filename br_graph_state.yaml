@@ -1,11 +1,29 @@
-current_head: n000_init
+current_head: n003_explorer_001c
 current_heads:
-  _umbrella: n000_init
+  _umbrella: n003_explorer_001c
 history:
   _umbrella:
   - n000_init
+  - n003_explorer_001c
 next_node_id: 4
-active_dimensions: []
+active_dimensions:
+- requirements_fixed
+- requirements_mutable
+- assumption_intent_anchor_available
+- assumption_batch_create_available
+- assumption_single_active_task
+- assumption_concern_volume
+- component_intent_anchor
+- component_triage_router
+- component_concern_ledger
+- component_deferral_helper
+- component_steer_draft
+- component_scope_drift_guard
+- component_triage_subprocedure
+- tradeoff_friction_vs_discipline
+- tradeoff_ledger_persistence
+- tradeoff_deferral_proliferation
+- tradeoff_intent_anchor_staleness
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}
