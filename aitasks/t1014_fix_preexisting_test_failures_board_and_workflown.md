@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -43,3 +45,5 @@ and `bash tests/test_skill_render_task_workflown.sh` all green.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-17T20:57:55Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-17T20:57:56Z status=pass attempt=1 type=machine
