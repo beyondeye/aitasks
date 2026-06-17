@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_board, child_tasks]
-children_to_implement: [t1016_1, t1016_2, t1016_3, t1016_4]
+children_to_implement: [t1016_1, t1016_2, t1016_3, t1016_4, t1016_5]
 created_at: 2026-06-17 00:51
-updated_at: 2026-06-17 13:36
+updated_at: 2026-06-17 13:41
 boardidx: 110
 ---
 
