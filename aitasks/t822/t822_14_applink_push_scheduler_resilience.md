@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t822_8]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-16 00:00
-updated_at: 2026-06-16 00:00
+updated_at: 2026-06-17 10:14
 ---
 
 Verify the landed push scheduler (t822_8) for two resilience gaps identified during plan review, then propose and implement any hardening that is actually needed.
