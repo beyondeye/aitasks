@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-16 17:35
-updated_at: 2026-06-16 17:35
+updated_at: 2026-06-17 11:34
 boardidx: 80
 ---
 
