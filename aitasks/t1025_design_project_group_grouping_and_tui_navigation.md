@@ -3,10 +3,9 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [tui_switcher, stats_ui, tui, tmux]
 children_to_implement: [t1025_1, t1025_2, t1025_3, t1025_4, t1025_5]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-17 23:28
 updated_at: 2026-06-18 00:14
 ---
