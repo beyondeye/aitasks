@@ -88,3 +88,19 @@ No other brainstorm focus/selected rule has the missing-contrast pattern
 Standard cleanup/archival per task-workflow Step 9: review & commit (Step 8),
 then merge/archive. Profile 'fast' works on the current branch, so there is no
 worktree to remove.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `color: $text;` to the `CycleField:focus` CSS
+  rule in `.aitask-scripts/brainstorm/brainstorm_app.py` (~line 3313),
+  exactly as planned — a single one-line addition.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. `python3 -m py_compile` confirmed the file
+  still parses; `grep` confirmed `color: $text;` sits alongside
+  `background: $accent;` in the focus rule.
+- **Key decisions:** Used `$text` (Textual's auto-contrasting token) rather
+  than a hardcoded color, matching the six sibling `:focus` rules so contrast
+  stays correct across themes. The fix is on the shared `CycleField` widget,
+  so it covers all four CycleField sites (Launch mode, Parallel explorers,
+  module merge destination, config step) with one change.
+- **Upstream defects identified:** None.
