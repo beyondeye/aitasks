@@ -171,3 +171,38 @@ Run: `python3 -m pytest tests/test_board_archived_relation_lookup.py -v`
 
 Per task-workflow Step 9: review/approve, commit (`bug:` prefix, `(t1021)`),
 update plan, merge to main, archive t1021.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all 6 edits in `.aitask-scripts/board/aitask_board.py`
+  exactly as planned: (1) new module-level pure helper `_read_cross_repo_task_content(root, tid)`
+  (active glob → archived fallback via the already-imported `find_archived_markdown_by_id`);
+  (2) `_resolve_cross_repo_task` refactored to call it, preserving the "Could not read task
+  file" / "not found in project" error returns; (3) `ChildrenField` gained a
+  `_find_task_by_number` helper and routes single+multi through `find_task_including_archived`
+  with archived-read-only opening; (4) `ChildPickerItem.on_key` opens archived children
+  read-only; (5) `FoldedTasksField._open_folded` both lookups swapped to archived-aware;
+  (6) `FoldedIntoField._open_target` and `ParentField._open_parent` swapped + read-only-aware.
+  Extended `tests/test_board_archived_relation_lookup.py` with 2 parity tests
+  (Children, Folded) and a new `CrossRepoTaskResolutionTests` class (5 cases: active,
+  archived parent, archived child, active-wins-over-archived, missing).
+- **Deviations from plan:** None. The cross-repo helper test asserts against an independent
+  on-disk ground truth (a real archived file under a temp "other repo" root), exercising the
+  active→archived fallback directly without the `aitask_project_resolve.sh` subprocess.
+- **Issues encountered:** A transient outage of the Bash safety classifier blocked test
+  execution and bookkeeping mid-task; the work was fully resumable from `Implementing` and
+  completed once the classifier recovered. No code impact.
+- **Key decisions:** Extracted the file-locating logic into a pure root-parameterized helper
+  (testability-first) rather than inlining the archived fallback in `_resolve_cross_repo_task`,
+  so the active→archived behavior is unit-testable in isolation. Scope was confirmed with the
+  user as "cross-repo + parity swaps": only the cross-repo path is reproducible today; the
+  Children/Folded/Parent/FoldedInto swaps are parity with the shipped t992 Depends/Verifies
+  pattern and are no-ops by design (archived children are dropped from `children_to_implement`;
+  folded files are deleted, not archived) — included for consistency and anomaly-guarding.
+- **Upstream defects identified:** None.
+
+## Verification results
+
+- `python3 -m unittest tests.test_board_archived_relation_lookup` — 11/11 OK.
+- `python3 -m unittest tests.test_archive_iter_consolidated` — 24/24 OK (reused helper unaffected).
+- `python3 -c "import ast; ast.parse(...)"` board syntax — OK.
