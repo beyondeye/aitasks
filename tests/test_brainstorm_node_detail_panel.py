@@ -285,7 +285,7 @@ class BrainstormAppComposeSmokeTests(unittest.TestCase):
                         _text(app.query_one("#browse_node_title", Label)),
                         "Task Brief",
                     )
-                    self.assertIsNone(app._current_focused_node_id)
+                    self.assertIsNone(app._selection.primary)
                 finally:
                     await cm.__aexit__(None, None, None)
 

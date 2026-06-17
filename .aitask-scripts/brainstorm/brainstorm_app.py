@@ -2223,8 +2223,8 @@ def prev_step_id(ctx: dict, step_id: str) -> str | None:
 # redesign). Like the wizard step model above, it reads/writes only its own
 # state — no Textual import, no session-file I/O — so it is exhaustively
 # unit-testable without a running App (see tests/test_brainstorm_node_selection.py).
-# Purely additive: the legacy single-selection `_current_focused_node_id` path
-# is untouched until t983_3 wires this model in.
+# Wired into the Browse UI by t983_3; since t1003 it is the sole Browse cursor
+# (the legacy single-selection focused-node field was retired).
 # ---------------------------------------------------------------------------
 
 
@@ -5618,12 +5618,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._module_review_pending: set[str] = set()
         self._module_review_accepted: set[str] = set()
         self._module_steer: dict[str, list[str]] = {}
-        self._current_focused_node_id: str | None = None
-        # Browse selection model (t983_3). Runs alongside the legacy
-        # `_current_focused_node_id` cursor (kept in sync by
-        # `_show_browse_node_detail`); `space` toggles marks here. The dual
-        # cursor state is documented debt to collapse in a later child
-        # (risk-mitigation `collapse_browse_cursor_state`).
+        # Browse selection model (t983_2/t983_3): the sole Browse cursor.
+        # `self._selection.primary` is the focused-node cursor and `space`
+        # toggles marks. The legacy parallel focused-node field was retired in
+        # t1003 — there is now one cursor source of truth.
         self._selection = NodeSelection()
         # Remembered for the lifetime of the app; pre-fills the export modal's
         # directory input so repeated exports default to the previous choice.
@@ -5649,7 +5647,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 return None
             if tabbed.active != "tab_browse":
                 return None
-            if not self._current_focused_node_id:
+            if not self._selection.primary:
                 return None
             return True
         # t983_11: cycle_preview_ratio / toggle_preview_numbered moved to
@@ -6235,7 +6233,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         tabbed = self.query_one(TabbedContent)
         if tabbed.active != "tab_browse":
             return
-        node_id = self._current_focused_node_id
+        node_id = self._selection.primary
         if not node_id:
             self.notify("Focus a node first", severity="warning")
             return
@@ -6253,7 +6251,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # unambiguous regardless of event ordering (no-op on the `A` path, where
         # primary already equals node_id; does not disturb a marked set —
         # effective() returns the marked set when non-empty).
-        self._current_focused_node_id = node_id
         self._selection.set_primary(node_id)
         if self.read_only:
             self.notify(
@@ -6271,7 +6268,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         if node_id not in list_nodes(self.session_path):
             # Node was deleted between focus and keypress.
-            self._current_focused_node_id = None
             self._selection.remove(node_id)
             self.notify(
                 f"Node '{node_id}' no longer exists.", severity="error"
@@ -6303,7 +6299,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         tabbed = self.query_one(TabbedContent)
         if tabbed.active != "tab_browse":
             return
-        node_id = self._current_focused_node_id
+        node_id = self._selection.primary
         if not node_id:
             self.notify("Focus a node first", severity="warning")
             return
@@ -6457,10 +6453,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify("Cannot delete the root design.", severity="error")
             return
         deleted = report.get("deleted", [])
-        if self._current_focused_node_id in deleted:
-            self._current_focused_node_id = None
         # Keep the Browse selection model coherent: drop every deleted node from
-        # both the marked set and the primary cursor in one call each (t983_3).
+        # both the marked set and the primary cursor in one call each. When the
+        # cursor node itself is deleted, NodeSelection.remove clears primary
+        # (t983_3; sole cursor since t1003).
         for nid in deleted:
             self._selection.remove(nid)
         self.notify(f"Deleted {len(deleted)} node(s).")
@@ -6528,9 +6524,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 if not node_rows:
                     return False
                 target = node_rows[0]
-                if self._current_focused_node_id:
+                if self._selection.primary:
                     for r in node_rows:
-                        if r.node_id == self._current_focused_node_id:
+                        if r.node_id == self._selection.primary:
                             target = r
                             break
                 target.focus()
@@ -7921,19 +7917,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         Both Browse views feed this one handler: list-view NodeRow focus
         (``on_descendant_focus``) and graph-view DAG focus
-        (``on_dag_display_focus_changed``). It keeps the legacy
-        ``_current_focused_node_id`` cursor (still read at the legacy sites) and
-        the new ``NodeSelection`` primary cursor in sync until the dual cursor
-        state is collapsed in a later child (t983 risk-mitigation
-        ``collapse_browse_cursor_state``).
+        (``on_dag_display_focus_changed``). It moves the single
+        ``NodeSelection.primary`` cursor to ``node_id`` (sole Browse cursor
+        since t1003; the legacy parallel focused-node field was retired).
         """
-        self._current_focused_node_id = node_id
         self._selection.set_primary(node_id)
         self.query_one("#browse_node_panel", NodeDetailPanel).update(node_id)
 
     def _show_brief_in_detail(self, spec: str) -> None:
         """Show the full initial_spec in the detail pane (press b to toggle)."""
-        self._current_focused_node_id = None
         self._selection.set_primary(None)
         # Truncate for the Static widget; full text is in n000_init proposal
         lines = spec.splitlines()
@@ -7946,7 +7938,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def on_dimension_row_activated(self, event: DimensionRow.Activated) -> None:
         """Enter on a DimensionRow → push SectionViewerScreen filtered to matching sections."""
-        node_id = self._current_focused_node_id
+        node_id = self._selection.primary
         if not node_id:
             return
         try:

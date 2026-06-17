@@ -201,7 +201,7 @@ class DeleteGuardAndCallbackTests(unittest.TestCase):
             encoding="utf-8",
         )
         app = self._app()
-        app._current_focused_node_id = "n002_c"
+        app._selection.set_primary("n002_c")
         app.notices = []
         app.refreshed = False
         app.notify = lambda msg, **kw: app.notices.append(msg)
@@ -212,7 +212,9 @@ class DeleteGuardAndCallbackTests(unittest.TestCase):
         self.assertFalse((self.wt / "br_nodes" / "n001_b.yaml").is_file())
         self.assertFalse((self.wt / "br_nodes" / "n002_c.yaml").is_file())
         self.assertTrue((self.wt / "br_nodes" / "n000_a.yaml").is_file())
-        self.assertIsNone(app._current_focused_node_id)
+        # Consolidated cursor: the deleted cursor node is cleared purely via
+        # NodeSelection.remove in the delete-cascade loop (t1003).
+        self.assertIsNone(app._selection.primary)
         self.assertTrue(app.refreshed)
         self.assertTrue(any("Deleted 2 node" in m for m in app.notices))
 

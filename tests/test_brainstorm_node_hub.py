@@ -273,7 +273,6 @@ def _bare_app(session_path=None):
     app = BrainstormApp.__new__(BrainstormApp)
     app.session_path = session_path
     app._selection = NodeSelection()
-    app._current_focused_node_id = None
     app.read_only = False
     app.session_data = {"status": "active"}
     app.pushed = []
@@ -357,7 +356,6 @@ class OpenOperationsDialogTests(unittest.TestCase):
             self.assertIsInstance(app.pushed[0], NodeActionSelectModal)
             # Cursor-anchor invariant: primary pinned to the launched node.
             self.assertEqual(app._selection.primary, "n001_test")
-            self.assertEqual(app._current_focused_node_id, "n001_test")
 
     def test_read_only_blocks_dialog(self):
         with tempfile.TemporaryDirectory() as td:
