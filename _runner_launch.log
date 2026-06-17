@@ -70,3 +70,13 @@
 [04:59:58] Stale heartbeat (status unchanged): explorer_001b
 [04:59:58] Progress: 33% | Running: 2/3 | ETA: 17m
 [04:59:59] Sleeping 30s
+[05:00:29] --- Iteration 18 ---
+[05:00:30] Progress: 100% | Running: 0/3 | ETA: N/A
+[05:00:30] All agents in terminal state — stopping runner
+
+=== 2026-06-17 05:07:41 | start_runner(brainstorm-1017) ===
+[05:07:41] Starting runner for crew 'brainstorm-1017'
+[05:07:41]   Worktree:       .aitask-crews/crew-brainstorm-1017
+[05:07:41]   Interval:       30s
+[05:07:41]   Max concurrent: 3
+[05:07:41]   Mode:           continuous

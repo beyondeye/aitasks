@@ -1,0 +1,81 @@
+node_id: n002_explorer_001b
+parents:
+- n000_init
+description: "Steerability-preserving shadow \u2014 decision-withholding by default\
+  \ plus a concern-spillover ledger that defers secondary concerns into separate tasks\
+  \ instead of bloating the current plan."
+proposal_file: br_proposals/n002_explorer_001b.md
+created_at: 2026-06-17 08:00
+created_by_group: explore_001
+reference_files:
+- .claude/skills/aitask-shadow/SKILL.md
+- .claude/skills/aitask-shadow/plan-challenge.md
+- .claude/skills/aitask-shadow/plan-assumptions.md
+- .claude/skills/aitask-shadow/plan-socratic.md
+- .claude/skills/aitask-shadow/plan-explain.md
+- .claude/skills/aitask-shadow/plan-triage.md
+- .aitask-scripts/aitask_shadow_capture.sh
+- .aitask-scripts/aitask_shadow_context.sh
+- .aitask-scripts/aitask_shadow_spillover.sh
+- .aitask-scripts/aitask_create.sh
+- aidocs/framework/shadow_agent.md
+- aidocs/framework/skill_authoring_conventions.md
+requirements_fixed:
+- "Advisory-only contract is inviolable \u2014 read-only wrt the followed agent; never\
+  \ send keystrokes/answers into its pane."
+- Shadow stays spawn-fast, static, user-invocable; no workflow-phase classifier ever
+  becomes a gate or prerequisite.
+- The human developer remains the author of design intent and the final decision-maker.
+- "Deferred concerns are never auto-applied \u2014 drafted `ait create` stubs are\
+  \ shown for the developer to run."
+requirements_mutable:
+- Decision-withholding is the default but can be relaxed per-request ("you pick /
+  recommend one").
+- Spillover ledger storage format and location.
+- Whether the scope-drift meter runs proactively or only on request.
+assumption_followed_agent_pane: A tmux pane id for the followed agent is resolvable
+  (passed by the launcher or supplied by the user); capture works as today.
+assumption_context_fetch_has_ac: The task file fetched via aitask_shadow_context.sh
+  carries the original intent / acceptance criteria the plan can be measured against.
+assumption_create_batch_available: 'ait create --batch can mint a child/follow-up
+  task with depends: on the current task id without interactive prompts.'
+assumption_developer_owns_decisions: "The developer wants to remain the decision author\
+  \ \u2014 the steerability premise; if they truly want full delegation that is an\
+  \ explicit opt-out, not the default."
+assumption_no_auto_apply: Generating an ait create stub does not run it; the developer
+  runs the command, preserving the advisory boundary even for task creation.
+component_skill_flow: "SKILL.md \u2014 routes the user's ask, defaults to intent-first\
+  \ decision-withholding, and exposes the triage/spillover capability."
+component_capture: "aitask_shadow_capture.sh \u2014 inherited unchanged; reads the\
+  \ followed agent's current screen."
+component_context_fetch: "aitask_shadow_context.sh \u2014 inherited; the AC/intent\
+  \ extraction it already returns becomes load-bearing for the scope-drift meter."
+component_spillover_ledger: "aitask_shadow_spillover.sh + per-task ledger file \u2014\
+  \ durable home for deferred secondary concerns."
+component_defer_to_task_bridge: "ledger-to-`ait create --batch` stub generator \u2014\
+  \ converts deferred concerns into trackable follow-up tasks."
+component_decision_withholding_guardrail: "tightened guardrail section \u2014 the\
+  \ shadow lays out the decision space and elicits the developer's intent before (optionally)\
+  \ recommending."
+component_scope_drift_meter: "lightweight comparison of the current plan against the\
+  \ original task AC \u2014 surfaces concerns that have crept beyond the task's stated\
+  \ intent."
+component_triage_subprocedure: "plan-triage.md \u2014 classifies each surfaced concern\
+  \ IN_SCOPE vs DEFER and feeds DEFER items to the ledger."
+tradeoff_advisory_purity_preserved: "The defer-to-task bridge only drafts commands;\
+  \ the developer runs them, so task creation never breaches the advisory-only contract\
+  \ \u2014 but the developer must still take one explicit action to materialize each\
+  \ deferred task."
+tradeoff_decision_withholding_friction: Default decision-withholding adds a round-trip
+  (shadow asks for intent before recommending); mitigated by a per-request "you pick"
+  opt-out so urgent decisions are not slowed.
+tradeoff_ledger_overhead: A per-task ledger file is one more artifact to manage; mitigated
+  by storing it under .aitask-shadow/spillover/<task_id>.md (gitignored scratch) and
+  clearing it when the deferred tasks are created.
+tradeoff_scope_meter_false_drift: AC-vs-plan comparison can mis-flag legitimately
+  in-scope work as drift when the task AC is terse; mitigated by presenting drift
+  as a question ("is this part of the task?") the developer answers, never an automatic
+  defer.
+tradeoff_create_stub_accuracy: Auto-drafted ait create stubs may capture a concern
+  imperfectly; mitigated by showing the full draft for edit-before-run rather than
+  executing it, and by carrying the concern's verbatim text in the task body.

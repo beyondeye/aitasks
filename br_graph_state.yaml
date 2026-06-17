@@ -1,12 +1,13 @@
-current_head: n001_explorer_001a
+current_head: n002_explorer_001b
 current_heads:
-  _umbrella: n001_explorer_001a
+  _umbrella: n002_explorer_001b
 history:
   _umbrella:
   - n000_init
   - n003_explorer_001c
   - n001_explorer_001a
-next_node_id: 4
+  - n002_explorer_001b
+next_node_id: 5
 active_dimensions:
 - requirements_fixed
 - requirements_mutable
@@ -37,6 +38,23 @@ active_dimensions:
 - tradeoff_extra_friction
 - tradeoff_intent_anchor_overhead
 - tradeoff_draft_review_backlog
+- assumption_followed_agent_pane
+- assumption_context_fetch_has_ac
+- assumption_developer_owns_decisions
+- assumption_no_auto_apply
+- component_skill_flow
+- component_capture
+- component_context_fetch
+- component_spillover_ledger
+- component_defer_to_task_bridge
+- component_decision_withholding_guardrail
+- component_scope_drift_meter
+- tradeoff_advisory_purity_preserved
+- tradeoff_decision_withholding_friction
+- tradeoff_ledger_overhead
+- tradeoff_scope_meter_false_drift
+- tradeoff_create_stub_accuracy
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}
+browse_view: list
