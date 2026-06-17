@@ -52,3 +52,5 @@ the wizard so the op-select dispatch can be split cleanly.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-17T08:14:49Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-17T08:14:50Z status=pass attempt=1 type=machine
