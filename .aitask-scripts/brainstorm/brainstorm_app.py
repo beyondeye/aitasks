@@ -3310,6 +3310,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     CycleField:focus {
         background: $accent;
+        color: $text;
     }
 
     .actions_summary {
