@@ -7,6 +7,7 @@ status: Ready
 labels: [aitask_board, child_tasks]
 created_at: 2026-06-17 00:51
 updated_at: 2026-06-17 00:51
+boardidx: 110
 ---
 
 ## Goal

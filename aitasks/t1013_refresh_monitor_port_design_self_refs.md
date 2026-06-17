@@ -7,6 +7,7 @@ status: Ready
 labels: [ait_bridge]
 created_at: 2026-06-16 17:35
 updated_at: 2026-06-16 17:35
+boardidx: 80
 ---
 
 ## Origin

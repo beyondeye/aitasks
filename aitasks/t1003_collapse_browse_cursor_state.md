@@ -7,6 +7,7 @@ status: Ready
 labels: [brainstorming, tui, ait_brainstorm]
 created_at: 2026-06-16 08:50
 updated_at: 2026-06-16 08:50
+boardidx: 30
 ---
 
 ## Origin

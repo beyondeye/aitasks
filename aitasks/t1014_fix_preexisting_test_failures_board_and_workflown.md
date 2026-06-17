@@ -7,6 +7,7 @@ status: Ready
 labels: [test]
 created_at: 2026-06-16 19:06
 updated_at: 2026-06-16 19:06
+boardidx: 90
 ---
 
 ## Context

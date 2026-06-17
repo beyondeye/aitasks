@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [822_2]
+depends: [t822_2]
 issue_type: bug
 status: Ready
 labels: [verification, bug]
 created_at: 2026-06-15 18:01
 updated_at: 2026-06-15 18:01
+boardidx: 20
 ---
 
 ## Failed verification item from t822_2

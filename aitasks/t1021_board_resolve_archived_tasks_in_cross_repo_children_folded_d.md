@@ -8,6 +8,7 @@ labels: [ui]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-17 11:26
 updated_at: 2026-06-17 11:30
+boardidx: 150
 ---
 
 ## Problem

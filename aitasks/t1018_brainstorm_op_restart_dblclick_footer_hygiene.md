@@ -7,6 +7,7 @@ status: Ready
 labels: [brainstorming, tui, ait_brainstorm]
 created_at: 2026-06-17 10:27
 updated_at: 2026-06-17 10:27
+boardidx: 130
 ---
 
 Fix three UX gaps in the `ait brainstorm` TUI

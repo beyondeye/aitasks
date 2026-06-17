@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [822_9]
+depends: [t822_9]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [822_9]
+verifies: ['822_9']
 created_at: 2026-06-16 12:16
 updated_at: 2026-06-16 12:16
+boardidx: 60
 ---
 
 ## Manual Verification Task

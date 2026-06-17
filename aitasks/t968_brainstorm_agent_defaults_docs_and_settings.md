@@ -7,7 +7,7 @@ status: Ready
 labels: [ait_brainstorm, ait_settings]
 created_at: 2026-06-10 18:15
 updated_at: 2026-06-10 18:15
-boardidx: 80
+boardidx: 200
 ---
 
 ## Context

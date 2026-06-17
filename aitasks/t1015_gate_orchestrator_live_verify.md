@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [635_12]
+depends: [t635_12]
 issue_type: manual_verification
 status: Ready
 labels: [gates]
-verifies: [635_11]
+verifies: ['635_11']
 created_at: 2026-06-17 00:35
 updated_at: 2026-06-17 00:35
+boardidx: 100
 ---
 
 ## Origin
