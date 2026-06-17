@@ -2,11 +2,11 @@ agent_name: synthesizer_001
 agent_type: synthesizer
 group: synthesize_001
 launch_mode: interactive
-status: Running
+status: Aborted
 depends_on: []
 created_at: 2026-06-17 05:07:31
 started_at: '2026-06-17 05:07:43'
-completed_at: null
+completed_at: '2026-06-17 05:13:10'
 progress: 30
 pid: 1045461
-error_message: null
+error_message: Hard killed by user
