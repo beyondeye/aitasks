@@ -128,3 +128,18 @@ Archive via `./.aitask-scripts/aitask_archive.sh 983_8`.
 
 ### Goal-achievement risk: low
 - Approach reuses proven primitives (`OperationRow`, `_is_session_op_disabled`, `_execute_session_op`, `DeleteSessionModal`, `_navigate_rows`) and every touch point is verified against current source; requirements fully covered. · severity: low · → mitigation: n/a.
+
+## Final Implementation Notes
+- **Actual work done:** All in `.aitask-scripts/brainstorm/brainstorm_app.py` + new `tests/test_brainstorm_session_tab.py`.
+  - Added `TabPane("(S)ession", id="tab_session")` with `#session_content`; bound `s`→`tab_session`, moved Status to `r` (plain `"Status"` label, `tab_status` id unchanged); added `action_tab_session`.
+  - New `_refresh_session_tab` mounts one `OperationRow` per `_SESSION_OPS`, disabled via the reused `_is_session_op_disabled`; `_focus_first_session_op` mirrors `_focus_first_operation` (both now scoped to their container since the Session tab also hosts `OperationRow`s).
+  - `_dispatch_session_op`: `delete`→`DeleteSessionModal`; the four lifecycle ops→`_show_session_confirm` (inline summary + Confirm/Cancel via `.btn_session_confirm`/`.btn_session_cancel` handlers) → `_execute_session_op(op)`. `_session_op_summary` provides the one-liner. `_execute_session_op` refactored to take an explicit `op` (defaults to `_wizard_op` for back-compat).
+  - Session-tab nav: `on_key` `tab_session` branch (up/down via `_navigate_rows("session_content", …)`, Enter→dispatch); mouse path in `on_operation_row_activated`; added `tab_session` to the down-from-tab-bar focus map.
+  - **The split:** removed the "Session Lifecycle" section + session-op dispatch branches from `_actions_show_step1`, the op_select Enter handler, and `on_operation_row_activated` (op_select is design-ops-only). Removed the now-dead session branches in `_actions_show_confirm` / `_build_summary` / `_on_actions_launch` / `_actions_collect_config`. Delete-result fallbacks (`_on_delete_result`, `_run_delete_session`) and `_load_existing_session` now refresh the Session tab. Removed an unused `head` local in `_actions_show_step1`.
+- **Deviations from plan:** None of substance. Added the `tab_session` entry to the down-from-tab-bar focus map (`tab_to_container`) — an implicit requirement the plan's nav step did not spell out. `s | None` explicit-op refactor implemented as planned.
+- **Issues encountered:** None. `python -m unittest` (no pytest in the venv); 16 new tests pass; full `test_brainstorm*` suite green.
+- **Key decisions:** Kept the lifecycle-op confirm (inline panel in the Session tab) rather than executing immediately, preserving the wizard's old safety gate for finalize/archive. `_execute_session_op` takes an explicit op so the Session tab no longer couples to wizard state. Status moved to `r` provisionally (label stays "Status") — the rename to "(R)unning" is t983_9.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t983_9 (Running rename + deconflict):** `b`/`s`/`r` keys are already assigned (s=Session, r=Status). Only the `tab_status`→`tab_running` rename + `"Status"`→`"(R)unning"` relabel remains (key already `r`), plus updating `tab_status` references in the down-from-tab-bar focus map, the `on_pane`/`_refresh_status_tab` guards, and `action_tab_status`, and the `_TAB_SCOPED_ACTIONS`/`check_action` re-scope. The Session tab (`tab_session`, `s`) is final — leave it. Reverse note already committed to the t983_9 task body.
+  - **t983_11 (wizard re-host):** the wizard op_select is now design-ops-only; no session-op branches remain in the wizard confirm/launch/collect-config path, so the re-host has fewer op-type branches to carry.
