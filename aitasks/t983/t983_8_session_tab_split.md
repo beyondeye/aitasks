@@ -54,3 +54,5 @@ the wizard so the op-select dispatch can be split cleanly.
 > **✅ gate:plan_approved** run=2026-06-17T08:14:49Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-17T08:14:50Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-17T08:27:29Z status=pass attempt=1 type=human
