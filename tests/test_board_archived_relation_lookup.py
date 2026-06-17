@@ -118,6 +118,84 @@ class ArchivedRelationLookupTests(unittest.TestCase):
         self.assertIsNone(field._find_task_by_number(999))
         self.assertIsNone(manager.archived_task_cache["999"])
 
+    def test_children_field_resolves_archived_child(self) -> None:
+        _write_task(self.task_dir / "archived" / "t13" / "t13_9_child.md", "Child", "Done")
+        _write_task(self.task_dir / "t1_owner.md", "Owner")
+
+        board, manager = self._manager()
+        owner = manager.find_task_by_id("t1")
+        field = board.ChildrenField(["t13_9"], manager, owner)
+
+        task = field._find_task_by_number("t13_9")
+        self.assertIsNotNone(task)
+        self.assertEqual(task.filename, "t13_9_child.md")
+        self.assertTrue(task.archived)
+
+    def test_folded_field_resolves_archived_task(self) -> None:
+        # FoldedTasksField looks up via find_task_including_archived(tid);
+        # assert the lookup it relies on resolves an archived folded task.
+        _write_task(self.task_dir / "archived" / "t77_folded.md", "Folded", "Done")
+        _write_task(self.task_dir / "t1_owner.md", "Owner")
+
+        board, manager = self._manager()
+        task = manager.find_task_including_archived("t77")
+        self.assertIsNotNone(task)
+        self.assertEqual(task.filename, "t77_folded.md")
+        self.assertTrue(task.archived)
+
+
+class CrossRepoTaskResolutionTests(unittest.TestCase):
+    """Regression for archived cross-repo dependency resolution (t1021).
+
+    Exercises the pure ``_read_cross_repo_task_content`` helper against an
+    independent on-disk ground truth — no ``aitask_project_resolve.sh``
+    subprocess — so the active→archived fallback is verified directly.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        # A standalone "other repo" root with its own aitasks/ tree.
+        self.root = Path(self.tmp.name) / "other_repo"
+        (self.root / "aitasks" / "metadata").mkdir(parents=True)
+        # Load the board module against an unrelated TASK_DIR (the helper takes
+        # an explicit root, so the module's own TASK_DIR is irrelevant here).
+        self.board = _load_board_module(Path(self.tmp.name) / "aitasks")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_cross_repo_active_task_resolves(self) -> None:
+        _write_task(self.root / "aitasks" / "t822_active.md", "Active 822")
+        content = self.board._read_cross_repo_task_content(self.root, "822")
+        self.assertIsNotNone(content)
+        self.assertIn("Active 822", content)
+
+    def test_cross_repo_archived_task_resolves(self) -> None:
+        # Only the archived copy exists — this returned None before t1021.
+        _write_task(self.root / "aitasks" / "archived" / "t822_done.md", "Done 822", "Done")
+        content = self.board._read_cross_repo_task_content(self.root, "822")
+        self.assertIsNotNone(content)
+        self.assertIn("Done 822", content)
+
+    def test_cross_repo_archived_child_resolves(self) -> None:
+        _write_task(
+            self.root / "aitasks" / "archived" / "t822" / "t822_14_child.md",
+            "Child 822_14", "Done",
+        )
+        content = self.board._read_cross_repo_task_content(self.root, "822_14")
+        self.assertIsNotNone(content)
+        self.assertIn("Child 822_14", content)
+
+    def test_cross_repo_active_wins_over_archived(self) -> None:
+        _write_task(self.root / "aitasks" / "t822_active.md", "Active 822")
+        _write_task(self.root / "aitasks" / "archived" / "t822_done.md", "Done 822", "Done")
+        content = self.board._read_cross_repo_task_content(self.root, "822")
+        self.assertIn("Active 822", content)
+        self.assertNotIn("Done 822", content)
+
+    def test_cross_repo_missing_returns_none(self) -> None:
+        self.assertIsNone(self.board._read_cross_repo_task_content(self.root, "999"))
+
 
 if __name__ == "__main__":
     unittest.main()

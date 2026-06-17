@@ -1671,16 +1671,26 @@ class ChildrenField(Static):
             event.prevent_default()
             event.stop()
 
+    def _find_task_by_number(self, num):
+        num_str = str(num)
+        task_id = num_str if num_str.startswith('t') else f"t{num_str}"
+        return self.manager.find_task_including_archived(task_id)
+
     def _open_child(self):
         if len(self.children_ids) == 1:
-            task = self.manager.find_task_by_id(str(self.children_ids[0]))
+            task = self._find_task_by_number(self.children_ids[0])
             if task:
-                self.app.push_screen(TaskDetailScreen(task, self.manager))
+                self.app.push_screen(
+                    TaskDetailScreen(
+                        task, self.manager,
+                        read_only=getattr(task, "archived", False),
+                    )
+                )
         else:
             child_items = []
             for child_id in self.children_ids:
                 child_id_str = str(child_id)
-                task = self.manager.find_task_by_id(child_id_str)
+                task = self._find_task_by_number(child_id_str)
                 if task:
                     _, name = TaskCard._parse_filename(task.filename)
                     child_items.append((child_id_str, task, f"{child_id_str} {name}"))
@@ -1723,7 +1733,7 @@ class FoldedTasksField(Static):
         if len(self.folded_ids) == 1:
             task_id = str(self.folded_ids[0])
             tid = task_id if task_id.startswith('t') else f"t{task_id}"
-            task = self.manager.find_task_by_id(tid)
+            task = self.manager.find_task_including_archived(tid)
             if task:
                 self.app.push_screen(
                     TaskDetailScreen(task, self.manager, read_only=True))
@@ -1732,7 +1742,7 @@ class FoldedTasksField(Static):
             for fid in self.folded_ids:
                 fid_str = str(fid)
                 tid = fid_str if fid_str.startswith('t') else f"t{fid_str}"
-                task = self.manager.find_task_by_id(tid)
+                task = self.manager.find_task_including_archived(tid)
                 if task:
                     _, name = TaskCard._parse_filename(task.filename)
                     folded_items.append((fid_str, task, f"{tid} {name}"))
@@ -1845,9 +1855,14 @@ class FoldedIntoField(Static):
 
     def _open_target(self):
         tid = f"t{self.target_num}" if not str(self.target_num).startswith('t') else str(self.target_num)
-        task = self.manager.find_task_by_id(tid)
+        task = self.manager.find_task_including_archived(tid)
         if task:
-            self.app.push_screen(TaskDetailScreen(task, self.manager))
+            self.app.push_screen(
+                TaskDetailScreen(
+                    task, self.manager,
+                    read_only=getattr(task, "archived", False),
+                )
+            )
 
     def on_focus(self):
         self.add_class("ro-focused")
@@ -1876,9 +1891,14 @@ class ParentField(Static):
             event.stop()
 
     def _open_parent(self):
-        task = self.manager.find_task_by_id(self.parent_num)
+        task = self.manager.find_task_including_archived(self.parent_num)
         if task:
-            self.app.push_screen(TaskDetailScreen(task, self.manager))
+            self.app.push_screen(
+                TaskDetailScreen(
+                    task, self.manager,
+                    read_only=getattr(task, "archived", False),
+                )
+            )
 
     def on_focus(self):
         self.add_class("ro-focused")
@@ -2255,6 +2275,28 @@ class DependencyPickerScreen(ModalScreen):
         self.dismiss()
 
 
+def _read_cross_repo_task_content(root: Path, tid: str) -> str | None:
+    """Return the task text for ``tid`` under ``root`` — active tasks first,
+    then the repo's archive store — or ``None`` if absent.
+
+    Mirrors ``TaskManager.find_task_including_archived`` (the same-repo path
+    fixed in t992) so an archived cross-repo dependency resolves too. Raises
+    ``OSError`` only when an existing *active* file cannot be read; archive
+    misses are swallowed by ``find_archived_markdown_by_id`` (returns None).
+    """
+    if "_" in tid:
+        parent = tid.split("_")[0]
+        matches = sorted((root / "aitasks" / f"t{parent}").glob(f"t{tid}_*.md"))
+    else:
+        matches = sorted((root / "aitasks").glob(f"t{tid}_*.md"))
+    if matches:
+        return matches[0].read_text(encoding="utf-8")
+    archived = find_archived_markdown_by_id(tid, root / "aitasks" / "archived")
+    if archived:
+        return archived[1]
+    return None
+
+
 def _resolve_cross_repo_task(repo: str, task_id: str):
     """Resolve a ``<repo>#<id>`` reference to ``(title, content, is_error)``.
 
@@ -2290,18 +2332,16 @@ def _resolve_cross_repo_task(repo: str, task_id: str):
     else:
         return (title, f"Unexpected resolver output for '{repo}': {out}", True)
 
-    # Locate the task file under the resolved root (active tasks only).
-    if "_" in tid:
-        parent = tid.split("_")[0]
-        matches = sorted((root / "aitasks" / f"t{parent}").glob(f"t{tid}_*.md"))
-    else:
-        matches = sorted((root / "aitasks").glob(f"t{tid}_*.md"))
-    if not matches:
-        return (title, f"Task t{tid} not found in project '{repo}'.", True)
+    # Locate the task file under the resolved root: active tasks first, then
+    # the repo's archive store (mirrors find_task_including_archived for
+    # same-repo deps, t992 — so an archived cross-repo dep resolves instead of
+    # showing UNREACHABLE).
     try:
-        content = matches[0].read_text(encoding="utf-8")
+        content = _read_cross_repo_task_content(root, tid)
     except OSError as e:
         return (title, f"Could not read task file: {e}", True)
+    if content is None:
+        return (title, f"Task t{tid} not found in project '{repo}'.", True)
     return (title, content, False)
 
 
@@ -2482,7 +2522,11 @@ class ChildPickerItem(Static):
             if self.child_task:
                 self.screen.dismiss()
                 self.app.push_screen(
-                    TaskDetailScreen(self.child_task, self.manager))
+                    TaskDetailScreen(
+                        self.child_task, self.manager,
+                        read_only=getattr(self.child_task, "archived", False),
+                    )
+                )
             event.prevent_default()
             event.stop()
 
