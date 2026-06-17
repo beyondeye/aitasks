@@ -6,8 +6,9 @@ issue_type: enhancement
 status: Implementing
 labels: [aitask_board, tui, gates]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-17 12:10
-updated_at: 2026-06-17 12:12
+updated_at: 2026-06-17 12:23
 ---
 
 ## Goal
@@ -44,3 +45,8 @@ Mind ordering: `base_filter` must be `inflight` before `refresh_board()` renders
 - Focused-card / focus preservation continues to work across the switch.
 - No regression to switching into other views (`all` / `locked` / `free`) — the full refresh is scoped to the inflight switch (unless deliberately generalized).
 - Behavior of re-pressing `i` while already in inflight is decided explicitly (refresh again vs. no-op) and documented.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-17T09:23:30Z status=pass attempt=1 type=human
