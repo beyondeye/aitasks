@@ -34,6 +34,7 @@ sys.path.insert(0, str(root / ".aitask-scripts" / "applink"))
 import msgpack
 import content as C
 from pusher import PushScheduler
+from server import AppLinkServer
 
 PASS = 0
 def check(label, cond):
@@ -97,7 +98,72 @@ def texts(ws):
     return [m for m in ws.sent if isinstance(m, str)]
 
 
+class FakeTransport:
+    """Controllable write-buffer size so the back-pressure high-water guard
+    (_over_high_water) can be driven deterministically."""
+    def __init__(self, size=0):
+        self.size = size
+    def get_write_buffer_size(self):
+        return self.size
+
+
+class ConnClosed(Exception):
+    """Stand-in for websockets.ConnectionClosed — production _send/_handle catch
+    bare Exception, so a plain subclass exercises the same paths with no dep."""
+
+
+class RaisingWS:
+    """A WebSocket whose send() always raises (abrupt disconnect mid-send)."""
+    def __init__(self):
+        self.sent = []          # only successful sends would land here (none do)
+        self.transport = None   # _over_high_water -> False
+    async def send(self, data):
+        raise ConnClosed("send after abrupt disconnect")
+
+
+class HandleWS:
+    """Async-iterator WebSocket for driving AppLinkServer._handle: yields a fixed
+    list of inbound frames, then raises ConnClosed on the next read (abrupt
+    disconnect). send() also raises (abrupt mid-send)."""
+    def __init__(self, frames):
+        self._frames = list(frames)
+        self._i = 0
+        self.closed = False
+    def __aiter__(self):
+        return self
+    async def __anext__(self):
+        if self._i < len(self._frames):
+            f = self._frames[self._i]
+            self._i += 1
+            return f
+        raise ConnClosed("read after abrupt disconnect")
+    async def send(self, data):
+        raise ConnClosed("send after abrupt disconnect")
+    async def close(self):
+        self.closed = True
+
+
+class FakeRouter:
+    """Minimal stand-in for FrameRouter: any frame seeds a one-pane subscription
+    on the conn (so _handle starts the real pusher) and returns no reply."""
+    def __init__(self, monitor):
+        self._monitor = monitor
+    def handle(self, env, conn):
+        sub = C.Subscription()
+        sub.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+        conn.subscription = sub
+        return None
+    def set_pair_profile(self, profile):
+        pass
+
+
 async def main():
+    # Capture any "Task exception was never retrieved" / unhandled-callback
+    # events so the disconnect cases can assert none leaked (task Verification).
+    loop_excs = []
+    asyncio.get_running_loop().set_exception_handler(
+        lambda _loop, ctx: loop_excs.append(ctx))
+
     now = {"t": 1000.0}
     clock = lambda: now["t"]
 
@@ -361,6 +427,116 @@ async def main():
     sched2.wake()
     await asyncio.sleep(0.02)
     check("post-stop wake() triggers no further sends", len(ws2.sent) == count_before)
+
+    # === t822_14 resilience: back-pressure (skip-tick, coalesce) ============
+    # Gap 1. The landed design realizes the spec's "coalesce -> drop cursor ->
+    # skip tick" as skip-tick-and-recapture: while over the high-water mark the
+    # whole tick is skipped with the force set intact (coalesce is structural —
+    # no send queue; drop-cursor is moot — no standalone cursor frames). Drive
+    # _over_high_water deterministically via a fake transport.
+    subbp = C.Subscription()
+    subbp.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wsbp, monbp, panebp = FakeWS(), FakeMonitor(), FakePane("%1")
+    wsbp.transport = FakeTransport(size=300 * 1024)  # over the 256 KB high-water
+    monbp.snaps["%1"] = FakeSnap(panebp, "alpha\n")
+    nbp = {"t": 12000.0}
+    schedbp = PushScheduler(FakeConn(subbp), wsbp, monbp, clock=lambda: nbp["t"])
+
+    # back-pressured tick: zero bytes sent, forced keyframe preserved in `force`
+    await schedbp._run_once()
+    check("back-pressure: skipped tick sends zero binary frames", len(binaries(wsbp)) == 0)
+    check("back-pressure: skipped tick sends nothing at all", len(wsbp.sent) == 0)
+    check("back-pressure: forced keyframe preserved in force during skip", "%1" in subbp.force)
+
+    # buffer drains; two content changes occurred while back-pressured -> the
+    # next un-pressured tick coalesces to exactly ONE keyframe of the LATEST state
+    nbp["t"] += 2.0
+    monbp.snaps["%1"] = FakeSnap(panebp, "beta\n")     # change 1
+    monbp.snaps["%1"] = FakeSnap(panebp, "gamma\n")    # change 2 (latest wins)
+    wsbp.transport.size = 0                              # under high-water again
+    await schedbp._run_once()
+    bbp = binaries(wsbp)
+    check("back-pressure: drain -> exactly one binary keyframe (coalesced)",
+          len(bbp) == 1 and bbp[0][0] == C.FRAME_KEYFRAME)
+    kfbp = msgpack.unpackb(bbp[0][1:], raw=False, strict_map_key=False)
+    client_bp = {rid: spans for rid, spans in kfbp[5] if spans}
+    check("back-pressure: coalesced keyframe carries the LATEST content",
+          client_bp == truth("gamma\n"))
+    check("back-pressure: force cleared after the successful coalesced send",
+          "%1" not in subbp.force)
+
+    # === t822_14 resilience: abrupt disconnect mid-send =====================
+    # Gap 2, layer B1 (PushScheduler). A send that raises is swallowed by _send
+    # (-> _stopped), the pass returns cleanly, and the post-send-failure HARDENING
+    # leaves `force`/PaneState untouched so a forced keyframe is not silently lost.
+    subdc = C.Subscription()
+    subdc.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    rws, mondc, panedc = RaisingWS(), FakeMonitor(), FakePane("%1")
+    mondc.snaps["%1"] = FakeSnap(panedc, "x\n")
+    ndc = {"t": 13000.0}
+    scheddc = PushScheduler(FakeConn(subdc), rws, mondc, clock=lambda: ndc["t"])
+    await scheddc._run_once()        # must not raise
+    check("disconnect(B1): send failure is swallowed (no raise out of _run_once)", True)
+    check("disconnect(B1): a failed send sets _stopped", scheddc._stopped is True)
+    check("disconnect(B1): nothing recorded as successfully sent", len(rws.sent) == 0)
+    check("disconnect(B1): HARDENING - forced keyframe NOT dropped from force",
+          "%1" in subdc.force)
+    stdc = subdc.state_for("%1")
+    check("disconnect(B1): HARDENING - PaneState not advanced after failed send",
+          stdc.last_hash is None and stdc.last_send_t == 0.0 and stdc.last_dims is None)
+
+    # B1 lifecycle against the raising WS: loop runs, fails, tears down cleanly.
+    subdc2 = C.Subscription()
+    subdc2.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    rws2 = RaisingWS()
+    scheddc2 = PushScheduler(FakeConn(subdc2), rws2, mondc, clock=lambda: ndc["t"])
+    scheddc2.start()
+    scheddc2.wake()
+    await asyncio.sleep(0.05)
+    await scheddc2.stop()
+    check("disconnect(B1): stop() clears the loop task after send failure (no leak)",
+          scheddc2._task is None)
+
+    # Gap 2, layer B2 (AppLinkServer._handle). Exercise the REAL _handle finally:
+    # it must pop the conn's pusher from _pushers and await pusher.stop() with no
+    # leaked asyncio task. Build a real server WITHOUT the heavy constructor.
+    srv = AppLinkServer.__new__(AppLinkServer)
+    srv._conns = set()
+    srv._live = {}
+    srv._pushers = {}
+    srv._on_change = None
+    srv._sessions = object()           # touch()/_suspend() not reached (bearer/session None)
+    monh = FakeMonitor()
+    monh.snaps["%1"] = FakeSnap(FakePane("%1"), "h\n")
+    srv._monitor = monh
+    srv._router = FakeRouter(monh)
+
+    created = []
+    _orig_ensure = srv._ensure_pusher
+    def _spy_ensure(conn, ws):
+        p = _orig_ensure(conn, ws)
+        if p not in created:
+            created.append(p)
+        return p
+    srv._ensure_pusher = _spy_ensure
+
+    hws = HandleWS(['{"v":1,"id":"s1","kind":"req","verb":"subscribe"}'])
+    await srv._handle(hws)             # must not raise
+    await asyncio.sleep(0)             # let any cancelled task fully reap
+    check("disconnect(B2): _handle returns cleanly on abrupt disconnect", True)
+    check("disconnect(B2): a pusher was created for the subscription", len(created) == 1)
+    check("disconnect(B2): _handle finally popped the pusher from _pushers",
+          len(srv._pushers) == 0)
+    check("disconnect(B2): _handle finally cancelled the pusher task (no leak)",
+          created[0]._task is None)
+    check("disconnect(B2): pusher stopped", created[0]._stopped is True)
+    check("disconnect(B2): connection removed from _conns/_live",
+          len(srv._conns) == 0 and len(srv._live) == 0)
+
+    # Whole-suite assertion: no "Task exception was never retrieved" / unhandled
+    # callback ever surfaced through the loop exception handler.
+    check("no unretrieved task / unhandled-callback exceptions across the suite",
+          loop_excs == [])
 
     print(f"\nALL PASSED ({PASS} checks)")
 

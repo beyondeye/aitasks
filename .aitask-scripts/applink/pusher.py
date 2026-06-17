@@ -108,6 +108,9 @@ class PushScheduler:
         snaps = await self._monitor.capture_all_async()
         now = self._clock()
         for pane_id in list(sub.panes):
+            if self._stopped:
+                return  # a send failed earlier this pass: stop cleanly, don't
+                        # touch a dead socket for the remaining panes
             snap = snaps.get(pane_id)
             if snap is None:
                 continue  # pane gone this tick
@@ -205,6 +208,13 @@ class PushScheduler:
             ))
             sent_keyframe = True
 
+        if self._stopped:
+            # A send failed mid-pass (_send swallowed the exception and set
+            # _stopped): do NOT advance per-pane state or clear `force`. A
+            # forced keyframe whose send failed then survives in `force` for a
+            # future (re)send instead of being silently dropped — correct
+            # regardless of when the connection is actually torn down.
+            return
         st.row_sigs = new_sigs
         st.last_hash = content_hash
         st.last_dims = dims
