@@ -14,12 +14,20 @@ updated_at: 2026-06-17 11:58
 ---
 
 ## Context
-Final child of t983. Renames the opaque Status tab to **Running**, adds the
-always-on header status strip (runner state + active-op count) the target IA
-calls for, lands t535's Running-tab agent actions, and finishes the keybinding /
-footer / CSS / docs deconflict. Every prior child already fixed its own test
-assertions, so this child only owns its own surfaces' tests. Coordinates with
-**t535** (its kill/cleanup/retry actions land here).
+Last child of t983's *original* decomposition (NOT the final pending child —
+**t983_10** manual-verification and **t983_11** wizard-rehost remain in
+`children_to_implement`, so the parent does **not** archive on this child's
+completion). Renames the opaque Status tab to **Running**, adds the always-on
+header status strip (runner state + active-op count) the target IA calls for,
+lands the remaining **t535** Running-tab agent actions, and finishes the
+keybinding / CSS / docs deconflict. Every prior child already fixed its own test
+assertions, so this child only owns its own surfaces' tests.
+
+**t535 scope reconciliation:** kill (`k`/`K`), pause/resume (`p`), and reset
+(`w`, Error→Waiting) **already shipped** on the Running surface. This child adds
+the two genuine gaps: **Cleanup** (`x`, remove a finished/failed agent's
+artifacts behind a confirm modal) and a **distinct Retry** (`R`, reset + ensure
+the runner relaunches).
 
 ### Coordination with t983_7 (landed — compare overlay)
 t983_7 deleted the Compare **tab** and re-homed the dimension matrix into a
@@ -43,10 +51,16 @@ place. What remains here:
 - Rename `tab_status` → `tab_running` and relabel `"Status"` → `"(R)unning"`
   (the key is **already** `r`). Update the `tab_status` references in the
   down-from-tab-bar focus map (`tab_to_container`), `on_pane`/`_refresh_status_tab`
-  guards, and `action_tab_status`.
-- Re-scope `f`/`H` (and any others) in `_TAB_SCOPED_ACTIONS` / `check_action`
-  to the new tab ids.
-- The Session tab (`tab_session`, key `s`) is final — leave it as-is.
+  guards, and `action_tab_status` (9 sites total — verified, not the stale
+  "~5320+").
+- **No `f`/`H`/`D` re-scoping is needed** (original task assumption was wrong):
+  `_TAB_SCOPED_ACTIONS` only holds `open_node_detail`; `f`(toggle_deferred) and
+  `H`(op_help) are hardcoded in `check_action` to `tab_browse`/`tab_actions`
+  respectively, and `D` is fully modal-scoped inside `CompareMatrixModal`. None
+  are Running-scoped, so the rename does not touch them.
+- `b` is **not** currently bound (Browse is reached via `d`/`g`); finalizing
+  `b/s/r` means **adding** a `b`→Browse-tab binding. The Session tab
+  (`tab_session`, key `s`) is final — leave it as-is.
 
 ## Key Files to Modify
 - `.aitask-scripts/brainstorm/brainstorm_app.py` — rename Status→Running (`r`);
@@ -69,24 +83,31 @@ place. What remains here:
   kill/cleanup/retry actions to implement here.
 
 ## Implementation Plan
-1. Rename `tab_status`→`tab_running` (`r`); update all references.
-2. Extract a **pure** header-strip derivation (runner state + active-op count
-   from runtime state) and render it in a custom header widget always-on above
-   the tabs.
-3. Implement t535's agent actions (kill/cleanup/retry) within the Running tab.
-4. Final keybinding deconflict: `b`/`s`/`r` tabs, `v` toggle, `space` mark, `c`
-   compare-overlay (from t983_7); re-scope `f` (toggle_deferred), `H` (op_help)
-   to the new tab ids in `_TAB_SCOPED_ACTIONS` + `check_action`. (`D`/diff is no
-   longer app-level — it moved into `CompareMatrixModal` in t983_7.)
-5. Update inline CSS, `tui_conventions.md`, website TUI pages.
+1. Rename `tab_status`→`tab_running` (`r`) across the 9 verified sites; grep-sweep
+   to confirm no stale reference survives.
+2. Extract a **pure** runtime-strip derivation (`derive_runner_state` /
+   `format_status_strip`: runner state + active-op count) and render it in an
+   always-on `Static` strip above the tabs (sibling of `initializer_row`),
+   refreshed off-tab via `_refresh_status_strip`.
+3. Add the remaining t535 Running-tab actions: **Cleanup** (`x`, confirm modal)
+   and a **distinct Retry** (`R`, reset + ensure runner relaunches). Kill/pause/
+   reset already exist.
+4. Final keybinding deconflict: **add** `b`→Browse tab; `s`/`r` already final;
+   `v` toggle, `space` mark, `c` compare-overlay unchanged. (No `f`/`H`/`D`
+   re-scope — they are not Running-scoped.)
+5. Update inline CSS + `aidocs/framework/tui_conventions.md` (3-tab IA note);
+   keep `brainstorm` in the website TUI list; create a follow-up task for the
+   full website brainstorm docs (out of scope here).
 
 ## Verification
-- Pure unit: `tests/test_brainstorm_header_strip.py` — count/state derivation.
-- Pilot: Running tab renders; agent actions (kill/cleanup/retry) dispatch.
-- Suite: full `tests/test_brainstorm*.py` green; run
-  `./.aitask-scripts/aitask_skill_verify.sh` if any skill/doc surface touched.
-- Manual: `b`/`s`/`r` navigate; header strip shows runner + running count; `f`/
-  `H`/`D` work under their new tabs.
+- Pure unit: `tests/test_brainstorm_header_strip.py` — state/count derivation +
+  a `b/s/r` keymap + rename-completeness assertion.
+- Suite: full `tests/test_brainstorm*.py` green (598 tests). No skill/stub
+  surface touched, so `aitask_skill_verify.sh` is not required (docs-only).
+- Manual: `b`/`s`/`r` navigate; always-on strip shows runner state + running
+  count and updates off-tab; on Running, `x` (cleanup, confirmed) and `R`
+  (retry→relaunch) dispatch on a focused failed agent; `p`/`k`/`K`/`w`/`e`/`L`
+  still work.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
