@@ -1,13 +1,16 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: documentation
 status: Implementing
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 17:35
-updated_at: 2026-06-17 11:34
+updated_at: 2026-06-17 12:02
 boardidx: 80
 ---
 
@@ -40,3 +43,8 @@ Reword the §Command verb intro parenthetical (no longer "predates"), and rewrit
 the table's "Existing call site" column to `monitor_core.py`/`monitor_app.py`
 symbol references. Mirror the citation style t822_12 established in permissions.md.
 Verify: `grep -n 'tmux_monitor.py:\|monitor_shared.py:' aidocs/applink/monitor_port_design.md` → empty.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-17T09:02:13Z status=pass attempt=1 type=human
