@@ -156,6 +156,48 @@ AGENT_STATUS_COLORS = {
     "Paused": "#FFB86C",
 }
 
+# Runner-state → (label, color) for the Running tab header and the always-on
+# runtime strip (t983_9). Single source of truth so the tab and the strip never
+# drift; the derivation below is pure so it is unit-tested without a live App
+# (tests/test_brainstorm_header_strip.py).
+RUNNER_STATE_DISPLAY = {
+    "none":    ("No runner",      "#888888"),
+    "stopped": ("Runner stopped", "#888888"),
+    "stale":   ("Runner stale",   "#FF5555"),
+    "active":  ("Runner active",  "#50FA7B"),
+}
+
+
+def derive_runner_state(status: str, stale: bool) -> tuple[str, str]:
+    """Pure: map a runner (status, stale) pair to (label, color).
+
+    Mirrors the precedence used by the Running tab: an explicit ``none`` /
+    ``stopped`` status wins, then ``stale``, else the runner is ``active``.
+    """
+    if status == "none":
+        key = "none"
+    elif status == "stopped":
+        key = "stopped"
+    elif stale:
+        key = "stale"
+    else:
+        key = "active"
+    return RUNNER_STATE_DISPLAY[key]
+
+
+def format_status_strip(status: str, stale: bool, running_count: int) -> str:
+    """Pure: render the always-on runtime strip markup (t983_9).
+
+    ``[<color>]●[/] <label>   ▶ N running`` (or ``idle`` when nothing runs).
+    """
+    label, color = derive_runner_state(status, stale)
+    run = f"▶ {running_count} running" if running_count else "idle"
+    return f"[{color}]●[/{color}] {label}   {run}"
+
+
+# Agent states a Running-tab row can be cleaned up / retried from (t983_9 / t535).
+_TERMINAL_AGENT_STATES = {"Error", "Aborted", "Completed"}
+
 _NODE_SELECT_OPS = {"explore"}
 # Ops that get a source-node-select step. module_decompose picks a source node
 # too, but — unlike the ops above — must NOT trigger the section_select step
@@ -809,6 +851,76 @@ class DeleteNodeModal(ModalScreen):
             self.dismiss(True)
 
     @on(Button.Pressed, "#btn_delete_node_cancel")
+    def cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
+class CleanupAgentModal(ModalScreen):
+    """Confirm removal of a finished/failed agent's status artifacts (t983_9 /
+    t535). Returns True (confirmed) or False (cancelled) via dismiss(). Carries
+    its own DEFAULT_CSS so it is self-contained (per tui_conventions).
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    DEFAULT_CSS = """
+    CleanupAgentModal {
+        align: center middle;
+    }
+    #cleanup_agent_dialog {
+        width: 60;
+        height: auto;
+        background: $surface;
+        border: thick $warning;
+        padding: 1 2;
+    }
+    #cleanup_agent_title {
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+    }
+    #cleanup_agent_dialog > Label {
+        width: 100%;
+    }
+    #cleanup_agent_buttons {
+        height: 3;
+        align: center middle;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, agent_name: str):
+        super().__init__()
+        self.agent_name = agent_name
+
+    def compose(self) -> ComposeResult:
+        with Container(id="cleanup_agent_dialog"):
+            yield Label(
+                f"Clean up agent [bold]{self.agent_name}[/]?",
+                id="cleanup_agent_title",
+            )
+            yield Label(
+                "[dim]Removes its status / alive / output / log files from the "
+                "crew worktree. This cannot be undone.[/dim]",
+            )
+            yield Label("[dim]Enter to confirm  Esc to cancel[/dim]")
+            with Horizontal(id="cleanup_agent_buttons"):
+                yield Button(
+                    "Clean up", variant="warning", id="btn_cleanup_agent"
+                )
+                yield Button(
+                    "Cancel", variant="default", id="btn_cleanup_agent_cancel"
+                )
+
+    @on(Button.Pressed, "#btn_cleanup_agent")
+    def on_cleanup(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_cleanup_agent_cancel")
     def cancel(self) -> None:
         self.dismiss(False)
 
@@ -3073,8 +3185,11 @@ class AgentStatusRow(Static, can_focus=True):
             hints = []
             if self.agent_status == "Error":
                 hints.append("w: reset")
+                hints.append("R: retry")
             elif self.agent_status == "Waiting":
                 hints.append("e: edit mode")
+            if self.agent_status in _TERMINAL_AGENT_STATES:
+                hints.append("x: cleanup")
             log_path = Path(crew_worktree(self.crew_id)) / f"{self.agent_name}_log.txt"
             if log_path.exists():
                 hints.append("L: log")
@@ -3125,7 +3240,8 @@ class ProcessRow(Static, can_focus=True):
         if not alive:
             line += "  [red]DEAD[/]"
         if self.has_focus:
-            line += "  [dim](p:pause  k:kill  K:hard kill)[/dim]"
+            keys = "p:pause  k:kill  K:hard kill" if alive else "x:cleanup"
+            line += f"  [dim]({keys})[/dim]"
         return line
 
     def on_click(self) -> None:
@@ -3169,6 +3285,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     .initializer-banner.visible {
         background: $error;
+    }
+
+    /* Always-on runtime strip above the tabs (t983_9): runner state + count. */
+    .runtime-strip {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
     }
 
     .status-header {
@@ -3831,6 +3954,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
         *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
         Binding("q", "quit", "Quit"),
+        # t983_9: `b` selects the Browse tab without forcing a view (the
+        # persisted graph⇄list choice is kept). `d`/`g` remain view-specific
+        # muscle-memory shortcuts; `v` toggles the view.
+        Binding("b", "tab_browse", "Browse", show=False),
         Binding("d", "tab_dashboard", "Browse (list)", show=False),
         Binding("g", "tab_graph", "Browse (graph)", show=False),
         Binding("v", "browse_toggle_view", "Toggle view", show=False),
@@ -3841,11 +3968,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # reclaims `r` for "Running".
         Binding("c", "compare_matrix", "Compare", show=False),
         Binding("a", "tab_actions", "Actions", show=False),
-        # t983_8: `s` now opens the Session-lifecycle tab; Status provisionally
-        # moves to the free `r` key (freed by t983_7). t983_9 finalizes the
-        # rename tab_status→tab_running ("(R)unning"), keeping `r`.
+        # `s` opens the Session-lifecycle tab (t983_8); `r` opens the Running
+        # monitor (renamed from Status by t983_9, freed from `s`/`r` churn by
+        # t983_7).
         Binding("s", "tab_session", "Session", show=False),
-        Binding("r", "tab_status", "Status", show=False),
+        Binding("r", "tab_running", "Running", show=False),
         Binding("enter", "open_node_detail", "Open detail"),
         Binding("A", "node_action", "Node action"),
         Binding("f", "toggle_deferred", "Defer module"),
@@ -4021,6 +4148,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         with Horizontal(id="initializer_row", classes="initializer-row"):
             yield Static("", id="initializer_apply_banner", classes="initializer-banner")
             yield PollingIndicator(id="initializer_polling_indicator")
+        # Always-on runtime strip (t983_9): runner state + running-op count,
+        # visible from every tab. Refreshed by _refresh_status_strip.
+        yield Static("", id="runtime_strip", classes="runtime-strip")
         with TabbedContent(id="brainstorm_tabs"):
             with TabPane("(B)rowse", id="tab_browse"):
                 with Horizontal(id="browse_split"):
@@ -4058,11 +4188,12 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # Actions wizard. Rendered by _refresh_session_tab.
             with TabPane("(S)ession", id="tab_session"):
                 yield VerticalScroll(id="session_content")
-            # Provisional plain "Status" label (mnemonic dropped — `s` now belongs
-            # to Session, key is `r`). t983_9 renames this to "(R)unning".
-            with TabPane("Status", id="tab_status"):
+            # Runtime monitor, renamed from "Status" (t983_9): `s` belongs to
+            # Session, so this tab keeps `r`. The always-on runtime strip above
+            # the tabs mirrors the runner state + running-op count.
+            with TabPane("(R)unning", id="tab_running"):
                 with Horizontal(id="status_header", classes="status-header"):
-                    yield Label("Status", classes="status_pane_title")
+                    yield Label("Running", classes="status_pane_title")
                     yield PollingIndicator(id="status_polling_indicator")
                 yield VerticalScroll(id="status_content")
         yield Footer()
@@ -4107,7 +4238,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 tab_to_container = {
                     "tab_actions": ("actions_content", (OperationRow,)),
                     "tab_session": ("session_content", (OperationRow,)),
-                    "tab_status": ("status_content", (GroupRow, AgentStatusRow, StatusLogRow)),
+                    "tab_running": ("status_content", (GroupRow, AgentStatusRow, StatusLogRow)),
                 }
                 mapping = tab_to_container.get(tabbed.active)
                 if mapping:
@@ -4290,6 +4421,53 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 event.stop()
                 return
 
+        # R: retry a failed agent — reset to Waiting AND ensure the runner is
+        # live so it actually relaunches (distinct from `w`, which only resets
+        # status and relies on an already-running runner). t983_9 / t535.
+        if event.key == "R":
+            focused = self.focused
+            if isinstance(focused, AgentStatusRow):
+                if focused.agent_status != "Error":
+                    self.notify(
+                        f"Can only retry agents in Error state "
+                        f"(current: {focused.agent_status})",
+                        severity="warning",
+                    )
+                else:
+                    self._retry_agent(focused)
+                event.prevent_default()
+                event.stop()
+                return
+
+        # x: clean up a finished/failed agent's status artifacts (confirm modal).
+        # Works on a terminal-state AgentStatusRow or a dead ProcessRow. t983_9 / t535.
+        if event.key == "x":
+            focused = self.focused
+            name = None
+            if isinstance(focused, AgentStatusRow):
+                if focused.agent_status in _TERMINAL_AGENT_STATES:
+                    name = focused.agent_name
+                else:
+                    self.notify(
+                        f"Can only clean up finished/failed agents "
+                        f"(current: {focused.agent_status})",
+                        severity="warning",
+                    )
+            elif isinstance(focused, ProcessRow):
+                if not focused.proc_data.get("process_alive", False):
+                    name = focused.agent_name
+                else:
+                    self.notify(
+                        "Can only clean up a dead process — stop it first (k/K).",
+                        severity="warning",
+                    )
+            if name:
+                self._confirm_cleanup_agent(name)
+            if isinstance(focused, (AgentStatusRow, ProcessRow)):
+                event.prevent_default()
+                event.stop()
+                return
+
         # e: edit launch_mode on a Waiting agent
         if event.key == "e":
             focused = self.focused
@@ -4345,7 +4523,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     if ok else f"Failed to {cmd} {proc_row.agent_name}",
                     severity="information" if ok else "error",
                 )
-                self.set_timer(2.0, self._refresh_status_tab)
+                self.set_timer(2.0, self._refresh_runtime)
                 event.prevent_default()
                 event.stop()
                 return
@@ -4356,7 +4534,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     else f"Failed to send kill to {proc_row.agent_name}",
                     severity="information" if ok else "error",
                 )
-                self.set_timer(2.0, self._refresh_status_tab)
+                self.set_timer(2.0, self._refresh_runtime)
                 event.prevent_default()
                 event.stop()
                 return
@@ -4367,13 +4545,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     severity="information" if result["success"] else "error",
                 )
                 if result["success"]:
-                    self.set_timer(2.0, self._refresh_status_tab)
+                    self.set_timer(2.0, self._refresh_runtime)
                 event.prevent_default()
                 event.stop()
                 return
 
         # Up/down: navigate focusable rows in Status tab
-        if event.key in ("up", "down") and tabbed.active == "tab_status":
+        if event.key in ("up", "down") and tabbed.active == "tab_running":
             direction = 1 if event.key == "down" else -1
             if self._navigate_rows(direction, "status_content", (GroupRow, AgentStatusRow, ProcessRow, StatusLogRow)):
                 event.prevent_default()
@@ -4468,6 +4646,16 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         ids = sorted(self._selection.marked)
         label.update(format_node_id_summary(ids, "Marked") if ids else "")
+
+    def action_tab_browse(self) -> None:
+        """`b`: select the Browse tab, preserving the persisted view (t983_9).
+
+        Unlike `d`/`g`, this does not force list/graph — the per-session view
+        choice is kept (mirrors `s`/`r`, which just select their tab).
+        """
+        if isinstance(self.screen, ModalScreen):
+            return
+        self.query_one(TabbedContent).active = "tab_browse"
 
     def action_tab_dashboard(self) -> None:
         """`d`: select Browse and show the list view (muscle memory)."""
@@ -4899,10 +5087,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.query_one(TabbedContent).active = "tab_session"
         self._refresh_session_tab()
 
-    def action_tab_status(self) -> None:
+    def action_tab_running(self) -> None:
         if isinstance(self.screen, ModalScreen):
             return
-        self.query_one(TabbedContent).active = "tab_status"
+        self.query_one(TabbedContent).active = "tab_running"
 
     def action_op_help(self) -> None:
         from textual.actions import SkipAction
@@ -5204,7 +5392,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.query_one("#status_polling_indicator", PollingIndicator).start()
         except Exception:
             pass
-        self._status_refresh_timer = self.set_interval(30, self._refresh_status_tab)
+        self._status_refresh_timer = self.set_interval(30, self._refresh_runtime)
+        self._refresh_status_strip()
         self._try_apply_initializer_if_needed()
         self._scan_existing_explorers()
         self._scan_existing_synthesizers()
@@ -5932,9 +6121,39 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._try_apply_synthesizer_if_needed(agent, force=True)
 
     def on_tabbed_content_tab_activated(self, event) -> None:
-        """Refresh Status tab when it becomes active."""
-        if event.pane.id == "tab_status":
+        """Refresh the Running tab when it becomes active."""
+        if event.pane.id == "tab_running":
             self._refresh_status_tab()
+
+    def _refresh_runtime(self) -> None:
+        """Refresh the always-on runtime strip plus the Running tab (which
+        self-guards on the active tab). Used by the periodic interval and after
+        agent mutations so the strip stays current regardless of active tab."""
+        self._refresh_status_strip()
+        self._refresh_status_tab()
+
+    def _refresh_status_strip(self) -> None:
+        """Update the always-on runtime strip (runner state + running-op count).
+
+        Independent of the active tab (unlike _refresh_status_tab). Best-effort:
+        a missing widget or a runner-info hiccup leaves the last strip in place.
+        """
+        try:
+            strip = self.query_one("#runtime_strip", Static)
+        except Exception:
+            return
+        crew_id = self.session_data.get("crew_id", "")
+        if not crew_id:
+            strip.update(format_status_strip("none", False, 0))
+            return
+        try:
+            runner = get_runner_info(crew_id)
+            count = len(get_all_agent_processes(crew_id))
+        except Exception:
+            return
+        strip.update(
+            format_status_strip(runner["status"], runner["stale"], count)
+        )
 
     def _refresh_status_tab(self) -> None:
         """Populate the Status tab with operation groups and agent statuses."""
@@ -5943,7 +6162,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         except Exception:
             pass
         tabbed = self.query_one(TabbedContent)
-        if tabbed.active != "tab_status":
+        if tabbed.active != "tab_running":
             return
 
         import os
@@ -5963,18 +6182,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             status = runner["status"]
             stale = runner["stale"]
 
-            if status == "none":
-                status_text = "No runner"
-                color = "#888888"
-            elif status == "stopped":
-                status_text = "Runner stopped"
-                color = "#888888"
-            elif stale:
-                status_text = "Runner stale"
-                color = "#FF5555"
-            else:
-                status_text = "Runner active"
-                color = "#50FA7B"
+            # Shared derivation with the always-on runtime strip (t983_9).
+            status_text, color = derive_runner_state(status, stale)
 
             info_parts = [f"[{color}]{status_text}[/{color}]"]
             if runner.get("hostname"):
@@ -6120,6 +6329,62 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         else:
             self.notify(f"Status file not found for {name}", severity="error")
 
+    def _retry_agent(self, row: "AgentStatusRow") -> None:
+        """Retry a failed agent (t983_9 / t535).
+
+        Resets Error→Waiting (via _reset_agent) AND ensures the runner is live
+        so the agent is actually relaunched — distinct from bare ``w: reset``,
+        which only flips the status and relies on an already-running runner.
+        Goes through the existing ``start_runner`` gateway (no launch-logic
+        duplication).
+        """
+        self._reset_agent(row)
+        crew_id = self.session_data.get("crew_id", "")
+        if not crew_id:
+            return
+        runner = get_runner_info(crew_id)
+        if runner["status"] in ("none", "stopped") or runner["stale"]:
+            if start_runner(crew_id):
+                self.notify("Runner started — agent will relaunch")
+            else:
+                self.notify(
+                    "Reset to Waiting, but the runner failed to start",
+                    severity="warning",
+                )
+        self._refresh_runtime()
+
+    def _confirm_cleanup_agent(self, name: str) -> None:
+        """Push the cleanup confirm modal; on confirm, remove the agent's
+        on-disk status artifacts (t983_9 / t535)."""
+        def _on_confirm(confirmed: bool | None) -> None:
+            if confirmed:
+                self._cleanup_agent(name)
+
+        self.push_screen(CleanupAgentModal(name), _on_confirm)
+
+    def _cleanup_agent(self, name: str) -> None:
+        """Remove a finished/failed agent's on-disk status artifacts."""
+        import os
+
+        wt_path = str(self.session_path)
+        removed = 0
+        for suffix in ("_status.yaml", "_alive.yaml", "_output.md", "_log.txt"):
+            fp = os.path.join(wt_path, f"{name}{suffix}")
+            try:
+                if os.path.isfile(fp):
+                    os.remove(fp)
+                    removed += 1
+            except OSError as exc:
+                self.notify(
+                    f"Failed to remove {os.path.basename(fp)}: {exc}",
+                    severity="error",
+                )
+        self.notify(
+            f"Cleaned up {name} ({removed} file(s))"
+            if removed else f"Nothing to clean up for {name}"
+        )
+        self._refresh_runtime()
+
     def _edit_agent_mode(self, row: "AgentStatusRow") -> None:
         """Open the launch_mode edit modal for a Waiting agent row."""
         import os
@@ -6180,7 +6445,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _delayed_refresh_status(self) -> None:
         """Show a loading notification then refresh the status tab after 2 seconds."""
         self.notify("Refreshing status...", timeout=2)
-        self.set_timer(2.0, self._refresh_status_tab)
+        self.set_timer(2.0, self._refresh_runtime)
 
     def _compute_group_progress(
         self, wt_path: str, ginfo: dict

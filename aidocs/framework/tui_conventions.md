@@ -310,6 +310,29 @@ How to apply:
 - Surface this as an explicit deliverable in the child task that introduces
   the new operations.
 
+## brainstorm TUI information architecture
+
+The `ait brainstorm` TUI is organized as **three peer tabs** plus an always-on
+runtime strip:
+
+- **Browse** (`b`) — the node DAG with a graph⇄list toggle (`v`, persisted per
+  session) and one shared `NodeDetailPanel`. `space` marks nodes; `Enter` opens
+  the Node Hub; `A` opens the contextual Operations dialog; `c` opens the
+  compare-matrix overlay on the marked set. `d`/`g` are view-specific
+  muscle-memory shortcuts into Browse.
+- **Session** (`s`) — session-lifecycle operations (pause / resume / finalize /
+  archive / delete) with inline confirms.
+- **Running** (`r`) — the runtime monitor: runner state, running processes,
+  operation groups, and agent logs. Per-row agent actions operate on the
+  focused row: `p` pause/resume, `k`/`K` kill, `w` reset, `R` retry (reset +
+  ensure the runner relaunches), `x` clean up a finished/failed entry (confirm
+  modal), `e` edit launch mode, `L` open log.
+
+Above the tabs, an **always-on runtime strip** mirrors the runner state and the
+running-op count (`[●] <runner state>   ▶ N running`) so it is visible from
+every tab. Its derivation (`derive_runner_state` / `format_status_strip` in
+`brainstorm_app.py`) is a pure function, unit-tested independently of the App.
+
 ## New TUIs / dialogs must register in the global shortcut manifest
 
 Every Textual App or modal/sub-screen that owns customizable shortcuts sets

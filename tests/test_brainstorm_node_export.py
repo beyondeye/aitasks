@@ -34,7 +34,7 @@ class OpenNodeDetailVisibleTests(unittest.TestCase):
         self.assertFalse(_open_node_detail_visible("tab_browse", False))
 
     def test_hidden_on_other_tabs_regardless_of_focus(self):
-        for tab in ("tab_proposal", "tab_actions", "tab_status", ""):
+        for tab in ("tab_proposal", "tab_actions", "tab_running", ""):
             self.assertFalse(_open_node_detail_visible(tab, True))
             self.assertFalse(_open_node_detail_visible(tab, False))
 
