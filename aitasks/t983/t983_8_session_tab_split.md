@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t983_7]
 issue_type: refactor
 status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 11:40
-updated_at: 2026-06-17 10:53
+updated_at: 2026-06-17 11:14
 ---
 
 ## Context
@@ -44,3 +47,8 @@ the wizard so the op-select dispatch can be split cleanly.
   invokes `_execute_session_op`, delete shows `DeleteSessionModal`.
 - Suite: `tests/test_brainstorm*.py` green.
 - Manual: `s` → Session tab → pause/resume/finalize/archive/delete with confirm.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-17T08:14:49Z status=pass attempt=1 type=human
