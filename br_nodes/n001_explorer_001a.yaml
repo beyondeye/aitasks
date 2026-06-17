@@ -1,0 +1,83 @@
+node_id: n001_explorer_001a
+parents:
+- n000_init
+description: 'Intent-anchored concern triage: shadow keeps the human as design authority
+  by routing every surfaced concern through an explicit now/defer-as-draft/drop disposition,
+  spilling deferrals into aitask drafts so nothing is lost and the active plan stays
+  lean.'
+proposal_file: br_proposals/n001_explorer_001a.md
+created_at: 2026-06-17 08:00
+created_by_group: explore_001
+reference_files:
+- .claude/skills/aitask-shadow/SKILL.md
+- .claude/skills/aitask-shadow/plan-challenge.md
+- .claude/skills/aitask-shadow/plan-assumptions.md
+- .claude/skills/aitask-shadow/plan-socratic.md
+- .claude/skills/aitask-shadow/plan-explain.md
+- .claude/skills/aitask-shadow/plan-triage.md
+- .aitask-scripts/aitask_shadow_capture.sh
+- .aitask-scripts/aitask_shadow_context.sh
+- .aitask-scripts/aitask_shadow_spinoff.sh
+- .aitask-scripts/aitask_create.sh
+- tests/test_aitask_shadow_spinoff.sh
+- aidocs/framework/shadow_agent.md
+- aidocs/framework/planning_conventions.md
+requirements_fixed:
+- 'Preserve the advisory-only contract: shadow never sends keystrokes/input into the
+  followed pane.'
+- Stay a static, user-invocable skill (no profile/.j2/stub machinery) per shadow_agent.md.
+- Reuse existing helpers (capture, context, create --batch) rather than forking their
+  logic.
+- The human remains the sole disposition authority; the shadow recommends but never
+  decides plan changes.
+requirements_mutable:
+- Concern-ledger storage format and location (ephemeral session scratch vs task-attached).
+- Re-anchor nudge threshold (how many consecutive accept-verbatim dispositions trigger
+  it).
+- Whether deferred concerns become drafts (aitasks/new/) or committed child tasks.
+assumption_advisory_contract: The read-only/advisory guardrail is the right invariant;
+  the steerability problem is human cognitive delegation, not the shadow typing into
+  the pane.
+assumption_intent_capturable: The user can state, in 1-2 sentences, the actual intent
+  of the current task at the start of a steering session, and that anchor is stable
+  enough to triage concerns against.
+assumption_create_batch_available: aitask_create.sh --batch is present and supports
+  draft mode (writes to aitasks/new/ without --commit), --name, --desc/--desc-file,
+  --priority, --effort, --type, --labels, --parent.
+assumption_ephemeral_session: A shadow run is ephemeral and may be killed when the
+  followed agent dies (aitask_companion_cleanup.sh); durable artifacts must live outside
+  the shadow pane (created drafts + plan edits the user makes), not only in shadow
+  memory.
+assumption_loss_aversion_is_the_driver: Plan bloat is driven by fear of losing concerns;
+  a credible capture mechanism (drafts) removes the incentive to fold every concern
+  into the active plan.
+component_intent_anchor: Session-start capture of the user's stated intent for the
+  current task; the fixed reference every concern is triaged against.
+component_concern_triage: plan-triage.md sub-procedure that classifies each surfaced
+  concern relative to the intent anchor and forces an explicit per-concern disposition
+  (now/defer/drop).
+component_concern_ledger: Session-scoped markdown table that records every surfaced
+  concern + its disposition so nothing is silently lost and the active plan can stay
+  lean.
+component_spinoff_helper: "aitask_shadow_spinoff.sh \u2014 whitelisted wrapper over\
+  \ aitask_create.sh --batch that turns a deferred ledger row into a reviewable aitask\
+  \ draft linked back to the current task."
+component_steerability_guardrail: 'Output-shape contract + delegation nudge: shadow
+  emits a decision sheet (not a rewritten plan) and re-anchors the user when it detects
+  accept-verbatim delegation.'
+tradeoff_scope_creep_reduction: "Forces concern-by-concern disposition against intent,\
+  \ so the active plan stays small and directly steerable \u2014 at the cost of one\
+  \ extra decision step per concern the user previously absorbed implicitly."
+tradeoff_extra_friction: The triage gate adds interaction turns; mitigate with batch
+  disposition ('defer all of section 3 as drafts') and sensible recommended defaults
+  so the common path is one keystroke.
+tradeoff_ledger_persistence: An ephemeral ledger can be lost if the shadow pane is
+  killed mid-session; mitigate by flushing the ledger to a stable path (e.g. .aitask-shadow/ledger_<task>_<ts>.md)
+  on every disposition rather than holding it only in shadow memory.
+tradeoff_intent_anchor_overhead: Asking for an intent statement up front costs a turn
+  and can feel redundant when intent is obvious; mitigate by pre-filling the anchor
+  from the task title/description and letting the user accept or edit it.
+tradeoff_draft_review_backlog: Spilling concerns into aitasks/new/ trades plan bloat
+  for a draft backlog that must be triaged later; mitigate by labeling drafts (deferred-from-<task>)
+  and depends-linking them so the backlog is filterable and ordered, not an undifferentiated
+  pile.

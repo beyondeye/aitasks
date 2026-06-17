@@ -1,10 +1,11 @@
-current_head: n003_explorer_001c
+current_head: n001_explorer_001a
 current_heads:
-  _umbrella: n003_explorer_001c
+  _umbrella: n001_explorer_001a
 history:
   _umbrella:
   - n000_init
   - n003_explorer_001c
+  - n001_explorer_001a
 next_node_id: 4
 active_dimensions:
 - requirements_fixed
@@ -24,6 +25,18 @@ active_dimensions:
 - tradeoff_ledger_persistence
 - tradeoff_deferral_proliferation
 - tradeoff_intent_anchor_staleness
+- assumption_advisory_contract
+- assumption_intent_capturable
+- assumption_create_batch_available
+- assumption_ephemeral_session
+- assumption_loss_aversion_is_the_driver
+- component_concern_triage
+- component_spinoff_helper
+- component_steerability_guardrail
+- tradeoff_scope_creep_reduction
+- tradeoff_extra_friction
+- tradeoff_intent_anchor_overhead
+- tradeoff_draft_review_backlog
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}

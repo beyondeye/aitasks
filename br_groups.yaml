@@ -19,4 +19,5 @@ groups:
     head_at_creation: n000_init
     nodes_created:
     - n003_explorer_001c
+    - n001_explorer_001a
     subgraph: _umbrella
