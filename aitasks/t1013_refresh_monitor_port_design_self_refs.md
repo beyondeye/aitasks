@@ -44,6 +44,32 @@ the table's "Existing call site" column to `monitor_core.py`/`monitor_app.py`
 symbol references. Mirror the citation style t822_12 established in permissions.md.
 Verify: `grep -n 'tmux_monitor.py:\|monitor_shared.py:' aidocs/applink/monitor_port_design.md` → empty.
 
+## Scope (expanded 2026-06-17 — accepted by user during planning)
+
+The two-bullet "Upstream defect" list above was the original framing. During
+planning it became clear the staleness is **doc-wide**, not confined to those
+two spots, and the verify (`grep → empty`) is only achievable by refreshing the
+whole doc. With user approval the scope was expanded to a **full
+post-extraction refresh** of `monitor_port_design.md` (no longer low effort):
+
+- Convert every fragile `path:line` citation to drift-proof **symbol-form**
+  (mirroring t822_12 / permissions.md), repointing the moved symbols to
+  `monitor_core.py` (and launch orchestration to its real homes
+  `agent_command_screen.py` / `lib/agent_launch_utils.py`).
+- Flip the "(future)/deferred" framing for the now-landed `monitor_core`
+  extraction: §Headless-core header + Source table, the tmux-gateway
+  delegation prose, and the §Deferred follow-up bullets that landed
+  (extraction t822_6/t822_7; permissions sync t822_12).
+- Original defects 1 & 2 (intro parenthetical, verb table) are included.
+
+Broadened verify (both → empty):
+`grep -nE '[a-z_]+\.py:[0-9]' aidocs/applink/monitor_port_design.md` and
+`grep -n 'tmux_monitor.py:\|monitor_shared.py:' aidocs/applink/monitor_port_design.md`.
+
+Out of scope: landed-status of the remaining applink follow-ups (WS listener,
+delta engine, append, handshakes, applink-mode flag) — not verified; left
+deferred. No code changes; permissions.md/profiles untouched (that was t822_12).
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 

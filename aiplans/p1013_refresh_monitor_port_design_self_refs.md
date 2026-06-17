@@ -177,3 +177,33 @@ No before/after mitigation tasks required.
 Profile 'fast', current branch — no worktree/merge. After review approval:
 commit the doc edit (`documentation: …(t1013)`), commit the task-file AC update
 via `./ait git`, then archive via `aitask_archive.sh 1013` and push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Full post-extraction refresh of
+  `aidocs/applink/monitor_port_design.md`. Converted every `path:line`
+  citation to drift-proof symbol-form (mirroring t822_12 / permissions.md):
+  all moved monitor symbols → `monitor_core.py`; launch orchestration →
+  `agent_command_screen.py` / `lib/agent_launch_utils.py`;
+  `_TEXTUAL_TO_TMUX`/`translate_key` → `monitor_core.py`; UI-bound dialogs and
+  handlers → symbol-form on `monitor_shared.py` / `monitor_app.py`. Flipped the
+  "(future)/deferred" framing for the landed extraction: Overview status note,
+  §Headless-core header + Source table (column renamed Source→Location),
+  tmux-gateway delegation prose, §Permission-cross-check (sync resolved by
+  t822_12), and the two landed §Deferred-follow-up bullets (t822_6/t822_7;
+  t822_12). Original defects 1 (intro parenthetical) and 2 (verb table)
+  included. Updated t1013's body with an explicit "Scope (expanded)" section.
+- **Deviations from plan:** None — implemented as planned. While converting,
+  symbol-form also corrected three wrong handler line numbers the doc carried
+  (`cycle_compare_mode` handler `:1489`, `restart_task` `:1728`, task force-
+  refresh `:1517`) by naming the actual handlers.
+- **Issues encountered:** Concurrent session had unrelated modified files in
+  the worktree (`brainstorm_app.py`, `tui_conventions.md`, brainstorm tests);
+  staged only `monitor_port_design.md` explicitly to avoid grabbing them.
+- **Key decisions:** Scoped the framing-flip strictly to the **verified-landed**
+  monitor_core extraction + permissions sync; left the remaining applink
+  follow-ups (WS listener, delta engine, append, handshakes, applink-mode flag)
+  as deferred because their landed-status was not verified this session. Verify
+  pattern matches `file:line` (colon), so symbol-form (`file` (`symbol`))
+  satisfies grep→empty while staying accurate and drift-proof.
+- **Upstream defects identified:** None.
