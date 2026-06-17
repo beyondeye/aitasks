@@ -54,6 +54,13 @@ Confirm destructive re-runs with a modal. Prefer shelling out to existing
 `ait crew` / `ait brainstorm` commands over duplicating mutation logic. Add a
 footer-visible binding (coordinate with child 3).
 
+**Caveat — the existing `ctrl+shift+x` / `ctrl+shift+y` retry-apply bindings are
+themselves undeliverable** (same root cause as child 3 below): they cannot be
+pressed through the terminal→tmux→Textual stack. Do **not** model the new
+restart binding on them — pick a deliverable, per-screen key per child 3's
+guidance. Surfacing these retry actions on the operation/group row (where they
+are footer-visible and reachable) is part of fixing recovery.
+
 ## Child 2 — Double-click to open operation/node detail
 The detail view (`OperationDetailScreen`) opens only via `o` on a node row
 (`action_open_operation`); `Enter` on a Status group row only expands/collapses
@@ -78,6 +85,43 @@ leaking action is gated. Honor the footer-coverage rule and the
 `check_action` / `priority` query-scope gotchas documented in
 `aidocs/framework/tui_conventions.md`. Coordinate closely with t983_9
 (running_strip_deconflict) since both touch the footer/binding surface.
+
+### Motivating case + delivery root cause (t1017 exploration)
+The lack of true contextual shortcuts is **why** brainstorm reached for
+`ctrl+shift+<letter>` chords in the first place — keys could not be reused
+per-screen, so the config-step preview actions were given globally-unique
+chords. Those chords are not just hygiene noise; **they are undeliverable**:
+- `brainstorm_app.py:3849-3850` binds `ctrl+shift+b` → `cycle_preview_ratio`
+  (preview width) and `ctrl+shift+l` → `toggle_preview_numbered` (line
+  numbers). Both are footer-visible and correctly gated to the Actions tab +
+  `ProposalPreviewPane`, yet pressing them does nothing.
+- Root cause is **key delivery, not the app**. Textual's parser is fine — fed a
+  real CSI-u sequence (`ESC[98;6u`) it names the key `ctrl+shift+b` and the
+  action fires. But through the real ghostty → tmux → Textual stack the legacy
+  CSI-u / modifyOtherKeys path collapses `Ctrl+Shift+<letter>` to the same
+  control byte as `Ctrl+<letter>`, dropping Shift before Textual ever sees it:
+  - `Ctrl+Shift+B` → `Ctrl+B`, which is tmux's secondary prefix
+    (`prefix2 C-b`) → tmux swallows it; the app receives nothing.
+  - `Ctrl+Shift+L` → `Ctrl+L` → reaches the app but matches no binding (only
+    `ctrl+shift+l` is registered) → no-op.
+- These (plus `ctrl+shift+x` / `ctrl+shift+y`, child 1) are the **only**
+  `ctrl+shift+letter` bindings in the framework; every other TUI uses plain
+  keys.
+
+**Implication for this child:** once shortcuts are genuinely per-screen, the
+preview actions can move to simple deliverable keys (active only on that screen,
+so reuse is fine) — e.g. plain letters where no TextArea has focus, or
+`alt+<letter>` (ESC-prefixed, non-printable so a focused TextArea ignores it,
+reliably distinguishable across terminals) where typing is possible. **Avoid**
+bare `ctrl+b` (tmux prefix) and any `ctrl+shift+<letter>` chord. Treat removing
+the dead `ctrl+shift+*` bindings as part of the rework.
+
+**Test-gap to close:** `tests/test_brainstorm_proposal_preview.py` exercises the
+action methods (`_apply_preview_ratio`, `action_*`) **directly** and never
+drives the key-dispatch path, so the undeliverable bindings passed CI. Add a
+real `pilot.press(...)` test for the replacement keys, plus a live-stack manual
+verification (the headless Textual driver delivers chords the real terminal
+stack cannot, so it cannot catch this class of bug on its own).
 
 ## Notes
 - Read `aidocs/framework/tui_conventions.md` and
