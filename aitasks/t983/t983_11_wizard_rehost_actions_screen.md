@@ -88,3 +88,5 @@ Archive via `./.aitask-scripts/aitask_archive.sh 983_11`.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-17T09:38:25Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-17T09:38:26Z status=pass attempt=1 type=machine
