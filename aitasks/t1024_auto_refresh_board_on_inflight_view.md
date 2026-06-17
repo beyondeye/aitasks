@@ -54,3 +54,5 @@ Mind ordering: `base_filter` must be `inflight` before `refresh_board()` renders
 > **✅ gate:plan_approved** run=2026-06-17T09:23:30Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-17T09:23:31Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-17T09:27:35Z status=pass attempt=1 type=human
