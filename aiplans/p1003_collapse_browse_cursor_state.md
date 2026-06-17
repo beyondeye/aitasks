@@ -137,3 +137,39 @@ commit, archival proceeds via `aitask_archive.sh 1003`.
 - The goal (single cursor source of truth, field retired) is concrete and fully
   covered by the enumerated edits; the zero-grep check is an objective completion
   gate · severity: low · → mitigation: none
+
+## Final Implementation Notes
+
+- **Actual work done:** Retired the legacy `_current_focused_node_id` field in
+  `.aitask-scripts/brainstorm/brainstorm_app.py`. Removed the field declaration,
+  deleted all 5 redundant legacy write sites (each had a pre-existing paired
+  `self._selection.set_primary` / `.remove` call beside it), and repointed all 6
+  read sites onto `self._selection.primary`. `_show_browse_node_detail` now sets
+  only `self._selection.set_primary(node_id)`. Refreshed the affected
+  comments/docstrings (init block, NodeSelection header, delete-cascade,
+  `_show_browse_node_detail`) to document `NodeSelection` as the sole Browse
+  cursor. Migrated the 5 test references across `test_brainstorm_node_hub.py`,
+  `test_brainstorm_node_delete.py`, and `test_brainstorm_node_detail_panel.py`
+  onto the selection model.
+- **Deviations from plan:** One refinement vs. the plan. The plan's comment
+  rewrites named the retired field literally (e.g. "the legacy
+  `_current_focused_node_id` field was retired"). That left 3 comment/docstring
+  occurrences of the identifier, which failed the plan's own zero-grep gate. To
+  honor the gate (and avoid a dangling symbol name that future greps trip on),
+  the comments were rephrased to "the legacy parallel focused-node field" — same
+  history, no literal identifier. Final grep is genuinely clean across source +
+  tests.
+- **Issues encountered:** None. The two `node_id = self._current_focused_node_id`
+  read sites (action_node_action / action_toggle_deferred) shared an identical
+  3-line follow-up; disambiguated the edits by extending the match context.
+- **Key decisions:** The delete-cascade cursor-clear (former lines 6460–6461) was
+  removed entirely rather than rewritten — the existing
+  `for nid in deleted: self._selection.remove(nid)` loop already clears `primary`
+  via `NodeSelection.remove` when the cursor node is deleted. The repointed
+  `test_brainstorm_node_delete` (`set_primary("n002_c")` → assert
+  `_selection.primary is None`) now serves as the consolidated-cursor regression
+  test for exactly this path.
+- **Upstream defects identified:** None
+- **Verification:** `grep -rn _current_focused_node_id .aitask-scripts/brainstorm/brainstorm_app.py tests/`
+  → zero matches; `ast.parse` of brainstorm_app.py → OK; all 40
+  `tests/test_brainstorm_*.py` pass.
