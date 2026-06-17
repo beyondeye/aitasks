@@ -162,3 +162,8 @@ A dependency-ordered split that maximizes early testability:
 - **t569** (child-split op) and **t499** (parallel-planning / feedback ops): new
   *operations* that should slot into the new contextual **Operations dialog**
   once it exists.
+- **t1018** (op restart / double-click open / footer binding hygiene):
+  `depends: [983]` — sequenced **behind** this task so its operation-restart
+  action and brainstorm-wide footer binding rework build on the landed
+  Running surface and contextual dialogs. Its footer-hygiene child overlaps
+  **t983_9** (running_strip_deconflict); land them consistently.
