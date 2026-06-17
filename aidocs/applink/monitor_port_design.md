@@ -6,7 +6,7 @@ How the existing `ait monitor` TUI is ported to drive a mobile client over the `
 
 `ait monitor` (`.aitask-scripts/monitor/monitor_app.py`) is a Textual TUI that polls tmux panes, classifies them (agent / TUI / other), renders snapshots, and dispatches user commands back to tmux. To serve a mobile client, the non-Textual half of that pipeline must become a reusable headless core that both the local TUI and the `ait applink` WebSocket listener can drive.
 
-This document is design-first. The `monitor_core` headless-core extraction it specifies has since **landed** (t822_6/t822_7), and the permissions-table sync (§Command verb mapping) shipped in t822_12; the remaining applink follow-ups (§Deferred follow-up tasks) are still open. It defines:
+This document is design-first, but the design it specifies has since been **fully implemented**: the `monitor_core` headless-core extraction (t822_6/t822_7), the permissions-table sync (t822_12), and the applink control plane, data plane, headless bridge, and modal handshakes (t822_7–t822_14) have all landed (§Deferred follow-up tasks). The lone remainder is the workflow-verb launch policy for `pick_next_sibling`/`restart_task` execution, noted there. It defines:
 
 - The **extraction seam**: which symbols were extracted to `monitor_core.py` and which stay UI-bound (§Headless-core extraction).
 - The **canonical verb inventory**: every monitor command verb, its applink request frame, payload schema, permission gate, and confirmation-modal requirement (§Command verb → applink protocol mapping). This table supersedes the seed table in [permissions.md](permissions.md) per t822_1's forward-pointer notes.
@@ -163,20 +163,20 @@ Every verb in the §Command verb table maps to exactly one profile band from [pe
 
 ## Deferred follow-up tasks
 
-Each bullet is scoped to be lifted into its own `ait task create` call. The first two have since **landed**; the rest remain open.
+Every bullet below has since **landed** (the `monitor_core` extraction plus the applink control plane, data plane, headless bridge, and modal handshakes shipped across t822_6–t822_14). The one genuine remainder is noted inline: the workflow-verb *execution* for `pick_next_sibling`/`restart_task` (kill-old-pane + relaunch-agent) is deferred pending an applink launch policy — the handshake round-trips themselves are wired and return `NOT_IMPLEMENTED` on the final execute.
 
 - **✅ Landed (t822_6 / t822_7) — Refactor: extract `monitor_core.py`** — moved the §Headless-core extraction symbols into the new module, leaving thin import shims in `tmux_monitor.py` / `tmux_control.py` / `monitor_shared.py` for backwards compatibility. Included the physical relocation of `TmuxControlClient` / `TmuxControlBackend` out of `monitor/tmux_control.py` (deferred from t952_3 — monitor_core is their home), and the move of `_TEXTUAL_TO_TMUX` / `translate_key` server-side (t822_7). monitor_core **delegates** tmux exec to `lib/tmux_exec.py` (`TmuxClient.run_via_control`); it does not re-own the dispatcher. `ait monitor` and `ait minimonitor` both still launch from the shared core.
-- **applink: WebSocket listener** — start a TLS WS server from the applink TUI, accept the `pair` verb per [protocol.md](protocol.md), and route subsequent control frames per the §Command verb table, enforcing profile gates. Integrates with `monitor_core` for verb execution.
-- **applink: snapshot push loop (Stage 1 of content_transport.md)** — drive `capture_all_async` on the subscribe cadences, parse `capture-pane -e` output into the row/span schema with the ad-hoc SGR state machine (§Snapshot → row encoding), emit `keyframe`/`cursor`/`dim` frames plus the `pane_status` JSON push. Wire `subscribe` and `focus`.
-- **applink: delta engine (Stage 2 of content_transport.md)** — per-row hashing + changed-row collection in `monitor_core`; emit `delta` frames against `prev_frame_id`; implement the `request_keyframe` recovery path.
-- **applink: append fast-path (Stage 3 of content_transport.md)** — bottom-cursor + no-upper-changes detection next to the deltifier; emit `append` frames for log-streaming panes.
-- **applink: modal handshake plumbing** — implement the §Modal-dialog handshakes pull-model round-trips (`confirm_required` responses, re-send-with-`confirmed` execution, `pick_next_sibling` suggest/choose), correlated by envelope `id`.
+- **✅ Landed (t822_7) — applink: WebSocket listener** — `AppLinkServer` (`applink/server.py`) wraps the pure `FrameRouter` (`applink/router.py`) in a `wss://` server (TLS, refuses plaintext fallback), accepts the `pair` verb per [protocol.md](protocol.md), and routes control frames per the §Command verb table, enforcing profile gates. Executes verbs through `monitor_core`.
+- **✅ Landed (t822_8; hardened t822_14) — applink: snapshot push loop (Stage 1 of content_transport.md)** — `PushScheduler` (`applink/pusher.py`) drives `capture_all_async` on the subscribe cadences; the ad-hoc SGR state machine (`parse_sgr_line` / `parse_snapshot` in `applink/content.py`, §Snapshot → row encoding) parses `capture-pane -e` output into the row/span schema; emits `keyframe`/`cursor`/`dim` frames plus the `pane_status` JSON push. `subscribe` and `focus` are wired.
+- **✅ Landed (t822_9) — applink: delta engine (Stage 2 of content_transport.md)** — per-row hashing + changed-row collection (`deltify` / `row_signature` in `applink/content.py`) against the per-connection `PaneState.row_sigs` baseline; emits `delta` frames against `prev_frame_id`; `request_keyframe` recovery path implemented.
+- **✅ Landed (t822_10) — applink: append fast-path (Stage 3 of content_transport.md)** — bottom-cursor + no-upper-changes detection (`detect_append` in `applink/content.py`) next to the deltifier; emits `append` frames for log-streaming panes.
+- **✅ Landed (t822_11) — applink: modal handshake plumbing** — the §Modal-dialog handshakes pull-model round-trips (`confirm_required` responses, re-send-with-`confirmed` execution, `pick_next_sibling` suggest/choose), correlated by envelope `id`. **Remainder:** the final kill+relaunch *execution* of `pick_next_sibling`/`restart_task` returns `NOT_IMPLEMENTED`, deferred until the applink workflow launch policy lands.
 - **✅ Landed (t822_12) — applink: update `permissions.md` verb gating table** — synced the canonical §Command verb inventory (incl. `forward_key`, `pick_next_sibling`, `restart_task`, `task_detail`) back into [permissions.md](permissions.md) with matching `applink_profiles/*.yaml` updates.
-- **applink-mode flag for `aitask_monitor.sh`** — a `--headless-for-applink` mode that skips Textual startup and exposes `monitor_core` only via the applink listener (for running the bridge on a box nobody is watching).
+- **✅ Landed (t822_13) — applink-mode flag for `aitask_monitor.sh`** — `--headless-for-applink` skips Textual startup and runs the applink listener TUI-less via `applink/headless.py` (for running the bridge on a box nobody is watching).
 
 ## Out of scope (this document)
 
-- Any code change under `.aitask-scripts/monitor/` — this is design only; the refactor is the first follow-up bullet above.
-- The applink WebSocket listener implementation (second bullet).
+- Any code change under `.aitask-scripts/monitor/` — this document is design only; the `monitor_core` refactor was delivered by the now-landed follow-up task above (t822_6).
+- The applink WebSocket listener implementation — delivered by the now-landed follow-up above (t822_7).
 - Mobile-side rendering, dialog UX, and scroll handling — lives in `../aitasks_mobile`.
 - Editing `aidocs/applink/permissions.md` — the sync is its own follow-up bullet so the seed table and the YAML profiles move together.
