@@ -3841,7 +3841,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # reclaims `r` for "Running".
         Binding("c", "compare_matrix", "Compare", show=False),
         Binding("a", "tab_actions", "Actions", show=False),
-        Binding("s", "tab_status", "Status", show=False),
+        # t983_8: `s` now opens the Session-lifecycle tab; Status provisionally
+        # moves to the free `r` key (freed by t983_7). t983_9 finalizes the
+        # rename tab_status→tab_running ("(R)unning"), keeping `r`.
+        Binding("s", "tab_session", "Session", show=False),
+        Binding("r", "tab_status", "Status", show=False),
         Binding("enter", "open_node_detail", "Open detail"),
         Binding("A", "node_action", "Node action"),
         Binding("f", "toggle_deferred", "Defer module"),
@@ -3875,6 +3879,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._wizard_total_steps: int = 3
         self._wizard_step_id: str = ""
         self._wizard_op: str = ""
+        # Pending Session-tab lifecycle op awaiting inline confirm (t983_8).
+        self._session_confirm_op: str = ""
         self._wizard_config: dict = {}
         self._wizard_has_sections: bool = False
         # Cached subgraph count for the I/O-free _wizard_ctx (set when op-select
@@ -4047,7 +4053,14 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     )
             with TabPane("(A)ctions", id="tab_actions"):
                 yield VerticalScroll(id="actions_content")
-            with TabPane("(S)tatus", id="tab_status"):
+            # t983_8: session-lifecycle ops (pause/resume/finalize/archive/delete)
+            # get their own tab — they are not node-contextual, so they leave the
+            # Actions wizard. Rendered by _refresh_session_tab.
+            with TabPane("(S)ession", id="tab_session"):
+                yield VerticalScroll(id="session_content")
+            # Provisional plain "Status" label (mnemonic dropped — `s` now belongs
+            # to Session, key is `r`). t983_9 renames this to "(R)unning".
+            with TabPane("Status", id="tab_status"):
                 with Horizontal(id="status_header", classes="status-header"):
                     yield Label("Status", classes="status_pane_title")
                     yield PollingIndicator(id="status_polling_indicator")
@@ -4093,6 +4106,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         return
                 tab_to_container = {
                     "tab_actions": ("actions_content", (OperationRow,)),
+                    "tab_session": ("session_content", (OperationRow,)),
                     "tab_status": ("status_content", (GroupRow, AgentStatusRow, StatusLogRow)),
                 }
                 mapping = tab_to_container.get(tabbed.active)
@@ -4139,22 +4153,14 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 event.prevent_default()
                 event.stop()
                 return
-            # Enter on op-select: choose operation
+            # Enter on op-select: choose operation. Session ops left the wizard
+            # for the Session tab (t983_8) — op_select is design-ops-only now.
             if event.key == "enter" and self._wizard_step_id == "op_select":
                 focused = self.focused
                 if isinstance(focused, OperationRow) and not focused.op_disabled:
                     self._wizard_op = focused.op_key
                     self._set_total_steps()
-                    if self._wizard_op == "delete":
-                        self.push_screen(
-                            DeleteSessionModal(self.task_num),
-                            self._on_delete_result,
-                        )
-                    elif self._wizard_op in ("pause", "resume", "finalize", "archive"):
-                        self._wizard_config = {"confirmed": True}
-                        self._actions_show_confirm()
-                    else:
-                        self._actions_show_step2()
+                    self._actions_show_step2()
                     event.prevent_default()
                     event.stop()
                     return
@@ -4216,6 +4222,22 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # Up/down: cycle focus among focusable widgets on the confirm step
             if event.key in ("up", "down") and self._wizard_step_id == "confirm":
                 if self._cycle_confirm_focus(1 if event.key == "down" else -1):
+                    event.prevent_default()
+                    event.stop()
+                    return
+
+        # Session tab (t983_8): navigate the lifecycle-op list and dispatch.
+        if tabbed.active == "tab_session":
+            if event.key in ("up", "down"):
+                direction = 1 if event.key == "down" else -1
+                if self._navigate_rows(direction, "session_content", (OperationRow,)):
+                    event.prevent_default()
+                    event.stop()
+                    return
+            if event.key == "enter":
+                focused = self.focused
+                if isinstance(focused, OperationRow) and not focused.op_disabled:
+                    self._dispatch_session_op(focused.op_key)
                     event.prevent_default()
                     event.stop()
                     return
@@ -4871,6 +4893,12 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         self.query_one(TabbedContent).active = "tab_actions"
 
+    def action_tab_session(self) -> None:
+        if isinstance(self.screen, ModalScreen):
+            return
+        self.query_one(TabbedContent).active = "tab_session"
+        self._refresh_session_tab()
+
     def action_tab_status(self) -> None:
         if isinstance(self.screen, ModalScreen):
             return
@@ -5169,6 +5197,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         except Exception:
             pass
         self._actions_show_step1()
+        # Re-render the Session-lifecycle op list so its disabled-state tracks
+        # the freshly-loaded status (t983_8).
+        self._refresh_session_tab()
         try:
             self.query_one("#status_polling_indicator", PollingIndicator).start()
         except Exception:
@@ -6538,19 +6569,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         container.mount(Label("Step 1 \u2014 Select Operation  (\u2191\u2193 Navigate  Enter Select  ? Help)", classes="actions_step_indicator"))
 
         status = self.session_data.get("status", "")
-        head = get_head(self.session_path)
 
-        # Design operations
+        # Design operations. Session-lifecycle ops moved to the dedicated
+        # Session tab (t983_8) — the wizard op list is design-ops-only now.
         container.mount(Label("Design Operations", classes="actions_section_title"))
         design_disabled = status not in ("init", "active")
         for op_key, label, desc in _DESIGN_OPS:
             container.mount(OperationRow(op_key, label, desc, disabled=design_disabled))
-
-        # Session lifecycle operations
-        container.mount(Label("Session Lifecycle", classes="actions_section_title"))
-        for op_key, label, desc in _SESSION_OPS:
-            disabled = self._is_session_op_disabled(op_key, status, head)
-            container.mount(OperationRow(op_key, label, desc, disabled=disabled))
 
         # Recent operations history
         self._mount_recent_ops(container)
@@ -6564,13 +6589,138 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if tabbed.active != "tab_actions":
             return
         try:
-            rows = self.query("OperationRow")
+            # Scope to the actions container — the Session tab also hosts
+            # OperationRows (t983_8), so an app-wide query could grab those.
+            rows = self.query_one("#actions_content", VerticalScroll).query(OperationRow)
             for row in rows:
                 if not row.op_disabled:
                     row.focus()
                     break
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Session-lifecycle tab (t983_8)
+    # ------------------------------------------------------------------
+
+    def _refresh_session_tab(self) -> None:
+        """Render the Session-lifecycle op list (pause/resume/finalize/archive/
+        delete). These ops left the Actions wizard (t983_8); selection routes to
+        _dispatch_session_op. Disabled-state derives from _is_session_op_disabled
+        so the list re-evaluates after every reload."""
+        try:
+            container = self.query_one("#session_content", VerticalScroll)
+        except Exception:
+            return
+        container.remove_children()
+        if self.read_only:
+            container.mount(
+                Label("[italic]Session is read-only. No operations available.[/]")
+            )
+            return
+        container.mount(
+            Label(
+                "Session Lifecycle  (↑↓ Navigate  Enter Select)",
+                classes="actions_step_indicator",
+            )
+        )
+        status = self.session_data.get("status", "")
+        head = get_head(self.session_path)
+        for op_key, label, desc in _SESSION_OPS:
+            disabled = self._is_session_op_disabled(op_key, status, head)
+            container.mount(OperationRow(op_key, label, desc, disabled=disabled))
+        self.call_after_refresh(self._focus_first_session_op)
+
+    def _focus_first_session_op(self) -> None:
+        """Focus the first enabled OperationRow in the Session tab."""
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active != "tab_session":
+            return
+        try:
+            rows = self.query_one("#session_content", VerticalScroll).query(OperationRow)
+            for row in rows:
+                if not row.op_disabled:
+                    row.focus()
+                    break
+        except Exception:
+            pass
+
+    def _dispatch_session_op(self, op_key: str) -> None:
+        """Route a Session-tab op selection. delete → DeleteSessionModal;
+        the lifecycle ops get a lightweight inline confirm before executing."""
+        if op_key == "delete":
+            self.push_screen(
+                DeleteSessionModal(self.task_num), self._on_delete_result
+            )
+            return
+        self._show_session_confirm(op_key)
+
+    def _show_session_confirm(self, op_key: str) -> None:
+        """Replace the Session-tab op list with a confirm panel for ``op_key``.
+
+        Preserves the safety gate the wizard confirm step used to provide for
+        the consequential lifecycle ops (finalize/archive). Confirm executes;
+        Cancel re-renders the op list."""
+        try:
+            container = self.query_one("#session_content", VerticalScroll)
+        except Exception:
+            return
+        container.remove_children()
+        label, _desc = _OP_LABELS.get(op_key, (op_key.title(), ""))
+        summary = self._session_op_summary(op_key)
+        container.mount(Label(f"Confirm: {label}", classes="actions_step_indicator"))
+        container.mount(Static(summary, classes="actions_summary"))
+        container.mount(
+            Horizontal(
+                Button("Confirm", variant="primary", classes="btn_session_confirm"),
+                Button("Cancel", variant="default", classes="btn_session_cancel"),
+                classes="actions_buttons",
+            )
+        )
+        # Stash the pending op so the button handler knows what to execute.
+        self._session_confirm_op = op_key
+        self.call_after_refresh(self._focus_session_confirm_start)
+
+    def _session_op_summary(self, op_key: str) -> str:
+        """One-line confirmation summary for a session lifecycle op."""
+        if op_key == "pause":
+            return "Session will be paused."
+        if op_key == "resume":
+            return "Session will be resumed."
+        if op_key == "finalize":
+            head = get_head(self.session_path)
+            return f"HEAD node {head} plan will be copied to aiplans/."
+        if op_key == "archive":
+            return "Session will be archived."
+        return f"Run {op_key}?"
+
+    def _focus_session_confirm_start(self) -> None:
+        """Focus the Confirm button on the Session-tab confirm panel."""
+        try:
+            container = self.query_one("#session_content", VerticalScroll)
+        except Exception:
+            return
+        for w in container.query(Button):
+            if "btn_session_confirm" in w.classes:
+                w.focus()
+                return
+
+    @on(Button.Pressed, ".btn_session_confirm")
+    def _on_session_confirm(self) -> None:
+        """Execute the pending Session-tab lifecycle op."""
+        op_key = self._session_confirm_op
+        self._session_confirm_op = ""
+        if op_key:
+            self._execute_session_op(op_key)
+        # On success _execute_session_op → _load_existing_session already
+        # re-rendered the op list; on an early error return it did not, so
+        # restore it here. The extra render on success is idempotent.
+        self._refresh_session_tab()
+
+    @on(Button.Pressed, ".btn_session_cancel")
+    def _on_session_cancel(self) -> None:
+        """Cancel the Session-tab confirm panel — restore the op list."""
+        self._refresh_session_tab()
 
     def _focus_operation_row(self, op_key: str) -> None:
         """Focus the OperationRow matching ``op_key`` (fallback: first enabled).
@@ -7565,9 +7715,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             except Exception:
                 config["instructions"] = ""
 
-        elif op in ("pause", "resume", "finalize", "archive"):
-            config["confirmed"] = True
-
         self._wizard_config = config
         return True
 
@@ -7594,30 +7741,29 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         summary_lines = self._build_summary()
         container.mount(Static("\n".join(summary_lines), classes="actions_summary"))
 
-        is_session_op = self._wizard_op in ("pause", "resume", "finalize", "archive")
-        if not is_session_op:
-            default_mode = _brainstorm_launch_mode_default(self._wizard_op)
+        # Session ops left the wizard (t983_8) — the confirm step is design-ops
+        # only, so the launch-mode field always shows.
+        default_mode = _brainstorm_launch_mode_default(self._wizard_op)
+        container.mount(
+            CycleField(
+                "Launch mode",
+                sorted(VALID_LAUNCH_MODES),
+                initial=default_mode,
+                id="launch-mode-field",
+            )
+        )
+        if not is_tmux_available():
             container.mount(
-                CycleField(
-                    "Launch mode",
-                    sorted(VALID_LAUNCH_MODES),
-                    initial=default_mode,
-                    id="launch-mode-field",
+                Static(
+                    "[dim]tmux not installed — interactive will fall back "
+                    "to a standalone terminal (no monitor integration)[/]",
+                    classes="actions_hint",
                 )
             )
-            if not is_tmux_available():
-                container.mount(
-                    Static(
-                        "[dim]tmux not installed — interactive will fall back "
-                        "to a standalone terminal (no monitor integration)[/]",
-                        classes="actions_hint",
-                    )
-                )
 
-        btn_label = "Confirm" if is_session_op else "Launch"
         container.mount(
             Horizontal(
-                Button(btn_label, variant="primary", classes="btn_actions_launch"),
+                Button("Launch", variant="primary", classes="btn_actions_launch"),
                 Button("Back", variant="default", classes="btn_actions_back"),
                 classes="actions_buttons",
             )
@@ -7687,23 +7833,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if cfg.get("instructions"):
                 lines.append("[bold]Sync Instructions:[/]")
                 lines.append(cfg["instructions"])
-        elif op == "pause":
-            lines.append("Session will be paused.")
-        elif op == "resume":
-            lines.append("Session will be resumed.")
-        elif op == "finalize":
-            head = get_head(self.session_path)
-            lines.append(f"HEAD node [bold]{head}[/] plan will be copied to aiplans/.")
-        elif op == "archive":
-            lines.append("Session will be archived.")
+        # Session ops left the wizard (t983_8); their confirmation now lives in
+        # the Session tab (_session_op_summary).
 
         ts = cfg.get("target_sections")
         if ts:
             lines.append(f"[bold]Sections:[/] {', '.join(ts)}")
 
-        if op not in ("pause", "resume", "finalize", "archive"):
-            default_mode = _brainstorm_launch_mode_default(op)
-            lines.append(f"[bold]Launch mode:[/] {default_mode} (editable below)")
+        default_mode = _brainstorm_launch_mode_default(op)
+        lines.append(f"[bold]Launch mode:[/] {default_mode} (editable below)")
 
         return lines
 
@@ -7717,11 +7855,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     @on(Button.Pressed, ".btn_actions_launch")
     def _on_actions_launch(self) -> None:
-        """Handle Launch/Confirm button press in step 3."""
-        if self._wizard_op in ("pause", "resume", "finalize", "archive"):
-            self._execute_session_op()
-        else:
-            self._execute_design_op()
+        """Handle Launch button press in the wizard confirm step. Session ops
+        left the wizard (t983_8), so this is design-ops-only."""
+        self._execute_design_op()
 
     @on(Button.Pressed, ".btn_actions_back")
     def _on_actions_back(self) -> None:
@@ -7772,21 +7908,18 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """Handle mouse click activation on an OperationRow."""
         row = event.row
         tabbed = self.query_one(TabbedContent)
+        # Session tab (t983_8): a clicked lifecycle op dispatches directly.
+        if tabbed.active == "tab_session":
+            if not row.op_disabled:
+                self._dispatch_session_op(row.op_key)
+            return
         if tabbed.active != "tab_actions":
             return
         if self._wizard_step_id == "op_select":
+            # Session ops left the wizard (t983_8) — design-ops-only here.
             self._wizard_op = row.op_key
             self._set_total_steps()
-            if self._wizard_op == "delete":
-                self.push_screen(
-                    DeleteSessionModal(self.task_num),
-                    self._on_delete_result,
-                )
-            elif self._wizard_op in ("pause", "resume", "finalize", "archive"):
-                self._wizard_config = {"confirmed": True}
-                self._actions_show_confirm()
-            else:
-                self._actions_show_step2()
+            self._actions_show_step2()
         elif self._wizard_step_id == "subgraph_select":
             # Mirror op-select: clicking a subgraph chooses it and advances.
             self._wizard_subgraph = row.op_key
@@ -7805,9 +7938,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             except Exception:
                 pass
 
-    def _execute_session_op(self) -> None:
-        """Execute a session lifecycle operation."""
-        op = self._wizard_op
+    def _execute_session_op(self, op: str | None = None) -> None:
+        """Execute a session lifecycle operation. The Session tab (t983_8) passes
+        ``op`` explicitly; ``None`` falls back to ``_wizard_op`` for back-compat."""
+        op = op or self._wizard_op
         try:
             if op == "pause":
                 save_session(self.task_num, {"status": "paused"})
@@ -8028,7 +8162,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if confirmed:
             self._run_delete_session()
         else:
-            self._actions_show_step1()
+            # Delete originates from the Session tab now (t983_8).
+            self._refresh_session_tab()
 
     @work(thread=True)
     def _run_delete_session(self) -> None:
@@ -8046,7 +8181,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 f"Delete failed: {result.stderr.strip()}",
                 severity="error",
             )
-            self.call_from_thread(self._actions_show_step1)
+            self.call_from_thread(self._refresh_session_tab)
 
     def _on_init_result(self, result: str | None) -> None:
         """Handle InitSessionModal result."""
