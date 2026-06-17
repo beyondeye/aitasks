@@ -93,3 +93,5 @@ rule.
 > **✅ gate:plan_approved** run=2026-06-17T07:44:19Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-17T07:44:21Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-17T07:48:24Z status=pass attempt=1 type=human
