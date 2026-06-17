@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_board, child_tasks]
-children_to_implement: [t1016_1, t1016_2]
+children_to_implement: [t1016_1, t1016_2, t1016_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-17 00:51
-updated_at: 2026-06-17 13:35
+updated_at: 2026-06-17 13:36
 boardidx: 110
 ---
 
