@@ -69,6 +69,7 @@ remove_support
 reviewguides
 sanboxing
 script-performance
+shadow
 skill_optiomizations
 statistics
 stats_ui
