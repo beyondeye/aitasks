@@ -178,3 +178,64 @@ other remaining child).
 - **Requirement coverage:** the approach matches the parent target design
   (contextual modal, no Actions tab) and the t983_6 seeding contract is already
   in place; no requirement appears unaddressed. · severity: low.
+
+## Final Implementation Notes
+- **Actual work done:** Added `ActionsWizardScreen(ModalScreen)` to
+  `.aitask-scripts/brainstorm/brainstorm_app.py` (`:3262-4823`, ~1562 lines, 53
+  methods), inserted before `class BrainstormApp`. It owns the wizard UI state
+  (moved from `BrainstormApp.__init__`), `compose` (keeps container id
+  `#actions_content` so CSS + the internal queries port unchanged), `on_mount`
+  (reproduces the per-op seeding/routing that `_on_node_action_result` did
+  inline), `on_key` (relocated nav block; Esc steps back or closes on step 1),
+  `action_close`/`action_op_help`, the `@on` button/checkbox handlers,
+  `on_descendant_focus` (node-select feedback), `on_operation_row_activated`
+  (wizard branch), and the `H`/`ctrl+shift+b`/`ctrl+shift+l` bindings. ~45
+  rendering/config/nav helpers moved onto the screen (App-only refs inside became
+  `self.app.*`). `_on_node_action_result` rewritten to `push_screen(
+  ActionsWizardScreen(op_key, node_id, marked), self._on_wizard_result)`; Launch
+  builds `{op, config, subgraph}` and `self.dismiss(...)`; `_on_wizard_result`
+  runs it via the refactored `_execute_design_op(result)`. Removed: the Actions
+  `TabPane` (compose now Browse/Session/Running only), `_enter_actions_tab`,
+  `action_tab_actions`, the `a`/`tab_actions` binding, the App `on_key` Actions
+  branches, the App-side `tab_actions` guards, `BrainstormApp.action_op_help`
+  (+ its `can_perform_action` branches), the session-load wizard pre-render, and
+  the two `call_from_thread(self._actions_show_step1)` resets (the modal is
+  already dismissed at launch). `A → action_node_action` (Operations dialog) is
+  the preserved entry point.
+- **Deviations from plan:** (1) `ActionsWizardScreen.__init__` takes only the
+  seed (`op_key/node_id/marked`) and uses `self.app` after mount (avoids a stale
+  app ref; matches Textual idiom). (2) `_navigate_rows`/`_focus_within` are
+  *copied* (kept on the App) since Browse/Session nav still need them — the plan
+  anticipated copying for shared DOM-only helpers. (3) `_ancestor_subgraphs`
+  kept on the App (shared with the Operations-dialog op-state computation),
+  called via `self.app`. (4) Moved 5 wizard helpers the plan's list didn't
+  enumerate (`_mount_config_with_preview`, `_apply_preview_ratio`,
+  `_preview_focus_ring`, `_dimension_entries_for_nodes`, plus the
+  `_shortcuts_scope` class attr) — found by a cross-reference audit.
+- **Issues encountered:** `pytest` is not in the project venv (as p983_6 noted);
+  ran via `python -m unittest`. Helper-method tests that used to target App
+  methods now drive the screen via an `active_app` ContextVar fake-host.
+- **Key decisions:** Keep the disk-readers (`_node_sections`/`_node_has_sections`/
+  `_node_module`) and the op executor (`_execute_design_op`/`_run_design_op`
+  worker) on the App, reached via `self.app` — they are unit-tested via
+  `BrainstormApp.__new__` and are not wizard-DOM-bound. The worker still reads
+  `self._wizard_op/_config/_subgraph`; `_execute_design_op(result)` seeds those
+  three as the worker handoff from the dismiss-result, so `@work(thread=True)`
+  semantics are unchanged.
+- **Upstream defects identified:** `.aitask-scripts/brainstorm/brainstorm_app.py` — `_config_session_op` (in `BrainstormApp`) is dead code: it has no callers since session-lifecycle config left the wizard in t983_8 (the Session tab renders via `_refresh_session_tab`). Left in place as out-of-scope; worth a separate cleanup.
+- **Notes for sibling tasks:**
+  - **t983_10 (manual verification):** this is the live-behavior backstop. Verify
+    every op (explore / compare / synthesize / module_decompose|merge|sync /
+    fast_track / delete) launches from Browse `A` and Node Hub `Enter`: the
+    `ActionsWizardScreen` opens seeded, runs to completion, dismisses cleanly;
+    `Esc`/Back nav works; launching returns to Browse and the op runs in the
+    background **without** crashing now that the host is gone; confirm there is no
+    Actions tab and `a` no longer switches to it.
+  - The Actions tab is fully removed — the brainstorm TUI now matches the parent
+    t983 target (BROWSE / SESSION / RUNNING + contextual dialogs).
+
+## Verification (as run)
+- Full brainstorm suite `tests/test_brainstorm*.py` (40 files, 602 tests):
+  PASS via `python -m unittest` (independently re-run during review, exit 0).
+- `tests/test_shortcuts_registry_coverage.sh`: PASS. All touched files
+  `py_compile`-clean.
