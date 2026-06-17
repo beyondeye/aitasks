@@ -155,3 +155,25 @@ plan.
   paths funnel through it. The re-press no-op is preserved by the pre-existing
   early return, matching the user's confirmed decision. · severity: low ·
   → mitigation: TBD
+
+## Final Implementation Notes
+- **Actual work done:** Added an inflight-entry branch to `_set_base_filter()`
+  in `.aitask-scripts/board/aitask_board.py` (~`:4708`): when `name ==
+  "inflight"` it calls `self.manager.load_tasks()` and sets `refresh_locks =
+  True`, which is then threaded into the existing
+  `self.refresh_board(refocus_filename=refocus, refresh_locks=refresh_locks)`
+  call. `refresh_board` already refreshes git status and clears the gate cache
+  unconditionally, so this matches the data refresh of pressing `r`, in a single
+  render. Added 3 Pilot tests to `tests/test_board_view_filter.py`
+  (`test_inflight_switch_reloads_from_disk`,
+  `test_noninflight_switch_does_not_reload`, `test_inflight_repress_is_noop`).
+- **Deviations from plan:** None — implemented exactly as planned.
+- **Issues encountered:** None. `pytest` is not installed in the repo venv;
+  ran the tests with `python3 -m unittest` instead. All 19 tests in
+  `test_board_view_filter.py` + `test_board_inflight_view.py` pass.
+- **Key decisions:** Logic placed at the convergent `_set_base_filter` site so
+  both the `i` key and the selector-click path are covered with one change.
+  Re-pressing `i` while already in inflight is a no-op (confirmed with user),
+  preserved by the method's pre-existing early return; `r` remains the manual
+  refresh gesture.
+- **Upstream defects identified:** None
