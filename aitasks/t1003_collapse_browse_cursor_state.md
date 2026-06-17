@@ -6,8 +6,9 @@ issue_type: refactor
 status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 08:50
-updated_at: 2026-06-17 22:58
+updated_at: 2026-06-17 23:14
 boardidx: 30
 ---
 
@@ -35,3 +36,8 @@ t983_3 introduced. After this lands, `_show_browse_node_detail` should set only
 write), and every consumer reads `self._selection.primary` / `.effective()` /
 `.cardinality`. Keep the brainstorm test suite green; add/adjust coverage for
 the consolidated cursor.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-17T20:14:47Z status=pass attempt=1 type=human
