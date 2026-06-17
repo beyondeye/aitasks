@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, gates]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-17 12:10
-updated_at: 2026-06-17 12:10
+updated_at: 2026-06-17 12:12
 ---
 
 ## Goal
