@@ -1,0 +1,11 @@
+current_head: n000_init
+current_heads:
+  _umbrella: n000_init
+history:
+  _umbrella:
+  - n000_init
+next_node_id: 4
+active_dimensions: []
+module_tasks: {}
+last_synced_at: {}
+module_deferred: {}
