@@ -3259,6 +3259,1568 @@ class ProcessRow(Static, can_focus=True):
 # ---------------------------------------------------------------------------
 
 
+class ActionsWizardScreen(ModalScreen):
+    """Contextual multi-step design-op wizard, re-hosted out of the former
+    Actions tab into a modal overlay (t983_11).
+
+    Pushed by ``BrainstormApp._on_node_action_result`` on ``A``/Enter, seeded
+    from the contextual Browse selection. Launching an op dismisses with a
+    result dict ``{op, config, subgraph}`` that ``BrainstormApp._execute_design_op``
+    runs in a worker; cancel/Esc dismisses with ``None``. The disk-readers
+    (``_node_*``) and the op executor stay on ``BrainstormApp`` and are reached
+    via ``self.app``.
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close", show=False),
+        Binding("H", "op_help", "Op help", show=False),
+        Binding("ctrl+shift+b", "cycle_preview_ratio", "Preview width", show=False),
+        Binding("ctrl+shift+l", "toggle_preview_numbered", "Line numbers", show=False),
+    ]
+
+    # Shortcut-resolution scope (mirrors BrainstormApp) so resolve_key works for
+    # the help-key hint rendered in the wizard (t983_11).
+    _shortcuts_scope = "brainstorm"
+
+    def __init__(self, *, op_key: str, node_id: str = "", marked=None) -> None:
+        super().__init__()
+        self._seed_op = op_key
+        self._seed_node = node_id
+        self._seed_marked = list(marked or [])
+        # Wizard UI state (owned by the screen; moved from BrainstormApp.__init__).
+        self._wizard_step: int = 0
+        self._wizard_total_steps: int = 1
+        self._wizard_step_id: str = ""
+        self._wizard_op: str = ""
+        self._wizard_has_sections: bool = False
+        self._wizard_config: dict = {}
+        self._wizard_subgraph_count: int = 1
+        self._wizard_subgraph: str = UMBRELLA_SUBGRAPH
+        self._wizard_fast_track: bool = False
+        self._cmp_section_checks: dict = {}
+        self._cmp_dim_checks: dict = {}
+
+    def compose(self) -> ComposeResult:
+        with Container(id="actions_wizard_dialog"):
+            yield VerticalScroll(id="actions_content")
+            yield Footer()
+
+    def on_mount(self) -> None:
+        """Reproduce the per-op seeding/routing formerly in _on_node_action_result."""
+        op_key = self._seed_op
+        node_id = self._seed_node
+        if op_key == "fast_track":
+            self._wizard_op = "module_decompose"
+            self._set_total_steps()
+            self._wizard_fast_track = True
+            self._wizard_subgraph = _node_module(self.app.session_path, node_id)
+            self._wizard_config = {"pre_seeded_node": True}
+            self._actions_show_config()
+        elif op_key in ("module_decompose", "module_merge", "module_sync"):
+            self._wizard_op = op_key
+            self._set_total_steps()
+            self._wizard_subgraph = _node_module(self.app.session_path, node_id)
+            self._wizard_config = {"pre_seeded_node": True}
+            self._actions_show_config()
+        elif op_key in ("compare", "synthesize"):
+            self._wizard_op = op_key
+            self._set_total_steps()
+            self._wizard_config = {}
+            self._actions_show_config()
+            marked = sorted(self._seed_marked)
+            if len(marked) >= 2:
+                self.call_after_refresh(
+                    lambda op=op_key, m=marked: (
+                        self._preseed_multi_node_checklist(op, m)
+                    )
+                )
+        else:
+            # explore: seed the contextual node and skip the node-select step.
+            self._wizard_op = op_key
+            self._set_total_steps()
+            self._wizard_config = {
+                "_selected_node": node_id, "pre_seeded_node": True,
+            }
+            self._actions_advance_from_node_select(node_id)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+    def action_op_help(self) -> None:
+        from textual.actions import SkipAction
+        if self._wizard_step < 1:
+            raise SkipAction
+        if self._wizard_step_id == "op_select":
+            focused = self.focused
+            if not isinstance(focused, OperationRow):
+                raise SkipAction
+            op_key = focused.op_key
+        else:
+            op_key = self._wizard_op
+        if not op_key or op_key not in _OPERATION_HELP:
+            raise SkipAction
+        self.app.push_screen(OperationHelpModal(op_key))
+
+    def on_key(self, event) -> None:
+        """Wizard navigation (relocated from BrainstormApp.on_key, t983_11).
+
+        A ModalScreen consumes keys, so the wizard nav that used to live in the
+        App's on_key (gated on tab_actions) now runs here unconditionally."""
+        if self._wizard_step < 1:
+            return
+        # Esc: step back, or close the wizard on the first step.
+        if event.key == "escape":
+            if self._wizard_step > 1:
+                prev = prev_step_id(self._wizard_ctx(), self._wizard_step_id)
+                if prev is not None:
+                    self._render_wizard_step(prev)
+            else:
+                self.dismiss(None)
+            event.prevent_default()
+            event.stop()
+            return
+        # t945 preview focus ring (Tab/Shift+Tab on the explore config step).
+        if event.key in ("tab", "shift+tab"):
+            if self._cycle_preview_focus(forward=event.key == "tab"):
+                event.prevent_default()
+                event.stop()
+                return
+        # Enter on op-select: choose operation (design-ops-only; t983_8).
+        if event.key == "enter" and self._wizard_step_id == "op_select":
+            focused = self.focused
+            if isinstance(focused, OperationRow) and not focused.op_disabled:
+                self._wizard_op = focused.op_key
+                self._set_total_steps()
+                self._actions_show_step2()
+                event.prevent_default()
+                event.stop()
+                return
+        # Enter on subgraph-select: choose subgraph and advance
+        if event.key == "enter" and self._wizard_step_id == "subgraph_select":
+            focused = self.focused
+            if isinstance(focused, OperationRow) and not focused.op_disabled:
+                self._wizard_subgraph = focused.op_key
+                nxt = next_step_id(self._wizard_ctx(), "subgraph_select")
+                if nxt is not None:
+                    self._render_wizard_step(nxt)
+                event.prevent_default()
+                event.stop()
+                return
+        # Enter on node-select: select node and advance
+        if event.key == "enter" and self._wizard_step_id == "node_select":
+            focused = self.focused
+            if isinstance(focused, OperationRow) and not focused.op_disabled:
+                if self._wizard_op in _NODE_SELECT_STEP_OPS:
+                    self._wizard_config["_selected_node"] = focused.op_key
+                    self._actions_advance_from_node_select(focused.op_key)
+                    event.prevent_default()
+                    event.stop()
+                    return
+        # Compare/Synthesize config step: Tab cycles whole control groups
+        if (
+            event.key in ("tab", "shift+tab")
+            and self._wizard_step_id == "config"
+            and self._wizard_op in ("compare", "synthesize")
+        ):
+            if self._cycle_wizard_groups(-1 if event.key == "shift+tab" else 1):
+                event.prevent_default()
+                event.stop()
+                return
+        # Compare config step: up/down within the section-checkbox group
+        if (
+            event.key in ("up", "down")
+            and self._wizard_step_id == "config"
+            and self._wizard_op == "compare"
+            and isinstance(self.focused, Checkbox)
+            and "chk_section" in self.focused.classes
+        ):
+            if self._navigate_rows(
+                1 if event.key == "down" else -1,
+                "cmp_sections_box", (Checkbox,),
+            ):
+                event.prevent_default()
+                event.stop()
+                return
+        # Up/down: navigate OperationRow widgets in the row-select steps
+        if event.key in ("up", "down") and self._wizard_step_id in (
+            "op_select", "subgraph_select", "node_select",
+        ):
+            direction = 1 if event.key == "down" else -1
+            if self._navigate_rows(direction, "actions_content", (OperationRow,)):
+                event.prevent_default()
+                event.stop()
+                return
+        # Up/down: cycle focus among focusable widgets on the confirm step
+        if event.key in ("up", "down") and self._wizard_step_id == "confirm":
+            if self._cycle_confirm_focus(1 if event.key == "down" else -1):
+                event.prevent_default()
+                event.stop()
+                return
+
+    @on(Button.Pressed, ".btn_actions_launch")
+    def _on_actions_launch(self) -> None:
+        """Launch the configured op: collect launch-mode, then dismiss with a
+        result dict the App executes. Session ops left the wizard (t983_8)."""
+        try:
+            field = self.query_one("#launch-mode-field", CycleField)
+            self._wizard_config["launch_mode"] = field.current_value
+        except Exception:
+            self._wizard_config["launch_mode"] = DEFAULT_LAUNCH_MODE
+        self.dismiss({
+            "op": self._wizard_op,
+            "config": dict(self._wizard_config),
+            "subgraph": self._wizard_subgraph,
+        })
+
+    def on_operation_row_activated(self, event: OperationRow.Activated) -> None:
+        """Mouse-click activation on a wizard OperationRow (design-ops-only)."""
+        row = event.row
+        if self._wizard_step_id == "op_select":
+            self._wizard_op = row.op_key
+            self._set_total_steps()
+            self._actions_show_step2()
+        elif self._wizard_step_id == "subgraph_select":
+            self._wizard_subgraph = row.op_key
+            nxt = next_step_id(self._wizard_ctx(), "subgraph_select")
+            if nxt is not None:
+                self._render_wizard_step(nxt)
+        elif (
+            self._wizard_step_id == "node_select"
+            and self._wizard_op in _NODE_SELECT_STEP_OPS
+        ):
+            self._wizard_config["_selected_node"] = row.op_key
+            container = self.query_one("#actions_content", VerticalScroll)
+            for op_row in container.query(OperationRow):
+                op_row.selected = (op_row.op_key == row.op_key)
+            try:
+                self.query_one(".btn_actions_next", Button).disabled = False
+            except Exception:
+                pass
+
+    def on_descendant_focus(self, event) -> None:
+        """Track wizard node selection: focusing an OperationRow on the
+        node-select step seeds _selected_node and enables Next (moved from
+        BrainstormApp.on_descendant_focus, t983_11)."""
+        if (
+            isinstance(event.widget, OperationRow)
+            and self._wizard_step_id == "node_select"
+            and self._wizard_op in _NODE_SELECT_STEP_OPS
+        ):
+            self._wizard_config["_selected_node"] = event.widget.op_key
+            container = self.query_one("#actions_content", VerticalScroll)
+            for row in container.query(OperationRow):
+                row.selected = (row.op_key == event.widget.op_key)
+            try:
+                self.query_one(".btn_actions_next", Button).disabled = False
+            except Exception:
+                pass
+
+    def _navigate_rows(self, direction: int, container_id: str, row_types: tuple) -> bool:
+        """Navigate up/down among focusable rows in a container.
+
+        Returns True if the event was handled.
+        direction: -1 for up, +1 for down.
+        """
+        try:
+            container = self.query_one(f"#{container_id}")
+        except Exception:
+            return False
+
+        focusable = [w for w in container.children if isinstance(w, row_types) and w.can_focus]
+        if not focusable:
+            return False
+
+        focused = self.focused
+        tabbed = self.query_one(TabbedContent)
+        tabs_widget = tabbed.query_one(Tabs)
+
+        # If focus is on the Tabs bar and direction is down, focus first row
+        if focused is tabs_widget:
+            if direction == 1:
+                focusable[0].focus()
+                focusable[0].scroll_visible()
+                return True
+            return False
+
+        # If no row is focused, focus the first (down) or last (up) row
+        if not isinstance(focused, row_types):
+            target = focusable[0] if direction == 1 else focusable[-1]
+            target.focus()
+            target.scroll_visible()
+            return True
+
+        # Find current index
+        try:
+            idx = focusable.index(focused)
+        except ValueError:
+            focusable[0].focus()
+            focusable[0].scroll_visible()
+            return True
+
+        new_idx = idx + direction
+
+        # At boundary: up past top → focus tabs; down past bottom → stop
+        if new_idx < 0:
+            tabs_widget.focus()
+            return True
+        if new_idx >= len(focusable):
+            return True  # Stop at bottom, don't wrap
+
+        focusable[new_idx].focus()
+        focusable[new_idx].scroll_visible()
+        return True
+
+    def _cycle_confirm_focus(self, direction: int) -> bool:
+        """Cycle focus among focusable descendants of the confirm step container.
+
+        direction: +1 down, -1 up. Returns True if focus moved.
+        """
+        try:
+            container = self.query_one("#actions_content", VerticalScroll)
+        except Exception:
+            return False
+
+        focusable = [
+            w for w in container.query("*")
+            if getattr(w, "can_focus", False) and not getattr(w, "disabled", False)
+        ]
+        if not focusable:
+            return False
+
+        current = self.focused
+        if current in focusable:
+            idx = focusable.index(current)
+            new_idx = (idx + direction) % len(focusable)
+        else:
+            new_idx = 0 if direction == 1 else len(focusable) - 1
+
+        focusable[new_idx].focus()
+        try:
+            focusable[new_idx].scroll_visible()
+        except Exception:
+            pass
+        return True
+
+    def _focus_within(self, container) -> bool:
+        """True if the currently focused widget is `container` or a descendant."""
+        node = self.focused
+        while node is not None:
+            if node is container:
+                return True
+            node = node.parent
+        return False
+
+    def _cycle_wizard_groups(self, direction: int) -> bool:
+        """Tab/Shift+Tab cycle focus between whole control groups on the
+        Compare/Synthesize config step.
+
+        Each group exposes one "entry widget" (the filter box of a
+        FuzzyCheckList, the first section checkbox, the merge-rules TextArea,
+        or the Next button) plus a "membership" widget used to detect which
+        group currently holds focus. Returns True if handled.
+        """
+        try:
+            container = self.query_one("#actions_content", VerticalScroll)
+        except Exception:
+            return False
+
+        def _fcl_group(fcl_id):
+            try:
+                fcl = container.query_one(f"#{fcl_id}", FuzzyCheckList)
+                return (fcl.query_one(Input), fcl)
+            except Exception:
+                return None
+
+        # (entry_widget, membership_widget) pairs, in Tab order.
+        groups: list[tuple] = []
+        if self._wizard_op == "synthesize":
+            node_grp = _fcl_group("syn_nodes")
+            if node_grp:
+                groups.append(node_grp)
+            try:
+                ta = container.query_one(TextArea)
+                groups.append((ta, ta))
+            except Exception:
+                pass
+        elif self._wizard_op == "compare":
+            node_grp = _fcl_group("cmp_nodes")
+            if node_grp:
+                groups.append(node_grp)
+            dim_grp = _fcl_group("cmp_dims")
+            if dim_grp:
+                groups.append(dim_grp)
+            try:
+                box = container.query_one("#cmp_sections_box", Container)
+                secs = list(box.query("Checkbox.chk_section"))
+                if secs:
+                    groups.append((secs[0], box))
+            except Exception:
+                pass
+        try:
+            btn = container.query_one(".btn_actions_next", Button)
+            groups.append((btn, btn))
+        except Exception:
+            pass
+
+        if not groups:
+            return False
+
+        current = None
+        for i, (_entry, member) in enumerate(groups):
+            if self._focus_within(member):
+                current = i
+                break
+
+        if current is None:
+            new_idx = 0 if direction == 1 else len(groups) - 1
+        else:
+            new_idx = (current + direction) % len(groups)
+
+        entry = groups[new_idx][0]
+        entry.focus()
+        try:
+            entry.scroll_visible()
+        except Exception:
+            pass
+        return True
+
+    def _actions_show_step1(self) -> None:
+        """Render Step 1: operation selection list."""
+        self._wizard_op = ""
+        self._wizard_config = {}
+        self._wizard_has_sections = False
+        self._cmp_section_checks = {}
+        # Refresh the cached subgraph count for the selector predicate (one
+        # disk read per wizard entry; _wizard_ctx then stays I/O-free).
+        self._wizard_subgraph_count = len(list_subgraphs(self.app.session_path))
+        self._wizard_subgraph = UMBRELLA_SUBGRAPH
+        self._enter_wizard_step("op_select")
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+
+        if self.app.read_only:
+            container.mount(Label("[italic]Session is read-only. No operations available.[/]"))
+            return
+
+        container.mount(Label("Step 1 \u2014 Select Operation  (\u2191\u2193 Navigate  Enter Select  ? Help)", classes="actions_step_indicator"))
+
+        status = self.app.session_data.get("status", "")
+
+        # Design operations. Session-lifecycle ops moved to the dedicated
+        # Session tab (t983_8) — the wizard op list is design-ops-only now.
+        container.mount(Label("Design Operations", classes="actions_section_title"))
+        design_disabled = status not in ("init", "active")
+        for op_key, label, desc in _DESIGN_OPS:
+            container.mount(OperationRow(op_key, label, desc, disabled=design_disabled))
+
+        # Recent operations history
+        self._mount_recent_ops(container)
+
+        # Focus first enabled operation after widgets are rendered
+        self.call_after_refresh(self._focus_first_operation)
+
+    def _focus_first_operation(self) -> None:
+        """Focus the first enabled OperationRow in the actions tab."""
+        try:
+            # Scope to the actions container — the Session tab also hosts
+            # OperationRows (t983_8), so an app-wide query could grab those.
+            rows = self.query_one("#actions_content", VerticalScroll).query(OperationRow)
+            for row in rows:
+                if not row.op_disabled:
+                    row.focus()
+                    break
+        except Exception:
+            pass
+
+    def _focus_operation_row(self, op_key: str) -> None:
+        """Focus the OperationRow matching ``op_key`` (fallback: first enabled).
+
+        Used to pre-highlight a default choice (e.g. HEAD on the decompose
+        source-node step); focusing the row drives ``on_descendant_focus`` to
+        seed ``_selected_node`` and enable Next.
+        """
+        try:
+            rows = list(self.query("OperationRow"))
+            for row in rows:
+                if row.op_key == op_key and not row.op_disabled:
+                    row.focus()
+                    return
+            for row in rows:
+                if not row.op_disabled:
+                    row.focus()
+                    return
+        except Exception:
+            pass
+
+    def _mount_op_context_header(self, container: VerticalScroll) -> None:
+        """Mount a one-line dim header showing op name + brief desc.
+
+        Called from step 2 onwards so the user remembers which operation
+        they're configuring. Full description stays in OperationHelpModal,
+        reachable via the op-help shortcut.
+        """
+        info = _OP_LABELS.get(self._wizard_op)
+        if not info:
+            return
+        label_text, desc = info
+        help_key = resolve_key(self._shortcuts_scope, "op_help", "H") or "H"
+        container.mount(
+            Label(
+                f"[dim]{label_text} — {desc}  ({help_key} for details)[/dim]",
+                classes="actions_op_context",
+            )
+        )
+
+    def _mount_recent_ops(self, container: VerticalScroll) -> None:
+        """Append recent operation history from br_groups.yaml."""
+        groups_path = self.app.session_path / GROUPS_FILE
+        if not groups_path.is_file():
+            return
+        try:
+            groups_data = read_yaml(str(groups_path))
+        except Exception:
+            return
+        groups = groups_data.get("groups", {}) if groups_data else {}
+        if not groups:
+            return
+        container.mount(Label("Recent Operations", classes="actions_section_title"))
+        for name in list(groups.keys())[-5:]:
+            info = groups[name] if isinstance(groups[name], dict) else {}
+            op = info.get("operation", "?")
+            gstatus = info.get("status", "?")
+            created = info.get("created_at", "")
+            container.mount(Label(f"  [dim]{name}[/]  {op}  [{gstatus}]  {created}"))
+
+    def _set_total_steps(self) -> None:
+        """Reset per-op wizard flags when an operation is chosen.
+
+        The step count is now derived from the active step set (see
+        ``step_position``), so this only resets the section cache that the
+        predicates read. Kept as a named hook because op-select call-sites
+        invoke it right after setting ``_wizard_op``.
+        """
+        self._wizard_has_sections = False
+        self._cmp_section_checks = {}
+        self._wizard_subgraph = UMBRELLA_SUBGRAPH
+        # Clear the fast-track preset arm whenever a new op is selected; the
+        # fast-track branch re-arms it after calling this. Keeps the preset's
+        # link-to-task pre-check from bleeding into a later normal decompose.
+        self._wizard_fast_track = False
+
+    def _wizard_ctx(self) -> dict:
+        """Context dict consumed by the pure step resolver (no I/O)."""
+        return {
+            "op": self._wizard_op,
+            "node_has_sections": self._wizard_has_sections,
+            "subgraph_count": self._wizard_subgraph_count,
+            # Set by the contextual launch path (t983_6) to drop the node_select
+            # step when the node/marked-set is already known.
+            "pre_seeded_node": bool(self._wizard_config.get("pre_seeded_node")),
+        }
+
+    def _enter_wizard_step(self, step_id: str) -> None:
+        """Mark the current wizard step and derive its 'Step X of Y' numbers."""
+        self._wizard_step_id = step_id
+        self._wizard_step, self._wizard_total_steps = step_position(
+            self._wizard_ctx(), step_id
+        )
+
+    def _render_wizard_step(self, step_id: str) -> None:
+        """Render the wizard step with id ``step_id`` (back/next dispatch target)."""
+        renderers = {
+            "op_select": self._actions_show_step1,
+            "subgraph_select": self._actions_show_subgraph_select,
+            "node_select": self._actions_show_node_select,
+            "section_select": self._actions_show_section_select,
+            "config": self._actions_show_config,
+            "confirm": self._actions_show_confirm,
+        }
+        renderer = renderers.get(step_id)
+        if renderer is not None:
+            renderer()
+
+    def _actions_show_step2(self) -> None:
+        """Render the step after op-select (resolver-driven).
+
+        Routes to subgraph-select (multi-subgraph node-select ops), node-select
+        (single-subgraph node-select ops), or config (compare/synthesize),
+        whichever the active step set says comes next after op_select.
+        """
+        nxt = next_step_id(self._wizard_ctx(), "op_select")
+        if nxt is not None:
+            self._render_wizard_step(nxt)
+
+    def _actions_show_subgraph_select(self) -> None:
+        """Optional step: choose which module subgraph the op runs inside.
+
+        Only rendered for subgraph-scoped ops in a 2+ subgraph session (see the
+        ``subgraph_select`` predicate). Defaults the highlighted choice to the
+        most-recently-touched subgraph. Mirrors op-select: Enter/click advances
+        immediately (no Next button).
+        """
+        self._enter_wizard_step("subgraph_select")
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+
+        container.mount(
+            Label(
+                f"Step {self._wizard_step} of {self._wizard_total_steps} "
+                "— Select Subgraph  (↑↓ Navigate  Enter Select  Esc: Back)",
+                classes="actions_step_indicator",
+            )
+        )
+        self._mount_op_context_header(container)
+
+        subgraphs = list_subgraphs(self.app.session_path)
+        # Default selection = most-recently-touched subgraph (first in the list).
+        if self._wizard_op == "module_merge":
+            self._wizard_subgraph = next(
+                (m for m in subgraphs if m != UMBRELLA_SUBGRAPH),
+                UMBRELLA_SUBGRAPH,
+            )
+        else:
+            self._wizard_subgraph = subgraphs[0] if subgraphs else UMBRELLA_SUBGRAPH
+        for module in subgraphs:
+            head = get_head(self.app.session_path, module=module)
+            head_str = head or "(empty)"
+            disabled = self._wizard_op == "module_merge" and module == UMBRELLA_SUBGRAPH
+            container.mount(
+                OperationRow(module, module, f"HEAD: {head_str}", disabled=disabled)
+            )
+        self.call_after_refresh(self._focus_first_operation)
+
+    def _actions_show_node_select(self) -> None:
+        """Step 2: dedicated node selection for explore."""
+        self._wizard_config = {}
+        self._enter_wizard_step("node_select")
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+
+        total = self._wizard_total_steps
+        desc_map = {
+            "explore": "Select Base Node",
+            "module_decompose": "Select Source Node",
+        }
+        desc = desc_map.get(self._wizard_op, "Select Node")
+        container.mount(
+            Label(
+                f"Step {self._wizard_step} of {total} \u2014 {desc}  (Esc: Back)",
+                classes="actions_step_indicator",
+            )
+        )
+        self._mount_op_context_header(container)
+        container.mount(
+            Label("[dim]  \u2191\u2193 Navigate  Enter Select  |  Click node + Next[/dim]")
+        )
+
+        # Scope candidates + HEAD to the selected subgraph (default _umbrella
+        # \u2192 every node, identical to pre-module behaviour).
+        subgraph = self._wizard_subgraph
+        nodes = _nodes_for_subgraph(
+            self.app.session_path, list_nodes(self.app.session_path), subgraph
+        )
+        head = get_head(self.app.session_path, module=subgraph)
+
+        if not nodes:
+            container.mount(
+                Label("[bold yellow]No nodes available.[/] Initialize the session first.")
+            )
+            return
+
+        for nid in nodes:
+            node_data = read_node(self.app.session_path, nid)
+            desc = node_data.get("description", "")
+
+            lbl_parts = [nid]
+            if nid == head:
+                lbl_parts.append("[green]HEAD[/]")
+            lbl = " ".join(lbl_parts)
+
+            container.mount(OperationRow(nid, lbl, desc))
+
+        container.mount(
+            Button("Next \u25b6", variant="primary", classes="btn_actions_next", disabled=True)
+        )
+        # module_decompose defaults its source node to HEAD so the user can
+        # advance immediately; explore requires an explicit pick.
+        # Focusing the HEAD row makes on_descendant_focus seed _selected_node
+        # and enable Next (the same path explore uses for its first row).
+        if self._wizard_op == "module_decompose" and head in nodes:
+            self.call_after_refresh(lambda: self._focus_operation_row(head))
+        else:
+            self.call_after_refresh(self._focus_first_operation)
+
+    def _actions_advance_from_node_select(self, node: str) -> bool:
+        """Advance the wizard out of the node-select step for ``node``.
+
+        Canonical logic shared by the Next button, keyboard Enter, and the
+        NodeActionSelectModal callback. Returns False (after notifying) when
+        the operation cannot proceed; True once the next step is rendered.
+        """
+        if not node:
+            self.notify("Select a node first", severity="warning")
+            return False
+        # Cache section presence into the ctx source BEFORE transitioning so the
+        # step resolver sees it (else section_select would be skipped). This disk
+        # read happens once here, never inside a per-render predicate. Only the
+        # node-select ops have a section_select step; module_decompose reuses the
+        # node-select UI but skips straight to config.
+        if self._wizard_op in _NODE_SELECT_OPS:
+            self._wizard_has_sections = self.app._node_has_sections(node)
+            if self._wizard_has_sections:
+                self._actions_show_section_select()
+                return True
+        self._actions_show_config()
+        return True
+
+    def _actions_show_section_select(self) -> None:
+        """Optional step (post node-select): pick sections to target."""
+        node = self._wizard_config.get("_selected_node", "")
+        secs = self.app._node_sections(node)
+
+        # Mark sections present so the resolver counts this step, then derive
+        # the indicator numbers from the active set.
+        self._wizard_has_sections = True
+        self._enter_wizard_step("section_select")
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+
+        total = self._wizard_total_steps
+        container.mount(
+            Label(
+                f"Step {self._wizard_step} of {total} \u2014 Select Sections for {node}  (Esc: Back)",
+                classes="actions_step_indicator",
+            )
+        )
+        self._mount_op_context_header(container)
+        container.mount(
+            Label("[dim]Leave all unchecked to target the whole document.[/]")
+        )
+        for s in secs:
+            dims = f" [dim][{', '.join(s.dimensions)}][/]" if s.dimensions else ""
+            container.mount(Checkbox(f"{s.name}{dims}", classes="chk_section"))
+        container.mount(
+            Button("Next \u25b6", variant="primary", classes="btn_actions_next")
+        )
+
+    def _actions_show_config(self) -> None:
+        """Render config step: operation-specific configuration form."""
+        op = self._wizard_op
+        self._enter_wizard_step("config")
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+
+        total = self._wizard_total_steps
+        step = self._wizard_step
+        container.mount(
+            Label(
+                f"Step {step} of {total} \u2014 Configure: {op.title()}  (Esc: Back)",
+                classes="actions_step_indicator",
+            )
+        )
+        self._mount_op_context_header(container)
+
+        if op in ("compare", "synthesize"):
+            container.mount(Label(
+                "[dim]  ↑↓ Navigate  Space Toggle  "
+                "Tab Switch group  Type to filter[/]"))
+
+        if op == "explore":
+            self._config_explore_no_node(container)
+        elif op == "compare":
+            self._config_compare(container)
+        elif op == "synthesize":
+            self._config_synthesize(container)
+        elif op == "module_decompose":
+            self._config_module_decompose(container)
+        elif op == "module_merge":
+            self._config_module_merge(container)
+        elif op == "module_sync":
+            self._config_module_sync(container)
+
+    def _preseed_multi_node_checklist(self, op_key: str, marked: list[str]) -> None:
+        """Pre-check the compare/synthesize source-node FuzzyCheckList from the
+        contextual marked set (t983_6).
+
+        Called after ``_actions_show_config`` has mounted the config form for a
+        contextually-launched compare/synthesize op. Checks the rows for the
+        marked nodes; the user can still adjust the selection. For compare, the
+        section/dimension lists derive from the *checked* nodes and were
+        refreshed (empty) by ``_config_compare`` before these boxes were
+        checked, so re-run those refreshes here.
+        """
+        fcl_id = "cmp_nodes" if op_key == "compare" else "syn_nodes"
+        try:
+            fcl = self.query_one(f"#{fcl_id}", FuzzyCheckList)
+        except Exception:
+            return
+        wanted = set(marked)
+        for cb in fcl.query("Checkbox.chk_node"):
+            cb.value = str(cb.label) in wanted
+        if op_key == "compare":
+            self._refresh_compare_sections()
+            self._refresh_compare_dimensions()
+
+    def _focus_fcl_filter(self, fcl_id: str) -> None:
+        """Focus the filter Input of a FuzzyCheckList by widget id."""
+        try:
+            fcl = self.query_one(f"#{fcl_id}", FuzzyCheckList)
+            fcl.query_one(Input).focus()
+        except Exception:
+            pass
+
+    def action_cycle_preview_ratio(self) -> None:
+        """Cycle the config-step preview split: balanced → proposal → input."""
+        from textual.actions import SkipAction
+        panes = self.query(ProposalPreviewPane)
+        splits = self.query(".config_preview_split")
+        if not panes or not splits:
+            raise SkipAction()
+        pane = panes.first()
+        lefts = splits.first().query(".config_preview_left")
+        if not lefts:
+            raise SkipAction()
+        left = lefts.first()
+        # Capture the current top line BEFORE the width reflow, then restore it.
+        pane.on_ratio_change()
+        self._preview_ratio = (getattr(self, "_preview_ratio", 0) + 1) % 3
+        self._apply_preview_ratio(left, pane, self._preview_ratio)
+
+    def action_toggle_preview_numbered(self) -> None:
+        """Toggle the config-step proposal preview between Markdown and the
+        numbered source-line view (t954)."""
+        from textual.actions import SkipAction
+        panes = self.query(ProposalPreviewPane)
+        if not panes:
+            raise SkipAction()
+        panes.first().toggle_numbered()
+
+    def _cycle_preview_focus(self, forward: bool = True) -> bool:
+        """Tab / Shift+Tab on the config-with-preview step → step the focus ring.
+
+        Cycles editboxes → minimap → proposal pane → wrap, so the proposal
+        markdown is reachable (and scrollable) by Tab alongside the inputs and
+        the minimap. Returns True when focus was moved (caller stops the event);
+        False when there is no preview pane (default Tab traversal runs).
+        """
+        ring = self._preview_focus_ring()
+        if not ring:
+            return False
+        focused = self.screen.focused
+        cur = -1
+        for i, member in enumerate(ring):
+            if focused is member or (
+                focused is not None and focused in member.walk_children()
+            ):
+                cur = i
+                break
+        if cur == -1:
+            target = ring[0]
+        else:
+            target = ring[(cur + (1 if forward else -1)) % len(ring)]
+        minimaps = list(self.query(".preview_proposal_minimap"))
+        if minimaps and target is minimaps[0]:
+            target.focus_first_row()
+        else:
+            target.focus()
+        return True
+
+    def _config_explore_no_node(self, container: VerticalScroll) -> None:
+        """Explore config (node already selected): mandate, parallel count.
+
+        Lays out input-left / proposal-preview-right via the shared
+        :meth:`_mount_config_with_preview` helper (t945_1) so the selected base
+        node's proposal is visible beside the Exploration Mandate input.
+        """
+        node_id = self._wizard_config.get("_selected_node", "?")
+        try:
+            proposal = read_proposal(self.app.session_path, node_id)
+        except Exception:
+            proposal = "*No proposal found.*"
+
+        def left_builder(left: VerticalScroll) -> None:
+            left.mount(Label(f"[bold]Base Node:[/] {node_id}"))
+            left.mount(Label("[bold]Exploration Mandate[/]"))
+            left.mount(TextArea(""))
+            left.mount(CycleField("Parallel explorers", ["1", "2", "3", "4"], initial="2"))
+            left.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+        self._mount_config_with_preview(container, left_builder, proposal)
+
+    def _config_compare(self, container: VerticalScroll) -> None:
+        """Compare config: multi-node checkboxes + dimension checkboxes + sections."""
+        nodes = list_nodes(self.app.session_path)
+
+        container.mount(Label("[bold]Select Nodes to Compare (2+)[/]"))
+        container.mount(FuzzyCheckList(
+            nodes, item_class="chk_node",
+            placeholder="Type to filter nodes\u2026", id="cmp_nodes"))
+
+        container.mount(Label("[bold]Dimensions[/]"))
+        # Mounted empty; _refresh_compare_dimensions populates it scoped to the
+        # checked nodes (grouped, descriptive, active-default) once nodes are
+        # selected. Keeping the FuzzyCheckList present preserves its filter
+        # Input + the cmp_dims Tab-nav group even before any node is checked.
+        container.mount(FuzzyCheckList(
+            [], item_class="chk_dim",
+            placeholder="Type to filter dimensions\u2026", id="cmp_dims"))
+
+        container.mount(Label("[bold]Target Sections (optional)[/]", id="cmp_sections_label"))
+        container.mount(Container(id="cmp_sections_box"))
+
+        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+        self._cmp_section_checks = {}
+        self._cmp_dim_checks = {}
+        self.call_after_refresh(self._refresh_compare_sections)
+        self.call_after_refresh(self._refresh_compare_dimensions)
+        self.call_after_refresh(lambda: self._focus_fcl_filter("cmp_nodes"))
+
+    def _refresh_compare_sections(self) -> None:
+        """(Re)mount compare section checkboxes based on currently checked nodes."""
+        try:
+            box = self.query_one("#cmp_sections_box", Container)
+        except Exception:
+            return
+
+        for cb in box.query("Checkbox.chk_section"):
+            self._cmp_section_checks[_parse_section_label(str(cb.label))] = bool(cb.value)
+        box.remove_children()
+
+        checked: list[str] = []
+        for cb in self.query("Checkbox.chk_node"):
+            if cb.value:
+                checked.append(str(cb.label))
+
+        if len(checked) < 1:
+            box.mount(Label("[dim]Select nodes to see comparable sections.[/]"))
+            return
+
+        per_node: dict[str, list[str]] = {
+            nid: [s.name for s in self.app._node_sections(nid)] for nid in checked
+        }
+        inter = _sections_intersection(per_node)
+
+        if not inter:
+            box.mount(Label("[dim]No sections are present in all selected nodes.[/]"))
+            return
+
+        for name in inter:
+            value = self._cmp_section_checks.get(name, False)
+            box.mount(Checkbox(name, value=value, classes="chk_section"))
+
+    def _refresh_compare_dimensions(self) -> None:
+        """(Re)mount compare dimension checkboxes scoped to the checked nodes.
+
+        Mirrors ``_refresh_compare_sections``: preserves prior toggles across
+        node-selection changes, scopes the dimension list to the union of the
+        checked nodes' dimensions (grouped by prefix under subheaders),
+        default-checks the session's ``active_dimensions`` (falling back to
+        all-checked when none), and labels each row ``"<full_key> — <value>"``
+        so the dimension's meaning is visible.
+        """
+        try:
+            fcl = self.query_one("#cmp_dims", FuzzyCheckList)
+        except Exception:
+            return
+
+        # Preserve current toggles across node-selection changes.
+        for cb in fcl.query("Checkbox.chk_dim"):
+            self._cmp_dim_checks[_parse_dimension_label(str(cb.label))] = bool(cb.value)
+
+        checked_nodes = [
+            str(cb.label) for cb in self.query("Checkbox.chk_node") if cb.value
+        ]
+        if not checked_nodes:
+            fcl.set_grouped_items([])
+            return
+
+        grouped = self._dimension_entries_for_nodes(checked_nodes)
+        active = set(get_active_dimensions(self.app.session_path))
+        groups: list[tuple[str, list[tuple[str, bool]]]] = []
+        for _prefix, label, entries in grouped:
+            rows: list[tuple[str, bool]] = []
+            for _suffix, value, full_key in entries:
+                v = str(value)
+                trunc = v if len(v) <= 60 else v[:57] + "…"
+                if full_key in self._cmp_dim_checks:
+                    checked = self._cmp_dim_checks[full_key]
+                elif active:
+                    checked = full_key in active
+                else:
+                    checked = True  # fallback = old default_checked=True
+                rows.append((f"{full_key} — {trunc}", checked))
+            groups.append((label, rows))
+        fcl.set_grouped_items(groups)
+
+    def _config_synthesize(self, container: VerticalScroll) -> None:
+        """Synthesize config: multi-node checkboxes + merge rules."""
+        nodes = list_nodes(self.app.session_path)
+
+        container.mount(Label("[bold]Select Source Nodes (2+)[/]"))
+        container.mount(FuzzyCheckList(
+            nodes, item_class="chk_node",
+            placeholder="Type to filter nodes\u2026", id="syn_nodes"))
+
+        container.mount(Label("[bold]Merge Rules[/]"))
+        container.mount(TextArea(""))
+        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+        self.call_after_refresh(lambda: self._focus_fcl_filter("syn_nodes"))
+
+    def _config_module_decompose(self, container: VerticalScroll) -> None:
+        """Module decompose config: module list + extraction options.
+
+        When entered via the "Fast-track this module" preset
+        (``_wizard_fast_track``, t756_6 UC-3), the link-to-task checkbox is
+        pre-armed so naming one module + confirm creates the subgraph root and
+        the linked aitask in a single pass. The op, config-collection, confirm,
+        and execute paths are otherwise identical to the multi-module flow.
+
+        Lays out input-left / proposal-preview-right via the shared
+        :meth:`_mount_config_with_preview` helper (t945_1) so the chosen source
+        node's proposal is visible beside the Decomposition Plan input.
+        """
+        fast_track = getattr(self, "_wizard_fast_track", False)
+        # Source node: the user's pick on the source-node step, else subgraph
+        # HEAD (express entry paths skip node-select).
+        node_id = self._wizard_config.get("_selected_node") or get_head(
+            self.app.session_path, module=self._wizard_subgraph
+        )
+        try:
+            proposal = (
+                read_proposal(self.app.session_path, node_id)
+                if node_id else "*No proposal found.*"
+            )
+        except Exception:
+            proposal = "*No proposal found.*"
+
+        def left_builder(left: VerticalScroll) -> None:
+            if fast_track:
+                left.mount(Label(
+                    "[dim]Fast-track: name one module — a linked aitask is "
+                    "created in one pass.[/]"
+                ))
+            left.mount(Label(f"[bold]Source Subgraph:[/] {self._wizard_subgraph}"))
+            left.mount(Label(f"[bold]Source Node:[/] {node_id or '(none)'}"))
+            left.mount(Label("[bold]Decompose mode[/]"))
+            left.mount(RadioSet(
+                RadioButton("Manual — I type the names", value=True),
+                RadioButton("Agent-proposed — infer from the Plan"),
+                RadioButton("From section markers"),
+                classes="rs_decompose_mode",
+            ))
+            left.mount(Label("[bold]Modules (used by Manual / From-sections)[/]"))
+            left.mount(TextArea("", classes="ta_module_decompose_modules"))
+            link_chk = Checkbox("Create linked child tasks", classes="chk_link_to_task")
+            link_chk.value = bool(fast_track)
+            left.mount(link_chk)
+            left.mount(Label("[bold]Decomposition Plan (optional)[/]"))
+            left.mount(TextArea("", classes="ta_module_decompose_plan"))
+            review_chk = Checkbox(
+                "Review before apply", classes="chk_review_before_apply"
+            )
+            review_chk.value = True
+            left.mount(review_chk)
+            left.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+
+        self._mount_config_with_preview(container, left_builder, proposal)
+
+    def _config_module_merge(self, container: VerticalScroll) -> None:
+        """Module merge config: ancestor destination + merge-up rules."""
+        source = self._wizard_subgraph
+        ancestors = self.app._ancestor_subgraphs(source)
+        source_head = get_head(self.app.session_path, module=source)
+        container.mount(Label(f"[bold]Source Subgraph:[/] {source}"))
+        container.mount(Label(f"[bold]Source HEAD:[/] {source_head or '(none)'}"))
+        if not ancestors:
+            container.mount(
+                Label("[bold yellow]No ancestor destination is available for this source.[/]")
+            )
+        else:
+            container.mount(
+                CycleField(
+                    "Destination subgraph",
+                    ancestors,
+                    initial=ancestors[0],
+                    id="cf_module_merge_destination",
+                )
+            )
+        container.mount(Label("[bold]Merge-Up Rules[/]"))
+        container.mount(TextArea("", classes="ta_module_merge_rules"))
+        container.mount(
+            Button(
+                "Next \u25b6",
+                variant="primary",
+                classes="btn_actions_next",
+                disabled=not bool(ancestors),
+            )
+        )
+
+    def _config_module_sync(self, container: VerticalScroll) -> None:
+        """Module sync config: requires a linked task; surface scan horizon."""
+        module = self._wizard_subgraph
+        gs = _read_graph_state(self.app.session_path)
+        tasks = gs.get("module_tasks")
+        tasks = tasks if isinstance(tasks, dict) else {}
+        linked = tasks.get(module)
+        synced = gs.get("last_synced_at")
+        synced = synced if isinstance(synced, dict) else {}
+        last = synced.get(module) or "(never)"
+        source_head = get_head(self.app.session_path, module=module)
+        container.mount(Label(f"[bold]Module Subgraph:[/] {module}"))
+        container.mount(Label(f"[bold]Source HEAD:[/] {source_head or '(none)'}"))
+        if not linked:
+            container.mount(
+                Label(
+                    "[bold yellow]This module has no linked task (module_tasks). "
+                    "Sync requires one \u2014 use Patch for free-form context.[/]"
+                )
+            )
+        else:
+            container.mount(Label(f"[bold]Linked Task:[/] t{linked}"))
+            container.mount(Label(f"[bold]Last Synced:[/] {last}"))
+            container.mount(Label("[bold]Sync Instructions (optional)[/]"))
+            container.mount(TextArea("", classes="ta_module_sync_instructions"))
+        container.mount(
+            Button(
+                "Next \u25b6",
+                variant="primary",
+                classes="btn_actions_next",
+                disabled=not bool(linked) or not bool(source_head),
+            )
+        )
+
+    def _actions_collect_config(self) -> bool:
+        """Collect and validate config from config step widgets. Returns True if valid."""
+        op = self._wizard_op
+        # Preserve _selected_node from node selection step
+        selected_node = self._wizard_config.get("_selected_node")
+        # Preserve target_sections already chosen in the section-select step
+        prior_target_sections = self._wizard_config.get("target_sections")
+        config: dict = {}
+        if selected_node:
+            config["_selected_node"] = selected_node
+        if prior_target_sections is not None:
+            config["target_sections"] = prior_target_sections
+        container = self.query_one("#actions_content", VerticalScroll)
+
+        if op == "explore":
+            config["base_node"] = selected_node or ""
+            if not config["base_node"]:
+                self.notify("Select a base node first", severity="warning")
+                return False
+            config["mandate"] = container.query_one(TextArea).text.strip()
+            if not config["mandate"]:
+                self.notify("Mandate cannot be empty", severity="warning")
+                return False
+            config["parallel"] = int(container.query_one(CycleField).current_value)
+
+        elif op == "compare":
+            node_cbs = container.query("Checkbox.chk_node")
+            selected = [cb.label for cb in node_cbs if cb.value]
+            if len(selected) < 2:
+                self.notify("Select at least 2 nodes", severity="warning")
+                return False
+            config["nodes"] = [str(lbl) for lbl in selected]
+            dim_cbs = container.query("Checkbox.chk_dim")
+            config["dimensions"] = [
+                _parse_dimension_label(str(cb.label))
+                for cb in dim_cbs if cb.value
+            ]
+            try:
+                box = self.query_one("#cmp_sections_box", Container)
+                sec_cbs = box.query("Checkbox.chk_section")
+                sel_secs = [str(cb.label) for cb in sec_cbs if cb.value]
+                config["target_sections"] = sel_secs or None
+            except Exception:
+                config["target_sections"] = None
+
+        elif op == "synthesize":
+            node_cbs = container.query("Checkbox.chk_node")
+            selected = [cb.label for cb in node_cbs if cb.value]
+            if len(selected) < 2:
+                self.notify("Select at least 2 source nodes", severity="warning")
+                return False
+            config["nodes"] = [str(lbl) for lbl in selected]
+            config["merge_rules"] = container.query_one(TextArea).text.strip()
+            if not config["merge_rules"]:
+                self.notify("Merge rules cannot be empty", severity="warning")
+                return False
+
+        elif op == "module_decompose":
+            config["subgraph"] = self._wizard_subgraph
+            # Use the node chosen on the source-node step, falling back to the
+            # subgraph HEAD (express entry paths skip node-select).
+            config["source_node"] = selected_node or get_head(
+                self.app.session_path, module=self._wizard_subgraph
+            )
+            if not config["source_node"]:
+                self.notify("Selected subgraph has no HEAD", severity="warning")
+                return False
+            # Decompose mode: 0=Manual, 1=Agent-proposed (infer), 2=From sections.
+            mode = container.query_one(
+                ".rs_decompose_mode", RadioSet
+            ).pressed_index
+            module_text = container.query_one(
+                ".ta_module_decompose_modules", TextArea
+            ).text
+            modules = [
+                m.strip()
+                for m in re.split(r"[,\n]+", module_text)
+                if m.strip()
+            ]
+            instructions = container.query_one(
+                ".ta_module_decompose_plan", TextArea
+            ).text.strip()
+            if mode == 1:
+                # Infer: the agent proposes the module set; names field is
+                # ignored, but a Decomposition Plan is required to infer from.
+                if not instructions:
+                    self.notify(
+                        "Agent-proposed mode needs a Decomposition Plan "
+                        "to infer from",
+                        severity="warning",
+                    )
+                    return False
+                modules = []
+            else:
+                if not modules:
+                    self.notify("Enter at least one module name", severity="warning")
+                    return False
+                if len(set(modules)) != len(modules):
+                    self.notify("Module names must be unique", severity="warning")
+                    return False
+            config["modules"] = modules
+            config["from_sections"] = (mode == 2)
+            config["link_to_task"] = bool(
+                container.query_one(".chk_link_to_task", Checkbox).value
+            )
+            config["instructions"] = instructions
+            try:
+                config["review_before_apply"] = bool(
+                    container.query_one(".chk_review_before_apply", Checkbox).value
+                )
+            except Exception:
+                config["review_before_apply"] = True
+
+        elif op == "module_merge":
+            config["source_subgraph"] = self._wizard_subgraph
+            try:
+                dest = container.query_one(
+                    "#cf_module_merge_destination", CycleField
+                ).current_value
+            except Exception:
+                dest = ""
+            if not dest:
+                self.notify("No ancestor destination available", severity="warning")
+                return False
+            if not is_ancestor_subgraph(self.app.session_path, self._wizard_subgraph, dest):
+                self.notify("Destination is not an ancestor", severity="warning")
+                return False
+            config["destination_subgraph"] = dest
+            config["merge_rules"] = container.query_one(
+                ".ta_module_merge_rules", TextArea
+            ).text.strip()
+            if not config["merge_rules"]:
+                self.notify("Merge-up rules cannot be empty", severity="warning")
+                return False
+
+        elif op == "module_sync":
+            module = self._wizard_subgraph
+            config["subgraph"] = module
+            gs = _read_graph_state(self.app.session_path)
+            tasks = gs.get("module_tasks")
+            tasks = tasks if isinstance(tasks, dict) else {}
+            if not tasks.get(module):
+                self.notify(
+                    "Module has no linked task — sync requires one",
+                    severity="warning",
+                )
+                return False
+            try:
+                config["instructions"] = container.query_one(
+                    ".ta_module_sync_instructions", TextArea
+                ).text.strip()
+            except Exception:
+                config["instructions"] = ""
+
+        self._wizard_config = config
+        return True
+
+    def _collect_target_sections(self) -> None:
+        """Collect checked section names from the section-select step into wizard config."""
+        container = self.query_one("#actions_content", VerticalScroll)
+        names: list[str] = []
+        for cb in container.query("Checkbox.chk_section"):
+            if cb.value:
+                names.append(_parse_section_label(str(cb.label)))
+        self._wizard_config["target_sections"] = names or None
+
+    def _actions_show_confirm(self) -> None:
+        """Render final confirm step: summary + launch/confirm button."""
+        self._enter_wizard_step("confirm")
+        total = self._wizard_total_steps
+        step = self._wizard_step
+
+        container = self.query_one("#actions_content", VerticalScroll)
+        container.remove_children()
+        container.mount(Label(f"Step {step} of {total} \u2014 Confirm  (Esc: Back)", classes="actions_step_indicator"))
+        self._mount_op_context_header(container)
+
+        summary_lines = self._build_summary()
+        container.mount(Static("\n".join(summary_lines), classes="actions_summary"))
+
+        # Session ops left the wizard (t983_8) — the confirm step is design-ops
+        # only, so the launch-mode field always shows.
+        default_mode = _brainstorm_launch_mode_default(self._wizard_op)
+        container.mount(
+            CycleField(
+                "Launch mode",
+                sorted(VALID_LAUNCH_MODES),
+                initial=default_mode,
+                id="launch-mode-field",
+            )
+        )
+        if not is_tmux_available():
+            container.mount(
+                Static(
+                    "[dim]tmux not installed — interactive will fall back "
+                    "to a standalone terminal (no monitor integration)[/]",
+                    classes="actions_hint",
+                )
+            )
+
+        container.mount(
+            Horizontal(
+                Button("Launch", variant="primary", classes="btn_actions_launch"),
+                Button("Back", variant="default", classes="btn_actions_back"),
+                classes="actions_buttons",
+            )
+        )
+        self.call_after_refresh(self._focus_confirm_start)
+
+    def _focus_confirm_start(self) -> None:
+        """Move focus to the first focusable widget on the confirm screen."""
+        try:
+            container = self.query_one("#actions_content", VerticalScroll)
+        except Exception:
+            return
+        for w in container.query("*"):
+            if getattr(w, "can_focus", False) and not getattr(w, "disabled", False):
+                w.focus()
+                return
+
+    def _build_summary(self) -> list[str]:
+        """Build summary lines for step 3 display."""
+        op = self._wizard_op
+        cfg = self._wizard_config
+        lines = [f"[bold]Operation:[/] {op.title()}", ""]
+
+        if op == "explore":
+            lines.append(f"[bold]Base Node:[/] {cfg['base_node']}")
+            lines.append(f"[bold]Parallel Explorers:[/] {cfg['parallel']}")
+            lines.append("[bold]Mandate:[/]")
+            lines.append(cfg["mandate"])
+        elif op == "compare":
+            lines.append(f"[bold]Nodes:[/] {', '.join(cfg['nodes'])}")
+            dims_str = ", ".join(cfg["dimensions"]) if cfg["dimensions"] else "(all)"
+            lines.append(f"[bold]Dimensions:[/] {dims_str}")
+        elif op == "synthesize":
+            lines.append(f"[bold]Source Nodes:[/] {', '.join(cfg['nodes'])}")
+            lines.append("[bold]Merge Rules:[/]")
+            lines.append(cfg["merge_rules"])
+        elif op == "module_decompose":
+            lines.append(f"[bold]Source Subgraph:[/] {cfg['subgraph']}")
+            lines.append(f"[bold]Source HEAD:[/] {cfg['source_node']}")
+            lines.append(f"[bold]Modules:[/] {', '.join(cfg['modules'])}")
+            lines.append(
+                f"[bold]From Sections:[/] {str(cfg['from_sections']).lower()}"
+            )
+            lines.append(
+                f"[bold]Link To Task:[/] {str(cfg['link_to_task']).lower()}"
+            )
+            if cfg.get("instructions"):
+                lines.append("[bold]Decomposition Plan:[/]")
+                lines.append(cfg["instructions"])
+        elif op == "module_merge":
+            lines.append(f"[bold]Source Subgraph:[/] {cfg['source_subgraph']}")
+            lines.append(
+                f"[bold]Destination Subgraph:[/] {cfg['destination_subgraph']}"
+            )
+            lines.append("[bold]Merge-Up Rules:[/]")
+            lines.append(cfg["merge_rules"])
+        elif op == "module_sync":
+            module = cfg["subgraph"]
+            gs = _read_graph_state(self.app.session_path)
+            tasks = gs.get("module_tasks")
+            tasks = tasks if isinstance(tasks, dict) else {}
+            synced = gs.get("last_synced_at")
+            synced = synced if isinstance(synced, dict) else {}
+            lines.append(f"[bold]Module Subgraph:[/] {module}")
+            lines.append(f"[bold]Linked Task:[/] t{tasks.get(module, '?')}")
+            lines.append(f"[bold]Last Synced:[/] {synced.get(module) or '(never)'}")
+            if cfg.get("instructions"):
+                lines.append("[bold]Sync Instructions:[/]")
+                lines.append(cfg["instructions"])
+        # Session ops left the wizard (t983_8); their confirmation now lives in
+        # the Session tab (_session_op_summary).
+
+        ts = cfg.get("target_sections")
+        if ts:
+            lines.append(f"[bold]Sections:[/] {', '.join(ts)}")
+
+        default_mode = _brainstorm_launch_mode_default(op)
+        lines.append(f"[bold]Launch mode:[/] {default_mode} (editable below)")
+
+        return lines
+
+    @on(Checkbox.Changed, ".chk_node")
+    def _on_cmp_node_changed(self, event: Checkbox.Changed) -> None:
+        """Re-render compare section + dimension checkboxes on node-selection change."""
+        if self._wizard_op != "compare":
+            return
+        self._refresh_compare_sections()
+        self._refresh_compare_dimensions()
+
+    @on(Button.Pressed, ".btn_actions_back")
+    def _on_actions_back(self) -> None:
+        """Handle Back button (confirm step) — go to the previous active step."""
+        prev = prev_step_id(self._wizard_ctx(), self._wizard_step_id)
+        if prev is not None:
+            self._render_wizard_step(prev)
+
+    @on(Button.Pressed, ".btn_actions_next")
+    def _on_actions_next(self) -> None:
+        """Handle Next button — dispatch by the current step id."""
+        if self._wizard_step_id == "node_select":
+            # Guarded advance (section/config routing).
+            self._actions_advance_from_node_select(
+                self._wizard_config.get("_selected_node", "")
+            )
+        elif self._wizard_step_id == "section_select":
+            # Collect sections, then go to config.
+            self._collect_target_sections()
+            self._actions_show_config()
+        elif self._wizard_step_id == "config":
+            if self._actions_collect_config():
+                self._actions_show_confirm()
+
+
+    def _mount_config_with_preview(self, container, left_builder, proposal_text):
+        """Lay out a config step as input-left / proposal-preview-right.
+
+        *left_builder* receives the left ``VerticalScroll`` and mounts the op's
+        own widgets into it verbatim, so the existing ``_actions_collect_config``
+        collectors keep resolving them via the recursive ``#actions_content``
+        query. The right :class:`ProposalPreviewPane` shows *proposal_text* with
+        a navigable minimap. The pane adds no input widgets, so explore's
+        single-match ``query_one(TextArea)`` / ``query_one(CycleField)`` stay
+        unambiguous.
+        """
+        left = VerticalScroll(classes="config_preview_left")
+        pane = ProposalPreviewPane(classes="config_preview_pane")
+        split = Horizontal(left, pane, classes="config_preview_split")
+        container.mount(split)
+        self._preview_ratio = 0
+
+        def _fill() -> None:
+            left_builder(left)
+            pane.populate(proposal_text)
+
+        # Defer nested mounts until the split has settled (mirrors the
+        # call_after_refresh pattern used by the compare/synthesize configs).
+        self.call_after_refresh(_fill)
+
+    def _apply_preview_ratio(self, left, pane, ratio: int) -> None:
+        """Set the width split by swapping the ratio_* class on both panes.
+
+        ratio 0 = balanced (50/50, no class), 1 = proposal-wide, 2 = input-wide.
+        """
+        ratio_classes = {1: "ratio_proposal_wide", 2: "ratio_input_wide"}
+        for w in (left, pane):
+            w.remove_class("ratio_proposal_wide")
+            w.remove_class("ratio_input_wide")
+        cls = ratio_classes.get(ratio)
+        if cls:
+            left.add_class(cls)
+            pane.add_class(cls)
+
+    def _preview_focus_ring(self) -> list:
+        """Ordered Tab focus ring for the config-with-preview step.
+
+        Left input widgets (each editbox/control in DOM order), then the section
+        minimap (only when it is shown), then the scrollable proposal markdown
+        pane. Returns ``[]`` when no preview pane is mounted (other Actions-tab
+        steps fall back to their own / default Tab handling).
+        """
+        panes = self.query(ProposalPreviewPane)
+        splits = self.query(".config_preview_split")
+        if not panes or not splits:
+            return []
+        pane = panes.first()
+        ring: list = []
+
+        def _ancestor_in_ring(w) -> bool:
+            p = w.parent
+            while p is not None:
+                if p in ring:
+                    return True
+                p = p.parent
+            return False
+
+        lefts = splits.first().query(".config_preview_left")
+        if lefts:
+            # Outermost focusable per control group (e.g. the RadioSet, not its
+            # individual RadioButtons), in DOM order.
+            for w in lefts.first().query("*"):
+                if not (w.can_focus and w.display and not w.disabled):
+                    continue
+                if _ancestor_in_ring(w):
+                    continue
+                ring.append(w)
+        minimaps = list(pane.query(".preview_proposal_minimap"))
+        if minimaps and minimaps[0].display:
+            ring.append(minimaps[0])
+        # Append whichever content view is currently shown: the markdown pane by
+        # default, or the numbered source view when toggled (ctrl+shift+l). The
+        # minimap above is already gated on .display, so numbered mode (which
+        # hides it) drops it from the ring automatically.
+        if getattr(pane, "_numbered", False):
+            numbered = list(pane.query("#preview_proposal_numbered"))
+            if numbered:
+                ring.append(numbered[0])
+        else:
+            contents = list(pane.query("#preview_proposal_content"))
+            if contents:
+                ring.append(contents[0])
+        return ring
+
+    def _dimension_entries_for_nodes(self, node_ids):
+        """Union of the given nodes' dimensions, grouped by prefix.
+
+        Returns ``group_dimensions_by_prefix`` output:
+        ``[(prefix, label, [(suffix, value, full_key)])]``. **Union, not
+        intersection** — a dimension present on only one selected node is still
+        a valid comparison axis, and intersection risks an empty list when
+        nodes carry divergent dimension sets. Scoped to the *selected* nodes,
+        it still shrinks far below the whole-graph key set.
+        """
+        merged: dict[str, str] = {}
+        for nid in node_ids:
+            try:
+                data = read_node(self.app.session_path, nid)
+            except Exception:
+                continue
+            for k, v in extract_dimensions(data).items():
+                merged.setdefault(k, str(v))
+        return group_dimensions_by_prefix(merged)
+
+
 class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     """Textual app for interactive brainstorm session orchestration."""
 
@@ -3967,7 +5529,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # t983_9 (running-strip/keybinding deconflict: tabs b/s/r), which
         # reclaims `r` for "Running".
         Binding("c", "compare_matrix", "Compare", show=False),
-        Binding("a", "tab_actions", "Actions", show=False),
+        # t983_11: `a`/Actions tab removed — `A` (node_action) opens the
+        # Operations dialog, which launches the contextual wizard modal.
         # `s` opens the Session-lifecycle tab (t983_8); `r` opens the Running
         # monitor (renamed from Status by t983_9, freed from `s`/`r` churn by
         # t983_7).
@@ -3976,9 +5539,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("enter", "open_node_detail", "Open detail"),
         Binding("A", "node_action", "Node action"),
         Binding("f", "toggle_deferred", "Defer module"),
-        Binding("H", "op_help", "Op help"),
-        Binding("ctrl+shift+b", "cycle_preview_ratio", "Preview width"),
-        Binding("ctrl+shift+l", "toggle_preview_numbered", "Line numbers"),
+        # t983_11: op_help + preview-pane toggles moved to ActionsWizardScreen
+        # (the wizard is a modal now and owns those bindings).
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         Binding("ctrl+shift+x", "retry_explorer_apply",
                 "Retry explorer apply", show=False),
@@ -4078,14 +5640,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             and not isinstance(self.screen, ModalScreen)
         ):
             return None
-        if action == "op_help":
-            try:
-                tabbed = self.query_one(TabbedContent)
-            except Exception:
-                return None
-            if tabbed.active != "tab_actions" or self._wizard_step < 1:
-                return None
-            return True
+        # t983_11: op_help is now an ActionsWizardScreen binding (the wizard is
+        # a modal); the App no longer gates it.
         if action in ("node_action", "toggle_deferred"):
             try:
                 tabbed = self.query_one(TabbedContent)
@@ -4096,16 +5652,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if not self._current_focused_node_id:
                 return None
             return True
-        if action in ("cycle_preview_ratio", "toggle_preview_numbered"):
-            try:
-                tabbed = self.query_one(TabbedContent)
-            except Exception:
-                return None
-            if tabbed.active != "tab_actions" or not self.query(
-                ProposalPreviewPane
-            ):
-                return None
-            return True
+        # t983_11: cycle_preview_ratio / toggle_preview_numbered moved to
+        # ActionsWizardScreen bindings (preview pane lives in the wizard modal).
         required_tab = self._TAB_SCOPED_ACTIONS.get(action)
         if required_tab is None:
             return True
@@ -4181,8 +5729,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         ),
                         id="browse_detail_pane",
                     )
-            with TabPane("(A)ctions", id="tab_actions"):
-                yield VerticalScroll(id="actions_content")
+            # t983_11: the (A)ctions tab is gone — the design-op wizard is now a
+            # contextual modal (ActionsWizardScreen) launched from the Operations
+            # dialog (`A`) / Node Hub (Enter).
             # t983_8: session-lifecycle ops (pause/resume/finalize/archive/delete)
             # get their own tab — they are not node-contextual, so they leave the
             # Actions wizard. Rendered by _refresh_session_tab.
@@ -4203,15 +5752,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if isinstance(self.screen, ModalScreen):
             return
         tabbed = self.query_one(TabbedContent)
-
-        # Tab / Shift+Tab on the Actions tab → cycle the side-by-side preview
-        # focus ring (t945): inputs → minimap → proposal markdown → wrap. No-op
-        # (falls through to default Tab) when no preview pane is mounted.
-        if event.key in ("tab", "shift+tab") and tabbed.active == "tab_actions":
-            if self._cycle_preview_focus(forward=event.key == "tab"):
-                event.prevent_default()
-                event.stop()
-                return
 
         # Down from tab bar: focus first row in active tab
         if event.key == "down":
@@ -4236,7 +5776,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         event.stop()
                         return
                 tab_to_container = {
-                    "tab_actions": ("actions_content", (OperationRow,)),
                     "tab_session": ("session_content", (OperationRow,)),
                     "tab_running": ("status_content", (GroupRow, AgentStatusRow, StatusLogRow)),
                 }
@@ -4274,88 +5813,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 event.stop()
                 return
 
-        # Actions tab wizard navigation
-        if tabbed.active == "tab_actions" and self._wizard_step > 0:
-            # Esc: go back to the previous active wizard step (resolver-driven)
-            if event.key == "escape" and self._wizard_step > 1:
-                prev = prev_step_id(self._wizard_ctx(), self._wizard_step_id)
-                if prev is not None:
-                    self._render_wizard_step(prev)
-                event.prevent_default()
-                event.stop()
-                return
-            # Enter on op-select: choose operation. Session ops left the wizard
-            # for the Session tab (t983_8) — op_select is design-ops-only now.
-            if event.key == "enter" and self._wizard_step_id == "op_select":
-                focused = self.focused
-                if isinstance(focused, OperationRow) and not focused.op_disabled:
-                    self._wizard_op = focused.op_key
-                    self._set_total_steps()
-                    self._actions_show_step2()
-                    event.prevent_default()
-                    event.stop()
-                    return
-            # Enter on subgraph-select: choose subgraph and advance
-            if event.key == "enter" and self._wizard_step_id == "subgraph_select":
-                focused = self.focused
-                if isinstance(focused, OperationRow) and not focused.op_disabled:
-                    self._wizard_subgraph = focused.op_key
-                    nxt = next_step_id(self._wizard_ctx(), "subgraph_select")
-                    if nxt is not None:
-                        self._render_wizard_step(nxt)
-                    event.prevent_default()
-                    event.stop()
-                    return
-            # Enter on node-select: select node and advance
-            if event.key == "enter" and self._wizard_step_id == "node_select":
-                focused = self.focused
-                if isinstance(focused, OperationRow) and not focused.op_disabled:
-                    if self._wizard_op in _NODE_SELECT_STEP_OPS:
-                        self._wizard_config["_selected_node"] = focused.op_key
-                        self._actions_advance_from_node_select(focused.op_key)
-                        event.prevent_default()
-                        event.stop()
-                        return
-            # Compare/Synthesize config step: Tab cycles whole control groups
-            if (
-                event.key in ("tab", "shift+tab")
-                and self._wizard_step_id == "config"
-                and self._wizard_op in ("compare", "synthesize")
-            ):
-                if self._cycle_wizard_groups(-1 if event.key == "shift+tab" else 1):
-                    event.prevent_default()
-                    event.stop()
-                    return
-            # Compare config step: up/down within the section-checkbox group
-            if (
-                event.key in ("up", "down")
-                and self._wizard_step_id == "config"
-                and self._wizard_op == "compare"
-                and isinstance(self.focused, Checkbox)
-                and "chk_section" in self.focused.classes
-            ):
-                if self._navigate_rows(
-                    1 if event.key == "down" else -1,
-                    "cmp_sections_box", (Checkbox,),
-                ):
-                    event.prevent_default()
-                    event.stop()
-                    return
-            # Up/down: navigate OperationRow widgets in the row-select steps
-            if event.key in ("up", "down") and self._wizard_step_id in (
-                "op_select", "subgraph_select", "node_select",
-            ):
-                direction = 1 if event.key == "down" else -1
-                if self._navigate_rows(direction, "actions_content", (OperationRow,)):
-                    event.prevent_default()
-                    event.stop()
-                    return
-            # Up/down: cycle focus among focusable widgets on the confirm step
-            if event.key in ("up", "down") and self._wizard_step_id == "confirm":
-                if self._cycle_confirm_focus(1 if event.key == "down" else -1):
-                    event.prevent_default()
-                    event.stop()
-                    return
+        # t983_11: Actions-tab wizard navigation moved to
+        # ActionsWizardScreen.on_key (the wizard is a modal now; App.on_key
+        # early-returns under any ModalScreen).
 
         # Session tab (t983_8): navigate the lifecycle-op list and dispatch.
         if tabbed.active == "tab_session":
@@ -4723,6 +6183,18 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         self.push_screen(CompareMatrixModal(self.session_path, node_ids))
 
+    def _ancestor_subgraphs(self, source: str) -> list[str]:
+        """Subgraphs that are ancestors of ``source`` (merge destinations).
+
+        Shared by the Operations dialog op-state computation
+        (_node_action_op_states) and the wizard's module-merge config
+        (ActionsWizardScreen._config_module_merge, via self.app)."""
+        return [
+            module for module in list_subgraphs(self.session_path)
+            if module != source
+            and is_ancestor_subgraph(self.session_path, source, module)
+        ]
+
     def _node_action_op_states(self, node_id: str, cardinality: int) -> dict:
         """Thin I/O wrapper over the pure :func:`op_states_for_selection`.
 
@@ -4855,11 +6327,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._update_module_status()
 
     def _on_node_action_result(self, node_id: str, op_key) -> None:
-        """Callback from NodeActionSelectModal: enter the Actions wizard.
+        """Callback from NodeActionSelectModal: open the contextual Actions
+        wizard (t983_11).
 
-        `op_key` is the chosen operation string, or None if cancelled. On
-        cancel nothing happens — no tab was switched, so the user stays on
-        the originating Graph/Dashboard tab.
+        ``op_key`` is the chosen operation string, or None if cancelled. On
+        cancel nothing happens. ``delete`` is handled inline (no wizard); every
+        other op pushes :class:`ActionsWizardScreen`, seeded from the contextual
+        selection — the screen reproduces the per-op starting-step routing in
+        its ``on_mount``, and its dismiss-result is run by ``_on_wizard_result``
+        → ``_execute_design_op``.
         """
         if not op_key:
             return
@@ -4869,93 +6345,26 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 f"Node '{node_id}' no longer exists.", severity="error"
             )
             return
-        if op_key == "fast_track":
-            # UC-3 preset (t756_6): seed a single-module module_decompose with
-            # link-to-task pre-armed, sourced from the focused node's subgraph.
-            # This reuses the module_decompose config/confirm/execute path
-            # verbatim — it is NOT a new op. module_decompose has no node-select
-            # step and the subgraph is already known, so we render config
-            # directly. _set_total_steps clears _wizard_fast_track, so re-arm
-            # the flag after calling it.
-            self._wizard_op = "module_decompose"
-            self._set_total_steps()
-            self._wizard_fast_track = True
-            self._wizard_subgraph = _node_module(self.session_path, node_id)
-            # pre_seeded_node drops the node_select step from the count
-            # (module_decompose is in _NODE_SELECT_STEP_OPS but the subgraph is
-            # already known here — t983_6).
-            self._wizard_config = {"pre_seeded_node": True}
-            self._actions_show_config()
-            self.call_after_refresh(self._enter_actions_tab)
-            return
         if op_key == "delete":
             # Cascade-delete this node and its descendants. Handled inline via a
             # dedicated confirmation modal (like the session-level delete op) —
-            # synchronous, no agent dispatch, no wizard tab switch.
+            # synchronous, no agent dispatch, no wizard.
             self._open_delete_node_modal(node_id)
             return
-        if op_key in ("module_decompose", "module_merge", "module_sync"):
-            # Seed the module op from the focused node's subgraph, mirroring the
-            # fast_track preset but WITHOUT arming _wizard_fast_track. Module ops
-            # have no node-select step, so render config directly. Set
-            # _wizard_subgraph after _set_total_steps (which resets it).
-            self._wizard_op = op_key
-            self._set_total_steps()
-            self._wizard_subgraph = _node_module(self.session_path, node_id)
-            # pre_seeded_node drops the node_select step from the count for
-            # module_decompose (in _NODE_SELECT_STEP_OPS); harmless for
-            # merge/sync whose node_select is already inactive (t983_6).
-            self._wizard_config = {"pre_seeded_node": True}
-            self._actions_show_config()
-            self.call_after_refresh(self._enter_actions_tab)
+        # compare/synthesize pre-check their source checklist from the marked
+        # set; the seed carries it into the screen (t983_6/t983_11).
+        marked = sorted(self._selection.effective())
+        self.push_screen(
+            ActionsWizardScreen(op_key=op_key, node_id=node_id, marked=marked),
+            self._on_wizard_result,
+        )
+
+    def _on_wizard_result(self, result) -> None:
+        """Run the Actions wizard's launch result (t983_11). ``result`` is a
+        ``{op, config, subgraph}`` dict from a Launch, or None on cancel/Esc."""
+        if not result:
             return
-        if op_key in ("compare", "synthesize"):
-            # Multi-node ops pick their source nodes INSIDE the config step
-            # (cmp_nodes / syn_nodes FuzzyCheckList) — they have NO wizard
-            # node-select step (_NODE_SELECT_OPS == {"explore"}). So render config
-            # directly, exactly like the module-op branch above, but WITHOUT a
-            # subgraph seed (these ops are not subgraph-scoped). Routing through
-            # the generic node-select branch below would call
-            # _actions_show_node_select(), which is explore-only and would
-            # mis-drive them.
-            self._wizard_op = op_key
-            self._set_total_steps()
-            self._wizard_config = {}
-            self._actions_show_config()
-            # Pre-check the source-node checklist from the contextual marked set
-            # (t983_6). These ops are only enabled with 2+ marked, so this fires
-            # exactly when a marked set drove the launch; the user can still
-            # adjust the checklist. After-refresh so the FuzzyCheckList's
-            # Checkboxes are mounted and queryable.
-            marked = sorted(self._selection.effective())
-            if len(marked) >= 2:
-                self.call_after_refresh(
-                    lambda op=op_key, m=marked: (
-                        self._preseed_multi_node_checklist(op, m)
-                    )
-                )
-            self.call_after_refresh(self._enter_actions_tab)
-            return
-        # explore: the node is already contextual, so seed it and skip the
-        # in-wizard node-select step (t983_6). pre_seeded_node drops node_select
-        # from the active step set (see the _WIZARD_STEPS predicate); the seed
-        # then advances straight to section_select / config.
-        self._wizard_op = op_key
-        self._set_total_steps()
-        self._wizard_config = {"_selected_node": node_id, "pre_seeded_node": True}
-        # Renders the next active step (section_select or config) into
-        # #actions_content; _actions_advance_from_node_select does the
-        # _node_has_sections disk read and picks the right step.
-        self._actions_advance_from_node_select(node_id)
-        # Switch to the Actions tab only once the picker modal has fully
-        # closed. `Screen.dismiss` runs this callback *before* `pop_screen`,
-        # and the pop's `ScreenResume` restores focus to the source widget
-        # (DAGDisplay / NodeRow) — switching synchronously here would be
-        # reverted by that restore. The deferred handler runs after the pop
-        # has settled; it focuses a widget inside #actions_content, so
-        # TabbedContent reveals the Actions tab and (being the last focus
-        # change) it sticks.
-        self.call_after_refresh(self._enter_actions_tab)
+        self._execute_design_op(result)
 
     def _delete_agent_casualties(self, closure: set) -> list:
         """Return running/waiting agents operating on an affected node.
@@ -5057,29 +6466,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.notify(f"Deleted {len(deleted)} node(s).")
         self._load_existing_session()
 
-    def _enter_actions_tab(self) -> None:
-        """Activate the Actions tab and focus its wizard content.
 
-        Deferred entry point for the node-action picker — see
-        `_on_node_action_result`. Focusing a widget inside #actions_content
-        makes TabbedContent reveal the Actions tab; the explicit `active`
-        assignment covers the case where no content widget is focusable.
-        """
-        try:
-            tabbed = self.query_one(TabbedContent)
-            container = self.query_one("#actions_content", VerticalScroll)
-        except Exception:
-            return
-        tabbed.active = "tab_actions"
-        for w in container.query("*"):
-            if getattr(w, "can_focus", False) and w.display:
-                w.focus()
-                return
-
-    def action_tab_actions(self) -> None:
-        if isinstance(self.screen, ModalScreen):
-            return
-        self.query_one(TabbedContent).active = "tab_actions"
 
     def action_tab_session(self) -> None:
         if isinstance(self.screen, ModalScreen):
@@ -5092,26 +6479,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         self.query_one(TabbedContent).active = "tab_running"
 
-    def action_op_help(self) -> None:
-        from textual.actions import SkipAction
-        if isinstance(self.screen, ModalScreen):
-            raise SkipAction
-        try:
-            tabbed = self.query_one(TabbedContent)
-        except Exception:
-            raise SkipAction
-        if tabbed.active != "tab_actions" or self._wizard_step < 1:
-            raise SkipAction
-        if self._wizard_step_id == "op_select":
-            focused = self.focused
-            if not isinstance(focused, OperationRow):
-                raise SkipAction
-            op_key = focused.op_key
-        else:
-            op_key = self._wizard_op
-        if not op_key or op_key not in _OPERATION_HELP:
-            raise SkipAction
-        self.push_screen(OperationHelpModal(op_key))
+    # t983_11: op_help moved to ActionsWizardScreen.action_op_help (the wizard
+    # is a modal now). The Operations dialog keeps its own
+    # NodeActionSelectModal.action_op_help.
 
     # ------------------------------------------------------------------
     # Keyboard navigation helper
@@ -5240,36 +6610,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         focusable[new_idx].scroll_visible()
         return True
 
-    def _cycle_confirm_focus(self, direction: int) -> bool:
-        """Cycle focus among focusable descendants of the confirm step container.
-
-        direction: +1 down, -1 up. Returns True if focus moved.
-        """
-        try:
-            container = self.query_one("#actions_content", VerticalScroll)
-        except Exception:
-            return False
-
-        focusable = [
-            w for w in container.query("*")
-            if getattr(w, "can_focus", False) and not getattr(w, "disabled", False)
-        ]
-        if not focusable:
-            return False
-
-        current = self.focused
-        if current in focusable:
-            idx = focusable.index(current)
-            new_idx = (idx + direction) % len(focusable)
-        else:
-            new_idx = 0 if direction == 1 else len(focusable) - 1
-
-        focusable[new_idx].focus()
-        try:
-            focusable[new_idx].scroll_visible()
-        except Exception:
-            pass
-        return True
 
     def _focus_within(self, container) -> bool:
         """True if the currently focused widget is `container` or a descendant."""
@@ -5280,79 +6620,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             node = node.parent
         return False
 
-    def _cycle_wizard_groups(self, direction: int) -> bool:
-        """Tab/Shift+Tab cycle focus between whole control groups on the
-        Compare/Synthesize config step.
-
-        Each group exposes one "entry widget" (the filter box of a
-        FuzzyCheckList, the first section checkbox, the merge-rules TextArea,
-        or the Next button) plus a "membership" widget used to detect which
-        group currently holds focus. Returns True if handled.
-        """
-        try:
-            container = self.query_one("#actions_content", VerticalScroll)
-        except Exception:
-            return False
-
-        def _fcl_group(fcl_id):
-            try:
-                fcl = container.query_one(f"#{fcl_id}", FuzzyCheckList)
-                return (fcl.query_one(Input), fcl)
-            except Exception:
-                return None
-
-        # (entry_widget, membership_widget) pairs, in Tab order.
-        groups: list[tuple] = []
-        if self._wizard_op == "synthesize":
-            node_grp = _fcl_group("syn_nodes")
-            if node_grp:
-                groups.append(node_grp)
-            try:
-                ta = container.query_one(TextArea)
-                groups.append((ta, ta))
-            except Exception:
-                pass
-        elif self._wizard_op == "compare":
-            node_grp = _fcl_group("cmp_nodes")
-            if node_grp:
-                groups.append(node_grp)
-            dim_grp = _fcl_group("cmp_dims")
-            if dim_grp:
-                groups.append(dim_grp)
-            try:
-                box = container.query_one("#cmp_sections_box", Container)
-                secs = list(box.query("Checkbox.chk_section"))
-                if secs:
-                    groups.append((secs[0], box))
-            except Exception:
-                pass
-        try:
-            btn = container.query_one(".btn_actions_next", Button)
-            groups.append((btn, btn))
-        except Exception:
-            pass
-
-        if not groups:
-            return False
-
-        current = None
-        for i, (_entry, member) in enumerate(groups):
-            if self._focus_within(member):
-                current = i
-                break
-
-        if current is None:
-            new_idx = 0 if direction == 1 else len(groups) - 1
-        else:
-            new_idx = (current + direction) % len(groups)
-
-        entry = groups[new_idx][0]
-        entry.focus()
-        try:
-            entry.scroll_visible()
-        except Exception:
-            pass
-        return True
 
     def on_mount(self) -> None:
         """Session lifecycle: load existing or prompt to initialize."""
@@ -5384,7 +6651,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             )
         except Exception:
             pass
-        self._actions_show_step1()
+        # t983_11: the Actions wizard is an on-demand modal now (no Actions tab
+        # to pre-populate on session load).
         # Re-render the Session-lifecycle op list so its disabled-state tracks
         # the freshly-loaded status (t983_8).
         self._refresh_session_tab()
@@ -6708,23 +7976,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         ))
 
     def on_descendant_focus(self, event) -> None:
-        """When a NodeRow gets focus, update the detail pane. Track wizard node selection."""
+        """When a NodeRow gets focus, update the detail pane. Wizard node-select
+        feedback moved to ActionsWizardScreen.on_descendant_focus (t983_11)."""
         if isinstance(event.widget, NodeRow):
             self._show_browse_node_detail(event.widget.node_id)
-        if isinstance(event.widget, OperationRow):
-            tabbed = self.query_one(TabbedContent)
-            if tabbed.active == "tab_actions" and self._wizard_step_id == "node_select":
-                if self._wizard_op in _NODE_SELECT_STEP_OPS:
-                    self._wizard_config["_selected_node"] = event.widget.op_key
-                    # Visual feedback: mark selected node
-                    container = self.query_one("#actions_content", VerticalScroll)
-                    for row in container.query(OperationRow):
-                        row.selected = (row.op_key == event.widget.op_key)
-                    # Enable Next button
-                    try:
-                        self.query_one(".btn_actions_next", Button).disabled = False
-                    except Exception:
-                        pass
 
     @on(DAGDisplay.NodeSelected)
     def on_dag_display_node_selected(self, event: DAGDisplay.NodeSelected) -> None:
@@ -6812,57 +8067,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     # Actions wizard
     # ------------------------------------------------------------------
 
-    def _actions_show_step1(self) -> None:
-        """Render Step 1: operation selection list."""
-        self._wizard_op = ""
-        self._wizard_config = {}
-        self._wizard_has_sections = False
-        self._cmp_section_checks = {}
-        # Refresh the cached subgraph count for the selector predicate (one
-        # disk read per wizard entry; _wizard_ctx then stays I/O-free).
-        self._wizard_subgraph_count = len(list_subgraphs(self.session_path))
-        self._wizard_subgraph = UMBRELLA_SUBGRAPH
-        self._enter_wizard_step("op_select")
 
-        container = self.query_one("#actions_content", VerticalScroll)
-        container.remove_children()
-
-        if self.read_only:
-            container.mount(Label("[italic]Session is read-only. No operations available.[/]"))
-            return
-
-        container.mount(Label("Step 1 \u2014 Select Operation  (\u2191\u2193 Navigate  Enter Select  ? Help)", classes="actions_step_indicator"))
-
-        status = self.session_data.get("status", "")
-
-        # Design operations. Session-lifecycle ops moved to the dedicated
-        # Session tab (t983_8) — the wizard op list is design-ops-only now.
-        container.mount(Label("Design Operations", classes="actions_section_title"))
-        design_disabled = status not in ("init", "active")
-        for op_key, label, desc in _DESIGN_OPS:
-            container.mount(OperationRow(op_key, label, desc, disabled=design_disabled))
-
-        # Recent operations history
-        self._mount_recent_ops(container)
-
-        # Focus first enabled operation after widgets are rendered
-        self.call_after_refresh(self._focus_first_operation)
-
-    def _focus_first_operation(self) -> None:
-        """Focus the first enabled OperationRow in the actions tab."""
-        tabbed = self.query_one(TabbedContent)
-        if tabbed.active != "tab_actions":
-            return
-        try:
-            # Scope to the actions container — the Session tab also hosts
-            # OperationRows (t983_8), so an app-wide query could grab those.
-            rows = self.query_one("#actions_content", VerticalScroll).query(OperationRow)
-            for row in rows:
-                if not row.op_disabled:
-                    row.focus()
-                    break
-        except Exception:
-            pass
 
     # ------------------------------------------------------------------
     # Session-lifecycle tab (t983_8)
@@ -6987,28 +8192,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """Cancel the Session-tab confirm panel — restore the op list."""
         self._refresh_session_tab()
 
-    def _focus_operation_row(self, op_key: str) -> None:
-        """Focus the OperationRow matching ``op_key`` (fallback: first enabled).
-
-        Used to pre-highlight a default choice (e.g. HEAD on the decompose
-        source-node step); focusing the row drives ``on_descendant_focus`` to
-        seed ``_selected_node`` and enable Next.
-        """
-        tabbed = self.query_one(TabbedContent)
-        if tabbed.active != "tab_actions":
-            return
-        try:
-            rows = list(self.query("OperationRow"))
-            for row in rows:
-                if row.op_key == op_key and not row.op_disabled:
-                    row.focus()
-                    return
-            for row in rows:
-                if not row.op_disabled:
-                    row.focus()
-                    return
-        except Exception:
-            pass
 
     def _is_session_op_disabled(self, op_key: str, status: str, head: str | None) -> bool:
         """Determine if a session operation should be disabled."""
@@ -7024,393 +8207,25 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return False
         return False
 
-    def _mount_op_context_header(self, container: VerticalScroll) -> None:
-        """Mount a one-line dim header showing op name + brief desc.
 
-        Called from step 2 onwards so the user remembers which operation
-        they're configuring. Full description stays in OperationHelpModal,
-        reachable via the op-help shortcut.
-        """
-        info = _OP_LABELS.get(self._wizard_op)
-        if not info:
-            return
-        label_text, desc = info
-        help_key = resolve_key(self._shortcuts_scope, "op_help", "H") or "H"
-        container.mount(
-            Label(
-                f"[dim]{label_text} — {desc}  ({help_key} for details)[/dim]",
-                classes="actions_op_context",
-            )
-        )
 
-    def _mount_recent_ops(self, container: VerticalScroll) -> None:
-        """Append recent operation history from br_groups.yaml."""
-        groups_path = self.session_path / GROUPS_FILE
-        if not groups_path.is_file():
-            return
-        try:
-            groups_data = read_yaml(str(groups_path))
-        except Exception:
-            return
-        groups = groups_data.get("groups", {}) if groups_data else {}
-        if not groups:
-            return
-        container.mount(Label("Recent Operations", classes="actions_section_title"))
-        for name in list(groups.keys())[-5:]:
-            info = groups[name] if isinstance(groups[name], dict) else {}
-            op = info.get("operation", "?")
-            gstatus = info.get("status", "?")
-            created = info.get("created_at", "")
-            container.mount(Label(f"  [dim]{name}[/]  {op}  [{gstatus}]  {created}"))
 
-    def _set_total_steps(self) -> None:
-        """Reset per-op wizard flags when an operation is chosen.
 
-        The step count is now derived from the active step set (see
-        ``step_position``), so this only resets the section cache that the
-        predicates read. Kept as a named hook because op-select call-sites
-        invoke it right after setting ``_wizard_op``.
-        """
-        self._wizard_has_sections = False
-        self._cmp_section_checks = {}
-        self._wizard_subgraph = UMBRELLA_SUBGRAPH
-        # Clear the fast-track preset arm whenever a new op is selected; the
-        # fast-track branch re-arms it after calling this. Keeps the preset's
-        # link-to-task pre-check from bleeding into a later normal decompose.
-        self._wizard_fast_track = False
 
-    def _wizard_ctx(self) -> dict:
-        """Context dict consumed by the pure step resolver (no I/O)."""
-        return {
-            "op": self._wizard_op,
-            "node_has_sections": self._wizard_has_sections,
-            "subgraph_count": self._wizard_subgraph_count,
-            # Set by the contextual launch path (t983_6) to drop the node_select
-            # step when the node/marked-set is already known.
-            "pre_seeded_node": bool(self._wizard_config.get("pre_seeded_node")),
-        }
 
-    def _enter_wizard_step(self, step_id: str) -> None:
-        """Mark the current wizard step and derive its 'Step X of Y' numbers."""
-        self._wizard_step_id = step_id
-        self._wizard_step, self._wizard_total_steps = step_position(
-            self._wizard_ctx(), step_id
-        )
 
-    def _render_wizard_step(self, step_id: str) -> None:
-        """Render the wizard step with id ``step_id`` (back/next dispatch target)."""
-        renderers = {
-            "op_select": self._actions_show_step1,
-            "subgraph_select": self._actions_show_subgraph_select,
-            "node_select": self._actions_show_node_select,
-            "section_select": self._actions_show_section_select,
-            "config": self._actions_show_config,
-            "confirm": self._actions_show_confirm,
-        }
-        renderer = renderers.get(step_id)
-        if renderer is not None:
-            renderer()
 
-    def _actions_show_step2(self) -> None:
-        """Render the step after op-select (resolver-driven).
 
-        Routes to subgraph-select (multi-subgraph node-select ops), node-select
-        (single-subgraph node-select ops), or config (compare/synthesize),
-        whichever the active step set says comes next after op_select.
-        """
-        nxt = next_step_id(self._wizard_ctx(), "op_select")
-        if nxt is not None:
-            self._render_wizard_step(nxt)
 
-    def _actions_show_subgraph_select(self) -> None:
-        """Optional step: choose which module subgraph the op runs inside.
 
-        Only rendered for subgraph-scoped ops in a 2+ subgraph session (see the
-        ``subgraph_select`` predicate). Defaults the highlighted choice to the
-        most-recently-touched subgraph. Mirrors op-select: Enter/click advances
-        immediately (no Next button).
-        """
-        self._enter_wizard_step("subgraph_select")
 
-        container = self.query_one("#actions_content", VerticalScroll)
-        container.remove_children()
 
-        container.mount(
-            Label(
-                f"Step {self._wizard_step} of {self._wizard_total_steps} "
-                "— Select Subgraph  (↑↓ Navigate  Enter Select  Esc: Back)",
-                classes="actions_step_indicator",
-            )
-        )
-        self._mount_op_context_header(container)
-
-        subgraphs = list_subgraphs(self.session_path)
-        # Default selection = most-recently-touched subgraph (first in the list).
-        if self._wizard_op == "module_merge":
-            self._wizard_subgraph = next(
-                (m for m in subgraphs if m != UMBRELLA_SUBGRAPH),
-                UMBRELLA_SUBGRAPH,
-            )
-        else:
-            self._wizard_subgraph = subgraphs[0] if subgraphs else UMBRELLA_SUBGRAPH
-        for module in subgraphs:
-            head = get_head(self.session_path, module=module)
-            head_str = head or "(empty)"
-            disabled = self._wizard_op == "module_merge" and module == UMBRELLA_SUBGRAPH
-            container.mount(
-                OperationRow(module, module, f"HEAD: {head_str}", disabled=disabled)
-            )
-        self.call_after_refresh(self._focus_first_operation)
-
-    def _actions_show_node_select(self) -> None:
-        """Step 2: dedicated node selection for explore."""
-        self._wizard_config = {}
-        self._enter_wizard_step("node_select")
-
-        container = self.query_one("#actions_content", VerticalScroll)
-        container.remove_children()
-
-        total = self._wizard_total_steps
-        desc_map = {
-            "explore": "Select Base Node",
-            "module_decompose": "Select Source Node",
-        }
-        desc = desc_map.get(self._wizard_op, "Select Node")
-        container.mount(
-            Label(
-                f"Step {self._wizard_step} of {total} \u2014 {desc}  (Esc: Back)",
-                classes="actions_step_indicator",
-            )
-        )
-        self._mount_op_context_header(container)
-        container.mount(
-            Label("[dim]  \u2191\u2193 Navigate  Enter Select  |  Click node + Next[/dim]")
-        )
-
-        # Scope candidates + HEAD to the selected subgraph (default _umbrella
-        # \u2192 every node, identical to pre-module behaviour).
-        subgraph = self._wizard_subgraph
-        nodes = _nodes_for_subgraph(
-            self.session_path, list_nodes(self.session_path), subgraph
-        )
-        head = get_head(self.session_path, module=subgraph)
-
-        if not nodes:
-            container.mount(
-                Label("[bold yellow]No nodes available.[/] Initialize the session first.")
-            )
-            return
-
-        for nid in nodes:
-            node_data = read_node(self.session_path, nid)
-            desc = node_data.get("description", "")
-
-            lbl_parts = [nid]
-            if nid == head:
-                lbl_parts.append("[green]HEAD[/]")
-            lbl = " ".join(lbl_parts)
-
-            container.mount(OperationRow(nid, lbl, desc))
-
-        container.mount(
-            Button("Next \u25b6", variant="primary", classes="btn_actions_next", disabled=True)
-        )
-        # module_decompose defaults its source node to HEAD so the user can
-        # advance immediately; explore requires an explicit pick.
-        # Focusing the HEAD row makes on_descendant_focus seed _selected_node
-        # and enable Next (the same path explore uses for its first row).
-        if self._wizard_op == "module_decompose" and head in nodes:
-            self.call_after_refresh(lambda: self._focus_operation_row(head))
-        else:
-            self.call_after_refresh(self._focus_first_operation)
-
-    def _actions_advance_from_node_select(self, node: str) -> bool:
-        """Advance the wizard out of the node-select step for ``node``.
-
-        Canonical logic shared by the Next button, keyboard Enter, and the
-        NodeActionSelectModal callback. Returns False (after notifying) when
-        the operation cannot proceed; True once the next step is rendered.
-        """
-        if not node:
-            self.notify("Select a node first", severity="warning")
-            return False
-        # Cache section presence into the ctx source BEFORE transitioning so the
-        # step resolver sees it (else section_select would be skipped). This disk
-        # read happens once here, never inside a per-render predicate. Only the
-        # node-select ops have a section_select step; module_decompose reuses the
-        # node-select UI but skips straight to config.
-        if self._wizard_op in _NODE_SELECT_OPS:
-            self._wizard_has_sections = self._node_has_sections(node)
-            if self._wizard_has_sections:
-                self._actions_show_section_select()
-                return True
-        self._actions_show_config()
-        return True
-
-    def _actions_show_section_select(self) -> None:
-        """Optional step (post node-select): pick sections to target."""
-        node = self._wizard_config.get("_selected_node", "")
-        secs = self._node_sections(node)
-
-        # Mark sections present so the resolver counts this step, then derive
-        # the indicator numbers from the active set.
-        self._wizard_has_sections = True
-        self._enter_wizard_step("section_select")
-
-        container = self.query_one("#actions_content", VerticalScroll)
-        container.remove_children()
-
-        total = self._wizard_total_steps
-        container.mount(
-            Label(
-                f"Step {self._wizard_step} of {total} \u2014 Select Sections for {node}  (Esc: Back)",
-                classes="actions_step_indicator",
-            )
-        )
-        self._mount_op_context_header(container)
-        container.mount(
-            Label("[dim]Leave all unchecked to target the whole document.[/]")
-        )
-        for s in secs:
-            dims = f" [dim][{', '.join(s.dimensions)}][/]" if s.dimensions else ""
-            container.mount(Checkbox(f"{s.name}{dims}", classes="chk_section"))
-        container.mount(
-            Button("Next \u25b6", variant="primary", classes="btn_actions_next")
-        )
-
-    def _actions_show_config(self) -> None:
-        """Render config step: operation-specific configuration form."""
-        op = self._wizard_op
-        self._enter_wizard_step("config")
-
-        container = self.query_one("#actions_content", VerticalScroll)
-        container.remove_children()
-
-        total = self._wizard_total_steps
-        step = self._wizard_step
-        container.mount(
-            Label(
-                f"Step {step} of {total} \u2014 Configure: {op.title()}  (Esc: Back)",
-                classes="actions_step_indicator",
-            )
-        )
-        self._mount_op_context_header(container)
-
-        if op in ("compare", "synthesize"):
-            container.mount(Label(
-                "[dim]  ↑↓ Navigate  Space Toggle  "
-                "Tab Switch group  Type to filter[/]"))
-
-        if op == "explore":
-            self._config_explore_no_node(container)
-        elif op == "compare":
-            self._config_compare(container)
-        elif op == "synthesize":
-            self._config_synthesize(container)
-        elif op == "module_decompose":
-            self._config_module_decompose(container)
-        elif op == "module_merge":
-            self._config_module_merge(container)
-        elif op == "module_sync":
-            self._config_module_sync(container)
-
-    def _preseed_multi_node_checklist(self, op_key: str, marked: list[str]) -> None:
-        """Pre-check the compare/synthesize source-node FuzzyCheckList from the
-        contextual marked set (t983_6).
-
-        Called after ``_actions_show_config`` has mounted the config form for a
-        contextually-launched compare/synthesize op. Checks the rows for the
-        marked nodes; the user can still adjust the selection. For compare, the
-        section/dimension lists derive from the *checked* nodes and were
-        refreshed (empty) by ``_config_compare`` before these boxes were
-        checked, so re-run those refreshes here.
-        """
-        fcl_id = "cmp_nodes" if op_key == "compare" else "syn_nodes"
-        try:
-            fcl = self.query_one(f"#{fcl_id}", FuzzyCheckList)
-        except Exception:
-            return
-        wanted = set(marked)
-        for cb in fcl.query("Checkbox.chk_node"):
-            cb.value = str(cb.label) in wanted
-        if op_key == "compare":
-            self._refresh_compare_sections()
-            self._refresh_compare_dimensions()
-
-    def _focus_fcl_filter(self, fcl_id: str) -> None:
-        """Focus the filter Input of a FuzzyCheckList by widget id."""
-        try:
-            fcl = self.query_one(f"#{fcl_id}", FuzzyCheckList)
-            fcl.query_one(Input).focus()
-        except Exception:
-            pass
 
     # --- Side-by-side proposal preview (t945) ---------------------------------
 
-    def _mount_config_with_preview(self, container, left_builder, proposal_text):
-        """Lay out a config step as input-left / proposal-preview-right.
 
-        *left_builder* receives the left ``VerticalScroll`` and mounts the op's
-        own widgets into it verbatim, so the existing ``_actions_collect_config``
-        collectors keep resolving them via the recursive ``#actions_content``
-        query. The right :class:`ProposalPreviewPane` shows *proposal_text* with
-        a navigable minimap. The pane adds no input widgets, so explore's
-        single-match ``query_one(TextArea)`` / ``query_one(CycleField)`` stay
-        unambiguous.
-        """
-        left = VerticalScroll(classes="config_preview_left")
-        pane = ProposalPreviewPane(classes="config_preview_pane")
-        split = Horizontal(left, pane, classes="config_preview_split")
-        container.mount(split)
-        self._preview_ratio = 0
 
-        def _fill() -> None:
-            left_builder(left)
-            pane.populate(proposal_text)
 
-        # Defer nested mounts until the split has settled (mirrors the
-        # call_after_refresh pattern used by the compare/synthesize configs).
-        self.call_after_refresh(_fill)
-
-    def _apply_preview_ratio(self, left, pane, ratio: int) -> None:
-        """Set the width split by swapping the ratio_* class on both panes.
-
-        ratio 0 = balanced (50/50, no class), 1 = proposal-wide, 2 = input-wide.
-        """
-        ratio_classes = {1: "ratio_proposal_wide", 2: "ratio_input_wide"}
-        for w in (left, pane):
-            w.remove_class("ratio_proposal_wide")
-            w.remove_class("ratio_input_wide")
-        cls = ratio_classes.get(ratio)
-        if cls:
-            left.add_class(cls)
-            pane.add_class(cls)
-
-    def action_cycle_preview_ratio(self) -> None:
-        """Cycle the config-step preview split: balanced → proposal → input."""
-        from textual.actions import SkipAction
-        panes = self.query(ProposalPreviewPane)
-        splits = self.query(".config_preview_split")
-        if not panes or not splits:
-            raise SkipAction()
-        pane = panes.first()
-        lefts = splits.first().query(".config_preview_left")
-        if not lefts:
-            raise SkipAction()
-        left = lefts.first()
-        # Capture the current top line BEFORE the width reflow, then restore it.
-        pane.on_ratio_change()
-        self._preview_ratio = (getattr(self, "_preview_ratio", 0) + 1) % 3
-        self._apply_preview_ratio(left, pane, self._preview_ratio)
-
-    def action_toggle_preview_numbered(self) -> None:
-        """Toggle the config-step proposal preview between Markdown and the
-        numbered source-line view (t954)."""
-        from textual.actions import SkipAction
-        panes = self.query(ProposalPreviewPane)
-        if not panes:
-            raise SkipAction()
-        panes.first().toggle_numbered()
 
     def on_section_minimap_section_selected(self, event) -> None:
         """Route an Actions-tab preview minimap selection to its pane.
@@ -7429,357 +8244,16 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         panes.first().scroll_to_section(event.section_name)
         event.stop()
 
-    def _preview_focus_ring(self) -> list:
-        """Ordered Tab focus ring for the config-with-preview step.
 
-        Left input widgets (each editbox/control in DOM order), then the section
-        minimap (only when it is shown), then the scrollable proposal markdown
-        pane. Returns ``[]`` when no preview pane is mounted (other Actions-tab
-        steps fall back to their own / default Tab handling).
-        """
-        panes = self.query(ProposalPreviewPane)
-        splits = self.query(".config_preview_split")
-        if not panes or not splits:
-            return []
-        pane = panes.first()
-        ring: list = []
 
-        def _ancestor_in_ring(w) -> bool:
-            p = w.parent
-            while p is not None:
-                if p in ring:
-                    return True
-                p = p.parent
-            return False
 
-        lefts = splits.first().query(".config_preview_left")
-        if lefts:
-            # Outermost focusable per control group (e.g. the RadioSet, not its
-            # individual RadioButtons), in DOM order.
-            for w in lefts.first().query("*"):
-                if not (w.can_focus and w.display and not w.disabled):
-                    continue
-                if _ancestor_in_ring(w):
-                    continue
-                ring.append(w)
-        minimaps = list(pane.query(".preview_proposal_minimap"))
-        if minimaps and minimaps[0].display:
-            ring.append(minimaps[0])
-        # Append whichever content view is currently shown: the markdown pane by
-        # default, or the numbered source view when toggled (ctrl+shift+l). The
-        # minimap above is already gated on .display, so numbered mode (which
-        # hides it) drops it from the ring automatically.
-        if getattr(pane, "_numbered", False):
-            numbered = list(pane.query("#preview_proposal_numbered"))
-            if numbered:
-                ring.append(numbered[0])
-        else:
-            contents = list(pane.query("#preview_proposal_content"))
-            if contents:
-                ring.append(contents[0])
-        return ring
 
-    def _cycle_preview_focus(self, forward: bool = True) -> bool:
-        """Tab / Shift+Tab on the config-with-preview step → step the focus ring.
 
-        Cycles editboxes → minimap → proposal pane → wrap, so the proposal
-        markdown is reachable (and scrollable) by Tab alongside the inputs and
-        the minimap. Returns True when focus was moved (caller stops the event);
-        False when there is no preview pane (default Tab traversal runs).
-        """
-        ring = self._preview_focus_ring()
-        if not ring:
-            return False
-        focused = self.screen.focused
-        cur = -1
-        for i, member in enumerate(ring):
-            if focused is member or (
-                focused is not None and focused in member.walk_children()
-            ):
-                cur = i
-                break
-        if cur == -1:
-            target = ring[0]
-        else:
-            target = ring[(cur + (1 if forward else -1)) % len(ring)]
-        minimaps = list(self.query(".preview_proposal_minimap"))
-        if minimaps and target is minimaps[0]:
-            target.focus_first_row()
-        else:
-            target.focus()
-        return True
 
-    def _config_explore_no_node(self, container: VerticalScroll) -> None:
-        """Explore config (node already selected): mandate, parallel count.
 
-        Lays out input-left / proposal-preview-right via the shared
-        :meth:`_mount_config_with_preview` helper (t945_1) so the selected base
-        node's proposal is visible beside the Exploration Mandate input.
-        """
-        node_id = self._wizard_config.get("_selected_node", "?")
-        try:
-            proposal = read_proposal(self.session_path, node_id)
-        except Exception:
-            proposal = "*No proposal found.*"
 
-        def left_builder(left: VerticalScroll) -> None:
-            left.mount(Label(f"[bold]Base Node:[/] {node_id}"))
-            left.mount(Label("[bold]Exploration Mandate[/]"))
-            left.mount(TextArea(""))
-            left.mount(CycleField("Parallel explorers", ["1", "2", "3", "4"], initial="2"))
-            left.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
 
-        self._mount_config_with_preview(container, left_builder, proposal)
 
-    def _config_compare(self, container: VerticalScroll) -> None:
-        """Compare config: multi-node checkboxes + dimension checkboxes + sections."""
-        nodes = list_nodes(self.session_path)
-
-        container.mount(Label("[bold]Select Nodes to Compare (2+)[/]"))
-        container.mount(FuzzyCheckList(
-            nodes, item_class="chk_node",
-            placeholder="Type to filter nodes\u2026", id="cmp_nodes"))
-
-        container.mount(Label("[bold]Dimensions[/]"))
-        # Mounted empty; _refresh_compare_dimensions populates it scoped to the
-        # checked nodes (grouped, descriptive, active-default) once nodes are
-        # selected. Keeping the FuzzyCheckList present preserves its filter
-        # Input + the cmp_dims Tab-nav group even before any node is checked.
-        container.mount(FuzzyCheckList(
-            [], item_class="chk_dim",
-            placeholder="Type to filter dimensions\u2026", id="cmp_dims"))
-
-        container.mount(Label("[bold]Target Sections (optional)[/]", id="cmp_sections_label"))
-        container.mount(Container(id="cmp_sections_box"))
-
-        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
-
-        self._cmp_section_checks = {}
-        self._cmp_dim_checks = {}
-        self.call_after_refresh(self._refresh_compare_sections)
-        self.call_after_refresh(self._refresh_compare_dimensions)
-        self.call_after_refresh(lambda: self._focus_fcl_filter("cmp_nodes"))
-
-    def _refresh_compare_sections(self) -> None:
-        """(Re)mount compare section checkboxes based on currently checked nodes."""
-        try:
-            box = self.query_one("#cmp_sections_box", Container)
-        except Exception:
-            return
-
-        for cb in box.query("Checkbox.chk_section"):
-            self._cmp_section_checks[_parse_section_label(str(cb.label))] = bool(cb.value)
-        box.remove_children()
-
-        checked: list[str] = []
-        for cb in self.query("Checkbox.chk_node"):
-            if cb.value:
-                checked.append(str(cb.label))
-
-        if len(checked) < 1:
-            box.mount(Label("[dim]Select nodes to see comparable sections.[/]"))
-            return
-
-        per_node: dict[str, list[str]] = {
-            nid: [s.name for s in self._node_sections(nid)] for nid in checked
-        }
-        inter = _sections_intersection(per_node)
-
-        if not inter:
-            box.mount(Label("[dim]No sections are present in all selected nodes.[/]"))
-            return
-
-        for name in inter:
-            value = self._cmp_section_checks.get(name, False)
-            box.mount(Checkbox(name, value=value, classes="chk_section"))
-
-    def _refresh_compare_dimensions(self) -> None:
-        """(Re)mount compare dimension checkboxes scoped to the checked nodes.
-
-        Mirrors ``_refresh_compare_sections``: preserves prior toggles across
-        node-selection changes, scopes the dimension list to the union of the
-        checked nodes' dimensions (grouped by prefix under subheaders),
-        default-checks the session's ``active_dimensions`` (falling back to
-        all-checked when none), and labels each row ``"<full_key> — <value>"``
-        so the dimension's meaning is visible.
-        """
-        try:
-            fcl = self.query_one("#cmp_dims", FuzzyCheckList)
-        except Exception:
-            return
-
-        # Preserve current toggles across node-selection changes.
-        for cb in fcl.query("Checkbox.chk_dim"):
-            self._cmp_dim_checks[_parse_dimension_label(str(cb.label))] = bool(cb.value)
-
-        checked_nodes = [
-            str(cb.label) for cb in self.query("Checkbox.chk_node") if cb.value
-        ]
-        if not checked_nodes:
-            fcl.set_grouped_items([])
-            return
-
-        grouped = self._dimension_entries_for_nodes(checked_nodes)
-        active = set(get_active_dimensions(self.session_path))
-        groups: list[tuple[str, list[tuple[str, bool]]]] = []
-        for _prefix, label, entries in grouped:
-            rows: list[tuple[str, bool]] = []
-            for _suffix, value, full_key in entries:
-                v = str(value)
-                trunc = v if len(v) <= 60 else v[:57] + "…"
-                if full_key in self._cmp_dim_checks:
-                    checked = self._cmp_dim_checks[full_key]
-                elif active:
-                    checked = full_key in active
-                else:
-                    checked = True  # fallback = old default_checked=True
-                rows.append((f"{full_key} — {trunc}", checked))
-            groups.append((label, rows))
-        fcl.set_grouped_items(groups)
-
-    def _config_synthesize(self, container: VerticalScroll) -> None:
-        """Synthesize config: multi-node checkboxes + merge rules."""
-        nodes = list_nodes(self.session_path)
-
-        container.mount(Label("[bold]Select Source Nodes (2+)[/]"))
-        container.mount(FuzzyCheckList(
-            nodes, item_class="chk_node",
-            placeholder="Type to filter nodes\u2026", id="syn_nodes"))
-
-        container.mount(Label("[bold]Merge Rules[/]"))
-        container.mount(TextArea(""))
-        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
-        self.call_after_refresh(lambda: self._focus_fcl_filter("syn_nodes"))
-
-    def _config_module_decompose(self, container: VerticalScroll) -> None:
-        """Module decompose config: module list + extraction options.
-
-        When entered via the "Fast-track this module" preset
-        (``_wizard_fast_track``, t756_6 UC-3), the link-to-task checkbox is
-        pre-armed so naming one module + confirm creates the subgraph root and
-        the linked aitask in a single pass. The op, config-collection, confirm,
-        and execute paths are otherwise identical to the multi-module flow.
-
-        Lays out input-left / proposal-preview-right via the shared
-        :meth:`_mount_config_with_preview` helper (t945_1) so the chosen source
-        node's proposal is visible beside the Decomposition Plan input.
-        """
-        fast_track = getattr(self, "_wizard_fast_track", False)
-        # Source node: the user's pick on the source-node step, else subgraph
-        # HEAD (express entry paths skip node-select).
-        node_id = self._wizard_config.get("_selected_node") or get_head(
-            self.session_path, module=self._wizard_subgraph
-        )
-        try:
-            proposal = (
-                read_proposal(self.session_path, node_id)
-                if node_id else "*No proposal found.*"
-            )
-        except Exception:
-            proposal = "*No proposal found.*"
-
-        def left_builder(left: VerticalScroll) -> None:
-            if fast_track:
-                left.mount(Label(
-                    "[dim]Fast-track: name one module — a linked aitask is "
-                    "created in one pass.[/]"
-                ))
-            left.mount(Label(f"[bold]Source Subgraph:[/] {self._wizard_subgraph}"))
-            left.mount(Label(f"[bold]Source Node:[/] {node_id or '(none)'}"))
-            left.mount(Label("[bold]Decompose mode[/]"))
-            left.mount(RadioSet(
-                RadioButton("Manual — I type the names", value=True),
-                RadioButton("Agent-proposed — infer from the Plan"),
-                RadioButton("From section markers"),
-                classes="rs_decompose_mode",
-            ))
-            left.mount(Label("[bold]Modules (used by Manual / From-sections)[/]"))
-            left.mount(TextArea("", classes="ta_module_decompose_modules"))
-            link_chk = Checkbox("Create linked child tasks", classes="chk_link_to_task")
-            link_chk.value = bool(fast_track)
-            left.mount(link_chk)
-            left.mount(Label("[bold]Decomposition Plan (optional)[/]"))
-            left.mount(TextArea("", classes="ta_module_decompose_plan"))
-            review_chk = Checkbox(
-                "Review before apply", classes="chk_review_before_apply"
-            )
-            review_chk.value = True
-            left.mount(review_chk)
-            left.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
-
-        self._mount_config_with_preview(container, left_builder, proposal)
-
-    def _ancestor_subgraphs(self, source: str) -> list[str]:
-        return [
-            module for module in list_subgraphs(self.session_path)
-            if module != source
-            and is_ancestor_subgraph(self.session_path, source, module)
-        ]
-
-    def _config_module_merge(self, container: VerticalScroll) -> None:
-        """Module merge config: ancestor destination + merge-up rules."""
-        source = self._wizard_subgraph
-        ancestors = self._ancestor_subgraphs(source)
-        source_head = get_head(self.session_path, module=source)
-        container.mount(Label(f"[bold]Source Subgraph:[/] {source}"))
-        container.mount(Label(f"[bold]Source HEAD:[/] {source_head or '(none)'}"))
-        if not ancestors:
-            container.mount(
-                Label("[bold yellow]No ancestor destination is available for this source.[/]")
-            )
-        else:
-            container.mount(
-                CycleField(
-                    "Destination subgraph",
-                    ancestors,
-                    initial=ancestors[0],
-                    id="cf_module_merge_destination",
-                )
-            )
-        container.mount(Label("[bold]Merge-Up Rules[/]"))
-        container.mount(TextArea("", classes="ta_module_merge_rules"))
-        container.mount(
-            Button(
-                "Next \u25b6",
-                variant="primary",
-                classes="btn_actions_next",
-                disabled=not bool(ancestors),
-            )
-        )
-
-    def _config_module_sync(self, container: VerticalScroll) -> None:
-        """Module sync config: requires a linked task; surface scan horizon."""
-        module = self._wizard_subgraph
-        gs = _read_graph_state(self.session_path)
-        tasks = gs.get("module_tasks")
-        tasks = tasks if isinstance(tasks, dict) else {}
-        linked = tasks.get(module)
-        synced = gs.get("last_synced_at")
-        synced = synced if isinstance(synced, dict) else {}
-        last = synced.get(module) or "(never)"
-        source_head = get_head(self.session_path, module=module)
-        container.mount(Label(f"[bold]Module Subgraph:[/] {module}"))
-        container.mount(Label(f"[bold]Source HEAD:[/] {source_head or '(none)'}"))
-        if not linked:
-            container.mount(
-                Label(
-                    "[bold yellow]This module has no linked task (module_tasks). "
-                    "Sync requires one \u2014 use Patch for free-form context.[/]"
-                )
-            )
-        else:
-            container.mount(Label(f"[bold]Linked Task:[/] t{linked}"))
-            container.mount(Label(f"[bold]Last Synced:[/] {last}"))
-            container.mount(Label("[bold]Sync Instructions (optional)[/]"))
-            container.mount(TextArea("", classes="ta_module_sync_instructions"))
-        container.mount(
-            Button(
-                "Next \u25b6",
-                variant="primary",
-                classes="btn_actions_next",
-                disabled=not bool(linked) or not bool(source_head),
-            )
-        )
 
     def _config_session_op(self, container: VerticalScroll) -> None:
         """Session operation config: confirmation only."""
@@ -7792,25 +8266,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         container.mount(Label(f"[bold]{labels.get(self._wizard_op, self._wizard_op)}[/]"))
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
 
-    def _dimension_entries_for_nodes(self, node_ids):
-        """Union of the given nodes' dimensions, grouped by prefix.
-
-        Returns ``group_dimensions_by_prefix`` output:
-        ``[(prefix, label, [(suffix, value, full_key)])]``. **Union, not
-        intersection** — a dimension present on only one selected node is still
-        a valid comparison axis, and intersection risks an empty list when
-        nodes carry divergent dimension sets. Scoped to the *selected* nodes,
-        it still shrinks far below the whole-graph key set.
-        """
-        merged: dict[str, str] = {}
-        for nid in node_ids:
-            try:
-                data = read_node(self.session_path, nid)
-            except Exception:
-                continue
-            for k, v in extract_dimensions(data).items():
-                merged.setdefault(k, str(v))
-        return group_dimensions_by_prefix(merged)
 
     def _node_sections(self, node_id: str) -> list:
         """Return the list of ContentSection for a node's proposal."""
@@ -7826,326 +8281,14 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """True when the node's proposal has structured sections."""
         return bool(self._node_sections(node_id))
 
-    def _actions_collect_config(self) -> bool:
-        """Collect and validate config from config step widgets. Returns True if valid."""
-        op = self._wizard_op
-        # Preserve _selected_node from node selection step
-        selected_node = self._wizard_config.get("_selected_node")
-        # Preserve target_sections already chosen in the section-select step
-        prior_target_sections = self._wizard_config.get("target_sections")
-        config: dict = {}
-        if selected_node:
-            config["_selected_node"] = selected_node
-        if prior_target_sections is not None:
-            config["target_sections"] = prior_target_sections
-        container = self.query_one("#actions_content", VerticalScroll)
 
-        if op == "explore":
-            config["base_node"] = selected_node or ""
-            if not config["base_node"]:
-                self.notify("Select a base node first", severity="warning")
-                return False
-            config["mandate"] = container.query_one(TextArea).text.strip()
-            if not config["mandate"]:
-                self.notify("Mandate cannot be empty", severity="warning")
-                return False
-            config["parallel"] = int(container.query_one(CycleField).current_value)
 
-        elif op == "compare":
-            node_cbs = container.query("Checkbox.chk_node")
-            selected = [cb.label for cb in node_cbs if cb.value]
-            if len(selected) < 2:
-                self.notify("Select at least 2 nodes", severity="warning")
-                return False
-            config["nodes"] = [str(lbl) for lbl in selected]
-            dim_cbs = container.query("Checkbox.chk_dim")
-            config["dimensions"] = [
-                _parse_dimension_label(str(cb.label))
-                for cb in dim_cbs if cb.value
-            ]
-            try:
-                box = self.query_one("#cmp_sections_box", Container)
-                sec_cbs = box.query("Checkbox.chk_section")
-                sel_secs = [str(cb.label) for cb in sec_cbs if cb.value]
-                config["target_sections"] = sel_secs or None
-            except Exception:
-                config["target_sections"] = None
 
-        elif op == "synthesize":
-            node_cbs = container.query("Checkbox.chk_node")
-            selected = [cb.label for cb in node_cbs if cb.value]
-            if len(selected) < 2:
-                self.notify("Select at least 2 source nodes", severity="warning")
-                return False
-            config["nodes"] = [str(lbl) for lbl in selected]
-            config["merge_rules"] = container.query_one(TextArea).text.strip()
-            if not config["merge_rules"]:
-                self.notify("Merge rules cannot be empty", severity="warning")
-                return False
 
-        elif op == "module_decompose":
-            config["subgraph"] = self._wizard_subgraph
-            # Use the node chosen on the source-node step, falling back to the
-            # subgraph HEAD (express entry paths skip node-select).
-            config["source_node"] = selected_node or get_head(
-                self.session_path, module=self._wizard_subgraph
-            )
-            if not config["source_node"]:
-                self.notify("Selected subgraph has no HEAD", severity="warning")
-                return False
-            # Decompose mode: 0=Manual, 1=Agent-proposed (infer), 2=From sections.
-            mode = container.query_one(
-                ".rs_decompose_mode", RadioSet
-            ).pressed_index
-            module_text = container.query_one(
-                ".ta_module_decompose_modules", TextArea
-            ).text
-            modules = [
-                m.strip()
-                for m in re.split(r"[,\n]+", module_text)
-                if m.strip()
-            ]
-            instructions = container.query_one(
-                ".ta_module_decompose_plan", TextArea
-            ).text.strip()
-            if mode == 1:
-                # Infer: the agent proposes the module set; names field is
-                # ignored, but a Decomposition Plan is required to infer from.
-                if not instructions:
-                    self.notify(
-                        "Agent-proposed mode needs a Decomposition Plan "
-                        "to infer from",
-                        severity="warning",
-                    )
-                    return False
-                modules = []
-            else:
-                if not modules:
-                    self.notify("Enter at least one module name", severity="warning")
-                    return False
-                if len(set(modules)) != len(modules):
-                    self.notify("Module names must be unique", severity="warning")
-                    return False
-            config["modules"] = modules
-            config["from_sections"] = (mode == 2)
-            config["link_to_task"] = bool(
-                container.query_one(".chk_link_to_task", Checkbox).value
-            )
-            config["instructions"] = instructions
-            try:
-                config["review_before_apply"] = bool(
-                    container.query_one(".chk_review_before_apply", Checkbox).value
-                )
-            except Exception:
-                config["review_before_apply"] = True
 
-        elif op == "module_merge":
-            config["source_subgraph"] = self._wizard_subgraph
-            try:
-                dest = container.query_one(
-                    "#cf_module_merge_destination", CycleField
-                ).current_value
-            except Exception:
-                dest = ""
-            if not dest:
-                self.notify("No ancestor destination available", severity="warning")
-                return False
-            if not is_ancestor_subgraph(self.session_path, self._wizard_subgraph, dest):
-                self.notify("Destination is not an ancestor", severity="warning")
-                return False
-            config["destination_subgraph"] = dest
-            config["merge_rules"] = container.query_one(
-                ".ta_module_merge_rules", TextArea
-            ).text.strip()
-            if not config["merge_rules"]:
-                self.notify("Merge-up rules cannot be empty", severity="warning")
-                return False
 
-        elif op == "module_sync":
-            module = self._wizard_subgraph
-            config["subgraph"] = module
-            gs = _read_graph_state(self.session_path)
-            tasks = gs.get("module_tasks")
-            tasks = tasks if isinstance(tasks, dict) else {}
-            if not tasks.get(module):
-                self.notify(
-                    "Module has no linked task — sync requires one",
-                    severity="warning",
-                )
-                return False
-            try:
-                config["instructions"] = container.query_one(
-                    ".ta_module_sync_instructions", TextArea
-                ).text.strip()
-            except Exception:
-                config["instructions"] = ""
 
-        self._wizard_config = config
-        return True
 
-    def _collect_target_sections(self) -> None:
-        """Collect checked section names from the section-select step into wizard config."""
-        container = self.query_one("#actions_content", VerticalScroll)
-        names: list[str] = []
-        for cb in container.query("Checkbox.chk_section"):
-            if cb.value:
-                names.append(_parse_section_label(str(cb.label)))
-        self._wizard_config["target_sections"] = names or None
-
-    def _actions_show_confirm(self) -> None:
-        """Render final confirm step: summary + launch/confirm button."""
-        self._enter_wizard_step("confirm")
-        total = self._wizard_total_steps
-        step = self._wizard_step
-
-        container = self.query_one("#actions_content", VerticalScroll)
-        container.remove_children()
-        container.mount(Label(f"Step {step} of {total} \u2014 Confirm  (Esc: Back)", classes="actions_step_indicator"))
-        self._mount_op_context_header(container)
-
-        summary_lines = self._build_summary()
-        container.mount(Static("\n".join(summary_lines), classes="actions_summary"))
-
-        # Session ops left the wizard (t983_8) — the confirm step is design-ops
-        # only, so the launch-mode field always shows.
-        default_mode = _brainstorm_launch_mode_default(self._wizard_op)
-        container.mount(
-            CycleField(
-                "Launch mode",
-                sorted(VALID_LAUNCH_MODES),
-                initial=default_mode,
-                id="launch-mode-field",
-            )
-        )
-        if not is_tmux_available():
-            container.mount(
-                Static(
-                    "[dim]tmux not installed — interactive will fall back "
-                    "to a standalone terminal (no monitor integration)[/]",
-                    classes="actions_hint",
-                )
-            )
-
-        container.mount(
-            Horizontal(
-                Button("Launch", variant="primary", classes="btn_actions_launch"),
-                Button("Back", variant="default", classes="btn_actions_back"),
-                classes="actions_buttons",
-            )
-        )
-        self.call_after_refresh(self._focus_confirm_start)
-
-    def _focus_confirm_start(self) -> None:
-        """Move focus to the first focusable widget on the confirm screen."""
-        try:
-            container = self.query_one("#actions_content", VerticalScroll)
-        except Exception:
-            return
-        for w in container.query("*"):
-            if getattr(w, "can_focus", False) and not getattr(w, "disabled", False):
-                w.focus()
-                return
-
-    def _build_summary(self) -> list[str]:
-        """Build summary lines for step 3 display."""
-        op = self._wizard_op
-        cfg = self._wizard_config
-        lines = [f"[bold]Operation:[/] {op.title()}", ""]
-
-        if op == "explore":
-            lines.append(f"[bold]Base Node:[/] {cfg['base_node']}")
-            lines.append(f"[bold]Parallel Explorers:[/] {cfg['parallel']}")
-            lines.append("[bold]Mandate:[/]")
-            lines.append(cfg["mandate"])
-        elif op == "compare":
-            lines.append(f"[bold]Nodes:[/] {', '.join(cfg['nodes'])}")
-            dims_str = ", ".join(cfg["dimensions"]) if cfg["dimensions"] else "(all)"
-            lines.append(f"[bold]Dimensions:[/] {dims_str}")
-        elif op == "synthesize":
-            lines.append(f"[bold]Source Nodes:[/] {', '.join(cfg['nodes'])}")
-            lines.append("[bold]Merge Rules:[/]")
-            lines.append(cfg["merge_rules"])
-        elif op == "module_decompose":
-            lines.append(f"[bold]Source Subgraph:[/] {cfg['subgraph']}")
-            lines.append(f"[bold]Source HEAD:[/] {cfg['source_node']}")
-            lines.append(f"[bold]Modules:[/] {', '.join(cfg['modules'])}")
-            lines.append(
-                f"[bold]From Sections:[/] {str(cfg['from_sections']).lower()}"
-            )
-            lines.append(
-                f"[bold]Link To Task:[/] {str(cfg['link_to_task']).lower()}"
-            )
-            if cfg.get("instructions"):
-                lines.append("[bold]Decomposition Plan:[/]")
-                lines.append(cfg["instructions"])
-        elif op == "module_merge":
-            lines.append(f"[bold]Source Subgraph:[/] {cfg['source_subgraph']}")
-            lines.append(
-                f"[bold]Destination Subgraph:[/] {cfg['destination_subgraph']}"
-            )
-            lines.append("[bold]Merge-Up Rules:[/]")
-            lines.append(cfg["merge_rules"])
-        elif op == "module_sync":
-            module = cfg["subgraph"]
-            gs = _read_graph_state(self.session_path)
-            tasks = gs.get("module_tasks")
-            tasks = tasks if isinstance(tasks, dict) else {}
-            synced = gs.get("last_synced_at")
-            synced = synced if isinstance(synced, dict) else {}
-            lines.append(f"[bold]Module Subgraph:[/] {module}")
-            lines.append(f"[bold]Linked Task:[/] t{tasks.get(module, '?')}")
-            lines.append(f"[bold]Last Synced:[/] {synced.get(module) or '(never)'}")
-            if cfg.get("instructions"):
-                lines.append("[bold]Sync Instructions:[/]")
-                lines.append(cfg["instructions"])
-        # Session ops left the wizard (t983_8); their confirmation now lives in
-        # the Session tab (_session_op_summary).
-
-        ts = cfg.get("target_sections")
-        if ts:
-            lines.append(f"[bold]Sections:[/] {', '.join(ts)}")
-
-        default_mode = _brainstorm_launch_mode_default(op)
-        lines.append(f"[bold]Launch mode:[/] {default_mode} (editable below)")
-
-        return lines
-
-    @on(Checkbox.Changed, ".chk_node")
-    def _on_cmp_node_changed(self, event: Checkbox.Changed) -> None:
-        """Re-render compare section + dimension checkboxes on node-selection change."""
-        if self._wizard_op != "compare":
-            return
-        self._refresh_compare_sections()
-        self._refresh_compare_dimensions()
-
-    @on(Button.Pressed, ".btn_actions_launch")
-    def _on_actions_launch(self) -> None:
-        """Handle Launch button press in the wizard confirm step. Session ops
-        left the wizard (t983_8), so this is design-ops-only."""
-        self._execute_design_op()
-
-    @on(Button.Pressed, ".btn_actions_back")
-    def _on_actions_back(self) -> None:
-        """Handle Back button (confirm step) — go to the previous active step."""
-        prev = prev_step_id(self._wizard_ctx(), self._wizard_step_id)
-        if prev is not None:
-            self._render_wizard_step(prev)
-
-    @on(Button.Pressed, ".btn_actions_next")
-    def _on_actions_next(self) -> None:
-        """Handle Next button — dispatch by the current step id."""
-        if self._wizard_step_id == "node_select":
-            # Guarded advance (section/config routing).
-            self._actions_advance_from_node_select(
-                self._wizard_config.get("_selected_node", "")
-            )
-        elif self._wizard_step_id == "section_select":
-            # Collect sections, then go to config.
-            self._collect_target_sections()
-            self._actions_show_config()
-        elif self._wizard_step_id == "config":
-            if self._actions_collect_config():
-                self._actions_show_confirm()
 
     @on(Button.Pressed, ".btn_runner_start")
     def _on_runner_start(self, event: Button.Pressed) -> None:
@@ -8170,38 +8313,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify("Failed to stop runner", severity="error")
 
     def on_operation_row_activated(self, event: OperationRow.Activated) -> None:
-        """Handle mouse click activation on an OperationRow."""
+        """Handle a mouse click on a Session-tab OperationRow (t983_8). Wizard
+        OperationRows now live in ActionsWizardScreen, which handles their
+        activation itself (t983_11)."""
         row = event.row
         tabbed = self.query_one(TabbedContent)
         # Session tab (t983_8): a clicked lifecycle op dispatches directly.
         if tabbed.active == "tab_session":
             if not row.op_disabled:
                 self._dispatch_session_op(row.op_key)
-            return
-        if tabbed.active != "tab_actions":
-            return
-        if self._wizard_step_id == "op_select":
-            # Session ops left the wizard (t983_8) — design-ops-only here.
-            self._wizard_op = row.op_key
-            self._set_total_steps()
-            self._actions_show_step2()
-        elif self._wizard_step_id == "subgraph_select":
-            # Mirror op-select: clicking a subgraph chooses it and advances.
-            self._wizard_subgraph = row.op_key
-            nxt = next_step_id(self._wizard_ctx(), "subgraph_select")
-            if nxt is not None:
-                self._render_wizard_step(nxt)
-        elif self._wizard_step_id == "node_select" and self._wizard_op in _NODE_SELECT_STEP_OPS:
-            self._wizard_config["_selected_node"] = row.op_key
-            # Visual feedback: mark selected node
-            container = self.query_one("#actions_content", VerticalScroll)
-            for op_row in container.query(OperationRow):
-                op_row.selected = (op_row.op_key == row.op_key)
-            # Enable Next button
-            try:
-                self.query_one(".btn_actions_next", Button).disabled = False
-            except Exception:
-                pass
 
     def _execute_session_op(self, op: str | None = None) -> None:
         """Execute a session lifecycle operation. The Session tab (t983_8) passes
@@ -8226,17 +8346,20 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         self._load_existing_session()
 
-    def _execute_design_op(self) -> None:
-        """Dispatch design operation to background thread."""
+    def _execute_design_op(self, result: dict) -> None:
+        """Dispatch a design operation to a background thread (t983_11).
+
+        ``result`` is the Actions wizard's dismiss payload
+        (``{op, config, subgraph}``); the wizard already collected ``launch_mode``
+        into ``config`` before dismissing. Seed the worker-handoff attributes
+        the background ``_run_design_op`` reads, then run it."""
+        self._wizard_op = result["op"]
+        self._wizard_config = result["config"]
+        self._wizard_subgraph = result.get("subgraph", UMBRELLA_SUBGRAPH)
         status = self.session_data.get("status", "")
         if status == "init":
             save_session(self.task_num, {"status": "active"})
             self.session_data["status"] = "active"
-        try:
-            field = self.query_one("#launch-mode-field", CycleField)
-            self._wizard_config["launch_mode"] = field.current_value
-        except Exception:
-            self._wizard_config["launch_mode"] = DEFAULT_LAUNCH_MODE
         self._run_design_op()
 
     @work(thread=True)
@@ -8400,13 +8523,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 )
 
             self.call_from_thread(self.notify, msg)
-            self.call_from_thread(self._actions_show_step1)
+            # t983_11: the wizard modal was dismissed at launch — there is no
+            # in-tab wizard to reset, so the worker just notifies.
 
         except Exception as e:
             self.call_from_thread(
                 self.notify, f"Operation failed: {e}", severity="error",
             )
-            self.call_from_thread(self._actions_show_step1)
 
     def _next_group_name(self, op: str) -> str:
         """Generate next group name (e.g., explore_001, compare_002)."""

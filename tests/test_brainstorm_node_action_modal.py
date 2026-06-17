@@ -33,16 +33,33 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
 import yaml  # noqa: E402
 
-from textual.app import App, ComposeResult  # noqa: E402
+import contextlib  # noqa: E402
+import types  # noqa: E402
+
+from textual.app import App, ComposeResult, active_app  # noqa: E402
 from textual.widgets import Checkbox, Label  # noqa: E402
 
 from brainstorm.brainstorm_app import (  # noqa: E402
+    DEFAULT_LAUNCH_MODE,
+    ActionsWizardScreen,
     BrainstormApp,
     FuzzyCheckList,
     NodeActionSelectModal,
     OperationHelpModal,
     OperationRow,
 )
+
+
+@contextlib.contextmanager
+def _as_active_app(app):
+    """Make ``screen.app`` resolve to ``app`` for a __new__'d screen under test
+    (t983_11). ``Screen.app`` reads the ``active_app`` ContextVar, so the wizard
+    screen's ``self.app._node_*`` disk-reader calls resolve to the fake host."""
+    token = active_app.set(app)
+    try:
+        yield
+    finally:
+        active_app.reset(token)
 
 
 # --------------------------------------------------------------------------
@@ -310,46 +327,54 @@ class AdvanceFromNodeSelectTests(unittest.TestCase):
             content, encoding="utf-8"
         )
 
-    def _make_app(self, wizard_op: str):
-        """A BrainstormApp with __init__ bypassed, wired for routing capture."""
-        app = BrainstormApp.__new__(BrainstormApp)
-        app.session_path = self.wt
-        app._wizard_op = wizard_op
-        app._wizard_config = {}
-        app.calls = []
-        app.notices = []
-        app.notify = lambda msg, **kw: app.notices.append((msg, kw))
-        app._actions_show_config = lambda: app.calls.append("config")
-        app._actions_show_confirm = lambda: app.calls.append("confirm")
-        app._actions_show_section_select = (
-            lambda: app.calls.append("section")
+    def _make_screen(self, wizard_op: str):
+        """An ActionsWizardScreen with __init__ bypassed, wired for routing
+        capture (t983_11). The helper reads section presence via
+        ``self.app._node_has_sections`` — backed by a real BrainstormApp host
+        (disk reader) made active via ``_as_active_app``."""
+        screen = ActionsWizardScreen.__new__(ActionsWizardScreen)
+        screen._wizard_op = wizard_op
+        screen._wizard_config = {}
+        screen._wizard_has_sections = False
+        screen.calls = []
+        screen.notices = []
+        screen.notify = lambda msg, **kw: screen.notices.append((msg, kw))
+        screen._actions_show_config = lambda: screen.calls.append("config")
+        screen._actions_show_confirm = lambda: screen.calls.append("confirm")
+        screen._actions_show_section_select = (
+            lambda: screen.calls.append("section")
         )
-        return app
+        host = BrainstormApp.__new__(BrainstormApp)
+        host.session_path = self.wt
+        screen._host = host
+        return screen
 
     def test_explore_no_sections_goes_to_config(self):
         self._write_proposal("n1", _PROPOSAL_NO_SECTIONS)
-        app = self._make_app("explore")
-        result = app._actions_advance_from_node_select("n1")
+        screen = self._make_screen("explore")
+        with _as_active_app(screen._host):
+            result = screen._actions_advance_from_node_select("n1")
         self.assertTrue(result)
-        self.assertEqual(app.calls, ["config"])
+        self.assertEqual(screen.calls, ["config"])
 
     def test_explore_with_sections_goes_to_section_select(self):
         # Regression guard (re-expressed via the surviving `explore` op, which
         # uses section_select): keyboard Enter previously skipped section
         # selection; the shared helper now applies it uniformly.
         self._write_proposal("n1", _PROPOSAL_WITH_SECTIONS)
-        app = self._make_app("explore")
-        result = app._actions_advance_from_node_select("n1")
+        screen = self._make_screen("explore")
+        with _as_active_app(screen._host):
+            result = screen._actions_advance_from_node_select("n1")
         self.assertTrue(result)
-        self.assertEqual(app.calls, ["section"])
+        self.assertEqual(screen.calls, ["section"])
 
     def test_empty_node_is_blocked(self):
-        app = self._make_app("explore")
-        result = app._actions_advance_from_node_select("")
+        screen = self._make_screen("explore")
+        result = screen._actions_advance_from_node_select("")
         self.assertFalse(result)
-        self.assertEqual(app.calls, [])
-        self.assertTrue(app.notices)
-        self.assertIn("Select a node first", app.notices[0][0])
+        self.assertEqual(screen.calls, [])
+        self.assertTrue(screen.notices)
+        self.assertIn("Select a node first", screen.notices[0][0])
 
 
 # --------------------------------------------------------------------------
@@ -367,8 +392,10 @@ class _FakeSelection:
 
 
 class OnNodeActionResultTests(unittest.TestCase):
-    """The modal callback: cancel is a no-op (no tab was switched); a valid
-    pick seeds the wizard and schedules the deferred Actions-tab entry."""
+    """The modal callback (t983_11): cancel/missing-node are no-ops; delete is
+    handled inline; every other op pushes ActionsWizardScreen seeded from the
+    contextual selection. The per-op seeding/routing it used to do inline now
+    lives in the screen's on_mount (see ActionsWizardScreenSeedTests)."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="brainstorm_node_action_cb_")
@@ -396,163 +423,210 @@ class OnNodeActionResultTests(unittest.TestCase):
     def _make_app(self, marked=()):
         app = BrainstormApp.__new__(BrainstormApp)
         app.session_path = self.wt
-        app._wizard_op = ""
-        app._wizard_config = {}
-        app._wizard_total_steps = 3
-        app._wizard_has_sections = False
-        app._cmp_section_checks = {}
-        app.calls = []
         app.notices = []
-        app.scheduled = []
-        # Minimal NodeSelection stand-in (t983_6): the compare/synthesize branch
-        # reads self._selection.effective() to pre-check the source checklist.
+        app.pushed = []
+        app.deleted = []
+        # Minimal NodeSelection stand-in (t983_6): the contextual seed reads
+        # self._selection.effective() for the compare/synthesize pre-check.
         app._selection = _FakeSelection(marked)
-
-        def fake_query_one(selector, *args):
-            # The harness mounts no widgets; #actions_content lookups are
-            # wrapped in try/except in the production code.
-            raise RuntimeError("no widgets in this harness")
-
-        app.query_one = fake_query_one
         app.notify = lambda msg, **kw: app.notices.append((msg, kw))
-        app._wizard_fast_track = False
-        app._wizard_subgraph = "_umbrella"
-        app._actions_show_node_select = (
-            lambda: app.calls.append("node_select")
+        app.push_screen = (
+            lambda screen, cb=None: app.pushed.append((screen, cb))
         )
-        app._actions_show_config = lambda: app.calls.append("config")
-        app._actions_advance_from_node_select = (
-            lambda node: app.calls.append(("advance", node)) or True
-        )
-        app._preseed_multi_node_checklist = (
-            lambda op, m: app.calls.append(("preseed", op, tuple(m)))
-        )
-
-        def fake_car(cb, *a, **kw):
-            app.calls.append("after_refresh")
-            app.scheduled.append(cb)
-
-        app.call_after_refresh = fake_car
+        app._open_delete_node_modal = lambda nid: app.deleted.append(nid)
         return app
 
     def test_cancel_is_a_noop(self):
-        # No tab was switched when the picker opened, so cancelling leaves
-        # the user on the originating tab with no wizard state touched.
+        # op_key None (Cancel) → nothing pushed, no state touched.
         app = self._make_app()
         app._on_node_action_result("n1", None)
-        self.assertEqual(app.calls, [])
-        self.assertEqual(app._wizard_op, "")
+        self.assertEqual(app.pushed, [])
 
     def test_missing_node_notifies_and_skips_wizard(self):
         app = self._make_app()
         app._on_node_action_result("ghost", "explore")
         self.assertTrue(app.notices)
         self.assertIn("no longer exists", app.notices[0][0])
-        self.assertEqual(app.calls, [])
+        self.assertEqual(app.pushed, [])
 
-    def test_valid_pick_seeds_wizard_and_drops_node_select(self):
-        # explore: the node is contextual, so the launch seeds _selected_node +
-        # pre_seeded_node and skips the in-wizard node-pick step (t983_6),
-        # advancing straight into section_select/config.
+    def test_delete_handled_inline_without_wizard(self):
+        # delete is synchronous (DeleteNodeModal) — no wizard screen is pushed.
+        self._write_node("n1")
+        app = self._make_app()
+        app._on_node_action_result("n1", "delete")
+        self.assertEqual(app.deleted, ["n1"])
+        self.assertEqual(app.pushed, [])
+
+    def test_valid_pick_pushes_wizard_with_seed(self):
         self._write_node("n1")
         app = self._make_app()
         app._on_node_action_result("n1", "explore")
-        self.assertEqual(app._wizard_op, "explore")
-        self.assertEqual(app._wizard_config.get("_selected_node"), "n1")
-        self.assertTrue(app._wizard_config.get("pre_seeded_node"))
-        self.assertNotIn("node_select", app.calls)  # node-pick step dropped
-        self.assertIn(("advance", "n1"), app.calls)
-        # Tab entry is deferred (call_after_refresh) until the modal pop
-        # settles — see _on_node_action_result.
-        self.assertIn("after_refresh", app.calls)
+        self.assertEqual(len(app.pushed), 1)
+        screen, cb = app.pushed[0]
+        self.assertIsInstance(screen, ActionsWizardScreen)
+        self.assertEqual(screen._seed_op, "explore")
+        self.assertEqual(screen._seed_node, "n1")
+        self.assertEqual(cb, app._on_wizard_result)
 
-    def test_fast_track_seeds_module_decompose_preset(self):
-        # The "Fast-track this module" preset (t756_6 UC-3) seeds a
-        # single-module module_decompose — NOT a new op — with the fast-track
-        # arm set, sourced from the focused node's subgraph, and renders config
-        # directly (module_decompose has no node-select step).
-        self._write_node("n1")
-        app = self._make_app()
-        app._on_node_action_result("n1", "fast_track")
-        self.assertEqual(app._wizard_op, "module_decompose")
-        self.assertTrue(app._wizard_fast_track)
-        from brainstorm.brainstorm_dag import _node_module
-        self.assertEqual(
-            app._wizard_subgraph, _node_module(app.session_path, "n1")
-        )
-        self.assertIn("config", app.calls)
-        self.assertNotIn("node_select", app.calls)
-        # pre_seeded_node drops the (over-counted) node_select step (t983_6).
-        self.assertTrue(app._wizard_config.get("pre_seeded_node"))
-        self.assertIn("after_refresh", app.calls)
-
-    def test_module_decompose_sets_pre_seeded_node(self):
-        # Contextual module_decompose seeds the subgraph and flags
-        # pre_seeded_node so step numbering omits node_select (t983_6).
-        self._write_node("n1")
-        app = self._make_app()
-        app._on_node_action_result("n1", "module_decompose")
-        self.assertEqual(app._wizard_op, "module_decompose")
-        self.assertTrue(app._wizard_config.get("pre_seeded_node"))
-        self.assertIn("config", app.calls)
-        self.assertNotIn("node_select", app.calls)
-
-    def test_compare_routes_to_config_not_node_select(self):
-        # Multi-node ops pick nodes in the config step (cmp_nodes/syn_nodes),
-        # so the t983_4 branch must render config directly — NOT the explore-only
-        # node-select branch, which would mis-drive them (seedless-launch guard).
-        self._write_node("n1")
-        app = self._make_app()
-        app._on_node_action_result("n1", "compare")
-        self.assertEqual(app._wizard_op, "compare")
-        self.assertIn("config", app.calls)
-        self.assertNotIn("node_select", app.calls)
-        self.assertIn("after_refresh", app.calls)
-
-    def test_synthesize_routes_to_config_not_node_select(self):
-        self._write_node("n1")
-        app = self._make_app()
-        app._on_node_action_result("n1", "synthesize")
-        self.assertEqual(app._wizard_op, "synthesize")
-        self.assertIn("config", app.calls)
-        self.assertNotIn("node_select", app.calls)
-        self.assertIn("after_refresh", app.calls)
-
-    def test_compare_preseeds_checklist_from_marked_set(self):
-        # With a 2+ marked set driving the launch (t983_6), the source-node
-        # checklist is pre-checked from the marked ids. The pre-check is
-        # scheduled via call_after_refresh (boxes must be mounted first).
-        self._write_node("n1")
-        self._write_node("n2")
-        app = self._make_app(marked=["n1", "n2"])
-        app._on_node_action_result("n1", "compare")
-        for cb in app.scheduled:  # run the deferred callbacks
-            cb()
-        self.assertIn(("preseed", "compare", ("n1", "n2")), app.calls)
-
-    def test_synthesize_preseeds_checklist_from_marked_set(self):
+    def test_compare_seed_carries_marked_set(self):
+        # The contextual marked set rides into the screen as the seed; the
+        # screen's on_mount pre-checks the source checklist from it (t983_6).
         self._write_node("n1")
         self._write_node("n2")
         app = self._make_app(marked=["n2", "n1"])
-        app._on_node_action_result("n1", "synthesize")
-        for cb in app.scheduled:
+        app._on_node_action_result("n1", "compare")
+        screen, _ = app.pushed[0]
+        self.assertEqual(screen._seed_op, "compare")
+        self.assertEqual(sorted(screen._seed_marked), ["n1", "n2"])
+
+    def test_on_wizard_result_none_is_noop(self):
+        app = self._make_app()
+        executed = []
+        app._execute_design_op = lambda r: executed.append(r)
+        app._on_wizard_result(None)
+        self.assertEqual(executed, [])
+
+    def test_on_wizard_result_runs_execute_design_op(self):
+        app = self._make_app()
+        executed = []
+        app._execute_design_op = lambda r: executed.append(r)
+        payload = {"op": "explore", "config": {"x": 1}, "subgraph": "_umbrella"}
+        app._on_wizard_result(payload)
+        self.assertEqual(executed, [payload])
+
+
+class ActionsWizardScreenSeedTests(unittest.TestCase):
+    """The wizard screen's on_mount reproduces the per-op seeding/routing the
+    modal callback used to perform inline (t983_6 contract, re-hosted into the
+    screen in t983_11). Driven with __init__ bypassed + render methods stubbed;
+    section/subgraph disk reads resolve via a real BrainstormApp host made
+    active with _as_active_app."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="brainstorm_wizard_seed_")
+        self.wt = Path(self.tmpdir)
+        (self.wt / "br_nodes").mkdir()
+        (self.wt / "br_proposals").mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _write_node(self, node_id: str) -> None:
+        data = {
+            "node_id": node_id,
+            "parents": [],
+            "description": f"desc {node_id}",
+            "proposal_file": f"br_proposals/{node_id}.md",
+        }
+        (self.wt / "br_nodes" / f"{node_id}.yaml").write_text(
+            yaml.safe_dump(data), encoding="utf-8"
+        )
+        (self.wt / "br_proposals" / f"{node_id}.md").write_text(
+            _PROPOSAL_NO_SECTIONS, encoding="utf-8"
+        )
+
+    def _make_screen(self, op_key, node_id="n1", marked=()):
+        screen = ActionsWizardScreen.__new__(ActionsWizardScreen)
+        screen._seed_op = op_key
+        screen._seed_node = node_id
+        screen._seed_marked = list(marked)
+        screen._wizard_op = ""
+        screen._wizard_config = {}
+        screen._wizard_has_sections = False
+        screen._wizard_subgraph_count = 1
+        screen._wizard_subgraph = "_umbrella"
+        screen._wizard_fast_track = False
+        screen._cmp_section_checks = {}
+        screen.calls = []
+        screen.scheduled = []
+        screen._actions_show_config = lambda: screen.calls.append("config")
+        screen._actions_show_node_select = (
+            lambda: screen.calls.append("node_select")
+        )
+        screen._actions_advance_from_node_select = (
+            lambda node: screen.calls.append(("advance", node)) or True
+        )
+        screen._preseed_multi_node_checklist = (
+            lambda op, m: screen.calls.append(("preseed", op, tuple(m)))
+        )
+
+        def fake_car(cb, *a, **kw):
+            screen.calls.append("after_refresh")
+            screen.scheduled.append(cb)
+
+        screen.call_after_refresh = fake_car
+        host = BrainstormApp.__new__(BrainstormApp)
+        host.session_path = self.wt
+        screen._host = host
+        return screen
+
+    def _run_mount(self, screen):
+        with _as_active_app(screen._host):
+            screen.on_mount()
+
+    def test_explore_seeds_and_drops_node_select(self):
+        self._write_node("n1")
+        s = self._make_screen("explore")
+        self._run_mount(s)
+        self.assertEqual(s._wizard_op, "explore")
+        self.assertEqual(s._wizard_config.get("_selected_node"), "n1")
+        self.assertTrue(s._wizard_config.get("pre_seeded_node"))
+        self.assertNotIn("node_select", s.calls)
+        self.assertIn(("advance", "n1"), s.calls)
+
+    def test_fast_track_seeds_module_decompose_preset(self):
+        self._write_node("n1")
+        s = self._make_screen("fast_track")
+        self._run_mount(s)
+        self.assertEqual(s._wizard_op, "module_decompose")
+        self.assertTrue(s._wizard_fast_track)
+        from brainstorm.brainstorm_dag import _node_module
+        self.assertEqual(s._wizard_subgraph, _node_module(self.wt, "n1"))
+        self.assertTrue(s._wizard_config.get("pre_seeded_node"))
+        self.assertIn("config", s.calls)
+        self.assertNotIn("node_select", s.calls)
+
+    def test_module_decompose_sets_pre_seeded_node(self):
+        self._write_node("n1")
+        s = self._make_screen("module_decompose")
+        self._run_mount(s)
+        self.assertEqual(s._wizard_op, "module_decompose")
+        self.assertTrue(s._wizard_config.get("pre_seeded_node"))
+        self.assertIn("config", s.calls)
+        self.assertNotIn("node_select", s.calls)
+
+    def test_compare_routes_to_config_and_preseeds(self):
+        self._write_node("n1")
+        self._write_node("n2")
+        s = self._make_screen("compare", marked=["n1", "n2"])
+        self._run_mount(s)
+        self.assertEqual(s._wizard_op, "compare")
+        self.assertIn("config", s.calls)
+        self.assertNotIn("node_select", s.calls)
+        for cb in s.scheduled:
             cb()
-        # marked is sorted before seeding
-        self.assertIn(("preseed", "synthesize", ("n1", "n2")), app.calls)
+        self.assertIn(("preseed", "compare", ("n1", "n2")), s.calls)
+
+    def test_synthesize_routes_to_config_and_preseeds(self):
+        self._write_node("n1")
+        self._write_node("n2")
+        s = self._make_screen("synthesize", marked=["n2", "n1"])
+        self._run_mount(s)
+        self.assertEqual(s._wizard_op, "synthesize")
+        self.assertIn("config", s.calls)
+        for cb in s.scheduled:
+            cb()
+        # marked is sorted before pre-check
+        self.assertIn(("preseed", "synthesize", ("n1", "n2")), s.calls)
 
     def test_compare_without_marked_set_does_not_preseed(self):
-        # A lone primary (no marked set) → no pre-check scheduled. (In the live
-        # app compare is greyed at cardinality 1; this guards the seedless path.)
         self._write_node("n1")
-        app = self._make_app()  # no marked nodes
-        app._on_node_action_result("n1", "compare")
-        for cb in app.scheduled:
+        s = self._make_screen("compare")  # no marked nodes
+        self._run_mount(s)
+        for cb in s.scheduled:
             cb()
-        self.assertNotIn(
-            ("preseed", "compare", ()), [c for c in app.calls if isinstance(c, tuple) and c[0] == "preseed"]
-        )
         self.assertFalse(
-            [c for c in app.calls if isinstance(c, tuple) and c[0] == "preseed"]
+            [c for c in s.calls if isinstance(c, tuple) and c[0] == "preseed"]
         )
 
 
@@ -580,7 +654,7 @@ class PreseedChecklistPilotTests(unittest.TestCase):
                 await pilot.pause()
                 # synthesize takes the no-refresh path (compare also calls the
                 # session-backed dimension/section refreshes).
-                BrainstormApp._preseed_multi_node_checklist(
+                ActionsWizardScreen._preseed_multi_node_checklist(
                     host, "synthesize", ["n1", "n3"]
                 )
                 await pilot.pause()
@@ -600,13 +674,47 @@ class SetTotalStepsResetsFastTrackTests(unittest.TestCase):
     into a later normal module_decompose (t756_6)."""
 
     def test_set_total_steps_clears_fast_track_flag(self):
-        app = BrainstormApp.__new__(BrainstormApp)
-        app._wizard_fast_track = True
-        app._wizard_has_sections = True
-        app._cmp_section_checks = {"x": True}
-        app._wizard_subgraph = "some_module"
-        app._set_total_steps()
-        self.assertFalse(app._wizard_fast_track)
+        screen = ActionsWizardScreen.__new__(ActionsWizardScreen)
+        screen._wizard_fast_track = True
+        screen._wizard_has_sections = True
+        screen._cmp_section_checks = {"x": True}
+        screen._wizard_subgraph = "some_module"
+        screen._set_total_steps()
+        self.assertFalse(screen._wizard_fast_track)
+
+
+class WizardLaunchResultTests(unittest.TestCase):
+    """Launch = dismiss-with-result (t983_11): the screen collects launch_mode,
+    then dismisses with a ``{op, config, subgraph}`` payload that the App's
+    _execute_design_op consumes (the App no longer reads self._wizard_* from the
+    wizard directly)."""
+
+    def test_launch_dismisses_with_op_config_subgraph(self):
+        screen = ActionsWizardScreen.__new__(ActionsWizardScreen)
+        screen._wizard_op = "explore"
+        screen._wizard_config = {"mandate": "x", "parallel": 2}
+        screen._wizard_subgraph = "_umbrella"
+        dismissed = []
+        screen.dismiss = lambda result: dismissed.append(result)
+        # No launch-mode field mounted → falls back to DEFAULT_LAUNCH_MODE.
+
+        def _raise(*a, **k):
+            raise RuntimeError("no launch-mode field in this harness")
+
+        screen.query_one = _raise
+        screen._on_actions_launch()
+
+        self.assertEqual(len(dismissed), 1)
+        res = dismissed[0]
+        self.assertEqual(res["op"], "explore")
+        self.assertEqual(res["subgraph"], "_umbrella")
+        self.assertEqual(res["config"]["launch_mode"], DEFAULT_LAUNCH_MODE)
+        self.assertEqual(res["config"]["mandate"], "x")
+        self.assertEqual(res["config"]["parallel"], 2)
+        # The payload carries a *copy* of the config — later wizard mutations
+        # must not leak into the dispatched result.
+        screen._wizard_config["mandate"] = "y"
+        self.assertEqual(res["config"]["mandate"], "x")
 
 
 if __name__ == "__main__":

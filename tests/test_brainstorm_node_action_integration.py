@@ -2,13 +2,13 @@
 
 Boots a real `BrainstormApp` over a temp session and drives it with the
 Textual pilot: focus a node on the Graph / Dashboard tab, press `A`, pick an
-operation, and assert the Actions tab is activated with the wizard seeded.
+operation, and assert the contextual Actions wizard (ActionsWizardScreen) opens
+seeded (t983_11: the wizard is a pushed modal now, not an in-tab surface).
 
-This is the regression guard for the t819 review bug: the Actions-tab switch
-was being undone by the modal pop's `ScreenResume` focus restoration, so
-picking an operation appeared to do nothing (non-deterministically "fixed"
-after several retries). Unit tests over the modal and the callback could not
-catch it — only a booted app exercises the screen-stack / focus interaction.
+This is the regression guard for the t819 review bug: picking an operation
+appeared to do nothing (non-deterministically "fixed" after several retries).
+Unit tests over the modal and the callback could not catch it — only a booted
+app exercises the screen-stack / focus interaction.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ import brainstorm.brainstorm_session as bs_mod  # noqa: E402
 from textual.widgets import TabbedContent  # noqa: E402
 
 from brainstorm.brainstorm_app import (  # noqa: E402
+    ActionsWizardScreen,
     BrainstormApp,
     NodeActionSelectModal,
     NodeRow,
@@ -95,10 +96,12 @@ class NodeActionIntegrationTests(unittest.TestCase):
                 await pilot.press("enter")  # first enabled op == explore
                 await self._settle(pilot, 10)
 
-                self.assertEqual(tabbed.active, "tab_actions")
-                self.assertEqual(app._wizard_op, "explore")
+                # t983_11: picking an op pushes the contextual wizard modal,
+                # seeded from the focused node (no Actions tab anymore).
+                self.assertIsInstance(app.screen, ActionsWizardScreen)
+                self.assertEqual(app.screen._wizard_op, "explore")
                 self.assertEqual(
-                    app._wizard_config.get("_selected_node"), "n000_init"
+                    app.screen._wizard_config.get("_selected_node"), "n000_init"
                 )
 
         self._run(runner())
@@ -118,8 +121,8 @@ class NodeActionIntegrationTests(unittest.TestCase):
                 await pilot.press("enter")
                 await self._settle(pilot, 10)
 
-                self.assertEqual(tabbed.active, "tab_actions")
-                self.assertEqual(app._wizard_op, "explore")
+                self.assertIsInstance(app.screen, ActionsWizardScreen)
+                self.assertEqual(app.screen._wizard_op, "explore")
 
         self._run(runner())
 
@@ -141,10 +144,14 @@ class NodeActionIntegrationTests(unittest.TestCase):
                     )
                     await pilot.press("enter")
                     await self._settle(pilot, 10)
-                    self.assertEqual(
-                        tabbed.active, "tab_actions",
-                        f"attempt {attempt}: Actions tab not activated",
+                    self.assertIsInstance(
+                        app.screen, ActionsWizardScreen,
+                        f"attempt {attempt}: wizard modal not opened",
                     )
+                    # Close the wizard before the next attempt (the modal
+                    # consumes keys, so `g`/focus wouldn't reach Browse).
+                    app.screen.dismiss(None)
+                    await self._settle(pilot, 5)
 
         self._run(runner())
 

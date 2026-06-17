@@ -147,13 +147,36 @@ class WizardSplitRegressionTests(unittest.TestCase):
     may leak back into op_select."""
 
     def test_step1_has_no_session_ops(self):
-        app, container = _bare_app(session_data={"status": "active"})
-        app._enter_wizard_step = lambda step_id: None
-        app._mount_recent_ops = lambda c: None
-        with mock.patch(
-            "brainstorm.brainstorm_app.list_subgraphs", return_value=["umbrella"]
-        ):
-            app._actions_show_step1()
+        # t983_11: the wizard op list now renders on ActionsWizardScreen; its
+        # _actions_show_step1 reads session facts via self.app.*.
+        from textual.app import active_app
+
+        from brainstorm.brainstorm_app import ActionsWizardScreen
+
+        container = _FakeContainer()
+        screen = ActionsWizardScreen.__new__(ActionsWizardScreen)
+        screen._wizard_op = ""
+        screen._wizard_config = {}
+        screen._wizard_has_sections = False
+        screen._cmp_section_checks = {}
+        screen._wizard_subgraph_count = 1
+        screen.query_one = lambda *a, **k: container
+        screen.call_after_refresh = lambda *a, **k: None
+        screen._enter_wizard_step = lambda step_id: None
+        screen._mount_recent_ops = lambda c: None
+        host = BrainstormApp.__new__(BrainstormApp)
+        host.read_only = False
+        host.session_data = {"status": "active"}
+        host.session_path = Path("/nonexistent")
+        token = active_app.set(host)
+        try:
+            with mock.patch(
+                "brainstorm.brainstorm_app.list_subgraphs",
+                return_value=["umbrella"],
+            ):
+                screen._actions_show_step1()
+        finally:
+            active_app.reset(token)
         keys = {r.op_key for r in container.op_rows()}
         self.assertTrue(keys, "expected design ops to render")
         self.assertEqual(keys, _DESIGN_KEYS)

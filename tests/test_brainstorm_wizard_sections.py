@@ -238,11 +238,18 @@ class DimensionEntriesForNodesTests(unittest.TestCase):
         ac_mod.write_yaml(str(self.wt_path / "br_graph_state.yaml"), data)
 
     def _make_app(self):
-        from brainstorm.brainstorm_app import BrainstormApp
-        app = BrainstormApp.__new__(BrainstormApp)
-        # Bypass __init__; the collector only needs `session_path`.
-        app.session_path = self.wt_path
-        return app
+        # t983_11: _dimension_entries_for_nodes moved to ActionsWizardScreen and
+        # reads node data via self.app.session_path. Back the screen with a host
+        # BrainstormApp made active via the active_app ContextVar (Screen.app
+        # resolves through it); addCleanup resets it after the test.
+        from textual.app import active_app
+
+        from brainstorm.brainstorm_app import ActionsWizardScreen, BrainstormApp
+        host = BrainstormApp.__new__(BrainstormApp)
+        host.session_path = self.wt_path
+        token = active_app.set(host)
+        self.addCleanup(active_app.reset, token)
+        return ActionsWizardScreen.__new__(ActionsWizardScreen)
 
     def test_union_of_selected_nodes_grouped_in_prefix_order(self):
         self._write_node("n1", {

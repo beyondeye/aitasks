@@ -206,7 +206,8 @@ class ApplyPreviewRatioTests(unittest.TestCase):
 
     def test_apply_ratio_toggles_classes_on_both_panes(self):
         async def runner():
-            from brainstorm.brainstorm_app import BrainstormApp
+            # t983_11: _apply_preview_ratio moved to ActionsWizardScreen.
+            from brainstorm.brainstorm_app import ActionsWizardScreen
 
             class _RatioHost(App):
                 def compose(self) -> ComposeResult:
@@ -220,7 +221,7 @@ class ApplyPreviewRatioTests(unittest.TestCase):
                 await pilot.pause()
                 left = app.query_one(".config_preview_left")
                 pane = app.query_one(ProposalPreviewPane)
-                apply = BrainstormApp._apply_preview_ratio
+                apply = ActionsWizardScreen._apply_preview_ratio
 
                 # balanced (0): no ratio class
                 apply(app, left, pane, 0)
@@ -258,12 +259,13 @@ class PreviewFocusRingTests(unittest.TestCase):
     def _host(self):
         from textual.containers import Horizontal
         from textual.widgets import TextArea
-        from brainstorm.brainstorm_app import BrainstormApp
+        # t983_11: the focus-ring helpers moved to ActionsWizardScreen.
+        from brainstorm.brainstorm_app import ActionsWizardScreen
 
         class _RingHost(App):
             # Borrow the real focus-ring logic so the test exercises shipping code.
-            _preview_focus_ring = BrainstormApp._preview_focus_ring
-            _cycle_preview_focus = BrainstormApp._cycle_preview_focus
+            _preview_focus_ring = ActionsWizardScreen._preview_focus_ring
+            _cycle_preview_focus = ActionsWizardScreen._cycle_preview_focus
 
             def compose(self) -> ComposeResult:
                 yield Horizontal(
