@@ -55,6 +55,15 @@ NODE_ID_STYLE = Style(bold=True)
 DESC_STYLE = Style(color="#F8F8F2")
 EDGE_STYLE = Style(color="#6272A4")
 
+# Space-marked state (t1004): a checkbox glyph in each node-box title row,
+# mirroring the list-view NodeRow glyph so the graph and list Browse views show
+# selection marks consistently. ☑ when marked (bold yellow, matches the list),
+# ☐ when not (dim) — shown on every node box.
+MARK_CHECKED = "☑"    # ☑
+MARK_UNCHECKED = "☐"  # ☐
+MARK_CHECKED_STYLE = Style(color="yellow", bold=True)
+MARK_UNCHECKED_STYLE = Style(color="#6272A4")
+
 # Operation badge colors (Dracula palette).
 OP_BADGE_STYLES = {
     "explore":    Style(color="#8BE9FD"),  # cyan
@@ -219,12 +228,14 @@ def _render_node_box(
     is_focused: bool,
     operation: str = "",
     is_anchor: bool = False,
+    is_marked: bool = False,
 ) -> list[Text]:
     """Render a single node box as BOX_WIDTH-wide Rich Text lines.
 
     Returns NODE_ROWS lines: top border, title, op badge, description,
     bottom border. ``operation`` is the originating op name; falsy values
-    render a blank badge row (legacy sessions).
+    render a blank badge row (legacy sessions). ``is_marked`` draws a checkbox
+    glyph (``☑``/``☐``) in the title row, matching the list-view mark (t1004).
     """
     inner_w = BOX_WIDTH - 2  # inside the borders
     if is_anchor:
@@ -252,10 +263,13 @@ def _render_node_box(
     border_str = "+" + "-" * inner_w + "+"
     lines.append(Text(border_str, style=border_style + bg))
 
-    # Row 1: title | n001  HEAD         |
+    # Row 1: title | ☑ n001  HEAD       |  (checkbox always shown, t1004)
     t = Text()
     t.append("|", style=border_style + bg)
     inner = Text()
+    mark_glyph = MARK_CHECKED if is_marked else MARK_UNCHECKED
+    mark_style = MARK_CHECKED_STYLE if is_marked else MARK_UNCHECKED_STYLE
+    inner.append(mark_glyph + " ", style=mark_style + bg)
     inner.append(node_id, style=NODE_ID_STYLE + bg)
     if is_head:
         inner.append(" HEAD", style=HEAD_TAG_STYLE + bg)
@@ -304,9 +318,11 @@ def _render_layer(
     total_width: int,
     node_op_map: dict[str, str] | None = None,
     compare_anchor_id: str | None = None,
+    marked_ids: set[str] | None = None,
 ) -> list[Text]:
     """Render all node boxes in a layer as full-width lines."""
     op_map = node_op_map or {}
+    marks = marked_ids or set()
     # Build individual box lines
     boxes: list[list[Text]] = []
     for nid in layer:
@@ -320,6 +336,7 @@ def _render_layer(
                 compare_anchor_id is not None
                 and nid == compare_anchor_id
             ),
+            is_marked=(nid in marks),
         )
         boxes.append(box)
 
@@ -525,6 +542,9 @@ class DAGDisplay(VerticalScroll):
         self._node_line_map: dict[str, int] = {}
         self._compare_anchor_id: str | None = None
         self._compare_pick_mode: bool = False
+        # Cached copy of the app's NodeSelection.marked, pushed via set_marked
+        # so graph node boxes mirror the list-view mark glyph (t1004).
+        self._marked: set[str] = set()
 
     def compose(self):
         yield _DAGStatic("No DAG loaded", id="dag_display")
@@ -595,6 +615,7 @@ class DAGDisplay(VerticalScroll):
                 layer, self._node_descs, self._head, focused_id, total_width,
                 node_op_map=self._node_op_map,
                 compare_anchor_id=self._compare_anchor_id,
+                marked_ids=self._marked,
             )
             all_lines.extend(layer_lines)
 
@@ -619,6 +640,19 @@ class DAGDisplay(VerticalScroll):
         if focused_id and focused_id in self._node_line_map:
             target_y = self._node_line_map[focused_id]
             self.scroll_to(0, target_y, animate=False)
+
+    def set_marked(self, marked) -> None:
+        """Cache the Browse marked set and repaint node-box glyphs (t1004).
+
+        The app's ``NodeSelection.marked`` is the source of truth; this widget
+        holds a copy, pushed from ``_refresh_node_marks``, so the graph view
+        mirrors the list-view ``☑``/``☐`` glyph. Stores a copy to avoid aliasing
+        the live selection set; skips the repaint when no DAG is loaded yet.
+        ``_marked`` survives a ``load_dag`` rebuild, so marks persist across
+        reloads (e.g. a HEAD change) automatically."""
+        self._marked = set(marked)
+        if self._layers:
+            self._render_dag()
 
     def _layer_col_from_focused(self) -> tuple[int, int] | None:
         """Return (layer_idx, col_idx) of the focused node, or None."""

@@ -2524,7 +2524,8 @@ class NodeRow(Static):
     ]
 
     # Space-marked state (t983_3): reflects membership in the Browse
-    # NodeSelection.marked set. Reactive so toggling it re-renders the glyph.
+    # NodeSelection.marked set. Reactive so toggling it re-renders the checkbox
+    # glyph (☑/☐, shared with the graph-view DAG boxes — t1004).
     marked = reactive(False)
 
     class OperationOpened(Message):
@@ -2543,7 +2544,7 @@ class NodeRow(Static):
 
     def render(self) -> str:
         head_marker = " [bold green]HEAD[/]" if self.is_head else ""
-        mark = "[bold yellow]●[/] " if self.marked else "  "
+        mark = "[bold yellow]☑[/] " if self.marked else "[#6272A4]☐[/] "
         return (
             f"{mark}[bold]{self.node_id}[/]{head_marker}  "
             f"{self.node_description}"
@@ -6076,18 +6077,26 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return BROWSE_PANE_TO_VIEW.get(switcher.current, BROWSE_DEFAULT_VIEW)
 
     def _refresh_node_marks(self) -> None:
-        """Reflect ``self._selection.marked`` on the list-view NodeRow glyphs.
+        """Reflect ``self._selection.marked`` on BOTH Browse views' glyphs.
 
-        List-view only (the hard bar for t983_3); the DAG-node marked glyph is
-        a best-effort follow-up (``dag_node_mark_rendering``). NodeRows stay
-        mounted inside the switcher even when the graph view is showing, so a
-        mark made in graph view is visible the moment the list view is shown."""
+        Repaints the list-view NodeRow glyphs (the hard bar for t983_3) and the
+        graph-view DAG node boxes (``dag_node_mark_rendering``, t1004) from the
+        single ``NodeSelection.marked`` source of truth. NodeRows stay mounted
+        inside the switcher even when the graph view is showing, so a mark made
+        in graph view is visible the moment the list view is shown."""
         marked = self._selection.marked
         for row in self.query(NodeRow):
             row.marked = row.node_id in marked
         # Companion refresh: keep the textual marked-node summary in lock-step
         # with the per-row glyphs (glyphs + textual summary) — t983_4.
         self._refresh_marked_summary()
+        # Mirror the marks onto the graph-view DAG node boxes (t1004). The DAG
+        # is always composed in the Browse tab; the guard keeps this safe for
+        # any future caller where it might not be mounted.
+        try:
+            self.query_one(DAGDisplay).set_marked(marked)
+        except Exception:
+            pass
 
     def _refresh_marked_summary(self) -> None:
         """Update the Browse ``#browse_marked_info`` label from
@@ -6638,6 +6647,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._update_module_status()
         self._populate_node_list()
         self.query_one(DAGDisplay).load_dag(self.session_path)
+        # Re-sync the marked set onto the freshly-rebuilt DAG (t1004) — a reload
+        # via node deletion drops removed ids from the selection, so push the
+        # current set so the cached copy stays honest.
+        self.query_one(DAGDisplay).set_marked(self._selection.marked)
         # Restore the persisted Browse view (graph default) so the toggle
         # choice survives a TUI reload (t983_3).
         try:
