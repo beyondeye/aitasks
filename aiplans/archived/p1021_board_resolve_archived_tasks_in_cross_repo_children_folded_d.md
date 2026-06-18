@@ -206,3 +206,4 @@ update plan, merge to main, archive t1021.
 - `python3 -m unittest tests.test_board_archived_relation_lookup` — 11/11 OK.
 - `python3 -m unittest tests.test_archive_iter_consolidated` — 24/24 OK (reused helper unaffected).
 - `python3 -c "import ast; ast.parse(...)"` board syntax — OK.
+- **Manual-verification failure:** item "Open a Folded Tasks / Folded Into / Parent relation where the target is archived; confirm it resolves read-only." failed; follow-up task t1026.
