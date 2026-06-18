@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [test]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 19:06
-updated_at: 2026-06-17 23:57
+updated_at: 2026-06-18 08:10
+completed_at: 2026-06-18 08:10
 boardidx: 90
 ---
 
