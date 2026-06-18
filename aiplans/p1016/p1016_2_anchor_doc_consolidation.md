@@ -124,3 +124,74 @@ before/after mitigation tasks would be redundant.)
 Step 9 applies on completion. In Final Implementation Notes, record the exact
 `ait setup` invocation used to regenerate the mirrors (useful to siblings/future
 field additions), and the resolved CLAUDE.md mechanism (hand vs seed).
+
+## Final Implementation Notes
+
+- **Actual work done:** Documented the `anchor` field across all 6 schema surfaces
+  and propagated to the generated mirrors:
+  1. Canonical contract `task-creation-batch.md` — two `## Input` rows (`anchor`,
+     `followup_of`) + a "Topic anchoring (grouping)" prose section (inheritance
+     rule, mutual exclusion, `--parent` rejection, bare-id normalization, root =
+     no `anchor:` line).
+  2. `aitask-create/SKILL.md` — `--anchor` / `--followup-of` bullets pointing at
+     the canonical contract (no semantics duplication).
+  3. `CLAUDE.md` `### Task File Format` — `anchor:` line (edited directly).
+  4. `seed/aitasks_agent_instructions.seed.md` — `anchor:` line, then mirrors
+     regenerated (see below).
+  5. `website/content/docs/development/task-format.md` — `anchor` frontmatter row.
+  6. `aidocs/framework/aitasks_extension_points.md` — checklist extended from 3 to
+     5 layers (added **(4) Sync/merge rule** for `aitask_merge.py` and **(5)
+     Documentation surfaces** enumerating seed→mirrors / CLAUDE.md / website /
+     canonical contract / SKILL.md / board reference), plus an `anchor` worked
+     example.
+  Skill goldens for the committed `remote` prerenders regenerated via
+  `./.aitask-scripts/aitask_skill_rerender.sh remote` (30 pairs).
+
+- **Mirror regeneration (exact mechanism — for siblings/future field adds):** The
+  three instruction mirrors are NOT generated uniformly:
+  - **AGENTS.md** uses `>>>aitasks` markers → regenerated programmatically:
+    `source ./.aitask-scripts/aitask_setup.sh --source-only; update_agentsmd "$PWD"`
+    (in-place marker replacement, clean +1 line).
+  - **`.codex/instructions.md` / `.opencode/instructions.md`** use a *markerless*
+    `<!-- Assembled from … -->` full-file format. `insert_aitasks_instructions`
+    does NOT match this format — calling it **appends a duplicate marked block**
+    (verified: it produced a second `## Task File Format` and ballooned the file).
+    These two were instead **hand-edited** with the same `anchor:` line (their
+    Task File Format YAML blocks were byte-identical to the seed). This matches
+    how the last schema-propagation commit (`d7a968969`, "Propagate 'enhancement'
+    issue_type across docs, skills, and tests") maintained them.
+
+- **CLAUDE.md mechanism (resolved):** the framework's own `CLAUDE.md` has **no**
+  `>>>aitasks` markers, so its `### Task File Format` block is hand-maintained and
+  was edited directly. (`update_claudemd_git_section` only *appends* a marked
+  block; it never touches the hand-written section — confirmed safe.)
+
+- **Deviations from plan:** The plan assumed a single `ait setup` regeneration
+  path for all three mirrors. Reality is the split above (AGENTS.md via
+  `update_agentsmd`; codex/opencode hand-edited). No scope change — same end
+  state (all three carry `anchor:`), just the correct mechanism per file.
+
+- **Issues encountered:** Initial attempt regenerated codex/opencode via
+  `insert_aitasks_instructions`, which duplicated content; reverted with
+  `git checkout --` and hand-edited instead.
+
+- **Upstream defects identified:** `.codex/instructions.md:1` /
+  `.opencode/instructions.md:1` — these committed instruction mirrors lack the
+  `>>>aitasks`/`<<<aitasks` markers that `setup_codex_cli` / `setup_opencode_cli`
+  (`aitask_setup.sh` ~L1939 / ~L2090) use via `insert_aitasks_instructions`. A
+  future `ait setup` run would therefore **append a duplicate aitasks block**
+  rather than replacing in place (AGENTS.md does not have this problem — it
+  carries the markers). Pre-existing, out of scope for this doc task; worth a
+  separate fix (either add markers to the two mirrors or switch their generator).
+
+- **Notes for sibling tasks (esp. t1016_3 spawn-site wiring, depends on this):**
+  - The `--followup-of <source_id>` flag and its semantics are now documented
+    once in the canonical contract `task-creation-batch.md` ("Topic anchoring");
+    spawn-site changes should reference that, not re-specify the inheritance rule.
+  - When adding any new frontmatter field, follow the now-5-layer checklist in
+    `aidocs/framework/aitasks_extension_points.md` — in particular the mirror
+    split documented above (don't run `insert_aitasks_instructions` on the
+    codex/opencode mirrors until they get markers).
+  - Only the **`remote`** profile prerenders of shared closures are committed
+    goldens; `fast`/`default` render on-demand (untracked). After editing any
+    shared closure, run `aitask_skill_rerender.sh remote` and `aitask_skill_verify.sh`.
