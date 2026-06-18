@@ -188,6 +188,38 @@ only to decide whether to issue `switch-client`. Do not "fix" the asymmetry by
 routing shortcuts through the attached session or by adding a current-running-
 names set.
 
+## Two-axis project-group navigation (switcher + stats)
+
+The multi-session switcher and the stats TUI navigate sessions along **two
+independent axes**:
+
+- **Left / Right** cycles the **ring** — the *derived* session list for the
+  currently selected project-group: that group's members plus any **live**
+  session outside the group (so a live repo is always reachable). Stale
+  out-of-group sessions are dropped from the ring.
+- **`[` / `]`** cycles the **selected project-group**, re-deriving the ring.
+
+Both axes consume `group_sessions(sessions, selected_group) -> GroupedSessions`
+in `agent_launch_utils.py` — the TUIs never re-derive grouping. The selected
+group defaults to the **selected (operating) session's** resolved
+`project_group` (via `default_selected_group`), NOT the attached session's, so a
+switcher opened with a cross-group preselected session (monitor / minimonitor)
+lands on that session's group. `[` / `]` advance the group via
+`advance_selected_group`; a session that falls out of the new ring is re-pointed
+to a ring member.
+
+Two TUI-specific rules:
+
+- **Stats `[` / `]` are pane-guarded and dual-meaning.** On the agents ranking
+  panes (`agents.verified` / `agents.usage`) they cycle the ranking *time
+  window*; on every other pane they cycle the *project-group*. This mirrors how
+  Left/Right routes to session cycling only off those panes. The footer label
+  reads `win/grp` to reflect both meanings.
+- **The stats "All sessions" aggregate is a fixed final ring member.** It is
+  layered onto the ring by the TUI's ring builder (`_session_ring`), *not* by the
+  pure `group_sessions()`. Left/Right reaches it; `[` / `]` group cycling never
+  selects it (it is group-agnostic).
+
 ## Registering a switcher-visible TUI is a four-part atomic change
 
 Adding a TUI to `TUI_REGISTRY` in `.aitask-scripts/lib/tui_registry.py` is not

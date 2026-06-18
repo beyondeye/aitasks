@@ -33,7 +33,14 @@ from textual.widgets import Footer, Header, Label, ListItem, ListView, Static  #
 
 from lib.tui_switcher import TuiSwitcherMixin  # noqa: E402  (also adds lib/ to sys.path)
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
-from agent_launch_utils import AitasksSession, discover_aitasks_sessions  # noqa: E402
+from agent_launch_utils import (  # noqa: E402
+    PROJECT_GROUP_UNGROUPED_LABEL,
+    AitasksSession,
+    advance_selected_group,
+    default_selected_group,
+    discover_aitasks_sessions,
+    group_sessions,
+)
 from stats import stats_config  # noqa: E402
 from stats.modals.name_input import NameInputModal  # noqa: E402
 from stats.modals.pane_selector import PaneSelectorModal  # noqa: E402
@@ -152,8 +159,8 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("e", "edit_custom", "Edit custom"),
         Binding("left", "prev_verified_op", "← Cycle", show=True),
         Binding("right", "next_verified_op", "→ Cycle", show=True),
-        Binding("[", "prev_window", "prev window", show=True),
-        Binding("]", "next_window", "next window", show=True),
+        Binding("[", "prev_window", "prev win/grp", show=True),
+        Binding("]", "next_window", "next win/grp", show=True),
         Binding("q", "quit", "Quit"),
         *TuiSwitcherMixin.SWITCHER_BINDINGS,
         *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
@@ -169,6 +176,13 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.multi_session: bool = len(self.sessions) >= 2
         self._session_cache: dict[str, StatsData] = {}
         self.selected_session: str = self._default_session_selection()
+        # Selected project-group axis (t1025_2). left/right cycles the derived
+        # ring (this group + the aggregate); `[` / `]` (off the agents panes)
+        # cycles which group is selected. Default = the selected session's group;
+        # the aggregate key is group-agnostic so it falls back to the first group.
+        self._selected_group: str | None = default_selected_group(
+            self.sessions, self.selected_session
+        )
 
     # ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -442,10 +456,21 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._cycle_session(+1)
 
     def action_prev_window(self) -> None:
-        self._cycle_window(-1)
+        self._cycle_window_or_group(-1)
 
     def action_next_window(self) -> None:
-        self._cycle_window(+1)
+        self._cycle_window_or_group(+1)
+
+    def _cycle_window_or_group(self, delta: int) -> None:
+        # `[` / `]` are pane-guarded (t1025_2): on the agents ranking panes they
+        # cycle the time-window (existing behavior); on every other pane they
+        # cycle the project-group axis when multi-session. Mirrors how
+        # action_prev_verified_op routes left/right to _cycle_session only off
+        # the agents panes.
+        if self._current_pane_id() in ("agents.verified", "agents.usage"):
+            self._cycle_window(delta)
+        elif self.multi_session:
+            self._cycle_group(delta)
 
     def _cycle_verified_op(self, delta: int) -> None:
         if self._current_pane_id() != "agents.verified":
@@ -484,14 +509,25 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 return
             pane.cycle_window(delta)
 
-    def _cycle_session(self, delta: int) -> None:
-        # Order: detected sessions in display order, then "All sessions".
-        keys = [s.session for s in self.sessions] + [ALL_SESSIONS_KEY]
-        try:
-            current = keys.index(self.selected_session)
-        except ValueError:
-            current = 0
-        new_key = keys[(current + delta) % len(keys)]
+    def _session_ring(self) -> list[str]:
+        """Session keys for left/right cycling (t1025_2).
+
+        The selected project-group's derived ring, with the aggregate
+        ``ALL_SESSIONS_KEY`` layered as a fixed FINAL member here (NOT inside the
+        pure ``group_sessions()``). So left/right reaches the aggregate while
+        ``[`` / ``]`` group cycling never selects it.
+        """
+        ring = group_sessions(self.sessions, self._selected_group).ring
+        return [s.session for s in ring] + [ALL_SESSIONS_KEY]
+
+    def _apply_session_selection(self, new_key: str) -> None:
+        """Commit a new selected-session key: mirror the sidebar highlight,
+        reload data, retitle, and refresh the active pane.
+
+        Shared by left/right session cycling and ``[`` / ``]`` group cycling so
+        the ``#session_list`` highlighted row, the title, and the loaded data
+        never disagree (t1025_2, review concern #3).
+        """
         if new_key == self.selected_session:
             return
         self.selected_session = new_key
@@ -509,6 +545,39 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._refresh_current_pane()
         self.notify(
             f"Session: {self._session_key_to_label(new_key)}",
+            timeout=1,
+        )
+
+    def _cycle_session(self, delta: int) -> None:
+        keys = self._session_ring()
+        try:
+            current = keys.index(self.selected_session)
+        except ValueError:
+            current = 0
+        new_key = keys[(current + delta) % len(keys)]
+        self._apply_session_selection(new_key)
+
+    def _cycle_group(self, delta: int) -> None:
+        """Advance the project-group axis (`[` / `]` off the agents panes).
+
+        Re-derives the ring; if the current selection fell out of the new
+        group's ring, re-point it to the ring's first member (via the shared
+        ``_apply_session_selection`` so the sidebar/title/data stay in lockstep).
+        The aggregate stays reachable by left/right but is unaffected here.
+        """
+        groups = group_sessions(self.sessions, self._selected_group).groups
+        if len(groups) < 2:
+            return
+        self._selected_group = advance_selected_group(
+            groups, self._selected_group, delta
+        )
+        ring = self._session_ring()
+        if self.selected_session not in ring:
+            self._apply_session_selection(ring[0])
+        else:
+            self._update_title()
+        self.notify(
+            f"Group: {self._selected_group or PROJECT_GROUP_UNGROUPED_LABEL}",
             timeout=1,
         )
 

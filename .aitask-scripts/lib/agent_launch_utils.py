@@ -738,6 +738,59 @@ def group_sessions(
     return GroupedSessions(ring=ring, groups=groups)
 
 
+def default_selected_group(
+    sessions: list[AitasksSession],
+    selected_session_name: str | None,
+) -> str | None:
+    """Resolve the project-group a two-axis TUI should select on open (t1025_2).
+
+    Contract — "the selected session's group, else the first groups entry":
+
+    - If a session in ``sessions`` has ``.session == selected_session_name``,
+      return **its** ``project_group``. That value may legitimately be ``None``
+      (the session is ungrouped) — ``None`` here means *the ungrouped bucket*,
+      NOT "fall back to the first real group". :func:`group_sessions` treats a
+      ``None`` selected group as the ungrouped bucket, so an ungrouped
+      preselected session correctly stays in its own ring.
+    - Otherwise (no such session — e.g. the stats aggregate key, or a name that
+      did not survive discovery), return the first entry of
+      ``group_sessions(sessions, None).groups`` (sorted real groups, then the
+      synthetic ``PROJECT_GROUP_UNGROUPED_LABEL``), or ``None`` when there are no
+      sessions at all.
+
+    Consumed by both the TUI switcher and the stats TUI so the default-resolution
+    rule lives in exactly one tested place.
+    """
+    for s in sessions:
+        if s.session == selected_session_name:
+            return s.project_group
+    groups = group_sessions(sessions, None).groups
+    return groups[0] if groups else None
+
+
+def advance_selected_group(
+    groups: list[str],
+    current: str | None,
+    step: int,
+) -> str | None:
+    """Index-wrap a ``[`` / ``]`` step over the ordered ``groups`` list (t1025_2).
+
+    ``groups`` is the ``GroupedSessions.groups`` cycle (sorted real groups, then
+    ``PROJECT_GROUP_UNGROUPED_LABEL`` when any session is ungrouped). Returns the
+    group ``step`` positions away from ``current`` (wrapping), or ``current``
+    unchanged when ``groups`` is empty. If ``current`` is not in ``groups`` (it
+    fell away since the last derivation), start from the first entry. Shared so
+    the switcher and stats wrap identically.
+    """
+    if not groups:
+        return current
+    try:
+        idx = groups.index(current)
+    except ValueError:
+        idx = 0
+    return groups[(idx + step) % len(groups)]
+
+
 def switch_to_pane_anywhere(pane_id: str) -> bool:
     """Teleport the attached tmux client to an arbitrary pane on this server.
 

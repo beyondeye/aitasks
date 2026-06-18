@@ -33,6 +33,8 @@ from agent_launch_utils import (  # noqa: E402
     _build_registry_group_lookup,
     _resolve_config_project_group,
     _resolve_session_group,
+    advance_selected_group,
+    default_selected_group,
     group_sessions,
     validate_project_group_slug,
 )
@@ -207,6 +209,60 @@ class GroupSessionsTests(unittest.TestCase):
         # Everything is ungrouped -> selecting the bucket yields all of them.
         self.assertEqual(res.groups, [PROJECT_GROUP_UNGROUPED_LABEL])
         self.assertEqual([s.project_name for s in res.ring], ["a", "b"])
+
+
+class DefaultSelectedGroupTests(unittest.TestCase):
+    def test_named_session_grouped_returns_its_group(self):
+        sessions = [_sess("a", "g1"), _sess("b", "g2")]
+        self.assertEqual(default_selected_group(sessions, "b"), "g2")
+
+    def test_named_session_ungrouped_returns_none_not_first_group(self):
+        # The selected session is ungrouped -> None (the ungrouped bucket),
+        # NOT a fall-through to the first real group.
+        sessions = [_sess("a", "g1"), _sess("b", None)]
+        self.assertIsNone(default_selected_group(sessions, "b"))
+
+    def test_absent_session_falls_back_to_first_group(self):
+        sessions = [_sess("a", "zeta"), _sess("b", "alpha")]
+        # groups sorted -> ["alpha", "zeta"]; first is "alpha".
+        self.assertEqual(default_selected_group(sessions, "nope"), "alpha")
+
+    def test_absent_session_first_group_is_ungrouped_when_no_real_groups(self):
+        sessions = [_sess("a", None), _sess("b", None)]
+        self.assertEqual(
+            default_selected_group(sessions, "__all__"),
+            PROJECT_GROUP_UNGROUPED_LABEL,
+        )
+
+    def test_empty_sessions_returns_none(self):
+        self.assertIsNone(default_selected_group([], "a"))
+        self.assertIsNone(default_selected_group([], None))
+
+
+class AdvanceSelectedGroupTests(unittest.TestCase):
+    GROUPS = ["alpha", "zeta", PROJECT_GROUP_UNGROUPED_LABEL]
+
+    def test_forward_wraps(self):
+        self.assertEqual(advance_selected_group(self.GROUPS, "alpha", +1), "zeta")
+        self.assertEqual(
+            advance_selected_group(self.GROUPS, PROJECT_GROUP_UNGROUPED_LABEL, +1),
+            "alpha",
+        )
+
+    def test_backward_wraps(self):
+        self.assertEqual(
+            advance_selected_group(self.GROUPS, "alpha", -1),
+            PROJECT_GROUP_UNGROUPED_LABEL,
+        )
+        self.assertEqual(advance_selected_group(self.GROUPS, "zeta", -1), "alpha")
+
+    def test_unknown_current_starts_from_first(self):
+        self.assertEqual(advance_selected_group(self.GROUPS, "gone", +1), "zeta")
+        self.assertEqual(advance_selected_group(self.GROUPS, None, +1), "zeta")
+
+    def test_empty_groups_returns_current(self):
+        self.assertEqual(advance_selected_group([], "x", +1), "x")
+        self.assertIsNone(advance_selected_group([], None, +1))
 
 
 if __name__ == "__main__":

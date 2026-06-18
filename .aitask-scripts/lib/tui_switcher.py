@@ -28,6 +28,7 @@ Usage:
 """
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
 import subprocess
@@ -45,9 +46,13 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 from agent_launch_utils import (  # noqa: E402
+    PROJECT_GROUP_UNGROUPED_LABEL,
     AitasksSession,
+    advance_selected_group,
+    default_selected_group,
     discover_aitasks_sessions,
     get_tmux_windows,
+    group_sessions,
     load_tmux_defaults,
     tmux_session_target,
     tmux_window_target,
@@ -434,6 +439,8 @@ class TuiSwitcherOverlay(ModalScreen):
         Binding("enter", "select_tui", "Switch", show=False),
         Binding("left", "prev_session", "Prev session", show=False, priority=True),
         Binding("right", "next_session", "Next session", show=False, priority=True),
+        Binding("[", "prev_group", "Prev group", show=False, priority=True),
+        Binding("]", "next_group", "Next group", show=False, priority=True),
         *(
             [Binding(_OVERLAY_OPEN_KEY, "dismiss_overlay", "Close", show=False)]
             if _OVERLAY_OPEN_KEY not in _OVERLAY_RESERVED_KEYS
@@ -467,6 +474,10 @@ class TuiSwitcherOverlay(ModalScreen):
         # aitasks session is running on the server.
         self._all_sessions: list[AitasksSession] = []
         self._multi_mode: bool = False
+        # Selected project-group axis (t1025_2). left/right cycles the ring
+        # derived for this group; `[` / `]` cycles which group is selected.
+        # Resolved in on_mount once _all_sessions is populated.
+        self._selected_group: str | None = None
 
     def compose(self):
         with Container(id="switcher_dialog"):
@@ -482,6 +493,13 @@ class TuiSwitcherOverlay(ModalScreen):
         # tmux session exists for them. Selecting one bootstraps its
         # session on-demand (see _ensure_session_live below).
         self._init_multi_state(discover_aitasks_sessions(include_registered=True))
+        # Default the group axis to the SELECTED (operating) session's group —
+        # self._session, NOT self._attached_session — so a switcher opened with a
+        # cross-group preselected session (monitor / minimonitor, t836) lands on
+        # that session's group, keeping the preselected repo inside the ring.
+        self._selected_group = default_selected_group(
+            self._all_sessions, self._session
+        )
         self._render_hint()
         self._render_session_row()
         self._render_desync_line(self._project_root_for_session(self._session))
@@ -591,13 +609,11 @@ class TuiSwitcherOverlay(ModalScreen):
             return False
         # Flip the cached entry to live so _teleport_if_cross and any
         # follow-up actions in this overlay session no longer re-trigger
-        # the bootstrap. Dataclass is frozen so we replace the tuple slot.
-        self._all_sessions[idx] = AitasksSession(
-            session=entry.session,
-            project_root=entry.project_root,
-            project_name=entry.project_name,
-            is_live=True,
-        )
+        # the bootstrap. Dataclass is frozen, so replace only is_live via
+        # dataclasses.replace — a hand-rebuilt AitasksSession(...) would reset
+        # project_group (and is_stale) to their defaults and silently drop a
+        # registered grouped project out of its group after bootstrap (t1025_2).
+        self._all_sessions[idx] = dataclasses.replace(entry, is_live=True)
         return True
 
     def _spawn_in_session(
@@ -662,8 +678,13 @@ class TuiSwitcherOverlay(ModalScreen):
             text += (
                 "[bold bright_cyan]Enter[/] switch  "
                 "[bold bright_cyan]←/→[/] session  "
-                + close
             )
+            groups = group_sessions(
+                self._all_sessions, self._selected_group
+            ).groups
+            if len(groups) >= 2:
+                text += "[bold bright_cyan]\\[/][/] group  "
+            text += close
         else:
             text += "[bold bright_cyan]Enter[/] switch  " + close
         hint.update(text)
@@ -702,7 +723,14 @@ class TuiSwitcherOverlay(ModalScreen):
                 parts.append(f"[reverse]{label}[/]")
             else:
                 parts.append(f"[dim]{label}[/]")
-        row.update("Session: " + "  ".join(parts))
+        # Surface the selected project-group axis (t1025_2) only when there is a
+        # real group to disambiguate (more than the synthetic ungrouped bucket).
+        prefix = ""
+        groups = group_sessions(self._all_sessions, self._selected_group).groups
+        if any(g != PROJECT_GROUP_UNGROUPED_LABEL for g in groups):
+            glabel = self._selected_group or PROJECT_GROUP_UNGROUPED_LABEL
+            prefix = f"[bold bright_cyan]\\[{glabel}][/]  "
+        row.update(prefix + "Session: " + "  ".join(parts))
 
     def _render_desync_line(self, project_root: Path) -> None:
         """Render a compact desync summary line for the selected session's project.
@@ -852,27 +880,66 @@ class TuiSwitcherOverlay(ModalScreen):
     def action_next_session(self) -> None:
         self._cycle_session(+1)
 
-    def _cycle_session(self, step: int) -> None:
+    def action_prev_group(self) -> None:
+        self._cycle_group(-1)
+
+    def action_next_group(self) -> None:
+        self._cycle_group(+1)
+
+    def _ring_names(self) -> list[str]:
+        """Session names in the SELECTED group's derived ring (t1025_2).
+
+        left/right cycles this ring (selected group's members + any live
+        out-of-group session), not the flat ``_all_sessions`` list.
+        """
+        ring = group_sessions(self._all_sessions, self._selected_group).ring
+        return [s.session for s in ring]
+
+    def _refresh_after_cycle(self) -> None:
+        """Shared refresh trio after left/right or `[`/`]` changes the selection."""
+        self._render_session_row()
+        self._render_desync_line(self._project_root_for_session(self._session))
+        self._populate_list_for(self._session)
+
+    def _switcher_list_or_skip(self):
         # Priority-binding guard (CLAUDE.md "Priority bindings + App.query_one"):
         # scope the guard to this screen via self.screen.query_one and
-        # SkipAction on miss so underlying screens don't have their Left/Right
+        # SkipAction on miss so underlying screens don't have their keys
         # consumed. Same pattern as board's action_focus_minimap.
         from textual.actions import SkipAction
         try:
             self.screen.query_one("#switcher_list", _WrappingListView)
         except Exception:
             raise SkipAction()
-        if not self._multi_mode or len(self._all_sessions) < 2:
+
+    def _cycle_session(self, step: int) -> None:
+        from textual.actions import SkipAction
+        self._switcher_list_or_skip()
+        names = self._ring_names()
+        if not self._multi_mode or len(names) < 2:
             raise SkipAction()
-        names = [s.session for s in self._all_sessions]
         try:
             idx = names.index(self._session)
         except ValueError:
             idx = 0
         self._session = names[(idx + step) % len(names)]
-        self._render_session_row()
-        self._render_desync_line(self._project_root_for_session(self._session))
-        self._populate_list_for(self._session)
+        self._refresh_after_cycle()
+
+    def _cycle_group(self, step: int) -> None:
+        from textual.actions import SkipAction
+        self._switcher_list_or_skip()
+        groups = group_sessions(self._all_sessions, self._selected_group).groups
+        if not self._multi_mode or len(groups) < 2:
+            raise SkipAction()
+        self._selected_group = advance_selected_group(
+            groups, self._selected_group, step
+        )
+        # Re-point the operating session into the new group's ring when the
+        # current selection fell out of it, so the row/list stay coherent.
+        names = self._ring_names()
+        if names and self._session not in names:
+            self._session = names[0]
+        self._refresh_after_cycle()
 
     def action_select_tui(self) -> None:
         list_view = self.query_one("#switcher_list", _WrappingListView)
