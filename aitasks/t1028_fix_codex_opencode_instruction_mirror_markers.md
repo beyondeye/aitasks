@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [aitask_board]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-18 12:50
-updated_at: 2026-06-18 12:53
+updated_at: 2026-06-18 15:38
 ---
 
 ## Origin
@@ -51,3 +52,8 @@ Pick one and make codex/opencode mirror generation consistent with AGENTS.md:
    format) instead of marker-insertion.
 Add a regression check (extend `tests/test_agent_instructions.sh`) asserting a
 second `setup_*` run does not duplicate the aitasks block in either mirror.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-18T12:38:28Z status=pass attempt=1 type=human
