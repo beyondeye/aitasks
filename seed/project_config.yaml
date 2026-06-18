@@ -23,12 +23,18 @@
 #                 origin`). Used today only for display in `ait projects
 #                 list`; future tooling may use it to auto-clone on
 #                 `NOT_FOUND`.
+#   project_group — Optional. Bootstrap seed for this repo's project-group (the
+#                 umbrella grouping connected repos in TUI navigation). Slug:
+#                 ^[a-z0-9][a-z0-9_-]*$. Seeds the per-user registry on
+#                 `ait projects add`; the registry value wins thereafter.
+#                 Manage with `ait projects group set/unset/sync`.
 #
 # Example:
 #
 #   project:
 #     name: aitasks
 #     git_remote: https://github.com/beyondeye/aitasks.git
+#     project_group: aitasks_suite
 #
 # See aidocs/framework/cross_repo_references.md for the full registry schema and
 # resolver semantics.
@@ -37,6 +43,7 @@
 # project:
 #   name:
 #   git_remote:
+#   project_group:
 
 # ──────────────────────────────────────────────────────────────────────
 # codeagent_coauthor_domain — Email domain for custom AI code-agent commit coauthors.

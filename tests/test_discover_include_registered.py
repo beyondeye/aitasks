@@ -143,7 +143,8 @@ class IncludeRegisteredTests(unittest.TestCase):
 
     def test_read_registry_index_returns_status_tuples(self):
         # Direct unit test: _read_registry_index must return a list of
-        # (name, path, status) triples, with status ∈ {"OK", "STALE"}.
+        # (name, path, status, project_group) 4-tuples (t1025_1 added the
+        # group), with status ∈ {"OK", "STALE"}.
         proj_ok = _make_fake_project(self.tmp / "ok_proj")
         idx = self.tmp / "projects.yaml"
         _make_registry(idx, [
@@ -154,10 +155,13 @@ class IncludeRegisteredTests(unittest.TestCase):
         entries = _read_registry_index()
         self.assertEqual(len(entries), 2)
         for tup in entries:
-            self.assertEqual(len(tup), 3)
+            self.assertEqual(len(tup), 4)
         names = {e[0]: e[2] for e in entries}
         self.assertEqual(names["ok_proj"], "OK")
         self.assertEqual(names["stale_proj"], "STALE")
+        # No project_group declared -> empty 4th element.
+        groups = {e[0]: e[3] for e in entries}
+        self.assertEqual(groups["ok_proj"], "")
 
     def test_multiple_entries_emitted_sorted(self):
         proj_x = _make_fake_project(self.tmp / "px", default_session="bbb")

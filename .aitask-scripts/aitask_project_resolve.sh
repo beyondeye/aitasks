@@ -87,7 +87,7 @@ cmd_list() {
     python_bin=$(resolve_python)
     [[ -n "$python_bin" ]] || return 0
     local name path status
-    while IFS='|' read -r name path _remote _last; do
+    while IFS='|' read -r name path _remote _last _group; do
         [[ -z "$name" ]] && continue
         if path_is_aitasks_project "$path"; then
             status="RESOLVED"

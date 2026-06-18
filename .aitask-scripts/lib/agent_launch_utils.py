@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -116,6 +117,10 @@ class AitasksSession:
     project_name: str      # basename(project_root), for display
     is_live: bool = True   # False when synthesized from the per-user registry
     is_stale: bool = False # True when synthesized from a STALE registry row
+    # Resolved project-group (t1025_1): registry value wins, else the repo's
+    # own project_config.yaml project_group, else None (ungrouped). Only a
+    # *valid* slug ever populates this — invalid config values resolve to None.
+    project_group: str | None = None
 
 
 def find_terminal() -> str | None:
@@ -291,21 +296,104 @@ def _read_registry_entry(session: str) -> Path | None:
     return path
 
 
-def _parse_registry_records() -> list[tuple[str, str, str, str]]:
-    """Parse ``~/.config/aitasks/projects.yaml`` into raw 4-field tuples.
+# --- Project-group slug + resolution (t1025_1) -------------------------------
 
-    Returns ``(name, path, git_remote, last_opened)`` for every entry, with
-    empty strings for absent fields. This is the **single registry-file reader
-    authority** (t970): it is the byte-parity equivalent of
+# Explicit "ungrouped" sentinel stored in the *registry* ``project_group`` field
+# by ``ait projects group unset``. It is registry-only and is deliberately NOT a
+# valid user slug (it fails the slug regex), so it can never collide with a real
+# group name. When the registry field holds this sentinel, discovery resolves
+# the repo to ungrouped and does NOT fall back to the repo config — this is what
+# lets ``group unset`` clear a repo whose own config declares a project_group.
+PROJECT_GROUP_UNSET_SENTINEL = "-"
+
+_PROJECT_GROUP_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+def validate_project_group_slug(slug: str) -> tuple[bool, str]:
+    """Validate a project-group slug against ``^[a-z0-9][a-z0-9_-]*$``.
+
+    Returns ``(True, "")`` when valid, else ``(False, <reason>)``. The single
+    slug authority shared by the Python consumers, the ``--validate-slug`` CLI
+    shim (used by the bash write paths), and discovery-time read validation
+    (t1025_1). Rejects — never normalizes. The reserved unset sentinel ``-`` is
+    intentionally NOT a valid slug (it fails the leading-alnum anchor).
+    """
+    if not slug:
+        return False, "empty"
+    if slug != slug.strip():
+        return False, "leading or trailing whitespace"
+    if not _PROJECT_GROUP_SLUG_RE.match(slug):
+        return False, (
+            "must match ^[a-z0-9][a-z0-9_-]*$ "
+            "(lowercase alnum / '-' / '_', starting with alnum)"
+        )
+    return True, ""
+
+
+def _resolve_config_project_group(project_root: Path) -> str | None:
+    """Read + validate ``project.project_group`` from a repo's config.
+
+    Discovery's config fallback (t1025_1 D6): returns the group slug only when
+    the repo's ``aitasks/metadata/project_config.yaml`` declares a *valid*
+    ``project.project_group``. An absent, empty, sentinel, or invalid value
+    resolves to ``None`` (a malformed config can never leak into
+    :class:`AitasksSession`). Never raises — a read error is treated as None.
+    """
+    cfg = project_root / "aitasks" / "metadata" / "project_config.yaml"
+    if not cfg.is_file():
+        return None
+
+    def _unquote(s: str) -> str:
+        s = s.strip()
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+            s = s[1:-1]
+        return s
+
+    in_project_block = False
+    value = ""
+    try:
+        with open(cfg, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.rstrip("\n")
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                if line[:1] not in (" ", "\t"):
+                    in_project_block = line.startswith("project:")
+                    continue
+                if not in_project_block:
+                    continue
+                stripped = line.lstrip()
+                if stripped.startswith("project_group:"):
+                    value = _unquote(stripped[len("project_group:"):])
+                    break
+    except OSError:
+        return None
+
+    if not value:
+        return None
+    valid, _reason = validate_project_group_slug(value)
+    return value if valid else None
+
+
+def _parse_registry_records() -> list[tuple[str, str, str, str, str]]:
+    """Parse ``~/.config/aitasks/projects.yaml`` into raw 5-field tuples.
+
+    Returns ``(name, path, git_remote, last_opened, project_group)`` for every
+    entry, with empty strings for absent fields. This is the **single
+    registry-file reader authority** (t970): it is the byte-parity equivalent of
     ``aitask_projects.sh::list_registry_entries`` and is exposed to the bash
     side via the ``--list-registry`` / ``--resolve-index`` CLI below. Honors
     the ``AITASKS_PROJECTS_INDEX`` env var (same override the bash side
     supports); no PyYAML dependency.
 
+    The 5th field ``project_group`` (t1025_1) is the per-entry group membership:
+    a slug, the explicit unset sentinel ``-``, or empty (absent). It is passed
+    through verbatim — tri-state interpretation happens at the discovery layer.
+
     An entry is emitted as soon as a ``- name:`` / indented ``name:`` line is
-    seen — path/remote/last may be empty — matching the bash awk ``emit()``
+    seen — the other fields may be empty — matching the bash awk ``emit()``
     rule (which feeds the registry read+write round-trip, so name-only entries
-    and the raw remote/last fields must survive). This differs from
+    and the raw remote/last/group fields must survive). This differs from
     :func:`_read_registry_index`, which additionally requires a non-empty path
     and annotates ``OK``/``STALE`` for the discover path.
     """
@@ -321,20 +409,22 @@ def _parse_registry_records() -> list[tuple[str, str, str, str]]:
             s = s[1:-1]
         return s
 
-    records: list[tuple[str, str, str, str]] = []
+    records: list[tuple[str, str, str, str, str]] = []
     cur_name = ""
     cur_path = ""
     cur_remote = ""
     cur_last = ""
+    cur_group = ""
 
     def _flush() -> None:
-        nonlocal cur_name, cur_path, cur_remote, cur_last
+        nonlocal cur_name, cur_path, cur_remote, cur_last, cur_group
         if cur_name:
-            records.append((cur_name, cur_path, cur_remote, cur_last))
+            records.append((cur_name, cur_path, cur_remote, cur_last, cur_group))
         cur_name = ""
         cur_path = ""
         cur_remote = ""
         cur_last = ""
+        cur_group = ""
 
     try:
         with open(index_path, encoding="utf-8") as fh:
@@ -360,6 +450,9 @@ def _parse_registry_records() -> list[tuple[str, str, str, str]]:
                 if stripped.startswith("last_opened:") and line.startswith(" "):
                     cur_last = _unquote(stripped[len("last_opened:"):])
                     continue
+                if stripped.startswith("project_group:") and line.startswith(" "):
+                    cur_group = _unquote(stripped[len("project_group:"):])
+                    continue
         _flush()
     except OSError:
         return []
@@ -367,26 +460,77 @@ def _parse_registry_records() -> list[tuple[str, str, str, str]]:
     return records
 
 
-def _read_registry_index() -> list[tuple[str, Path, str]]:
-    """Read ``~/.config/aitasks/projects.yaml`` as ``(name, path, status)`` triples.
+def _read_registry_index() -> list[tuple[str, Path, str, str]]:
+    """Read the registry as ``(name, path, status, project_group)`` tuples.
 
     Thin annotator over :func:`_parse_registry_records` (the single reader
     authority): keeps only entries with a non-empty name *and* path, and tags
     each ``"OK"`` (path holds the ``aitasks/metadata/project_config.yaml``
     marker) or ``"STALE"`` (marker missing) so downstream callers
-    (``discover_aitasks_sessions``) can decide whether to render or skip. File
-    order is preserved.
+    (``discover_aitasks_sessions``) can decide whether to render or skip. The
+    4th element is the raw registry ``project_group`` (slug, the unset sentinel
+    ``-``, or ``""`` when absent), carried through for discovery-time
+    group resolution (t1025_1). File order is preserved.
     """
-    entries: list[tuple[str, Path, str]] = []
-    for name, path, _remote, _last in _parse_registry_records():
+    entries: list[tuple[str, Path, str, str]] = []
+    for name, path, _remote, _last, group in _parse_registry_records():
         if not (name and path):
             continue
         p = Path(path)
         if (p / "aitasks" / "metadata" / "project_config.yaml").is_file():
-            entries.append((name, p, "OK"))
+            entries.append((name, p, "OK", group))
         else:
-            entries.append((name, p, "STALE"))
+            entries.append((name, p, "STALE", group))
     return entries
+
+
+def _build_registry_group_lookup() -> dict[str, str]:
+    """Map ``realpath(registry path) -> raw registry project_group``.
+
+    Path-keyed (t1025_1 D3) so a live session whose ``project_root.name``
+    differs from its registered ``project.name`` still matches its registry row.
+    The value is the raw registry field (slug, sentinel ``-``, or ``""``);
+    tri-state interpretation is the caller's. Last writer wins on duplicate
+    paths (file order preserved).
+    """
+    lookup: dict[str, str] = {}
+    for _name, path, _status, group in _read_registry_index():
+        try:
+            key = os.path.realpath(path)
+        except OSError:
+            key = str(path)
+        lookup[key] = group
+    return lookup
+
+
+def _resolve_session_group(
+    project_root: Path,
+    registry_group: str | None,
+    config_cache: dict[str, str | None],
+) -> str | None:
+    """Resolve a session's effective project-group (t1025_1 tri-state, D1/D6).
+
+    Priority: a real registry slug wins; the registry unset sentinel ``-`` →
+    ``None`` with **no** config fallback; an absent/empty registry value falls
+    back to the repo's own (validated) ``project.project_group``; else ``None``.
+    ``registry_group`` is the raw registry field for this root (``None`` when the
+    repo has no registry row at all — e.g. a live-unregistered session).
+    ``config_cache`` memoizes the validated config read keyed by realpath.
+    """
+    if registry_group:
+        if registry_group == PROJECT_GROUP_UNSET_SENTINEL:
+            return None
+        # Registry values are written only through the validating write paths,
+        # but guard anyway so a hand-edited bad value never leaks.
+        valid, _reason = validate_project_group_slug(registry_group)
+        return registry_group if valid else None
+    try:
+        key = os.path.realpath(project_root)
+    except OSError:
+        key = str(project_root)
+    if key not in config_cache:
+        config_cache[key] = _resolve_config_project_group(project_root)
+    return config_cache[key]
 
 
 def _read_default_session(project_root: Path) -> str:
@@ -465,6 +609,23 @@ def discover_aitasks_sessions(
     rc, out = _TMUX.run(["list-sessions", "-F", "#{session_name}"])
     sessions = [s for s in out.strip().splitlines() if s] if rc == 0 else []
 
+    # Group resolution support (t1025_1): a path-keyed registry-group lookup so
+    # live sessions match their registry row even when basename != project.name
+    # (D3), plus a per-call config cache so a repo's config is read at most once.
+    group_lookup = _build_registry_group_lookup()
+    group_config_cache: dict[str, str | None] = {}
+
+    def _group_for(project_root: Path, registry_group: str | None) -> str | None:
+        if registry_group is None:
+            try:
+                key = os.path.realpath(project_root)
+            except OSError:
+                key = str(project_root)
+            registry_group = group_lookup.get(key)
+        return _resolve_session_group(
+            project_root, registry_group, group_config_cache
+        )
+
     found: list[AitasksSession] = []
     for session in sessions:
         project_root: Path | None = None
@@ -491,11 +652,12 @@ def discover_aitasks_sessions(
             session=session,
             project_root=project_root,
             project_name=project_root.name,
+            project_group=_group_for(project_root, None),
         ))
 
     if include_registered:
         live_names = {s.project_name for s in found}
-        for name, root, status in _read_registry_index():
+        for name, root, status, group in _read_registry_index():
             if name in live_names:
                 continue
             found.append(AitasksSession(
@@ -504,10 +666,76 @@ def discover_aitasks_sessions(
                 project_name=name,
                 is_live=False,
                 is_stale=(status == "STALE"),
+                project_group=_group_for(root, group),
             ))
 
     found.sort(key=lambda s: s.session)
     return found
+
+
+# Synthetic project-group bucket for repos with no resolved group (t1025_1).
+# Cyclable like a real group via ``[`` / ``]`` but never written to the registry.
+PROJECT_GROUP_UNGROUPED_LABEL = "(ungrouped)"
+
+
+@dataclass(frozen=True)
+class GroupedSessions:
+    """Result of :func:`group_sessions` (t1025_1), consumed by the TUI layer.
+
+    ``ring`` is the left/right cycle order for the *selected* group: its members
+    (stale members kept, flagged via ``AitasksSession.is_stale``) followed by any
+    **live** session outside the group, so a user juggling several project-groups
+    can still reach any live repo. Stale out-of-group rows are dropped from the
+    ring. ``groups`` is the ordered ``[`` / ``]`` cycle of group names (real
+    groups sorted, with a synthetic ``"(ungrouped)"`` bucket appended when any
+    session has no group).
+    """
+
+    ring: list[AitasksSession]
+    groups: list[str]
+
+
+def _session_in_group(session: AitasksSession, selected_group: str | None) -> bool:
+    """Membership test for :func:`group_sessions`.
+
+    ``None`` and the synthetic ``"(ungrouped)"`` label both select the
+    no-group bucket (``project_group is None``).
+    """
+    if selected_group is None or selected_group == PROJECT_GROUP_UNGROUPED_LABEL:
+        return session.project_group is None
+    return session.project_group == selected_group
+
+
+def group_sessions(
+    sessions: list[AitasksSession],
+    selected_group: str | None,
+) -> GroupedSessions:
+    """Derive the two-axis navigation view for a selected project-group.
+
+    Pure (no I/O): operates only on already-resolved
+    :class:`AitasksSession` objects (their ``project_group`` populated by
+    :func:`discover_aitasks_sessions`). The TUI switcher and stats TUI
+    (t1025_2 / t1025_3) consume this directly rather than re-deriving grouping.
+
+    See :class:`GroupedSessions` for the ring / groups contract. Input order is
+    preserved within each ring segment.
+    """
+    members = [s for s in sessions if _session_in_group(s, selected_group)]
+    out_of_group_live = [
+        s
+        for s in sessions
+        if s.is_live and not _session_in_group(s, selected_group)
+    ]
+    ring = members + out_of_group_live
+
+    real_groups = sorted(
+        {s.project_group for s in sessions if s.project_group is not None}
+    )
+    groups = list(real_groups)
+    if any(s.project_group is None for s in sessions):
+        groups.append(PROJECT_GROUP_UNGROUPED_LABEL)
+
+    return GroupedSessions(ring=ring, groups=groups)
 
 
 def switch_to_pane_anywhere(pane_id: str) -> bool:
@@ -942,14 +1170,16 @@ def load_tmux_defaults(project_root: Path) -> dict:
 
 
 def _cli_list_registry() -> int:
-    """Emit one ``name|path|git_remote|last_opened`` line per registry entry.
+    """Emit one ``name|path|git_remote|last_opened|project_group`` line per entry.
 
     Byte-identical to bash ``list_registry_entries`` — pipe-separated, empty
-    fields preserved, file order. Feeds the registry read+write round-trip.
+    fields preserved, file order. Feeds the registry read+write round-trip, so
+    the 5th ``project_group`` field (t1025_1) must round-trip for the whole-line-
+    preserving writers (``cmd_remove`` / ``cmd_prune``) to retain group state.
     """
     out = "".join(
-        f"{name}|{path}|{remote}|{last}\n"
-        for name, path, remote, last in _parse_registry_records()
+        f"{name}|{path}|{remote}|{last}|{group}\n"
+        for name, path, remote, last, group in _parse_registry_records()
     )
     sys.stdout.write(out)
     return 0
@@ -961,11 +1191,25 @@ def _cli_resolve_index(name: str) -> int:
     Matches bash ``index_lookup_path``: first entry whose name equals ``name``
     *and* has a non-empty path wins; prints nothing on miss. Exit 0 either way.
     """
-    for n, path, _remote, _last in _parse_registry_records():
+    for n, path, _remote, _last, _group in _parse_registry_records():
         if n == name and path:
             sys.stdout.write(f"{path}\n")
             return 0
     return 0
+
+
+def _cli_validate_slug(slug: str) -> int:
+    """Validate a project-group slug for the bash write paths (t1025_1).
+
+    Exit 0 when valid; exit 1 and print the reason to stderr otherwise. The
+    single slug authority — ``ait projects group set`` and the add/sync
+    bootstrap shell out here instead of re-implementing the regex in bash.
+    """
+    valid, reason = validate_project_group_slug(slug)
+    if valid:
+        return 0
+    sys.stderr.write(f"{reason}\n")
+    return 1
 
 
 def _main(argv: list[str]) -> int:
@@ -980,17 +1224,24 @@ def _main(argv: list[str]) -> int:
     group.add_argument(
         "--list-registry",
         action="store_true",
-        help="Emit name|path|git_remote|last_opened for every registry entry.",
+        help="Emit name|path|git_remote|last_opened|project_group per entry.",
     )
     group.add_argument(
         "--resolve-index",
         metavar="NAME",
         help="Print the registry path for NAME (index-file lookup only).",
     )
+    group.add_argument(
+        "--validate-slug",
+        metavar="SLUG",
+        help="Exit 0 if SLUG is a valid project-group slug, else 1 (+reason).",
+    )
     args = parser.parse_args(argv)
 
     if args.list_registry:
         return _cli_list_registry()
+    if args.validate_slug is not None:
+        return _cli_validate_slug(args.validate_slug)
     return _cli_resolve_index(args.resolve_index)
 
 

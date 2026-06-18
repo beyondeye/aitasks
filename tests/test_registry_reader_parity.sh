@@ -49,10 +49,12 @@ py_list() { AITASKS_PROJECTS_INDEX="$1" "$PYBIN" "$AGENT_LIB" --list-registry; }
 py_resolve_index() { AITASKS_PROJECTS_INDEX="$1" "$PYBIN" "$AGENT_LIB" --resolve-index "$2"; }
 
 # --- Golden corpus: every grammar case in one fixture -------------------
-# Covers: unquoted / double-quoted / single-quoted values; all-4-fields;
+# Covers: unquoted / double-quoted / single-quoted values; all fields;
 # name+path+remote (no last); name+path+last (no remote); a name-only entry
-# (the emit-on-name divergence); comments + blank lines; and an indented bare
-# `name:` line that flushes the current entry (hand-edited form).
+# (the emit-on-name divergence); comments + blank lines; an indented bare
+# `name:` line that flushes the current entry (hand-edited form); and a
+# project_group field (t1025_1) on `alpha` — proven to round-trip in the
+# pipe output and to be inert to index resolution.
 FIX="$TMPROOT/corpus.yaml"
 cat > "$FIX" <<'EOF'
 # aitasks per-user project registry — managed by `ait projects`.
@@ -62,6 +64,7 @@ projects:
     path: /tmp/reg/alpha
     git_remote: https://example.test/alpha.git
     last_opened: 2026-01-02
+    project_group: suite_a
   - name: "beta quoted"
     path: "/tmp/reg/beta"
     git_remote: git@example.test:beta.git
@@ -79,15 +82,16 @@ projects:
     path: /tmp/reg/delta_dup
 EOF
 
-# Frozen baseline — captured from the pre-t970 bash `list_registry_entries`.
+# Frozen baseline — 5-field pipe records (t1025_1 added the trailing
+# project_group field; empty for entries without a group).
 read -r -d '' GOLDEN_LIST <<'EOF' || true
-alpha|/tmp/reg/alpha|https://example.test/alpha.git|2026-01-02
-beta quoted|/tmp/reg/beta|git@example.test:beta.git|
-gamma|/tmp/reg/gamma||2026-03-04
-nopath|||
-stale|/tmp/reg/gone|https://example.test/stale.git|2026-05-06
-delta|/tmp/reg/delta||
-delta_dup|/tmp/reg/delta_dup||
+alpha|/tmp/reg/alpha|https://example.test/alpha.git|2026-01-02|suite_a
+beta quoted|/tmp/reg/beta|git@example.test:beta.git||
+gamma|/tmp/reg/gamma||2026-03-04|
+nopath||||
+stale|/tmp/reg/gone|https://example.test/stale.git|2026-05-06|
+delta|/tmp/reg/delta|||
+delta_dup|/tmp/reg/delta_dup|||
 EOF
 
 ACTUAL_LIST="$(py_list "$FIX")"
@@ -127,6 +131,7 @@ projects:
     path: $TMPROOT/projects/realproj
     git_remote: https://example.test/realproj.git
     last_opened: 2026-04-04
+    project_group: suite_real
   - name: deadproj
     path: $TMPROOT/projects/gone
     git_remote: https://example.test/dead.git
@@ -177,6 +182,9 @@ assert_contains "round-trip(add): deadproj git_remote preserved" \
 assert_contains "round-trip(add): new entry registered" \
     "name: newproj" "$(cat "$REG3")"
 
+assert_contains "round-trip(add): realproj project_group preserved" \
+    "project_group: suite_real" "$(cat "$REG3")"
+
 AITASKS_PROJECTS_INDEX="$REG3" "$PROJECTS" remove deadproj --force >/dev/null
 REG3_AFTER="$(cat "$REG3")"
 assert_not_contains "round-trip(remove): deadproj gone" "name: deadproj" "$REG3_AFTER"
@@ -184,6 +192,8 @@ assert_contains "round-trip(remove): realproj git_remote still intact" \
     "git_remote: https://example.test/realproj.git" "$REG3_AFTER"
 assert_contains "round-trip(remove): realproj last_opened still intact" \
     "last_opened: 2026-04-04" "$REG3_AFTER"
+assert_contains "round-trip(remove): realproj project_group still intact" \
+    "project_group: suite_real" "$REG3_AFTER"
 
 # update repoints realproj; git_remote must survive, last_opened refreshes.
 mkdir -p "$TMPROOT/projects/realproj2/aitasks/metadata"
@@ -194,6 +204,8 @@ assert_contains "round-trip(update): realproj git_remote kept across repoint" \
     "git_remote: https://example.test/realproj.git" "$REG3_UPD"
 assert_contains "round-trip(update): realproj path repointed" \
     "path: $TMPROOT/projects/realproj2" "$REG3_UPD"
+assert_contains "round-trip(update): realproj project_group survives repoint" \
+    "project_group: suite_real" "$REG3_UPD"
 
 # --- Summary ------------------------------------------------------------
 echo

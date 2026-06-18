@@ -103,6 +103,92 @@ else
     FAIL=$((FAIL + 1)); echo "FAIL: exec on NOT_FOUND must exit non-zero"
 fi
 
+# --- 9. project-group (t1025_1) ----------------------------------------
+
+# 9a. add gamma with a config project_group → bootstrapped into the registry.
+GAMMA_ROOT="$TMPROOT/projects/gamma"
+mkdir -p "$GAMMA_ROOT/aitasks/metadata"
+cat > "$GAMMA_ROOT/aitasks/metadata/project_config.yaml" <<EOF
+project:
+  name: gamma
+  project_group: suite_g
+EOF
+"$PROJECTS_SH" add "$GAMMA_ROOT" >/dev/null 2>&1
+body=$(cat "$REGISTRY_FILE")
+assert_contains "add gamma: project_group bootstrapped from config" \
+    "project_group: suite_g" "$body"
+
+# 9b. group list buckets members under their group + an (ungrouped) bucket.
+out=$("$PROJECTS_SH" group list 2>&1)
+assert_contains "group list: suite_g header" "suite_g:" "$out"
+assert_contains "group list: gamma under a group" "gamma" "$out"
+assert_contains "group list: (ungrouped) bucket for alpha/beta" "(ungrouped):" "$out"
+
+# 9c. group set assigns alpha to a group.
+"$PROJECTS_SH" group set alpha team_a >/dev/null 2>&1
+assert_contains "group set alpha team_a" "project_group: team_a" "$(cat "$REGISTRY_FILE")"
+
+# 9d. group set rejects an invalid slug (non-zero; registry unchanged).
+set +e
+out=$("$PROJECTS_SH" group set alpha "Bad Slug" 2>&1); rc=$?
+set -e
+assert_exit_nonzero_rc "group set rejects invalid slug" "$rc"
+assert_contains "group set invalid-slug message" "Invalid project-group" "$out"
+assert_contains "group set reject leaves alpha group unchanged" \
+    "project_group: team_a" "$(cat "$REGISTRY_FILE")"
+
+# 9e. group unset writes the explicit sentinel (so config can't re-inherit).
+"$PROJECTS_SH" group unset gamma >/dev/null 2>&1
+assert_contains "group unset writes sentinel" "project_group: -" "$(cat "$REGISTRY_FILE")"
+
+# 9f. re-add gamma → registry sentinel WINS over the config's suite_g (D1).
+"$PROJECTS_SH" add "$GAMMA_ROOT" >/dev/null 2>&1
+gamma_block=$(awk '/^  - name: gamma$/{f=1} f&&/project_group:/{print; exit}' "$REGISTRY_FILE")
+assert_eq "re-add preserves the unset sentinel (registry wins)" \
+    "    project_group: -" "$gamma_block"
+
+# 9g. update repoints alpha's path → its group must survive the rewrite.
+ALPHA2_ROOT="$TMPROOT/projects/alpha2"
+mkdir -p "$ALPHA2_ROOT/aitasks/metadata"
+touch "$ALPHA2_ROOT/aitasks/metadata/project_config.yaml"
+"$PROJECTS_SH" update alpha "$ALPHA2_ROOT" >/dev/null 2>&1
+assert_contains "update preserves alpha's project_group" \
+    "project_group: team_a" "$(cat "$REGISTRY_FILE")"
+
+# 9h. remove an unrelated entry → surviving groups untouched.
+"$PROJECTS_SH" remove beta --force >/dev/null 2>&1
+body=$(cat "$REGISTRY_FILE")
+assert_contains "remove preserves alpha's group" "project_group: team_a" "$body"
+assert_contains "remove preserves gamma's sentinel" "project_group: -" "$body"
+
+# 9i. group sync backfills an absent registry group from a repo config.
+DELTA_ROOT="$TMPROOT/projects/delta"
+mkdir -p "$DELTA_ROOT/aitasks/metadata"
+touch "$DELTA_ROOT/aitasks/metadata/project_config.yaml"   # no group yet
+"$PROJECTS_SH" add "$DELTA_ROOT" >/dev/null 2>&1
+cat > "$DELTA_ROOT/aitasks/metadata/project_config.yaml" <<EOF
+project:
+  name: delta
+  project_group: suite_d
+EOF
+"$PROJECTS_SH" group sync >/dev/null 2>&1
+assert_contains "group sync backfills delta from config" \
+    "project_group: suite_d" "$(cat "$REGISTRY_FILE")"
+
+# 9j. add rejects an invalid config project_group (D4).
+EPS_ROOT="$TMPROOT/projects/epsilon"
+mkdir -p "$EPS_ROOT/aitasks/metadata"
+cat > "$EPS_ROOT/aitasks/metadata/project_config.yaml" <<EOF
+project:
+  name: epsilon
+  project_group: Bad Slug
+EOF
+set +e
+out=$("$PROJECTS_SH" add "$EPS_ROOT" 2>&1); rc=$?
+set -e
+assert_exit_nonzero_rc "add rejects invalid config project_group" "$rc"
+assert_contains "add invalid-config-group message names the value" "Bad Slug" "$out"
+
 # --- Summary ------------------------------------------------------------
 
 echo

@@ -4,7 +4,7 @@
 #
 # The registry lives at `~/.config/aitasks/projects.yaml` (override with
 # `AITASKS_PROJECTS_INDEX`). It is a flat list of `{name, path,
-# git_remote, last_opened}` entries, populated automatically by
+# git_remote, last_opened, project_group}` entries, populated automatically by
 # `ait ide` and by direct `ait projects add` invocations.
 #
 # Verbs:
@@ -26,6 +26,8 @@
 #                            update / clone / keep / skip-all over
 #                            STALE rows. Clone branch is opt-in via
 #                            --clone.
+#   group <subcommand>     - Manage project-group membership
+#                            (list / set / unset / sync). t1025_1.
 #   resolve <name>         - Re-emit the resolver's structured output for
 #                            <name> (RESOLVED:/NOT_FOUND:/STALE:).
 #   exec <name> -- <cmd>   - Resolve <name>, cd into the root, exec <cmd>.
@@ -40,6 +42,11 @@ source "$SCRIPT_DIR/lib/python_resolve.sh"
 
 REGISTRY_FILE="${AITASKS_PROJECTS_INDEX:-$HOME/.config/aitasks/projects.yaml}"
 RESOLVER="$SCRIPT_DIR/aitask_project_resolve.sh"
+
+# Project-group constants (t1025_1) — must match agent_launch_utils.py
+# (PROJECT_GROUP_UNSET_SENTINEL / PROJECT_GROUP_UNGROUPED_LABEL).
+GROUP_UNSET_SENTINEL="-"
+GROUP_UNGROUPED_LABEL="(ungrouped)"
 
 show_help() {
     cat <<'EOF'
@@ -67,6 +74,12 @@ Verbs:
                              skip-all per entry. Clone is opt-in via
                              --clone and only offered for entries that
                              have a git_remote.
+  group <list|set|unset|sync>
+                             Manage project-group membership:
+                               list                 groups -> members
+                               set <name> <group>   assign a group slug
+                               unset <name>         clear (explicitly ungrouped)
+                               sync                 backfill from repo configs
   resolve <name>             Print the resolver output for <name>:
                                RESOLVED:<path>
                                NOT_FOUND:<name>
@@ -126,6 +139,28 @@ read_project_field() {
     ' "$cfg"
 }
 
+# Validate a project-group slug via the single Python authority (t1025_1).
+# Returns 0 if valid, 1 otherwise (reason printed to stderr by the shim). Write
+# paths (group set / add+sync bootstrap) reject invalid slugs; they all
+# `require_python` first, so a resolvable interpreter is guaranteed here.
+validate_group_slug() {
+    local slug="$1"
+    local python_bin
+    python_bin=$(resolve_python)
+    [[ -n "$python_bin" ]] || { warn "No Python interpreter — cannot validate group slug"; return 1; }
+    "$python_bin" "$SCRIPT_DIR/lib/agent_launch_utils.py" --validate-slug "$slug"
+}
+
+# Read a registered entry's current project_group (5th pipe field) by name from
+# pre-fetched `list_registry_entries` output. Echoes the raw value (slug, the
+# unset sentinel `-`, or empty). Used by cmd_add to let a user-set registry
+# group survive a re-add (registry wins over config bootstrap).
+registry_group_for_name() {
+    local want="$1"
+    local tsv="$2"
+    awk -F'|' -v n="$want" '$1 == n { print $5; exit }' <<< "$tsv"
+}
+
 # Determine the logical name for a project at <root>:
 #   1. project.name in project_config.yaml
 #   2. directory basename
@@ -173,9 +208,11 @@ list_registry_entries() {
 }
 
 # Build a registry YAML body from entries on stdin (pipe-separated:
-# name|path|git_remote|last_opened). Pipe (not tab) is used so empty
-# middle fields don't get collapsed by `read -r` under whitespace IFS.
-# Emits the full file contents on stdout.
+# name|path|git_remote|last_opened|project_group). Pipe (not tab) is used so
+# empty middle fields don't get collapsed by `read -r` under whitespace IFS.
+# The 5th project_group field (t1025_1) is a slug, the unset sentinel `-`, or
+# empty; emitted only when non-empty (so the sentinel persists). Emits the full
+# file contents on stdout.
 build_registry_yaml() {
     {
         # shellcheck disable=SC2016
@@ -183,12 +220,17 @@ build_registry_yaml() {
         # shellcheck disable=SC2016
         printf '# Edit by hand at your own risk; use `ait projects add` instead.\n'
         printf 'projects:\n'
-        while IFS='|' read -r name path remote last; do
+        while IFS='|' read -r name path remote last group; do
             [[ -z "$name" ]] && continue
             printf '  - name: %s\n' "$name"
             printf '    path: %s\n' "$path"
-            [[ -n "$remote" ]] && printf '    git_remote: %s\n' "$remote"
-            [[ -n "$last" ]]   && printf '    last_opened: %s\n' "$last"
+            # Use explicit `if` (not `[[ ]] && printf`) so an empty trailing
+            # field does not leave the loop body — and thus the whole loop — with
+            # a non-zero exit, which `set -euo pipefail` would turn into a failed
+            # `body=$(... | build_registry_yaml)` assignment (t1025_1).
+            if [[ -n "$remote" ]]; then printf '    git_remote: %s\n' "$remote"; fi
+            if [[ -n "$last" ]];   then printf '    last_opened: %s\n' "$last"; fi
+            if [[ -n "$group" ]];  then printf '    project_group: %s\n' "$group"; fi
         done
     }
 }
@@ -245,7 +287,7 @@ cmd_list() {
     live=$(live_tmux_project_names)
 
     local has_any=0
-    while IFS='|' read -r name path remote _last; do
+    while IFS='|' read -r name path remote _last _group; do
         [[ -z "$name" ]] && continue
         has_any=1
         local status
@@ -284,19 +326,40 @@ cmd_add() {
     new_remote=$(read_project_field "$target_path" "git_remote")
     new_last=$(date -u +"%Y-%m-%d")
 
-    # Rebuild the registry: keep every entry whose name differs from
-    # new_name, then append the fresh entry.
     local tsv_in tsv_out
     tsv_in=$(list_registry_entries || true)
+
+    # Resolve the project_group for the fresh entry (t1025_1):
+    #   - On re-add, an existing registry group (incl. the `-` unset sentinel)
+    #     WINS — never clobbered by config bootstrap.
+    #   - Otherwise bootstrap from the repo config's project.project_group,
+    #     rejecting an invalid slug with a clear, sourced message (D4).
+    local new_group=""
+    if [[ -n "$tsv_in" ]]; then
+        new_group=$(registry_group_for_name "$new_name" "$tsv_in")
+    fi
+    if [[ -z "$new_group" ]]; then
+        local cfg_group
+        cfg_group=$(read_project_field "$target_path" "project_group")
+        if [[ -n "$cfg_group" ]]; then
+            if ! validate_group_slug "$cfg_group" 2>/dev/null; then
+                die "Repo '$new_name' project_config.yaml has an invalid project.project_group '$cfg_group' (must match ^[a-z0-9][a-z0-9_-]*\$). Fix the config or set the group later with 'ait projects group set'."
+            fi
+            new_group="$cfg_group"
+        fi
+    fi
+
+    # Rebuild the registry: keep every entry whose name differs from
+    # new_name, then append the fresh entry.
     tsv_out=""
     if [[ -n "$tsv_in" ]]; then
         tsv_out=$(awk -F'|' -v skip="$new_name" '$1 != skip { print }' <<< "$tsv_in")
     fi
-    # Re-append the fresh entry.
+    # Re-append the fresh entry (5 fields — preserves project_group).
     if [[ -n "$tsv_out" ]]; then
         tsv_out+=$'\n'
     fi
-    tsv_out+="${new_name}|${target_path}|${new_remote}|${new_last}"
+    tsv_out+="${new_name}|${target_path}|${new_remote}|${new_last}|${new_group}"
 
     local body
     body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
@@ -390,12 +453,14 @@ cmd_update() {
     local today
     today=$(date -u +"%Y-%m-%d")
 
+    # Carry $5 (project_group) through the rewrite (t1025_1) — repointing the
+    # path/last_opened must never drop a registered group.
     local tsv_out
     tsv_out=$(awk -F'|' \
         -v name="$name" \
         -v new_path="$new_path" \
         -v today="$today" \
-        '$1 == name { print $1 "|" new_path "|" $3 "|" today; next } { print }' \
+        '$1 == name { print $1 "|" new_path "|" $3 "|" today "|" $5; next } { print }' \
         <<< "$tsv")
 
     local body
@@ -429,7 +494,7 @@ cmd_prune() {
     local stale_names=()
     local stale_paths=()
     if [[ -n "$tsv" ]]; then
-        while IFS='|' read -r name path _remote _last; do
+        while IFS='|' read -r name path _remote _last _group; do
             [[ -z "$name" ]] && continue
             local status
             status=$(classify_registry_entry "$name" "$path")
@@ -496,7 +561,7 @@ cmd_doctor() {
 
     local stale_names=() stale_paths=() stale_remotes=() stale_lasts=()
     if [[ -n "$tsv" ]]; then
-        while IFS='|' read -r name path remote last; do
+        while IFS='|' read -r name path remote last _group; do
             [[ -z "$name" ]] && continue
             local status
             status=$(classify_registry_entry "$name" "$path")
@@ -636,6 +701,154 @@ cmd_exec() {
     esac
 }
 
+# --- Verb: group --------------------------------------------------------
+
+# Resolve an entry's EFFECTIVE project-group (t1025_1), mirroring discovery:
+#   registry slug wins; sentinel `-` -> ungrouped (no fallback); empty ->
+#   validated repo config; invalid/absent -> ungrouped. Echoes the group slug,
+#   or empty for ungrouped.
+group_effective() {
+    local path="$1"
+    local reg_group="$2"
+    if [[ "$reg_group" == "$GROUP_UNSET_SENTINEL" ]]; then
+        return 0
+    fi
+    if [[ -n "$reg_group" ]]; then
+        printf '%s\n' "$reg_group"
+        return 0
+    fi
+    local cfg
+    cfg=$(read_project_field "$path" "project_group")
+    [[ -n "$cfg" ]] || return 0
+    if validate_group_slug "$cfg" >/dev/null 2>&1; then
+        printf '%s\n' "$cfg"
+    fi
+}
+
+# Rewrite the registry, setting entry <name>'s project_group field to <value>
+# (may be empty). Dies if <name> is not registered.
+set_registry_group() {
+    local name="$1"
+    local value="$2"
+    local tsv
+    tsv=$(list_registry_entries || true)
+    if [[ -z "$tsv" ]] || ! awk -F'|' -v want="$name" '$1 == want { f=1 } END { exit !f }' <<< "$tsv"; then
+        die "Project '$name' is not registered."
+    fi
+    local tsv_out
+    tsv_out=$(awk -F'|' -v name="$name" -v value="$value" \
+        '$1 == name { print $1 "|" $2 "|" $3 "|" $4 "|" value; next } { print }' \
+        <<< "$tsv")
+    local body
+    body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
+    atomic_write "$REGISTRY_FILE" "$body"
+}
+
+cmd_group() {
+    require_python >/dev/null  # registry mutation routes reads through Python (t970)
+    local sub="${1:-}"
+    case "$sub" in
+        list)
+            local live
+            live=$(live_tmux_project_names)
+            local tsv
+            tsv=$(list_registry_entries || true)
+            if [[ -z "$tsv" ]]; then
+                info "No registered projects."
+                return 0
+            fi
+            # Buffer "group<TAB>member-line" rows, then print grouped + sorted.
+            local rows=""
+            local name path _remote _last group eff status label
+            while IFS='|' read -r name path _remote _last group; do
+                [[ -z "$name" ]] && continue
+                eff=$(group_effective "$path" "$group")
+                status=$(classify_registry_entry "$name" "$path" "$live")
+                label="$name"
+                [[ "$status" != "OK" && "$status" != "LIVE" ]] && label="$name [$status]"
+                if [[ -z "$eff" ]]; then
+                    rows+=$(printf '%s\t  %s\n' "$GROUP_UNGROUPED_LABEL" "$label")$'\n'
+                else
+                    rows+=$(printf '%s\t  %s\n' "$eff" "$label")$'\n'
+                fi
+            done <<< "$tsv"
+            # Real groups sorted; the synthetic (ungrouped) bucket prints last.
+            local g
+            while IFS= read -r g; do
+                [[ -z "$g" ]] && continue
+                printf '%s:\n' "$g"
+                awk -F'\t' -v want="$g" '$1 == want { print $2 }' <<< "$rows"
+            done < <(awk -F'\t' -v ung="$GROUP_UNGROUPED_LABEL" '$1 != ung { print $1 }' <<< "$rows" | sort -u)
+            if awk -F'\t' -v ung="$GROUP_UNGROUPED_LABEL" '$1 == ung { f=1 } END { exit !f }' <<< "$rows"; then
+                printf '%s:\n' "$GROUP_UNGROUPED_LABEL"
+                awk -F'\t' -v ung="$GROUP_UNGROUPED_LABEL" '$1 == ung { print $2 }' <<< "$rows"
+            fi
+            ;;
+        set)
+            local name="${2:-}"
+            local group="${3:-}"
+            [[ -n "$name" && -n "$group" ]] || die "Usage: ait projects group set <name> <group>"
+            local reason
+            if ! reason=$(validate_group_slug "$group" 2>&1); then
+                die "Invalid project-group '$group': $reason"
+            fi
+            set_registry_group "$name" "$group"
+            info "Set group of $name → $group"
+            ;;
+        unset)
+            local name="${2:-}"
+            [[ -n "$name" ]] || die "Usage: ait projects group unset <name>"
+            # Write the explicit sentinel so discovery does NOT fall back to the
+            # repo config (lets a config-grouped repo be truly cleared).
+            set_registry_group "$name" "$GROUP_UNSET_SENTINEL"
+            info "Cleared group of $name (explicitly ungrouped)"
+            ;;
+        sync)
+            # Backfill absent/empty registry groups from each repo's config.
+            # Never overwrites a real value or the `-` sentinel. Rejects invalid
+            # config slugs with a sourced message.
+            local tsv
+            tsv=$(list_registry_entries || true)
+            if [[ -z "$tsv" ]]; then
+                info "No registered projects."
+                return 0
+            fi
+            local tsv_out="" changed=0
+            local name path remote last group cfg
+            while IFS='|' read -r name path remote last group; do
+                [[ -z "$name" ]] && continue
+                if [[ -z "$group" ]]; then
+                    cfg=$(read_project_field "$path" "project_group")
+                    if [[ -n "$cfg" ]]; then
+                        if ! validate_group_slug "$cfg" >/dev/null 2>&1; then
+                            die "Repo '$name' project_config.yaml has an invalid project.project_group '$cfg'. Fix the config or use 'ait projects group set'."
+                        fi
+                        group="$cfg"
+                        changed=$((changed + 1))
+                    fi
+                fi
+                tsv_out+="${name}|${path}|${remote}|${last}|${group}"$'\n'
+            done <<< "$tsv"
+            local body
+            body=$(printf '%s' "$tsv_out" | build_registry_yaml)
+            atomic_write "$REGISTRY_FILE" "$body"
+            info "Synced project groups from repo configs ($changed updated)."
+            ;;
+        ""|--help|-h)
+            cat <<'EOF'
+Usage: ait projects group <list|set|unset|sync>
+  list                 Show groups and their member projects.
+  set <name> <group>   Assign <name> to <group> (slug: ^[a-z0-9][a-z0-9_-]*$).
+  unset <name>         Clear <name>'s group (explicitly ungrouped).
+  sync                 Backfill absent registry groups from repo configs.
+EOF
+            ;;
+        *)
+            die "Unknown group subcommand: $sub (try 'ait projects group --help')"
+            ;;
+    esac
+}
+
 # --- Dispatch -----------------------------------------------------------
 
 main() {
@@ -667,6 +880,10 @@ main() {
         doctor)
             shift
             cmd_doctor "$@"
+            ;;
+        group)
+            shift
+            cmd_group "$@"
             ;;
         resolve)
             shift
