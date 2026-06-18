@@ -223,10 +223,54 @@ testability-first design; a separate before/after task would be redundant.)
 
 ## Post-Implementation
 Step 9 (review, merge to main, archive) applies when this child completes; the
-parent archives automatically once all siblings are done. Record in Final
-Implementation Notes the shared `normalize_anchor_id` location (normalize +
-validate + bare-echo), the `resolve_anchor` precedence/guards, the bare-id
-storage invariant (finding 6), the legacy parent-fallback decision (a
-refinement of the parent task's literal rule — propagate to t1016_2 docs and
-t1016_3/t1016_4 if they assume the literal `source.anchor or source.id`), the
-merge-rule location, and the `write_task_file` positional-param expansion.
+parent archives automatically once all siblings are done.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the plan as approved (all 6 steps + the
+  review-hardening additions). Files: `lib/task_utils.sh` (new shared
+  `normalize_anchor_id`), `aitask_create.sh` (flags + `resolve_anchor` + emit ×3
+  + help), `aitask_update.sh` (editable/validated `--anchor` + RMW +
+  `write_task_file` 30th param), `board/aitask_merge.py` (newer-wins rule),
+  `aitask_fold_mark.sh` (no-op comment). Tests: new `tests/test_anchor_create.sh`
+  (20 cases), `tests/test_anchor_update.sh` (8 cases), `+2` cases in
+  `tests/test_aitask_merge.py`.
+- **Deviations from plan:** None substantive. The three `create_*_file` emitters
+  read the resolved value from a single computed global `RESOLVED_ANCHOR`
+  (set by `resolve_anchor` before file creation) rather than threading a new
+  positional param through every call site — `RESOLVED_ANCHOR` is a *derived*
+  value, not a raw batch input, so this is lower blast-radius than positional
+  churn and stays `""` (no emit) in interactive mode.
+- **Issues encountered:** The test harness must copy `aitask_query_files.sh`
+  (+ `lib/archive_scan.sh`) into the fake repo, because `normalize_anchor_id`
+  shells out to `aitask_query_files.sh task-status` for existence validation —
+  without it every anchor would fail validation. `test_update_risk.sh` (the
+  setup model) does not copy it; the anchor tests add both.
+- **Key decisions:** (1) `--anchor`/`--followup-of` are mutually exclusive and
+  both rejected with `--parent` (a child's anchor is always parent-derived;
+  re-anchor via `aitask_update.sh --anchor`). (2) All accepted ids are
+  normalized to **bare** form (`normalize_anchor_id` strips a leading `t`,
+  asserts `N`/`N_M`, validates existence archived-inclusive, echoes the bare id)
+  so the stored value equals a root's own-id group key and `resolve_task_file`
+  always gets bare ids. (3) **Legacy parent fallback:** `--followup-of` of an
+  anchorless **child** resolves to the child's **parent** (the topic root), a
+  deliberate refinement of the parent task's literal `source.anchor or
+  source.id` wording to honor "anchor points at the root".
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **Shared helper:** `normalize_anchor_id` (in `lib/task_utils.sh`,
+    archived-inclusive, echoes the bare id, `die`s on bad/missing) is the one
+    validation+normalization entry point — reuse it; do not re-validate anchors ad hoc.
+  - **Bare-id invariant:** anchors are stored bare (`42`, `42_1`). Consumers
+    (t1016_4 board grouping) must treat group key = `anchor` if present else the
+    task's own bare id, and **keep `anchor` OUT of `BOARD_KEYS`** (it is semantic,
+    not board-layout) — confirmed it is not in `_LIST_UNION_FIELDS`/`BOARD_KEYS`
+    in `aitask_merge.py`.
+  - **Legacy-child fallback is a rule refinement:** t1016_2 (docs) and
+    t1016_3/t1016_4 must describe/assume "anchor points at the topic root"
+    including the legacy-child→parent fallback, NOT the literal
+    `source.anchor or source.id`. The `## Decided rules` block above is the
+    authoritative wording.
+  - **Roots emit no `anchor:` line**; absent anchor ⇒ own-id is the key.
+  - **Merge:** anchor uses the newer-`updated_at`-wins rule (mirrors
+    `updated_at`), so board/CLI edits survive concurrent sync.
