@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t1016_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_board, child_tasks]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-17 13:36
-updated_at: 2026-06-17 13:36
+updated_at: 2026-06-18 16:03
 ---
 
 ## Context
