@@ -118,3 +118,5 @@ This child also owns the board-feature doc row and the headless board test.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-18T13:45:33Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-18T13:45:34Z status=pass attempt=1 type=machine
