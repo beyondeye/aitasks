@@ -43,3 +43,5 @@ rendering driven by `self._selection.marked`, refreshed by `_refresh_node_marks`
 > **✅ gate:plan_approved** run=2026-06-18T08:27:22Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-18T08:27:23Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-18T08:32:40Z status=pass attempt=1 type=human
