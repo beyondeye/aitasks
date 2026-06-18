@@ -186,3 +186,62 @@ sites found that intentionally remain un-wired (and why), the guarded-vs-
 unconditional asymmetry rationale, and the exact goldens-regen command used. The
 parent t1016 archives automatically once all siblings are done (remaining after
 this: t1016_4 board view, t1016_5 manual verification).
+
+## Final Implementation Notes
+
+- **Actual work done:** Threaded `--followup-of` anchor provenance into the
+  framework's follow-up spawn sites.
+  - `aitask_archive.sh::create_carryover_task` — `--followup-of "$orig_id"`
+    added to `create_args` (unconditional).
+  - `aitask_verification_followup.sh` — a best-effort guard (resolve origin via
+    `aitask_query_files.sh task-status`, archive+zip-inclusive; thread
+    `--followup-of "$origin"` only when it resolves, using the
+    `${followup_args[@]+...}` empty-array-safe expansion).
+  - `aitask-qa/follow-up-task-creation.md` — `followup_of` in the standalone
+    (`mode: parent`) branch only; explicit note in the child branch.
+  - `task-workflow/risk-mitigation-followup.md` — `followup_of` in Part 2 & 3
+    (both `mode: parent`).
+  - `aitask-review/SKILL.md.j2` — root-by-default caveat.
+  - New tests `tests/test_archive_carryover_anchor.sh` (4 asserts) and
+    `tests/test_verification_followup_anchor.sh` (10 asserts, resolvable +
+    unresolvable-origin cases). Regenerated goldens: review entry-point ×3
+    profiles + `risk-mitigation-followup-default` proc golden.
+
+- **Deviations from plan:** None substantive. The plan anticipated possibly
+  patching the existing `test_verification_followup.sh` setup; the guarded
+  (best-effort) design made that unnecessary — its commit-only origins don't
+  resolve, so the guard fails safe and the existing 28 asserts pass unchanged.
+
+- **Key decisions / asymmetry rationale:** carryover wiring is **unconditional**
+  (the source `$orig_id` IS the task being archived — structurally guaranteed
+  resolvable; `verification_gate_and_carryover` runs at `main()` before the
+  archive move, so the original is still active at create time);
+  verification-followup is **guarded** (its origin is a loose reference resolved
+  from `verifies`/`--from`/`--origin` that may be commit-only). Origin
+  resolution reuses the existing archive+zip-inclusive resolver
+  (`task-status` → `cmd_archived_task` → `search_archived_task`, covering
+  `old*.tar.zst`/`.tar.gz`), per the user's request. The qa wiring is
+  branch-scoped because `--followup-of` is mutually exclusive with `--parent`
+  (a child auto-inherits the parent's anchor; passing both would `die`).
+
+- **Spawn sites intentionally left un-wired:** `aitask-review` — reviews a
+  diff/area with no single source task, so it must create topic roots; only a
+  one-line caveat was added, no unconditional anchor.
+
+- **Goldens regen command used:** per-profile `skill_template.py` render for the
+  review entry-point goldens (`default`/`fast`/`remote`) and the profile-
+  invariant `risk-mitigation-followup-default.md` proc golden; verified with
+  `tests/test_skill_render_task_workflow.sh` (99/99),
+  `tests/test_skill_render_aitask_review.sh` (96/96),
+  `tests/test_skill_render_aitask_qa.sh` (189/189), and
+  `aitask_skill_verify.sh` (OK). `aitask_skill_rerender.sh remote` produced no
+  tracked diff (`risk-mitigation-followup.md` is not part of the committed
+  `task-workflow-remote-/` closure — a pre-existing omission, left as-is).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks (t1016_4 board view):** anchors set by these sites
+  are stored **bare** (`42` / `42_1`) and point at the topic root; group key =
+  `anchor` if present else the task's own bare id. Roots emit no `anchor:` line.
+  Carryover/mitigation/verification follow-ups now carry an `anchor:` line, so
+  the by-topic view will cluster them with their source.
