@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui_switcher, tmux]
 risk_mitigation_tasks: [1029]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-18 00:01
-updated_at: 2026-06-18 15:15
+updated_at: 2026-06-18 15:16
+completed_at: 2026-06-18 15:16
 ---
 
 ## Context
