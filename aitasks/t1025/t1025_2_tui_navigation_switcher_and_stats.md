@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [t1025_1]
 issue_type: feature
 status: Implementing
 labels: [tui_switcher, stats_ui, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-18 00:01
-updated_at: 2026-06-18 15:31
+updated_at: 2026-06-18 15:58
 ---
 
 ## Context
@@ -63,3 +66,8 @@ See parent plan `aiplans/p1025_*.md`.
   session's group (monitor/minimonitor path).
 - Manual smoke: launch `ait board`/switcher with ≥2 groups + a live out-of-group
   session (covered live by t1025_5).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-18T12:58:05Z status=pass attempt=1 type=human
