@@ -200,3 +200,28 @@ bash tests/test_brainstorm_node_delete.py      # reload path
 Steps 8–9 of task-workflow: user review of the diff, commit
 (`enhancement: ... (t1004)`), then archival on the current branch (no worktree
 under profile 'fast').
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Added `MARK_CHECKED`/
+  `MARK_UNCHECKED` glyphs and `MARK_CHECKED_STYLE`/`MARK_UNCHECKED_STYLE` to
+  `brainstorm_dag_display.py`; `_render_node_box` gained `is_marked` and draws
+  the checkbox in the title row; `_render_layer` gained `marked_ids`;
+  `_render_dag` passes `self._marked`; `DAGDisplay` got `self._marked` +
+  `set_marked()`. In `brainstorm_app.py`, `NodeRow.render` switched from `●`/
+  blank to `☑`/`☐`; `_refresh_node_marks` now pushes to the DAG; and
+  `_load_existing_session` re-syncs after a DAG reload. New test file
+  `tests/test_brainstorm_dag_node_mark.py` (6 tests).
+- **Deviations from plan:** None. The user chose the checkbox glyph (`☑`/`☐`,
+  always shown) over the originally-planned `●`, applied to BOTH views for
+  consistency — this was incorporated into the plan before implementation.
+- **Issues encountered:** None. All impacted tests and the full brainstorm
+  Python suite stayed green.
+- **Key decisions:** Marked state threaded as an orthogonal per-node flag
+  alongside `is_head`/`is_focused`/`is_anchor` (a node can be several at once),
+  rendered as an in-box glyph rather than a border color. The widget caches a
+  copy of the selection's marked set (pushed via `set_marked`) rather than
+  threading selection through `load_dag`, keeping `NodeSelection` the single
+  source of truth. The cached `_marked` survives `load_dag` rebuilds, so marks
+  persist across reloads automatically.
+- **Upstream defects identified:** None
