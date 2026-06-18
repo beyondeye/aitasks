@@ -212,3 +212,37 @@ is addressed in-task by the unit tests, not by a follow-up.
 
 Profile 'fast', current branch — no worktree/merge. After review approval,
 commit code (`bug: ... (t1027)`) and run `./.aitask-scripts/aitask_archive.sh 1027`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `desync_state.py`: added `detect_primary_branch(worktree)` (origin/HEAD
+    symbolic-ref → local `main`→`master` probe → `"main"` fallback) and the pure
+    `physical_main_branch(snapshot)` helper; `snapshot_ref` now sets
+    `local_ref = detect_primary_branch(worktree)` / `remote_ref =
+    f"origin/{local_ref}"` for the logical `"main"` ref.
+  - `syncer_app.py`: imported `physical_main_branch`; `_main_pull_worker` guards
+    on the resolved branch and `_main_push_worker` pushes `f"{branch}:{branch}"`.
+  - `test_desync_state.py`: `make_master_project` fixture +
+    `test_master_default_repo_reports_up_to_date` (both detection paths) +
+    `test_physical_main_branch` unit test.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. All 8 desync tests pass; existing 5 stay green;
+  `test_sync_action_runner` (18) green; `syncer_app` imports cleanly with the new
+  symbol; live snapshot on this main-default repo still reports `main` correctly.
+- **Key decisions:** Kept `"main"` as the logical row/CLI label (no display
+  change to `tui_switcher.py`). Deliberately omitted the optional `base_branch`
+  profile lookup — `base_branch` is a per-profile, skill-runtime key with no
+  generic accessor for a standalone git helper, and `origin/HEAD` is the more
+  authoritative source; the residual gap (remote present but origin/HEAD unset
+  and a non-main/master default) is inert because remote-less repos report
+  `no_remote` before branch detection matters.
+- **Upstream defects identified:** None. (Three *related* hardcoded-`main`
+  references exist in unrelated scripts but are pre-existing design choices in
+  separate features, not defects seeding this symptom: `aitask_plan_externalize.sh:307`
+  always emits `Base branch: main` in plan headers; `aitask_contribute.sh:448`
+  uses `git diff --name-only main` in clone/project contribution mode;
+  `create_new_release.sh:30` hardwires releases to `main` — this repo is itself
+  main-default so likely intentional. These are out of scope for t1027 — a
+  follow-up could generalize plan-externalize/contribute for master-default
+  repos if needed.)
