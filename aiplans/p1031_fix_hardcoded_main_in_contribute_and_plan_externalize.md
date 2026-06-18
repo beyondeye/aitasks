@@ -155,3 +155,30 @@ Manual smoke (optional): in a throwaway `master`-default git repo, confirm
 `detect_primary_branch` prints `master`.
 
 See **task-workflow Step 9** for post-implementation cleanup, archival, and merge.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `.aitask-scripts/lib/git_utils.sh` with a pure-bash
+  `detect_primary_branch()` (origin/HEAD symbolic-ref → local main→master probe →
+  `main` fallback), mirroring `desync_state.py:detect_primary_branch`. Wired it
+  into `aitask_contribute.sh` (sourced after `repo_fetch.sh`) and
+  `aitask_plan_externalize.sh` (sourced after `terminal_compat.sh`). Replaced the
+  hardcoded `main` literal at both clone/project local-diff sites in contribute
+  (`list_changed_files` and `generate_diff`) and in `build_header` of
+  plan_externalize (`Base branch:` value + the `Branch:`-suppression comparison).
+  Added a reciprocal maintainer-guard comment in `desync_state.py`.
+- **Deviations from plan:** None. Implemented exactly as the approved plan,
+  including the explicitly-noted scope expansion to contribute's `generate_diff`
+  (`:479`) alongside the literally-named `list_changed_files` (`:448`).
+- **Issues encountered:** None. All three test suites pass
+  (`test_git_utils.sh` 4/4, `test_contribute.sh` 124/124, `test_plan_externalize.sh`
+  29/29); `test_desync_state.py` still 8/8 after the docstring edit. Shellcheck
+  clean at `--severity=warning` for the two scripts and the new lib.
+- **Key decisions:** Chose the pure-bash resolver over shelling out to
+  `desync_state.py` (user decision) — keeps `plan_externalize` python-free and
+  test fixtures simple; drift between the bash and Python twins is guarded by
+  bidirectional cross-reference comments rather than a separate task. The new lib
+  is script-local (sourced only by the two scripts), so it was added to the
+  contribute test fixtures' lib copy lists rather than the global
+  `setup_fake_aitask_repo` scaffold baseline.
+- **Upstream defects identified:** None.
