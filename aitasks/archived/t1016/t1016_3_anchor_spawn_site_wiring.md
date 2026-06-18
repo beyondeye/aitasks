@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1016_2]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [child_tasks]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-17 13:36
-updated_at: 2026-06-18 15:44
+updated_at: 2026-06-18 15:54
+completed_at: 2026-06-18 15:54
 ---
 
 ## Context
