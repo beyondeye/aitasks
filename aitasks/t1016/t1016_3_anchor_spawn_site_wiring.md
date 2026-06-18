@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t1016_2]
 issue_type: enhancement
 status: Implementing
 labels: [child_tasks]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-17 13:36
-updated_at: 2026-06-18 15:14
+updated_at: 2026-06-18 15:44
 ---
 
 ## Context
@@ -84,3 +87,8 @@ Depends on t1016_1 (the flag must exist) and follows t1016_2 (docs).
   tests assert on output files.
 - Review's root-by-default behavior is deliberate (see the t1016 parent caveat) —
   do not "fix" it by forcing an anchor.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-18T12:44:29Z status=pass attempt=1 type=human
