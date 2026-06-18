@@ -135,3 +135,29 @@ No before/after mitigation tasks needed.
 Standard cleanup/merge/archival per task-workflow Step 9. Working on the current
 branch (profile `fast`); commit `.codex`/`.opencode`/`tests` with plain `git`
 under `bug: … (t1028)`; plan file via `./ait git`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Regenerated `.codex/instructions.md` and
+  `.opencode/instructions.md` to the canonical `ait setup` output by driving the
+  real `assemble_aitasks_instructions` + `insert_aitasks_instructions` (create
+  path), so both now carry exactly one `>>>aitasks`/`<<<aitasks` pair. Added
+  three regression tests (T22/T23 committed-mirror marker-pair guard; T24
+  opencode insert idempotency) to `tests/test_agent_instructions.sh`. No change
+  to `aitask_setup.sh` — its generator was already correct.
+- **Deviations from plan:** None. Plan executed as written.
+- **Issues encountered:** None. Idempotency proof passed first try (re-running
+  the setup insert against both regenerated files yields zero diff and one
+  marker pair). All 94 tests pass.
+- **Key decisions:** Chose option 1 (normalize committed artifacts) over option
+  2 (rewrite setup to full-file regen). The content resync was a free side
+  effect — the mirrors were also stale since t331 (commit `adb17d27b`) stripped
+  `## Skills` from the seeds without regenerating the mirrors. User confirmed
+  dropping the dead `## Skills` invocation hint (honors t331's intentional
+  removal).
+- **Upstream defects identified:** None. The root cause was the committed
+  artifacts being out of sync with the (already-correct) generator, which is the
+  task's own scope — not a separate pre-existing defect in another module.
+- **Verification:** `bash tests/test_agent_instructions.sh` → 94/94 pass;
+  `shellcheck tests/test_agent_instructions.sh` clean except two pre-existing
+  SC1091 info notices on the existing `source` lines (lines 14, 24).
