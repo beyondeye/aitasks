@@ -236,3 +236,62 @@ matching rule, and the slug-reject policy for sibling tasks t1025_2/3.
 
 ### Planned mitigations
 - timing: after | name: registry_record_namedtuple | type: refactor | priority: low | effort: medium | addresses: code-health (positional-tuple unpack footgun) | desc: Convert `_parse_registry_records()` to return a NamedTuple so registry readers reference named fields instead of positional unpacking, removing the missed-unpack-site ValueError class of bug.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the full data layer exactly as planned.
+  Python (`agent_launch_utils.py`): `validate_project_group_slug` + `-` sentinel
+  constant + `_resolve_config_project_group` (read-time validation, D6);
+  `_parse_registry_records` 4→5 fields with every positional consumer updated
+  (`_read_registry_index` now returns `(name, path, status, group)`,
+  `_cli_list_registry` emits the 5th pipe field, `_cli_resolve_index` unpack);
+  `AitasksSession.project_group`; `_build_registry_group_lookup` (realpath-keyed,
+  D3) + `_resolve_session_group` (tri-state, D1) wired into
+  `discover_aitasks_sessions` for live AND registered sessions; pure
+  `group_sessions` → `GroupedSessions(ring, groups)`; `--validate-slug` CLI shim.
+  Bash (`aitask_projects.sh`): `build_registry_yaml` 5th field; `cmd_add`
+  bootstrap-from-config with registry-wins-on-re-add; `cmd_update` carries `$5`;
+  new `group list/set/unset/sync` verb; every `IFS='|' read` site (cmd_list,
+  prune, doctor) absorbs the 5th field; help + header updated.
+  `aitask_project_resolve.sh:cmd_list` 5th-field read. `seed/project_config.yaml`
+  commented `project_group` example.
+
+- **Deviations from plan:** None substantive. The validator/sentinel/resolution
+  helpers live in `agent_launch_utils.py` (importable) with a thin
+  `--validate-slug` CLI shim for the bash write paths, as planned.
+
+- **Issues encountered:** `build_registry_yaml`'s row loop ENDED on
+  `[[ -n "$group" ]] && printf …`; when `group` is empty (the common ungrouped
+  case) the test returns non-zero, making the whole `while` loop exit non-zero,
+  which under `set -euo pipefail` aborted the `body=$(… | build_registry_yaml)`
+  assignment in `cmd_add` mid-write (registry not created). Fixed by converting
+  the trailing conditional emits to explicit `if … then … fi` blocks — this also
+  closes the latent pre-existing version of the bug on the `last_opened` field.
+
+- **Key decisions:** (1) Tri-state via a registry-only `-` sentinel so
+  `group unset` truly clears a repo whose config declares a group (sentinel →
+  ungrouped, no config fallback). (2) Path-keyed (realpath) live↔registry
+  matching so a session whose dir basename differs from its registered
+  `project.name` still resolves its group. (3) Writes REJECT invalid slugs
+  (add/sync bootstrap dies with a sourced message); discovery's config fallback
+  VALIDATES at read time and maps invalid → None (never crashes). (4) Child 3's
+  Python settings TUI will shell out to `ait projects group …` rather than a
+  parallel Python writer.
+
+- **Upstream defects identified:** `aitask_projects.sh:build_registry_yaml` had a
+  latent `set -e` bug — the loop's final `[[ -n "$last" ]] && printf` would have
+  aborted any rebuild whose last entry had an empty `last_opened`. It never fired
+  because `add` always sets `last_opened`, but it was a real pre-existing defect;
+  fixed in this task (not a separate issue). No other unrelated defects found.
+
+- **Notes for sibling tasks (t1025_2 TUI / t1025_3 settings):**
+  - Import and use `group_sessions(sessions, selected_group)` → `GroupedSessions`
+    (`.ring` = left/right cycle for the selected group; `.groups` = ordered
+    `[`/`]` cycle with `PROJECT_GROUP_UNGROUPED_LABEL` = `"(ungrouped)"` last). Do
+    NOT re-derive grouping in the TUI — `AitasksSession.project_group` is already
+    resolved by discovery.
+  - Tri-state contract: `project_group` on a session is either a valid slug or
+    `None`. The `-` sentinel is registry-only and never surfaces on a session.
+  - t1025_3 must mutate via `ait projects group set/unset/sync` (the single bash
+    writer); reuse `validate_project_group_slug` (or the `--validate-slug` shim)
+    for pre-flight validation; never write `projects.yaml` directly.
