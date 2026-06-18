@@ -257,3 +257,65 @@ helpers in `agent_launch_utils.py` (reuse them, don't re-derive); the
 pane-guarded dual meaning + relabel; the aggregate-as-fixed-ring-member layering
 (`_session_ring`); the `_apply_session_selection` sidebar-sync helper; and that
 monitor/minimonitor were verification-only.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the two-axis navigation as planned.
+  `agent_launch_utils.py`: added pure `default_selected_group` +
+  `advance_selected_group` beside `group_sessions` (Step 0). `tui_switcher.py`:
+  `import dataclasses`; `_ensure_session_live` now `dataclasses.replace(entry,
+  is_live=True)` (preserves `project_group`/`is_stale`); `_selected_group` state
+  defaulted in `on_mount` from `self._session`; `_ring_names()` +
+  `_refresh_after_cycle()` + `_switcher_list_or_skip()` helpers; ring-based
+  `_cycle_session`; `[`/`]` bindings → `action_prev/next_group` → `_cycle_group`
+  (re-derive ring, re-point `self._session` if it fell out); selected-group label
+  in `_render_session_row` + `[/]` group hint in `_render_hint`. `stats_app.py`:
+  `_selected_group` state; `_session_ring()` (aggregate `ALL_SESSIONS_KEY`
+  layered last); `_apply_session_selection()` shared by session + group cycling;
+  `action_prev/next_window` → `_cycle_window_or_group` pane-guarded fall-through
+  (time-window on `agents.verified`/`agents.usage`, project-group elsewhere);
+  `[`/`]` footer labels → `win/grp`. `aidocs/framework/tui_conventions.md`:
+  two-axis model section. Also corrected the stale task-file "attached session"
+  wording (committed separately via `./ait git`).
+
+- **Deviations from plan:** stats `_selected_group` is resolved in `__init__`
+  (right after `selected_session`), not in `on_mount` as written — the
+  resolution is pure (no widgets), so `__init__` is simpler and avoids any
+  pre-mount `None` window; functionally identical. The switcher keeps the plan's
+  `on_mount` timing because its `self._session` may be re-pointed by
+  `_init_multi_state`.
+
+- **Issues encountered:** A Rich-markup escaping bug in the first `_render_hint`
+  attempt rendered `[/]]` (stray `]`); fixed to `\[/]` → `[/]` (verified via a
+  `rich.Text.from_markup` render probe). The bootstrap field-drop in
+  `_ensure_session_live` (planned finding #4) was confirmed real against the
+  current code and fixed with `dataclasses.replace`.
+
+- **Key decisions:** (1) The central default-resolution rule was pulled into a
+  shared, unit-tested pure helper (`default_selected_group`) in-task rather than
+  deferred, removing the main cross-TUI drift risk at the source (review concern
+  #5). (2) The "All sessions" aggregate is layered onto the ring by each TUI's
+  ring builder (`_session_ring`), never inside pure `group_sessions()`, so
+  left/right reaches it while `[`/`]` never selects it. (3) Cross-group
+  preselection is structural: the switcher defaults its group off `self._session`
+  (the operating/selected session), so monitor/minimonitor needed no code change
+  — verified by the Pilot test.
+
+- **Upstream defects identified:** None. (The `_ensure_session_live` bootstrap
+  field-drop was a pre-existing latent defect in the same module being edited and
+  was fixed in-task, not deferred — so no separate follow-up is warranted.)
+
+- **Notes for sibling tasks (t1025_3 settings editor / t1025_4 docs):**
+  - Import and reuse `default_selected_group(sessions, selected_session_name)`
+    and `advance_selected_group(groups, current, step)` from
+    `agent_launch_utils.py` — do NOT re-derive the default/advance rules. `None`
+    from `default_selected_group` means the *ungrouped bucket*, not "first real
+    group".
+  - The aggregate-as-fixed-ring-member pattern lives in the TUI ring builder
+    (`stats_app._session_ring`), not in `group_sessions`. Any new consumer that
+    needs a pinned, group-agnostic ring entry should layer it the same way.
+  - The shared `_apply_session_selection` (stats) keeps the sidebar highlight,
+    title, and loaded data in lockstep — route any new selection change through
+    it, not through a bespoke `selected_session =` assignment.
+  - A confirmed `after` risk-mitigation task (`consolidate_group_cycle_wiring`)
+    was queued for the residual per-TUI group-cycle widget-wiring duplication.
