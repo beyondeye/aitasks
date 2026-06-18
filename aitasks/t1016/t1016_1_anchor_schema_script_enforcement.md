@@ -141,3 +141,5 @@ Cases:
 > **✅ gate:plan_approved** run=2026-06-18T08:31:35Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-18T08:31:37Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-18T09:05:46Z status=pass attempt=1 type=human
