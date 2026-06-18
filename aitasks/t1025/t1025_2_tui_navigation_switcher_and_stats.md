@@ -49,8 +49,10 @@ See parent plan `aiplans/p1025_*.md`.
 
 ## Implementation Plan
 
-1. Switcher: selected-group state var; default = attached session's resolved
-   group (fallback "(ungrouped)"/first group). `[`/`]` re-derive ring + re-render.
+1. Switcher: selected-group state var; default = selected (operating) session's
+   resolved group — `self._session`, not `self._attached_session`, so cross-group
+   preselection follows the preselected session (fallback "(ungrouped)"/first
+   group). `[`/`]` re-derive ring + re-render.
 2. left/right cycles the derived ring only.
 3. Stats: mirror; layer the All-sessions aggregate on top of the pure ring.
 4. Monitor/minimonitor: selected group follows the preselected session's group.
