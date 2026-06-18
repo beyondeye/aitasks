@@ -234,10 +234,10 @@ before approval):
   drift risk is removed in-task. What remains duplicated is the per-TUI
   **widget-wiring** of a group cycle (switcher session-row vs stats sidebar +
   title + panes), which is genuinely TUI-specific. · severity: low ·
-  → mitigation: consolidate_group_cycle_wiring
+  → mitigation: t1033
 
 ### Planned mitigations
-- timing: after | name: consolidate_group_cycle_wiring | type: refactor | priority: low | effort: low | addresses: code-health (residual per-TUI group-cycle widget-wiring duplication; the central default-resolution is already shared in-task via Step 0) | desc: If the switcher and stats group-cycle action bodies prove meaningfully duplicative after implementation, factor the common "advance group → re-derive ring → re-point selection → refresh" sequence into a shared mixin/helper; the pure default-resolution already lives in `agent_launch_utils.py`.
+- timing: after | name: consolidate_group_cycle_wiring (created: t1033) | type: refactor | priority: low | effort: low | addresses: code-health (residual per-TUI group-cycle widget-wiring duplication; the central default-resolution is already shared in-task via Step 0) | desc: If the switcher and stats group-cycle action bodies prove meaningfully duplicative after implementation, factor the common "advance group → re-derive ring → re-point selection → refresh" sequence into a shared mixin/helper; the pure default-resolution already lives in `agent_launch_utils.py`.
 
 ### Goal-achievement risk: low
 - Approach consumes the already-built, already-tested pure `group_sessions()`
