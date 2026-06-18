@@ -98,8 +98,19 @@ def _load_and_register(module_name: str, rel_path: str, failed: list[str]) -> No
         if spec is None or spec.loader is None:
             raise ImportError(f"no loader for {path}")
         module = importlib.util.module_from_spec(spec)
+        # Register in sys.modules BEFORE exec_module. Under Python 3.14, a
+        # `@dataclass` whose fields use string annotations (these modules carry
+        # `from __future__ import annotations`) is processed by
+        # dataclasses._is_type, which resolves the owning module via
+        # `sys.modules.get(cls.__module__).__dict__`. Without this entry the
+        # lookup returns None and the import dies with
+        # "AttributeError: 'NoneType' object has no attribute '__dict__'".
+        # Manifest names are unique, so there is no collision; popped on failure
+        # so a half-initialized module is never left registered.
+        sys.modules[module_name] = module
         spec.loader.exec_module(module)
     except Exception as exc:  # noqa: BLE001 — degrade gracefully
+        sys.modules.pop(module_name, None)
         failed.append(module_name)
         sys.stderr.write(
             f"shortcut_scopes: could not load {module_name} "
