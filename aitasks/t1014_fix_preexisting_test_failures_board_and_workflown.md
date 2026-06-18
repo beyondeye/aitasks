@@ -47,3 +47,5 @@ and `bash tests/test_skill_render_task_workflown.sh` all green.
 > **✅ gate:plan_approved** run=2026-06-17T20:57:55Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-17T20:57:56Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-18T05:07:07Z status=pass attempt=1 type=human
