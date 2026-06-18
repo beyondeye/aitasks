@@ -74,6 +74,7 @@ skill_optiomizations
 statistics
 stats_ui
 task-archive
+task_attachments
 task-planning
 task_workflow
 testing
