@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_board, child_tasks]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-17 13:35
-updated_at: 2026-06-18 11:00
+updated_at: 2026-06-18 11:31
 ---
 
 ## Context
@@ -131,3 +134,8 @@ Cases:
   "own id is the group key".
 - Keep `anchor` OUT of `BOARD_KEYS` (it is semantic, not board-layout) — relevant
   to t1016_4's `task_yaml.py` work.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-18T08:31:35Z status=pass attempt=1 type=human
