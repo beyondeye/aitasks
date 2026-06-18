@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [t1016_3]
 issue_type: feature
 status: Implementing
 labels: [aitask_board, child_tasks]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-17 13:36
-updated_at: 2026-06-18 16:03
+updated_at: 2026-06-18 16:45
 ---
 
 ## Context
@@ -110,3 +113,8 @@ This child also owns the board-feature doc row and the headless board test.
 - The child→parent `topic_key` fallback is display-time only (the file may have no
   `anchor:`); that is intentional and is what lets legacy trees group without
   migration.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-18T13:45:33Z status=pass attempt=1 type=human
