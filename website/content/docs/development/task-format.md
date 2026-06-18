@@ -47,6 +47,7 @@ Detailed description of what needs to be done.
 | `boardidx` | integer | Board UI sort index within column |
 | `folded_tasks` | `[138, 129_5]` | Task IDs folded into this task by `/aitask-explore` or `/aitask-fold` (deleted on archival) |
 | `folded_into` | task number | Task this was folded into (set by `/aitask-fold` or `/aitask-explore`) |
+| `anchor` | task id (`130`, `130_2`) | Topic-group key pointing at a subject's **root** task, so loosely-related and follow-up tasks cluster together. Absent ⇒ the task is its own root. Set via `--anchor` / `--followup-of` at creation (a child inherits its parent's root) or edited later with `aitask_update.sh --anchor` |
 | `file_references` | `[path, path:N, path:N-M, path:N-M^N-M]` | Structured pointers to source files / line ranges. 1-indexed, inclusive. Exact-string dedup. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) |
 | `verifies` | `[t10_1, t10_2]` | Task IDs this task verifies (used by `manual_verification` sibling tasks that gate release on human-checked behavior) |
 | `risk_code_health` | `high`, `medium`, `low` | Code-health risk (stability, quality, maintainability, blast-radius) assigned by the [risk-evaluation planning step]({{< relref "/docs/workflows/risk-evaluation" >}}); display-only, omitted unless evaluated |

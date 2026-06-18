@@ -15,6 +15,8 @@ Creates a task using `aitask_create.sh` in batch mode.
 | `labels` | yes | Comma-separated labels (e.g., `"ui,backend"`) |
 | `parent_num` | if child | Parent task number (numeric, e.g., `10` not `t10`) |
 | `no_sibling_dep` | optional | Set `true` to skip auto-dependency on previous sibling (for parallel child tasks). Default: `false` (sequential). |
+| `anchor` | optional | Explicit topic-root task id (the board's group key). Accepts `N` / `N_M` (a leading `t` is stripped); validated to exist. Mutually exclusive with `followup_of`; rejected with `parent_num`. See **Topic anchoring** below. |
+| `followup_of` | optional | Anchor this task to the **topic root** of source task `N` (provenance for a follow-up). Mutually exclusive with `anchor`; rejected with `parent_num`. See **Topic anchoring** below. |
 | `issue_url` | optional | Issue tracker URL |
 | `pull_request_url` | optional | Pull request URL |
 | `contributor` | optional | Contributor name (for PR/issue imports) |
@@ -102,6 +104,30 @@ Append these flags before `--desc` or `--desc-file` when provided:
   --contributor "<contributor>" \
   --contributor-email "<contributor_email>" \
 ```
+
+### Topic anchoring (grouping)
+
+The optional `anchor` frontmatter field is a **topic group key**: it points at the
+**root** task of a subject so loosely-related and follow-up tasks cluster together
+on the board without a rigid parent-child tree. The group key is `anchor` when
+set, else the task's own id — so a root and its followups share a key by simple
+equality. **A root task emits no `anchor:` line.** Pass one of these (they are
+**mutually exclusive**, and all three are **rejected alongside `--parent`** — a
+child's anchor is always parent-derived, re-anchor afterward with
+`aitask_update.sh --anchor`):
+
+- `--anchor <id>` — set the anchor explicitly to an existing topic root.
+- `--followup-of <source_id>` — derive the anchor from a source task: the
+  script reads the source's anchor and sets `anchor = source.anchor` if present,
+  else — for an anchorless **child** source `<p>_<c>` — its parent `<p>`, else
+  the source id itself. **Anchor always points at the root and never chains:** a
+  follow-up of a follow-up still resolves to the same root.
+
+A **child created with `--parent P`** auto-inherits `anchor = P.anchor` if `P`
+has one, else `P` — so a board topic-group spans the whole parent-child subtree
+plus loose follow-ups as one cluster. All ids are normalized to **bare** form
+(`42`, `42_1`; a leading `t` is stripped) and validated to exist (archived roots
+are allowed).
 
 ## Important notes
 

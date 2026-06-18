@@ -68,6 +68,7 @@ boardcol: now|next|backlog
 boardidx: 50
 folded_tasks: [2, 4]     # merged child tasks
 folded_into: 1            # parent task ID if folded
+anchor: 130               # topic-group key = root task id (absent ⇒ task is its own root)
 issue: https://...        # linked issue tracker URL
 ---
 ```

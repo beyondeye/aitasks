@@ -280,6 +280,9 @@ Flags:
 - `--issue URL` — Issue tracker URL
 - `--parent, -P NUM` — Create as child of specified parent task
 - `--no-sibling-dep` — Skip default sibling dependency
+- `--anchor ID` — Topic-root task id (board group key); `N`/`N_M`, validated. Mutually exclusive with `--followup-of`; rejected with `--parent`
+- `--followup-of ID` — Anchor to the topic root of source task `ID` (flattened, never chains). Mutually exclusive with `--anchor`; rejected with `--parent`
+  - Anchor semantics (inheritance rule, child auto-inherit, bare-id normalization) are specified once in the canonical contract — see `.claude/skills/task-workflow/task-creation-batch.md` ("Topic anchoring")
 - `--commit` — Auto-finalize with real ID (requires network)
 - `--finalize FILE` — Finalize a specific draft from `aitasks/new/`
 - `--finalize-all` — Finalize all drafts in `aitasks/new/`

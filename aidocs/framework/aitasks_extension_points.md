@@ -7,8 +7,8 @@ framework's PATH / binary shim.
 
 ## Adding a new frontmatter field
 
-A new task frontmatter field must touch three layers, or the board silently
-drops it:
+A new task frontmatter field must touch the layers below, or the board (or a
+cross-PC sync) silently drops or mangles it:
 
 1. **Write path:** `aitask_create.sh` (batch flags + interactive flow +
    `create_task_file` serialization) and `aitask_update.sh` (mirroring
@@ -20,9 +20,42 @@ drops it:
    per-field widgets keyed on field name. Add a `<FieldName>Field` class
    mirroring `DependsField` / `ChildrenField`, wire it into `compose()`, and
    have it shell out to `aitask_update.sh --batch ... --<flag>`.
+4. **Sync/merge rule:** `board/aitask_merge.py` `merge_frontmatter()`. A field
+   with no explicit rule falls into the generic `else` and can be dropped to the
+   unresolved/PARTIAL path on a concurrent edit. Add a branch: list fields go in
+   `_LIST_UNION_FIELDS` (union), board-layout fields in `BOARD_KEYS`
+   (`_KEEP_LOCAL_FIELDS`), and a scalar that must survive concurrent edits gets a
+   newer-`updated_at`-wins branch (mirror `updated_at` / `anchor`). Keep a
+   semantic scalar OUT of `_LIST_UNION_FIELDS` / `BOARD_KEYS`.
+5. **Documentation surfaces:** the field's existence + meaning is enumerated in
+   several places that drift independently — update **all** of them:
+   - `seed/aitasks_agent_instructions.seed.md` "## Task File Format" YAML block,
+     then regenerate the **AGENTS.md** mirror via the `ait setup` path
+     (`update_agentsmd`, which uses the `>>>aitasks` markers). The
+     `.codex/instructions.md` / `.opencode/instructions.md` mirrors currently use
+     a markerless full-file format and are updated by hand to match the seed (do
+     not run `insert_aitasks_instructions` on them — lacking the markers it
+     appends a duplicate block).
+   - `CLAUDE.md` "### Task File Format" YAML block (hand-maintained — it has no
+     `>>>aitasks` markers; edit directly).
+   - `website/content/docs/development/task-format.md` "### Frontmatter Fields"
+     table.
+   - The canonical creation contract
+     `.claude/skills/task-workflow/task-creation-batch.md` (Input table + prose)
+     and the inline flag list in `.claude/skills/aitask-create/SKILL.md` — define
+     semantics once in the canonical contract; other surfaces point to it.
+   - This checklist, and (when the board renders the field) the board
+     `tuis/board/reference.md` row.
 
 When splitting a plan that introduces a new field, surface any missing layer
 as its own child task.
+
+**Worked example — `anchor` (t1016):** a scalar topic-group key. Write path =
+`--anchor` / `--followup-of` in `aitask_create.sh` + editable `--anchor` in
+`aitask_update.sh` (shared `normalize_anchor_id` in `lib/task_utils.sh`); fold =
+no-op comment in `aitask_fold_mark.sh` (scalar, primary wins); merge =
+newer-wins scalar branch (NOT in `_LIST_UNION_FIELDS`/`BOARD_KEYS`); docs =
+every surface in layer 5 above. (Board layer 3 + reference row ship separately.)
 
 ## Adding a new helper script
 
