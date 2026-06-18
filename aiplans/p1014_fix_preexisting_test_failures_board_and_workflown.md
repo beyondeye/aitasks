@@ -115,3 +115,37 @@ and merge.
 ### Goal-achievement risk: low
 - None identified. Both root causes were reproduced and both fixes verified
   against the exact failing tests during planning.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the two planned changes.
+  1. `.aitask-scripts/lib/shortcut_scopes.py` `_load_and_register()`: register
+     the module in `sys.modules` (`sys.modules[module_name] = module`) before
+     `exec_module`, and `sys.modules.pop(module_name, None)` in the failure
+     branch. A 7-line inline comment documents *why* (py3.14 dataclass string-
+     annotation resolution) so it isn't "cleaned up" later.
+  2. Copied `task-workflow/gate-recording.md` → `task-workflown/gate-recording.md`
+     verbatim to restore Test 1 file-list parity.
+- **Deviations from plan:** None.
+- **Issues encountered:** None — the planning-time spot-verification predicted the
+  outcome exactly. The reported `ModuleNotFoundError: task_yaml` symptom was a red
+  herring; the real failure was the py3.14 `dataclasses._is_type` `AttributeError`,
+  which only surfaces when the swept module is absent from `sys.modules`.
+- **Key decisions:** Chose **sync** over **retire** for `task-workflown` because it
+  is active experimental staging consumed by `aitask-pickn` (per
+  `aidocs/framework/pickn_workflown_experiment.md`), not obsolete. Kept the fix in
+  the shared sweep helper (`_load_and_register`) rather than per-module, so every
+  swept TUI benefits and the board doesn't need a workaround.
+- **Upstream defects identified:** None. (Observation, not a defect: 14 shared
+  files differ in *content* between `task-workflow` and `task-workflown`. This is
+  intentional experimental divergence + production-moved-ahead drift; the
+  experiment doc explicitly defers any production merge to a separate follow-up.
+  Test 1 checks file lists only, so it is out of scope for t1014.)
+
+## Verification results (post-implementation)
+
+- `python3 tests/test_settings_shortcuts_tab.py` → OK (22 tests)
+- `python3 tests/test_shortcut_scopes.py` → OK (6 tests)
+- `bash tests/test_skill_render_task_workflown.sh` → 21/21 passed
+- `./.aitask-scripts/aitask_skill_verify.sh` → OK (12 templates, 3 agents)
+- `bash tests/test_skill_render_aitask_pickn.sh` → 37/37 passed
