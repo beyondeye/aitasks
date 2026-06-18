@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t1016_1]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [child_tasks]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-17 13:35
-updated_at: 2026-06-17 13:35
+updated_at: 2026-06-18 12:16
 ---
 
 ## Context
