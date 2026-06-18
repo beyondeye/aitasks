@@ -227,7 +227,7 @@ matching rule, and the slug-reject policy for sibling tasks t1025_2/3.
 ## Risk
 
 ### Code-health risk: medium
-- `_parse_registry_records()` returns a **positional** tuple unpacked at 4+ sites feeding load-bearing discovery (TUI switcher / monitor / stats); a missed 4→5 site raises `ValueError` at runtime, not at lint. · severity: medium · → mitigation: registry_record_namedtuple
+- `_parse_registry_records()` returns a **positional** tuple unpacked at 4+ sites feeding load-bearing discovery (TUI switcher / monitor / stats); a missed 4→5 site raises `ValueError` at runtime, not at lint. · severity: medium · → mitigation: t1029
 - Multiple bash writers reconstruct registry rows field-by-field (`cmd_add`, `cmd_update`); each must carry the new pipe field or silently drop the group. The whole-line-preserving writers depend on `--list-registry` emitting it. · severity: medium · → mitigation: covered in-task by the group-preservation regression tests across add/update/remove/prune/doctor
 - Tri-state sentinel (`-`) is an implicit encoding on top of the pipe format; readers must treat it consistently. · severity: low · → mitigation: covered in-task by the sentinel/fallback unit + cmd tests
 
@@ -235,7 +235,7 @@ matching rule, and the slug-reject policy for sibling tasks t1025_2/3.
 - Scope is the data layer only (child 1 of 5); within scope the plan now covers the group-clear semantics, registry→discovery threading, write-path preservation, name/path matching, and slug policy that the review flagged. Approach matches existing single-reader-authority + config-bootstrap patterns. · severity: low · → mitigation: None
 
 ### Planned mitigations
-- timing: after | name: registry_record_namedtuple | type: refactor | priority: low | effort: medium | addresses: code-health (positional-tuple unpack footgun) | desc: Convert `_parse_registry_records()` to return a NamedTuple so registry readers reference named fields instead of positional unpacking, removing the missed-unpack-site ValueError class of bug.
+- timing: after | name: registry_record_namedtuple | created: t1029 | type: refactor | priority: low | effort: medium | addresses: code-health (positional-tuple unpack footgun) | desc: Convert `_parse_registry_records()` to return a NamedTuple so registry readers reference named fields instead of positional unpacking, removing the missed-unpack-site ValueError class of bug.
 
 ## Final Implementation Notes
 
