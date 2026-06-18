@@ -1,13 +1,16 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
 status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 08:50
-updated_at: 2026-06-18 10:59
+updated_at: 2026-06-18 11:27
 boardidx: 40
 ---
 
@@ -33,3 +36,8 @@ list-view `NodeRow` glyphs only (the model + list reflection were the hard bar);
 the graph-view glyph was deferred here. Add a marked indicator to the DAG node
 rendering driven by `self._selection.marked`, refreshed by `_refresh_node_marks`
 (extend it to also repaint the DAG), and keep the brainstorm test suite green.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-18T08:27:22Z status=pass attempt=1 type=human
