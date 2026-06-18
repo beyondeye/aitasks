@@ -1,6 +1,5 @@
-# aitasks Framework — Codex CLI Instructions
-
-<!-- Assembled from seed/aitasks_agent_instructions.seed.md + seed/codex_instructions.seed.md -->
+>>>aitasks
+# aitasks Framework — Agent Instructions
 
 This project uses the aitasks framework for task management.
 Tasks are markdown files with YAML frontmatter stored in git.
@@ -61,13 +60,23 @@ framework-internal changes (task/plan file operations).
 Code commits use `<type>: <description> (tNN)`. Plan/task file commits use
 `ait: <description>`. Never mix code and task/plan files in the same commit.
 
-## Skills
+## Folded Task Semantics
 
-aitasks skills are available in `.agents/skills/`. Each skill is a wrapper
-that references the authoritative Claude Code skill in `.claude/skills/`.
-Read the wrapper for tool mapping guidance.
+Folded tasks are **merged** into the primary task — not superseded or
+replaced. At fold time the folded content is incorporated into the primary
+task's description (see `## Merged from t<N>` headers). The folded file
+remains on disk only as a reference for post-implementation cleanup; it is
+deleted during archival. Always use "merged" / "incorporated" language —
+never "superseded" / "replaced".
 
-Invoke skills with `$skill-name` syntax (e.g., `$aitask-pick 16`).
+## Manual Verification Tasks
+
+Tasks with `issue_type: manual_verification` dispatch to a
+Pass/Fail/Skip/Defer checklist loop instead of the plan+implement flow.
+They are used for behavior only a human can validate (TUI flows, live
+agent launches, multi-screen navigation, on-disk artifact inspection).
+After a regular task that produces UX-affecting changes, the workflow
+may offer to queue a follow-up manual-verification task.
 
 ## Agent Identification
 
@@ -81,3 +90,4 @@ When recording `implemented_with` in task metadata, construct `codex/<name>`.
 
 **Do NOT guess your model ID from memory** — Codex models cannot reliably
 self-identify. Always use the env var or config file method above.
+<<<aitasks

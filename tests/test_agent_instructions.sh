@@ -478,6 +478,61 @@ assert_eq "T21: single marker block after 2nd run" "1" "$marker_count"
 cleanup_tmpdir
 
 # ============================================================
+# Tests for committed codex/opencode instruction mirrors (t1028)
+# ============================================================
+# Regression guard: the committed .codex/instructions.md and
+# .opencode/instructions.md mirrors MUST carry the >>>aitasks/<<<aitasks markers.
+# Without them, a future `ait setup` takes the append branch of
+# insert_aitasks_instructions() and duplicates the whole aitasks block instead
+# of replacing it in place (the t1028 bug). These assert the real repo
+# artifacts, so they catch the markerless drift directly.
+
+echo "--- committed instruction mirrors (t1028) ---"
+
+assert_marker_pair() {
+    local desc="$1" file="$2"
+    local starts ends
+    starts=$(grep -c '^>>>aitasks$' "$file" 2>/dev/null || true)
+    ends=$(grep -c '^<<<aitasks$' "$file" 2>/dev/null || true)
+    assert_eq "$desc: exactly one start marker" "1" "${starts:-0}"
+    assert_eq "$desc: exactly one end marker" "1" "${ends:-0}"
+}
+
+# Test 22: committed .codex/instructions.md carries exactly one marker pair
+assert_marker_pair "T22: committed .codex/instructions.md" "$PROJECT_DIR/.codex/instructions.md"
+
+# Test 23: committed .opencode/instructions.md carries exactly one marker pair
+assert_marker_pair "T23: committed .opencode/instructions.md" "$PROJECT_DIR/.opencode/instructions.md"
+
+# Test 24: opencode marker idempotency — a second setup-style insert does not
+# duplicate the block in the opencode mirror (parity with codex T15/T20; both
+# mirrors go through the same insert_aitasks_instructions()).
+setup_tmpdir
+cat > "$TMPDIR_TEST/aitasks/metadata/opencode_instructions.seed.md" <<'EOF'
+# aitasks Framework — OpenCode Instructions
+
+For shared conventions, see shared seed file.
+
+## Agent Identification
+
+Identify as `opencode/<model_name>`.
+EOF
+oc_content="$(assemble_aitasks_instructions "$TMPDIR_TEST" "opencode")"
+oc_target="$TMPDIR_TEST/.opencode/instructions.md"
+mkdir -p "$TMPDIR_TEST/.opencode"
+rm -f "$oc_target"
+insert_aitasks_instructions "$oc_target" "$oc_content"   # first (create) run
+first_oc="$(cat "$oc_target")"
+insert_aitasks_instructions "$oc_target" "$oc_content"   # second (replace) run
+second_oc="$(cat "$oc_target")"
+assert_eq "T24: opencode insert idempotent across runs" "$first_oc" "$second_oc"
+oc_marker_count=$(grep -c '^>>>aitasks$' "$oc_target" || true)
+assert_eq "T24: opencode mirror has exactly one start marker after 2nd run" "1" "$oc_marker_count"
+assert_contains "T24: opencode mirror has shared content" "## Git Operations" "$second_oc"
+assert_contains "T24: opencode mirror has agent-specific content" "## Agent Identification" "$second_oc"
+cleanup_tmpdir
+
+# ============================================================
 # Summary
 # ============================================================
 
