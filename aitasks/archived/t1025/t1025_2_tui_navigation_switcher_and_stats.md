@@ -5,12 +5,14 @@ risk_goal_achievement: low
 effort: high
 depends: [t1025_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui_switcher, stats_ui, tui]
+risk_mitigation_tasks: [1033]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-18 00:01
-updated_at: 2026-06-18 15:58
+updated_at: 2026-06-18 16:21
+completed_at: 2026-06-18 16:21
 ---
 
 ## Context
