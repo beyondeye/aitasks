@@ -86,3 +86,5 @@ resolve the actual branch dynamically inside `snapshot_ref`:
 > **✅ gate:plan_approved** run=2026-06-18T12:24:18Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-18T12:24:43Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-18T12:31:27Z status=pass attempt=1 type=human
