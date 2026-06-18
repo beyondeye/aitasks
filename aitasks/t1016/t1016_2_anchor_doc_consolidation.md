@@ -6,8 +6,9 @@ issue_type: documentation
 status: Implementing
 labels: [child_tasks]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-17 13:35
-updated_at: 2026-06-18 12:16
+updated_at: 2026-06-18 12:36
 ---
 
 ## Context
@@ -93,3 +94,8 @@ canonical creation contract + the extension-points checklist.
   will fail if a mirror diverges from its seed.
 - Keep semantics defined once (canonical `task-creation-batch.md`); other surfaces
   point to it rather than duplicating the inheritance rule.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-18T09:36:24Z status=pass attempt=1 type=human
