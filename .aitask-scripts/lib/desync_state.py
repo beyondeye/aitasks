@@ -73,6 +73,10 @@ def detect_primary_branch(worktree: Path) -> str:
     ``"main"`` as the logical/user-facing ref name so the CLI surface is
     unchanged in main-default repos, while master-default repos (where
     ``origin/main`` does not exist) report against the correct branch.
+
+    MAINTAINER GUARD: this is the Python twin of
+    ``.aitask-scripts/lib/git_utils.sh:detect_primary_branch`` — keep the two
+    resolution orders in sync. (t1031)
     """
     proc = run_git(worktree, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
     if proc.returncode == 0:

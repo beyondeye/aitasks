@@ -52,6 +52,7 @@ setup() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$local_dir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$local_dir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/repo_fetch.sh" "$local_dir/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/git_utils.sh" "$local_dir/.aitask-scripts/lib/"
     chmod +x "$local_dir/.aitask-scripts/aitask_contribute.sh"
 
     # Create VERSION file
@@ -566,6 +567,7 @@ cp "$PROJECT_DIR/.aitask-scripts/aitask_contribute.sh" "$PROJECT_TEST_DIR/.aitas
 cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$PROJECT_TEST_DIR/.aitask-scripts/lib/"
 cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$PROJECT_TEST_DIR/.aitask-scripts/lib/"
 cp "$PROJECT_DIR/.aitask-scripts/lib/repo_fetch.sh" "$PROJECT_TEST_DIR/.aitask-scripts/lib/"
+cp "$PROJECT_DIR/.aitask-scripts/lib/git_utils.sh" "$PROJECT_TEST_DIR/.aitask-scripts/lib/"
 chmod +x "$PROJECT_TEST_DIR/.aitask-scripts/aitask_contribute.sh"
 echo "1.0.0" > "$PROJECT_TEST_DIR/.aitask-scripts/VERSION"
 
@@ -679,6 +681,68 @@ assert_eq "no-label flag accepted in dry-run" "0" "$exit_code"
 echo "--- Test 37: Help output includes --no-label ---"
 output=$(cd "$LOCAL_DIR" && ./.aitask-scripts/aitask_contribute.sh --help 2>&1)
 assert_contains "help shows --no-label" "--no-label" "$output"
+
+# ============================================================
+# Master-default repo (t1031): primary branch is `master`, not `main`.
+# Before the fix, list_changed_files/generate_diff diffed against the literal
+# `main` (absent here) and silently found nothing. Now it resolves the
+# primary branch dynamically via detect_primary_branch.
+# ============================================================
+PROJECT_MASTER_DIR="$TMPDIR_TEST/project_master"
+setup_fake_aitask_repo "$PROJECT_MASTER_DIR"
+mkdir -p "$PROJECT_MASTER_DIR/aitasks/metadata"
+mkdir -p "$PROJECT_MASTER_DIR/src/backend/auth"
+
+cp "$PROJECT_DIR/.aitask-scripts/aitask_contribute.sh" "$PROJECT_MASTER_DIR/.aitask-scripts/"
+cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$PROJECT_MASTER_DIR/.aitask-scripts/lib/"
+cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$PROJECT_MASTER_DIR/.aitask-scripts/lib/"
+cp "$PROJECT_DIR/.aitask-scripts/lib/repo_fetch.sh" "$PROJECT_MASTER_DIR/.aitask-scripts/lib/"
+cp "$PROJECT_DIR/.aitask-scripts/lib/git_utils.sh" "$PROJECT_MASTER_DIR/.aitask-scripts/lib/"
+chmod +x "$PROJECT_MASTER_DIR/.aitask-scripts/aitask_contribute.sh"
+echo "1.0.0" > "$PROJECT_MASTER_DIR/.aitask-scripts/VERSION"
+
+cat > "$PROJECT_MASTER_DIR/aitasks/metadata/code_areas.yaml" <<'YAML'
+version: 1
+
+areas:
+  - name: backend
+    path: src/backend/
+    description: REST API and business logic
+YAML
+
+echo 'def login(): pass' > "$PROJECT_MASTER_DIR/src/backend/auth/login.py"
+
+(
+    cd "$PROJECT_MASTER_DIR"
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    git remote add origin "https://github.com/myorg/myproject.git"
+    git add -A
+    git commit -m "Initial commit" --quiet
+    # master is the primary branch; main does not exist
+    git branch -M master
+
+    # Working branch with a modification
+    git checkout -b working --quiet
+    echo 'def login(): return True' > src/backend/auth/login.py
+    git add -A
+    git commit -m "Update login" --quiet
+)
+
+# --- Test 38: master-default repo list-changes finds the change ---
+echo "--- Test 38: master-default --list-changes finds change ---"
+output=$(cd "$PROJECT_MASTER_DIR" && ./.aitask-scripts/aitask_contribute.sh --list-changes --target project --area backend 2>&1)
+assert_contains "master-default list-changes finds login.py" "src/backend/auth/login.py" "$output"
+
+# --- Test 39: master-default repo generate_diff produces a diff ---
+echo "--- Test 39: master-default diff is non-empty ---"
+output=$(cd "$PROJECT_MASTER_DIR" && ./.aitask-scripts/aitask_contribute.sh \
+    --dry-run --target project --area backend \
+    --files "src/backend/auth/login.py" \
+    --title "Fix login" --motivation "Bug fix" \
+    --scope bug_fix --merge-approach "clean merge" 2>&1)
+assert_contains "master-default dry-run shows diff content" "return True" "$output"
 
 # --- Summary ---
 echo ""

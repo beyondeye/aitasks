@@ -13,6 +13,8 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck source=lib/repo_fetch.sh
 source "$SCRIPT_DIR/lib/repo_fetch.sh"
+# shellcheck source=lib/git_utils.sh
+source "$SCRIPT_DIR/lib/git_utils.sh"
 
 DEFAULT_UPSTREAM_REPO="beyondeye/aitasks"
 DEFAULT_DIFF_PREVIEW_LINES=50
@@ -444,8 +446,11 @@ list_changed_files() {
     IFS=',' read -ra dirs <<< "$area_dirs"
 
     if [[ "$mode" == "clone" || "$mode" == "project" ]]; then
-        # Clone/project mode: use git diff against main
-        git diff --name-only main -- "${dirs[@]}" 2>/dev/null || true
+        # Clone/project mode: diff against the repo's primary branch (main,
+        # master, …) so master-default repos are not silently empty.
+        local primary
+        primary=$(detect_primary_branch)
+        git diff --name-only "$primary" -- "${dirs[@]}" 2>/dev/null || true
     else
         # Downstream mode: compare local files against upstream
         for dir in "${dirs[@]}"; do
@@ -476,7 +481,9 @@ generate_diff() {
     IFS=',' read -ra file_list <<< "$files"
 
     if [[ "$mode" == "clone" || "$mode" == "project" ]]; then
-        git diff main -- "${file_list[@]}" 2>/dev/null || true
+        local primary
+        primary=$(detect_primary_branch)
+        git diff "$primary" -- "${file_list[@]}" 2>/dev/null || true
     else
         for filepath in "${file_list[@]}"; do
             filepath="$(echo "$filepath" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"

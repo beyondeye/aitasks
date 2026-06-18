@@ -44,6 +44,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/git_utils.sh
+source "$SCRIPT_DIR/lib/git_utils.sh"
 
 TASK_DIR="${TASK_DIR:-aitasks}"
 PLAN_DIR="${PLAN_DIR:-aiplans}"
@@ -248,6 +250,8 @@ fi
 build_header() {
     local current_branch=""
     current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+    local primary
+    primary=$(detect_primary_branch)
 
     echo "---"
     echo "Task: $TASK_BASENAME"
@@ -300,11 +304,11 @@ build_header() {
     local task_name="${TASK_BASENAME%.md}"
     [[ -d "aiwork/${task_name}" ]] && echo "Worktree: aiwork/${task_name}"
 
-    if [[ -n "$current_branch" && "$current_branch" != "main" ]]; then
+    if [[ -n "$current_branch" && "$current_branch" != "$primary" ]]; then
         echo "Branch: $current_branch"
     fi
 
-    echo "Base branch: main"
+    echo "Base branch: $primary"
     echo "plan_verified: []"
     echo "---"
     echo ""

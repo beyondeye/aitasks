@@ -238,6 +238,28 @@ after_hash=$(md5sum "$TMPDIR12/aiplans/p999_sandbox_task.md" | awk '{print $1}')
 assert_eq "force empty src: external plan unchanged" "$before_hash" "$after_hash"
 rm -rf "$TMPDIR12"
 
+# --- Test 13: master-default repo records Base branch: master (t1031) ---
+echo "--- Test 13: master-default repo Base branch ---"
+TMPDIR13=$(new_sandbox)
+make_fresh_internal "$TMPDIR13/fakehome/.claude/plans/master-repo.md"
+(
+    cd "$TMPDIR13"
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    git add -A
+    git commit -m "initial" --quiet
+    # master is the primary branch; main does not exist
+    git branch -M master
+)
+run_externalize "$TMPDIR13" "$TMPDIR13/fakehome/.claude/plans" 999 >/dev/null
+base_field=$(grep '^Base branch:' "$TMPDIR13/aiplans/p999_sandbox_task.md" || true)
+assert_eq "master-default: Base branch is master" "Base branch: master" "$base_field"
+# current branch == primary (master) → no stray Branch: line
+branch_field=$(grep -c '^Branch:' "$TMPDIR13/aiplans/p999_sandbox_task.md" || true)
+assert_eq "master-default: no Branch line when on primary" "0" "$branch_field"
+rm -rf "$TMPDIR13"
+
 # --- Results ---
 
 echo ""
