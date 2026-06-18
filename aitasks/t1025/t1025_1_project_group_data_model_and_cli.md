@@ -87,3 +87,5 @@ seed. See the parent plan `aiplans/p1025_*.md` for full rationale and decisions.
 > **✅ gate:plan_approved** run=2026-06-18T09:50:35Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-18T09:50:37Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-18T12:14:00Z status=pass attempt=1 type=human
