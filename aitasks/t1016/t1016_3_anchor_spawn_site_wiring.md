@@ -94,3 +94,5 @@ Depends on t1016_1 (the flag must exist) and follows t1016_2 (docs).
 > **✅ gate:plan_approved** run=2026-06-18T12:44:29Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-18T12:44:30Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-18T12:53:36Z status=pass attempt=1 type=human
