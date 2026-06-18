@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [t1025_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tui_switcher, stats_ui, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-18 00:01
-updated_at: 2026-06-18 00:01
+updated_at: 2026-06-18 15:31
 ---
 
 ## Context
