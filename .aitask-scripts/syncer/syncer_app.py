@@ -19,7 +19,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from desync_state import snapshot  # noqa: E402
+from desync_state import physical_main_branch, snapshot  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
@@ -378,12 +378,13 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 )
                 return
 
+            branch = physical_main_branch(self._last_snapshot)
             rc, head, _ = self._git(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
             head_name = head.strip() if rc == 0 else "?"
-            if head_name != "main":
+            if head_name != branch:
                 self.call_from_thread(
                     self.notify,
-                    f"Switch to main to pull (currently on {head_name}).",
+                    f"Switch to {branch} to pull (currently on {head_name}).",
                     severity="warning",
                 )
                 return
@@ -420,8 +421,9 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 )
                 return
 
-            rc, out, err = self._git(["push", "origin", "main:main"], cwd)
-            cmd = "git -C <main> push origin main:main"
+            branch = physical_main_branch(self._last_snapshot)
+            rc, out, err = self._git(["push", "origin", f"{branch}:{branch}"], cwd)
+            cmd = f"git -C <main> push origin {branch}:{branch}"
             if rc != 0:
                 tail = "\n".join((err or out).splitlines()[-FAILURE_TAIL_LINES:])
                 self.call_from_thread(

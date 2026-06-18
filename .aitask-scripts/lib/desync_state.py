@@ -64,6 +64,44 @@ def ref_exists(worktree: Path, ref: str) -> bool:
     return run_git(worktree, ["rev-parse", "--verify", "--quiet", ref]).returncode == 0
 
 
+def detect_primary_branch(worktree: Path) -> str:
+    """Resolve the repository's primary branch name dynamically.
+
+    Tries, in order: the ``origin/HEAD`` symbolic ref (authoritative for any
+    clone, reflecting the real remote default — main/master/trunk/develop), a
+    local ``main`` → ``master`` probe, then a ``"main"`` fallback. Keeps
+    ``"main"`` as the logical/user-facing ref name so the CLI surface is
+    unchanged in main-default repos, while master-default repos (where
+    ``origin/main`` does not exist) report against the correct branch.
+    """
+    proc = run_git(worktree, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
+    if proc.returncode == 0:
+        head = proc.stdout.strip()
+        if head.startswith("origin/"):
+            head = head[len("origin/"):]
+        if head:
+            return head
+    for candidate in ("main", "master"):
+        if ref_exists(worktree, candidate):
+            return candidate
+    return "main"
+
+
+def physical_main_branch(snapshot: dict[str, object]) -> str:
+    """Physical branch backing the logical ``main`` row of a snapshot dict.
+
+    Returns the ``local_ref`` recorded for the ``main`` ref (set by
+    :func:`detect_primary_branch`), falling back to ``"main"`` when the row or
+    field is absent. Consumed by syncer pull/push so its git actions target the
+    branch the status row was computed against.
+    """
+    refs = snapshot.get("refs", []) if isinstance(snapshot, dict) else []
+    for ref in refs:
+        if isinstance(ref, dict) and ref.get("name") == "main":
+            return ref.get("local_ref") or "main"
+    return "main"
+
+
 def fetch_ref(worktree: Path, branch: str) -> subprocess.CompletedProcess[str]:
     return run_git(worktree, ["fetch", "--quiet", "origin", branch])
 
@@ -103,8 +141,8 @@ def snapshot_ref(name: str, fetch: bool, root: Path) -> RefState:
     if name == "main":
         worktree = root
         worktree_label = "."
-        local_ref = "main"
-        remote_ref = "origin/main"
+        local_ref = detect_primary_branch(worktree)
+        remote_ref = f"origin/{local_ref}"
     elif name == "aitask-data":
         worktree = root / ".aitask-data"
         worktree_label = ".aitask-data"

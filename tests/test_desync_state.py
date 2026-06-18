@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,9 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 HELPER_SRC = PROJECT_DIR / ".aitask-scripts" / "lib" / "desync_state.py"
 CHANGELOG_SRC = PROJECT_DIR / ".aitask-scripts" / "aitask_changelog.sh"
 LIB_SRC = PROJECT_DIR / ".aitask-scripts" / "lib"
+
+sys.path.insert(0, str(LIB_SRC))
+from desync_state import physical_main_branch  # noqa: E402
 
 
 def run(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -78,6 +82,23 @@ def make_local_project_without_remote(root: Path) -> Path:
     git(project, "commit", "--quiet", "-m", "initial main")
     copy_helper(project)
     return project
+
+
+def make_master_project(root: Path) -> tuple[Path, Path]:
+    """A clone whose primary branch is ``master`` (origin/HEAD → origin/master)."""
+    origin = root / "origin.git"
+    project = root / "project"
+    git(root, "init", "--bare", "--quiet", str(origin))
+    git(root, "clone", "--quiet", str(origin), str(project))
+    config_identity(project)
+    git(project, "checkout", "-b", "master")
+    (project / "README.md").write_text("v1\n", encoding="utf-8")
+    git(project, "add", "README.md")
+    git(project, "commit", "--quiet", "-m", "initial master")
+    git(project, "push", "--quiet", "-u", "origin", "master")
+    git(project, "remote", "set-head", "origin", "master")
+    copy_helper(project)
+    return project, origin
 
 
 def add_data_worktree(project: Path, root: Path) -> Path:
@@ -268,6 +289,51 @@ class DesyncStateTests(unittest.TestCase):
             self.assertEqual(ref["status"], "ok")
             self.assertEqual(ref["behind"], 0)
             self.assertNotIn("a_only.txt", ref["remote_changed_paths"])
+
+    def test_master_default_repo_reports_up_to_date(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, _ = make_master_project(root)
+
+            # (a) origin/HEAD symbolic-ref path resolves the physical branch.
+            data = json.loads(helper(project, "snapshot", "--ref", "main", "--json").stdout)
+            ref = data["refs"][0]
+            self.assertEqual(ref["name"], "main")  # logical label unchanged
+            self.assertEqual(ref["local_ref"], "master")
+            self.assertEqual(ref["remote_ref"], "origin/master")
+            self.assertEqual(ref["status"], "ok")
+
+            text = helper(project, "snapshot", "--ref", "main").stdout.strip()
+            self.assertEqual(text, "main: up to date")
+
+            # (b) probe-fallback path: with origin/HEAD unset, the local
+            # main→master probe still resolves master.
+            git(project, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD", check=False)
+            data = json.loads(helper(project, "snapshot", "--ref", "main", "--json").stdout)
+            ref = data["refs"][0]
+            self.assertEqual(ref["local_ref"], "master")
+            self.assertEqual(ref["status"], "ok")
+
+    def test_physical_main_branch(self) -> None:
+        # master-default snapshot → physical branch is master
+        self.assertEqual(
+            physical_main_branch({"refs": [{"name": "main", "local_ref": "master"}]}),
+            "master",
+        )
+        # main-default snapshot → main
+        self.assertEqual(
+            physical_main_branch({"refs": [{"name": "main", "local_ref": "main"}]}),
+            "main",
+        )
+        # missing 'main' row → fallback main
+        self.assertEqual(
+            physical_main_branch({"refs": [{"name": "aitask-data", "local_ref": "aitask-data"}]}),
+            "main",
+        )
+        # empty / missing local_ref → fallback main
+        self.assertEqual(physical_main_branch({"refs": [{"name": "main", "local_ref": ""}]}), "main")
+        self.assertEqual(physical_main_branch({"refs": [{"name": "main"}]}), "main")
+        self.assertEqual(physical_main_branch({}), "main")
 
 
 if __name__ == "__main__":
