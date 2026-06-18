@@ -584,7 +584,8 @@ create_carryover_task() {
         --name "$carryover_name"
         --desc "$carryover_desc"
         --type manual_verification
-        --priority medium --effort low)
+        --priority medium --effort low
+        --followup-of "$orig_id")
     if [[ -n "$orig_verifies" ]]; then
         create_args+=(--verifies "$orig_verifies")
     fi

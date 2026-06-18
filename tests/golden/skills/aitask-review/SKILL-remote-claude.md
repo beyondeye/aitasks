@@ -173,6 +173,8 @@ Use `AskUserQuestion`: "How should the selected findings become tasks?"
 
 **Determine priority from findings:** Use the highest severity among selected findings — high severity → `high` priority, medium → `medium`, low → `low`.
 
+**Topic anchor:** A review covers a diff/area with no single source task, so the created task(s) are topic **roots** by default — do **not** pass `followup_of`. Only pass `followup_of: <reviewed_task_id>` when the review clearly stems from one specific task.
+
 **For single task:**
 
 Execute the **Batch Task Creation Procedure** (see `../task-workflow/task-creation-batch.md`) with:

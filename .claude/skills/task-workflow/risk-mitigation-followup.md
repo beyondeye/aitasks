@@ -145,7 +145,9 @@ workflow) — see the Step 7 dispatch.
    `task-creation-batch.md`) with `mode: parent` (these are **independent tasks
    the original depends on — NOT children**; do not touch the parent's
    `children_to_implement`). Use the line's `name` / `type` / `priority` /
-   `effort`; copy topical `labels` from the original task. Description heredoc:
+   `effort`; copy topical `labels` from the original task. Pass
+   `followup_of: <task_id>` (the original task) so the mitigation anchors to the
+   topic it protects. Description heredoc:
 
    ```markdown
    ## Origin
@@ -218,8 +220,9 @@ behavior — "after" mitigations block nothing.
 2. **Create each "after" mitigation as an independent follow-up task.** For each
    after line, execute the **Batch Task Creation Procedure** (see
    `task-creation-batch.md`) with `mode: parent`. Use the line's `name` / `type`
-   / `priority` / `effort`; copy topical `labels` from the original. Description
-   heredoc:
+   / `priority` / `effort`; copy topical `labels` from the original. Pass
+   `followup_of: <task_id>` (the original task) so the mitigation anchors to the
+   topic it protects. Description heredoc:
 
    ```markdown
    ## Origin

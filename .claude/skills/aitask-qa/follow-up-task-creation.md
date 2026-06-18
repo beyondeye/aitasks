@@ -40,6 +40,11 @@ Execute the **Batch Task Creation Procedure** (see `../task-workflow/task-creati
 - labels: `"testing,qa"`
 - description: `<composed description>`
 
+  Do **not** pass `followup_of` here: a child created with `--parent`
+  auto-inherits the parent's anchor (so the test sibling already shares the
+  target's topic), and `followup_of` is mutually exclusive with `--parent` (it
+  would be rejected).
+
 **If `is_child` is false** (create as standalone task):
 - mode: `parent`
 - name: `"test_t<task_id>_<short_description>"`
@@ -47,6 +52,7 @@ Execute the **Batch Task Creation Procedure** (see `../task-workflow/task-creati
 - effort: `medium`
 - issue_type: `test`
 - labels: `"testing,qa"`
+- followup_of: `<task_id>` (anchor the test task to the QA target's topic root)
 - description: `<composed description>`
 
 Display: "Created testing follow-up task: <filename>"

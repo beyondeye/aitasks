@@ -189,12 +189,27 @@ main() {
     # Derive a task name from the origin + item index. aitask_create.sh requires --name.
     local bare_from_id; bare_from_id=$(strip_t_prefix "$FROM_ID")
     local bug_name="fix_failed_verification_t${bare_from_id}_item${ITEM_INDEX}"
+
+    # Best-effort topic anchor: thread --followup-of only when the origin task
+    # actually resolves (active / filesystem-archived / tar-bundled — task-status
+    # is archive+zip-inclusive). The origin is a loose reference (it may be
+    # commit-only with no task file), and --followup-of validation would die on
+    # an unresolvable id; skipping it leaves the bug task a topic root, --deps
+    # unchanged. Fails safe (skips the flag) if aitask_query_files.sh is absent.
+    local followup_args=()
+    local origin_status
+    origin_status=$("$SCRIPT_DIR/aitask_query_files.sh" task-status "$origin" 2>/dev/null || true)
+    if [[ "$origin_status" == STATUS:* && "$origin_status" != STATUS:NOT_FOUND ]]; then
+        followup_args=(--followup-of "$origin")
+    fi
+
     local new_path
     if ! new_path=$("$SCRIPT_DIR/aitask_create.sh" --batch --silent \
             --type bug --priority medium --effort medium \
             --name "$bug_name" \
             --labels verification,bug \
             --deps "$origin" \
+            ${followup_args[@]+"${followup_args[@]}"} \
             --desc-file "$tmp" --commit 2>&1); then
         echo "ERROR:aitask_create.sh failed: $new_path"
         exit 1
