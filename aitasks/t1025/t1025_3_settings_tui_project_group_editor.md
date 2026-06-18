@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t1025_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_settings, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-18 00:02
-updated_at: 2026-06-18 00:02
+updated_at: 2026-06-18 16:29
 ---
 
 ## Context
