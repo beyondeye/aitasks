@@ -133,6 +133,22 @@ class TestMergeRules(unittest.TestCase):
         merged, _ = merge_frontmatter(local, remote, batch=True)
         self.assertEqual(merged["updated_at"], "2026-02-24 15:00")
 
+    def test_anchor_keeps_newer(self):
+        # Scalar anchor (t1016): newer side wins, like updated_at, and the field
+        # is NOT dropped into the unresolved/PARTIAL path on sync.
+        local = {"anchor": "42", "updated_at": "2026-02-20 10:00"}
+        remote = {"anchor": "99", "updated_at": "2026-02-24 15:00"}
+        merged, unresolved = merge_frontmatter(local, remote, batch=True)
+        self.assertEqual(merged["anchor"], "99")
+        self.assertNotIn("anchor", unresolved)
+
+    def test_anchor_keeps_local_when_newer(self):
+        local = {"anchor": "42", "updated_at": "2026-02-24 15:00"}
+        remote = {"anchor": "99", "updated_at": "2026-02-20 10:00"}
+        merged, unresolved = merge_frontmatter(local, remote, batch=True)
+        self.assertEqual(merged["anchor"], "42")
+        self.assertNotIn("anchor", unresolved)
+
     def test_labels_union(self):
         local = {"labels": ["ui", "backend"], "updated_at": "2026-01-01"}
         remote = {"labels": ["backend", "api"], "updated_at": "2026-01-01"}

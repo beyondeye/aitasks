@@ -189,6 +189,11 @@ def merge_frontmatter(
         elif key == "updated_at":
             merged[key] = local_val if local_ts >= remote_ts else remote_val
 
+        elif key == "anchor":
+            # Scalar topic group key (t1016). Newer side wins so a board/CLI
+            # edit is not dropped into the unresolved/PARTIAL path on sync.
+            merged[key] = local_val if local_ts >= remote_ts else remote_val
+
         elif key in _LIST_UNION_FIELDS:
             local_list = local_val if isinstance(local_val, list) else []
             remote_list = remote_val if isinstance(remote_val, list) else []

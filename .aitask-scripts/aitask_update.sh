@@ -65,6 +65,8 @@ BATCH_CHILDREN=""
 BATCH_CHILDREN_SET=false
 BATCH_ASSIGNED_TO=""
 BATCH_ASSIGNED_TO_SET=false
+BATCH_ANCHOR=""
+BATCH_ANCHOR_SET=false
 BATCH_BOARDCOL=""
 BATCH_BOARDCOL_SET=false
 BATCH_BOARDIDX=""
@@ -104,6 +106,7 @@ CURRENT_CREATED_AT=""
 CURRENT_DESCRIPTION=""
 CURRENT_CHILDREN_TO_IMPLEMENT=""
 CURRENT_ASSIGNED_TO=""
+CURRENT_ANCHOR=""
 CURRENT_BOARDCOL=""
 CURRENT_BOARDIDX=""
 CURRENT_ISSUE=""
@@ -185,6 +188,9 @@ Issue tracking options (batch mode):
 
 Assignment options (batch mode):
   --assigned-to, -a EMAIL  Email of assigned person (use "" to clear)
+  --anchor ID            Topic-anchor task id / group key (use "" to clear).
+                         Accepts N / N_M (leading "t" stripped); validated to
+                         exist when non-empty.
 
 Agent tracking options (batch mode):
   --implemented-with STR Agent string that implemented this task (e.g., "claudecode/opus4_6"; use "" to clear)
@@ -292,6 +298,7 @@ parse_args() {
             --remove-child) BATCH_REMOVE_CHILD="$2"; shift 2 ;;
             --children) BATCH_CHILDREN="$2"; BATCH_CHILDREN_SET=true; shift 2 ;;
             --assigned-to|-a) BATCH_ASSIGNED_TO="$2"; BATCH_ASSIGNED_TO_SET=true; shift 2 ;;
+            --anchor) BATCH_ANCHOR="$2"; BATCH_ANCHOR_SET=true; shift 2 ;;
             --boardcol) BATCH_BOARDCOL="$2"; BATCH_BOARDCOL_SET=true; shift 2 ;;
             --boardidx) BATCH_BOARDIDX="$2"; BATCH_BOARDIDX_SET=true; shift 2 ;;
             --issue) BATCH_ISSUE="$2"; BATCH_ISSUE_SET=true; shift 2 ;;
@@ -381,6 +388,7 @@ parse_yaml_frontmatter() {
     CURRENT_DESCRIPTION=""
     CURRENT_CHILDREN_TO_IMPLEMENT=""
     CURRENT_ASSIGNED_TO=""
+    CURRENT_ANCHOR=""
     CURRENT_BOARDCOL=""
     CURRENT_BOARDIDX=""
     CURRENT_ISSUE=""
@@ -467,6 +475,7 @@ parse_yaml_frontmatter() {
                     ;;
                 created_at) CURRENT_CREATED_AT="$value" ;;
                 assigned_to) CURRENT_ASSIGNED_TO="$value" ;;
+                anchor) CURRENT_ANCHOR="$value" ;;
                 boardcol) CURRENT_BOARDCOL="$value" ;;
                 boardidx) CURRENT_BOARDIDX="$value" ;;
                 issue) CURRENT_ISSUE="$value" ;;
@@ -540,6 +549,7 @@ write_task_file() {
     local risk_mitigation_tasks="${27:-}"
     local gates="${28:-}"
     local also_blocks_dependents="${29:-}"
+    local anchor="${30:-}"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -630,6 +640,10 @@ write_task_file() {
         # Only write assigned_to if present
         if [[ -n "$assigned_to" ]]; then
             echo "assigned_to: $assigned_to"
+        fi
+        # Only write anchor (topic group key) if present
+        if [[ -n "$anchor" ]]; then
+            echo "anchor: $anchor"
         fi
         # Only write issue if present
         if [[ -n "$issue" ]]; then
@@ -993,7 +1007,7 @@ handle_child_task_completion() {
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
         "$CURRENT_RISK_CODE_HEALTH" "$CURRENT_RISK_GOAL_ACHIEVEMENT" "$CURRENT_RISK_MITIGATION_TASKS" \
-        "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS"
+        "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -1489,7 +1503,7 @@ run_interactive_mode() {
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
         "$new_risk_code_health" "$new_risk_goal_achievement" "$CURRENT_RISK_MITIGATION_TASKS" \
-        "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS"
+        "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1594,6 +1608,7 @@ run_batch_mode() {
     [[ -n "$BATCH_REMOVE_CHILD" ]] && has_update=true
     [[ "$BATCH_CHILDREN_SET" == true ]] && has_update=true
     [[ "$BATCH_ASSIGNED_TO_SET" == true ]] && has_update=true
+    [[ "$BATCH_ANCHOR_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDCOL_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDIDX_SET" == true ]] && has_update=true
     [[ "$BATCH_ISSUE_SET" == true ]] && has_update=true
@@ -1743,6 +1758,13 @@ run_batch_mode() {
         new_assigned_to="$BATCH_ASSIGNED_TO"
     fi
 
+    # Process anchor (topic group key). BATCH_ANCHOR was already normalized to a
+    # bare id and validated to exist (or left empty to clear) after parse_args.
+    local new_anchor="$CURRENT_ANCHOR"
+    if [[ "$BATCH_ANCHOR_SET" == true ]]; then
+        new_anchor="$BATCH_ANCHOR"
+    fi
+
     # Process board fields
     local new_boardcol="$CURRENT_BOARDCOL"
     if [[ "$BATCH_BOARDCOL_SET" == true ]]; then
@@ -1827,7 +1849,7 @@ run_batch_mode() {
         "$new_contributor_email" "$new_implemented_with" "$new_file_references" \
         "$new_verifies" "$new_xdeps" "$new_xdeprepo" \
         "$new_risk_code_health" "$new_risk_goal_achievement" "$new_risk_mitigation_tasks" \
-        "$new_gates" "$new_abd"
+        "$new_gates" "$new_abd" "$new_anchor"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then
@@ -1933,6 +1955,13 @@ main() {
     ORIGINAL_ARGS=("$@")
 
     parse_args "$@"
+
+    # Normalize + validate --anchor (topic group key): strip an optional leading
+    # t, assert the id shape, and confirm the target exists. An empty value
+    # (--anchor "") clears the field and skips validation. Mirrors create.sh.
+    if [[ "$BATCH_ANCHOR_SET" == true && -n "$BATCH_ANCHOR" ]]; then
+        BATCH_ANCHOR=$(normalize_anchor_id "$BATCH_ANCHOR")
+    fi
 
     if [[ "$BATCH_MODE" == true ]]; then
         run_batch_mode

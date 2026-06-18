@@ -43,6 +43,8 @@ BATCH_SILENT=false
 BATCH_PARENT=""
 BATCH_NO_SIBLING_DEP=false
 BATCH_ASSIGNED_TO=""
+BATCH_ANCHOR=""
+BATCH_FOLLOWUP_OF=""
 BATCH_ISSUE=""
 BATCH_PULL_REQUEST=""
 BATCH_CONTRIBUTOR=""
@@ -54,6 +56,12 @@ BATCH_AUTO_MERGE=false
 BATCH_FINALIZE=""
 BATCH_FINALIZE_ALL=false
 DRAFT_DIR="aitasks/new"
+
+# Resolved topic-anchor (bare task id, or "" for a topic root). Computed by
+# resolve_anchor() in batch mode from --anchor/--followup-of/--parent; the
+# create_*_file emitters read this global. Stays "" in interactive mode (no
+# anchor emitted), so the emit is always safe.
+RESOLVED_ANCHOR=""
 
 # --- Helper Functions ---
 
@@ -74,6 +82,14 @@ Batch mode (for automation):
   --type, -t TYPE        Issue type (see aitasks/metadata/task_types.txt, default: feature)
   --status, -s STATUS    Status: Ready, Editing, Implementing, Postponed (default: Ready)
   --assigned-to, -a EMAIL  Email of person assigned to task (optional)
+  --anchor ID            Topic-anchor task id (group key). Accepts N / N_M
+                         (a leading "t" is stripped); validated to exist.
+                         Mutually exclusive with --followup-of; rejected with
+                         --parent (a child inherits its parent's anchor).
+  --followup-of ID       Anchor this task to the topic root of source task ID:
+                         reads ID's anchor (or, for an anchorless child source,
+                         its parent; else ID itself). Flattened — never chains.
+                         Mutually exclusive with --anchor; rejected with --parent.
   --issue URL            Issue tracker URL (e.g., GitHub issue URL)
   --labels, -l LABELS    Comma-separated labels
   --gates GATES          Comma-separated declared gate names (see
@@ -164,6 +180,8 @@ parse_args() {
             # redirect); never reaches here.
             --no-sibling-dep) BATCH_NO_SIBLING_DEP=true; shift ;;
             --assigned-to|-a) BATCH_ASSIGNED_TO="$2"; shift 2 ;;
+            --anchor) BATCH_ANCHOR="$2"; shift 2 ;;
+            --followup-of) BATCH_FOLLOWUP_OF="$2"; shift 2 ;;
             --issue) BATCH_ISSUE="$2"; shift 2 ;;
             --pull-request) BATCH_PULL_REQUEST="$2"; shift 2 ;;
             --contributor) BATCH_CONTRIBUTOR="$2"; shift 2 ;;
@@ -179,6 +197,55 @@ parse_args() {
             *) die "Unknown option: $1" ;;
         esac
     done
+}
+
+# Resolve the topic-anchor (group key) for the task being created from the
+# --anchor / --followup-of / --parent flags, setting the global RESOLVED_ANCHOR
+# to a bare task id ("" for a topic root). The unifying rule: an anchor always
+# points at the topic ROOT. Enforces mutual exclusion and the child-inherits
+# rule. Call after parse_args, before any create_*_file. See the t1016 design
+# and normalize_anchor_id() in lib/task_utils.sh.
+resolve_anchor() {
+    RESOLVED_ANCHOR=""
+
+    # A child's anchor is always inherited from its parent; explicit anchor
+    # flags are mutually exclusive with --parent and with each other.
+    if [[ -n "$BATCH_PARENT" && ( -n "$BATCH_ANCHOR" || -n "$BATCH_FOLLOWUP_OF" ) ]]; then
+        die "--anchor/--followup-of cannot be combined with --parent (a child inherits its parent's anchor; re-anchor after creation via aitask_update.sh --anchor)."
+    fi
+    if [[ -n "$BATCH_ANCHOR" && -n "$BATCH_FOLLOWUP_OF" ]]; then
+        die "--anchor and --followup-of are mutually exclusive."
+    fi
+
+    if [[ -n "$BATCH_ANCHOR" ]]; then
+        RESOLVED_ANCHOR=$(normalize_anchor_id "$BATCH_ANCHOR")
+    elif [[ -n "$BATCH_FOLLOWUP_OF" ]]; then
+        local src_bare src_file src_anchor=""
+        src_bare=$(normalize_anchor_id "$BATCH_FOLLOWUP_OF")
+        src_file=$(resolve_task_file "$src_bare" 2>/dev/null || true)
+        if [[ -n "$src_file" && -f "$src_file" ]]; then
+            src_anchor=$(read_yaml_field "$src_file" "anchor")
+        fi
+        if [[ -n "$src_anchor" ]]; then
+            RESOLVED_ANCHOR="$src_anchor"
+        elif [[ "$src_bare" =~ ^([0-9]+)_[0-9]+$ ]]; then
+            # Anchorless child source → fall back to its parent (the topic root).
+            RESOLVED_ANCHOR="${BASH_REMATCH[1]}"
+        else
+            RESOLVED_ANCHOR="$src_bare"
+        fi
+    elif [[ -n "$BATCH_PARENT" ]]; then
+        local parent_bare="${BATCH_PARENT#t}" parent_file parent_anchor=""
+        parent_file=$(resolve_task_file "$parent_bare" 2>/dev/null || true)
+        if [[ -n "$parent_file" && -f "$parent_file" ]]; then
+            parent_anchor=$(read_yaml_field "$parent_file" "anchor")
+        fi
+        if [[ -n "$parent_anchor" ]]; then
+            RESOLVED_ANCHOR="$parent_anchor"
+        else
+            RESOLVED_ANCHOR="$parent_bare"
+        fi
+    fi
 }
 
 # --- Step 1: Task Number Functions ---
@@ -456,6 +523,10 @@ create_child_task_file() {
             file_refs_yaml=$(format_yaml_list "$file_references")
             echo "file_references: $file_refs_yaml"
         fi
+        # Only write anchor (topic group key) if present
+        if [[ -n "$RESOLVED_ANCHOR" ]]; then
+            echo "anchor: $RESOLVED_ANCHOR"
+        fi
         # Only write issue if present
         if [[ -n "$issue" ]]; then
             echo "issue: $issue"
@@ -579,6 +650,10 @@ create_draft_file() {
         echo "draft: true"
         if [[ -n "$assigned_to" ]]; then
             echo "assigned_to: $assigned_to"
+        fi
+        # Only write anchor (topic group key) if present
+        if [[ -n "$RESOLVED_ANCHOR" ]]; then
+            echo "anchor: $RESOLVED_ANCHOR"
         fi
         if [[ -n "$issue" ]]; then
             echo "issue: $issue"
@@ -1724,6 +1799,10 @@ create_task_file() {
         if [[ -n "$assigned_to" ]]; then
             echo "assigned_to: $assigned_to"
         fi
+        # Only write anchor (topic group key) if present
+        if [[ -n "$RESOLVED_ANCHOR" ]]; then
+            echo "anchor: $RESOLVED_ANCHOR"
+        fi
         # Only write issue if present
         if [[ -n "$issue" ]]; then
             echo "issue: $issue"
@@ -1830,6 +1909,10 @@ run_batch_mode() {
     # Validate cross-repo dependency pair (xdeps + xdeprepo): both-or-neither,
     # repo must resolve, IDs must exist cross-repo. Normalize empty strings.
     validate_xdeps_pair
+
+    # Resolve the topic-anchor (--anchor/--followup-of/--parent) into
+    # RESOLVED_ANCHOR before any file is created; validates the target exists.
+    resolve_anchor
 
     # Sanitize task name
     local task_name

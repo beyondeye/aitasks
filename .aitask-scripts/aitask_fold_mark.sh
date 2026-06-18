@@ -301,6 +301,10 @@ fi
 # mitigations to a plan that never evaluated them. The folded tasks' lists are
 # instead cleared below (Step 4) and the primary keeps only its own.
 
+# anchor (t1016) is a scalar topic group key and is likewise NOT unioned/merged
+# on fold — the primary keeps its own anchor; the folded task's file is deleted
+# during archival, so its anchor simply disappears.
+
 "$SCRIPT_DIR/aitask_update.sh" --batch "$primary_id" \
     --folded-tasks "$full_csv" \
     ${file_ref_args[@]+"${file_ref_args[@]}"} \

@@ -357,6 +357,42 @@ validate_xdeps_pair() {
     done
 }
 
+# --- Anchor field helper ---
+
+# Normalize and validate an anchor task id (intra-repo, archived-inclusive).
+#
+# Accepts a raw id with an optional single leading "t" (e.g. t42, 42, t42_1,
+# 42_1), strips it, asserts the id shape (N or N_M), and verifies the task
+# exists (any status, including Done/archived, is valid — anchoring to a
+# completed topic root is allowed). Echoes the BARE id so callers store/resolve
+# the canonical form (so `--anchor t42` and `--anchor 42` are identical, and the
+# stored `anchor:` value equals a root's bare own-id group key).
+#
+# Dies on a malformed id or a non-existent target. Mirrors the local
+# strip_prefix in aitask_query_files.sh, but t-only and shared.
+#
+# Reads global: SCRIPT_DIR.
+normalize_anchor_id() {
+    local raw="$1"
+    local id="${raw#t}"
+    if [[ ! "$id" =~ ^[0-9]+(_[0-9]+)?$ ]]; then
+        die "anchor target '$raw' is not a valid task id (expected N or N_M)."
+    fi
+    local status
+    status=$("$SCRIPT_DIR/aitask_query_files.sh" task-status "$id" 2>/dev/null || true)
+    case "$status" in
+        STATUS:NOT_FOUND|"")
+            die "anchor target '$id' not found."
+            ;;
+        STATUS:*)
+            echo "$id"
+            ;;
+        *)
+            die "anchor target '$id': unexpected status result '$status'."
+            ;;
+    esac
+}
+
 # Normalize child task IDs: ensure entries with underscore have 't' prefix.
 # e.g. "85_2,t85_3,16" -> "t85_2,t85_3,16"
 normalize_task_ids() {
