@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [framework, git]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1027
 created_at: 2026-06-18 15:34
-updated_at: 2026-06-18 15:54
+updated_at: 2026-06-18 16:37
+completed_at: 2026-06-18 16:37
 ---
 
 ## Origin
