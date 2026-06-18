@@ -139,3 +139,5 @@ Cases:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-18T08:31:35Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-18T08:31:37Z status=pass attempt=1 type=machine
