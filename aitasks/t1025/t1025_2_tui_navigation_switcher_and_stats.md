@@ -75,3 +75,5 @@ See parent plan `aiplans/p1025_*.md`.
 > **✅ gate:plan_approved** run=2026-06-18T12:58:05Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-18T12:58:07Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-18T13:20:14Z status=pass attempt=1 type=human
