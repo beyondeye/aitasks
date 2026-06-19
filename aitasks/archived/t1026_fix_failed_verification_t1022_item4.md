@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: [1021]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-18 11:17
-updated_at: 2026-06-19 15:03
+updated_at: 2026-06-19 15:53
+completed_at: 2026-06-19 15:53
 ---
 
 ## Failed verification item from t1021
