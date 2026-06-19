@@ -42,3 +42,5 @@ Reproduce the failure locally (see the commits and files above, and the origin a
 > **✅ gate:plan_approved** run=2026-06-19T12:03:16Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-19T12:03:17Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-19T12:11:18Z status=pass attempt=1 type=human
