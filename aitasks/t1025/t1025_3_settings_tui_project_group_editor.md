@@ -65,3 +65,5 @@ normalized with a visible message before any write):
 > **✅ gate:plan_approved** run=2026-06-18T13:55:14Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-18T13:55:15Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-19T12:12:26Z status=pass attempt=1 type=human
