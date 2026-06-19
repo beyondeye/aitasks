@@ -519,9 +519,14 @@ class TaskManager:
         for filename, task in self.task_datas.items():
             if filename.startswith(prefix):
                 return task
-        for filename, task in self.child_task_datas.items():
-            if filename.startswith(prefix):
-                return task
+        # Only a child ID (e.g. 't47_1') may match a child file. A parent ID
+        # ('t47') must NOT prefix-match its own children ('t47_1_*'), or an
+        # active child shadows the archived-parent fallback in
+        # find_task_including_archived (t1026).
+        if "_" in str(task_id).lstrip("t"):
+            for filename, task in self.child_task_datas.items():
+                if filename.startswith(prefix):
+                    return task
         return None
 
     def find_task_including_archived(self, task_id: str):

@@ -131,6 +131,40 @@ class ArchivedRelationLookupTests(unittest.TestCase):
         self.assertEqual(task.filename, "t13_9_child.md")
         self.assertTrue(task.archived)
 
+    def test_find_task_by_id_parent_ignores_active_child(self) -> None:
+        # A bare parent id must not prefix-match its own active children
+        # (t1026): with no active parent file but an active child present,
+        # find_task_by_id("t40") must return None, not the child.
+        _write_task(self.task_dir / "t40" / "t40_1_child_active.md", "Active child")
+        _write_task(self.task_dir / "t1_owner.md", "Owner")
+
+        board, manager = self._manager()
+        self.assertIsNone(manager.find_task_by_id("t40"))
+
+    def test_parent_field_resolves_archived_parent_with_active_child(self) -> None:
+        # The t1022 item #4 scenario: an active child exists under t40/ while the
+        # parent itself is only archived. find_task_including_archived("t40")
+        # must resolve the archived parent read-only, not the active child.
+        _write_task(self.task_dir / "t40" / "t40_1_child_active.md", "Active child")
+        _write_task(self.task_dir / "archived" / "t40_parent.md", "Archived parent", "Done")
+        _write_task(self.task_dir / "t1_owner.md", "Owner")
+
+        board, manager = self._manager()
+        task = manager.find_task_including_archived("t40")
+        self.assertIsNotNone(task)
+        self.assertEqual(task.filename, "t40_parent.md")
+        self.assertTrue(task.archived)
+
+    def test_find_task_by_id_child_still_resolves(self) -> None:
+        # The child path is preserved: a child id still resolves the child file.
+        _write_task(self.task_dir / "t40" / "t40_1_child_active.md", "Active child")
+        _write_task(self.task_dir / "t1_owner.md", "Owner")
+
+        board, manager = self._manager()
+        task = manager.find_task_by_id("t40_1")
+        self.assertIsNotNone(task)
+        self.assertEqual(task.filename, "t40_1_child_active.md")
+
     def test_folded_field_resolves_archived_task(self) -> None:
         # FoldedTasksField looks up via find_task_including_archived(tid);
         # assert the lookup it relies on resolves an archived folded task.
