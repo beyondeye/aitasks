@@ -136,6 +136,15 @@ class FuzzySelect(Container):
             super().__init__()
             self.value = value
 
+    class Created(Message):
+        """Posted (only when ``allow_create``) on Enter/accept with a non-empty
+        query that matches no existing option — i.e. the user is creating a new
+        value. The parent screen is responsible for validating it."""
+
+        def __init__(self, value: str):
+            super().__init__()
+            self.value = value
+
     class Cancelled(Message):
         """Posted when user presses Escape."""
         pass
@@ -147,15 +156,20 @@ class FuzzySelect(Container):
             self.value = value
 
     def __init__(self, options: list[dict], placeholder: str = "Type to filter...",
-                 id: str | None = None):
+                 id: str | None = None, allow_create: bool = False):
         """
         options: list of {"value": str, "display": str, "description": str}
+        allow_create: when True, accepting (Enter / accept()) with a non-empty
+            query that matches no option posts a ``Created`` message instead of
+            doing nothing — lets a combobox double as a "pick existing or create
+            new" control. Default False keeps the pick-only behavior.
         """
         super().__init__(id=id)
         self.all_options = options
         self.filtered: list[dict] = list(options)
         self.highlight_index = 0
         self._placeholder = placeholder
+        self.allow_create = allow_create
 
     @property
     def _input_id(self) -> str:
@@ -237,9 +251,7 @@ class FuzzySelect(Container):
             event.prevent_default()
             event.stop()
         elif event.key == "enter":
-            if self.filtered:
-                selected = self.filtered[self.highlight_index]
-                self.post_message(self.Selected(selected["value"]))
+            self.accept()
             event.prevent_default()
             event.stop()
         elif event.key == "escape":
@@ -247,10 +259,27 @@ class FuzzySelect(Container):
             event.prevent_default()
             event.stop()
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    def accept(self) -> None:
+        """Programmatic Enter: select the highlighted match, or — when
+        ``allow_create`` — post ``Created`` for a non-empty unmatched query.
+        Shared by the Enter key, Input submit, and any parent "OK" button so all
+        accept paths behave identically."""
         if self.filtered:
-            selected = self.filtered[self.highlight_index]
-            self.post_message(self.Selected(selected["value"]))
+            self.post_message(self.Selected(self.filtered[self.highlight_index]["value"]))
+        elif self.allow_create:
+            query = self.query_one(f"#{self._input_id}", Input).value.strip()
+            if query:
+                self.post_message(self.Created(query))
+
+    def current_query(self) -> str:
+        """The current filter text (trimmed)."""
+        try:
+            return self.query_one(f"#{self._input_id}", Input).value.strip()
+        except Exception:
+            return ""
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.accept()
 
     def _update_highlight(self):
         """Update which option shows as highlighted."""

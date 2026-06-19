@@ -389,6 +389,7 @@ class TabSwitchMigrationTests(_Fixture):
         "switch_tab_agent": ("a", "tab_agent"),
         "switch_tab_board": ("b", "tab_board"),
         "switch_tab_project": ("c", "tab_project"),
+        "switch_tab_project_groups": ("g", "tab_project_groups"),
         "switch_tab_models": ("m", "tab_models"),
         "switch_tab_profiles": ("p", "tab_profiles"),
         "switch_tab_shortcuts": ("s", "tab_shortcuts"),
@@ -420,16 +421,17 @@ class TabSwitchMigrationTests(_Fixture):
             async with app.run_test(size=(140, 45)) as pilot:
                 await pilot.pause()
                 # Default: every tab key present, INCLUDING `s` (the item #6
-                # regression the hardcoded `a/b/c/m/p/t` literals had dropped).
+                # regression the hardcoded `a/b/c/m/p/t` literals had dropped)
+                # and `g` (the Project Groups tab, t1025_3).
                 self.assertEqual(
-                    app._tab_switch_hint(), "a/b/c/m/p/s/t: switch tabs")
+                    app._tab_switch_hint(), "a/b/c/g/m/p/s/t: switch tabs")
                 # Rebinding a tab key flows into the hint — proving derivation,
-                # not a hardcoded literal.
+                # not a hardcoded literal. Use a key not otherwise bound to a tab.
                 shortcut_persist.save_override(
-                    "settings", "switch_tab_agent", "g")
+                    "settings", "switch_tab_agent", "1")
                 keybinding_registry.refresh_all()
                 self.assertEqual(
-                    app._tab_switch_hint(), "g/b/c/m/p/s/t: switch tabs")
+                    app._tab_switch_hint(), "1/b/c/g/m/p/s/t: switch tabs")
         self._run(runner())
 
     def test_tab_switch_inert_while_modal_active(self):
@@ -498,6 +500,7 @@ class TabSwitchMigrationTests(_Fixture):
                     "tab_agent": "(A)gent Defaults",
                     "tab_board": "(B)oard",
                     "tab_project": "Proje(C)t Config",
+                    "tab_project_groups": "Project (G)roups",
                     "tab_tmux": "(T)mux",
                     "tab_models": "(M)odels",
                     "tab_profiles": "Execution (P)rofiles",

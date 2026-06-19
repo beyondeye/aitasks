@@ -189,6 +189,43 @@ set -e
 assert_exit_nonzero_rc "add rejects invalid config project_group" "$rc"
 assert_contains "add invalid-config-group message names the value" "Bad Slug" "$out"
 
+# 9k. group rename rewrites every member of a group in one pass (t1025_3).
+"$PROJECTS_SH" group set alpha grp_x >/dev/null 2>&1
+"$PROJECTS_SH" group set delta grp_x >/dev/null 2>&1
+"$PROJECTS_SH" group rename grp_x grp_y >/dev/null 2>&1
+body=$(cat "$REGISTRY_FILE")
+assert_eq "rename moves both members to grp_y" \
+    "2" "$(grep -c 'project_group: grp_y' "$REGISTRY_FILE")"
+assert_not_contains "rename leaves no grp_x rows behind" "project_group: grp_x" "$body"
+
+# 9l. rename into an EXISTING slug merges the two groups.
+"$PROJECTS_SH" group set gamma grp_z >/dev/null 2>&1
+"$PROJECTS_SH" group rename grp_z grp_y >/dev/null 2>&1
+body=$(cat "$REGISTRY_FILE")
+assert_eq "rename-into-existing merges (3 members now in grp_y)" \
+    "3" "$(grep -c 'project_group: grp_y' "$REGISTRY_FILE")"
+assert_not_contains "merge consumes the source group grp_z" "project_group: grp_z" "$body"
+
+# 9m. rename rejects an invalid new slug (non-zero; registry unchanged).
+set +e
+out=$("$PROJECTS_SH" group rename grp_y "Bad Slug" 2>&1); rc=$?
+set -e
+assert_exit_nonzero_rc "group rename rejects invalid new slug" "$rc"
+assert_contains "rename invalid-slug message" "Invalid project-group" "$out"
+assert_eq "rename reject leaves grp_y intact" \
+    "3" "$(grep -c 'project_group: grp_y' "$REGISTRY_FILE")"
+
+# 9n. renaming a non-existent group errors (nothing rewritten).
+set +e
+out=$("$PROJECTS_SH" group rename no_such_group grp_q 2>&1); rc=$?
+set -e
+assert_exit_nonzero_rc "group rename of a missing group exits non-zero" "$rc"
+assert_contains "rename missing-group message" "No registered project has group" "$out"
+
+# 9o. rename preserves every other field of a rewritten row (only field 5 changes).
+assert_contains "rename preserves alpha's repointed path" "path: $ALPHA2_ROOT" \
+    "$(cat "$REGISTRY_FILE")"
+
 # --- Summary ------------------------------------------------------------
 
 echo

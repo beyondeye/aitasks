@@ -74,11 +74,12 @@ Verbs:
                              skip-all per entry. Clone is opt-in via
                              --clone and only offered for entries that
                              have a git_remote.
-  group <list|set|unset|sync>
+  group <list|set|unset|rename|sync>
                              Manage project-group membership:
                                list                 groups -> members
                                set <name> <group>   assign a group slug
                                unset <name>         clear (explicitly ungrouped)
+                               rename <old> <new>   rename a group (merges into new)
                                sync                 backfill from repo configs
   resolve <name>             Print the resolver output for <name>:
                                RESOLVED:<path>
@@ -744,6 +745,28 @@ set_registry_group() {
     atomic_write "$REGISTRY_FILE" "$body"
 }
 
+# Rewrite the registry, renaming every entry whose project_group is <old> to
+# <new> in one atomic pass. Renaming into an existing slug MERGES the groups
+# (every member of both ends up <new>). Operates on the stored registry value,
+# not the config-fallback effective value — a config-only-grouped repo is
+# untouched (assign it explicitly first). Dies if no entry currently has <old>.
+rename_registry_group() {
+    local old="$1"
+    local new="$2"
+    local tsv
+    tsv=$(list_registry_entries || true)
+    if [[ -z "$tsv" ]] || ! awk -F'|' -v want="$old" '$5 == want { f=1 } END { exit !f }' <<< "$tsv"; then
+        die "No registered project has group '$old'."
+    fi
+    local tsv_out
+    tsv_out=$(awk -F'|' -v old="$old" -v new="$new" \
+        '$5 == old { print $1 "|" $2 "|" $3 "|" $4 "|" new; next } { print }' \
+        <<< "$tsv")
+    local body
+    body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
+    atomic_write "$REGISTRY_FILE" "$body"
+}
+
 cmd_group() {
     require_python >/dev/null  # registry mutation routes reads through Python (t970)
     local sub="${1:-}"
@@ -803,6 +826,22 @@ cmd_group() {
             set_registry_group "$name" "$GROUP_UNSET_SENTINEL"
             info "Cleared group of $name (explicitly ungrouped)"
             ;;
+        rename)
+            local old="${2:-}"
+            local new="${3:-}"
+            [[ -n "$old" && -n "$new" ]] || die "Usage: ait projects group rename <old> <new>"
+            local reason
+            # Both must be real slugs: rejecting the `-` sentinel here prevents
+            # renaming the synthetic "(ungrouped)" bucket or renaming into it.
+            if ! reason=$(validate_group_slug "$old" 2>&1); then
+                die "Invalid source project-group '$old': $reason"
+            fi
+            if ! reason=$(validate_group_slug "$new" 2>&1); then
+                die "Invalid project-group '$new': $reason"
+            fi
+            rename_registry_group "$old" "$new"
+            info "Renamed group $old → $new"
+            ;;
         sync)
             # Backfill absent/empty registry groups from each repo's config.
             # Never overwrites a real value or the `-` sentinel. Rejects invalid
@@ -836,10 +875,11 @@ cmd_group() {
             ;;
         ""|--help|-h)
             cat <<'EOF'
-Usage: ait projects group <list|set|unset|sync>
+Usage: ait projects group <list|set|unset|rename|sync>
   list                 Show groups and their member projects.
   set <name> <group>   Assign <name> to <group> (slug: ^[a-z0-9][a-z0-9_-]*$).
   unset <name>         Clear <name>'s group (explicitly ungrouped).
+  rename <old> <new>   Rename group <old> to <new> (merges if <new> exists).
   sync                 Backfill absent registry groups from repo configs.
 EOF
             ;;

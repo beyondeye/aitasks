@@ -21,7 +21,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin, render_label_cfg  # noqa: E402
-from agent_launch_utils import detect_git_tuis  # noqa: E402
+from agent_launch_utils import (  # noqa: E402
+    PROJECT_GROUP_UNGROUPED_LABEL,
+    detect_git_tuis,
+    validate_project_group_slug,
+)
 
 import fuzzy_filter  # noqa: E402
 import keybinding_registry  # noqa: E402
@@ -162,6 +166,7 @@ _TAB_SWITCH_ACTIONS = {
     "switch_tab_agent": "tab_agent",
     "switch_tab_board": "tab_board",
     "switch_tab_project": "tab_project",
+    "switch_tab_project_groups": "tab_project_groups",
     "switch_tab_models": "tab_models",
     "switch_tab_profiles": "tab_profiles",
     "switch_tab_shortcuts": "tab_shortcuts",
@@ -1014,6 +1019,162 @@ class NewProfileScreen(ModalScreen):
         self.dismiss(None)
 
 
+class AssignGroupScreen(ModalScreen):
+    """Assign/change a repo's project-group: either PICK an existing group from
+    the list, or CREATE a new one by typing a slug. A typed slug is validated
+    with the shared `validate_project_group_slug` BEFORE the screen dismisses,
+    so an invalid value never reaches the `ait projects group set` subprocess.
+    (A picked existing group is already a validated slug.)"""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    DEFAULT_CSS = """
+    AssignGroupScreen FuzzySelect { height: auto; max-height: 12; }
+    AssignGroupScreen FuzzySelect VerticalScroll { height: auto; max-height: 8; }
+    AssignGroupScreen FuzzyOption { height: 1; width: 100%; padding: 0 1; }
+    """
+
+    def __init__(self, repo: str, current: str, groups: list[str]):
+        super().__init__()
+        self.repo = repo
+        self.current = current
+        self.groups = groups
+
+    def compose(self) -> ComposeResult:
+        with Container(id="edit_dialog"):
+            yield Label(
+                f"Set group for [bold]{self.repo}[/bold]  "
+                f"(current: {self.current or '(ungrouped)'})",
+                id="edit_title",
+            )
+            if self.groups:
+                yield Label(
+                    "Type to filter an existing group, or type a new slug to "
+                    "create one — Enter accepts:",
+                    classes="edit-label",
+                )
+                options = [
+                    {"value": g, "display": g, "description": ""}
+                    for g in self.groups
+                ]
+                yield FuzzySelect(
+                    options, placeholder="existing group, or new slug…",
+                    id="assign_group_select", allow_create=True,
+                )
+            else:
+                yield Label(
+                    "New group slug (creates the group): "
+                    "lowercase, ^[a-z0-9][a-z0-9_-]*$",
+                    classes="edit-label",
+                )
+                yield Input(placeholder="team_a", id="assign_group_input")
+            yield Label("", id="assign_group_error", classes="section-hint")
+            with Horizontal(id="edit_buttons"):
+                yield Button("Set group", variant="success", id="btn_assign_group_ok")
+                yield Button("Cancel", variant="default", id="btn_assign_group_cancel")
+
+    def on_fuzzy_select_selected(self, event) -> None:
+        # An existing group was picked — it is already a validated slug.
+        self.dismiss({"repo": self.repo, "group": event.value})
+
+    def on_fuzzy_select_created(self, event) -> None:
+        # A new slug was typed (no existing match) — validate before accepting.
+        self._accept_new(event.value)
+
+    def on_fuzzy_select_cancelled(self, event) -> None:
+        # Escape inside the filter cancels the whole dialog (parity with the
+        # other pickers).
+        self.dismiss(None)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "assign_group_input":
+            self._accept_new(event.value.strip())
+
+    @on(Button.Pressed, "#btn_assign_group_ok")
+    def _on_ok(self) -> None:
+        # Route the button through the SAME accept path as the Enter key, so
+        # mouse and keyboard behave identically (pick highlighted, else create).
+        if self.groups:
+            self.query_one("#assign_group_select", FuzzySelect).accept()
+        else:
+            self._accept_new(self.query_one("#assign_group_input", Input).value.strip())
+
+    def _accept_new(self, slug: str) -> None:
+        err = self.query_one("#assign_group_error", Label)
+        if not slug:
+            err.update(
+                "[red]Type an existing group, or a new slug to create.[/red]")
+            return
+        ok, reason = validate_project_group_slug(slug)
+        if not ok:
+            err.update(f"[red]Invalid slug: {reason}[/red]")
+            return
+        self.dismiss({"repo": self.repo, "group": slug})
+
+    @on(Button.Pressed, "#btn_assign_group_cancel")
+    def _on_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class RenameGroupScreen(ModalScreen):
+    """Rename an existing project-group. The new slug is validated before the
+    screen dismisses; renaming into an existing slug merges the two groups."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, groups: list[str]):
+        super().__init__()
+        self.groups = groups
+
+    def compose(self) -> ComposeResult:
+        with Container(id="edit_dialog"):
+            yield Label("Rename project-group", id="edit_title")
+            yield Label("Group to rename:", classes="edit-label")
+            yield CycleField(
+                "Group", self.groups, self.groups[0],
+                "rename_old_group", id="cf_rename_old_group",
+            )
+            yield Label(
+                "New slug (^[a-z0-9][a-z0-9_-]*$; merges if it already exists):",
+                classes="edit-label",
+            )
+            yield Input(placeholder="new_group", id="rename_group_input")
+            yield Label("", id="rename_group_error", classes="section-hint")
+            with Horizontal(id="edit_buttons"):
+                yield Button("Rename", variant="success", id="btn_rename_group_ok")
+                yield Button("Cancel", variant="default", id="btn_rename_group_cancel")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._do_rename()
+
+    @on(Button.Pressed, "#btn_rename_group_ok")
+    def _on_ok(self) -> None:
+        self._do_rename()
+
+    def _do_rename(self) -> None:
+        old = self.query_one("#cf_rename_old_group", CycleField).current_value
+        new = self.query_one("#rename_group_input", Input).value.strip()
+        err = self.query_one("#rename_group_error", Label)
+        if not new:
+            err.update("[red]Enter the new slug, or Cancel.[/red]")
+            return
+        ok, reason = validate_project_group_slug(new)
+        if not ok:
+            err.update(f"[red]Invalid slug: {reason}[/red]")
+            return
+        self.dismiss({"old": old, "new": new})
+
+    @on(Button.Pressed, "#btn_rename_group_cancel")
+    def _on_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class DeleteProfileConfirmScreen(ModalScreen):
     """Confirmation dialog to delete a profile."""
 
@@ -1305,6 +1466,15 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("w", "profile_save", "Save profile", show=False),
         Binding("v", "profile_revert", "Revert profile", show=False),
         Binding("x", "profile_delete", "Delete profile", show=False),
+        # Project Groups tab actions — gated to that tab by check_action (so
+        # they only fire there) and inert while a modal owns the screen.
+        # show=False: the keys live on the tab's on-screen buttons (whose labels
+        # carry the key via render_label_cfg), not the global footer.
+        Binding("h", "pg_assign", "Assign group", show=False),
+        Binding("u", "pg_clear", "Clear group", show=False),
+        Binding("n", "pg_rename", "Rename group", show=False),
+        Binding("y", "pg_sync", "Sync groups", show=False),
+        Binding("f", "pg_refresh", "Refresh groups", show=False),
         # Tab switching — registry-backed (scope "settings") so the keys are
         # rebindable in the Shortcuts editor and the per-tab footer hints derive
         # from them (_tab_switch_hint). show=False: they belong to the manually
@@ -1313,6 +1483,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("a", "switch_tab_agent", "Agent tab", show=False),
         Binding("b", "switch_tab_board", "Board tab", show=False),
         Binding("c", "switch_tab_project", "Project tab", show=False),
+        Binding("g", "switch_tab_project_groups", "Project Groups tab", show=False),
         Binding("m", "switch_tab_models", "Models tab", show=False),
         Binding("p", "switch_tab_profiles", "Profiles tab", show=False),
         Binding("s", "switch_tab_shortcuts", "Shortcuts tab", show=False),
@@ -1323,15 +1494,21 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     _PROFILE_TAB_ACTIONS = frozenset(
         {"profile_save", "profile_revert", "profile_delete"}
     )
+    _PROJECT_GROUPS_TAB_ACTIONS = frozenset(
+        {"pg_assign", "pg_clear", "pg_rename", "pg_sync", "pg_refresh"}
+    )
 
     def check_action(self, action: str, parameters):
-        """Gate the sc_* / profile_* bindings to their owning tab."""
-        # Tab-switch keys are inert while a modal owns the screen — typing in a
-        # dialog must not switch the background tab (parity with the former
-        # on_key modal guard). A focused Input already swallows letter keys, so
-        # the in-field case needs no extra guard here.
-        if action in _TAB_SWITCH_ACTIONS and isinstance(self.screen, ModalScreen):
-            return None
+        """Gate the sc_* / profile_* / pg_* bindings to their owning tab."""
+        # Tab-switch and tab-scoped action keys are inert while a modal owns the
+        # screen — typing in a dialog must not switch the background tab or
+        # mutate the registry (parity with the former on_key modal guard). A
+        # focused Input already swallows letter keys, so the in-field case needs
+        # no extra guard here.
+        if isinstance(self.screen, ModalScreen):
+            if (action in _TAB_SWITCH_ACTIONS
+                    or action in self._PROJECT_GROUPS_TAB_ACTIONS):
+                return None
         if action in self._SHORTCUT_TAB_ACTIONS:
             try:
                 if self.query_one(TabbedContent).active != "tab_shortcuts":
@@ -1341,6 +1518,12 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if action in self._PROFILE_TAB_ACTIONS:
             try:
                 if self.query_one(TabbedContent).active != "tab_profiles":
+                    return None  # inert on other tabs
+            except Exception:
+                return None
+        if action in self._PROJECT_GROUPS_TAB_ACTIONS:
+            try:
+                if self.query_one(TabbedContent).active != "tab_project_groups":
                     return None  # inert on other tabs
             except Exception:
                 return None
@@ -1382,6 +1565,9 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 yield VerticalScroll(id="board_content")
             with TabPane(self.label("switch_tab_project", "Project Config"), id="tab_project"):
                 yield VerticalScroll(id="project_content")
+            with TabPane(self.label("switch_tab_project_groups", "Project Groups"), id="tab_project_groups"):
+                # Non-scrolling shell: the inner DataTable scrolls itself.
+                yield Vertical(id="project_groups_content")
             with TabPane(self.label("switch_tab_tmux", "Tmux"), id="tab_tmux"):
                 yield VerticalScroll(id="tmux_content")
             with TabPane(self.label("switch_tab_models", "Models"), id="tab_models"):
@@ -1400,6 +1586,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._populate_agent_tab()
         self._populate_board_tab()
         self._populate_project_tab()
+        self._populate_project_groups_tab()
         self._populate_tmux_tab()
         self._populate_models_tab()
         self._populate_profiles_tab()
@@ -1504,6 +1691,9 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def action_switch_tab_project(self) -> None:
         self._switch_to_tab("tab_project")
+
+    def action_switch_tab_project_groups(self) -> None:
+        self._switch_to_tab("tab_project_groups")
 
     def action_switch_tab_models(self) -> None:
         self._switch_to_tab("tab_models")
@@ -2382,6 +2572,206 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     # -------------------------------------------------------------------
     # Tmux tab (editable — writes to project_config.yaml tmux: section)
     # -------------------------------------------------------------------
+    # -------------------------------------------------------------------
+    # Project Groups tab — per-user registry membership editor.
+    # All mutations shell out to `ait projects group …` (the single
+    # registry-writer authority, t1025_1 D5); the TUI never writes
+    # projects.yaml directly and never imports a Python writer.
+    # -------------------------------------------------------------------
+    def _run_projects_group(self, *args: str) -> tuple[int, str, str]:
+        """Run `ait projects group <args>` and return (rc, stdout, stderr).
+
+        Never raises — a launch/timeout failure is reported as a non-zero rc.
+        Relies on the cwd being the repo root (the ``ait`` dispatcher cds there
+        before launching the settings TUI), matching the other subprocess sites.
+        """
+        try:
+            proc = subprocess.run(
+                ["./ait", "projects", "group", *args],
+                capture_output=True, text=True, timeout=30,
+            )
+            return proc.returncode, proc.stdout, proc.stderr
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return 1, "", str(exc)
+
+    @staticmethod
+    def _parse_group_list(text: str) -> list[tuple[str, str, str]]:
+        """Parse `ait projects group list` into (repo, group, status) rows.
+
+        Group headers are unindented ``slug:`` lines (the ``(ungrouped)`` bucket
+        maps to an empty group string); members are indented, optionally with a
+        trailing ``[STATUS]`` (e.g. ``[STALE]``).
+        """
+        rows: list[tuple[str, str, str]] = []
+        current = ""  # "" == the ungrouped bucket
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            if not line[0].isspace():
+                header = line.rstrip()
+                if header.endswith(":"):
+                    label = header[:-1]
+                    current = "" if label == PROJECT_GROUP_UNGROUPED_LABEL else label
+                continue
+            member = line.strip()
+            status = ""
+            if member.endswith("]") and "[" in member:
+                idx = member.rfind("[")
+                status = member[idx + 1:-1]
+                member = member[:idx].strip()
+            rows.append((member, current, status))
+        return rows
+
+    def _populate_project_groups_tab(self):
+        container = self.query_one("#project_groups_content", Vertical)
+
+        # Build the static chrome once; on repopulate just refresh the rows
+        # (re-mounting a fixed-id DataTable races remove_children — clear in
+        # place instead, mirroring _populate_shortcuts_tab).
+        try:
+            table = self.query_one("#project_groups_table", DataTable)
+        except Exception:
+            container.remove_children()
+            container.mount(Label("Project Groups", classes="section-header"))
+            container.mount(Label(
+                "[dim]Group your registered repos for two-axis TUI navigation. "
+                "Membership lives in the per-user registry "
+                "(~/.config/aitasks/projects.yaml) and is edited by running "
+                "`ait projects group …` — never by writing the file directly.\n"
+                "↑↓ select a project, then Enter (or the buttons below) to "
+                "Assign/change its group — pick an existing one or type a new "
+                "slug to create it. Clear ungroups it, Rename renames every "
+                "member, Sync backfills groups from repo configs.[/dim]",
+                classes="section-hint",
+            ))
+            table = DataTable(
+                id="project_groups_table", cursor_type="row", zebra_stripes=True,
+            )
+            container.mount(table)
+            table.add_columns("Project", "Group", "Status")
+            container.mount(Horizontal(
+                Button(render_label_cfg("Assign / change", "h"), id="btn_pg_assign"),
+                Button(render_label_cfg("Clear group", "u"), id="btn_pg_clear"),
+                Button(render_label_cfg("Rename group", "n"), id="btn_pg_rename"),
+                Button(render_label_cfg("Sync from configs", "y"), id="btn_pg_sync"),
+                Button(render_label_cfg("Refresh", "f"), id="btn_pg_refresh"),
+                classes="tab-buttons",
+            ))
+            container.mount(Label(
+                f"[dim]{self._tab_switch_hint()}[/dim]",
+                classes="section-hint",
+            ))
+
+        table.clear()  # keeps columns
+        rc, out, err = self._run_projects_group("list")
+        if rc != 0:
+            self._pg_rows = []
+            table.add_row("(error)", "", ((err or out).strip()[:60] or "list failed"))
+            return
+        rows = self._parse_group_list(out)
+        self._pg_rows = rows
+        if not rows:
+            table.add_row("(no registered projects)", "", "")
+            return
+        for repo, group, status in rows:
+            table.add_row(
+                repo, group or PROJECT_GROUP_UNGROUPED_LABEL, status,
+            )
+
+    def _pg_selected(self) -> tuple[str, str] | None:
+        """Return (repo, group) for the cursor row, or None for an empty table
+        or a placeholder row."""
+        try:
+            idx = self.query_one("#project_groups_table", DataTable).cursor_row
+        except Exception:
+            return None
+        rows = getattr(self, "_pg_rows", [])
+        if idx is None or idx < 0 or idx >= len(rows):
+            return None
+        repo, group, _status = rows[idx]
+        return repo, group
+
+    def _pg_notify_and_refresh(self, rc: int, out: str, err: str, success_msg: str):
+        if rc == 0:
+            self.notify(success_msg)
+        else:
+            self.notify(
+                ((err or out).strip()[:200] or "Operation failed"),
+                severity="error", timeout=8,
+            )
+        self._populate_project_groups_tab()
+
+    def _pg_assign(self):
+        sel = self._pg_selected()
+        if not sel:
+            self.notify("Select a project row first.", severity="warning")
+            return
+        repo, group = sel
+        groups = sorted({g for _repo, g, _status in getattr(self, "_pg_rows", []) if g})
+        self.push_screen(
+            AssignGroupScreen(repo, group, groups),
+            callback=self._handle_pg_assign,
+        )
+
+    def _handle_pg_assign(self, result):
+        if not result:
+            return
+        rc, out, err = self._run_projects_group("set", result["repo"], result["group"])
+        self._pg_notify_and_refresh(
+            rc, out, err, f"Set {result['repo']} → {result['group']}")
+
+    def _pg_clear(self):
+        sel = self._pg_selected()
+        if not sel:
+            self.notify("Select a project row first.", severity="warning")
+            return
+        repo, group = sel
+        if not group:
+            self.notify(f"{repo} is already ungrouped.", severity="information")
+            return
+        rc, out, err = self._run_projects_group("unset", repo)
+        self._pg_notify_and_refresh(rc, out, err, f"Cleared group of {repo}")
+
+    def _pg_rename(self):
+        groups = sorted({g for _repo, g, _status in getattr(self, "_pg_rows", []) if g})
+        if not groups:
+            self.notify("No project-groups to rename yet.", severity="warning")
+            return
+        self.push_screen(
+            RenameGroupScreen(groups),
+            callback=self._handle_pg_rename,
+        )
+
+    def _handle_pg_rename(self, result):
+        if not result:
+            return
+        rc, out, err = self._run_projects_group("rename", result["old"], result["new"])
+        self._pg_notify_and_refresh(
+            rc, out, err, f"Renamed {result['old']} → {result['new']}")
+
+    def _pg_sync(self):
+        rc, out, err = self._run_projects_group("sync")
+        self._pg_notify_and_refresh(
+            rc, out, err, (out.strip() or "Synced groups from repo configs"))
+
+    # Keybinding actions for the Project Groups tab — gated to the tab (and
+    # inert under a modal) by check_action; thin wrappers over the button
+    # handlers so key and click share one path.
+    def action_pg_assign(self) -> None:
+        self._pg_assign()
+
+    def action_pg_clear(self) -> None:
+        self._pg_clear()
+
+    def action_pg_rename(self) -> None:
+        self._pg_rename()
+
+    def action_pg_sync(self) -> None:
+        self._pg_sync()
+
+    def action_pg_refresh(self) -> None:
+        self._populate_project_groups_tab()
+
     def _populate_tmux_tab(self):
         container = self.query_one("#tmux_content", VerticalScroll)
         container.remove_children()
@@ -3037,6 +3427,16 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.action_sc_reset()
         elif btn_id == "btn_sc_lint":
             self.action_sc_lint()
+        elif btn_id == "btn_pg_assign":
+            self._pg_assign()
+        elif btn_id == "btn_pg_clear":
+            self._pg_clear()
+        elif btn_id == "btn_pg_rename":
+            self._pg_rename()
+        elif btn_id == "btn_pg_sync":
+            self._pg_sync()
+        elif btn_id == "btn_pg_refresh":
+            self._populate_project_groups_tab()
 
     def _save_profile(self, filename: str):
         base = dict(self.config_mgr.profiles.get(filename, {}))
@@ -3309,6 +3709,11 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._populate_shortcuts_tab()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.data_table.id == "project_groups_table":
+            # Enter on a project row opens its Assign/change dialog — the row's
+            # primary action (parity with the Shortcuts table's row-edit).
+            self._pg_assign()
+            return
         if event.data_table.id != "shortcuts_table":
             return
         try:
@@ -3409,6 +3814,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._populate_agent_tab()
             self._populate_board_tab()
             self._populate_project_tab()
+            self._populate_project_groups_tab()
             self._populate_tmux_tab()
             self._populate_models_tab()
             self._populate_profiles_tab()
@@ -3423,6 +3829,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._populate_agent_tab()
         self._populate_board_tab()
         self._populate_project_tab()
+        self._populate_project_groups_tab()
         self._populate_tmux_tab()
         self._populate_models_tab()
         self._populate_profiles_tab()
