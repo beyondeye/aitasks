@@ -123,3 +123,25 @@ Run: `python3 -m unittest tests.test_board_archived_relation_lookup -v`
 
 Per task-workflow Step 9: review/approve (Step 8), commit code (`bug:` prefix,
 `(t1026)`) + plan separately, merge to main, archive t1026.
+
+## Final Implementation Notes
+
+- **Actual work done:** Guarded the `child_task_datas` loop in
+  `TaskManager.find_task_by_id` (`.aitask-scripts/board/aitask_board.py`) so it
+  runs only when the task id is a child id (`"_" in task_id.lstrip("t")`). Added
+  3 regression tests to `tests/test_board_archived_relation_lookup.py`
+  (`ArchivedRelationLookupTests`): parent id ignores active child, the t1022
+  item-4 archived-parent-with-active-child resolves read-only, and the child id
+  still resolves.
+- **Deviations from plan:** None. Implemented exactly as planned.
+- **Issues encountered:** The board file's line numbers shifted mid-task (a
+  background pull updated the working tree), so the first Edit failed the
+  stale-state check; re-read confirmed `find_task_by_id` was unchanged and the
+  edit applied cleanly. No content conflict.
+- **Key decisions:** Fixed at the resolver (`find_task_by_id`) rather than at the
+  `ParentField` call site — a parent id resolving to one of its own children was
+  a latent bug for all 6 callers, not just the Parent relation dialog. The
+  `"_" in id` guard is the minimal correct discriminator since parents live in
+  `task_datas` and children in `child_task_datas`, and the trailing `_` in the
+  prefix already bounds matches (`t40_` does not match `t405_*`).
+- **Upstream defects identified:** None.
