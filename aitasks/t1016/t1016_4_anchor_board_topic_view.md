@@ -120,3 +120,5 @@ This child also owns the board-feature doc row and the headless board test.
 > **✅ gate:plan_approved** run=2026-06-18T13:45:33Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-18T13:45:34Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-19T12:00:46Z status=pass attempt=1 type=human
