@@ -224,3 +224,66 @@ auto-archive here (t1016_5 manual verification remains). Record in Final
 Implementation Notes the final keybinding chosen (`y`), any inflight-view
 divergences, whether `TopicTaskCard` borders were kept or dropped, and notes for
 t1016_5.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `board/task_yaml.py` — scalar `anchor` normalization in `parse_frontmatter`
+    via a new `_normalize_task_id` helper (the list `_normalize_task_ids` now
+    delegates to it). `anchor` kept OUT of `BOARD_KEYS`.
+  - `board/aitask_board.py` — pure, import-testable core `topic_key()` /
+    `group_tasks_by_topic()` (+ `task_own_id`/`task_anchor_id`/`_bare_topic_id`/
+    `_topic_lane_label`/`_task_recency`/`_lane_recency`); the `y` **By-Topic**
+    base view (BASES entry, `y` binding, `action_view_bytopic`, `refresh_board`
+    bytopic branch, `apply_filter` bytopic branch, `TopicColumn`); an editable
+    `AnchorField` + `AnchorEditScreen` wired into `TaskDetailScreen` relations.
+  - `website/content/docs/tuis/board/reference.md` — By-Topic base-filter row +
+    selector-example update.
+  - Tests: `tests/test_board_topic_group.py` (pure: grouping rules, parent
+    fallback, archived-root key, recency ordering, scalar normalization) and
+    `tests/test_board_topic_view.py` (headless pilot: render, no-forced-reload,
+    repress no-op, left/right column nav, search filter, topic-aware placeholder).
+
+- **Deviations from plan:**
+  - **AnchorField persistence model corrected.** The plan said to model
+    persistence on `FoldedTasksField`'s shell-out, but `FoldedTasksField` is
+    actually read-only (the verify-path explore agent mislabeled a nearby
+    `subprocess.run` — the `L1765` call belongs to `_current_tmux_session`).
+    Implemented the editable field on the canonical
+    `aitask_update.sh --batch <id> --anchor <val>` shell-out (the mandated
+    extension-points pattern, same as the child/dep edit call sites), with an
+    `AnchorEditScreen` input modal modelled on `RenameTaskScreen`.
+  - **`TopicTaskCard` dropped.** Plain `TaskCard` is used inside `TopicColumn`
+    (the plan allowed this for v1); cards keep their priority borders since lane
+    membership is already conveyed by the column. Cards are given `column_id` so
+    left/right column navigation works.
+  - **By-topic does NOT force a disk reload.** It originally mirrored inflight
+    (`load_tasks()` on entry); user review flagged a significant entry delay (and
+    a frozen loading spinner — a threaded-build attempt didn't help because the
+    cost is main-thread widget mounting). Resolved by building from in-memory
+    tasks like all/locked/free (anchor edits already update in-memory; `r`/auto-
+    refresh pick up external changes). No loading overlay needed.
+  - **Default lane ordering = most-recent-first** (newest member
+    `updated_at`/`created_at`), Ungrouped pinned last — added per user request.
+
+- **Post-Review Changes (two rounds, UX):** (1) `#view_col` width 62→78 so the
+  longer selector (`… | y · By-Topic]  g Git  t Type` = 73 cols; `y · ` uses the
+  dot-separator because the label doesn't start with `y`) fully shows and the
+  `1fr` search box no longer overlaps `g`/`t` (`width: auto` was tried but Textual
+  collapsed it to width 2). (2) Left/right nav across `TopicColumn`s (`column_id`
+  on cards + `TopicColumn` added to `_get_visible_col_ids`). (3) Recency lane
+  ordering. (4) Topic-aware search placeholder + `y` in the base-switch hint.
+  (5) Removed the forced reload to kill the entry delay / frozen spinner.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling task t1016_5 (manual verification):** verify on the live
+  board — press **`y`** for the By-Topic view; lanes are ordered most-recent
+  topic first with a trailing **Ungrouped** lane; a parent+children tree and any
+  `--followup-of` followups cluster in one lane (legacy anchorless children group
+  via the parent fallback); left/right arrows move focus across lanes; open a
+  task's detail and edit the **Anchor** field (enter to edit, empty clears —
+  persists via `aitask_update.sh --anchor`, then re-buckets on next `y`/refresh);
+  confirm the search box no longer covers the `g`/`t` filters. Two follow-ups were
+  created and anchored to t1016: **t1034** (narrative website docs for the anchor
+  feature) and **t1035** (by-topic selectable sort modes).
