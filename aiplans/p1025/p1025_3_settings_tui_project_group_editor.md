@@ -175,3 +175,60 @@ Implementation Notes must record, for sibling t1025_4 (docs): the new
 `ait projects group rename <old> <new>` verb (atomic, merge-on-collision,
 registry-value semantics) and that the settings editor is CLI-backed (no Python
 registry writer), so docs describe the CLI verbs as the source of truth.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **`aitask_projects.sh`** — added the atomic `group rename <old> <new>` verb:
+    `rename_registry_group()` (one `awk -F'|'` pass rewriting field 5 of every
+    row whose group == `<old>` to `<new>`, then a single
+    `build_registry_yaml | atomic_write` — mirrors `set_registry_group`),
+    rename-into-existing merges; a `rename)` case in `cmd_group()` that
+    slug-validates BOTH args (so the `-` sentinel / `(ungrouped)` bucket can't be
+    renamed) and errors when no row carries `<old>`; help + dispatcher-header
+    text updated.
+  - **`agent_model_picker.py`** — opt-in **create-on-no-match** for the shared
+    `FuzzySelect`: new `allow_create` param (default `False` → existing callers
+    unchanged), a `Created` message, an `accept()` helper (select highlighted
+    match, else post `Created` for a non-empty unmatched query) shared by Enter /
+    Input-submit / parent OK button, and a `current_query()` accessor.
+  - **`settings_app.py`** — new **"Project Groups" tab** (`g`):
+    `_populate_project_groups_tab()` lists repos→group in a `DataTable`, parsed
+    from `ait projects group list` via `_parse_group_list()`; all mutations shell
+    out through `_run_projects_group()` to `ait projects group set/unset/rename/
+    sync` (no direct YAML, no Python writer — t1025_1 D5). `AssignGroupScreen` is
+    a single `FuzzySelect(allow_create=True)` combobox (pick existing or type a
+    new validated slug; Enter or the Set button both go through `accept()`);
+    `RenameGroupScreen` picks the source group (CycleField) + a validated new
+    slug. Contextual keybindings `h/u/n/y/f` (assign/clear/rename/sync/refresh)
+    gated to the tab and inert under a modal via `check_action`
+    (`_PROJECT_GROUPS_TAB_ACTIONS`), registered under the `settings` scope (so
+    they're rebindable + appear in the Shortcuts tab). **Enter on a selected
+    row** opens Assign/change (`on_data_table_row_selected`).
+
+- **Deviations from plan:** Two UX refinements added during review (both keep
+  the plan's CLI-authority architecture): (1) contextual keyboard shortcuts for
+  the tab's buttons; (2) the assign dialog became a single create-or-select
+  combobox (required the small opt-in `FuzzySelect.allow_create` enhancement)
+  with Enter-to-accept and Enter-on-row-to-open. No change to the mutation model.
+
+- **Issues encountered:** Adding the 8th settings tab shifted the tab-key set, so
+  `tests/test_settings_shortcuts_tab.py`'s tab enumerations and the footer-hint
+  assertion needed updating (its rebind test moved off `g`, now the Project
+  Groups tab key, onto a free key). The `FuzzySelect` Enter refactor is
+  behavior-preserving for `allow_create=False` (it reduces to the old logic).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks (t1025_4 docs):**
+  - Document `ait projects group rename <old> <new>` as the supported way to
+    rename a group: atomic, **merges** when `<new>` already exists, operates on
+    the stored registry value (a config-only-grouped repo is untouched until
+    assigned), and slug-validates `<new>` (and `<old>`, rejecting the `-`
+    sentinel).
+  - The settings TUI **"Project Groups" tab** is the GUI front-end and is purely
+    CLI-backed — describe the CLI verbs (`list/set/unset/rename/sync`) as the
+    source of truth; there is no Python registry writer.
+  - Tab key is `g`; in-tab action keys are `h` assign / `u` clear / `n` rename /
+    `y` sync / `f` refresh (rebindable in the Shortcuts tab); Enter on a row =
+    Assign/change.
