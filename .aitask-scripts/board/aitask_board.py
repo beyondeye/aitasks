@@ -282,6 +282,123 @@ class Task:
     def board_idx(self, value):
         self.metadata["boardidx"] = value
 
+
+# --- Topic grouping (group-by-anchor) ---
+# Pure, import-testable core for the board's by-topic view. No widget
+# dependencies — operates on Task objects via their filename + metadata, so it
+# is unit-tested in isolation (tests/test_board_topic_group.py).
+
+def _bare_topic_id(value):
+    """Canonicalize a task-id / anchor value to bare string form (leading 't'
+    stripped). Returns None for empty/None so 'no anchor' reads uniformly."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    return s.lstrip("t")
+
+
+def task_own_id(task):
+    """Bare own id from a task's filename ('1016' or '1016_4'); '' if unparseable."""
+    num, _ = TaskCard._parse_filename(task.filename)
+    return num.lstrip("t")
+
+
+def task_anchor_id(task):
+    """Bare anchor id of a task, or None when the task is its own topic root."""
+    return _bare_topic_id(task.metadata.get("anchor"))
+
+
+def topic_key(task, tasks_by_id):
+    """Topic-group key for a task.
+
+    ``anchor`` if set; elif the task is a child → its parent's topic key
+    (parent.anchor or parent id) as a *display-time* fallback so legacy
+    parent+children trees cluster with no file migration; else the task's
+    own id. ``tasks_by_id`` maps bare own id → Task (for the parent lookup).
+    """
+    anchor = task_anchor_id(task)
+    if anchor:
+        return anchor
+    own = task_own_id(task)
+    if own and "_" in own:
+        parent = own.split("_", 1)[0]
+        parent_task = tasks_by_id.get(parent)
+        if parent_task is not None:
+            return task_anchor_id(parent_task) or parent
+        return parent  # parent not loaded → still cluster under its id
+    return own
+
+
+def _topic_lane_label(key, members, tasks_by_id):
+    """Lane label: the root task's title when the root is present, else the
+    first member's title — the id ``key`` stays the stable lane key either way."""
+    root = tasks_by_id.get(key)
+    source = root if root is not None else (members[0] if members else None)
+    if source is not None:
+        _, name = TaskCard._parse_filename(source.filename)
+        if name:
+            return f"t{key} {name}"
+    return f"t{key}"
+
+
+def _task_recency(task):
+    """Recency sort key for a task: the newest of updated_at / created_at, or
+    '' when neither is set. Timestamps are 'YYYY-MM-DD HH:MM' strings, so a
+    lexicographic comparison is chronological."""
+    return str(task.metadata.get("updated_at")
+               or task.metadata.get("created_at") or "")
+
+
+def _lane_recency(members):
+    """Recency of a lane = the newest recency among its members."""
+    return max((_task_recency(m) for m in members), default="")
+
+
+def group_tasks_by_topic(tasks):
+    """Bucket tasks into per-anchor topic lanes.
+
+    Returns an ordered list of ``(label, [tasks])`` lanes. A bucket with >= 2
+    members becomes its own lane; singleton buckets collapse into a trailing
+    ``("Ungrouped", [...])`` lane. First-seen order is preserved.
+    """
+    tasks_by_id = {}
+    for task in tasks:
+        own = task_own_id(task)
+        if own:
+            tasks_by_id.setdefault(own, task)
+
+    buckets = {}
+    order = []
+    for task in tasks:
+        key = topic_key(task, tasks_by_id)
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(task)
+
+    topic_lanes = []
+    ungrouped = []
+    for key in order:
+        members = buckets[key]
+        if len(members) >= 2:
+            topic_lanes.append(
+                (_topic_lane_label(key, members, tasks_by_id), members))
+        else:
+            ungrouped.extend(members)
+
+    # Default ordering: most-recently-touched topic first (the newest member's
+    # updated_at/created_at). Stable, so topics with equal/absent timestamps keep
+    # their first-seen order. Selectable sort modes are a planned follow-up.
+    topic_lanes.sort(key=lambda lane: _lane_recency(lane[1]), reverse=True)
+
+    lanes = topic_lanes
+    if ungrouped:
+        lanes.append(("Ungrouped", ungrouped))
+    return lanes
+
+
 class TaskManager:
     def __init__(self):
         self.task_datas: dict[str, Task] = {} # Filename -> Task (parents)
@@ -908,6 +1025,7 @@ class ViewSelector(Static):
         ("view_locked", "Locked", "locked"),
         ("view_free", "Free", "free"),
         ("view_inflight", "In-Flight", "inflight"),
+        ("view_bytopic", "By-Topic", "bytopic"),
     ]
     ADDONS = [
         ("view_git", "Git", "git"),
@@ -974,7 +1092,7 @@ class ViewSelector(Static):
         x = event.x - 1
         for start, end, target in self._click_targets:
             if start <= x < end:
-                if target in ("all", "locked", "free", "inflight"):
+                if target in ("all", "locked", "free", "inflight", "bytopic"):
                     self.app._set_base_filter(target)
                 elif target == "git":
                     self.app._toggle_git_filter()
@@ -1222,6 +1340,39 @@ class InFlightColumn(VerticalScroll):
         self.styles.width = 44
         self.styles.min_width = 34
         self.styles.border = ("round", self.COLORS[self.group])
+        self.styles.margin = (0, 1)
+
+
+class TopicColumn(VerticalScroll):
+    """A swimlane in the by-topic (group-by-anchor) view.
+
+    Models InFlightColumn: a non-collapsible, non-editable column header over a
+    set of ordinary TaskCards. The lane label carries the topic root's id+title;
+    cards keep their priority borders (lane membership is conveyed by the column).
+    """
+
+    def __init__(self, label: str, tasks: list, manager: "TaskManager"):
+        super().__init__()
+        slug = re.sub(r"[^0-9A-Za-z_]+", "-", label).strip("-").lower()
+        self.col_id = f"topic-{slug}" if slug else "topic-lane"
+        self.label = label
+        self.tasks = tasks
+        self.manager = manager
+
+    def compose(self):
+        header = ColumnHeader(self.col_id, self.label, len(self.tasks),
+                              is_collapsed=False, editable=False)
+        header.styles.width = "100%"
+        header.styles.text_align = "center"
+        yield header
+        for task in self.tasks:
+            yield TaskCard(task, self.manager, is_child=("_" in task_own_id(task)),
+                           column_id=self.col_id)
+
+    def on_mount(self):
+        self.styles.width = 44
+        self.styles.min_width = 34
+        self.styles.border = ("round", "#6272A4")
         self.styles.margin = (0, 1)
 
 
@@ -1751,6 +1902,108 @@ class FoldedTasksField(Static):
             self.app.push_screen(
                 FoldedTaskPickerScreen(folded_items, self.manager),
             )
+
+    def on_focus(self):
+        self.add_class("ro-focused")
+
+    def on_blur(self):
+        self.remove_class("ro-focused")
+
+
+class AnchorEditScreen(ModalScreen):
+    """Modal to edit a task's topic anchor (group key). Empty value clears it.
+
+    Models RenameTaskScreen — reuses the shared #rename_dialog / #detail_buttons
+    styling. Dismisses with the typed value (possibly empty) or None on cancel.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, task_num: str, current_anchor: str):
+        super().__init__()
+        self.task_num = task_num
+        self.current_anchor = current_anchor
+
+    def compose(self):
+        with Container(id="rename_dialog"):
+            yield Label(f"Set topic anchor for {self.task_num}", id="rename_title")
+            yield Label("Root task id (e.g. 130 or 130_2). Empty clears the anchor.")
+            yield Input(value=self.current_anchor, id="anchor_input",
+                        placeholder="topic root id", select_on_focus=False)
+            with Horizontal(id="detail_buttons"):
+                yield Button("Save", variant="success", id="btn_do_anchor")
+                yield Button("Cancel", variant="default", id="btn_anchor_cancel")
+
+    @on(Button.Pressed, "#btn_do_anchor")
+    def do_anchor(self):
+        self.dismiss(self.query_one("#anchor_input", Input).value)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.do_anchor()
+
+    @on(Button.Pressed, "#btn_anchor_cancel")
+    def cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
+class AnchorField(Static):
+    """Focusable, editable topic-anchor field. Enter edits the anchor (group key).
+
+    Persists by shelling out to ``aitask_update.sh --batch <id> --anchor <val>``
+    (the mandated new-field board pattern, NOT the CycleField save_with_timestamp
+    path), then reloads the detail screen. Shown even when unset so a root task
+    can be given an anchor; rendered read-only via the screen's read_only flag.
+    """
+
+    can_focus = True
+
+    def __init__(self, anchor, manager: "TaskManager", owner_task: "Task",
+                 read_only: bool = False, **kwargs):
+        super().__init__(**kwargs)
+        self.anchor = anchor  # bare id string, or None when unset
+        self.manager = manager
+        self.owner_task = owner_task
+        self.read_only = read_only
+
+    def render(self) -> str:
+        shown = f"t{self.anchor}" if self.anchor else "[dim](none)[/dim]"
+        hint = "" if self.read_only else "  [dim](enter to edit)[/dim]"
+        return f"  [b]Anchor:[/b] {shown}{hint}"
+
+    def on_key(self, event):
+        if event.key == "enter" and not self.read_only:
+            self._edit()
+            event.prevent_default()
+            event.stop()
+
+    def _edit(self):
+        task_num, _ = TaskCard._parse_filename(self.owner_task.filename)
+
+        def on_result(new_value):
+            if new_value is None:
+                return  # cancelled
+            self._apply(task_num.lstrip("t"), new_value.strip())
+
+        self.app.push_screen(
+            AnchorEditScreen(task_num, self.anchor or ""), on_result)
+
+    def _apply(self, task_num_bare: str, new_anchor: str):
+        result = subprocess.run(
+            ["./.aitask-scripts/aitask_update.sh", "--batch", task_num_bare,
+             "--anchor", new_anchor, "--silent"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            error = (result.stderr.strip() or result.stdout.strip()
+                     or "anchor update failed")
+            self.app.notify(error, severity="error")
+            return
+        _reload_detail_screen(self.app, self.owner_task, self.manager)
 
     def on_focus(self):
         self.add_class("ro-focused")
@@ -2996,6 +3249,15 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
             else:
                 out.append(ReadOnlyField(
                     f"[b]Folded Into:[/b] t{folded_into_num}", classes="meta-ro"))
+        # Topic anchor (group key) — editable; shown even when unset so a root
+        # task can be given an anchor. Read-only screens (archived) show a plain
+        # line only when an anchor is actually set.
+        anchor_val = _bare_topic_id(meta.get("anchor"))
+        if self.manager and not self.read_only:
+            out.append(AnchorField(anchor_val, self.manager, self.task_data,
+                                   read_only=False, classes="meta-ro"))
+        elif anchor_val:
+            out.append(ReadOnlyField(f"[b]Anchor:[/b] t{anchor_val}", classes="meta-ro"))
         return out
 
     def _build_tracking_fields(self, meta):
@@ -4032,7 +4294,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     .child-wrapper TaskCard { width: 1fr; }
     .child-connector { width: auto; height: auto; padding: 0; margin: 1 0 0 0; color: $text-muted; }
     #filter_area { dock: top; height: auto; margin: 0 0 1 0; }
-    #view_col { width: 62; height: auto; }
+    #view_col { width: 78; height: auto; }
     #view_label { height: 1; padding: 0 1; color: $text-muted; }
     #view_selector { height: 1; padding: 0 1; }
     .type-filter-summary { height: auto; padding: 0 1; color: $text-muted; }
@@ -4212,6 +4474,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("l", "view_locked", "Locked", show=False),
         Binding("f", "view_free", "Free", show=False),
         Binding("i", "view_inflight", "In-Flight", show=False),
+        Binding("y", "view_bytopic", "By-Topic", show=False),
         Binding("g", "view_git", "Git", show=False),
         Binding("t", "view_type", "Type", show=False),
     ]
@@ -4221,7 +4484,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.current_tui_name = "board"
         self.manager = TaskManager()
         self.search_filter = ""
-        self.base_filter = "all"          # "all" | "locked" | "free" | "inflight"
+        self.base_filter = "all"          # "all" | "locked" | "free" | "inflight" | "bytopic"
         self.git_filter_active = False
         self.type_filter_active = False
         self._view_auto_expanded: set = set()
@@ -4410,6 +4673,16 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.call_after_refresh(self._refocus_card, refocus_filename)
             return
 
+        if self.base_filter == "bytopic":
+            all_tasks = (list(self.manager.task_datas.values())
+                         + list(self.manager.child_task_datas.values()))
+            for label, members in group_tasks_by_topic(all_tasks):
+                container.mount(TopicColumn(label, members, self.manager))
+            self.call_after_refresh(self.apply_filter)
+            if refocus_filename:
+                self.call_after_refresh(self._refocus_card, refocus_filename)
+            return
+
         # 1. Unordered/Backlog Column (Dynamic)
         unordered_tasks = self.manager.get_column_tasks("unordered")
         if unordered_tasks:
@@ -4513,7 +4786,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def apply_filter(self):
         """Apply base filter ∩ active add-ons ∩ search to all cards."""
-        if self.base_filter == "inflight":
+        if self.base_filter in ("inflight", "bytopic"):
             visible = None
         elif self.base_filter == "locked":
             visible = self._locked_visible_set()
@@ -4655,6 +4928,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def action_view_inflight(self):
         self._set_base_filter("inflight")
 
+    def action_view_bytopic(self):
+        self._set_base_filter("bytopic")
+
     def action_view_git(self):
         if self.base_filter == "inflight" and isinstance(self._focused_card(), InFlightTaskCard):
             self.action_gate_resume()
@@ -4708,12 +4984,16 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if name == "locked":
             self._auto_expand_locked()
 
-        # The inflight view shows live gate status, so entering it should
-        # reflect the latest on-disk state: re-read task files + refresh the
-        # lock map (refresh_board already refreshes git status and clears the
-        # gate cache). This is the same data refresh as pressing 'r'. Only the
-        # transition INTO inflight refreshes — re-selecting it is a no-op via
-        # the early return above.
+        # The inflight view reads live on-disk gate state, so entering it should
+        # re-read task files + refresh the lock map (refresh_board already
+        # refreshes git status and clears the gate cache). This is the same data
+        # refresh as pressing 'r'. Only the transition INTO the view refreshes —
+        # re-selecting it is a no-op via the early return above.
+        #
+        # By-topic deliberately does NOT force a disk reload: it builds from the
+        # in-memory tasks like all/locked/free (anchor edits already update them
+        # in-memory; 'r' / auto-refresh pick up external changes). Forcing a
+        # full re-read here made entering the view noticeably slow.
         refresh_locks = False
         if name == "inflight":
             self.manager.load_tasks()
@@ -4767,6 +5047,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             base = "Search locked tasks"
         elif self.base_filter == "free":
             base = "Search free tasks"
+        elif self.base_filter == "bytopic":
+            base = "Search topics"
         else:
             base = "Search tasks..."
         addons = []
@@ -4779,7 +5061,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self.base_filter == "all" and not addons:
             base += " (Tab to focus, Esc to return to board)"
         else:
-            base += " (a/l/f/i to switch base)"
+            base += " (a/l/f/i/y to switch base)"
         return base
 
     def _update_search_placeholder(self):
@@ -4838,7 +5120,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _get_visible_col_ids(self) -> list:
         """Return ordered list of column IDs currently on the board."""
-        cols = list(self.query(KanbanColumn)) + list(self.query(InFlightColumn))
+        cols = (list(self.query(KanbanColumn))
+                + list(self.query(InFlightColumn))
+                + list(self.query(TopicColumn)))
         return [col.col_id for col in cols]
 
     def _modal_is_active(self):

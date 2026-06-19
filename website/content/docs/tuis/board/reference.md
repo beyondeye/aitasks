@@ -128,7 +128,7 @@ GitLab uses "MR" (Merge Request) terminology, which the indicator reflects.
 The View Selector widget at the top-left of the filter area renders as:
 
 ```
-[a All | l Locked | f Free | i In-Flight]   g Git   t Type
+[a All | l Locked | f Free | i In-Flight | y By-Topic]   g Git   t Type
 ```
 
 It splits filtering into a **base radio** (mutually exclusive — exactly one is always active) and two **independent add-on toggles**. The active base and any active toggle are highlighted in bold cyan; inactive segments are dimmed. All filters compose with text search using AND logic.
@@ -141,6 +141,7 @@ It splits filtering into a **base radio** (mutually exclusive — exactly one is
 | Locked | `l` | `l Locked` | Busy tasks: status `Implementing` **or** present in the lock list. When a *child* is busy, also includes its parent and all sibling children (context grouping). |
 | Free | `f` | `f Free` | Tasks that are ready to pick: neither `Implementing` nor locked. Parents are hidden when any of their children is busy. |
 | In-Flight | `i` | `i In-Flight` | Active `Implementing` tasks grouped by next required action: Needs your action, Agent can continue, and Blocked. |
+| By-Topic | `y` | `y By-Topic` | Tasks clustered into per-anchor swimlanes by their topic key (`anchor`, else a child's parent topic, else own id). A topic with two or more tasks gets its own lane (labelled by the root task); lone tasks collapse into one **Ungrouped** lane. |
 
 Pressing the key for the currently active base is a no-op. Locked and Free are leaf-level inverses (`Locked ∪ Free = All`, `Locked ∩ Free = ∅`) — the Locked view additionally includes parent/sibling cards as context.
 

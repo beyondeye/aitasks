@@ -48,6 +48,22 @@ FRONTMATTER_RE = re.compile(r'\A---\n(.*?)\n---\n(.*)', re.DOTALL)
 
 # --- Helper Functions ---
 
+def _normalize_task_id(item):
+    """Normalize a single task ID reference (scalar analog of _normalize_task_ids).
+
+    A bare child ref (e.g. 85_2) gets a 't' prefix; a plain parent number
+    (16, 77) is left as-is (preserving int type); an already-prefixed id
+    (t85_2) passes through unchanged. Empty / None pass through untouched.
+    Used for the scalar ``anchor`` field.
+    """
+    if item is None or item == "":
+        return item
+    s = str(item)
+    if re.match(r'^\d+_\d+$', s):
+        return f"t{s}"
+    return item  # preserve original type (int stays int)
+
+
 def _normalize_task_ids(ids_list):
     """Normalize task IDs: ensure child task refs (with underscore) have 't' prefix.
 
@@ -56,14 +72,7 @@ def _normalize_task_ids(ids_list):
     """
     if not ids_list:
         return ids_list
-    result = []
-    for item in ids_list:
-        s = str(item)
-        if re.match(r'^\d+_\d+$', s):
-            result.append(f"t{s}")
-        else:
-            result.append(item)  # preserve original type (int stays int)
-    return result
+    return [_normalize_task_id(item) for item in ids_list]
 
 
 def parse_frontmatter(raw_text: str):
@@ -86,6 +95,11 @@ def parse_frontmatter(raw_text: str):
     for key in ('depends', 'children_to_implement', 'folded_tasks'):
         if key in metadata:
             metadata[key] = _normalize_task_ids(metadata[key])
+
+    # Normalize the scalar topic-anchor id the same way (semantic field,
+    # NOT a board-layout key — kept out of BOARD_KEYS).
+    if 'anchor' in metadata:
+        metadata['anchor'] = _normalize_task_id(metadata['anchor'])
 
     return (metadata, body, original_key_order)
 
