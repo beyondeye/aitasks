@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1025_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_settings, tui]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-18 00:02
-updated_at: 2026-06-18 16:55
+updated_at: 2026-06-19 15:13
+completed_at: 2026-06-19 15:13
 ---
 
 ## Context
