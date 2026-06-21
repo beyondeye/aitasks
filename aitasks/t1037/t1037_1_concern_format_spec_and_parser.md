@@ -9,6 +9,7 @@ status: Implementing
 labels: [aitask_monitormini, shadow, tui]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1037
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 11:41
 updated_at: 2026-06-21 12:55
 ---
@@ -130,3 +131,5 @@ against a real `aitask_shadow_capture.sh` round-trip before locking.
 > **✅ gate:plan_approved** run=2026-06-21T09:55:16Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-21T09:55:17Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-21T10:20:11Z status=pass attempt=1 type=human
