@@ -7,8 +7,9 @@ status: Implementing
 labels: [shadow, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1037
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 14:38
-updated_at: 2026-06-21 16:38
+updated_at: 2026-06-21 18:09
 ---
 
 ## Context
@@ -87,3 +88,8 @@ wrappers that redirect to the Claude source (verified in t1037_2); they hold no
   unchanged, so t1037_4's auto-offer / capture wiring is unaffected.
 - Richer bodies directly improve what `build_clipboard_payload` forwards into the
   followed pane — this is the payoff the picker (t1037_3/_4) delivers.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-21T15:09:49Z status=pass attempt=1 type=human
