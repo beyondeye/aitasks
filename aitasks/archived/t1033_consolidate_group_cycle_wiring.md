@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [tui_switcher, stats_ui, tui]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1025
 created_at: 2026-06-18 16:21
-updated_at: 2026-06-21 11:31
+updated_at: 2026-06-21 11:36
+completed_at: 2026-06-21 11:36
 boardidx: 80
 ---
 
