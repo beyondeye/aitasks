@@ -7,7 +7,7 @@ status: Ready
 labels: [task_workflow, claudeskills]
 created_at: 2026-05-31 12:47
 updated_at: 2026-05-31 12:47
-boardidx: 220
+boardidx: 240
 ---
 
 Add `⚠️ NON-SKIPPABLE` banners to task-workflow **Steps 8b, 8c, and 9b**, mirroring

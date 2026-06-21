@@ -8,6 +8,7 @@ labels: [tui_switcher, stats_ui, tui, tmux]
 children_to_implement: [t1025_4, t1025_5]
 created_at: 2026-06-17 23:28
 updated_at: 2026-06-19 15:13
+boardidx: 10
 ---
 
 ## Goal

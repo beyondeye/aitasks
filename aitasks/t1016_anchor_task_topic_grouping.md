@@ -8,7 +8,7 @@ labels: [aitask_board, child_tasks]
 children_to_implement: [t1016_5]
 created_at: 2026-06-17 00:51
 updated_at: 2026-06-19 15:01
-boardidx: 110
+boardidx: 140
 ---
 
 ## Goal
