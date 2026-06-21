@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [aitask_monitormini, shadow, claudeskills, clipboard, tui]
-children_to_implement: [t1037_1, t1037_2]
+children_to_implement: [t1037_1, t1037_2, t1037_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-21 11:19
 updated_at: 2026-06-21 11:42
