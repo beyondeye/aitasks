@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [shadow, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1037
 created_at: 2026-06-21 14:38
-updated_at: 2026-06-21 14:38
+updated_at: 2026-06-21 16:38
 ---
 
 ## Context
