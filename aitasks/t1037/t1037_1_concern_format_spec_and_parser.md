@@ -121,3 +121,8 @@ against a real `aitask_shadow_capture.sh` round-trip before locking.
   and renders it; t1037_4 calls `has_concern_block` + `parse_concerns` +
   `build_clipboard_payload`. Record the final sentinel string prominently in
   the Final Implementation Notes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-21T09:55:16Z status=pass attempt=1 type=human
