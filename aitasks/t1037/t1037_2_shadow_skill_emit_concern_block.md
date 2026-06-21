@@ -103,3 +103,5 @@ Jinja-rendered closure, but the effect is the same: single source, all agents.
 > **✅ gate:plan_approved** run=2026-06-21T10:51:25Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-21T10:51:27Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-21T11:00:29Z status=pass attempt=1 type=human
