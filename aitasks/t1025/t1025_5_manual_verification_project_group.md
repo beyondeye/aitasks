@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t1025_4]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
-verifies: [1025_2, 1025_3]
+verifies: [t1025_2, t1025_3]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-18 00:14
-updated_at: 2026-06-18 00:14
+updated_at: 2026-06-21 12:13
 ---
 
 ## Manual Verification Task
