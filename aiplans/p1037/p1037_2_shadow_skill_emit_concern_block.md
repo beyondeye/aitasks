@@ -187,3 +187,41 @@ See parent t1037 and **Step 9 (Post-Implementation)** for archival/merge.
 - Producer↔parser contract is locked by t1037_1 and re-validated here by a live
   round-trip, so a format mismatch cannot pass silently · severity: low · →
   mitigation: covered by verification.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a new **Step 6** to
+  `.claude/skills/aitask-shadow/plan-challenge.md` and to
+  `.claude/skills/aitask-shadow/plan-assumptions.md`, instructing the shadow
+  agent to emit the structured `===AITASK-CONCERNS===` … `===END-CONCERNS===`
+  block (additive to the existing prose list) using the locked t1037_1 grammar:
+  mandatory leading `- `, `[priority | region] body`, one-logical-line bodies,
+  severity-ordered, always-closed fence, omit-when-empty, advisory-only. Each
+  step carries a 2-item worked example. `plan-assumptions.md` adds the
+  load-bearing/unverified → priority mapping. `SKILL.md` was confirmed
+  unchanged (its greeting derives from Step 3, whose capability one-phrases did
+  not change). The task AC was corrected (see Deviations).
+- **Deviations from plan:** The task & original plan's **"Cross-agent port
+  (REQUIRED)"** rested on a false premise ("shadow is replicated per agent").
+  Verified the Codex (`.agents/`) and OpenCode (`.opencode/`) shadow trees hold
+  **only a wrapper `SKILL.md`** that redirects to the Claude source — no
+  `plan-*.md` files (ports t988/t989 were wrapper-only). So the single Claude
+  edit serves all three agents via the wrapper redirect; **no port was done**.
+  Surfaced to the user (chose "Drop port + fix task AC"); the task file's
+  Cross-agent section, implementation-plan step 4, and the "three trees
+  byte-identical" verification bullet were corrected to match reality.
+- **Issues encountered:** None. The task file was concurrently rewritten by the
+  workflow's own metadata/gate writes mid-edit (expected — re-read and retried).
+- **Key decisions:** Kept the emit-instruction prose parallel between the two
+  sub-procedures for maintainability; made plan-assumptions map
+  load-bearing+unverified → high so the most dangerous assumptions forward first.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The exact sentinel fences t1037_4's auto-offer
+  must key off are `===AITASK-CONCERNS===` (open) and `===END-CONCERNS===`
+  (close); producers always emit the closing fence (strict `has_concern_block`
+  depends on it). No deviation from the t1037_1 spec/grammar. Verified the
+  producer→parser round-trip: both worked examples (extracted from the edited
+  skill files) parse via `concern_parser.parse_concerns` to 2 `Concern`s with
+  correct priorities and a passing strict `has_concern_block`. The wrapper-model
+  finding applies to **all** shadow `plan-*.md` sub-procedures — future shadow
+  sub-procedure edits are Claude-tree-only too (no cross-agent port).
