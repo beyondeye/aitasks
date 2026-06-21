@@ -3,11 +3,12 @@ priority: low
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [tui_switcher, stats_ui, tui]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1025
 created_at: 2026-06-18 16:21
-updated_at: 2026-06-18 16:21
+updated_at: 2026-06-21 11:19
 boardidx: 70
 ---
 
