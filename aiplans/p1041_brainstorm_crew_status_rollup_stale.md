@@ -346,3 +346,41 @@ archive via `./.aitask-scripts/aitask_archive.sh 1041` after review/commit
   concerns with member-derived sources of truth. Verified by a stale-terminal
   regression test on the previously-failing reads, including cleanup.
   · severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented derive-on-read for the crew aggregate exactly
+  as planned. `agentcrew_utils.py` gained `compute_crew_progress`,
+  `read_member_statuses`, `runner_is_live`, `effective_crew_rollup`, the
+  all-terminal rule in `compute_crew_status` (all-`Aborted` → `Aborted`,
+  Completed+Aborted → `Completed`), `"Aborted"` added to `CREW_STATUSES` /
+  `CREW_TRANSITIONS`, and `list_crews` now derives. The three Python readers
+  (`dashboard.load_crew`, `report.cmd_summary`, `status.cmd_get`) route through
+  `effective_crew_rollup`; the two writers (`runner.recompute_crew_status`,
+  `status._recompute_crew_status`) were deduped onto `compute_crew_progress`.
+  `brainstorm_cli.cmd_archive` now also sets `progress=100`. Bash:
+  `crew_is_terminal` (member-derived with a no-members fallback to persisted
+  status) + `CREW_STATUS_ABORTED` in `lib/agentcrew_utils.sh`; cleanup uses it and
+  emits a stable `NOT_TERMINAL:<id>:members_not_terminal`.
+- **Deviations from plan:** None. All eight reviewer concerns (two review rounds)
+  were folded into the plan before implementation and implemented as written.
+- **Issues encountered:** (1) A member-only terminal predicate would have
+  regressed empty-crew cleanup (`test_crew_report.sh` Test 9 cleans a no-member
+  persisted-Completed crew) — resolved with the no-members fallback to persisted
+  status. (2) `asserts.sh` mutates shell vars lost in the test subshells while the
+  summaries read a file counter, so new assertions use `_inc_pass`/`_inc_fail`
+  with explicit `grep`.
+- **Key decisions:** Cleanup terminal is decided by a member-derived predicate
+  (bash), not by round-tripping crew status; `Killing` preservation is gated on
+  runner liveness (`_runner_alive.yaml` status + 180 s heartbeat window) so it
+  can never stick permanently; all-`Aborted` is an honest crew-level `Aborted`
+  rather than mislabelled `Completed`.
+- **Upstream defects identified:** None. (The cleanup stale-read and the
+  `compute_crew_status` all-terminal gap were surfaced by review and fixed
+  in-scope here, not deferred.)
+- **Tests:** new `tests/test_agentcrew_rollup.py` (18 cases) and
+  `tests/test_crew_cleanup.sh` (4 tests / 6 checks); stale-terminal CLI assertions
+  added to `test_crew_status.sh` (Test 16) and `test_crew_report.sh` (Test 12).
+  Full crew suite (status/report/init/groups/runner/error-recovery) and brainstorm
+  cli/crew tests pass; touched Python modules `py_compile` clean; bash `shellcheck`
+  clean (only pre-existing SC1091 source-follow info).
