@@ -225,3 +225,40 @@ decision is itself part of satisfying AC #4:
    `Waiting→Completed`; "100% + Waiting" gone; `o` on a completed compare
    GroupRow opens `OperationDetailScreen` with the comparator output tab).
 5. Step 9 — archive on the current branch, commit, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Gave the comparator the explorer/synthesizer completion
+  lifecycle, adapted for a node-less op.
+  - `brainstorm_session.py`: added `comparator: compare` to the canonical
+    `_agent_to_group_name` map; added `_comparator_needs_apply` (group-status
+    idempotency signal) and `apply_comparator_output` (status-flip only).
+  - `brainstorm_app.py`: comparator instance state; full
+    `_register/_ensure/_stop/_scan/_poll/_try_apply` lifecycle (5s timer,
+    `force` bypasses `_comparator_needs_apply`); dispatch tracking call;
+    on-mount `_scan_existing_comparators`; `_retry_group_apply` compare branch;
+    `_open_group_operation` (gated on `has_completed_agent`) + `o`-on-GroupRow
+    key handler; render hints (`i: retry-apply` extended to compare, new
+    `o: open output`).
+  - `tests/test_brainstorm_apply_comparator.py`: 7 tests (engine transition /
+    idempotency / unknown-agent error + bare-app `o`→`OperationDetailScreen`
+    push & gate).
+- **Deviations from plan:** Group resolution uses the **existing canonical
+  `_agent_to_group_name`** resolver (extended with one `comparator: compare`
+  entry) instead of a new bespoke `_find_compare_group_for_agent` scanner. This
+  is the mechanism every other apply path already uses (explorer / synthesizer /
+  module ops), so it is more consistent and tested than a one-off scan, while
+  preserving the plan's intent (resolve the group from the agent). The
+  idempotency contract (`status != "Completed"`) and the apply behavior
+  (status-flip only, no `agents_append`, no node) are unchanged from the plan.
+- **Issues encountered:** None. All sibling lifecycle tests (explorer 18,
+  synthesizer 14, compare-overlay 20), the full brainstorm Python suite, and the
+  relevant shell tests (`apply_created_by_group`, `group_progress_aggregate`,
+  `cli`) pass unchanged.
+- **Key decisions:** Output reachability (AC #3) is solved generically at the
+  **GroupRow** level — `o` opens `OperationDetailScreen` for *any* node-less op,
+  not just compare. The action is gated on `has_completed_agent` to stay
+  consistent with its rendered hint (no placeholder-only modal on a Waiting
+  group). The apply-failure banner points at the in-TUI `i` retry key, since
+  `ait brainstorm` has no `apply-*` CLI subcommand.
+- **Upstream defects identified:** `.aitask-scripts/brainstorm/brainstorm_cli.py:134 — the crew-aggregate _crew_status.yaml roll-up stays stale (Running/80 while the only agent is Completed/100); written by the crew runner + cmd_archive, a separate subsystem from the operation lifecycle fixed here. Split out of t1020 per explicit scope decision (AC #4) — needs its own task.`
