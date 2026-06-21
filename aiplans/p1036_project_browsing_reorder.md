@@ -152,3 +152,34 @@ Docstrings reference t1036 and the t1025_2 contract; naming is scope-honest
 Follow Step 9: this runs on the current branch (profile `fast`), so review the
 diff (Step 8), commit code as `enhancement: ... (t1036)` and the plan via
 `./ait git`, then archive with `./.aitask-scripts/aitask_archive.sh 1036`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `agent_launch_utils.py`: added `group_members()`, `CrossGroupRingEntry`,
+    `cross_group_ring()`, `cross_group_step()` (pure, reusing `_session_in_group`
+    / `group_sessions`). `group_sessions()` left untouched.
+  - `tui_switcher.py`: `_cycle_session` walks the cross-group ring and re-points
+    the group axis; `_render_session_row` lists only the selected group's
+    members; `_ring_names()` replaced by `_group_member_names()` (used by
+    `_cycle_group`'s re-point check).
+  - `stats_app.py`: `_session_ring`/`_cycle_session` use the cross-group ring
+    with the `__all__` aggregate as a virtual final stop (group kept on aggregate,
+    synced on real sessions); `_cycle_group` re-points via `group_members`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None in code. During manual verification the user saw
+  a flat list with no `[`/`]` shortcut — diagnosed as **expected**, not a
+  regression: all their repos were ungrouped, so `group_sessions().groups` had a
+  single `(ungrouped)` bucket (the `len(groups) >= 2` hint gate is pre-existing
+  t1025_2 behavior, untouched here). After the user configured ≥2 groups,
+  cross-group navigation worked as designed.
+- **Key decisions (confirmed with user):** global wrap at the ends; switcher row
+  shows only the selected group; applied to both switcher and stats TUI while
+  preserving stats aggregate reachability.
+- **Upstream defects identified:** None.
+- **Verification:** Full Python suite green (1414 tests; the lone "error" is the
+  pre-existing `test_gate_orchestrator_registry.py` `SystemExit:0` discovery
+  artifact, exit 0, unrelated). `test_tui_switcher_multi_session.sh` 52/52.
+  `test_project_groups.py` + `test_tui_group_nav.py` green (new `GroupMembers` /
+  `CrossGroupRing` / `CrossGroupStep` tests + updated switcher/stats nav tests).
+  Manual cross-group navigation confirmed live by the user.
