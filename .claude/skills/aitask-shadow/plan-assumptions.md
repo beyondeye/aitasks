@@ -41,3 +41,45 @@ agent's pane.
 5. **Keep it grounded.** List assumptions the plan actually makes, not every
    conceivable precondition. Present everything to the user to judge; suggest, if
    asked, which assumptions would be worth turning into an explicit check.
+
+6. **Also emit the structured concern block (for pick-and-forward).** After the
+   human-readable list above, append a machine-parseable copy of the dangerous
+   assumptions so the user can tick a subset and forward them to the followed
+   agent via minimonitor's concern picker — instead of retyping them. This block
+   is **additive**: it does not replace the prose, and it does **not** relax the
+   advisory-only guardrail (it is text for the *user* to copy; you still never
+   drive the followed pane).
+
+   Map assumptions to items: emit one item per **dangerous** assumption
+   (load-bearing AND unverified — the ones Step 4 ordered first); include lesser
+   ones only if useful. Set `priority` by how exposed the assumption is:
+   - load-bearing **and** unverified → `high`,
+   - load-bearing **and** verified, or peripheral **and** unverified → `medium`,
+   - peripheral → `low`.
+
+   Emit exactly this fenced format (single source of truth:
+   `aidocs/framework/shadow_concern_format.md`):
+
+   ```
+   ===AITASK-CONCERNS===
+   - [high | sequencing] Assumes sibling t1037_1's parser has already landed; if it hasn't, the emitted block has no consumer and the feature silently does nothing.
+   - [medium | behavior of other code] Assumes aitask_shadow_capture.sh wrap-joins lines, but it omits -J, so long concern bodies split mid-word.
+   ===END-CONCERNS===
+   ```
+
+   Rules — all load-bearing for minimonitor's parser; match them exactly:
+   - One concern per line, in the form `- [priority | region] body`.
+   - The leading `- ` (dash **and** space) is **MANDATORY** on every concern
+     line — it is the wrap-collision guard (a soft-wrapped continuation line
+     never carries it, so the parser can't mistake wrapped text for a new item).
+   - `priority` is one of `high`, `medium`, `low` (mapped as above).
+   - `region` names the assumption category (`environment/tooling`,
+     `data/inputs`, `behavior of other code`, `sequencing`, `intent/scope`) or a
+     named plan region.
+   - `body` is the assumption statement plus why it is dangerous, on **one
+     logical line** — do not hard-wrap it yourself; let the terminal soft-wrap.
+   - Order items by priority, matching the prose list (dangerous ones first).
+   - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
+     auto-offer only fires on a complete block.
+   - Emit the block **only when you have at least one assumption worth
+     forwarding**; otherwise omit it entirely.

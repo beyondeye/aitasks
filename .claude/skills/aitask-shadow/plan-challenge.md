@@ -44,3 +44,38 @@ agent's pane.
 5. **Stay honest.** If the plan is genuinely solid on an axis, say so briefly
    rather than manufacturing a concern. A short list of real problems beats a
    long list of weak ones. Present everything to the user to decide.
+
+6. **Also emit the structured concern block (for pick-and-forward).** After the
+   human-readable list above, append a machine-parseable copy of the *same*
+   concerns so the user can tick a subset and forward them to the followed agent
+   via minimonitor's concern picker — instead of retyping them. This block is
+   **additive**: it does not replace the prose, and it does **not** relax the
+   advisory-only guardrail (it is text for the *user* to copy; you still never
+   drive the followed pane).
+
+   Emit exactly this fenced format (single source of truth:
+   `aidocs/framework/shadow_concern_format.md`):
+
+   ```
+   ===AITASK-CONCERNS===
+   - [high | Step 7 ownership guard] The guard re-runs aitask_pick_own.sh, which double-commits when the lock was already held.
+   - [medium | verification] The plan's test asserts exit code 0 but never checks the file was written, so it can pass while the feature is broken.
+   ===END-CONCERNS===
+   ```
+
+   Rules — all load-bearing for minimonitor's parser; match them exactly:
+   - One concern per line, in the form `- [priority | region] body`.
+   - The leading `- ` (dash **and** space) is **MANDATORY** on every concern
+     line — it is the wrap-collision guard (a soft-wrapped continuation line
+     never carries it, so the parser can't mistake wrapped text for a new item).
+   - `priority` is one of `high`, `medium`, `low` — reuse the severity you
+     assigned in Step 3.
+   - `region` names the plan section / axis the concern targets (a step name,
+     `verification`, `blast radius`, …).
+   - `body` is the one-line problem (plus why it bites) on **one logical line** —
+     do not hard-wrap it yourself; let the terminal soft-wrap.
+   - Order items by severity, matching the prose list.
+   - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
+     auto-offer only fires on a complete block.
+   - Emit the block **only when you have at least one concern**. If the plan is
+     genuinely clean (Step 5), omit the block entirely.
