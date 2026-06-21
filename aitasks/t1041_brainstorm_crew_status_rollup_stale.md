@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -8,7 +10,7 @@ labels: [brainstorming, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1020
 created_at: 2026-06-21 14:53
-updated_at: 2026-06-21 15:44
+updated_at: 2026-06-21 18:32
 ---
 
 ## Origin
@@ -48,3 +50,5 @@ on-read from member `*_status.yaml` files instead of separately persisted.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-21T15:32:55Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-21T15:32:57Z status=pass attempt=1 type=machine
