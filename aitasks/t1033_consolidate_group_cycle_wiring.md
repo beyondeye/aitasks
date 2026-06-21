@@ -8,7 +8,7 @@ labels: [tui_switcher, stats_ui, tui]
 anchor: 1025
 created_at: 2026-06-18 16:21
 updated_at: 2026-06-18 16:21
-boardidx: 60
+boardidx: 70
 ---
 
 ## Origin

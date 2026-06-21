@@ -8,7 +8,7 @@ labels: [tui_switcher, tmux]
 anchor: 1025
 created_at: 2026-06-18 15:15
 updated_at: 2026-06-18 15:15
-boardidx: 20
+boardidx: 30
 ---
 
 ## Origin
