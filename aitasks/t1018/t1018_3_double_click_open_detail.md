@@ -7,8 +7,9 @@ status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1018
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 10:19
-updated_at: 2026-06-21 12:02
+updated_at: 2026-06-21 13:16
 ---
 
 ## Context
@@ -82,3 +83,8 @@ Single-click behavior (focus / expand-collapse) is unchanged.
   tmux) is covered by the aggregate **t1018_4** manual-verification sibling —
   synthetic `Click` events in the headless driver do not exercise real
   terminal→tmux mouse delivery.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-21T10:16:11Z status=pass attempt=1 type=human
