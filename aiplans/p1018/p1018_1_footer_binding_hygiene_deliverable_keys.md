@@ -144,3 +144,69 @@ are auto-swept. If a brand-new scope/dialog is introduced, register it
 ## Step 9 — Post-implementation
 Archive via `./.aitask-scripts/aitask_archive.sh 1018_1`. Parent t1018 stays
 active (siblings t1018_2/t1018_3 + the t1018_4 verification sibling remain).
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Gated the three retry-apply actions by adding them to the existing
+    `_TAB_SCOPED_ACTIONS` dict in `brainstorm_app.py` mapped to `tab_running`.
+    This reuses `check_action`'s existing generic path (active on the owning
+    tab, `None` elsewhere) — no new gating branch needed. Fixes the `ctrl+r`
+    footer leak and the always-live explorer/synthesizer actions.
+  - Replaced the undeliverable `ctrl+shift+b`/`ctrl+shift+l` wizard preview
+    chords with `alt+w`/`alt+n` on `ActionsWizardScreen.BINDINGS`. Verified
+    collision-free against all bindings.
+  - Updated three stale code comments + two test docstrings that named the old
+    chords.
+  - Added the first real key-dispatch tests: `PreviewKeyDispatchTests` in
+    `tests/test_brainstorm_proposal_preview.py` (drives `pilot.press("alt+w")`
+    /`alt+n` through the *shipping* `ActionsWizardScreen.BINDINGS` + action
+    methods borrowed verbatim, so a regression to a wrong/undeliverable key
+    fails) and a new `tests/test_brainstorm_binding_scope.py` (boots a real
+    `BrainstormApp`, asserts each retry action is active on Running and `None`
+    on Browse/Session). Full brainstorm suite (619) + shortcut-scopes green.
+- **Deviations from plan — AC correction (TextArea no-op):** The plan's
+  Verification said a focused TextArea would receive the replacement key "as a
+  no-op for the preview action (does not toggle ratio/numbering)". Empirically
+  verified against Textual 8.2.7 and that wording was WRONG: a focused TextArea
+  + `alt+w` leaves the TextArea text **unchanged** (non-printable, not inserted)
+  **and the screen binding still fires** — which is the *desirable* behaviour
+  (the key is usable while typing). A bare printable letter, by contrast, is
+  swallowed as TextArea text and never reaches the binding. The real, valuable
+  property — and what the tests now assert — is "alt+<letter> does not corrupt
+  typed text while remaining usable", plus the plain-letter contrast (the actual
+  reason alt+<letter> beats a bare letter). The action-suppression framing was a
+  wrong assumption about Textual's key bubbling, corrected here.
+- **`ctrl+r` footer visibility:** `ctrl+r` keeps its implicit `show=True`, so on
+  the Running tab it is now footer-visible (deliverable plain key, meaningful
+  there). The explorer/synthesizer chords stay `show=False` (undeliverable;
+  t1018_2 removes them and re-homes the logic onto the GroupRow).
+- **Issues encountered:** (1) `pilot.press("b"/"s")` did not switch tabs in the
+  booted app because tab-switch key routing depends on the focused widget; the
+  binding-scope test sets `TabbedContent.active` directly instead, isolating the
+  `check_action` gating logic (its real input) from key routing. (2) The
+  borrowed `action_cycle_preview_ratio` delegates to `_apply_preview_ratio`, so
+  the test host must borrow that helper too.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **Per-screen scoping model established here:** brainstorm's tabs are
+    `TabPane`s inside a single App screen (NOT separate `Screen`s), so app-level
+    contextual actions are scoped via `check_action` + the `_TAB_SCOPED_ACTIONS`
+    dict, not by moving them onto a per-screen `BINDINGS`. Real `Screen`s (e.g.
+    `ActionsWizardScreen`) own their own `BINDINGS`. t1018_2 should place its
+    Running-tab restart actions as per-row `on_key` + render hints on the
+    GroupRow (consistent with the landed `w`/`R`/`x` pattern), NOT as footer
+    Bindings.
+  - **Left intact for t1018_2:** `action_retry_explorer_apply` /
+    `action_retry_synthesizer_apply` methods AND their `ctrl+shift+x`/
+    `ctrl+shift+y` App bindings. t1018_2 re-homes that logic onto the GroupRow
+    and removes the dead chord bindings then.
+  - **Key-delivery rule (proven via the alt+w/alt+n empirical check):**
+    `alt+<letter>` is deliverable through the ghostty→tmux→Textual stack and is
+    ignored as text by a focused TextArea while still firing the binding. Prefer
+    it for any reusable contextual key where typing is possible. Avoid bare
+    `ctrl+b` (tmux prefix) and any `ctrl+shift+<letter>` chord.
+  - **Test pattern for key delivery:** drive `pilot.press(...)` through the
+    *real* BINDINGS (borrow `SomeScreen.BINDINGS` + the action methods verbatim
+    onto a host App) so the test fails if the bound key string regresses — the
+    headless driver still cannot prove real-terminal delivery (t1018_4 covers
+    that live).
