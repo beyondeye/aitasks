@@ -3275,8 +3275,14 @@ class ActionsWizardScreen(ModalScreen):
     BINDINGS = [
         Binding("escape", "close", "Close", show=False),
         Binding("H", "op_help", "Op help", show=False),
-        Binding("ctrl+shift+b", "cycle_preview_ratio", "Preview width", show=False),
-        Binding("ctrl+shift+l", "toggle_preview_numbered", "Line numbers", show=False),
+        # t1018_1: alt+w / alt+n replace the undeliverable ctrl+shift+b /
+        # ctrl+shift+l chords. The ghostty→tmux→Textual stack collapses
+        # Ctrl+Shift+<letter> to Ctrl+<letter> (dropping Shift before Textual
+        # sees it), so those chords never arrived. alt+<letter> is ESC-prefixed
+        # and non-printable, so a focused TextArea ignores it as a no-op for
+        # these preview actions instead of swallowing the key.
+        Binding("alt+w", "cycle_preview_ratio", "Preview width", show=False),
+        Binding("alt+n", "toggle_preview_numbered", "Line numbers", show=False),
     ]
 
     # Shortcut-resolution scope (mirrors BrainstormApp) so resolve_key works for
@@ -4788,7 +4794,7 @@ class ActionsWizardScreen(ModalScreen):
         if minimaps and minimaps[0].display:
             ring.append(minimaps[0])
         # Append whichever content view is currently shown: the markdown pane by
-        # default, or the numbered source view when toggled (ctrl+shift+l). The
+        # default, or the numbered source view when toggled (alt+n). The
         # minimap above is already gated on .display, so numbered mode (which
         # hides it) drops it from the ring automatically.
         if getattr(pane, "_numbered", False):
@@ -5093,7 +5099,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     }
 
     /* Config-step side-by-side preview (t945): input left, proposal right.
-       The ratio-cycle action (ctrl+shift+b) toggles three width splits by adding a
+       The ratio-cycle action (alt+w) toggles three width splits by adding a
        ratio_* class to BOTH panes; compound selectors give each its width. */
     .config_preview_split {
         height: 1fr;
@@ -5550,9 +5556,21 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     ]
 
     # Maps action_name -> required tab id. check_action() hides the binding
-    # from the footer when the active tab does not match.
+    # from the footer (returns None) when the active tab does not match, and
+    # keeps it active only on its owning tab.
     _TAB_SCOPED_ACTIONS: dict[str, str] = {
         "open_node_detail": "tab_browse",
+        # t1018_1: the three retry-apply actions are agent-output recovery for
+        # operations that live on the (R)unning tab. Before this they fell
+        # through check_action's default `return True`, so `ctrl+r` leaked a
+        # visible footer label on every tab/screen and all three stayed live
+        # everywhere. Scope them to tab_running. The action methods + the
+        # `ctrl+shift+x`/`ctrl+shift+y` bindings stay intact — t1018_2 re-homes
+        # the explorer/synthesizer retries onto the Running-tab GroupRow and
+        # removes the dead chord bindings then.
+        "retry_initializer_apply": "tab_running",
+        "retry_explorer_apply": "tab_running",
+        "retry_synthesizer_apply": "tab_running",
     }
 
     def __init__(self, task_num: str):

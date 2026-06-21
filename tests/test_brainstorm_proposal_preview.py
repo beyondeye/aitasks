@@ -199,7 +199,7 @@ class ProposalPreviewPaneTests(unittest.TestCase):
 
 
 class ApplyPreviewRatioTests(unittest.TestCase):
-    """Exercise the ratio_* class toggling used by ctrl+shift+b (cycle width)."""
+    """Exercise the ratio_* class toggling used by alt+w (cycle width)."""
 
     def _run(self, coro):
         return asyncio.run(coro)
@@ -400,7 +400,7 @@ class PreviewFocusRingTests(unittest.TestCase):
 
 
 class NumberedViewTests(unittest.TestCase):
-    """The ctrl+shift+l numbered source-line view (t954).
+    """The alt+n numbered source-line view (t954).
 
     The numbered view renders the *raw* proposal source with a line-number
     gutter, one Rich Table row per source line, so numbers stay anchored even
@@ -537,6 +537,131 @@ class NumberedViewTests(unittest.TestCase):
                 # Row count == logical source lines regardless of wrapping:
                 # numbers track source lines, not wrapped terminal rows.
                 self.assertEqual(num._table.row_count, expected)
+
+        self._run(runner())
+
+
+class PreviewKeyDispatchTests(unittest.TestCase):
+    """Real key-dispatch coverage for the wizard preview keys (t1018_1).
+
+    Before t1018_1 the preview pane was driven by ``ctrl+shift+b`` /
+    ``ctrl+shift+l`` — undeliverable chords (the ghostty->tmux->Textual stack
+    collapses ``Ctrl+Shift+<letter>`` to ``Ctrl+<letter>``, dropping Shift). The
+    suite only ever called the action methods directly, so the dead chords
+    passed CI. These tests press the *bound keys* through the pilot, so a
+    regression back to an undeliverable / wrong key fails here.
+
+    The host borrows ``ActionsWizardScreen.BINDINGS`` and the two preview action
+    methods verbatim and reproduces the config-with-preview layout, so the test
+    exercises the shipping bindings + actions, not a copy of the key strings.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _host(self):
+        from textual.containers import Horizontal
+        from textual.widgets import TextArea
+        from brainstorm.brainstorm_app import ActionsWizardScreen
+
+        class _KeyHost(App):
+            # Borrow the shipping bindings + actions verbatim: pressing the bound
+            # key here proves the real binding string is actually deliverable.
+            BINDINGS = ActionsWizardScreen.BINDINGS
+            action_cycle_preview_ratio = (
+                ActionsWizardScreen.action_cycle_preview_ratio
+            )
+            action_toggle_preview_numbered = (
+                ActionsWizardScreen.action_toggle_preview_numbered
+            )
+            # action_cycle_preview_ratio delegates to this helper.
+            _apply_preview_ratio = ActionsWizardScreen._apply_preview_ratio
+
+            def compose(self) -> ComposeResult:
+                yield Horizontal(
+                    VerticalScroll(
+                        TextArea("", id="ta"),
+                        classes="config_preview_left",
+                    ),
+                    ProposalPreviewPane(classes="config_preview_pane"),
+                    classes="config_preview_split",
+                )
+
+        return _KeyHost()
+
+    def test_alt_w_press_cycles_preview_ratio(self):
+        async def runner():
+            app = self._host()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                left = app.query_one(".config_preview_left")
+                await pilot.pause()
+                # balanced (0): no ratio class yet
+                self.assertFalse(left.has_class("ratio_proposal_wide"))
+                # alt+w advances balanced -> proposal-wide (real key dispatch)
+                await pilot.press("alt+w")
+                await pilot.pause()
+                self.assertTrue(left.has_class("ratio_proposal_wide"))
+                self.assertTrue(pane.has_class("ratio_proposal_wide"))
+
+        self._run(runner())
+
+    def test_alt_n_press_toggles_numbered_view(self):
+        async def runner():
+            app = self._host()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                await pilot.pause()
+                self.assertFalse(getattr(pane, "_numbered", False))
+                await pilot.press("alt+n")
+                await pilot.pause()
+                self.assertTrue(pane._numbered)
+
+        self._run(runner())
+
+    def test_alt_w_does_not_corrupt_focused_textarea(self):
+        # Why alt+<letter> beats a bare letter: it is ESC-prefixed /
+        # non-printable, so a focused TextArea does NOT insert it as text (the
+        # typed steer content stays intact) while the screen binding still fires.
+        async def runner():
+            app = self._host()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                left = app.query_one(".config_preview_left")
+                ta = app.query_one("#ta")
+                ta.focus()
+                await pilot.pause()
+                await pilot.press("alt+w")
+                await pilot.pause()
+                # The keypress did NOT land in the TextArea as text ...
+                self.assertEqual(ta.text, "")
+                # ... but the binding still fired (usable while typing).
+                self.assertTrue(left.has_class("ratio_proposal_wide"))
+
+        self._run(runner())
+
+    def test_plain_letter_is_swallowed_by_focused_textarea(self):
+        # Contrast with the above: a bare printable letter IS consumed as text
+        # by the focused TextArea and never reaches the binding — which is
+        # exactly why a plain letter could not be reused as the preview key.
+        async def runner():
+            app = self._host()
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one(ProposalPreviewPane)
+                pane.populate(PROPOSAL_WITH_SECTIONS)
+                left = app.query_one(".config_preview_left")
+                ta = app.query_one("#ta")
+                ta.focus()
+                await pilot.pause()
+                await pilot.press("w")
+                await pilot.pause()
+                # Typed into the TextArea ...
+                self.assertEqual(ta.text, "w")
+                # ... and the ratio action did NOT fire.
+                self.assertFalse(left.has_class("ratio_proposal_wide"))
 
         self._run(runner())
 
