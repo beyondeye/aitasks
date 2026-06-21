@@ -75,6 +75,38 @@ class TestParseConcerns(unittest.TestCase):
         self.assertEqual(concerns[0].region, "ownership")
         self.assertEqual(concerns[0].body, long_body)
 
+    def test_richly_framed_body_round_trip(self):
+        """A richly-framed multi-row body (problem + why-it-bites + latitude)
+        reassembles to exactly one Concern with the full body intact, and the
+        strict auto-offer trigger still fires (t1037_6).
+
+        Guards the producer-instruction intent: bodies now carry the full
+        framing, soft-wrap across several rows, and must NOT split or lose the
+        motivation when the parser space-joins them back.
+        """
+        rich_body = (
+            "The guard re-runs aitask_pick_own.sh even when Step 4 already "
+            "acquired the lock on this host, so every resumed task writes a "
+            "second, redundant ownership commit to the data branch. It bites on "
+            "the common reclaim path (crash recovery, multi-day tasks), quietly "
+            "doubling the commit history. Gating the re-run on whether the lock "
+            "is already held would fix it, but the exact condition is the "
+            "agent's call."
+        )
+        marker = f"- [high | Step 7 ownership guard] {rich_body}"
+        wrapped = "\n".join(textwrap.wrap(marker, width=72, break_on_hyphens=False))
+        # The body wraps across several rows; continuation rows carry no "- ".
+        self.assertGreater(len(wrapped.splitlines()), 2)
+        self.assertFalse(wrapped.splitlines()[1].lstrip().startswith("- ["))
+        text = "\n".join([OPEN, wrapped, CLOSE])
+        concerns = parse_concerns(text)
+        self.assertEqual(len(concerns), 1)  # no spurious split across rows
+        self.assertEqual(concerns[0].priority, "high")
+        self.assertEqual(concerns[0].region, "Step 7 ownership guard")
+        self.assertEqual(concerns[0].body, rich_body)  # motivation intact
+        self.assertIn("It bites on", concerns[0].body)  # why-it-bites preserved
+        self.assertTrue(has_concern_block(text))  # strict auto-offer still fires
+
     def test_marker_collision_continuation(self):
         """Body continuation lines that LOOK like markers must not split items."""
         text = block(

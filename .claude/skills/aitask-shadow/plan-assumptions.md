@@ -62,8 +62,8 @@ agent's pane.
 
    ```
    ===AITASK-CONCERNS===
-   - [high | sequencing] Assumes sibling t1037_1's parser has already landed; if it hasn't, the emitted block has no consumer and the feature silently does nothing.
-   - [medium | behavior of other code] Assumes aitask_shadow_capture.sh wrap-joins lines, but it omits -J, so long concern bodies split mid-word.
+   - [high | sequencing] The plan assumes sibling t1037_1's parser has already landed, but nothing in it verifies that. If the parser isn't there yet, the emitted block has no consumer and the whole feature silently does nothing — no error, just a no-op that looks like success in a demo. Worth confirming the parser module exists (or wiring it as an explicit dependency) before relying on it; how to sequence that is your call.
+   - [medium | behavior of other code] The plan assumes aitask_shadow_capture.sh hands the parser wrap-joined lines, but the capture call omits tmux's -J flag. Long concern bodies will then split mid-word at the pane edge and the parser's space-join will stitch the fragments with a stray space inside a word. It only surfaces on bodies long enough to wrap, so it passes short-example tests and breaks in real use. Adding -J (or otherwise rejoining) at the capture site would fix it — exact spot left to you.
    ===END-CONCERNS===
    ```
 
@@ -76,8 +76,15 @@ agent's pane.
    - `region` names the assumption category (`environment/tooling`,
      `data/inputs`, `behavior of other code`, `sequencing`, `intent/scope`) or a
      named plan region.
-   - `body` is the assumption statement plus why it is dangerous, on **one
-     logical line** — do not hard-wrap it yourself; let the terminal soft-wrap.
+   - `body` carries the **full framing** — the assumption, *why it is dangerous*
+     (what silently goes wrong if it's false), and enough context for the
+     receiving agent to choose **how** to confirm or harden it. Match the
+     **substance** of the corresponding prose item from Step 3; do **not**
+     compress it to a bare one-liner — the framing is as important as the point.
+     "One logical line" is a **parser constraint** (emit no literal newline
+     mid-concern — let the terminal soft-wrap), **not** a brevity constraint: a
+     rich, multi-sentence body that soft-wraps across several rows is correct and
+     reassembles into one concern.
    - Order items by priority, matching the prose list (dangerous ones first).
    - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
      auto-offer only fires on a complete block.

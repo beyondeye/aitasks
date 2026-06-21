@@ -58,8 +58,8 @@ agent's pane.
 
    ```
    ===AITASK-CONCERNS===
-   - [high | Step 7 ownership guard] The guard re-runs aitask_pick_own.sh, which double-commits when the lock was already held.
-   - [medium | verification] The plan's test asserts exit code 0 but never checks the file was written, so it can pass while the feature is broken.
+   - [high | Step 7 ownership guard] The guard re-runs aitask_pick_own.sh even when Step 4 already acquired the lock on this host, so every resumed task writes a second, redundant ownership commit to the data branch. It bites on the common reclaim path — crash recovery, multi-day tasks — quietly doubling the commit history each time. Gating the re-run on whether the lock is already held by this host would fix it, but I'd leave the exact guard condition to you.
+   - [medium | verification] The only test asserts the script exits 0; it never reads back the file the script was supposed to write. A regression that turns the write into a silent no-op would still pass, so the test proves the script ran, not that it worked. Asserting on the written content (or a round-trip read) would close the gap — however you prefer to structure it.
    ===END-CONCERNS===
    ```
 
@@ -72,8 +72,15 @@ agent's pane.
      assigned in Step 3.
    - `region` names the plan section / axis the concern targets (a step name,
      `verification`, `blast radius`, …).
-   - `body` is the one-line problem (plus why it bites) on **one logical line** —
-     do not hard-wrap it yourself; let the terminal soft-wrap.
+   - `body` carries the **full framing** of the concern — the problem, *why it
+     bites* (the triggering scenario), and enough context for the receiving
+     agent to choose **how** to address it. Match the **substance** of the
+     corresponding prose item from Step 3; do **not** compress it to a bare
+     one-liner — the framing is as important as the point. "One logical line" is
+     a **parser constraint** (emit no literal newline mid-concern — let the
+     terminal soft-wrap), **not** a brevity constraint: a rich, multi-sentence
+     body that soft-wraps across several rows is correct and reassembles into
+     one concern.
    - Order items by severity, matching the prose list.
    - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
      auto-offer only fires on a complete block.
