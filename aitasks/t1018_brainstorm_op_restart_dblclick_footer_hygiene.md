@@ -5,10 +5,10 @@ depends: [983]
 issue_type: enhancement
 status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
-children_to_implement: [t1018_1]
+children_to_implement: [t1018_1, t1018_2]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-17 10:27
-updated_at: 2026-06-21 10:18
+updated_at: 2026-06-21 10:19
 boardidx: 160
 ---
 
