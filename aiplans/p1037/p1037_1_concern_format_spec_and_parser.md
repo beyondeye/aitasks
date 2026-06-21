@@ -6,6 +6,8 @@ Archived Sibling Plans: aiplans/archived/p1037/p1037_*_*.md
 Worktree: (current branch — fast profile)
 Branch: (current branch)
 Base branch: main
+plan_verified:
+  - claudecode/opus4_8 @ 2026-06-21 11:55
 ---
 
 # Plan: Concern-block format spec + pure parser (t1037_1)
@@ -109,3 +111,17 @@ values.
 
 See parent task t1037 and **Step 9 (Post-Implementation)** of the task workflow
 for archival/merge.
+
+## Risk
+
+### Code-health risk: low
+- None identified. Additive new files only (`concern_parser.py` + spec doc);
+  the sole edit to existing code is a one-line pointer in
+  `aidocs/framework/shadow_agent.md`. No load-bearing path touched.
+
+### Goal-achievement risk: low
+- Wrap-join could misfire if a body continuation line coincidentally matches the
+  item-marker regex, splitting one concern into two · severity: low · →
+  mitigation: covered in-task by a dedicated wrap-join + marker-collision test
+  (no separate mitigation task needed).
+
