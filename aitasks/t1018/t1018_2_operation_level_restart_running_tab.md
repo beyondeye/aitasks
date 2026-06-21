@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: [t1018_1]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1018
 created_at: 2026-06-21 10:19
-updated_at: 2026-06-21 10:19
+updated_at: 2026-06-21 11:20
 ---
 
 ## Context
