@@ -28,6 +28,6 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1018_2] "Re-run fresh" surfaces the pre-filled wizard / a destructive-action confirm before relaunching, and offers to clean up the old failed group.
 - [ ] [t1018_2] "Retry only the failed step" re-applies a completed agent's output without relaunching the whole operation.
 - [ ] [t1018_2] The old ctrl+shift+x / ctrl+shift+y retry-apply chords are gone and their function is reachable from the focused GroupRow.
-- [ ] [t1018_3] A real mouse double-click on a Browse NodeRow opens the NodeHub; on a DAG node opens the NodeHub.
-- [ ] [t1018_3] A real mouse double-click on a Running-tab GroupRow opens the OperationDetailScreen.
-- [ ] [t1018_3] Single-click still only focuses (NodeRow / DAG node) and Enter still expand/collapses the GroupRow (no regression).
+- [ ] [t1018_3] A real mouse double-click on a Running-tab operation (group) row expands/collapses it (same as Enter); single-click still only focuses, and Enter still toggles (no regression).
+- [ ] [t1018_3] The focused operation group keeps focus across a status refresh (let the Running tab auto-refresh, or trigger an agent action, while a group is focused — focus is retained, not dropped).
+- [ ] [t1018_3] Hovering the focused operation group shows a shade of the focus accent (orange), not the gray hover background.
