@@ -34,9 +34,10 @@ status-only panes). Update `aidocs/applink/protocol.md` §Subscription and
 
 This is a paired change: the mobile app (aitasks_mobile) must send/honor the
 roster-vs-focused distinction (e.g. via `focus` selecting the content pane, or a
-new field). The mobile-side work is tracked in a coordinated aitasks_mobile task
-(see this task's cross-repo dependency). Keep the wire format additive/versioned
-per protocol.md §Versioning so older clients still work.
+new field). The mobile-side work is tracked in the coordinated task
+**aitasks_mobile#19** (which carries the reverse cross-repo dependency on this
+task — the server contract lands first, then the client adopts it). Keep the wire
+format additive/versioned per protocol.md §Versioning so older clients still work.
 
 ## Reference
 
