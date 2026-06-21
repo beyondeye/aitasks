@@ -61,6 +61,18 @@ Edit shared values from `aitasks/metadata/project_config.yaml` directly in the T
 
 Press **Enter** on a row to edit the value, then use **Save Project Config** to persist it.
 
+### Project Groups (g)
+
+Edit per-user project-group membership for registered projects. The tab reads and writes through `ait projects group ...`, so the registry stays consistent with the CLI.
+
+The table lists each registered project, its effective group, and its registry status. Press **Enter** on a row to assign or change its group, or select a row and use:
+
+- **h** — assign or change the selected project's group. Pick an existing group or type a new valid slug.
+- **u** — clear the selected project's group, making it explicitly ungrouped.
+- **n** — rename a group across every registered member. If the new group already exists, memberships merge.
+- **y** — sync missing registry groups from each repo's `project.project_group`.
+- **f** — refresh the table from the registry.
+
 ### Models (m)
 
 {{< static-img src="imgs/aitasks_settings_llmmodels_tab.svg" alt="Models tab showing available models per agent" caption="The Models tab is a read-only display of all configured models" >}}
@@ -122,6 +134,7 @@ Two buttons act on the table:
 | **a** | Switch to Agent Defaults tab |
 | **b** | Switch to Board tab |
 | **c** | Switch to Project Config tab |
+| **g** | Switch to Project Groups tab |
 | **m** | Switch to Models tab |
 | **p** | Switch to Profiles tab |
 | **s** | Switch to Shortcuts tab |

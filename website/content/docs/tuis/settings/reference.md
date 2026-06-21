@@ -16,6 +16,7 @@ depth: [advanced]
 | **a** | Switch to Agent Defaults tab |
 | **b** | Switch to Board tab |
 | **c** | Switch to Project Config tab |
+| **g** | Switch to Project Groups tab |
 | **t** | Switch to Tmux tab |
 | **m** | Switch to Models tab |
 | **p** | Switch to Profiles tab |
@@ -29,7 +30,13 @@ depth: [advanced]
 | Key | Action | Context |
 |-----|--------|---------|
 | **Enter** / **Space** | Edit field or cycle value | Agent Defaults, Board, Profiles |
+| **Enter** | Assign or change selected project's group | Project Groups |
 | **d** / **Delete** | Remove user override | Agent Defaults |
+| **h** | Assign or change selected project's group | Project Groups |
+| **u** | Clear selected project's group | Project Groups |
+| **n** | Rename a project-group | Project Groups |
+| **y** | Sync missing groups from repo configs | Project Groups |
+| **f** | Refresh groups from the registry | Project Groups |
 | **?** | Toggle field description (summary/expanded) | Profiles |
 | **Escape** | Close dialog or cancel | Modals |
 
@@ -49,6 +56,7 @@ depth: [advanced]
 | Agent Defaults | **a** | Yes | Default agent/model per operation, project and user layers |
 | Board | **b** | Partially | Columns (read-only), user settings (editable) |
 | Project Config | **c** | Yes | Shared values from `project_config.yaml` such as coauthor domain and build verification |
+| Project Groups | **g** | Yes | Per-user registered-project group membership, backed by `ait projects group` |
 | Tmux | **t** | Yes | Tmux integration settings (session name, split direction, monitor options, git TUI) |
 | Models | **m** | No | Available models per agent with verified scores |
 | Profiles | **p** | Yes | Execution profiles that pre-answer workflow questions |
@@ -71,6 +79,7 @@ depth: [advanced]
 | `aitasks/metadata/board_config.json` | Project | No | Board column definitions |
 | `aitasks/metadata/board_config.local.json` | User | Yes (Board) | User board settings (gitignored) |
 | `aitasks/metadata/project_config.yaml` | Project | Yes (Project Config) | Shared workflow settings such as coauthor domain and build verification |
+| `~/.config/aitasks/projects.yaml` | User | Yes (Project Groups) | Registered project paths and per-user `project_group` membership |
 | `aitasks/metadata/models_claudecode.json` | Project | No | Claude Code model definitions |
 | `aitasks/metadata/models_codex.json` | Project | No | Codex CLI model definitions |
 | `aitasks/metadata/models_opencode.json` | Project | No | OpenCode model definitions |

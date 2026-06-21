@@ -23,6 +23,8 @@ The Stats TUI requires the shared Python virtual environment (installed by `ait 
 
 Inside tmux you can also reach the TUI via the [TUI switcher](../monitor/how-to/#how-to-jump-to-another-tui) — press **`j`** in any other aitasks TUI and pick Stats.
 
+When multiple aitasks tmux sessions are available, Stats uses the same project-group navigation model as the TUI switcher. **Left / Right** cycles the current session ring; **`[` / `]`** changes project-group on most panes. On the agent ranking panes, **`[` / `]`** keep their time-window behavior instead.
+
 ## Purpose
 
 Stats is the interactive, pane-based view of archived task completion data. It reuses the same `stats/stats_data.py` extraction module that backs the text-only [`ait stats`]({{< relref "/docs/commands/board-stats#ait-stats" >}}) command — the two share a single source of truth for summary counts, daily/weekly trends, label and issue-type breakdowns, code agent / LLM model histograms, and verified model score rankings.
@@ -100,6 +102,8 @@ All keyboard actions documented below remain available.
 | **↑ / ↓** | Move highlight in the focused panel (sidebar highlights a pane, layout picker highlights a layout) |
 | **Enter** | Activate the highlighted layout (on the layout picker); sidebar panes show on highlight — no Enter needed |
 | **Tab / Shift+Tab** | Switch focus between sidebar and layout picker |
+| **Left / Right** | Cycle sessions in the current project-group ring |
+| **[ / ]** | Change time window on agent ranking panes; change project-group elsewhere |
 | **c** | Jump focus to the layout picker |
 | **n** | New custom layout (focus must be on layout picker) |
 | **e** | Edit highlighted custom layout |

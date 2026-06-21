@@ -20,12 +20,14 @@ Each aitasks project declares its logical identity in `aitasks/metadata/project_
 project:
   name: backend
   git_remote: https://example.com/acme/backend.git
+  project_group: storefront
 ```
 
 | Field | Required | Notes |
 |---|---|---|
 | `name` | No — defaults to the directory basename | Logical key. Lowercase `[a-z0-9_-]`, unique across your registered projects. |
 | `git_remote` | No | Canonical clone URL. Shown in listings; reserved for future auto-clone. |
+| `project_group` | No | Optional fallback group slug used when the per-user registry has no group for this project. Slugs match `^[a-z0-9][a-z0-9_-]*$`. |
 
 `ait projects add` reads this block; if `name` is omitted it falls back to the project directory's basename.
 
@@ -39,12 +41,33 @@ projects:
     path: /home/you/work/frontend
     git_remote: https://example.com/acme/frontend.git
     last_opened: 2026-05-31
+    project_group: storefront
   - name: backend
     path: /home/you/work/backend
     last_opened: 2026-05-31
+    project_group: storefront
 ```
 
 The file is **gitignored** — it is per-user and machine-specific. Manage it with `ait projects add` rather than editing it by hand.
+
+### Project groups
+
+A **project-group** keeps related registered projects together in the TUI switcher and Stats TUI. For example, `frontend` and `backend` can both belong to the `storefront` group while another set of repos belongs to `internal_tools`.
+
+The registry's `project_group` field is the normal source of truth for your machine. If a registry entry has no group, aitasks falls back to that repo's `project.project_group` value from `project_config.yaml`. Clearing a group with `ait projects group unset` writes a reserved `-` marker in the registry, which means "explicitly ungrouped" and prevents fallback to the repo config.
+
+Manage membership with the CLI:
+
+```bash
+ait projects group list
+ait projects group set frontend storefront
+ait projects group set backend storefront
+ait projects group unset backend
+ait projects group rename storefront customer_app
+ait projects group sync
+```
+
+`rename` updates every registry entry in the old group; if the new group already exists, the two groups are merged. `sync` fills in only missing registry groups from each repo's `project.project_group`; it does not overwrite an explicit group or an explicit ungrouped marker.
 
 ### How a name resolves to a path
 
@@ -76,6 +99,11 @@ Resolution reports one of three states, which surface throughout the tooling:
 | `ait projects update <name> <new_path>` | Repoint a moved project to a new on-disk root (refreshes `last_opened`, keeps `git_remote`). |
 | `ait projects prune [--dry-run] [--yes]` | Drop every STALE entry at once. Prompts per entry unless `--yes`; `--dry-run` lists matches without changing anything. |
 | `ait projects doctor [--clone]` | Walk every STALE entry interactively, offering prune / update / clone / keep / skip-all per entry. Cloning is opt-in via `--clone` and only offered when the entry has a `git_remote`. |
+| `ait projects group list` | Show registered projects grouped by effective project-group, with `(ungrouped)` last. |
+| `ait projects group set <name> <group>` | Assign a project to a project-group slug. |
+| `ait projects group unset <name>` | Explicitly clear a project's group. |
+| `ait projects group rename <old> <new>` | Rename a group; merges if `<new>` already exists. |
+| `ait projects group sync` | Backfill missing registry groups from repo configs. |
 
 A few examples:
 
@@ -87,6 +115,10 @@ ait projects list
 
 # Run a one-off command inside a sibling project without leaving this one
 ait projects exec backend -- ./.aitask-scripts/aitask_ls.sh -v 5
+
+# Put related projects in the same switcher/stats navigation group
+ait projects group set frontend storefront
+ait projects group set backend storefront
 
 # Clean up after a project moves or is deleted
 ait projects update backend /home/you/work/services/backend
@@ -130,6 +162,13 @@ Once names resolve, see [Cross-Project Dependencies]({{< relref "/docs/workflows
 ## Switching between projects
 
 The `ait` TUI's project switcher lists registered projects even when their tmux session is not currently running. Selecting an inactive project spawns its tmux session and teleports you into it. A project whose path has gone stale is shown dimmed with a `(stale)` marker; selecting it offers to prune the entry or repoint it to the project's new location.
+
+When project-groups are configured, the switcher uses two navigation axes:
+
+- **Left / Right** cycles the current ring: projects in the selected project-group, plus any live session outside that group so active work remains reachable.
+- **`[` / `]`** changes the selected project-group and rebuilds the ring.
+
+The Stats TUI uses the same project-group navigation for session-aware panes. On the agent ranking panes, `[` / `]` keep their time-window meaning instead.
 
 `ait monitor` is intentionally **unchanged** — its multi-project view stays scoped to live tmux sessions only. Registered-but-inactive projects appear in the switcher, not in the monitor.
 

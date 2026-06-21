@@ -27,12 +27,14 @@ Each aitasks project declares its logical identity in
 project:
   name: aitasks
   git_remote: https://github.com/beyondeye/aitasks.git
+  project_group: framework
 ```
 
 | Field        | Required | Notes |
 |--------------|----------|-------|
 | `name`       | No (default: directory basename) | Logical key. Lowercase, `[a-z0-9_-]`. Must be unique across the user's registered projects. |
 | `git_remote` | No       | Canonical clone URL. Used for display today; reserved for future auto-clone-on-`NOT_FOUND`. |
+| `project_group` | No | Optional fallback group slug for this repo. Valid slugs match `^[a-z0-9][a-z0-9_-]*$`. |
 
 `ait projects add` reads this block; if `project.name` is absent it falls
 back to `basename(project_root)`.
@@ -48,14 +50,44 @@ projects:
     path: /home/ddt/Work/aitasks
     git_remote: https://github.com/beyondeye/aitasks.git
     last_opened: 2026-05-25
+    project_group: framework
   - name: aitasks_mobile
     path: /home/ddt/Work/aitasks_mobile
     last_opened: 2026-05-25
+    project_group: apps
 ```
 
 Managed by `ait projects add` (atomic write, idempotent). The file is
 **gitignored** (per-user, machine-specific). Edit by hand at your own
 risk — `ait projects add` is the canonical interface.
+
+## Project groups
+
+A `project-group` is a per-user grouping layer over registered projects. It is
+used by the TUI switcher and stats TUI to keep related repos together while
+still keeping live out-of-group sessions reachable.
+
+Membership resolution is defined by the current registry/discovery code:
+
+1. A registry entry with `project_group: <slug>` is authoritative.
+2. A registry entry with `project_group: -` is explicitly ungrouped and does
+   not fall back to the repo config.
+3. A registry entry with no `project_group` falls back to that repo's
+   `project.project_group`, if present and valid.
+4. Missing, empty, invalid, or sentinel config values resolve to ungrouped.
+
+Valid user slugs match `^[a-z0-9][a-z0-9_-]*$`. The `-` sentinel is reserved
+for the registry's explicit-ungrouped state and is not a valid user slug.
+
+Manage groups through `ait projects group`, not by editing the registry by hand:
+
+| Command | Effect |
+|---------|--------|
+| `ait projects group list` | Print registered projects grouped by effective project-group, with `(ungrouped)` last. |
+| `ait projects group set <name> <group>` | Assign a registered project to a validated slug. |
+| `ait projects group unset <name>` | Write the `-` sentinel so the project is explicitly ungrouped. |
+| `ait projects group rename <old> <new>` | Rename every registry row with `<old>` to `<new>`; if `<new>` exists, memberships merge. |
+| `ait projects group sync` | Backfill absent registry groups from repo configs; existing groups and `-` sentinels are left unchanged. |
 
 ## Resolver
 

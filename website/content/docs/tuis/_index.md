@@ -33,7 +33,7 @@ When you run the TUIs inside tmux, pressing **`j`** in any main TUI opens the **
 
 The switcher only works inside tmux. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) for how to set it up and launch the session via `ait ide`.
 
-When more than one aitasks tmux session is running on the same tmux server, the switcher also shows a session row at the top. The attached session is marked with `▶`, and the selected session is highlighted. Use **Left/Right** to pick a different session; the list below refreshes to show that session's TUIs and windows. **Enter** (or any shortcut key like **`b`** for board, **`y`** for syncer, **`n`** for a new task) acts on the selected session — if it differs from your attached session, the switcher teleports your tmux client there automatically.
+When more than one aitasks tmux session is running on the same tmux server, the switcher also shows a session row at the top. The attached session is marked with `▶`, and the selected session is highlighted. Use **Left/Right** to pick a different session in the current project-group ring; use **`[`** / **`]`** to switch project-groups and rebuild that ring. The ring contains projects in the selected project-group plus any live session outside it, so active work stays reachable even when it belongs to another group. The list below refreshes to show the selected session's TUIs and windows. **Enter** (or any shortcut key like **`b`** for board, **`y`** for syncer, **`n`** for a new task) acts on the selected session — if it differs from your attached session, the switcher teleports your tmux client there automatically.
 
 ## Customizing keyboard shortcuts
 
