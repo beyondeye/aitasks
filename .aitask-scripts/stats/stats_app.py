@@ -37,13 +37,11 @@ from agent_launch_utils import (  # noqa: E402
     PROJECT_GROUP_UNGROUPED_LABEL,
     AitasksSession,
     CrossGroupRingEntry,
-    advance_selected_group,
+    advance_group_selection,
     cross_group_ring,
     cross_group_step,
     default_selected_group,
     discover_aitasks_sessions,
-    group_members,
-    group_sessions,
 )
 from stats import stats_config  # noqa: E402
 from stats.modals.name_input import NameInputModal  # noqa: E402
@@ -574,21 +572,20 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Re-points the selection onto the new group's first member when the
         current selection isn't one of its members (via the shared
         ``_apply_session_selection`` so the sidebar/title/data stay in lockstep).
-        Uses :func:`group_members` (not the full cross-group ring, which always
-        contains the selection and would never re-point). The aggregate stays
-        reachable by left/right but is never selected here.
+        The aggregate stays reachable by left/right but is never selected here.
         """
-        groups = group_sessions(self.sessions, self._selected_group).groups
-        if len(groups) < 2:
-            return
-        self._selected_group = advance_selected_group(
-            groups, self._selected_group, delta
+        target = advance_group_selection(
+            self.sessions,
+            self._selected_group,
+            self.selected_session,
+            delta,
+            fallback_session=ALL_SESSIONS_KEY,
         )
-        members = [s.session for s in group_members(
-            self.sessions, self._selected_group
-        )]
-        if self.selected_session not in members:
-            self._apply_session_selection(members[0] if members else ALL_SESSIONS_KEY)
+        if target is None:
+            return
+        self._selected_group = target.selected_group
+        if target.repoint_session is not None:
+            self._apply_session_selection(target.repoint_session)
         else:
             self._update_title()
         self.notify(

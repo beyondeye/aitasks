@@ -810,6 +810,14 @@ def advance_selected_group(
     return groups[(idx + step) % len(groups)]
 
 
+@dataclass(frozen=True)
+class GroupCycleSelection:
+    """Decision result for a ``[`` / ``]`` project-group cycle."""
+
+    selected_group: str | None
+    repoint_session: str | None = None
+
+
 def group_members(
     sessions: list[AitasksSession],
     selected_group: str | None,
@@ -826,6 +834,37 @@ def group_members(
     both select the no-group bucket (see :func:`_session_in_group`).
     """
     return [s for s in sessions if _session_in_group(s, selected_group)]
+
+
+def advance_group_selection(
+    sessions: list[AitasksSession],
+    selected_group: str | None,
+    selected_session: str,
+    step: int,
+    *,
+    fallback_session: str | None = None,
+) -> GroupCycleSelection | None:
+    """Advance a TUI's project-group axis and decide whether to re-point.
+
+    Shared by the switcher and stats TUI: both advance through the same group
+    order and re-point the selected session only when it is not a member of the
+    newly selected group. UI refresh, notifications, and caller-specific
+    fallback behavior stay at the call site.
+    """
+    groups = group_sessions(sessions, selected_group).groups
+    if len(groups) < 2:
+        return None
+
+    next_group = advance_selected_group(groups, selected_group, step)
+    members = [s.session for s in group_members(sessions, next_group)]
+    repoint_session = None
+    if selected_session not in members:
+        repoint_session = members[0] if members else fallback_session
+
+    return GroupCycleSelection(
+        selected_group=next_group,
+        repoint_session=repoint_session,
+    )
 
 
 @dataclass(frozen=True)

@@ -48,7 +48,7 @@ if _LIB_DIR not in sys.path:
 from agent_launch_utils import (  # noqa: E402
     PROJECT_GROUP_UNGROUPED_LABEL,
     AitasksSession,
-    advance_selected_group,
+    advance_group_selection,
     cross_group_ring,
     cross_group_step,
     default_selected_group,
@@ -940,18 +940,19 @@ class TuiSwitcherOverlay(ModalScreen):
     def _cycle_group(self, step: int) -> None:
         from textual.actions import SkipAction
         self._switcher_list_or_skip()
-        groups = group_sessions(self._all_sessions, self._selected_group).groups
-        if not self._multi_mode or len(groups) < 2:
+        if not self._multi_mode:
             raise SkipAction()
-        self._selected_group = advance_selected_group(
-            groups, self._selected_group, step
+        target = advance_group_selection(
+            self._all_sessions,
+            self._selected_group,
+            self._session,
+            step,
         )
-        # Re-point the operating session onto the new group's first member when
-        # the current selection isn't one of its members, so the row/list stay
-        # coherent (t1036: out-of-group sessions no longer count as "in ring").
-        names = self._group_member_names()
-        if names and self._session not in names:
-            self._session = names[0]
+        if target is None:
+            raise SkipAction()
+        self._selected_group = target.selected_group
+        if target.repoint_session is not None:
+            self._session = target.repoint_session
         self._refresh_after_cycle()
 
     def action_select_tui(self) -> None:

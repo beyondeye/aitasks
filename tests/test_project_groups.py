@@ -23,9 +23,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".aitask-scripts", "lib"))
 
+import agent_launch_utils  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
     PROJECT_GROUP_UNGROUPED_LABEL,
     PROJECT_GROUP_UNSET_SENTINEL,
@@ -33,6 +35,7 @@ from agent_launch_utils import (  # noqa: E402
     _build_registry_group_lookup,
     _resolve_config_project_group,
     _resolve_session_group,
+    advance_group_selection,
     advance_selected_group,
     cross_group_ring,
     cross_group_step,
@@ -266,6 +269,38 @@ class AdvanceSelectedGroupTests(unittest.TestCase):
     def test_empty_groups_returns_current(self):
         self.assertEqual(advance_selected_group([], "x", +1), "x")
         self.assertIsNone(advance_selected_group([], None, +1))
+
+
+class AdvanceGroupSelectionTests(unittest.TestCase):
+    """`advance_group_selection` centralizes group-cycle re-point decisions."""
+
+    def test_repoints_to_first_member_when_selection_outside_new_group(self):
+        sessions = [_sess("a", "g1"), _sess("b", "g2")]
+        result = advance_group_selection(sessions, "g2", "b", +1)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.selected_group, "g1")
+        self.assertEqual(result.repoint_session, "a")
+
+    def test_keeps_selection_when_it_belongs_to_new_group(self):
+        sessions = [_sess("a", "g1"), _sess("b", "g1"), _sess("c", "g2")]
+        result = advance_group_selection(sessions, "g2", "b", +1)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.selected_group, "g1")
+        self.assertIsNone(result.repoint_session)
+
+    def test_single_group_returns_none(self):
+        sessions = [_sess("a", "g1"), _sess("b", "g1")]
+        self.assertIsNone(advance_group_selection(sessions, "g1", "a", +1))
+
+    def test_fallback_used_when_target_group_has_no_members(self):
+        sessions = [_sess("a", "g1"), _sess("b", "g2")]
+        with patch.object(agent_launch_utils, "group_members", return_value=[]):
+            result = advance_group_selection(
+                sessions, "g2", "b", +1, fallback_session="__all__"
+            )
+        self.assertIsNotNone(result)
+        self.assertEqual(result.selected_group, "g1")
+        self.assertEqual(result.repoint_session, "__all__")
 
 
 class GroupMembersTests(unittest.TestCase):
