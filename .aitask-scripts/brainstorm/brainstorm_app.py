@@ -3122,6 +3122,13 @@ def _format_progress_bar(progress: int) -> str:
 class GroupRow(Static, can_focus=True):
     """Expandable group row in the Status tab."""
 
+    class ToggleRequested(Message):
+        """Emitted when a GroupRow is double-clicked to expand/collapse it."""
+
+        def __init__(self, group_name: str) -> None:
+            super().__init__()
+            self.group_name = group_name
+
     def __init__(
         self,
         name: str,
@@ -3172,8 +3179,12 @@ class GroupRow(Static, can_focus=True):
                 line += "  [dim](" + " | ".join(hints) + ")[/dim]"
         return line
 
-    def on_click(self) -> None:
+    def on_click(self, event) -> None:
+        # Single-click focuses; double-click toggles expand/collapse (mirrors
+        # Enter). Pattern from board/aitask_board.py TaskCard.on_click (t1018_3).
         self.focus()
+        if event.chain == 2:
+            self.post_message(self.ToggleRequested(self.group_name))
 
     def on_focus(self) -> None:
         self.refresh()
@@ -4925,6 +4936,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         background: $surface-lighten-1;
     }
 
+    /* Hovering the focused group must stay in the focus-accent family, not
+       flip to the gray hover (:hover would otherwise override :focus at equal
+       specificity). A lighter shade of $accent reads as "hover" while keeping
+       the focused row recognizable. (t1018_3) */
+    GroupRow:focus:hover {
+        background: $accent-lighten-1;
+        color: $text;
+    }
+
     .status_section_title {
         text-style: bold;
         margin-top: 1;
@@ -5878,12 +5898,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if event.key == "enter":
             focused = self.focused
             if isinstance(focused, GroupRow):
-                name = focused.group_name
-                if name in self._expanded_groups:
-                    self._expanded_groups.discard(name)
-                else:
-                    self._expanded_groups.add(name)
-                self._refresh_status_tab()
+                self._toggle_group(focused.group_name)
                 event.prevent_default()
                 event.stop()
                 return
@@ -7447,6 +7462,29 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             format_status_strip(runner["status"], runner["stale"], count)
         )
 
+    def _toggle_group(self, name: str) -> None:
+        """Expand/collapse a Running-tab operation group.
+
+        Shared by the Enter key handler and GroupRow double-click so both entry
+        points stay in sync (t1018_3).
+        """
+        if name in self._expanded_groups:
+            self._expanded_groups.discard(name)
+        else:
+            self._expanded_groups.add(name)
+        self._refresh_status_tab()
+
+    def _refocus_group(self, group_name: str) -> None:
+        """Restore focus to a group row after a Running-tab rebuild (t1018_3).
+
+        Best-effort: a no-op if the group disappeared from the refresh. Mirrors
+        aitask_board.py _refocus_card.
+        """
+        for row in self.query(GroupRow):
+            if row.group_name == group_name:
+                row.focus()
+                return
+
     def _refresh_status_tab(self) -> None:
         """Populate the Status tab with operation groups and agent statuses."""
         try:
@@ -7461,6 +7499,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         wt_path = str(self.session_path)
         container = self.query_one("#status_content", VerticalScroll)
+        # Preserve focus across the rebuild: capture the focused group now and
+        # restore it after the new rows mount (deferred, like the board). Without
+        # this, remove_children() drops focus on every status refresh. (t1018_3)
+        focused_group = next(
+            (row.group_name for row in self.query(GroupRow) if row.has_focus),
+            None,
+        )
         container.remove_children()
 
         if not os.path.isdir(wt_path):
@@ -7609,6 +7654,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             )
             for log_info in logs:
                 container.mount(StatusLogRow(log_info))
+
+        if focused_group is not None:
+            self.call_after_refresh(self._refocus_group, focused_group)
 
     def _reset_agent(self, row: "AgentStatusRow") -> None:
         """Reset an agent from Error to Waiting by updating the status file directly."""
@@ -8215,6 +8263,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.push_screen(
             OperationDetailScreen(event.group_name, self.session_path)
         )
+
+    @on(GroupRow.ToggleRequested)
+    def on_group_row_toggle_requested(
+        self, event: GroupRow.ToggleRequested
+    ) -> None:
+        """Expand/collapse a Running-tab group on double-click (t1018_3)."""
+        self._toggle_group(event.group_name)
 
     # ------------------------------------------------------------------
     # Actions wizard
