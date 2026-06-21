@@ -7,7 +7,7 @@ status: Ready
 labels: [brainstorming, ait_brainstorm]
 created_at: 2026-06-17 10:52
 updated_at: 2026-06-17 10:52
-boardidx: 170
+boardidx: 20
 ---
 
 ## Problem

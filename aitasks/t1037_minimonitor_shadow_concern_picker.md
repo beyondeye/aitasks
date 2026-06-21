@@ -3,10 +3,12 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, shadow, claudeskills, clipboard, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-21 11:19
-updated_at: 2026-06-21 11:19
+updated_at: 2026-06-21 11:36
+boardidx: 50
 ---
 
 ## Goal
@@ -125,3 +127,7 @@ Likely children (planning task will finalize order and dependencies):
   by guardrail — preserve that).
 - No clipboard helper script reinvention — use Textual's `copy_to_clipboard`.
 - No changes to how the code-agent itself formats its output.
+
+
+NOTE: the feature we are implementing here has some similarity to https://code.claude.com/docs/en/ultraplan
+perhaps review the current implementation plan for this feature in light of the design of ultraplan??

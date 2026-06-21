@@ -8,7 +8,7 @@ labels: [brainstorming, tui, ait_brainstorm]
 children_to_implement: [t1018_2, t1018_3, t1018_4]
 created_at: 2026-06-17 10:27
 updated_at: 2026-06-21 11:15
-boardidx: 160
+boardidx: 40
 ---
 
 Fix three UX gaps in the `ait brainstorm` TUI

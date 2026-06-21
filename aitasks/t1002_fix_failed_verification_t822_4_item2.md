@@ -7,7 +7,7 @@ status: Ready
 labels: [verification, bug]
 created_at: 2026-06-15 18:01
 updated_at: 2026-06-15 18:01
-boardidx: 100
+boardidx: 110
 ---
 
 ## Failed verification item from t822_2
