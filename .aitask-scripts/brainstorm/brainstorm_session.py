@@ -655,6 +655,7 @@ def _agent_to_group_name(agent_name: str) -> str:
     """
     role_to_group = {
         "explorer": "explore",
+        "comparator": "compare",
         "synthesizer": "synthesize",
         "module_decomposer": "module_decompose",
         "module_merger": "module_merge",
@@ -1044,6 +1045,55 @@ def apply_synthesizer_output(
         status="Completed",
     )
     return new_id
+
+
+def _comparator_needs_apply(task_num: int | str, agent_name: str) -> bool:
+    """Return True iff the comparator's owning compare group exists and has
+    not yet been finalized (``status != "Completed"``).
+
+    Unlike the explorer/synthesizer ``_needs_apply`` checks, a comparator
+    creates **no node** and its ``_output.md`` is free-form analysis with no
+    NODE_YAML delimiters — so the durable, restart-safe idempotency signal is
+    the group's own status, not a node-collision check. Once
+    :func:`apply_comparator_output` flips the group to "Completed", this
+    returns False and neither the poll timer nor a session-scan re-applies it.
+    """
+    wt = crew_worktree(task_num)
+    group_name = _agent_to_group_name(agent_name)
+    groups = _read_groups_file(str(wt / GROUPS_FILE)).get("groups", {})
+    group_info = groups.get(group_name, {}) if isinstance(groups, dict) else {}
+    if not group_info:
+        return False
+    return group_info.get("status") != "Completed"
+
+
+def apply_comparator_output(task_num: int | str, agent_name: str) -> str:
+    """Finalize a completed comparator operation.
+
+    Unlike explorer/synthesizer, a comparator produces analysis output only
+    (no node). The sole apply responsibility is flipping the owning compare
+    group's status ``Waiting`` → ``Completed`` so the Status screen stops
+    showing "100% + Waiting" and the operation's ``_output.md`` becomes
+    reachable via ``OperationDetailScreen``. The comparator is already in the
+    group's ``agents`` list (recorded by :func:`record_operation` at
+    registration), so no ``agents_append`` is needed.
+
+    Returns:
+        The finalized group name (e.g. ``compare_001``).
+
+    Raises:
+        ValueError: the agent's compare group is not present in br_groups.yaml.
+    """
+    wt = crew_worktree(task_num)
+    group_name = _agent_to_group_name(agent_name)
+    groups = _read_groups_file(str(wt / GROUPS_FILE)).get("groups", {})
+    if not isinstance(groups, dict) or group_name not in groups:
+        raise ValueError(
+            f"apply_comparator_output: no compare group '{group_name}' for "
+            f"agent '{agent_name}' in {GROUPS_FILE}"
+        )
+    update_operation(task_num, group_name, status="Completed")
+    return group_name
 
 
 _MODULE_NODE_BLOCK_RE = re.compile(

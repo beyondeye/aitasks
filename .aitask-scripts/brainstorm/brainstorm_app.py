@@ -3173,8 +3173,12 @@ class GroupRow(Static, can_focus=True):
             hints = []
             if self.has_failed_agent:
                 hints.append("n: re-run fresh")
-            if self.has_completed_agent and op in ("explore", "synthesize"):
+            if self.has_completed_agent and op in (
+                "explore", "synthesize", "compare"
+            ):
                 hints.append("i: retry-apply")
+            if self.has_completed_agent:
+                hints.append("o: open output")
             if hints:
                 line += "  [dim](" + " | ".join(hints) + ")[/dim]"
         return line
@@ -5670,6 +5674,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._applying_synthesizer: set[str] = set()
         self._synthesizer_apply_errors: dict[str, str] = {}
         self._synthesizer_poll_timer = None
+        # Comparator completion lifecycle (t1020). A compare op creates no node;
+        # the poll timer fires until every tracked comparator has finalized its
+        # operation status (Waiting → Completed) or been dropped.
+        self._comparator_agents: set[str] = set()
+        self._applying_comparator: set[str] = set()
+        self._comparator_apply_errors: dict[str, str] = {}
+        self._comparator_poll_timer = None
         self._module_agents: set[str] = set()
         self._applying_module_agent: set[str] = set()
         self._module_apply_errors: dict[str, str] = {}
@@ -6012,6 +6023,18 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             focused = self.focused
             if isinstance(focused, GroupRow):
                 self._retry_group_apply(focused)
+                event.prevent_default()
+                event.stop()
+                return
+
+        # o: open the focused operation group's OperationDetailScreen (t1020).
+        # The output-access path for node-less ops (e.g. Compare), which have
+        # no created node to press `o` on. `o` is a NodeRow-scoped binding, so
+        # it only reaches here when a GroupRow is focused — no conflict.
+        if event.key == "o":
+            focused = self.focused
+            if isinstance(focused, GroupRow):
+                self._open_group_operation(focused)
                 event.prevent_default()
                 event.stop()
                 return
@@ -6763,6 +6786,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._try_apply_initializer_if_needed()
         self._scan_existing_explorers()
         self._scan_existing_synthesizers()
+        self._scan_existing_comparators()
         self._scan_existing_module_agents()
 
     def _try_apply_initializer_if_needed(self, force: bool = False) -> None:
@@ -6960,6 +6984,149 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._load_existing_session()
         finally:
             self._applying_explorer.discard(agent_name)
+
+    # ------------------------------------------------------------------
+    # Comparator completion lifecycle (t1020)
+    # ------------------------------------------------------------------
+    # A Compare op produces analysis output only — no node. So the apply step
+    # just flips the owning compare group's status Waiting → Completed (mirrors
+    # the explorer/synthesizer register → poll → apply lifecycle, minus node
+    # creation), which clears the confusing "100% + Waiting" Status-screen state.
+
+    def _register_comparator_agent(self, agent_name: str) -> None:
+        """Main-thread: track a freshly-registered comparator and ensure the
+        poll timer is running."""
+        self._comparator_agents.add(agent_name)
+        self._ensure_comparator_poll_timer()
+
+    def _ensure_comparator_poll_timer(self) -> None:
+        if self._comparator_poll_timer is not None:
+            return
+        if not self._comparator_agents:
+            return
+        self._comparator_poll_timer = self.set_interval(
+            5, self._poll_comparators,
+        )
+
+    def _stop_comparator_poll_timer(self) -> None:
+        if self._comparator_poll_timer is not None:
+            try:
+                self._comparator_poll_timer.stop()
+            except Exception:
+                pass
+            self._comparator_poll_timer = None
+
+    def _scan_existing_comparators(self) -> None:
+        """Scan the worktree for comparator agents that are in-flight or
+        completed-but-unfinalized, so the poll timer keeps watching them.
+        Idempotent — safe to call from ``_load_existing_session``.
+        """
+        wt = self.session_path
+        if not wt or not Path(wt).is_dir():
+            return
+        try:
+            from brainstorm.brainstorm_session import (
+                _agent_apply_scan_should_track,
+                _comparator_needs_apply,
+            )
+        except Exception:
+            return
+        for status_path in sorted(Path(wt).glob("comparator_*_status.yaml")):
+            agent = status_path.stem[:-len("_status")]
+            if agent in self._comparator_agents:
+                continue
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            status = (data or {}).get("status", "")
+            needs_apply = (
+                _comparator_needs_apply(self.task_num, agent)
+                if status == "Completed" else False
+            )
+            if not _agent_apply_scan_should_track(status, needs_apply):
+                continue
+            self._comparator_agents.add(agent)
+        self._ensure_comparator_poll_timer()
+
+    def _poll_comparators(self) -> None:
+        """Timer tick: for each tracked comparator, finalize its operation if
+        it's Completed. Drops entries already finalized (idempotent across
+        restarts) and failed agents. Stops the timer when empty.
+        """
+        if not self._comparator_agents:
+            self._stop_comparator_poll_timer()
+            return
+        try:
+            from brainstorm.brainstorm_session import (
+                _AGENT_FAILED_STATUSES,
+                _comparator_needs_apply,
+            )
+        except Exception:
+            return
+        for agent in list(self._comparator_agents):
+            if agent in self._applying_comparator:
+                continue
+            status_path = self.session_path / f"{agent}_status.yaml"
+            if not status_path.is_file():
+                continue
+            try:
+                data = read_yaml(str(status_path))
+            except Exception:
+                continue
+            status = (data or {}).get("status", "")
+            if status in _AGENT_FAILED_STATUSES:
+                self._comparator_agents.discard(agent)
+                continue
+            if status != "Completed":
+                continue
+            if not _comparator_needs_apply(self.task_num, agent):
+                # Already finalized (e.g., by a prior session). Drop it.
+                self._comparator_agents.discard(agent)
+                continue
+            self._try_apply_comparator_if_needed(agent)
+        if not self._comparator_agents:
+            self._stop_comparator_poll_timer()
+
+    def _try_apply_comparator_if_needed(
+        self, agent_name: str, force: bool = False,
+    ) -> None:
+        """Single-shot finalize attempt for one comparator agent. ``force``
+        (the ``i`` retry-apply path) bypasses ``_comparator_needs_apply`` so a
+        re-flip works even after the group is already Completed (an idempotent
+        no-op). Failures surface via the apply banner.
+        """
+        if agent_name in self._applying_comparator:
+            return
+        from brainstorm.brainstorm_session import (
+            _comparator_needs_apply,
+            apply_comparator_output,
+        )
+        if not force and not _comparator_needs_apply(
+            self.task_num, agent_name,
+        ):
+            return
+        self._applying_comparator.add(agent_name)
+        try:
+            try:
+                group = apply_comparator_output(self.task_num, agent_name)
+            except Exception as exc:
+                self._comparator_apply_errors[agent_name] = str(exc)
+                self._set_apply_banner(
+                    f"Comparator {agent_name} finalize failed: {exc} — "
+                    f"focus the group and press 'i' to retry"
+                )
+                return
+            self._comparator_apply_errors.pop(agent_name, None)
+            self._comparator_agents.discard(agent_name)
+            self._clear_apply_banner()
+            self.notify(
+                f"Comparator {agent_name} complete → {group}. "
+                f"Press 'o' on the group to view output."
+            )
+            self._refresh_runtime()
+        finally:
+            self._applying_comparator.discard(agent_name)
 
     # ------------------------------------------------------------------
     # Module op auto-apply
@@ -7777,10 +7944,12 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             applier = self._try_apply_explorer_if_needed
         elif op == "synthesize":
             applier = self._try_apply_synthesizer_if_needed
+        elif op == "compare":
+            applier = self._try_apply_comparator_if_needed
         else:
             self.notify(
-                f"Retry-apply only applies to explore/synthesize operations "
-                f"(this group is '{op}').",
+                f"Retry-apply only applies to explore/synthesize/compare "
+                f"operations (this group is '{op}').",
                 severity="warning",
             )
             return
@@ -7804,6 +7973,23 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         for name in completed:
             applier(name, force=True)
+
+    def _open_group_operation(self, row: "GroupRow") -> None:
+        """``o`` on a focused GroupRow: open ``OperationDetailScreen`` for the
+        group (t1020). This is the output-access path for node-less operations
+        such as Compare — whose ``_output.md`` has no created node to press
+        ``o`` on. Gated on ``has_completed_agent`` so the action stays
+        consistent with the rendered hint and a Waiting group never opens a
+        placeholder-only modal.
+        """
+        if not getattr(row, "has_completed_agent", False):
+            self.notify(
+                "No completed output to open yet.", severity="warning",
+            )
+            return
+        self.push_screen(
+            OperationDetailScreen(row.group_name, self.session_path)
+        )
 
     def _rerun_group_fresh(self, row: "GroupRow") -> None:
         """``n`` on a focused GroupRow: relaunch the operation from scratch via
@@ -8627,6 +8813,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     target_sections=target_sections,
                 )
                 agents_list.append(agent)
+                # Track the comparator so the poller finalizes its operation
+                # status (Waiting → Completed) when the agent completes (t1020).
+                self.call_from_thread(
+                    self._register_comparator_agent, agent,
+                )
                 msg = f"Registered comparator: {agent}"
             elif op == "synthesize":
                 agent = register_synthesizer(
