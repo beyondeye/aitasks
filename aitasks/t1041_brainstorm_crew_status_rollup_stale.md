@@ -43,3 +43,8 @@ aggregate) and ensure the aggregate recomputes to `Completed` / `100` once every
 member agent has reached a terminal `Completed` state, rather than only being
 finalized by `cmd_archive`. Decide whether the roll-up should be derived
 on-read from member `*_status.yaml` files instead of separately persisted.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-21T15:32:55Z status=pass attempt=1 type=human
