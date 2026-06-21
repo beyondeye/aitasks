@@ -120,3 +120,42 @@ format spec would split the source of truth.
 Standard cleanup/archival per task-workflow Step 9 — current-branch profile, so
 no worktree teardown; archive child via
 `./.aitask-scripts/aitask_archive.sh 1037_6`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly as planned, three edits:
+  1. `.claude/skills/aitask-shadow/plan-challenge.md` Step 6 — reworded the
+     `body` rule so it carries the full framing (problem + why-it-bites +
+     interpretive latitude), explicitly stated "do not compress to a bare
+     one-liner / the framing is as important as the point", and clarified that
+     "one logical line" is a **parser** constraint (no literal newline
+     mid-concern), not a brevity one. Replaced the two terse worked-example
+     concerns with richly-framed ones modelling problem + scenario + latitude.
+  2. `.claude/skills/aitask-shadow/plan-assumptions.md` Step 6 — parallel
+     rewording (kept the assumption-specific phrasing: assumption + why-it-is-
+     dangerous + how to confirm/harden) and parallel richly-framed example.
+  3. `tests/test_concern_parser.py` — added `test_richly_framed_body_round_trip`:
+     a long, multi-sentence body wrapped at width 72 across >2 rows reassembles
+     to exactly one `Concern` with the full body (motivation `"It bites on"`
+     preserved) and `has_concern_block` True. Encodes the task's Verification
+     bullet and guards the instruction intent against future parser regressions.
+- **Deviations from plan:** None.
+- **Issues encountered:** `pytest` is not installed in the project venv; ran the
+  suite via `python3 tests/test_concern_parser.py` (the file's `unittest`
+  `__main__` entry) instead. 12/12 pass (was 11 + 1 new). `aitask_skill_verify.sh`
+  passes (12 templates / 3 agents) — the shadow `plan-*.md` are plain
+  sub-procedures, not `.j2`, so no goldens needed regeneration.
+- **Key decisions:** Left `aidocs/framework/shadow_concern_format.md` untouched —
+  the wire format (fences + `- [priority | region]` marker) is unchanged; body
+  *richness* is a producer-prompt concern, and duplicating the framing guidance
+  into the format spec would split the source of truth. No port to Codex/OpenCode
+  shadow trees (thin `SKILL.md` wrappers redirecting to the Claude source; they
+  hold no `plan-*.md`) — the single Claude edit serves all three agents.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** No sentinel/grammar change — t1037_3 (picker
+  modal) and t1037_4 (capture/auto-offer wiring) are unaffected. The richer
+  bodies directly improve what `build_clipboard_payload` forwards into the
+  followed pane, which is the payoff t1037_3/_4 deliver. The capture path
+  (t1037_4) MUST wrap-join (`tmux capture-pane -J`) for these multi-row bodies
+  to reassemble — already documented in `shadow_concern_format.md`'s capture-join
+  contract; the new round-trip test models exactly that join.
