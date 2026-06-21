@@ -20,6 +20,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from tui_registry import TUI_NAMES as _DEFAULT_TUI_NAMES
 from tmux_exec import TmuxClient
@@ -121,6 +122,16 @@ class AitasksSession:
     # own project_config.yaml project_group, else None (ungrouped). Only a
     # *valid* slug ever populates this — invalid config values resolve to None.
     project_group: str | None = None
+
+
+class RegistryRecord(NamedTuple):
+    """Raw per-user project registry entry."""
+
+    name: str
+    path: str
+    git_remote: str
+    last_opened: str
+    project_group: str
 
 
 def find_terminal() -> str | None:
@@ -375,11 +386,11 @@ def _resolve_config_project_group(project_root: Path) -> str | None:
     return value if valid else None
 
 
-def _parse_registry_records() -> list[tuple[str, str, str, str, str]]:
-    """Parse ``~/.config/aitasks/projects.yaml`` into raw 5-field tuples.
+def _parse_registry_records() -> list[RegistryRecord]:
+    """Parse ``~/.config/aitasks/projects.yaml`` into raw registry records.
 
-    Returns ``(name, path, git_remote, last_opened, project_group)`` for every
-    entry, with empty strings for absent fields. This is the **single
+    Returns a :class:`RegistryRecord` for every entry, with empty strings for
+    absent fields. This is the **single
     registry-file reader authority** (t970): it is the byte-parity equivalent of
     ``aitask_projects.sh::list_registry_entries`` and is exposed to the bash
     side via the ``--list-registry`` / ``--resolve-index`` CLI below. Honors
@@ -409,7 +420,7 @@ def _parse_registry_records() -> list[tuple[str, str, str, str, str]]:
             s = s[1:-1]
         return s
 
-    records: list[tuple[str, str, str, str, str]] = []
+    records: list[RegistryRecord] = []
     cur_name = ""
     cur_path = ""
     cur_remote = ""
@@ -419,7 +430,15 @@ def _parse_registry_records() -> list[tuple[str, str, str, str, str]]:
     def _flush() -> None:
         nonlocal cur_name, cur_path, cur_remote, cur_last, cur_group
         if cur_name:
-            records.append((cur_name, cur_path, cur_remote, cur_last, cur_group))
+            records.append(
+                RegistryRecord(
+                    name=cur_name,
+                    path=cur_path,
+                    git_remote=cur_remote,
+                    last_opened=cur_last,
+                    project_group=cur_group,
+                )
+            )
         cur_name = ""
         cur_path = ""
         cur_remote = ""
@@ -473,14 +492,14 @@ def _read_registry_index() -> list[tuple[str, Path, str, str]]:
     group resolution (t1025_1). File order is preserved.
     """
     entries: list[tuple[str, Path, str, str]] = []
-    for name, path, _remote, _last, group in _parse_registry_records():
-        if not (name and path):
+    for record in _parse_registry_records():
+        if not (record.name and record.path):
             continue
-        p = Path(path)
+        p = Path(record.path)
         if (p / "aitasks" / "metadata" / "project_config.yaml").is_file():
-            entries.append((name, p, "OK", group))
+            entries.append((record.name, p, "OK", record.project_group))
         else:
-            entries.append((name, p, "STALE", group))
+            entries.append((record.name, p, "STALE", record.project_group))
     return entries
 
 
@@ -1311,8 +1330,11 @@ def _cli_list_registry() -> int:
     preserving writers (``cmd_remove`` / ``cmd_prune``) to retain group state.
     """
     out = "".join(
-        f"{name}|{path}|{remote}|{last}|{group}\n"
-        for name, path, remote, last, group in _parse_registry_records()
+        (
+            f"{record.name}|{record.path}|{record.git_remote}|"
+            f"{record.last_opened}|{record.project_group}\n"
+        )
+        for record in _parse_registry_records()
     )
     sys.stdout.write(out)
     return 0
@@ -1324,9 +1346,9 @@ def _cli_resolve_index(name: str) -> int:
     Matches bash ``index_lookup_path``: first entry whose name equals ``name``
     *and* has a non-empty path wins; prints nothing on miss. Exit 0 either way.
     """
-    for n, path, _remote, _last, _group in _parse_registry_records():
-        if n == name and path:
-            sys.stdout.write(f"{path}\n")
+    for record in _parse_registry_records():
+        if record.name == name and record.path:
+            sys.stdout.write(f"{record.path}\n")
             return 0
     return 0
 

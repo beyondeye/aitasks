@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".aitask-script
 import agent_launch_utils
 from agent_launch_utils import (
     AitasksSession,
+    _parse_registry_records,
     _read_registry_index,
     discover_aitasks_sessions,
 )
@@ -162,6 +163,28 @@ class IncludeRegisteredTests(unittest.TestCase):
         # No project_group declared -> empty 4th element.
         groups = {e[0]: e[3] for e in entries}
         self.assertEqual(groups["ok_proj"], "")
+
+    def test_parse_registry_records_exposes_named_fields(self):
+        idx = self.tmp / "projects.yaml"
+        idx.write_text(
+            "projects:\n"
+            "  - name: alpha\n"
+            "    path: /tmp/alpha\n"
+            "    git_remote: https://example.test/alpha.git\n"
+            "    last_opened: 2026-01-02\n"
+            "    project_group: suite_a\n"
+        )
+        os.environ["AITASKS_PROJECTS_INDEX"] = str(idx)
+
+        records = _parse_registry_records()
+
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(record.name, "alpha")
+        self.assertEqual(record.path, "/tmp/alpha")
+        self.assertEqual(record.git_remote, "https://example.test/alpha.git")
+        self.assertEqual(record.last_opened, "2026-01-02")
+        self.assertEqual(record.project_group, "suite_a")
 
     def test_multiple_entries_emitted_sorted(self):
         proj_x = _make_fake_project(self.tmp / "px", default_session="bbb")
