@@ -7,8 +7,9 @@ status: Implementing
 labels: [aitask_monitormini, tui, clipboard]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1037
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 11:42
-updated_at: 2026-06-21 18:29
+updated_at: 2026-06-21 18:41
 ---
 
 ## Context
@@ -94,3 +95,8 @@ spec `aidocs/framework/shadow_concern_format.md` first.
   payload string) so t1037_4 wires the right callback. Note the chosen
   select-all / copy-all keybindings so the parent MV checklist can exercise
   them.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-21T15:41:05Z status=pass attempt=1 type=human
