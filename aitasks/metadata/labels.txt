@@ -60,6 +60,7 @@ modelvrapper
 opencode
 openshell
 positioning
+project_groups
 pypy
 python
 qa
