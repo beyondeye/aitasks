@@ -80,10 +80,13 @@ read `.aitask-crews/crew-brainstorm-<N>/comparator_<seq>_output.md` directly.)
 - The comparator's `_output.md` is reachable from the TUI (decide and implement
   how a node-less compare op surfaces its `OperationDetailScreen` — e.g. from
   the status screen / GroupRow, since there is no created node to press `o` on).
-- Consider whether the crew-aggregate `_crew_status.yaml` (Running/80 while the
-  only agent is Completed/100) is a separate roll-up bug worth fixing here or
-  splitting out; make the scope decision explicit rather than silently dropping
-  it.
+- **Scope decision (resolved):** the crew-aggregate `_crew_status.yaml`
+  (Running/80 while the only agent is Completed/100) is a separate crew-runner
+  roll-up concern (written by the crew runner + `brainstorm_cli.py::cmd_archive`,
+  a different subsystem from the brainstorm operation lifecycle) and was **split
+  out to t1041** rather than fixed here. This task fixes only the operation-level
+  `Waiting → Completed` transition; the known `Running/80` debt is tracked in
+  t1041.
 - Add a regression test (e.g. extend `tests/test_brainstorm_compare_overlay.py`
   or a sibling) proving a completed comparator drives the operation status to
   `Completed`.
