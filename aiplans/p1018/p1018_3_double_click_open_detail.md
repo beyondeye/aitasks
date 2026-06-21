@@ -160,3 +160,52 @@ DAG-node double-click. Do not touch `NodeRow`, `_DAGStatic.on_click`,
 ## Step 9 — Post-implementation
 Archive via `./.aitask-scripts/aitask_archive.sh 1018_3`. Parent stays active
 until t1018_4 (the remaining sibling) lands.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-21 13:34)
+- **Requested by user:** Hovering the *focused* operation group flipped its
+  background from the focus orange to the gray hover color — confusing. Hover
+  over a focused group should read as a shade of the focus orange instead.
+- **Root cause:** `GroupRow:focus` (`background: $accent`) and `GroupRow:hover`
+  (`background: $surface-lighten-1`) are equal-specificity single-pseudo rules;
+  `:hover` is declared after `:focus`, so a focused+hovered row took the gray.
+- **Changes made:** Added a higher-specificity `GroupRow:focus:hover` rule
+  (`background: $accent-lighten-1; color: $text;`) so hovering a focused group
+  stays in the accent family. App still boots (CSS parses; pilot tests green).
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py` (CSS block).
+- **Note:** the sibling Running-tab rows (`AgentStatusRow`, `ProcessRow`, etc.)
+  share the same `:focus`/`:hover` pattern; left unchanged per the user's
+  operation-group-scoped request.
+
+## Final Implementation Notes
+- **Actual work done:** In `.aitask-scripts/brainstorm/brainstorm_app.py`:
+  (1) `GroupRow` gained a `ToggleRequested` message and a chain-aware
+  `on_click(self, event)` — `chain == 2` posts the message, single-click focuses;
+  (2) extracted `_toggle_group(name)` (the `_expanded_groups` toggle + refresh)
+  and repointed the `Enter` handler at it; added the App handler
+  `on_group_row_toggle_requested`; (3) `_refresh_status_tab` now captures the
+  focused group's `group_name` before `remove_children()` and restores it via
+  `call_after_refresh(self._refocus_group, …)` (new helper) after re-mount;
+  (4) added a `GroupRow:focus:hover` CSS rule (`$accent-lighten-1`) so a hovered
+  focused row stays in the accent family. New test
+  `tests/test_brainstorm_group_dblclick_focus.py` (5 tests).
+- **Deviations from plan:** Scope was narrowed during planning (user-confirmed):
+  Running-tab GroupRow only (Browse/DAG dropped), and double-click toggles
+  expand/collapse rather than opening `OperationDetailScreen`. The
+  `GroupRow:focus:hover` CSS fix was added during review (Post-Review Change 1),
+  not in the original plan.
+- **Issues encountered:** `GroupRow.on_click` previously took no `event`
+  parameter; added one to read `event.chain`. No other surprises.
+- **Key decisions:** Routed the double-click toggle through a `ToggleRequested`
+  message (the toggle state lives on the App, not the row); deferred refocus via
+  `call_after_refresh` (mirrors `aitask_board.py` `_refocus_card`); used
+  `$accent-lighten-1` for hover-on-focus to keep the focused row recognizable.
+- **Upstream defects identified:** `.aitask-scripts/brainstorm/brainstorm_app.py:4954-4977 — AgentStatusRow / ProcessRow (and peer Running-tab rows) share the same equal-specificity `:focus`/`:hover` CSS where `:hover` overrides `:focus`, so a focused+hovered row flips to gray; they lack the `:focus:hover` accent rule now added to GroupRow (pre-existing cosmetic inconsistency, left unchanged per the user's operation-group-only scope).`
+- **Notes for sibling tasks:** Reusable patterns for t1018_4 / future children:
+  the `_toggle_group` extraction (share one toggle impl across key + mouse), the
+  focus-preservation pattern (capture `group_name` → `call_after_refresh(
+  _refocus_group, …)`), the `GroupRow.ToggleRequested` message, and the
+  `:focus:hover` accent CSS idiom. t1018_4 (manual verification) should add
+  checklist lines for: live double-click toggles a group, focus survives a real
+  Running-tab refresh, and hover-on-focused-group shows the accent shade.
