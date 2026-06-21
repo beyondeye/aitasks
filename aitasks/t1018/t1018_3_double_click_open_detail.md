@@ -77,3 +77,5 @@ double-clicking to toggle is pointless if the next refresh steals focus.)
 > **✅ gate:plan_approved** run=2026-06-21T10:16:11Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-21T10:16:13Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-21T10:37:06Z status=pass attempt=1 type=human
