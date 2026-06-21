@@ -58,6 +58,11 @@ class StubMonitor:
         self.calls = []
         self.panes = {}   # pane_id -> (window_name, session_name)
         self.idle = {}    # pane_id -> (is_idle, idle_seconds)
+        self.discoverable = []   # pane_ids returned by discover_panes()
+    def discover_panes(self):
+        # Mirrors TmuxMonitor.discover_panes(): returns pane objects with .pane_id.
+        self.calls.append(("discover_panes",))
+        return [SimpleNamespace(pane_id=p) for p in self.discoverable]
     def send_enter(self, p):
         self.calls.append(("send_enter", p)); return True
     def send_keys(self, p, k, literal=False):
@@ -293,6 +298,37 @@ check("subscribe -> res ok (no longer UNKNOWN_VERB)", r["kind"] == "res" and r["
 check("subscribe populates subscription panes", dconn.subscription is not None and dconn.subscription.panes == {"%1", "%2"})
 check("subscribe seeds force set (initial keyframes)", dconn.subscription.force == {"%1", "%2"})
 check("subscribe clamps cadence to policy floor", dconn.subscription.cadence_idle_ms >= 500)
+
+# empty/absent `panes` == "all currently-discovered panes" (t1044): the mobile
+# client sends panes:[] meaning "all"; the router expands via discover_panes().
+mon.discoverable = ["%7", "%8"]
+econn = ConnState()
+r = router.handle(req("subscribe", {"panes": []}, auth=bearer), econn)
+check("empty subscribe -> res ok (not BAD_PAYLOAD)", r["kind"] == "res" and r["payload"]["ok"] is True)
+check("empty subscribe expands to all discovered panes",
+      econn.subscription is not None and econn.subscription.panes == {"%7", "%8"})
+check("empty subscribe echoes discovered roster in response",
+      r["payload"]["panes"] == ["%7", "%8"])
+check("empty subscribe seeds force set with discovered panes",
+      econn.subscription.force == {"%7", "%8"})
+
+aconn = ConnState()
+r = router.handle(req("subscribe", {}, auth=bearer), aconn)  # absent `panes` key
+check("absent panes subscribe also expands to all discovered",
+      r["kind"] == "res" and aconn.subscription is not None
+      and aconn.subscription.panes == {"%7", "%8"})
+
+# A present-but-non-list `panes` is still a hard BAD_PAYLOAD (not "all panes").
+r = router.handle(req("subscribe", {"panes": "%1"}, auth=bearer), ConnState())
+check("non-list panes -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+
+# No discoverable panes -> empty subscribe yields an empty set (no crash, old
+# subscribe-to-nothing behavior preserved when nothing is discovered).
+mon.discoverable = []
+zconn = ConnState()
+r = router.handle(req("subscribe", {"panes": []}, auth=bearer), zconn)
+check("empty subscribe with nothing discovered -> empty panes (no crash)",
+      r["kind"] == "res" and zconn.subscription.panes == set())
 
 r = router.handle(req("request_keyframe", {"pane_id": "%3"}, auth=bearer), dconn)
 check("request_keyframe -> res ok", r["payload"]["ok"] is True)

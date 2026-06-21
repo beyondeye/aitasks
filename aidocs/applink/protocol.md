@@ -157,7 +157,7 @@ Pane content (the streamed tmux output that drives the mobile render loop) does 
 
 - **Encoding:** per-line **styled spans** (text + fg/bg/attrs/width), packed in MessagePack. Server parses ANSI once; mobile never sees raw escape sequences and needs no VT parser.
 - **Frame types:** `keyframe`, `delta`, `append`, `cursor`, `dim` — all final from day 1, all frame-independent (a keyframe alone is enough to render any state).
-- **Subscription:** mobile sends a control-plane `subscribe` verb with the panes to follow, focused/idle cadences, and a forced-keyframe interval. `focus` raises one pane's cadence; `request_keyframe` is the sole recovery path after a gap.
+- **Subscription:** mobile sends a control-plane `subscribe` verb with the panes to follow, focused/idle cadences, and a forced-keyframe interval. An **empty or absent `panes` list means "all currently-discovered panes"** (the roster the server enumerates at subscribe time) — so a client can subscribe to everything without first learning pane ids. `focus` raises one pane's cadence; `request_keyframe` is the sole recovery path after a gap.
 - **Bandwidth:** idle panes cost zero bytes; a focused busy pane stays under ~1 KB per refresh at 4 Hz after `permessage-deflate`.
 - **Staged rollout, fixed format:** Stage 1 ships keyframes only; Stages 2-5 add delta, append fast-path, viewport clipping, and history RPC. No `v` bump across stages — additive per the [Versioning](#versioning) rules.
 

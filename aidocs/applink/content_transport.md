@@ -167,8 +167,11 @@ Mobile drives subscription via control-plane verbs (JSON envelope, text frames):
 
 - `keyframe_interval_ms` upper-bounds the gap between forced keyframes (defends against accumulated delta drift). Server picks min of this and its own policy.
 - `viewport_hint` (Stage 4) — server clips spans/rows to the requested column window before encoding. Optional.
+- `panes` — the pane ids (`%N`) to follow. An **empty list `[]` (or an absent `panes` key) means "all currently-discovered panes"**: the server expands it to the full pane roster it enumerates at subscribe time. This lets a client subscribe to everything without a prior discovery handshake (the mobile app sends `panes: []`). The expansion is **point-in-time** — panes that appear later are not auto-added; the client re-subscribes (or `request_keyframe`s) to pick them up. A present-but-non-list `panes` value is a `BAD_PAYLOAD` error.
 
-Server responds with the current state (a `keyframe` per subscribed pane) on the data plane.
+Server responds with the current state (a `keyframe` per subscribed pane) on the data plane. The `subscribe` `res` echoes the accepted pane set in `payload.panes` (the expanded roster, when an empty/absent list was sent).
+
+**Bandwidth note (all-panes subscribe).** Subscribing to the whole roster streams full content (keyframe + deltas) for every pane. The per-pane delta engine keeps idle panes near-zero-cost after their initial keyframe, and `focus` raises only one pane's cadence, so the steady-state cost is bounded; the main cost is the one-time keyframe burst on connect. A more bandwidth-frugal contract — `pane_status` (roster badges) for all panes but binary content only for the focused/explicitly-subscribed pane — is a planned follow-up that requires coordinated server **and** mobile-app changes.
 
 ### `focus`
 

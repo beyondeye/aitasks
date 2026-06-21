@@ -121,21 +121,44 @@ async def main():
             return 1
         print("ok - paired over wss:// (fingerprint pinned), bearer + monitor_control profile")
 
-        # Best-effort: subscribe to the throwaway pane and await a binary keyframe.
+        # t1044: an EMPTY `subscribe` must mean "all currently-discovered panes".
+        # Send panes:[] (exactly what the mobile client does) and assert the server's
+        # subscribe ack lists the throwaway session's pane in the roster — proving
+        # the expansion end-to-end against the real server. Then best-effort await a
+        # binary keyframe (content streaming) for that pane.
         await ws.send(json.dumps({
             "v": 1, "id": "2", "kind": "req", "verb": "subscribe",
-            "auth": bearer, "payload": {"panes": [pane_id]},
+            "auth": bearer, "payload": {"panes": []},
         }))
+        got_roster = False
+        got_keyframe = False
         try:
             deadline = asyncio.get_event_loop().time() + 8
             while asyncio.get_event_loop().time() < deadline:
                 msg = await asyncio.wait_for(ws.recv(), timeout=8)
-                if isinstance(msg, (bytes, bytearray)) and msg and msg[0] == 0x01:
-                    print("ok - received a binary keyframe (0x01) for the subscribed pane")
-                    return 0
+                if isinstance(msg, (bytes, bytearray)):
+                    if msg and msg[0] == 0x01:
+                        got_keyframe = True
+                    continue
+                frame = json.loads(msg)
+                if frame.get("id") == "2" and frame.get("kind") == "res":
+                    roster = frame.get("payload", {}).get("panes", [])
+                    if pane_id not in roster:
+                        print(f"FAIL: empty subscribe roster {roster} omits throwaway pane {pane_id}")
+                        return 1
+                    got_roster = True
+                    print(f"ok - empty subscribe expanded to all discovered panes (roster includes {pane_id})")
+                if got_roster and got_keyframe:
+                    break
         except asyncio.TimeoutError:
             pass
-        print("SKIP: no keyframe within timeout (pane may be empty/undiscovered) — pair path verified")
+        if not got_roster:
+            print("FAIL: no subscribe ack (res id=2) received for empty subscribe")
+            return 1
+        if got_keyframe:
+            print("ok - received a binary keyframe (0x01) on the empty-subscribe data plane")
+        else:
+            print("SKIP: roster verified; no keyframe within timeout (pane may be empty/undiscovered)")
         return 0
 
 sys.exit(asyncio.run(main()))

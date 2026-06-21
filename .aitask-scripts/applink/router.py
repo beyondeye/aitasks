@@ -260,8 +260,17 @@ class FrameRouter:
 
         if verb == "subscribe":
             panes = payload.get("panes")
-            if not isinstance(panes, list):
+            if panes is not None and not isinstance(panes, list):
                 return self._bad_field(msg_id, verb, "panes")
+            if not panes:
+                # Empty or absent `panes` means "all currently-discovered panes"
+                # (roster subscribe). The mobile client (aitasks_mobile
+                # MonitorSessionMediator) sends `panes: []` intending "all"; without
+                # this expansion it would subscribe to nothing and the data plane
+                # would stay silent. See aidocs/applink/protocol.md §Subscription and
+                # content_transport.md §subscribe. Point-in-time: panes discovered now.
+                payload = dict(payload)
+                payload["panes"] = self._discover_pane_ids()
             if conn.subscription is None:
                 conn.subscription = Subscription()
             accepted = conn.subscription.apply_subscribe(payload)
@@ -511,6 +520,18 @@ class FrameRouter:
             "body": info.body,
             "plan_content": info.plan_content,
         })
+
+    # -- Data-plane helpers ----------------------------------------------------
+
+    def _discover_pane_ids(self) -> list[str]:
+        """Pane ids (``%N``) for every currently-discovered pane — the expansion of
+        an empty/absent ``subscribe``. Degrades to ``[]`` if the monitor cannot
+        enumerate panes, so a stub / limited monitor keeps the old empty-subscribe
+        behavior (subscribe-to-nothing) rather than raising."""
+        discover = getattr(self._monitor, "discover_panes", None)
+        if not callable(discover):
+            return []
+        return [p.pane_id for p in discover() if getattr(p, "pane_id", None)]
 
     # -- Frame builders --------------------------------------------------------
 
