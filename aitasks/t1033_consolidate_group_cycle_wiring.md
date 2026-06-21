@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: refactor
@@ -8,8 +10,8 @@ labels: [tui_switcher, stats_ui, tui]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1025
 created_at: 2026-06-18 16:21
-updated_at: 2026-06-21 11:19
-boardidx: 70
+updated_at: 2026-06-21 11:31
+boardidx: 80
 ---
 
 ## Origin
@@ -40,3 +42,10 @@ only the residual TUI-side wiring (`_cycle_group` in `tui_switcher.py` and
 refresh tails). Keep the TUI-specific widget calls (session row vs sidebar/title/
 panes) where they must differ. If the duplication turns out to be minimal, it is
 acceptable to close this task as not-worth-the-abstraction.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-21T08:31:52Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-21T08:31:52Z status=pass attempt=1 type=machine
