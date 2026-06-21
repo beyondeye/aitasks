@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_monitormini, shadow, tui]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1037
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 11:41
-updated_at: 2026-06-21 12:55
+updated_at: 2026-06-21 13:20
+completed_at: 2026-06-21 13:20
 ---
 
 ## Context
