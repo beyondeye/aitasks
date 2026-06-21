@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [brainstorming, tui, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1018
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 10:19
-updated_at: 2026-06-21 13:16
+updated_at: 2026-06-21 13:39
+completed_at: 2026-06-21 13:39
 ---
 
 ## Context

@@ -5,9 +5,9 @@ depends: [983]
 issue_type: enhancement
 status: Ready
 labels: [brainstorming, tui, ait_brainstorm]
-children_to_implement: [t1018_3, t1018_4]
+children_to_implement: [t1018_4]
 created_at: 2026-06-17 10:27
-updated_at: 2026-06-21 11:59
+updated_at: 2026-06-21 13:39
 boardidx: 40
 ---
 
