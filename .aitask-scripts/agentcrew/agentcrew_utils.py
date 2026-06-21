@@ -19,7 +19,7 @@ AGENT_STATUSES = [
     "Waiting", "Ready", "Running",
     "Completed", "Aborted", "Error", "Paused",
 ]
-CREW_STATUSES = ["Initializing", "Running", "Killing", "Paused", "Completed", "Error"]
+CREW_STATUSES = ["Initializing", "Running", "Killing", "Paused", "Completed", "Error", "Aborted"]
 
 # ---------------------------------------------------------------------------
 # Valid state transitions
@@ -41,12 +41,13 @@ AGENT_TRANSITIONS: dict[str, list[str]] = {
 
 CREW_TRANSITIONS: dict[str, list[str]] = {
     "Initializing": ["Running"],
-    "Running": ["Killing", "Paused", "Completed", "Error"],
-    "Killing": ["Completed", "Error"],
-    "Paused": ["Running", "Killing"],
+    "Running": ["Killing", "Paused", "Completed", "Error", "Aborted"],
+    "Killing": ["Completed", "Error", "Aborted"],
+    "Paused": ["Running", "Killing", "Aborted"],
     # Terminal states
     "Completed": [],
     "Error": [],
+    "Aborted": [],
 }
 
 # ---------------------------------------------------------------------------
@@ -120,6 +121,15 @@ def compute_crew_status(agent_statuses: list[str]) -> str:
     if status_set & active:
         return "Running"
 
+    # All members terminal, no active work. Error already returned above, so the
+    # remaining set is a subset of {Completed, Aborted}. A run where every agent
+    # was user-aborted is reported "Aborted" (honest); any real Completed output
+    # makes it "Completed". Both are terminal and cleanup-eligible, and existing
+    # consumers already treat crew-level "Aborted" as terminal (dashboard
+    # STATUS_COLORS / cleanup gate, cleanup's is_terminal_state).
+    if status_set <= {"Completed", "Aborted", "Error"}:
+        return "Completed" if "Completed" in status_set else "Aborted"
+
     if status_set == {"Waiting"}:
         return "Initializing"
 
@@ -128,6 +138,69 @@ def compute_crew_status(agent_statuses: list[str]) -> str:
 
     # Mixed states (e.g. some Ready, some Waiting, some Completed) -> Running
     return "Running"
+
+
+def compute_crew_progress(agent_statuses: list[str]) -> int:
+    """Percent of member agents that have reached Completed (0 if none)."""
+    total = len(agent_statuses)
+    if total == 0:
+        return 0
+    completed = sum(1 for s in agent_statuses if s == "Completed")
+    return int(completed * 100 / total)
+
+
+def read_member_statuses(crew_dir: str) -> list[str]:
+    """Status string of every member agent (skips members with no status)."""
+    statuses = []
+    for sf in list_agent_files(crew_dir, "_status.yaml"):
+        s = read_yaml(sf).get("status")
+        if s:
+            statuses.append(s)
+    return statuses
+
+
+# Seconds since the last runner heartbeat within which the runner is considered
+# alive (a few runner iterations). Used to decide whether a persisted "Killing"
+# crew status is still authoritative or should be derived from members instead.
+RUNNER_LIVE_STALE_SECONDS = 180
+
+
+def runner_is_live(crew_dir: str) -> bool:
+    """True iff a runner is actively heartbeating for this crew."""
+    p = os.path.join(crew_dir, "_runner_alive.yaml")
+    if not os.path.isfile(p):
+        return False
+    d = read_yaml(p)
+    if d.get("status") != "running":
+        return False
+    hb = _parse_timestamp(str(d.get("last_heartbeat", "")))
+    if hb is None:
+        return False
+    return (datetime.now(timezone.utc) - hb).total_seconds() <= RUNNER_LIVE_STALE_SECONDS
+
+
+def effective_crew_rollup(
+    crew_dir: str, persisted_status: str = "", persisted_progress: int = 0
+) -> tuple[str, int]:
+    """Live (status, progress) for a crew, derived from member status files.
+
+    Fixes a stale persisted ``_crew_status.yaml``: with no live runner to
+    recompute it, the persisted aggregate lags member state. Readers call this
+    instead of trusting the persisted fields, so the aggregate can never go
+    stale at display/query/cleanup time regardless of runner lifecycle.
+
+    "Killing" has no member-derivable equivalent (members stay Running during a
+    graceful shutdown), so it is preserved ONLY while a runner is actively
+    heartbeating; once the runner is gone it is derived from members so it never
+    sticks permanently. A crew with no member status files keeps whatever was
+    persisted (e.g. a freshly-initialized Initializing crew).
+    """
+    if persisted_status == "Killing" and runner_is_live(crew_dir):
+        return persisted_status, persisted_progress
+    statuses = read_member_statuses(crew_dir)
+    if not statuses:
+        return persisted_status or "Initializing", persisted_progress
+    return compute_crew_status(statuses), compute_crew_progress(statuses)
 
 # ---------------------------------------------------------------------------
 # DAG operations
@@ -390,11 +463,17 @@ def list_crews() -> list[dict]:
 
         agent_names = get_agent_names(entry_path)
 
+        eff_status, eff_progress = effective_crew_rollup(
+            entry_path,
+            status_data.get("status", "Unknown"),
+            status_data.get("progress", 0),
+        )
+
         results.append({
             "id": crew_id,
             "name": meta.get("name", crew_id),
-            "status": status_data.get("status", "Unknown"),
-            "progress": status_data.get("progress", 0),
+            "status": eff_status,
+            "progress": eff_progress,
             "created_at": meta.get("created_at", ""),
             "started_at": status_data.get("started_at", ""),
             "updated_at": status_data.get("updated_at", ""),

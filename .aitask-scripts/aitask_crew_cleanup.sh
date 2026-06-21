@@ -7,9 +7,11 @@
 #
 # Only cleans crews in terminal state (Completed, Error, Aborted).
 # Output (batch):
-#   CLEANED:<id>          — Worktree removed successfully
-#   NOT_TERMINAL:<id>:<s> — Crew is not in a terminal state
-#   NOT_FOUND:<id>        — Crew worktree not found
+#   CLEANED:<id>                          — Worktree removed successfully
+#   NOT_TERMINAL:<id>:members_not_terminal — Crew not finished (member-derived;
+#                                            see crew_is_terminal). Stable reason
+#                                            string, not the persisted status.
+#   NOT_FOUND:<id>                         — Crew worktree not found
 
 set -euo pipefail
 
@@ -61,19 +63,6 @@ if [[ -z "$CREW_ID" ]] && ! $ALL_COMPLETED; then
     die "Either --crew <id> or --all-completed is required. Run 'ait crew cleanup --help' for usage."
 fi
 
-# Terminal states that allow cleanup
-is_terminal_state() {
-    local status="$1"
-    case "$status" in
-        "$CREW_STATUS_COMPLETED"|"$AGENT_STATUS_ERROR"|"$AGENT_STATUS_ABORTED")
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
 # Clean a single crew
 cleanup_crew() {
     local cid="$1"
@@ -89,18 +78,14 @@ cleanup_crew() {
         return 1
     fi
 
-    # Read crew status
-    local status_file="$wt_path/_crew_status.yaml"
-    local crew_status=""
-    if [[ -f "$status_file" ]]; then
-        crew_status=$(read_yaml_field "$status_file" "status")
-    fi
-
-    if ! is_terminal_state "$crew_status"; then
+    # Terminal state is derived from member agent status files (crew_is_terminal)
+    # rather than the persisted _crew_status.yaml, which can be stale when no
+    # runner is alive to recompute it.
+    if ! crew_is_terminal "$wt_path"; then
         if $BATCH; then
-            echo "NOT_TERMINAL:$cid:$crew_status"
+            echo "NOT_TERMINAL:$cid:members_not_terminal"
         else
-            warn "Crew '$cid' has status '$crew_status' — only terminal states (Completed, Error, Aborted) can be cleaned"
+            warn "Crew '$cid' is not finished — every member agent must be terminal (Completed, Error, Aborted) before cleanup"
         fi
         return 1
     fi

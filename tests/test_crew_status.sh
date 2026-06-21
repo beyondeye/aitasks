@@ -523,6 +523,34 @@ else
     for _ in $(seq 5); do _inc_pass; done
 fi
 
+# --- Test 16: crew status get derives from members when persisted is stale (t1041) ---
+echo "Test 16: Status CLI — crew get derives over stale _crew_status.yaml"
+if [[ -n "$PYTHON" ]]; then
+    TMPDIR_T16="$(setup_test_repo)"
+    setup_crew_with_agents "$TMPDIR_T16"
+    (
+        cd "$TMPDIR_T16"
+        export PYTHONPATH=".aitask-scripts"
+
+        # Force both members Completed but leave the persisted aggregate stale
+        # (Running/80), as if no runner were alive to recompute it.
+        for m in planner coder; do
+            mf=".aitask-crews/crew-testcrew/${m}_status.yaml"
+            sed 's/^status: .*/status: Completed/' "$mf" > "$mf.tmp" && mv "$mf.tmp" "$mf"
+        done
+        cf=".aitask-crews/crew-testcrew/_crew_status.yaml"
+        sed -e 's/^status: .*/status: Running/' -e 's/^progress: .*/progress: 80/' "$cf" > "$cf.tmp" && mv "$cf.tmp" "$cf"
+
+        output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew get 2>&1)
+        if printf '%s' "$output" | grep -qF "CREW_STATUS:Completed"; then _inc_pass; else _inc_fail; echo "FAIL: crew get did not derive Completed: $output"; fi
+        if printf '%s' "$output" | grep -qF "CREW_PROGRESS:100"; then _inc_pass; else _inc_fail; echo "FAIL: crew get did not derive 100: $output"; fi
+    )
+    cleanup_test_repo "$TMPDIR_T16"
+else
+    echo "SKIP: Python not available"
+    for _ in $(seq 2); do _inc_pass; done
+fi
+
 # ============================================================
 # Summary
 # ============================================================

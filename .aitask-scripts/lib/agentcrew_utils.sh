@@ -33,6 +33,7 @@ CREW_STATUS_COMPLETED="Completed"
 CREW_STATUS_KILLING="Killing"
 CREW_STATUS_PAUSED="Paused"
 CREW_STATUS_ERROR="Error"
+CREW_STATUS_ABORTED="Aborted"
 }
 
 # crew_branch_name <crew_id>
@@ -40,6 +41,37 @@ CREW_STATUS_ERROR="Error"
 crew_branch_name() {
     local crew_id="$1"
     echo "${AGENTCREW_BRANCH_PREFIX}${crew_id}"
+}
+
+# crew_is_terminal <worktree>
+# True iff the crew has finished, derived from member agent status files (so a
+# stale persisted _crew_status.yaml never blocks cleanup). With >=1 member: every
+# member must be in a terminal agent state. With NO members: fall back to the
+# persisted crew status. Mirrors the Python all-terminal rule in
+# agentcrew_utils.compute_crew_status / effective_crew_rollup (no-members branch)
+# — keep the terminal set {Completed, Aborted, Error} in sync across the two.
+crew_is_terminal() {
+    local wt="$1" sf st found=false
+    for sf in "$wt"/*_status.yaml; do
+        [[ -f "$sf" ]] || continue
+        [[ "$(basename "$sf")" == _* ]] && continue   # skip _crew_status.yaml etc.
+        found=true
+        st="$(read_yaml_field "$sf" "status")"
+        case "$st" in
+            "$AGENT_STATUS_COMPLETED"|"$AGENT_STATUS_ABORTED"|"$AGENT_STATUS_ERROR") ;;
+            *) return 1 ;;
+        esac
+    done
+    if $found; then
+        return 0
+    fi
+    # No member agents — fall back to the persisted crew status (preserves the
+    # existing empty-crew cleanup behaviour, e.g. a Completed crew with no agents).
+    st="$(read_yaml_field "$wt/_crew_status.yaml" "status" 2>/dev/null || true)"
+    case "$st" in
+        "$CREW_STATUS_COMPLETED"|"$AGENT_STATUS_ERROR"|"$AGENT_STATUS_ABORTED") return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # agentcrew_worktree_path <crew_id>

@@ -22,6 +22,7 @@ from agentcrew.agentcrew_utils import (
     AGENTCREW_DIR,
     AGENT_STATUSES,
     check_agent_alive,
+    compute_crew_progress,
     compute_crew_status,
     crew_worktree_path,
     get_agent_names,
@@ -651,9 +652,7 @@ def recompute_crew_status(worktree: str, agents: dict[str, dict]) -> None:
     data = read_yaml(crew_status_path)
     old_status = data.get("status", "")
 
-    total = len(agents)
-    completed = sum(1 for s in agent_statuses if s == "Completed")
-    progress = int(completed / total * 100) if total > 0 else 0
+    progress = compute_crew_progress(agent_statuses)
 
     data["status"] = new_status
     data["progress"] = progress

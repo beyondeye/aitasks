@@ -310,6 +310,28 @@ TMPDIR_T11="$(setup_test_repo)"
 )
 cleanup_test_repo "$TMPDIR_T11"
 
+# --- Test 12: report derives crew status/progress over a stale persisted file (t1041) ---
+echo "Test 12: report derives over stale _crew_status.yaml"
+TMPDIR_T12="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T12"
+    setup_crew_with_agents "$TMPDIR_T12"
+    export PYTHONPATH=".aitask-scripts"
+
+    # All members Completed but the persisted aggregate left stale at Running/80.
+    for m in agent_a agent_b agent_c; do
+        mf=".aitask-crews/crew-rptcrew/${m}_status.yaml"
+        sed 's/^status: .*/status: Completed/' "$mf" > "$mf.tmp" && mv "$mf.tmp" "$mf"
+    done
+    cf=".aitask-crews/crew-rptcrew/_crew_status.yaml"
+    sed -e 's/^status: .*/status: Running/' -e 's/^progress: .*/progress: 80/' "$cf" > "$cf.tmp" && mv "$cf.tmp" "$cf"
+
+    output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py --batch summary --crew rptcrew 2>&1)
+    if printf '%s' "$output" | grep -qF "CREW_STATUS:Completed"; then _inc_pass; else _inc_fail; echo "FAIL: report did not derive Completed: $output"; fi
+    if printf '%s' "$output" | grep -qF "CREW_PROGRESS:100"; then _inc_pass; else _inc_fail; echo "FAIL: report did not derive 100: $output"; fi
+)
+cleanup_test_repo "$TMPDIR_T12"
+
 # ============================================================
 # Summary
 # ============================================================

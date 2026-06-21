@@ -19,8 +19,10 @@ from agentcrew.agentcrew_utils import (
     AGENTCREW_DIR,
     AGENT_STATUSES,
     check_agent_alive,
+    compute_crew_progress,
     compute_crew_status,
     crew_worktree_path,
+    effective_crew_rollup,
     get_agent_names,
     get_ready_agents,
     get_stale_agents,
@@ -81,8 +83,12 @@ def cmd_get(args: argparse.Namespace) -> None:
             print(f"Error: Crew status file not found for '{args.crew}'", file=sys.stderr)
             sys.exit(1)
         data = read_yaml(crew_status_path)
-        print(f"CREW_STATUS:{data.get('status', 'Unknown')}")
-        print(f"CREW_PROGRESS:{data.get('progress', 0)}")
+        # Derive on-read from member status files so a stale persisted aggregate
+        # (no live runner to recompute it) never surfaces here.
+        eff_status, eff_progress = effective_crew_rollup(
+            wt, data.get("status", "Unknown"), data.get("progress", 0))
+        print(f"CREW_STATUS:{eff_status}")
+        print(f"CREW_PROGRESS:{eff_progress}")
 
 
 def cmd_set(args: argparse.Namespace) -> None:
@@ -246,12 +252,7 @@ def _recompute_crew_status(wt: str) -> None:
         crew_data = read_yaml(crew_status_path)
         crew_data["status"] = new_crew_status
         crew_data["updated_at"] = now_utc()
-
-        # Compute overall progress
-        total = len(statuses)
-        if total > 0:
-            completed = sum(1 for s in statuses if s == "Completed")
-            crew_data["progress"] = int(completed * 100 / total)
+        crew_data["progress"] = compute_crew_progress(statuses)
 
         write_yaml(crew_status_path, crew_data)
 

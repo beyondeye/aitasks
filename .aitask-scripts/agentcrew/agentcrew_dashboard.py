@@ -16,6 +16,7 @@ from agentcrew.agentcrew_utils import (
     CREW_STATUSES,
     check_agent_alive,
     crew_worktree_path,
+    effective_crew_rollup,
     format_elapsed,
     get_agent_names,
     list_agent_files,
@@ -111,6 +112,14 @@ class CrewManager:
         meta = read_yaml(meta_path) if os.path.isfile(meta_path) else {}
         status_data = read_yaml(status_path) if os.path.isfile(status_path) else {}
         runner_data = read_yaml(runner_path) if os.path.isfile(runner_path) else {}
+
+        # Derive crew status/progress on-read from member status files so a stale
+        # persisted aggregate (no live runner to recompute it) never surfaces in
+        # the detail view.
+        eff_status, eff_progress = effective_crew_rollup(
+            wt, status_data.get("status", "Unknown"), status_data.get("progress", 0))
+        status_data["status"] = eff_status
+        status_data["progress"] = eff_progress
 
         # Load all agents
         agents = {}

@@ -135,6 +135,7 @@ def cmd_archive(args: argparse.Namespace) -> None:
     if crew_status_path.is_file():
         data = read_yaml(str(crew_status_path))
         data["status"] = "Completed"
+        data["progress"] = 100
         write_yaml(str(crew_status_path), data)
 
     print(f"ARCHIVED:{args.task_num}")

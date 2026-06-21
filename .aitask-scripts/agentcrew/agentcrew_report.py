@@ -14,6 +14,7 @@ from agentcrew.agentcrew_utils import (
     AGENTCREW_DIR,
     check_agent_alive,
     crew_worktree_path,
+    effective_crew_rollup,
     format_elapsed,
     get_agent_names,
     list_agent_files,
@@ -77,8 +78,10 @@ def cmd_summary(crew_id: str, batch: bool, group_filter: str | None = None) -> i
     runner_path = os.path.join(wt, "_runner_alive.yaml")
     runner_data = read_yaml(runner_path) if os.path.isfile(runner_path) else {}
 
-    crew_status = status_data.get("status", "Unknown")
-    crew_progress = status_data.get("progress", 0)
+    # Derive on-read from member status files so a stale persisted aggregate
+    # (no live runner to recompute it) never surfaces in the report.
+    crew_status, crew_progress = effective_crew_rollup(
+        wt, status_data.get("status", "Unknown"), status_data.get("progress", 0))
     created_at = meta.get("created_at", "")
     started_at = status_data.get("started_at", "")
 
