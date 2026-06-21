@@ -22,3 +22,5 @@ in tui switcher we have support for two level browsing of other projects and pro
 > **✅ gate:plan_approved** run=2026-06-21T06:58:42Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-21T06:58:43Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-21T07:23:14Z status=pass attempt=1 type=human
