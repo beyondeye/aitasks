@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [applink]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-21 17:39
-updated_at: 2026-06-21 17:39
+updated_at: 2026-06-21 17:42
 ---
 
 The applink data plane never streams anything to the mobile client because
