@@ -45,18 +45,21 @@ and the parent t1037 before starting.
 - Preserve the **advisory-only guardrail** — the block is for the user to copy;
   the shadow still never drives the followed pane.
 
-## Cross-agent port (REQUIRED — shadow is a replicated static skill)
+## Cross-agent reach (NO port needed — wrapper model, corrected during impl)
 
-The shadow skill is NOT an auto-rendered closure; it is replicated per agent.
-Make the change in the Claude Code version FIRST, then port the identical prose
-to:
-- `.agents/skills/aitask-shadow/` (Codex CLI)
-- `.opencode/skills/aitask-shadow/`
+**Original AC was wrong.** It claimed the shadow skill is "replicated per agent"
+and required porting the edited prose to `.agents/` and `.opencode/`. Verified
+against the tree (and the t988 Codex / t989 OpenCode port commits): the Codex
+and OpenCode shadow trees contain **only a thin `SKILL.md` wrapper** that
+redirects to the Claude source (`.claude/skills/aitask-shadow/SKILL.md`). They
+hold **no** `plan-*.md` sub-procedures — when their wrapper follows the Claude
+SKILL.md's Step 3 (`read and follow plan-challenge.md`), the relative path
+resolves into the Claude tree.
 
-Verify all three trees stay in sync (the edit is plain prose, identical across
-agents). If a same-commit port is impractical, create explicit follow-up tasks
-per CLAUDE.md "Working on Skills" — but prefer porting here since the diff is
-small and identical.
+Therefore editing the Claude `plan-challenge.md` / `plan-assumptions.md`
+**automatically serves all three agents**; there is nothing to port and nothing
+to keep byte-identical (only one copy exists). This is a wrapper redirect, not a
+Jinja-rendered closure, but the effect is the same: single source, all agents.
 
 ## Reference files for patterns
 
@@ -72,7 +75,9 @@ small and identical.
 2. Edit `plan-challenge.md` to append the structured block after the prose
    list, with a concrete worked example matching the spec.
 3. Decide + apply the same for `plan-assumptions.md`.
-4. Port identical edits to `.agents/` and `.opencode/` shadow trees.
+4. No cross-agent port — the Codex/OpenCode trees are wrappers that redirect to
+   the Claude source (see "Cross-agent reach" above). The single Claude edit
+   serves all three agents.
 5. Run `./.aitask-scripts/aitask_skill_verify.sh` (skill/template integrity).
 6. Behavioral check: do a sample shadow run (or paste a representative plan)
    and confirm the emitted block parses cleanly via t1037_1's
@@ -82,8 +87,6 @@ small and identical.
 ## Verification steps
 
 - `./.aitask-scripts/aitask_skill_verify.sh` passes.
-- The three agent trees' `plan-challenge.md` (and `plan-assumptions.md` if
-  changed) are byte-identical in the new block instruction.
 - A sample emitted block feeds `concern_parser.parse_concerns` and yields the
   expected `Concern` items (closes the producer→consumer loop end-to-end with
   t1037_1).
