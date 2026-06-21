@@ -32,6 +32,15 @@ keeping brainstorm in the user-facing TUI list + a 3-tab note in
 - `website/content/docs/tuis/_index.md` — replace the "documentation is pending"
   line with a link to the new section.
 
+## Coordination — t1018 (brainstorm op-restart / double-click / footer hygiene)
+t1018 changes the brainstorm keymap that this task's `reference.md` documents:
+it adds Running-tab operation-row restart keys (t1018_2), double-click → open
+detail (t1018_3), and replaces the undeliverable `ctrl+shift+b`/`ctrl+shift+l`
+preview chords with deliverable `alt+<letter>` keys while gating the retry-apply
+actions (t1018_1). Since the source of truth below is the live `BINDINGS`, this
+task self-corrects if picked **after** t1018 lands — prefer that ordering, or
+re-read `brainstorm_app.py` at implementation time to capture the final keymap.
+
 ## Reference
 - Source of truth: `.aitask-scripts/brainstorm/brainstorm_app.py` (read the
   current BINDINGS + tab compose, do not rely on archived design plans).

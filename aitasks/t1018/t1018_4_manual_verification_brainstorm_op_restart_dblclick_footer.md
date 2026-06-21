@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [t1018_3]
+depends: [t1018_1, t1018_2, t1018_3]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1018_1, 1018_2, 1018_3]
+verifies: [t1018_1, t1018_2, t1018_3]
 anchor: 1018
 created_at: 2026-06-21 10:23
-updated_at: 2026-06-21 10:23
+updated_at: 2026-06-21 10:24
 ---
 
 ## Manual Verification Task
