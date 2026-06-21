@@ -35,3 +35,25 @@ Depends on t1025_3 (behavior + bindings exist). See parent plan `aiplans/p1025_*
 
 ## Step 9
 Standard child archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added code-verified project-group docs to the maintainer
+  cross-repo reference and website pages. The docs now cover `project.project_group`,
+  registry `project_group`, the explicit `-` ungrouped sentinel, slug validation,
+  `ait projects group list/set/unset/rename/sync`, two-axis switcher navigation,
+  Stats' `win/grp` behavior, and the Settings Project Groups tab.
+- **Deviations from plan:** No new workflow page was added; the existing
+  multi-project workflow page and existing TUI docs were sufficient.
+- **Issues encountered:** Existing unrelated working-tree changes were present
+  in brainstorm files/tests and were left untouched. Hugo emitted existing
+  deprecation warnings for `.Language.LanguageDirection` and `.Site.AllPages`,
+  but the build succeeded.
+- **Key decisions:** Archived sibling plans were used only as breadcrumbs. The
+  documented behavior was checked against current source code in
+  `agent_launch_utils.py`, `aitask_projects.sh`, `tui_switcher.py`,
+  `stats_app.py`, `settings_app.py`, and related tests before writing docs.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1025_5 should verify the docs against the live
+  CLI/TUI behavior: Settings Project Groups tab (`g`, Enter, `h/u/n/y/f`),
+  switcher Left/Right plus `[`/`]`, and Stats `win/grp` behavior.
