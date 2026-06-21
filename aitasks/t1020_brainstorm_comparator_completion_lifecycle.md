@@ -109,3 +109,5 @@ read `.aitask-crews/crew-brainstorm-<N>/comparator_<seq>_output.md` directly.)
 > **✅ gate:plan_approved** run=2026-06-21T11:44:26Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-21T11:44:28Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-21T11:52:25Z status=pass attempt=1 type=human
