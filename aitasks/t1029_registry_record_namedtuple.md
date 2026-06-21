@@ -3,11 +3,12 @@ priority: low
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [tui_switcher, tmux]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1025
 created_at: 2026-06-18 15:15
-updated_at: 2026-06-18 15:15
+updated_at: 2026-06-21 10:52
 boardidx: 40
 ---
 
