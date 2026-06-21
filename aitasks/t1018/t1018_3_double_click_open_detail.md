@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
@@ -88,3 +90,5 @@ Single-click behavior (focus / expand-collapse) is unchanged.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-21T10:16:11Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-21T10:16:13Z status=pass attempt=1 type=machine
