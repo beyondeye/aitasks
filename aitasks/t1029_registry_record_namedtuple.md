@@ -7,8 +7,9 @@ status: Implementing
 labels: [tui_switcher, tmux]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1025
+implemented_with: codex/gpt5_5
 created_at: 2026-06-18 15:15
-updated_at: 2026-06-21 10:52
+updated_at: 2026-06-21 10:56
 boardidx: 40
 ---
 
@@ -47,3 +48,8 @@ Scope:
 - `bash tests/test_registry_reader_parity.sh`
 - `bash tests/test_projects_cmd.sh`
 - `python3 -m unittest tests.test_project_groups tests.test_discover_include_registered`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:risk_evaluated** run=2026-06-21T07:56:17Z status=pass attempt=1 type=machine
