@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [aitask_monitormini, tmux, codeagent, claudeskills, gates]
-children_to_implement: [t986_2]
 created_at: 2026-06-14 15:36
-updated_at: 2026-06-21 09:55
-boardidx: 200
+updated_at: 2026-06-21 11:25
+completed_at: 2026-06-21 11:25
+boardidx: 170
 ---
 
 ## Goal
