@@ -196,11 +196,78 @@ decision (and that no group-level "failed" badge was added).
 ## Notes for sibling tasks
 - **No launch-helper extraction was done** and **no operation-level failed state was
   added to schemas** — recovery keys off agent states. t1018_3 (double-click) and
-  t1018_4 (manual verification) should assume the GroupRow gained `f`/`s` actions
-  and that the `ctrl+shift+x`/`ctrl+shift+y` chords are gone.
+  t1018_4 (manual verification) should assume the GroupRow gained `n` (re-run
+  fresh) / `i` (retry-apply) actions and that the `ctrl+shift+x`/`ctrl+shift+y`
+  chords are gone.
 - The wizard's seed contract (op-type + node, no config pre-fill) is the reuse
   surface for any future "relaunch an operation" feature.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-21 11:42)
+- **Requested by user:** `F`/`S` are a poor choice because `f`/`s` are already
+  App-bound (`toggle_deferred` / `tab_session`); using their shift-pairs is a
+  muscle-memory hazard.
+- **Changes made:** Re-keyed both GroupRow recovery actions to keys whose
+  **both cases** are unbound: `n` (re-run fresh) and `i` (retry-apply). Updated
+  the `on_key` handlers, the `GroupRow.render()` focus hints, all docstrings/
+  comments, and the test presses/assertions/method-names.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_app.py`,
+  `tests/test_brainstorm_group_recovery.py`. Full brainstorm suite (629) green.
 
 ## Step 9 — Post-implementation
 Archive via `./.aitask-scripts/aitask_archive.sh 1018_2` (Step 9 of the shared
 workflow handles merge + archival). Parent stays active until t1018_3 + t1018_4 land.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `brainstorm_session.delete_group(task_num, group_name) -> list[str]` —
+    encapsulated one-call cleanup that drops the group entry from
+    `br_groups.yaml` *and* removes each agent's `_status`/`_alive`/`_output`/
+    `_log` artifacts (same suffix set as the per-agent `x` cleanup), returning
+    the agent names actually removed.
+  - `GroupRow` gained `has_failed_agent`/`has_completed_agent` flags (computed
+    once in `_refresh_status_tab` via `_group_recovery_flags`), focus-time
+    render hints (`n: re-run fresh` / `i: retry-apply`), and `on_focus`/`on_blur`
+    refresh.
+  - Two Running-tab `on_key` actions on a focused `GroupRow`: `n`
+    (`_rerun_group_fresh` → pre-seeded `ActionsWizardScreen(op_key, node_id)` →
+    existing `_on_wizard_result`/`_execute_design_op`, then `_confirm_cleanup_group`
+    offers old-group cleanup) and `i` (`_retry_group_apply` → group-scoped
+    `_try_apply_explorer/synthesizer_if_needed(force=True)`).
+  - Removed the undeliverable `ctrl+shift+x`/`ctrl+shift+y` bindings and trimmed
+    `_TAB_SCOPED_ACTIONS` to just `retry_initializer_apply`.
+  - `CleanupAgentModal` generalized with optional `title`/`body` (backward
+    compatible) so it confirms the group-level cleanup too.
+  - Tests: new `tests/test_brainstorm_group_recovery.py` (pure-unit `delete_group`
+    + pilot `n`/`i` dispatch, gating, focus hints, cleanup-modal push, and a
+    structural no-chord guard); updated `tests/test_brainstorm_binding_scope.py`.
+- **Deviations from plan:**
+  - **Keys `n`/`i`, not `F`/`S`** (post-review CR1): `f`/`s` are App-bound, so
+    their shift-pairs are a muscle-memory hazard; `n`/`i` are unbound in both
+    cases.
+  - **Removed** the now-dead global `action_retry_explorer_apply` /
+    `action_retry_synthesizer_apply` and their sole helper
+    `_pick_completed_agent_for_retry` — the plan said "keep the action methods",
+    but the GroupRow retry-apply is *group-scoped* and calls `_try_apply_*`
+    directly, so those globals back nothing. Deleting dead code is cleaner than
+    leaving it. The `_try_apply_*_if_needed` helpers (used by the pollers and the
+    new action) are retained.
+  - No launch-helper extraction (Correction #2) and no schema change (Step 4) —
+    both decided in the verified plan; the wizard/launch path is reused wholesale.
+- **Issues encountered:** the t1018_1 `test_brainstorm_binding_scope.py` asserted
+  all three retry actions are gated to `tab_running`; removing two of them made
+  `check_action` fall through to its default `True` for the now-unbound names, so
+  the Browse/Session `assertIsNone` would fail. Updated that test to assert only
+  `retry_initializer_apply` (the GroupRow `i` action is covered by the new file).
+- **Key decisions:** keys chosen so both cases are free (no shift-pair hazard);
+  `delete_group` added as an encapsulated model method with a rich return value;
+  `CleanupAgentModal` reused via optional overrides rather than a duplicate modal.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - Final keys are **`n`** (re-run fresh) / **`i`** (retry-apply) on the Running-tab
+    GroupRow. The `ctrl+shift+x`/`ctrl+shift+y` chords are gone.
+  - `brainstorm_session.delete_group()` is the canonical group-teardown helper for
+    any future "remove an operation group" need.
+  - The wizard seed contract (`op_key` + `node_id` only, no config pre-fill) is
+    the reuse surface for relaunching an operation.
