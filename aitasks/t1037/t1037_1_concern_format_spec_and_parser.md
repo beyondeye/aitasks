@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
@@ -8,7 +10,7 @@ labels: [aitask_monitormini, shadow, tui]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1037
 created_at: 2026-06-21 11:41
-updated_at: 2026-06-21 11:53
+updated_at: 2026-06-21 12:55
 ---
 
 ## Context
@@ -126,3 +128,5 @@ against a real `aitask_shadow_capture.sh` round-trip before locking.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-21T09:55:16Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-21T09:55:17Z status=pass attempt=1 type=machine
