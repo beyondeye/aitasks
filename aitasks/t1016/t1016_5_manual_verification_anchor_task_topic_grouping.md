@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t1016_4]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
-verifies: [1016_1, 1016_2, 1016_3, 1016_4]
+verifies: [t1016_1, t1016_2, t1016_3, t1016_4]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-17 13:41
-updated_at: 2026-06-17 13:41
+updated_at: 2026-06-21 09:58
 ---
 
 ## Manual Verification Task
