@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: [983]
 issue_type: enhancement
-status: Ready
+status: Done
 labels: [brainstorming, tui, ait_brainstorm]
-children_to_implement: [t1018_4]
 created_at: 2026-06-17 10:27
-updated_at: 2026-06-21 13:39
+updated_at: 2026-06-21 13:58
+completed_at: 2026-06-21 13:58
 boardidx: 40
 ---
 
