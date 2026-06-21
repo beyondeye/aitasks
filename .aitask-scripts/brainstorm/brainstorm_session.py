@@ -264,6 +264,43 @@ def record_operation(
     write_yaml(path, data)
 
 
+def delete_group(task_num: int | str, group_name: str) -> list[str]:
+    """Remove a group entry from br_groups.yaml and delete its agents'
+    on-disk artifacts in one call.
+
+    Single-call cleanup so consumers (e.g. the Running-tab "re-run fresh"
+    recovery flow, t1018_2) don't have to remember the two-step sequence of
+    dropping the group entry *and* removing each agent's
+    ``_status``/``_alive``/``_output``/``_log`` files (the same suffix set the
+    per-agent ``x`` cleanup removes). Returns the list of agent names whose
+    artifacts were actually removed (empty when the group is absent or had no
+    on-disk agents). Silently no-ops on a missing group.
+    """
+    wt = crew_worktree(task_num)
+    path = str(wt / GROUPS_FILE)
+    data = _read_groups_file(path)
+    groups = data.setdefault("groups", {})
+    grp = groups.pop(group_name, None)
+    if grp is None:
+        return []
+    write_yaml(path, data)
+    removed: list[str] = []
+    agents = grp.get("agents", []) if isinstance(grp, dict) else []
+    for name in agents:
+        any_removed = False
+        for suffix in ("_status.yaml", "_alive.yaml", "_output.md", "_log.txt"):
+            fp = wt / f"{name}{suffix}"
+            try:
+                if fp.is_file():
+                    fp.unlink()
+                    any_removed = True
+            except OSError:
+                pass
+        if any_removed:
+            removed.append(name)
+    return removed
+
+
 def _group_subgraph(wt: Path, group_name: str) -> str:
     """Return the subgraph a group's op ran inside (default ``_umbrella``).
 

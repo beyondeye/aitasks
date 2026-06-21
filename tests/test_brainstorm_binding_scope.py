@@ -1,14 +1,18 @@
-"""Footer binding-scope guard for the brainstorm retry-apply actions (t1018_1).
+"""Footer binding-scope guard for the brainstorm retry-apply action (t1018_1).
 
-Boots a real ``BrainstormApp`` over a temp session and asserts that the three
-``retry_*_apply`` actions are gated to the (R)unning tab via ``check_action`` —
-i.e. they are active there and hidden/inactive (``None``) on every other tab.
+Boots a real ``BrainstormApp`` over a temp session and asserts that
+``retry_initializer_apply`` is gated to the (R)unning tab via ``check_action``
+— i.e. active there and hidden/inactive (``None``) on every other tab.
 
-Before t1018_1 these actions fell through ``check_action``'s default
-``return True``, so ``ctrl+r`` leaked a visible footer label on every tab and
-all three stayed live everywhere. There was no test for that leak — this file
-is the regression guard. The action methods themselves are untouched (t1018_2
-re-homes the explorer/synthesizer retries onto the Running-tab GroupRow).
+Before t1018_1 this action fell through ``check_action``'s default
+``return True``, so ``ctrl+r`` leaked a visible footer label on every tab.
+There was no test for that leak — this file is the regression guard.
+
+t1018_2 removed the ``retry_explorer_apply`` / ``retry_synthesizer_apply``
+actions (and their undeliverable ``ctrl+shift+x`` / ``ctrl+shift+y`` chords),
+re-homing that logic onto the Running-tab GroupRow ``S`` action — so only the
+initializer action remains gated here. The GroupRow recovery actions are
+covered by ``test_brainstorm_group_recovery.py``.
 """
 
 from __future__ import annotations
@@ -34,8 +38,6 @@ from brainstorm.brainstorm_app import BrainstormApp  # noqa: E402
 
 RETRY_ACTIONS = (
     "retry_initializer_apply",
-    "retry_explorer_apply",
-    "retry_synthesizer_apply",
 )
 
 

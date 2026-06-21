@@ -893,20 +893,27 @@ class CleanupAgentModal(ModalScreen):
     }
     """
 
-    def __init__(self, agent_name: str):
+    def __init__(
+        self,
+        agent_name: str,
+        *,
+        title: str | None = None,
+        body: str | None = None,
+    ):
         super().__init__()
         self.agent_name = agent_name
+        # t1018_2: optional overrides so the same modal confirms a group-level
+        # cleanup (re-run-fresh path) as well as a single-agent cleanup.
+        self._title = title or f"Clean up agent [bold]{agent_name}[/]?"
+        self._body = body or (
+            "[dim]Removes its status / alive / output / log files from the "
+            "crew worktree. This cannot be undone.[/dim]"
+        )
 
     def compose(self) -> ComposeResult:
         with Container(id="cleanup_agent_dialog"):
-            yield Label(
-                f"Clean up agent [bold]{self.agent_name}[/]?",
-                id="cleanup_agent_title",
-            )
-            yield Label(
-                "[dim]Removes its status / alive / output / log files from the "
-                "crew worktree. This cannot be undone.[/dim]",
-            )
+            yield Label(self._title, id="cleanup_agent_title")
+            yield Label(self._body)
             yield Label("[dim]Enter to confirm  Esc to cancel[/dim]")
             with Horizontal(id="cleanup_agent_buttons"):
                 yield Button(
@@ -3121,6 +3128,8 @@ class GroupRow(Static, can_focus=True):
         info: dict,
         expanded: bool = False,
         aggregate_progress: int | None = None,
+        has_failed_agent: bool = False,
+        has_completed_agent: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -3128,6 +3137,11 @@ class GroupRow(Static, can_focus=True):
         self.group_info = info
         self.expanded = expanded
         self.aggregate_progress = aggregate_progress
+        # Recovery-action eligibility, computed once at mount from the group's
+        # on-disk agent statuses (t1018_2). `n` (re-run fresh) needs a failed
+        # agent; `i` (retry-apply) needs a completed agent to re-ingest.
+        self.has_failed_agent = has_failed_agent
+        self.has_completed_agent = has_completed_agent
 
     def render(self) -> str:
         arrow = "\u25bc" if self.expanded else "\u25b6"
@@ -3143,14 +3157,29 @@ class GroupRow(Static, can_focus=True):
             bar = _format_progress_bar(self.aggregate_progress)
             if bar:
                 progress_str = f"  {bar}"
-        return (
+        line = (
             f"{arrow} [bold]{self.group_name}[/bold]  {op}  "
             f"[{color}]{status}[/{color}]  agents: {len(agents)}"
             f"{progress_str}  {created}"
         )
+        if self.has_focus:
+            hints = []
+            if self.has_failed_agent:
+                hints.append("n: re-run fresh")
+            if self.has_completed_agent and op in ("explore", "synthesize"):
+                hints.append("i: retry-apply")
+            if hints:
+                line += "  [dim](" + " | ".join(hints) + ")[/dim]"
+        return line
 
     def on_click(self) -> None:
         self.focus()
+
+    def on_focus(self) -> None:
+        self.refresh()
+
+    def on_blur(self) -> None:
+        self.refresh()
 
 
 class StatusLogRow(Static, can_focus=True):
@@ -5549,10 +5578,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # t983_11: op_help + preview-pane toggles moved to ActionsWizardScreen
         # (the wizard is a modal now and owns those bindings).
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
-        Binding("ctrl+shift+x", "retry_explorer_apply",
-                "Retry explorer apply", show=False),
-        Binding("ctrl+shift+y", "retry_synthesizer_apply",
-                "Retry synthesizer apply", show=False),
+        # t1018_2: the undeliverable `ctrl+shift+x`/`ctrl+shift+y` retry-apply
+        # chords were removed; explorer/synthesizer re-ingest is now the
+        # group-scoped `S` action on the Running-tab GroupRow (_retry_group_apply).
     ]
 
     # Maps action_name -> required tab id. check_action() hides the binding
@@ -5560,17 +5588,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
     # keeps it active only on its owning tab.
     _TAB_SCOPED_ACTIONS: dict[str, str] = {
         "open_node_detail": "tab_browse",
-        # t1018_1: the three retry-apply actions are agent-output recovery for
-        # operations that live on the (R)unning tab. Before this they fell
-        # through check_action's default `return True`, so `ctrl+r` leaked a
-        # visible footer label on every tab/screen and all three stayed live
-        # everywhere. Scope them to tab_running. The action methods + the
-        # `ctrl+shift+x`/`ctrl+shift+y` bindings stay intact — t1018_2 re-homes
-        # the explorer/synthesizer retries onto the Running-tab GroupRow and
-        # removes the dead chord bindings then.
+        # t1018_1: `ctrl+r` (retry initializer apply) fell through check_action's
+        # default `return True`, leaking a visible footer label on every
+        # tab/screen. Scope it to the (R)unning tab where the initializer agent
+        # lives. (t1018_2 removed the explorer/synthesizer retry-apply chords and
+        # re-homed their logic onto the Running-tab GroupRow `S` action, so only
+        # the initializer entry remains here.)
         "retry_initializer_apply": "tab_running",
-        "retry_explorer_apply": "tab_running",
-        "retry_synthesizer_apply": "tab_running",
     }
 
     def __init__(self, task_num: str):
@@ -5941,6 +5965,38 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if name:
                 self._confirm_cleanup_agent(name)
             if isinstance(focused, (AgentStatusRow, ProcessRow)):
+                event.prevent_default()
+                event.stop()
+                return
+
+        # n: re-run a failed operation group from scratch (t1018_2). Opens the
+        # pre-seeded Actions wizard so config is re-collected, then offers to
+        # clean up the old group. (Plain `n`/`i` are used rather than `F`/`S`:
+        # `f`/`s` are App-bound to toggle_deferred/tab_session, and their
+        # shift-pairs would be a muscle-memory hazard. `n`/`i` are unbound in
+        # both cases.)
+        if event.key == "n":
+            focused = self.focused
+            if isinstance(focused, GroupRow):
+                if not focused.has_failed_agent:
+                    self.notify(
+                        "Re-run fresh is for operations with failed agents; "
+                        "this group has none.",
+                        severity="warning",
+                    )
+                else:
+                    self._rerun_group_fresh(focused)
+                event.prevent_default()
+                event.stop()
+                return
+
+        # i: retry only the failed apply step — re-ingest output for the group's
+        # completed agents (t1018_2, re-homed from the removed ctrl+shift+x/y
+        # chords).
+        if event.key == "i":
+            focused = self.focused
+            if isinstance(focused, GroupRow):
+                self._retry_group_apply(focused)
                 event.prevent_default()
                 event.stop()
                 return
@@ -7203,36 +7259,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             f"Re-running module decomposer (revision {len(revisions)}): {new_agent}",
         )
 
-    def _pick_completed_agent_for_retry(self, role: str) -> str | None:
-        """Walk the session worktree and return the agent name with the
-        most recent ``_status.yaml`` mtime whose status is ``Completed``,
-        for the given role prefix (``explorer``, ``synthesizer``). Returns
-        ``None`` if the worktree is missing or no Completed agent is found.
-        Shared by the ``action_retry_*_apply`` methods so the retry path
-        keeps working after auto-apply has drained the in-memory tracking
-        container.
-        """
-        wt = self.session_path
-        if not wt or not Path(wt).is_dir():
-            return None
-        candidates: list[tuple[str, float]] = []
-        for status_path in Path(wt).glob(f"{role}_*_status.yaml"):
-            agent = status_path.stem[: -len("_status")]
-            try:
-                data = read_yaml(str(status_path))
-            except Exception:
-                continue
-            if (data or {}).get("status", "") != "Completed":
-                continue
-            try:
-                mtime = status_path.stat().st_mtime
-            except Exception:
-                mtime = 0.0
-            candidates.append((agent, mtime))
-        if not candidates:
-            return None
-        return max(candidates, key=lambda p: p[1])[0]
-
     def _recover_node_id_from_input(self, agent: str) -> str | None:
         """Re-parse ``<agent>_input.md`` for the node-id captured by
         ``_PATCHER_INPUT_META_RE``. Used by the delete-cascade casualty scan
@@ -7251,22 +7277,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return None
         m = self._PATCHER_INPUT_META_RE.search(text)
         return m.group(1) if m else None
-
-    def action_retry_explorer_apply(self) -> None:
-        """ctrl+shift+x: force-retry an explorer apply.
-
-        After a successful auto-apply the agent is dropped from
-        ``self._explorer_agents`` and is not re-tracked by
-        ``_scan_existing_explorers`` (its node already exists, so
-        ``_explorer_needs_apply`` returns False). Walk the worktree
-        instead so the manual retry path also covers the
-        already-applied-then-corrupted case exercised by t787 item #3.
-        """
-        agent = self._pick_completed_agent_for_retry("explorer")
-        if agent is None:
-            self.notify("No completed explorer agents to retry.")
-            return
-        self._try_apply_explorer_if_needed(agent, force=True)
 
     def _register_synthesizer_agent(self, agent_name: str) -> None:
         """Main-thread: track a freshly-registered synthesizer and ensure
@@ -7401,19 +7411,6 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._load_existing_session()
         finally:
             self._applying_synthesizer.discard(agent_name)
-
-    def action_retry_synthesizer_apply(self) -> None:
-        """ctrl+shift+y: force-retry a synthesizer apply.
-
-        Walks the worktree (rather than ``self._synthesizer_agents``) so
-        the retry works after auto-apply has already drained the tracking
-        set — mirrors the t837 fix for explorer.
-        """
-        agent = self._pick_completed_agent_for_retry("synthesizer")
-        if agent is None:
-            self.notify("No completed synthesizer agents to retry.")
-            return
-        self._try_apply_synthesizer_if_needed(agent, force=True)
 
     def on_tabbed_content_tab_activated(self, event) -> None:
         """Refresh the Running tab when it becomes active."""
@@ -7563,10 +7560,15 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     continue
                 expanded = gname in self._expanded_groups
                 aggregate = self._compute_group_progress(wt_path, ginfo)
+                has_failed, has_completed = self._group_recovery_flags(
+                    wt_path, ginfo
+                )
                 container.mount(
                     GroupRow(
                         gname, ginfo, expanded=expanded,
                         aggregate_progress=aggregate,
+                        has_failed_agent=has_failed,
+                        has_completed_agent=has_completed,
                         classes="status_group_row",
                     )
                 )
@@ -7679,6 +7681,134 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if removed else f"Nothing to clean up for {name}"
         )
         self._refresh_runtime()
+
+    # ------------------------------------------------------------------
+    # Operation/group-level recovery on the Running tab (t1018_2)
+    # ------------------------------------------------------------------
+
+    def _group_recovery_flags(
+        self, wt_path: str, ginfo: dict
+    ) -> tuple[bool, bool]:
+        """Return ``(has_failed_agent, has_completed_agent)`` for a group by
+        reading each agent's on-disk status. Drives the GroupRow recovery
+        actions: ``n`` (re-run fresh) needs a failed agent; ``i`` (retry-apply)
+        needs a completed agent whose output may still need ingesting.
+        """
+        import os
+        from brainstorm.brainstorm_session import _AGENT_FAILED_STATUSES
+
+        has_failed = False
+        has_completed = False
+        for name in ginfo.get("agents") or []:
+            sf = os.path.join(wt_path, f"{name}_status.yaml")
+            if not os.path.isfile(sf):
+                continue
+            try:
+                data = read_yaml(sf)
+            except Exception:
+                continue
+            status = (data or {}).get("status", "")
+            if status in _AGENT_FAILED_STATUSES:
+                has_failed = True
+            elif status == "Completed":
+                has_completed = True
+        return has_failed, has_completed
+
+    def _retry_group_apply(self, row: "GroupRow") -> None:
+        """``i`` on a focused GroupRow: re-ingest output for the group's
+        completed agents (t1018_2). Re-homes the explorer/synthesizer
+        retry-apply logic from the removed ``ctrl+shift+x``/``ctrl+shift+y``
+        chords, but scoped to the focused group rather than the most-recent
+        completed agent in the whole worktree. Only explore/synthesize ops
+        produce apply-able output.
+        """
+        import os
+
+        op = row.group_info.get("operation", "")
+        if op == "explore":
+            applier = self._try_apply_explorer_if_needed
+        elif op == "synthesize":
+            applier = self._try_apply_synthesizer_if_needed
+        else:
+            self.notify(
+                f"Retry-apply only applies to explore/synthesize operations "
+                f"(this group is '{op}').",
+                severity="warning",
+            )
+            return
+        wt_path = str(self.session_path)
+        completed = []
+        for name in row.group_info.get("agents") or []:
+            sf = os.path.join(wt_path, f"{name}_status.yaml")
+            if not os.path.isfile(sf):
+                continue
+            try:
+                data = read_yaml(sf)
+            except Exception:
+                continue
+            if (data or {}).get("status", "") == "Completed":
+                completed.append(name)
+        if not completed:
+            self.notify(
+                "No completed agents in this group to re-apply.",
+                severity="warning",
+            )
+            return
+        for name in completed:
+            applier(name, force=True)
+
+    def _rerun_group_fresh(self, row: "GroupRow") -> None:
+        """``n`` on a focused GroupRow: relaunch the operation from scratch via
+        the pre-seeded Actions wizard, then offer to clean up the old group
+        (t1018_2).
+
+        The per-operation config (explore mandate, compare dimensions,
+        synthesize merge-rules) is NOT stored in br_groups.yaml, so it cannot
+        be reconstructed — the wizard re-collects it and doubles as the
+        destructive-action confirm. ``_run_design_op`` mints a fresh group
+        name, so the old (failed) group survives until the user cleans it up.
+        """
+        op = row.group_info.get("operation", "")
+        old_group = row.group_name
+        head = row.group_info.get("head_at_creation") or get_head(
+            self.session_path
+        )
+
+        def _after(result, _old=old_group):
+            if not result:
+                return
+            self._execute_design_op(result)
+            self._confirm_cleanup_group(_old)
+
+        self.push_screen(
+            ActionsWizardScreen(op_key=op, node_id=head, marked=[]),
+            _after,
+        )
+
+    def _confirm_cleanup_group(self, group_name: str) -> None:
+        """Offer to remove the old failed group and its agent artifacts after a
+        re-run (t1018_2). Reuses the agent-cleanup confirm modal."""
+        def _on_confirm(confirmed: bool | None) -> None:
+            if confirmed:
+                from brainstorm.brainstorm_session import delete_group
+                removed = delete_group(self.task_num, group_name)
+                self.notify(
+                    f"Cleaned up old group {group_name} "
+                    f"({len(removed)} agent(s))"
+                    if removed else f"Removed old group {group_name}"
+                )
+                self._refresh_runtime()
+
+        self.push_screen(
+            CleanupAgentModal(
+                group_name,
+                title=f"Clean up old group [bold]{group_name}[/] "
+                f"and its agents?",
+                body="[dim]Removes the group entry and every agent's status / "
+                "alive / output / log files. This cannot be undone.[/dim]",
+            ),
+            _on_confirm,
+        )
 
     def _edit_agent_mode(self, row: "AgentStatusRow") -> None:
         """Open the launch_mode edit modal for a Waiting agent row."""
