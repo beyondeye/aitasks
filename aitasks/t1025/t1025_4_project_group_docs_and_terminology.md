@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: [t1025_3]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [web_site, git-integration]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-18 00:02
-updated_at: 2026-06-18 00:02
+updated_at: 2026-06-21 11:46
 ---
 
 ## Context
