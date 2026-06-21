@@ -1,86 +1,189 @@
 ---
 Task: t1037_2_shadow_skill_emit_concern_block.md
 Parent Task: aitasks/t1037_minimonitor_shadow_concern_picker.md
-Sibling Tasks: aitasks/t1037/t1037_1_*.md, aitasks/t1037/t1037_3_*.md, aitasks/t1037/t1037_4_*.md
-Archived Sibling Plans: aiplans/archived/p1037/p1037_*_*.md
-Worktree: (current branch — fast profile)
-Branch: (current branch)
+Sibling Tasks: aitasks/t1037/t1037_3_concern_picker_modal.md, aitasks/t1037/t1037_4_minimonitor_trigger_capture_wiring.md, aitasks/t1037/t1037_5_manual_verification_minimonitor_shadow_concern_picker.md
+Archived Sibling Plans: aiplans/archived/p1037/p1037_1_concern_format_spec_and_parser.md
 Base branch: main
+plan_verified:
+  - claudecode/opus4_8 @ 2026-06-21 13:50
 ---
 
-# Plan: Shadow skill emits structured concern block (t1037_2)
+# Plan: Shadow skill emits structured concern block (t1037_2) — verified
 
-Producer side. Make the shadow plan-review sub-procedures emit the structured
-block defined by t1037_1, across all three agent trees.
+Producer side of the t1037 concern-picker feature. Make the shadow agent's
+plan-review sub-procedures emit the structured `===AITASK-CONCERNS===` block
+defined by sibling t1037_1, so minimonitor's parser/modal can extract concerns
+for selective forward-to-followed-agent.
 
-## 0. Prerequisite
+## Context
 
-Read the FINAL spec `aidocs/framework/shadow_concern_format.md` (from t1037_1) —
-the exact sentinel and item grammar to emit.
+The shadow agent already produces prioritized, severity-tagged concern lists,
+but as free prose. Sibling **t1037_1 (landed/archived)** shipped the format spec
+(`aidocs/framework/shadow_concern_format.md`) and a pure parser
+(`.aitask-scripts/monitor/concern_parser.py`). This task adds the **producer**:
+the shadow's plan-review sub-procedures must *additionally* emit the
+machine-parseable block so the user can tick a subset and forward them via
+minimonitor's picker (t1037_3/_4) instead of retyping.
 
-## 1. plan-challenge.md (Claude Code source first)
+### ⚠️ Verification finding — task/old-plan assumption is WRONG (scope correction)
 
-`.claude/skills/aitask-shadow/plan-challenge.md` Step 3 already yields a
-prioritized list with one-line problem + why-it-bites + severity. Append an
-instruction (new step / sub-bullet): after presenting the human-readable list,
-ALSO emit the machine-parseable block:
+The task definition and the pre-existing plan both assert the shadow skill is
+**"replicated per agent"** and demand a **REQUIRED cross-agent port** of the
+edited prose to `.agents/skills/aitask-shadow/plan-challenge.md` and
+`.opencode/skills/aitask-shadow/plan-challenge.md`.
 
-```
-===AITASK-CONCERNS===
-- [<severity> | <plan region/axis>] <the one-line problem + why it bites>
-...
-===END-CONCERNS===
-```
+**That is factually false against the current tree.** Verified directly:
 
-- `region` = the axis/section the concern targets (regressions, edge case,
-  blast-radius, etc., or a named plan section).
-- One item per concern, ordered by severity (matches the existing ordering).
-- **MANDATORY leading `- ` on every concern line** and **always emit the
-  closing `===END-CONCERNS===` fence** — both are load-bearing for the parser
-  (t1037_1): the dash is the wrap-join collision guard, and the closing fence is
-  what makes minimonitor's strict `has_concern_block` auto-offer fire. Match the
-  exact marker grammar recorded in t1037_1's Final Implementation Notes.
-- Keep the prose list too — the block is additive, for pick-and-forward.
-- Reaffirm the advisory-only guardrail (the block is for the user to copy; the
-  shadow never drives the followed pane).
+- `.agents/skills/aitask-shadow/` and `.opencode/skills/aitask-shadow/` contain
+  **only `SKILL.md`** — thin **wrappers** that say *"The authoritative skill
+  definition is `.claude/skills/aitask-shadow/SKILL.md`. Read that file and
+  follow its complete workflow."* There are **no** `plan-*.md` files there
+  (`find .agents .opencode -name 'plan-*.md' -path '*shadow*'` → none).
+- The Codex port (t988, `4fa30abe5`) and OpenCode port (t989, `7b8b66ed2`)
+  deliberately created wrapper-only `SKILL.md` (Codex) / `SKILL.md` + command
+  (OpenCode) — they did **not** replicate the sub-procedures.
+- Consequence: when a Codex/OpenCode shadow agent runs and Step 3 says
+  *"read and follow `plan-challenge.md`"*, that relative path resolves into the
+  **Claude** tree (the wrapper redirected there). All three agents already
+  share the single Claude copy.
 
-## 2. plan-assumptions.md
+**Therefore the cross-agent port is a NO-OP.** Editing the Claude
+`plan-challenge.md` / `plan-assumptions.md` automatically serves Codex and
+OpenCode via the wrapper redirect. The old plan's §4 ("Cross-agent port
+REQUIRED") and its "three trees byte-identical" verification step are obsolete
+and are dropped. This is surfaced explicitly (no silent AC deviation) — see the
+checkpoint note; the task AC will be corrected as part of the scope decision.
 
-`.claude/skills/aitask-shadow/plan-assumptions.md` also emits a concern-like
-list. Decide (recommend yes) to emit the same block, mapping each
-load-bearing-and-unverified assumption to an item (priority by load-bearingness).
-Mirror the instruction. Leave `plan-socratic.md` / `plan-explain.md` untouched
-(they don't produce concern lists).
+*(Distinct from the auto-render closure model — this is a wrapper redirect, not
+Jinja rendering — but the practical effect is the same: one source, all agents.)*
 
-## 3. SKILL.md greeting
+## Scope
 
-Step 0 greeting is *derived* from Step 3 (maintainer note forbids a hardcoded
-copy). Confirm no greeting edit is needed. Only touch Step 3 if a capability
-phrasing changes.
+- **Edit (Claude source only):**
+  - `.claude/skills/aitask-shadow/plan-challenge.md`
+  - `.claude/skills/aitask-shadow/plan-assumptions.md`
+- **No edit:** `SKILL.md` (greeting is *derived* from Step 3; block emission is
+  internal to the sub-procedures and adds no capability — the one-phrase
+  descriptions "Adversarially challenge a plan" / "Surface a plan's assumptions"
+  are unchanged). Confirmed no Step 3 capability phrasing changes.
+- **No cross-agent port** (wrapper model — see finding above).
+- **Untouched:** `plan-socratic.md` / `plan-explain.md` (they question / teach;
+  they don't produce a concern list).
 
-## 4. Cross-agent port (REQUIRED)
+## Implementation
 
-Shadow is a replicated static skill, not an auto-rendered closure. Port the
-identical prose to:
-- `.agents/skills/aitask-shadow/plan-challenge.md` (+ plan-assumptions.md)
-- `.opencode/skills/aitask-shadow/plan-challenge.md` (+ plan-assumptions.md)
+### 1. `.claude/skills/aitask-shadow/plan-challenge.md` — append a new Step 6
 
-Keep the three trees byte-identical in the new block instruction. (If a
-same-commit port is truly impractical, file explicit follow-ups per CLAUDE.md —
-but the diff is small and identical, so port here.)
+After Step 5 ("Stay honest"), add a step that emits the structured block as an
+**additive** copy of the same prioritized concerns. Exact rules, matching the
+locked grammar in `shadow_concern_format.md` and `concern_parser.py`:
 
-## 5. Verification
+- Fences `===AITASK-CONCERNS===` … `===END-CONCERNS===` (ASCII).
+- One concern per line: `- [priority | region] body`.
+- Leading `- ` (dash + space) **MANDATORY** on every concern line (wrap-collision
+  guard).
+- `priority` ∈ {high, medium, low} — reuse the Step 3 severity.
+- `region` = the plan section / axis the concern targets (a step name,
+  `verification`, `blast radius`, …).
+- `body` = the one-line problem (+ why it bites) on **one logical line** (don't
+  hard-wrap; let the terminal soft-wrap — the parser space-joins continuations).
+- Order by severity (matches the prose list).
+- **Always emit the closing fence** (minimonitor's strict auto-offer requires it).
+- Emit the block **only when ≥1 concern**; if the plan is genuinely clean (Step
+  5), omit the block.
+- Reaffirm **advisory-only**: the block is for the user to copy; never drive the
+  followed pane.
 
-- `./.aitask-scripts/aitask_skill_verify.sh` passes.
-- Diff the three trees: new instruction identical across Claude/Codex/OpenCode.
-- **Producer→parser round-trip:** craft a representative emitted block, feed it
-  to `concern_parser.parse_concerns` (t1037_1), assert the expected `Concern`
-  items. This is the "verify with a sample run" the parent calls for.
-- Read `aidocs/framework/skill_authoring_conventions.md` before editing.
+Include a concrete worked example (2 items, high/medium) verbatim in the spec
+shape so the producing agent has a template.
 
-## 6. Final Implementation Notes (fill at completion)
+### 2. `.claude/skills/aitask-shadow/plan-assumptions.md` — append a new Step 6
 
-Record the exact emit wording so t1037_4's auto-offer keys off the same
-sentinel. Note any spec deviation back to t1037_1.
+Same block, same grammar/rules (keep the instruction prose parallel to
+plan-challenge for maintainability). Mapping for this sub-procedure:
+
+- One item per **dangerous** assumption (load-bearing AND unverified), which are
+  already ordered first by Step 4. Optionally include lesser ones.
+- `priority`: load-bearing + unverified → `high`; load-bearing + verified, or
+  peripheral + unverified → `medium`; peripheral → `low`.
+- `region` = the assumption category (environment/tooling, data/inputs, behavior
+  of other code, sequencing/dependencies, intent/scope) or a named plan region.
+- `body` = the assumption statement + why it's dangerous.
+- Same closing-fence / mandatory-dash / advisory-only / omit-when-empty rules.
+
+### 3. SKILL.md — confirm-only, no edit
+
+Re-read Step 0 (derived greeting) and Step 3; confirm the new internal emission
+does not change any capability one-phrase. No edit.
+
+### 4. Correct the task AC (user-approved scope decision)
+
+Edit `aitasks/t1037/t1037_2_shadow_skill_emit_concern_block.md` to replace the
+false "replicated per agent / REQUIRED cross-agent port" content with the
+verified wrapper-model reality:
+
+- Rewrite the `## Cross-agent port (REQUIRED — shadow is a replicated static
+  skill)` section → a note that the Codex/OpenCode shadow skills are thin
+  wrappers redirecting to the Claude source, so the single Claude-tree edit
+  serves all three agents (no port; nothing to replicate).
+- Drop the verification bullet asserting "the three agent trees' plan-challenge.md
+  … are byte-identical" (there is only one copy).
+- Keep the round-trip / `aitask_skill_verify.sh` verification bullets.
+
+Commit the task-file edit separately with `./ait git` (task data may live on a
+separate branch); stage only this task file's path (concurrent-writer safety).
+This honors "no silent AC deviation" — the dropped requirement is corrected in
+the AC, not quietly skipped.
+
+## Verification
+
+1. `./.aitask-scripts/aitask_skill_verify.sh` passes (skill/template integrity).
+2. **Producer → parser round-trip** (the parent's "verify with a sample run"):
+   feed the exact worked-example block from the new instruction through the
+   t1037_1 parser and assert it yields the expected `Concern` items:
+   ```bash
+   python3 - <<'PY'
+   import sys; sys.path.insert(0, ".aitask-scripts/monitor")
+   from concern_parser import parse_concerns, has_concern_block
+   block = open("/tmp/t1037_2_example.txt").read()   # the emitted example
+   cs = parse_concerns(block)
+   assert has_concern_block(block) and len(cs) == 2, cs
+   assert cs[0].priority == "high" and cs[1].priority == "medium", cs
+   print("ROUND-TRIP OK", cs)
+   PY
+   ```
+   Confirms the closing fence is present (strict `has_concern_block` True),
+   the mandatory dash parses, and priorities/regions/bodies extract correctly —
+   closing the producer→consumer loop with t1037_1.
+3. No `plan-*.md` exists in `.agents`/`.opencode` shadow trees → nothing to port;
+   re-confirm the wrappers still redirect to the Claude source.
+
+## Notes for sibling tasks (record at completion)
+
+Record the exact emitted sentinel/wording so t1037_4's auto-offer keys off the
+same `===AITASK-CONCERNS===` / `===END-CONCERNS===` fences. No deviation from the
+t1037_1 spec is intended; note any in the plan's Final Implementation Notes.
 
 See parent t1037 and **Step 9 (Post-Implementation)** for archival/merge.
+
+## Risk
+
+### Code-health risk: low
+- Edits are confined to two advisory-only skill **markdown** sub-procedures; no
+  executable code path changes. The block is additive (prose list retained) and
+  the advisory-only guardrail is reaffirmed, not weakened · severity: low · →
+  mitigation: none needed.
+- Drift risk: the emitted grammar must stay in lockstep with
+  `shadow_concern_format.md` / `concern_parser.py`. Mitigated in-task by the
+  round-trip verification against the real parser (step 2 above) · severity: low
+  · → mitigation: covered by verification, no separate task.
+
+### Goal-achievement risk: low
+- The cross-agent-port assumption in the task/old-plan was wrong; correcting it
+  (wrapper model → single Claude edit serves all agents) is the convergent,
+  verified path, so the goal ("all three agents emit the block") is met by one
+  edit · severity: low · → mitigation: explicit scope correction surfaced at the
+  approval checkpoint; task AC to be updated.
+- Producer↔parser contract is locked by t1037_1 and re-validated here by a live
+  round-trip, so a format mismatch cannot pass silently · severity: low · →
+  mitigation: covered by verification.
