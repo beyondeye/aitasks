@@ -15,76 +15,61 @@ updated_at: 2026-06-21 13:16
 ---
 
 ## Context
-Child of t1018. Add **double-click → open detail** on operation/node rows in
+Child of t1018. Two tightly-coupled UX changes to the **Running tab** of
 `ait brainstorm`. Independent of the other children (no shared binding surface),
 so it carries no sibling dependency.
 
-Today detail opens only via keys: `o` opens the `OperationDetailScreen`, and (on
-a NodeRow) `Enter` opens the **NodeHub** modal. There is **no double-click
-handler** anywhere in the brainstorm TUI.
+**Scope (narrowed from the umbrella body, user-confirmed during planning):**
+- **Running-tab operation (GroupRow) only.** The Browse `NodeRow` / DAG-node
+  double-click in the original "Child 2" umbrella text is **dropped** from
+  t1018_3 (possible later follow-up).
+- **Double-click toggles expand/collapse** of the operation group (mirrors the
+  `Enter` toggle) — it does **not** open `OperationDetailScreen`.
 
-### Verified current state (post-t983)
-- `OperationDetailScreen` (`brainstorm_app.py:1601`) is pushed via the
-  `OperationOpened` message, posted by `NodeRow.action_open_operation`
-  (`:2553-2574`, bound to `o` at `:2522-2524`) and by
-  `DAGDisplay.action_open_operation` (`brainstorm_dag_display.py:816`); App
-  handlers at `brainstorm_app.py:8062-8069` (NodeRow) and `:8007-8014` (DAG).
-- **`Enter` and `o` now diverge** (the umbrella body predates this): on a NodeRow,
-  `Enter` → `action_open_node_detail` (`:6024-6040`) opens the **NodeHub** modal
-  (which itself offers Operations/Compare); `o` → `OperationDetailScreen`. On a
-  Running-tab `GroupRow`, `Enter` only **expand/collapses** (`:5838-5847`) — no
-  detail. On a `StatusLogRow`, `Enter` opens `LogDetailModal` (`:5848-5852`).
-- `NodeRow` has **no `on_click`** (inherits default Static focus). `OperationRow`
-  has an `on_click` (`:2808-2812`) that posts `Activated` (single-click only, no
-  `chain` inspection; used in wizard/session-lifecycle lists, not Browse).
-  `DAGDisplay._handle_click` (`brainstorm_dag_display.py:675-705`) single-click
-  focuses a node; `_DAGStatic.on_click` forwards coords (`:456-460`).
-- **Reference double-click pattern:** the ONLY `event.chain == 2` use in the
-  codebase is `board/aitask_board.py:1263-1273` (`TaskCard.on_click`:
-  double-click expands, single-click opens details). Mirror it.
+### Change 1 — Double-click an operation group → expand/collapse
+Mouse users had no way to expand a Running-tab group (single-click only focused
+it; `Enter` toggled). Double-click now toggles, reusing the Enter path.
 
-## Per-surface behavior (decide/confirm in plan)
-Because `Enter` and `o` diverge, "match the Enter/o behavior" must be resolved
-per surface. Recommended:
-- **Browse NodeRow / DAG node** → double-click opens the **NodeHub** (matches
-  `Enter`, the node's primary detail entry). Add `NodeRow.on_click` (new) and
-  extend `DAGDisplay._handle_click` to check `event.chain == 2`.
-- **Running-tab GroupRow** → double-click opens the **OperationDetailScreen**
-  (the detail that `Enter` does NOT open — `Enter` only expand/collapses).
-Single-click behavior (focus / expand-collapse) is unchanged.
+### Change 2 (bug fix) — Preserve focus across status refresh
+The Running tab rebuilds its rows on a 30 s timer and after every agent action
+(`_refresh_status_tab` → `container.remove_children()` → re-mount). The focused
+GroupRow was destroyed and focus lost mid-operation. Expansion already survived
+via `self._expanded_groups`; focus now survives too. (Coupled with Change 1:
+double-clicking to toggle is pointless if the next refresh steals focus.)
+
+### Reference patterns
+- `board/aitask_board.py:1263-1273` (`TaskCard.on_click`) — the only
+  `event.chain == 2` use in the repo; mirror for the double-click.
+- `aitask_board.py` `_refocus_card` — save focused identifier before
+  `remove_children()`, re-focus by match after (via `call_after_refresh`).
 
 ## Key Files to Modify
-- `.aitask-scripts/brainstorm/brainstorm_app.py` — add `NodeRow.on_click`
-  (chain-aware), `GroupRow.on_click` (chain-aware → OperationDetailScreen);
-  reuse the existing `OperationOpened` / NodeHub / OperationDetailScreen push
-  paths rather than duplicating.
-- `.aitask-scripts/brainstorm/brainstorm_dag_display.py` — extend `_handle_click`
-  (`:675-705`) to detect `event.chain == 2` and post the detail-open message;
-  ensure single-click focus still works.
-
-## Reference Files for Patterns
-- `board/aitask_board.py:1263-1273` — the canonical `event.chain == 2` pattern.
-- `aidocs/framework/tui_conventions.md`, `aidocs/framework/tmux_gateway.md`.
+- `.aitask-scripts/brainstorm/brainstorm_app.py` — extract a shared
+  `_toggle_group(name)` (repoint the `Enter` handler at it); chain-aware
+  `GroupRow.on_click` + `GroupRow.ToggleRequested` message + App handler;
+  focus capture/restore in `_refresh_status_tab` + `_refocus_group` helper.
 
 ## Implementation Plan (detail in aiplans/p1018/p1018_3_*.md)
-1. Add chain-aware `on_click` to `NodeRow`: `chain == 2` → post the same message
-   `Enter` triggers (NodeHub); else default focus.
-2. Add chain-aware `on_click` to `GroupRow`: `chain == 2` → open
-   OperationDetailScreen for the group's operation; else preserve focus/expand.
-3. Extend `DAGDisplay._handle_click` for `chain == 2` on a node box → same as
-   NodeRow double-click; single-click still focuses.
-4. Keep `OperationRow.on_click` single-click semantics unchanged (out of scope).
+1. Capture the focused group's `group_name` before `_refresh_status_tab`'s
+   `remove_children()`; restore via `call_after_refresh(self._refocus_group, …)`
+   after the rows re-mount (best-effort — no-op if the group vanished).
+2. Extract `_toggle_group(name)` (`_expanded_groups` add/discard +
+   `_refresh_status_tab`); point the `Enter` handler at it.
+3. Chain-aware `GroupRow.on_click`: `chain == 2` posts `GroupRow.ToggleRequested`
+   → App `_toggle_group`; single-click only focuses.
+4. Out of scope: `OperationDetailScreen` on double-click, Browse `NodeRow` /
+   DAG-node double-click, `OperationRow.on_click`.
 
 ## Verification
-- `pilot.press`/click-simulation tests: synthesize a `Click` with `chain == 2`
-  on NodeRow / GroupRow / DAG node and assert the correct screen/modal is pushed;
-  `chain == 1` preserves focus/expand. Follow the board double-click test if one
-  exists.
+- Pilot tests (`tests/test_brainstorm_group_dblclick_focus.py`): synthetic
+  `Click` `chain == 2` on a GroupRow toggles `_expanded_groups`; `chain == 1`
+  only focuses; `Enter` still toggles (extraction regression); focus survives a
+  `_refresh_status_tab` rebuild; a vanished focused group degrades gracefully.
 - Full brainstorm suite green.
-- **Live mouse double-click verification** (real terminal mouse events through
-  tmux) is covered by the aggregate **t1018_4** manual-verification sibling —
-  synthetic `Click` events in the headless driver do not exercise real
-  terminal→tmux mouse delivery.
+- **Live verification** (real terminal mouse double-click through tmux; focus
+  retained across a real status refresh) is covered by the aggregate **t1018_4**
+  manual-verification sibling — synthetic `Click` events in the headless driver
+  do not exercise real terminal→tmux mouse delivery.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
