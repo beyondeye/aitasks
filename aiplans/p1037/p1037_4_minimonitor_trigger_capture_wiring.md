@@ -36,13 +36,19 @@ panes/snapshots for the one whose `@aitask_shadow_target` == followed pane id.
   1. `snap = self._find_own_agent_snapshot()`; warn + return if none.
   2. `shadow_pane = self._find_shadow_pane_for(snap.pane.pane_id)`; if none →
      `notify("No shadow agent running — press 'e' to launch one", warning)`.
-  3. **Capture:** run `./.aitask-scripts/aitask_shadow_capture.sh <shadow_pane>`
-     via subprocess (reuses the shadow skill's exact cleaning — parent
-     constraint). Justify over `self._monitor.capture_pane()` in notes; the
-     script keeps cleaning identical to the producer's own reads. (If
-     subprocess latency is a concern, fall back to gateway capture + the
-     parser's own cleaning — but keep tmux access through the gateway per
-     `test_no_raw_tmux.sh`.)
+  3. **Capture (MUST be wrap-joined):** the capture handed to `parse_concerns`
+     must be `tmux capture-pane -J`-joined — the parser space-joins continuation
+     lines, which corrupts raw mid-word soft-wrap (see the **capture-join
+     contract** in `aidocs/framework/shadow_concern_format.md`, established by
+     t1037_1). Options: (a) run
+     `./.aitask-scripts/aitask_shadow_capture.sh <shadow_pane>` (reuses the
+     shadow skill's cleaning) — but **verify/add `-J`** to that helper's
+     `capture-pane` call, since it currently omits it (the shadow skill reads
+     prose and tolerates soft-wrap; the parser does not). Changing the shared
+     helper has its own blast radius — adding `-J` only improves prose reading,
+     but confirm. Or (b) use a gateway `capture-pane -J -p` directly (still
+     through the gateway per `test_no_raw_tmux.sh`). Pick one and justify in
+     notes.
   4. `concerns = parse_concerns(text)`; if empty →
      `notify("No concerns detected on the shadow pane")` and stop.
   5. `push_screen(ConcernPickerModal(concerns, narrow=True), callback=self._on_concerns_picked)`.

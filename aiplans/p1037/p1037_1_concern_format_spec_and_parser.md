@@ -181,14 +181,58 @@ Generate fixture #2 by piping a hand-written block through
 - Round-trip a real capture by hand; confirm extraction.
 - `shellcheck` only if shell touched (none expected).
 
-## 5. Final Implementation Notes (fill at completion)
+## 5. Final Implementation Notes
 
-Record prominently — siblings t1037_2/_3/_4 depend on these exact values:
-- the FINAL sentinel strings and the exact item-marker regex (with the
-  **mandatory leading `- `**);
-- the multi-block policy (last block wins);
-- the **strict `has_concern_block`** contract (t1037_4's auto-offer gates on it;
-  t1037_2's producer must emit the closing fence so it fires).
+- **Actual work done:**
+  - `aidocs/framework/shadow_concern_format.md` — the format spec (single source
+    of truth).
+  - `.aitask-scripts/monitor/concern_parser.py` — pure module: `Concern`
+    NamedTuple, `parse_concerns`, strict `has_concern_block`,
+    `build_clipboard_payload`, plus private `_last_block_region` /
+    `_parse_items` helpers (all fence-scoping and grammar live in those two).
+  - `tests/test_concern_parser.py` — 11 unittest cases (no pytest in the repo
+    venv; run via `python3 -m unittest tests.test_concern_parser`). All pass.
+  - One-line pointer added to `aidocs/framework/shadow_agent.md`.
+
+- **Contract values siblings depend on (LOCKED):**
+  - Fences: `===AITASK-CONCERNS===` … `===END-CONCERNS===`.
+  - Item marker (mandatory leading `- `):
+    `^\s*-\s+\[\s*(?P<priority>\w+)\s*\|\s*(?P<region>[^\]]*)\]\s*(?P<body>.*)$`.
+  - Priority normalized case-insensitively to {high,medium,low}; unknown → low.
+  - Multi-block: **last block wins**.
+  - `has_concern_block` is **strict** (last opening fence must have its own
+    closing fence after it + ≥1 concern); `parse_concerns` is **forgiving**
+    (newest block to EOF). Both scope via `_last_block_region`.
+
+- **Deviations from plan (NEW cross-cutting requirement — read for t1037_4):**
+  Testing surfaced that `tmux capture-pane` *without* `-J` splits a long logical
+  line **mid-word**, which the parser's space-join cannot reconstruct. The
+  parser's wrap-join is correct only for **agent-emitted word-boundary** breaks.
+  Resolution: added a **capture-join contract** — the capture handed to the
+  parser MUST be `tmux capture-pane -J`-joined (or equivalent). Documented in the
+  spec, the parser docstring, and **t1037_4's plan** (its capture step must use
+  `-J`; note `aitask_shadow_capture.sh` currently OMITS `-J`, so t1037_4 must add
+  it there or capture with `-J` directly). This was not in the original plan.
+
+- **Issues encountered:** the wrap-join test first failed because
+  `textwrap.wrap` broke a word at a hyphen — which clarified the contract above.
+  Fixed the test to model agent word-boundary wrapping (`break_on_hyphens=False`)
+  and asserted continuation lines carry no leading `- `.
+
+- **Key decisions:** single `_last_block_region(require_close=...)` shared by
+  both public entry points (DRY, and guarantees identical last-block scoping);
+  `_parse_items` is the only home of the marker grammar.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - t1037_2 (producer): MUST emit the mandatory leading `- ` and ALWAYS emit the
+    closing fence (the strict auto-offer needs it). Match the marker regex above.
+  - t1037_3 (modal): `from monitor.concern_parser import Concern,
+    build_clipboard_payload` (or add the monitor dir to sys.path as the tests do).
+  - t1037_4 (wiring): honor the **capture-join (`-J`) contract** above; gate the
+    auto-offer on the strict `has_concern_block`; the explicit `c` press uses
+    `parse_concerns`.
 
 See parent task t1037 and **Step 9 (Post-Implementation)** of the task workflow
 for archival/merge.
