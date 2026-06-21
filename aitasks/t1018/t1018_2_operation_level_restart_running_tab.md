@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: high
 depends: [t1018_1]
 issue_type: enhancement
@@ -7,8 +9,9 @@ status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1018
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 10:19
-updated_at: 2026-06-21 11:20
+updated_at: 2026-06-21 11:36
 ---
 
 ## Context
@@ -117,3 +120,8 @@ Confirm destructive re-runs with a modal (or the wizard's own confirm for #1).
 - **Live behavioral verification** (real session, real failed agent → re-run
   fresh actually relaunches and produces output; retry-step re-applies) is
   covered by the aggregate **t1018_4** manual-verification sibling.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-21T08:36:18Z status=pass attempt=1 type=human
