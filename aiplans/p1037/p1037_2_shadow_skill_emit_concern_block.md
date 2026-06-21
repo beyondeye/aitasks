@@ -35,6 +35,11 @@ ALSO emit the machine-parseable block:
 - `region` = the axis/section the concern targets (regressions, edge case,
   blast-radius, etc., or a named plan section).
 - One item per concern, ordered by severity (matches the existing ordering).
+- **MANDATORY leading `- ` on every concern line** and **always emit the
+  closing `===END-CONCERNS===` fence** — both are load-bearing for the parser
+  (t1037_1): the dash is the wrap-join collision guard, and the closing fence is
+  what makes minimonitor's strict `has_concern_block` auto-offer fire. Match the
+  exact marker grammar recorded in t1037_1's Final Implementation Notes.
 - Keep the prose list too — the block is additive, for pick-and-forward.
 - Reaffirm the advisory-only guardrail (the block is for the user to copy; the
   shadow never drives the followed pane).
