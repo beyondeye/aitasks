@@ -121,3 +121,5 @@ stale. Confirmed against the as-landed code:
 > **✅ gate:plan_approved** run=2026-06-21T07:55:40Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-21T07:55:41Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-21T08:14:33Z status=pass attempt=1 type=human
