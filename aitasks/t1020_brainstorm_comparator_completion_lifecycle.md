@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
 status: Implementing
 labels: [brainstorming, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-17 10:52
-updated_at: 2026-06-21 13:40
+updated_at: 2026-06-21 14:44
 boardidx: 30
 ---
 
@@ -99,3 +102,8 @@ read `.aitask-crews/crew-brainstorm-<N>/comparator_<seq>_output.md` directly.)
   (~629-667).
 - Live evidence: `.aitask-crews/crew-brainstorm-1017/` (`br_groups.yaml`,
   `comparator_001_status.yaml`, `_crew_status.yaml`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-21T11:44:26Z status=pass attempt=1 type=human
