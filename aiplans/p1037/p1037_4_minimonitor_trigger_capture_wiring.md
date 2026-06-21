@@ -19,6 +19,22 @@ t1037_2 (producer for live data), t1037_1 (parser).
 and `monitor_shared.ConcernPickerModal` exist. Read `aidocs/framework/
 tmux_gateway.md`, `shadow_agent.md`, `tui_conventions.md`.
 
+## tmux gateway compliance (MANDATORY)
+
+**Every** tmux interaction this task adds or changes MUST route through the
+shared command-helper gateway — `lib/tmux_exec.py` (Python:
+`self._monitor.tmux_run([...])`) or `lib/tmux_exec.sh` (shell: `ait_tmux ...`).
+Never call `tmux` directly; `tests/test_no_raw_tmux.sh` enforces this and will
+fail the build otherwise. This applies to all three tmux touchpoints here:
+- the **`-J` capture** (add the `-J` flag to the existing gateway `capture-pane`
+  call — both `aitask_shadow_capture.sh:76` (`ait_tmux capture-pane …`) and any
+  in-app `self._monitor.tmux_run(["capture-pane", "-J", "-p", …])` are already
+  gateway calls; just add the flag);
+- the **reverse shadow-pane lookup** (read `@aitask_shadow_target` via the
+  existing pane-discovery format / `tmux_run`, not a raw `tmux show-options`);
+- any **pane-option / select-pane** call.
+Run `bash tests/test_no_raw_tmux.sh` as part of verification.
+
 ## 1. Reverse shadow-pane lookup
 
 The shadow pane carries `@aitask_shadow_target = <followed_pane_id>`
