@@ -7,7 +7,7 @@ status: Ready
 labels: [codeagent, research]
 created_at: 2026-06-10 17:21
 updated_at: 2026-06-10 17:21
-boardidx: 180
+boardidx: 170
 ---
 
 Investigate why a `claudecode/fable5` session (e.g. launched by `/aitask-pick` as `claude --model claude-fable-5`) starts on the **Fable 5** promo but ends up with **Opus 4.8** selected — and whether anything in this repo can be changed to keep it on Fable 5 from launch.

@@ -8,7 +8,7 @@ labels: [aitask_board]
 anchor: 1016
 created_at: 2026-06-19 13:57
 updated_at: 2026-06-19 13:57
-boardidx: 100
+boardidx: 90
 ---
 
 ## Goal
