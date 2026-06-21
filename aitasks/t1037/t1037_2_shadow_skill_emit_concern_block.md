@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1037_1]
 issue_type: feature
@@ -7,8 +9,9 @@ status: Implementing
 labels: [shadow, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1037
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 11:42
-updated_at: 2026-06-21 13:39
+updated_at: 2026-06-21 13:51
 ---
 
 ## Context
@@ -90,3 +93,8 @@ small and identical.
 - Record the exact emit wording so t1037_4's auto-offer (detecting a fresh
   block) keys off the same sentinel. Note any deviation from the spec back to
   t1037_1's Final Implementation Notes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-21T10:51:25Z status=pass attempt=1 type=human
