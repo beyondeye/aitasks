@@ -34,7 +34,10 @@ from agent_launch_utils import (  # noqa: E402
     _resolve_config_project_group,
     _resolve_session_group,
     advance_selected_group,
+    cross_group_ring,
+    cross_group_step,
     default_selected_group,
+    group_members,
     group_sessions,
     validate_project_group_slug,
 )
@@ -263,6 +266,98 @@ class AdvanceSelectedGroupTests(unittest.TestCase):
     def test_empty_groups_returns_current(self):
         self.assertEqual(advance_selected_group([], "x", +1), "x")
         self.assertIsNone(advance_selected_group([], None, +1))
+
+
+class GroupMembersTests(unittest.TestCase):
+    """`group_members` returns ONLY the selected group's members (t1036)."""
+
+    def test_members_only_no_out_of_group_append(self):
+        a, b = _sess("a", "g1"), _sess("b", "g1")
+        c_live, d_other = _sess("c", "g1"), _sess("d", "g2")  # d live, other grp
+        members = group_members([a, b, c_live, d_other], "g1")
+        # Unlike group_sessions().ring, the live out-of-group d is NOT appended.
+        self.assertEqual([s.project_name for s in members], ["a", "b", "c"])
+
+    def test_stale_in_group_is_kept(self):
+        a = _sess("a", "g1")
+        b = _sess("b", "g1", is_live=False, is_stale=True)
+        self.assertEqual(
+            [s.project_name for s in group_members([a, b], "g1")], ["a", "b"]
+        )
+
+    def test_ungrouped_bucket_selected_by_none_and_label(self):
+        a, b = _sess("a", None), _sess("b", "g1")
+        self.assertEqual(
+            [s.project_name for s in group_members([a, b], None)], ["a"]
+        )
+        self.assertEqual(
+            [s.project_name
+             for s in group_members([a, b], PROJECT_GROUP_UNGROUPED_LABEL)],
+            ["a"],
+        )
+
+
+class CrossGroupRingTests(unittest.TestCase):
+    """`cross_group_ring` flattens all groups into one boundary-crossing walk."""
+
+    def test_group_cycle_order_every_project_once(self):
+        # Real groups sort (g1 < g2); ungrouped bucket comes last.
+        a, c = _sess("a", "g1"), _sess("c", "g1")
+        b = _sess("b", "g2")
+        u = _sess("u", None)
+        entries = cross_group_ring([a, c, b, u])
+        self.assertEqual(
+            [e.session for e in entries], ["a", "c", "b", "u"]
+        )
+        # Each entry tagged with its group; ungrouped normalized to None.
+        self.assertEqual(
+            [e.group for e in entries], ["g1", "g1", "g2", None]
+        )
+
+    def test_includes_stale_in_group_members(self):
+        a = _sess("a", "g1")
+        d = _sess("d", "g1", is_live=False, is_stale=True)
+        b = _sess("b", "g2")
+        entries = cross_group_ring([a, d, b])
+        self.assertEqual([e.session for e in entries], ["a", "d", "b"])
+
+    def test_empty_sessions(self):
+        self.assertEqual(cross_group_ring([]), [])
+
+
+class CrossGroupStepTests(unittest.TestCase):
+    """`cross_group_step` wraps a ±1 step over a cross-group ring."""
+
+    def _ring(self):
+        # g1: a, c ; g2: b  -> sequence [a, c, b]
+        return cross_group_ring([_sess("a", "g1"), _sess("c", "g1"),
+                                 _sess("b", "g2")])
+
+    def test_forward_within_group(self):
+        t = cross_group_step(self._ring(), "a", +1)
+        self.assertEqual((t.session, t.group), ("c", "g1"))
+
+    def test_forward_crosses_boundary(self):
+        # Last member of g1 (c) -> first member of g2 (b), group switches.
+        t = cross_group_step(self._ring(), "c", +1)
+        self.assertEqual((t.session, t.group), ("b", "g2"))
+
+    def test_forward_wraps_globally(self):
+        # Last member of last group (b) -> first member of first group (a).
+        t = cross_group_step(self._ring(), "b", +1)
+        self.assertEqual((t.session, t.group), ("a", "g1"))
+
+    def test_backward_crosses_boundary_and_wraps(self):
+        # First member of g1 (a) wraps back to last member of last group (b).
+        t = cross_group_step(self._ring(), "a", -1)
+        self.assertEqual((t.session, t.group), ("b", "g2"))
+
+    def test_absent_current_starts_from_first(self):
+        t = cross_group_step(self._ring(), "gone", +1)
+        self.assertEqual(t.session, "c")  # index 0 (a) + 1
+
+    def test_empty_ring_returns_none(self):
+        self.assertIsNone(cross_group_step([], "a", +1))
 
 
 if __name__ == "__main__":

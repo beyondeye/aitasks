@@ -36,9 +36,13 @@ from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
     PROJECT_GROUP_UNGROUPED_LABEL,
     AitasksSession,
+    CrossGroupRingEntry,
     advance_selected_group,
+    cross_group_ring,
+    cross_group_step,
     default_selected_group,
     discover_aitasks_sessions,
+    group_members,
     group_sessions,
 )
 from stats import stats_config  # noqa: E402
@@ -510,15 +514,16 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             pane.cycle_window(delta)
 
     def _session_ring(self) -> list[str]:
-        """Session keys for left/right cycling (t1025_2).
+        """Session keys for left/right cycling (t1025_2, t1036).
 
-        The selected project-group's derived ring, with the aggregate
-        ``ALL_SESSIONS_KEY`` layered as a fixed FINAL member here (NOT inside the
-        pure ``group_sessions()``). So left/right reaches the aggregate while
+        The cross-group traversal order (:func:`cross_group_ring`) — left/right
+        walks every project across all groups, crossing boundaries — with the
+        aggregate ``ALL_SESSIONS_KEY`` layered as a fixed FINAL member here (NOT
+        inside the pure helper). So left/right reaches the aggregate while
         ``[`` / ``]`` group cycling never selects it.
         """
-        ring = group_sessions(self.sessions, self._selected_group).ring
-        return [s.session for s in ring] + [ALL_SESSIONS_KEY]
+        entries = cross_group_ring(self.sessions)
+        return [e.session for e in entries] + [ALL_SESSIONS_KEY]
 
     def _apply_session_selection(self, new_key: str) -> None:
         """Commit a new selected-session key: mirror the sidebar highlight,
@@ -549,21 +554,29 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         )
 
     def _cycle_session(self, delta: int) -> None:
-        keys = self._session_ring()
-        try:
-            current = keys.index(self.selected_session)
-        except ValueError:
-            current = 0
-        new_key = keys[(current + delta) % len(keys)]
-        self._apply_session_selection(new_key)
+        # left/right crosses group boundaries (t1036): walk the cross-group ring
+        # with the aggregate as a virtual final stop, and keep the selected-group
+        # axis in sync. The aggregate is group-agnostic, so landing on it leaves
+        # the current group unchanged.
+        ring = cross_group_ring(self.sessions) + [
+            CrossGroupRingEntry(ALL_SESSIONS_KEY, self._selected_group)
+        ]
+        target = cross_group_step(ring, self.selected_session, delta)
+        if target is None:
+            return
+        if target.session != ALL_SESSIONS_KEY:
+            self._selected_group = target.group
+        self._apply_session_selection(target.session)
 
     def _cycle_group(self, delta: int) -> None:
         """Advance the project-group axis (`[` / `]` off the agents panes).
 
-        Re-derives the ring; if the current selection fell out of the new
-        group's ring, re-point it to the ring's first member (via the shared
+        Re-points the selection onto the new group's first member when the
+        current selection isn't one of its members (via the shared
         ``_apply_session_selection`` so the sidebar/title/data stay in lockstep).
-        The aggregate stays reachable by left/right but is unaffected here.
+        Uses :func:`group_members` (not the full cross-group ring, which always
+        contains the selection and would never re-point). The aggregate stays
+        reachable by left/right but is never selected here.
         """
         groups = group_sessions(self.sessions, self._selected_group).groups
         if len(groups) < 2:
@@ -571,9 +584,11 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._selected_group = advance_selected_group(
             groups, self._selected_group, delta
         )
-        ring = self._session_ring()
-        if self.selected_session not in ring:
-            self._apply_session_selection(ring[0])
+        members = [s.session for s in group_members(
+            self.sessions, self._selected_group
+        )]
+        if self.selected_session not in members:
+            self._apply_session_selection(members[0] if members else ALL_SESSIONS_KEY)
         else:
             self._update_title()
         self.notify(

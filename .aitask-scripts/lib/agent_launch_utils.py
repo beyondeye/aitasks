@@ -791,6 +791,86 @@ def advance_selected_group(
     return groups[(idx + step) % len(groups)]
 
 
+def group_members(
+    sessions: list[AitasksSession],
+    selected_group: str | None,
+) -> list[AitasksSession]:
+    """The selected project-group's own members, input order (t1036).
+
+    Unlike :func:`group_sessions` (whose ``ring`` appends any **live**
+    out-of-group session so a single-group ring can still reach other repos),
+    this returns *only* the sessions that belong to ``selected_group`` (in-group
+    stale members kept, matching :func:`group_sessions`). Used by the TUI
+    switcher to render a per-group ``Session:`` row and by both TUIs' ``[`` /
+    ``]`` re-point check, where out-of-group sessions must NOT count as
+    "still selected". ``None`` / the synthetic ``PROJECT_GROUP_UNGROUPED_LABEL``
+    both select the no-group bucket (see :func:`_session_in_group`).
+    """
+    return [s for s in sessions if _session_in_group(s, selected_group)]
+
+
+@dataclass(frozen=True)
+class CrossGroupRingEntry:
+    """One stop in the cross-group left/right traversal (t1036).
+
+    ``session`` is the session name (or a caller-supplied sentinel such as the
+    stats aggregate key). ``group`` is the project-group the entry belongs to
+    (``None`` = the ungrouped bucket), so a caller can keep its selected-group
+    axis in sync as ``left`` / ``right`` crosses a group boundary.
+    """
+
+    session: str
+    group: str | None
+
+
+def cross_group_ring(
+    sessions: list[AitasksSession],
+) -> list[CrossGroupRingEntry]:
+    """Flat ``left`` / ``right`` traversal order across **all** groups (t1036).
+
+    Concatenates each group's members (input order) in the ``[`` / ``]``
+    group-cycle order (:func:`group_sessions`'s ``groups``: sorted real groups,
+    then the synthetic ungrouped bucket). Every project appears exactly once —
+    each :class:`AitasksSession` has a single ``project_group`` — so stepping off
+    the last member of a group lands on the first member of the next, letting the
+    switcher show only the selected group yet still reach every repo by crossing
+    boundaries. Unlike :func:`group_sessions`'s ``ring`` it does NOT append
+    out-of-group live sessions (the cross-boundary walk already reaches them).
+    Each entry is tagged with its group (ungrouped label normalized to ``None``).
+    """
+    groups = group_sessions(sessions, None).groups
+    entries: list[CrossGroupRingEntry] = []
+    for g in groups:
+        tag = None if g == PROJECT_GROUP_UNGROUPED_LABEL else g
+        for s in sessions:
+            if _session_in_group(s, g):
+                entries.append(CrossGroupRingEntry(session=s.session, group=tag))
+    return entries
+
+
+def cross_group_step(
+    entries: list[CrossGroupRingEntry],
+    current_session: str | None,
+    step: int,
+) -> CrossGroupRingEntry | None:
+    """Index-wrap a ``±1`` step over a cross-group ring (t1036).
+
+    ``entries`` is :func:`cross_group_ring` output, optionally with extra
+    caller-appended stops (e.g. the stats ``__all__`` aggregate). Returns the
+    entry ``step`` positions from the one whose ``.session == current_session``
+    (starting at index 0 when ``current_session`` is absent), wrapping globally,
+    or ``None`` when ``entries`` is empty. Shared so the switcher and stats wrap
+    identically.
+    """
+    if not entries:
+        return None
+    idx = next(
+        (i for i, e in enumerate(entries) if e.session == current_session),
+        0,
+    )
+    return entries[(idx + step) % len(entries)]
+
+
 def switch_to_pane_anywhere(pane_id: str) -> bool:
     """Teleport the attached tmux client to an arbitrary pane on this server.
 

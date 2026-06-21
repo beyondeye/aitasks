@@ -49,9 +49,12 @@ from agent_launch_utils import (  # noqa: E402
     PROJECT_GROUP_UNGROUPED_LABEL,
     AitasksSession,
     advance_selected_group,
+    cross_group_ring,
+    cross_group_step,
     default_selected_group,
     discover_aitasks_sessions,
     get_tmux_windows,
+    group_members,
     group_sessions,
     load_tmux_defaults,
     tmux_session_target,
@@ -704,7 +707,10 @@ class TuiSwitcherOverlay(ModalScreen):
             return
         row.display = True
         parts = []
-        for s in self._all_sessions:
+        # Show ONLY the selected group's projects (t1036). left/right crosses
+        # group boundaries and re-renders this row to the next group's members,
+        # so a per-group view stays exhaustive without listing every session.
+        for s in group_members(self._all_sessions, self._selected_group):
             name = s.session
             attached = name == self._attached_session
             selected = name == self._session
@@ -886,14 +892,17 @@ class TuiSwitcherOverlay(ModalScreen):
     def action_next_group(self) -> None:
         self._cycle_group(+1)
 
-    def _ring_names(self) -> list[str]:
-        """Session names in the SELECTED group's derived ring (t1025_2).
+    def _group_member_names(self) -> list[str]:
+        """Session names in the SELECTED group only (t1036).
 
-        left/right cycles this ring (selected group's members + any live
-        out-of-group session), not the flat ``_all_sessions`` list.
+        Used by ``[`` / ``]`` group cycling to decide whether the operating
+        session still belongs to the newly selected group. left/right no longer
+        cycles this list — it walks the cross-group ring (:func:`cross_group_ring`)
+        so it can cross group boundaries.
         """
-        ring = group_sessions(self._all_sessions, self._selected_group).ring
-        return [s.session for s in ring]
+        return [s.session for s in group_members(
+            self._all_sessions, self._selected_group
+        )]
 
     def _refresh_after_cycle(self) -> None:
         """Shared refresh trio after left/right or `[`/`]` changes the selection."""
@@ -915,14 +924,17 @@ class TuiSwitcherOverlay(ModalScreen):
     def _cycle_session(self, step: int) -> None:
         from textual.actions import SkipAction
         self._switcher_list_or_skip()
-        names = self._ring_names()
-        if not self._multi_mode or len(names) < 2:
+        # left/right walks ONE continuous ring across all groups (t1036):
+        # stepping off a group's last/first member crosses into the adjacent
+        # group (wrapping globally) and re-points the selected-group axis.
+        entries = cross_group_ring(self._all_sessions)
+        if not self._multi_mode or len(entries) < 2:
             raise SkipAction()
-        try:
-            idx = names.index(self._session)
-        except ValueError:
-            idx = 0
-        self._session = names[(idx + step) % len(names)]
+        target = cross_group_step(entries, self._session, step)
+        if target is None:
+            raise SkipAction()
+        self._session = target.session
+        self._selected_group = target.group
         self._refresh_after_cycle()
 
     def _cycle_group(self, step: int) -> None:
@@ -934,9 +946,10 @@ class TuiSwitcherOverlay(ModalScreen):
         self._selected_group = advance_selected_group(
             groups, self._selected_group, step
         )
-        # Re-point the operating session into the new group's ring when the
-        # current selection fell out of it, so the row/list stay coherent.
-        names = self._ring_names()
+        # Re-point the operating session onto the new group's first member when
+        # the current selection isn't one of its members, so the row/list stay
+        # coherent (t1036: out-of-group sessions no longer count as "in ring").
+        names = self._group_member_names()
         if names and self._session not in names:
             self._session = names[0]
         self._refresh_after_cycle()

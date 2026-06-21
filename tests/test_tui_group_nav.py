@@ -1,22 +1,26 @@
-"""Behavioral tests for two-axis project-group navigation (t1025_2).
+"""Behavioral tests for two-axis project-group navigation (t1025_2, t1036).
 
-Covers the wiring of t1025_1's pure ``group_sessions`` into the TUI switcher
-and the stats TUI:
+Covers the wiring of the pure grouping helpers into the TUI switcher and the
+stats TUI. As of t1036, ←/→ crosses group boundaries (one continuous ring over
+all groups, global wrap) and keeps the selected-group axis in sync; the switcher
+shows only the selected group's projects:
 
   * switcher ``_ensure_session_live`` preserves ``project_group`` across
     bootstrap (review concern #1 — the frozen dataclass must not be rebuilt
     field-by-field, dropping the group).
-  * switcher ``_ring_names`` cycles the SELECTED group's derived ring.
+  * switcher ``_group_member_names`` lists ONLY the selected group's members;
+    ``_cycle_session`` crosses boundaries and re-points the group axis (t1036).
   * switcher cross-group preselection: opening with a ``selected_session`` in
     another group defaults the group axis to THAT session's group (not the
-    attached one), and ``]`` advances the group axis while ←/→ stays in the ring.
-  * stats ``_session_ring`` layers the ``__all__`` aggregate as a fixed final
-    ring member (left/right reaches it; ``[`` / ``]`` group cycling never does).
+    attached one); ←/→ crosses boundaries and ``]`` advances the group axis.
+  * stats ``_session_ring`` is the cross-group walk with the ``__all__``
+    aggregate layered as a fixed final member (left/right reaches it; ``[`` /
+    ``]`` group cycling never does).
   * stats ``[`` / ``]`` are pane-guarded: time-window on the agents panes,
     project-group elsewhere.
   * stats group cycling re-points the selected session via the shared
-    ``_apply_session_selection`` only when the current selection falls out of
-    the new ring.
+    ``_apply_session_selection`` onto the new group's first member when the
+    current selection isn't one of its members (t1036).
 
 Run: bash tests/run_all_python_tests.sh
   or: python3 -m pytest tests/test_tui_group_nav.py -v
@@ -80,21 +84,20 @@ class SwitcherBootstrapTests(unittest.TestCase):
 
 
 class SwitcherRingTests(unittest.TestCase):
-    """`_ring_names` derives from the selected group, not the flat list."""
+    """`_group_member_names` lists ONLY the selected group's members (t1036)."""
 
-    def test_ring_is_group_scoped_with_live_out_of_group(self):
+    def test_member_names_are_group_scoped(self):
         import tui_switcher as ts
 
         ov = ts.TuiSwitcherOverlay(session="sA")
         ov._all_sessions = [
             _sess("sA", "g1"),
             _sess("sC", "g1"),
-            _sess("sB", "g2"),
-            _sess("sD", "g2", is_live=False, is_stale=True),  # stale out-of-grp
+            _sess("sB", "g2"),         # live out-of-group: NOT listed
+            _sess("sD", "g1", is_live=False, is_stale=True),  # stale in-group: kept
         ]
         ov._selected_group = "g1"
-        # g1 members first, then live out-of-group (sB); stale sD dropped.
-        self.assertEqual(ov._ring_names(), ["sA", "sC", "sB"])
+        self.assertEqual(ov._group_member_names(), ["sA", "sC", "sD"])
 
 
 class SwitcherPilotTests(unittest.TestCase):
@@ -105,8 +108,7 @@ class SwitcherPilotTests(unittest.TestCase):
 
     def _fixtures(self):
         # g1: sA (attached), sC, sD(stale) ; g2: sB (preselected).
-        # sD is stale AND out-of-group relative to g2, so it is dropped from
-        # g2's ring — proving the ring is group-scoped, not the flat list.
+        # cross_group_ring order: [sA, sC, sD, sB] (g1 members, then g2).
         return [
             _sess("sA", "g1"),
             _sess("sC", "g1"),
@@ -148,19 +150,32 @@ class SwitcherPilotTests(unittest.TestCase):
                     # SELECTED session (sB -> g2), NOT the attached one (g1).
                     self.assertTrue(overlay._multi_mode)
                     self.assertEqual(overlay._selected_group, "g2")
-                    # Ring for g2: member sB + live out-of-group sA, sC.
-                    self.assertEqual(overlay._ring_names(), ["sB", "sA", "sC"])
+                    # Switcher row shows ONLY the selected group's member (sB).
+                    self.assertEqual(overlay._group_member_names(), ["sB"])
 
-                    # ←/→ cycles within the ring (stays in g2's ring).
+                    # → on sB (last member of last group g2) wraps globally to
+                    # sA (first member of g1) and switches the group axis.
                     await pilot.press("right")
                     await pilot.pause()
                     self.assertEqual(overlay._session, "sA")
+                    self.assertEqual(overlay._selected_group, "g1")
+                    self.assertEqual(
+                        overlay._group_member_names(), ["sA", "sC", "sD"]
+                    )
+
+                    # ← on sA (first member of first group g1) wraps back to
+                    # sB (last member of last group g2), crossing the boundary.
+                    await pilot.press("left")
+                    await pilot.pause()
+                    self.assertEqual(overlay._session, "sB")
                     self.assertEqual(overlay._selected_group, "g2")
 
-                    # `]` advances the group axis g2 -> g1 (wrap over [g1, g2]).
+                    # `]` advances the group axis g2 -> g1 and re-points the
+                    # operating session onto g1's first member (sA).
                     await pilot.press("]")
                     await pilot.pause()
                     self.assertEqual(overlay._selected_group, "g1")
+                    self.assertEqual(overlay._session, "sA")
 
         self._run(go())
 
@@ -187,8 +202,9 @@ class StatsRingTests(unittest.TestCase):
         ring = app._session_ring()
         self.assertEqual(ring[-1], sa.ALL_SESSIONS_KEY)
         self.assertEqual(ring.count(sa.ALL_SESSIONS_KEY), 1)
-        # g2 ring: member sB + live out-of-group sA, sC, then aggregate.
-        self.assertEqual(ring, ["sB", "sA", "sC", sa.ALL_SESSIONS_KEY])
+        # Cross-group walk [sA, sC, sB] (group order, not selected-group first),
+        # then the aggregate as the fixed final member (t1036).
+        self.assertEqual(ring, ["sA", "sC", "sB", sa.ALL_SESSIONS_KEY])
 
     def test_bracket_pane_guard_routes_window_vs_group(self):
         _sa, app = self._app([_sess("sA", "g1"), _sess("sB", "g2")], "sA", "g1")
@@ -206,33 +222,56 @@ class StatsRingTests(unittest.TestCase):
         app._cycle_group.assert_called_once()
         app._cycle_window.assert_not_called()
 
-    def test_group_cycle_repoints_only_when_selection_falls_out(self):
-        # Live selection stays in the ring across a group change.
+    def test_group_cycle_repoints_when_selection_not_in_new_group(self):
+        # Selection is not a member of the new group -> re-point to its first
+        # member (t1036: `[`/`]` lands on a member of the target group).
         _sa, app = self._app(
             [_sess("sA", "g1"), _sess("sB", "g2")], "sB", "g2",
         )
         app._apply_session_selection = MagicMock()
         app._update_title = MagicMock()
         app.notify = MagicMock()
-        app._cycle_group(+1)  # g2 -> g1; sB is live out-of-group -> stays
+        app._cycle_group(+1)  # g2 -> g1; sB not a g1 member -> re-point to sA
         self.assertEqual(app._selected_group, "g1")
-        app._apply_session_selection.assert_not_called()
-        app._update_title.assert_called_once()
+        app._apply_session_selection.assert_called_once_with("sA")
+        app._update_title.assert_not_called()
 
-        # A stale in-group selection is dropped from the new ring -> re-point.
+    def test_cycle_session_crosses_boundary_and_syncs_group(self):
+        sa, app = self._app(
+            [_sess("sA", "g1"), _sess("sC", "g1"), _sess("sB", "g2")],
+            "sC", "g1",
+        )
+        app._apply_session_selection = MagicMock()
+        # → on sC (last g1 member) crosses into g2's sB; group axis follows.
+        app._cycle_session(+1)
+        self.assertEqual(app._selected_group, "g2")
+        app._apply_session_selection.assert_called_once_with("sB")
+
+    def test_cycle_session_onto_aggregate_keeps_group(self):
+        sa, app = self._app(
+            [_sess("sA", "g1"), _sess("sC", "g1"), _sess("sB", "g2")],
+            "sB", "g2",
+        )
+        app._apply_session_selection = MagicMock()
+        # → on sB (last real entry) lands on the aggregate; group is unchanged
+        # (the aggregate is group-agnostic).
+        app._cycle_session(+1)
+        self.assertEqual(app._selected_group, "g2")
+        app._apply_session_selection.assert_called_once_with(sa.ALL_SESSIONS_KEY)
+
+    def test_group_cycle_keeps_selection_when_already_in_new_group(self):
+        # Selection already belongs to the group landed on -> no re-point.
         _sa, app = self._app(
-            [_sess("sA", "g1"), _sess("sB", "g2", is_live=False, is_stale=True)],
+            [_sess("sA", "g1"), _sess("sB", "g1"), _sess("sC", "g2")],
             "sB", "g2",
         )
         app._apply_session_selection = MagicMock()
         app._update_title = MagicMock()
         app.notify = MagicMock()
-        app._cycle_group(+1)  # g2 -> g1; stale sB out-of-group dropped
+        app._cycle_group(+1)  # g2 -> g1; sB is a g1 member -> stays
         self.assertEqual(app._selected_group, "g1")
-        app._apply_session_selection.assert_called_once()
-        # Re-pointed to the first ring member (sA, then aggregate appended).
-        called_key = app._apply_session_selection.call_args[0][0]
-        self.assertEqual(called_key, "sA")
+        app._apply_session_selection.assert_not_called()
+        app._update_title.assert_called_once()
 
 
 if __name__ == "__main__":
