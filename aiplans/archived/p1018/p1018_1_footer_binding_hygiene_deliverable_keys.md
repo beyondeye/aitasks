@@ -210,3 +210,4 @@ active (siblings t1018_2/t1018_3 + the t1018_4 verification sibling remain).
     onto a host App) so the test fails if the bound key string regresses — the
     headless driver still cannot prove real-terminal delivery (t1018_4 covers
     that live).
+- **Manual-verification failure:** item "[t1018_1] No retry-apply binding leaks into the footer on tabs/screens where it is irrelevant; each shows only on its owning surface." failed; follow-up task t1039.
