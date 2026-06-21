@@ -41,10 +41,12 @@ Author `aidocs/framework/shadow_concern_format.md` defining:
 - **Multi-block policy:** **last block wins** (a re-issued review supersedes an
   earlier one). Document this; it answers the parent's open question.
 - **Trigger vs action contract:** document that detecting a block for the UI
-  *auto-offer* requires a COMPLETE block (both fences) with ≥1 parseable
-  concern (`has_concern_block`, strict), whereas the *explicit* user action
-  parses forgivingly (`parse_concerns`, EOF-tolerant). Producers must emit the
-  closing fence so the auto-offer fires.
+  *auto-offer* requires the **last** opening fence to have **its own** closing
+  fence after it, plus ≥1 parseable concern (`has_concern_block`, strict — an
+  older block's closing fence must not count while a newer block streams),
+  whereas the *explicit* user action parses forgivingly (`parse_concerns`,
+  EOF-tolerant on the newest block). Producers must emit the closing fence so
+  the auto-offer fires.
 - Worked example + a note that this file is the single source of truth cited by
   t1037_2 (producer) and t1037_3/_4 (consumers).
 - Add a one-line pointer from `aidocs/framework/shadow_agent.md`.
@@ -73,26 +75,44 @@ class Concern(NamedTuple):
     region: str
     body: str
 
-def has_concern_block(text: str) -> bool:
-    # STRICT trigger predicate (used by t1037_4's auto-offer): require a
-    # COMPLETE block — both fences present (closing after opening) — AND at
-    # least one successfully-parsed concern. Deliberately stricter than a bare
-    # `_OPEN in text` so the picker is NOT offered for an incomplete (still
-    # streaming), empty, or malformed block. (See concern #1.)
-    if _OPEN not in text or _CLOSE not in text:
-        return False
-    if text.index(_CLOSE) < text.index(_OPEN):  # close before open in last block
-        ...  # handle by parsing; simplest: rely on parse_concerns result
-    return bool(parse_concerns(text))
+def _last_block_region(text: str, *, require_close: bool) -> str | None:
+    # Scope ALL fence checks to the LAST opening fence (last block wins).
+    open_idx = text.rfind(_OPEN)
+    if open_idx == -1:
+        return None
+    body_start = open_idx + len(_OPEN)
+    # Closing fence must appear AFTER the last opening fence — a global
+    # `_CLOSE in text` would be satisfied by an OLDER block's close while the
+    # newest block is still streaming. (See the blocking concern below.)
+    close_idx = text.find(_CLOSE, body_start)
+    if close_idx == -1:
+        # Newest block has no closing fence yet.
+        return None if require_close else text[body_start:]  # strict: reject; forgiving: to EOF
+    return text[body_start:close_idx]
+
+def _parse_items(region: str) -> list[Concern]:
+    # marker / wrap-join over the region; normalize priority (lower, default
+    # low); strip region/body. The ONLY place the item grammar lives.
+    ...
 
 def parse_concerns(capture_text: str) -> list[Concern]:
-    # FORGIVING explicit-action path (used when the user pressed 'c').
-    # locate the LAST opening fence (last block wins)
-    # collect lines until _CLOSE or EOF (missing close → parse to EOF; the
-    #   user asked for it and scrollback may have truncated the closing fence)
-    # wrap-join: item marker -> new concern; else append to current body
-    # normalize priority (lower, default low), strip region/body
-    ...
+    # FORGIVING explicit-action path (used when the user pressed 'c'): the
+    # newest block, parsed to EOF if its closing fence was truncated from
+    # scrollback. May yield a partial trailing concern if triggered mid-stream
+    # — acceptable because the user initiated it.
+    region = _last_block_region(capture_text, require_close=False)
+    return _parse_items(region) if region is not None else []
+
+def has_concern_block(text: str) -> bool:
+    # STRICT trigger predicate (t1037_4 auto-offer): the LAST opening fence
+    # must have its OWN closing fence after it (require_close=True) AND yield
+    # ≥1 concern. An old complete block followed by a newer still-streaming
+    # block → `_last_block_region` returns None (no close after the newest
+    # open) → False. So the picker is NOT auto-offered on incomplete, empty,
+    # or malformed output. (Concern #1 + the multi-block/streaming blocking
+    # concern.)
+    region = _last_block_region(text, require_close=True)
+    return bool(_parse_items(region)) if region is not None else False
 
 def build_clipboard_payload(concerns, preamble: str = DEFAULT_PREAMBLE) -> str:
     # preamble line, blank line, then each concern rendered verbatim in the
@@ -101,16 +121,23 @@ def build_clipboard_payload(concerns, preamble: str = DEFAULT_PREAMBLE) -> str:
 ```
 
 Implementation notes:
-- **Two consumers, two strictnesses (concern #1):** `has_concern_block` is the
-  **strict** gate for the *auto-offer* (t1037_4) — complete block + ≥1 concern,
-  so a still-streaming or empty/malformed block does not trigger the picker.
-  `parse_concerns` is the **forgiving** path for the *explicit* `c` press —
-  parses to EOF even without a closing fence. This split also resolves the
-  latent tension between "parse to EOF when no closing fence" and "offer on
-  presence": being forgiving on EOF would otherwise fire the auto-offer
+- **Last-block scoping is the keystone (blocking concern):** `_last_block_region`
+  anchors on `text.rfind(_OPEN)` and looks for the closing fence **after** that
+  index (`text.find(_CLOSE, body_start)`) — never a global `_CLOSE in text`. An
+  older complete block must NOT make the strict predicate pass while the newest
+  block is mid-stream. Both `parse_concerns` and `has_concern_block` route
+  through this one helper; they diverge only on `require_close`.
+- **Two consumers, two strictnesses (concern #1):** `has_concern_block`
+  (`require_close=True`) is the **strict** gate for the *auto-offer* (t1037_4) —
+  complete (own-closing-fence) block + ≥1 concern, so a still-streaming,
+  empty, or malformed newest block does not trigger the picker.
+  `parse_concerns` (`require_close=False`) is the **forgiving** path for the
+  *explicit* `c` press — newest block to EOF even without a closing fence. This
+  split resolves the tension between "parse to EOF when no closing fence" and
+  "offer on presence": forgiving-on-EOF would otherwise fire the auto-offer
   mid-stream; gating the offer on the strict predicate prevents that.
-- `parse_concerns`: find last `_OPEN`; if none → `[]`. Iterate following lines;
-  stop at `_CLOSE`. Build concerns via the marker/append rule. Normalize.
+- `_parse_items` is the single home of the marker/wrap-join grammar; the public
+  functions only differ in how they slice the block region.
 - `build_clipboard_payload`: render selected concerns back to canonical form so
   the followed agent receives them cleanly.
 
@@ -135,9 +162,15 @@ Pytest-style (match `tests/test_board_*.py`). Cases:
    malformed block (opening fence + garbage, no valid marker) → `parse_concerns`
    → `[]` and `has_concern_block` → False; a complete block with ≥1 concern →
    `has_concern_block` → True.
-8. multi-block input → only the LAST block's concerns returned.
-9. `build_clipboard_payload([c0, c2])` → preamble + those two verbatim, in
-   order.
+8. **old-complete + new-streaming (blocking concern):** input = one complete
+   block (`open … close`) followed by a newer block (`open …` with items but
+   NO closing fence). Assert `has_concern_block` → **False** (the global
+   `_CLOSE` of the old block must NOT satisfy the strict check; the newest open
+   has no close after it), while `parse_concerns` returns the newest (partial)
+   block's items. This is the regression test for the scoped-to-last-block fix.
+9. multi-block input (all complete) → only the LAST block's concerns returned.
+10. `build_clipboard_payload([c0, c2])` → preamble + those two verbatim, in
+    order.
 
 Generate fixture #2 by piping a hand-written block through
 `./.aitask-scripts/aitask_shadow_capture.sh -` to mimic real cleaning.
