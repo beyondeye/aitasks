@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [tui_switcher, stats_ui, tui, tmux]
-children_to_implement: [t1025_5]
 created_at: 2026-06-17 23:28
-updated_at: 2026-06-21 11:54
+updated_at: 2026-06-21 12:16
+completed_at: 2026-06-21 12:16
 boardidx: 30
 ---
 
