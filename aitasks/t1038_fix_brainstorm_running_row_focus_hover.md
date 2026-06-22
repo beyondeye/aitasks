@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1018
 created_at: 2026-06-21 13:38
-updated_at: 2026-06-21 13:38
+updated_at: 2026-06-22 16:41
 ---
 
 ## Origin
