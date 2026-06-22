@@ -101,3 +101,5 @@ come from the phone (out of scope for a launch-time host-side check).
 > **✅ gate:plan_approved** run=2026-06-22T08:24:04Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-22T08:24:05Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-22T08:35:10Z status=pass attempt=1 type=human
