@@ -2074,7 +2074,8 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
     ]
 
     # Maps action_name -> required tab id. check_action() hides the binding
-    # from the footer (returns None) when the active tab does not match, and
+    # from the footer (returns False — Textual removes False bindings from the
+    # footer; None would only dim them) when the active tab does not match, and
     # keeps it active only on its owning tab.
     _TAB_SCOPED_ACTIONS: dict[str, str] = {
         "open_node_detail": "tab_browse",
@@ -2169,26 +2170,32 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
         self._update_title_from_task()
 
     def check_action(self, action: str, parameters) -> bool | None:
-        # Hide app-level bindings from the footer when a non-modal screen
-        # (e.g., pushed DiffViewerScreen) is active — the screen owns the
-        # footer. Returning None hides the binding from the footer but
-        # keeps it live, so app shortcuts like `q` still work.
+        # Textual 8.2.7 footer semantics (Screen.active_bindings): return
+        # ``False`` to REMOVE a binding from the footer (and disable it),
+        # ``True`` to show it active on its owning surface. Returning ``None``
+        # keeps the binding in the footer rendered DIMMED (-disabled) — which
+        # is a leak for contextual actions (t1039 fixed an earlier ``None``
+        # that left `ctrl+r` greyed-but-visible on every tab). Firing is gated
+        # on truthiness either way, so False vs None is a footer-display choice.
+        #
+        # Hide app-level bindings when a non-modal screen (e.g., pushed
+        # DiffViewerScreen) is active — that screen owns the footer.
         if (
             len(self.screen_stack) > 1
             and not isinstance(self.screen, ModalScreen)
         ):
-            return None
+            return False
         # t983_11: op_help is now an ActionsWizardScreen binding (the wizard is
         # a modal); the App no longer gates it.
         if action in ("node_action", "toggle_deferred"):
             try:
                 tabbed = self.query_one(TabbedContent)
             except Exception:
-                return None
+                return False
             if tabbed.active != "tab_browse":
-                return None
+                return False
             if not self._selection.primary:
-                return None
+                return False
             return True
         # t983_11: cycle_preview_ratio / toggle_preview_numbered moved to
         # ActionsWizardScreen bindings (preview pane lives in the wizard modal).
@@ -2198,14 +2205,14 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
         try:
             tabbed = self.query_one(TabbedContent)
         except Exception:
-            return None
+            return False
         if tabbed.active != required_tab:
-            return None
+            return False
         if action == "open_node_detail":
             if not _open_node_detail_visible(
                 tabbed.active or "", isinstance(self.focused, NodeRow)
             ):
-                return None
+                return False
         return True
 
     def _resolve_task_file_path(self) -> Path | None:

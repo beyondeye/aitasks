@@ -1,12 +1,21 @@
-"""Footer binding-scope guard for the brainstorm retry-apply action (t1018_1).
+"""Footer binding-scope guard for the brainstorm retry-apply action (t1018_1,
+t1039).
 
-Boots a real ``BrainstormApp`` over a temp session and asserts that
-``retry_initializer_apply`` is gated to the (R)unning tab via ``check_action``
-— i.e. active there and hidden/inactive (``None``) on every other tab.
+Boots a real ``BrainstormApp`` over a temp session and asserts that the
+``ctrl+r`` ``retry_initializer_apply`` binding is gated to the (R)unning tab —
+present in the footer there and ABSENT from it on every other tab.
 
-Before t1018_1 this action fell through ``check_action``'s default
-``return True``, so ``ctrl+r`` leaked a visible footer label on every tab.
-There was no test for that leak — this file is the regression guard.
+The guard asserts the **rendered footer surface** — membership in
+``screen.active_bindings`` (exactly what ``Footer.compose`` iterates) — not
+``check_action``'s raw return value. That distinction is the whole point of
+t1039: t1018_1's ``check_action`` returned ``None`` off the Running tab, which
+*passed* a return-value assertion, yet Textual 8.2.7 keeps ``None`` bindings in
+``active_bindings`` (``enabled=False``) and the footer renders them DIMMED — so
+``ctrl+r`` still leaked (greyed) onto every tab and the live manual verification
+failed. ``check_action`` now returns ``False``, which Textual drops from
+``active_bindings`` entirely (``screen.py``: ``if action_state is False:
+continue``). Asserting on ``active_bindings`` membership fails on the old
+``None`` code, making this a real regression guard.
 
 t1018_2 removed the ``retry_explorer_apply`` / ``retry_synthesizer_apply``
 actions (and their undeliverable ``ctrl+shift+x`` / ``ctrl+shift+y`` chords),
@@ -34,11 +43,6 @@ import brainstorm.brainstorm_session as bs_mod  # noqa: E402
 from textual.widgets import TabbedContent  # noqa: E402
 
 from brainstorm.brainstorm_app import BrainstormApp  # noqa: E402
-
-
-RETRY_ACTIONS = (
-    "retry_initializer_apply",
-)
 
 
 class RetryActionScopeTests(unittest.TestCase):
@@ -79,34 +83,52 @@ class RetryActionScopeTests(unittest.TestCase):
         await self._settle(pilot)
         self.assertEqual(app.query_one(TabbedContent).active, tab_id)
 
-    def test_retry_actions_active_only_on_running_tab(self):
+    @staticmethod
+    def _footer_binding(app, key):
+        # ``active_bindings`` is what ``Footer.compose`` iterates — membership
+        # here == visible in the footer. It is recomputed live on access (calls
+        # check_action per binding), so reading it after a tab switch reflects
+        # the current gating with no footer-recompose timing needed. Returns the
+        # ActiveBinding for ``key`` (e.g. ``ctrl+r``) or None if absent/hidden.
+        return app.screen.active_bindings.get(key)
+
+    def test_retry_action_in_footer_only_on_running_tab(self):
+        # The retry-apply binding key (``ctrl+r`` -> retry_initializer_apply).
+        RETRY_KEY = "ctrl+r"
+
         async def runner():
             app = BrainstormApp(self.TASK_NUM)
             async with app.run_test(size=(160, 50)) as pilot:
                 await self._settle(pilot)
 
-                # (R)unning tab — the owning surface: active + footer-visible.
+                # (R)unning tab — the owning surface: present in the footer and
+                # enabled (not dimmed).
                 await self._activate_tab(app, pilot, "tab_running")
-                for action in RETRY_ACTIONS:
-                    self.assertTrue(
-                        app.check_action(action, None),
-                        f"{action} should be active on the Running tab",
-                    )
+                ab = self._footer_binding(app, RETRY_KEY)
+                self.assertIsNotNone(
+                    ab, f"{RETRY_KEY} should be in the footer on the Running tab"
+                )
+                self.assertEqual(ab.binding.action, "retry_initializer_apply")
+                self.assertTrue(
+                    ab.enabled,
+                    f"{RETRY_KEY} should be enabled (not dimmed) on the Running tab",
+                )
+                # check_action contract: active on the owning surface.
+                self.assertTrue(app.check_action("retry_initializer_apply", None))
 
-                # (B)rowse tab — hidden + inactive (check_action returns None).
-                await self._activate_tab(app, pilot, "tab_browse")
-                for action in RETRY_ACTIONS:
+                # (B)rowse / (S)ession tabs — ABSENT from the footer (the t1039
+                # leak: the old `return None` left it present-but-dimmed here).
+                for tab in ("tab_browse", "tab_session"):
+                    await self._activate_tab(app, pilot, tab)
                     self.assertIsNone(
-                        app.check_action(action, None),
-                        f"{action} should be hidden/inactive on the Browse tab",
+                        self._footer_binding(app, RETRY_KEY),
+                        f"{RETRY_KEY} must not leak into the footer on {tab}",
                     )
-
-                # (S)ession tab — likewise hidden + inactive.
-                await self._activate_tab(app, pilot, "tab_session")
-                for action in RETRY_ACTIONS:
-                    self.assertIsNone(
-                        app.check_action(action, None),
-                        f"{action} should be hidden/inactive on the Session tab",
+                    # check_action returns False (removed), not None (dimmed).
+                    self.assertIs(
+                        app.check_action("retry_initializer_apply", None),
+                        False,
+                        f"check_action must return False (not None) on {tab}",
                     )
 
         self._run(runner())
