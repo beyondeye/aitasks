@@ -101,3 +101,5 @@ regression there.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-22T07:35:16Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-22T07:35:18Z status=pass attempt=1 type=machine
