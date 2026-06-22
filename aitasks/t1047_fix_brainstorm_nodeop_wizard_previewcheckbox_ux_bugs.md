@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
 status: Implementing
 labels: [ui, brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-22 09:51
-updated_at: 2026-06-22 09:53
+updated_at: 2026-06-22 10:35
 ---
 
 Three related UX bugs in the `ait brainstorm` node-operation wizard
@@ -93,3 +96,8 @@ regression there.
   the dead App handler is removed.
 - Follow TUI conventions (`aidocs/framework/tui_conventions.md`); add pilot/unit
   tests for the mixin contract, the section nav, the hint, and the minimap route.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-22T07:35:16Z status=pass attempt=1 type=human
