@@ -165,3 +165,31 @@ ground truth** the verifier looked at: membership in `screen.active_bindings`
 ## Step 9 — Post-implementation
 Single-task parent. Commit code + plan separately, review at Step 8 (non-skippable),
 then archive via `./.aitask-scripts/aitask_archive.sh 1039`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `.aitask-scripts/brainstorm/brainstorm_app.py` — replaced all 7 hide-intent
+    `return None` in `BrainstormApp.check_action` with `return False`, and
+    rewrote the method's top comment + the `_TAB_SCOPED_ACTIONS` doc comment to
+    state the correct Textual 8.2.7 footer rule (`False` removes from the footer;
+    `None` only dims). Covers `retry_initializer_apply` (the failing item) plus
+    the same-defect siblings `node_action` / `toggle_deferred` / `open_node_detail`
+    and the non-modal pushed-screen guard.
+  - `tests/test_brainstorm_binding_scope.py` — rewrote the guard to assert
+    **footer membership** (`screen.active_bindings`) rather than `check_action`'s
+    raw return value (the gap that let t1018_1 ship the leak). Asserts `ctrl+r`
+    present+enabled on Running and absent on Browse/Session; pins the corrected
+    `False`/`True` contract. Removed the now-unused module-level `RETRY_ACTIONS`.
+- **Deviations from plan:** None. Implemented exactly as designed.
+- **Issues encountered:** None. Root cause (Textual `None`-vs-`False`
+  `active_bindings` semantics) was confirmed empirically before planning and the
+  fix matched the predicted footer behavior.
+- **Key decisions:** Kept the `-> bool | None` annotation (matches the
+  `DOMNode.check_action` base + the sibling `ActionsWizardScreen.check_action`);
+  the corrected comment documents that `None` is intentionally never returned.
+- **Upstream defects identified:** None. (The misunderstanding lived in
+  brainstorm's own `check_action`, not in a separate upstream helper.)
+- **Verification results:** `tests.test_brainstorm_binding_scope` ✓; full
+  brainstorm suite (646 tests) ✓; shortcut-scopes guard (6 tests) ✓; live-booted
+  `BrainstormApp` footer check — `ctrl+r` absent on Browse/Session, present on
+  Running ✓.
