@@ -166,4 +166,54 @@ Run via `bash tests/run_all_python_tests.sh` (or
   prefers a button · severity: low · → mitigation: keybinding documented for
   the MV sibling; trivially changeable.
 
+## Final Implementation Notes
+
+- **Actual work done:** Added `_ConcernRow(Static)` + `ConcernPickerModal(ModalScreen)`
+  to `.aitask-scripts/monitor/monitor_shared.py` (next to `ChooseSiblingModal`/
+  `_SiblingRow`), plus the `_CONCERN_BADGE` priority→badge map and two imports
+  (`typing.TYPE_CHECKING` for a runtime-free `Concern` annotation import; `rich.markup.escape`).
+  New test `tests/test_concern_picker_modal.py` (6 cases, all pass).
+- **Dismiss contract (LOCKED — t1037_4 must honor):** `ConcernPickerModal(concerns: list[Concern], narrow: bool = False)`.
+  Dismisses with the **selected `list[Concern]`** on confirm (OK button / `Enter`),
+  with the **full list** on "copy ALL" (`A`), and with **`None`** on `Esc` / Cancel.
+  OK with nothing selected dismisses with `[]`. The modal is pure-UI: it does NOT
+  build the payload or touch the clipboard — t1037_4's handler calls
+  `concern_parser.build_clipboard_payload(selected)` + `app.copy_to_clipboard(...)`
+  + `notify("Concerns copied to clipboard.")`.
+- **Final keybindings (for t1037_4 wiring + t1037_5 MV checklist):**
+  - `Space` — toggle the focused row (handled in `_ConcernRow.on_key`).
+  - `↑`/`↓` — move row focus (`_focus_neighbor`, mirrors `_SiblingRow`).
+  - `Enter` — **confirm** (dismiss with selected). Modal-level `action_confirm`.
+  - `a` — select-all / deselect-all toggle (`action_toggle_all`).
+  - `A` — copy ALL fast path (`action_copy_all`, dismiss with every concern).
+  - `Esc` / Cancel button — cancel (dismiss `None`).
+- **Deviations from plan:** The plan's "Notes for sibling tasks" pre-draft listed
+  `space`/`enter` both as *toggle*. Shipped instead with `Space` = toggle and
+  `Enter` = **confirm** — a checkbox list needs a distinct keyboard confirm, and
+  this matches `ChooseSiblingModal` where `Enter` commits. Rows do not handle
+  `enter`, so it bubbles to the modal's `Binding("enter", "confirm")`.
+- **Priority-binding caveat for t1037_4 (cross-cutting):** per
+  `aidocs/framework/tui_conventions.md` ("Priority bindings + App.query_one gotcha"),
+  when minimonitor pushes this modal, any App-level `priority=True` binding on
+  `a`/`A`/`space`/`enter` fires before the modal's. t1037_4 must let those keys
+  fall through to the modal (blanket: App priority actions return `False` when a
+  modal is on top), or the picker shortcuts will be swallowed.
+- **Body markup safety:** concern `region`/`body` are agent free-text that may
+  contain `[bracket]`-looking substrings; `_ConcernRow.render` runs them through
+  `rich.markup.escape` so they cannot break rendering (exercised by the
+  `[bracket]` fixture in `_sample_concerns`).
+- **Issues encountered:** None — `Concern` is a `NamedTuple`, so dismiss-result
+  equality is structural; tests compare returned objects to the inputs directly.
+- **Key decisions:** Placed in `monitor_shared.py` (not `minimonitor_app.py`) so
+  both monitor apps can push it without a sideways import; the module is the
+  dependency sink both already import. `Concern` annotation imported under
+  `TYPE_CHECKING` only (no hard runtime coupling; `from __future__ import
+  annotations` is active).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** t1037_4 — `from monitor.monitor_shared import
+  ConcernPickerModal`; push it with the parsed concerns + a dismiss callback that
+  ignores `None`/`[]` and otherwise builds + copies the payload; honor the
+  capture-join (`-J`) contract from t1037_1 and gate the auto-offer on the strict
+  `has_concern_block`. Pass `narrow=True` from the minimonitor companion pane.
+
 See parent t1037 and **Step 9 (Post-Implementation)** for archival/merge.
