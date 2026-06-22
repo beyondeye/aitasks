@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [brainstorm]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1047
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-22 11:21
-updated_at: 2026-06-22 17:00
+updated_at: 2026-06-22 17:04
+completed_at: 2026-06-22 17:04
 ---
 
 Surfaced during t1047 testing.
