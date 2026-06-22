@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [applink]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-21 17:21
-updated_at: 2026-06-21 17:21
+updated_at: 2026-06-22 10:01
 ---
 
 On AppLink server launch, detect when the host firewall is blocking the
