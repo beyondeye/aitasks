@@ -3,11 +3,12 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [brainstorm]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1047
 created_at: 2026-06-22 11:21
-updated_at: 2026-06-22 11:21
+updated_at: 2026-06-22 16:55
 ---
 
 Surfaced during t1047 testing.
