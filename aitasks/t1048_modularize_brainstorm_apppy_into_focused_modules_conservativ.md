@@ -88,3 +88,5 @@ the candidate split from exploration.
 > **✅ gate:plan_approved** run=2026-06-22T08:57:13Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-22T08:57:15Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-22T09:18:34Z status=pass attempt=1 type=human
