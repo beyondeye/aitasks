@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [1047]
 issue_type: refactor
 status: Implementing
 labels: [brainstorm, tech-debt]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-22 09:52
-updated_at: 2026-06-22 11:24
+updated_at: 2026-06-22 11:57
 ---
 
 `.aitask-scripts/brainstorm/brainstorm_app.py` has grown to ~9,224 lines
@@ -78,3 +81,8 @@ the candidate split from exploration.
 - Out of scope (note as potential follow-up): splitting `BrainstormApp` into
   per-tab modules and extracting `ActionsWizardScreen` with injected
   dependencies.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-22T08:57:13Z status=pass attempt=1 type=human
