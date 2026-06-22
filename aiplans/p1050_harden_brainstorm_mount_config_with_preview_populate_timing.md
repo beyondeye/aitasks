@@ -154,3 +154,28 @@ contains nothing else, so delete the whole method (TestCase has a default).
 
 ## Step 9 (Post-Implementation)
 Standard cleanup/archival/merge per task-workflow Step 9.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned, three changes:
+  1. `ProposalPreviewPane.__init__` (`.aitask-scripts/brainstorm/widgets.py`)
+     gained an optional `proposal_text` kwarg stored as `self._pending_text`;
+     added an `on_mount` that calls `self.populate(self._pending_text)` (guarded
+     on non-None) so populate runs from the pane's own mount lifecycle, after
+     `compose()` mounts `#preview_proposal_content`.
+  2. `_mount_config_with_preview` (`.aitask-scripts/brainstorm/brainstorm_app.py`)
+     now constructs `ProposalPreviewPane(proposal_text=proposal_text, ...)` and
+     dropped `pane.populate(proposal_text)` from the deferred `_fill` callback
+     (`_fill` still runs `left_builder(left)`).
+  3. Removed the tolerant `populate` monkeypatch `setUp` from
+     `tests/test_brainstorm_wizard_nav_consolidation.py`, replaced with a
+     comment noting the source-level fix.
+- **Deviations from plan:** None.
+- **Issues encountered:** None.
+- **Key decisions:** Used the on_mount approach (over `await`-ing the mount or
+  deferring `_content()`) so the populate-timing invariant lives inside the
+  widget that owns the content — no caller has to remember the sequence. The
+  `None`-pending guard keeps the direct-populate unit tests unaffected.
+- **Upstream defects identified:** None
+- **Verification:** `python tests/test_brainstorm_wizard_nav_consolidation.py`
+  → 9/9 pass unpatched; `python tests/test_brainstorm_proposal_preview.py`
+  → 23/23 pass; both changed modules compile clean.
