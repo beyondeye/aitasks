@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [1018_1]
+depends: [t1018_1]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1018
 created_at: 2026-06-21 13:54
-updated_at: 2026-06-21 13:54
+updated_at: 2026-06-22 16:49
 ---
 
 ## Failed verification item from t1018_1
