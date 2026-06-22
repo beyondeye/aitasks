@@ -7,8 +7,9 @@ status: Implementing
 labels: [brainstorm]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1047
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-22 11:21
-updated_at: 2026-06-22 16:55
+updated_at: 2026-06-22 16:59
 ---
 
 Surfaced during t1047 testing.
@@ -34,3 +35,8 @@ children on its own message pump, so `query_one` raises a transient `NoMatches`.
   pane's content widget exists (no transient `NoMatches`).
 - The `populate` monkeypatch in `tests/test_brainstorm_wizard_nav_consolidation.py`
   is removed and the tests still pass.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-22T14:00:03Z status=pass attempt=1 type=human
