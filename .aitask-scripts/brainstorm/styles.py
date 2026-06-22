@@ -94,6 +94,11 @@ APP_CSS = """
         background: $surface-lighten-1;
     }
 
+    AgentStatusRow:focus:hover {
+        background: $accent-lighten-1;
+        color: $text;
+    }
+
     ProcessRow {
         height: auto;
         padding: 0 3;
@@ -106,6 +111,11 @@ APP_CSS = """
 
     ProcessRow:hover {
         background: $surface-lighten-1;
+    }
+
+    ProcessRow:focus:hover {
+        background: $accent-lighten-1;
+        color: $text;
     }
 
     ProcessRow.-dead {
@@ -167,6 +177,11 @@ APP_CSS = """
 
     OperationRow:hover {
         background: $surface-lighten-1;
+    }
+
+    OperationRow:focus:hover {
+        background: $accent-lighten-1;
+        color: $text;
     }
 
     CycleField {
@@ -363,6 +378,11 @@ APP_CSS = """
 
     NodeRow:hover {
         background: $surface-lighten-1;
+    }
+
+    NodeRow:focus:hover {
+        background: $accent-lighten-1;
+        color: $text;
     }
 
     /* Delete session modal */

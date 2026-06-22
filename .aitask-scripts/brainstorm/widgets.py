@@ -457,6 +457,10 @@ class DimensionRow(Static):
     DimensionRow:hover {
         background: $surface-lighten-1;
     }
+    DimensionRow:focus:hover {
+        background: $accent-lighten-1;
+        color: $text;
+    }
     """
 
     class Activated(Message):
@@ -884,4 +888,3 @@ class ProcessRow(Static, can_focus=True):
 
     def on_blur(self) -> None:
         self.refresh()
-
