@@ -103,3 +103,5 @@ regression there.
 > **✅ gate:plan_approved** run=2026-06-22T07:35:16Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-22T07:35:18Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-22T08:20:24Z status=pass attempt=1 type=human
