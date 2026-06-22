@@ -39,6 +39,7 @@ for _p in (str(_APPLINK_DIR), str(_SCRIPTS_DIR)):
 
 import segno  # noqa: E402
 
+import firewall_doctor  # noqa: E402
 from pairing import build_pairing_uri, detect_lan_ip  # noqa: E402
 from paths import profiles_dir, sessions_dir  # noqa: E402
 from profiles import ProfileGate  # noqa: E402
@@ -130,6 +131,28 @@ async def serve(*, port: int, profile: str, show_qr: bool = True) -> int:
         print(render_pairing_block(uri, fingerprint, show_qr=show_qr), flush=True)
 
     _emit()
+
+    # 5b. Firewall doctor: if a host firewall may block the bound port, advise
+    #     and print the exact LAN-scoped open command. Off-thread + failure-silent
+    #     (non-systemd / slow box never delays startup). No keypress affordance —
+    #     no TTY here; informational only, the user runs the printed command.
+    try:
+        fw = await asyncio.to_thread(firewall_doctor.diagnose, port, ip)
+    except Exception:
+        fw = None
+    if fw is not None:
+        if fw.detected:
+            print(firewall_doctor.render_firewall_block(fw), flush=True)
+        else:
+            example = firewall_doctor.display_command(
+                firewall_doctor.build_open_commands("ufw", port, fw.cidr)
+            )
+            print(
+                f"\n[firewall] No managed firewall auto-detected. If the phone "
+                f"can't connect, open port {port} for {fw.cidr} — e.g. "
+                f"`{example}` (use your backend's command if not ufw).",
+                flush=True,
+            )
 
     # 6. Signals: SIGINT/SIGTERM stop; SIGHUP re-mints the token and reprints.
     loop = asyncio.get_running_loop()

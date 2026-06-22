@@ -12,6 +12,7 @@ The binary snapshot/data plane is a follow-up sibling (t822_8).
 from __future__ import annotations
 
 import argparse
+import asyncio
 import socket
 import sys
 import time
@@ -22,11 +23,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 
+from textual import on, work  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
-from textual.containers import Vertical  # noqa: E402
-from textual.screen import Screen  # noqa: E402
-from textual.widgets import DataTable, Footer, Header, Static  # noqa: E402
+from textual.containers import Container, Horizontal, Vertical  # noqa: E402
+from textual.screen import ModalScreen, Screen  # noqa: E402
+from textual.widgets import Button, DataTable, Footer, Header, Label, Static  # noqa: E402
 
 # Local imports (sibling modules in the applink package).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -36,6 +38,7 @@ from pairing import (  # noqa: E402
     detect_lan_ip,
 )
 from qr_widget import TerminalQR  # noqa: E402
+import firewall_doctor  # noqa: E402
 from paths import profiles_dir, sessions_dir  # noqa: E402
 from sessions import SessionTable  # noqa: E402
 from profiles import ProfileGate  # noqa: E402
@@ -96,6 +99,10 @@ class AppLinkRuntime:
         self.pair_profile = DEFAULT_PROFILE
         self.token = self.session_table.mint_pairing_token()
         self.server: AppLinkServer | None = None
+        # Populated off-thread by the mount worker once the listener is up (see
+        # ApplinkApp._start_server). Stays None on the --smoke / pre-mount path
+        # so construction performs no firewall I/O. A FirewallStatus once set.
+        self.firewall: firewall_doctor.FirewallStatus | None = None
 
     def build_uri(self) -> str:
         return build_pairing_uri(
@@ -133,6 +140,122 @@ class AppLinkRuntime:
         return self.server
 
 
+class FirewallFixModal(ModalScreen):
+    """Consent modal for opening the bound port on the host firewall (t1043).
+
+    Takes the single :class:`firewall_doctor.FirewallStatus` (it carries
+    backend, cidr, port, commands, and the rendered command), so the modal never
+    lacks a CIDR source even in generic mode. Two modes:
+
+    - **Detected** — offers "Open it for me" (only when the backend is
+      auto-fixable *and* pkexec is present) plus the always-visible, copyable
+      exact command.
+    - **Generic** (no managed backend detected) — shows the backend-agnostic
+      :func:`firewall_doctor.generic_help` block so the fallback always has a UI
+      route. No auto-fix.
+
+    Plain ``ModalScreen`` (not ShortcutsMixin) — self-contained, like
+    ``lib/stale_entry_modal._RepointInputScreen``.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("c", "cancel", "Cancel", show=False),
+    ]
+
+    DEFAULT_CSS = """
+    FirewallFixModal { align: center middle; }
+    #fw_dialog {
+        width: 86;
+        max-width: 96%;
+        height: auto;
+        background: $surface;
+        border: thick $warning;
+        padding: 1 2;
+    }
+    #fw_title { text-align: center; text-style: bold; padding: 0 0 1 0; }
+    #fw_sub { text-align: center; color: $text-muted; padding: 0 0 1 0; }
+    #fw_cmd {
+        padding: 1 1;
+        background: $boost;
+        color: $text;
+    }
+    #fw_actions { height: 3; align: center middle; padding: 1 0 0 0; }
+    #fw_actions Button { margin: 0 1; }
+    """
+
+    def __init__(self, status: firewall_doctor.FirewallStatus) -> None:
+        super().__init__()
+        self._status = status
+
+    def compose(self) -> ComposeResult:
+        st = self._status
+        with Container(id="fw_dialog"):
+            if st.detected:
+                yield Label(f"Firewall: [bold]{st.backend}[/] is active", id="fw_title")
+                yield Label(
+                    f"Open port {st.port} for {st.cidr} (LAN-scoped)?",
+                    id="fw_sub",
+                )
+            else:
+                yield Label("No managed firewall auto-detected", id="fw_title")
+                yield Label(
+                    f"If your phone still can't connect, open port {st.port} "
+                    f"for {st.cidr} on your firewall:",
+                    id="fw_sub",
+                )
+            # The command is always visible and terminal-selectable — that IS the
+            # "show me the command, I'll run it myself" affordance, for every
+            # backend (incl. nft/iptables, which have no auto-fix button).
+            yield Static(self._command_text(), id="fw_cmd")
+            with Horizontal(id="fw_actions"):
+                if (
+                    st.detected and st.auto_fixable
+                    and firewall_doctor.privilege_wrapper() is not None
+                ):
+                    yield Button("Open it for me", variant="success", id="btn_fw_open")
+                yield Button("Cancel", variant="default", id="btn_fw_cancel")
+
+    def _command_text(self) -> str:
+        st = self._status
+        if st.detected:
+            return st.display or ""
+        return firewall_doctor.generic_help(st.port, st.cidr)
+
+    @on(Button.Pressed, "#btn_fw_open")
+    def _on_open(self) -> None:
+        self.app.notify("Requesting privilege to open the firewall port…")
+        self._run_open()
+
+    @on(Button.Pressed, "#btn_fw_cancel")
+    def _on_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    @work(thread=True)
+    def _run_open(self) -> None:
+        # pkexec raises its own polkit dialog; run off the event loop so the TUI
+        # is not blocked while the user authenticates.
+        ok, detail = firewall_doctor.run_open(self._status)
+        self.app.call_from_thread(self._after_open, ok, detail)
+
+    def _after_open(self, ok: bool, detail: str) -> None:
+        if ok:
+            self.app.notify(
+                f"Firewall: {detail} — port {self._status.port} open for "
+                f"{self._status.cidr}."
+            )
+        else:
+            self.app.notify(
+                f"Could not open the port automatically: {detail}. "
+                "Run the shown command manually.",
+                severity="error",
+            )
+        self.dismiss(ok)
+
+
 class PairingScreen(ShortcutsMixin, Screen):
     """QR-pairing screen: shows a scannable QR for the live pairing token."""
 
@@ -141,6 +264,7 @@ class PairingScreen(ShortcutsMixin, Screen):
     BINDINGS = [
         Binding("r", "regenerate", "Regenerate token"),
         Binding("s", "show_devices", "Devices"),
+        Binding("f", "fix_firewall", "Firewall help"),
     ]
 
     DEFAULT_CSS = """
@@ -159,6 +283,11 @@ class PairingScreen(ShortcutsMixin, Screen):
         padding: 1 2 0 2;
         text-align: center;
     }
+    #firewall_advisory {
+        color: $warning;
+        padding: 0 2 0 2;
+        text-align: center;
+    }
     """
 
     def __init__(self) -> None:
@@ -175,7 +304,39 @@ class PairingScreen(ShortcutsMixin, Screen):
                 "Scan with the ait companion app. Press 'r' to regenerate, 's' for status.",
                 id="pairing_hint",
             )
+            yield Static("", id="firewall_advisory")
         yield Footer()
+
+    def on_mount(self) -> None:
+        # The firewall doctor runs asynchronously after the listener binds; poll
+        # so the advisory appears once runtime.firewall is populated.
+        self._refresh_advisory()
+        self.set_interval(2.0, self._refresh_advisory)
+
+    def _refresh_advisory(self) -> None:
+        try:
+            adv = self.query_one("#firewall_advisory", Static)
+        except Exception:
+            return
+        runtime = getattr(self.app, "runtime", None)
+        st = getattr(runtime, "firewall", None) if runtime else None
+        if st is None:
+            adv.update("")
+        elif st.detected:
+            adv.update(
+                f"⚠ Firewall ({st.backend}) active — if your phone "
+                f"can't connect, press 'f' to open port {st.port} for {st.cidr}."
+            )
+        else:
+            adv.update("Press 'f' for firewall help if your phone can't connect.")
+
+    def action_fix_firewall(self) -> None:
+        runtime = getattr(self.app, "runtime", None)
+        st = getattr(runtime, "firewall", None) if runtime else None
+        if st is None:
+            self.notify("Firewall: still checking…")
+            return
+        self.app.push_screen(FirewallFixModal(st))
 
     def action_regenerate(self) -> None:
         # Rotate the pairing token (already-paired clients keep their bearers —
@@ -313,6 +474,19 @@ class ApplinkApp(TuiSwitcherMixin, ShortcutsMixin, App):
     async def _start_server(self) -> None:
         server = self.runtime.create_server(on_change=self._on_server_change)
         await server.start()
+        # Once the listener is up, run the firewall doctor off-thread (it spawns
+        # systemctl/ip) so its blocking probes never stall the event loop. Kept
+        # out of construction/--smoke entirely (this worker only runs in the live
+        # app), preserving the no-I/O smoke contract.
+        if server.error is None:
+            try:
+                self.runtime.firewall = await asyncio.to_thread(
+                    firewall_doctor.diagnose, self.runtime.port, self.runtime.ip
+                )
+            except Exception:
+                self.runtime.firewall = None
+            if isinstance(self.screen, PairingScreen):
+                self.screen._refresh_advisory()
 
     def _on_server_change(self) -> None:
         # Fired on the event loop; the DevicesScreen polls independently, so this

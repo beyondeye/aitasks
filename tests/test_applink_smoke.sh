@@ -50,6 +50,40 @@ fi
 
 run_smoke "applink_app --smoke exits 0 without stderr"
 
+# Construction spy: the --smoke path must perform no firewall I/O. The doctor
+# (firewall_doctor.diagnose, which spawns systemctl/ip) must run ONLY in the
+# live mount worker, never at construction. Patch it to a tripwire and assert
+# the spy never fires through main(["--smoke"]) (t1043).
+TOTAL=$((TOTAL + 1))
+spy_out=$(mktemp)
+if "$PYTHON" - "$PROJECT_DIR" >"$spy_out" 2>&1 <<'PYEOF'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root / ".aitask-scripts" / "applink"))
+
+import firewall_doctor
+import applink_app
+
+called = {"diagnose": False}
+firewall_doctor.diagnose = lambda *a, **k: called.__setitem__("diagnose", True)
+
+rc = applink_app.main(["--smoke"])
+assert rc == 0, f"smoke main returned {rc}"
+assert not called["diagnose"], "firewall_doctor.diagnose was called on --smoke path"
+print("ok - --smoke performs no firewall I/O")
+PYEOF
+then
+    PASS=$((PASS + 1))
+    cat "$spy_out"
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: --smoke construction spy"
+    cat "$spy_out"
+fi
+rm -f "$spy_out"
+
 echo ""
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
