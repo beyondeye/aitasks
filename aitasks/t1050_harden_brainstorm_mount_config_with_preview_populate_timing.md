@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -9,7 +11,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1047
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-22 11:21
-updated_at: 2026-06-22 16:59
+updated_at: 2026-06-22 17:00
 ---
 
 Surfaced during t1047 testing.
@@ -40,3 +42,5 @@ children on its own message pump, so `query_one` raises a transient `NoMatches`.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-22T14:00:03Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-22T14:00:04Z status=pass attempt=1 type=machine
