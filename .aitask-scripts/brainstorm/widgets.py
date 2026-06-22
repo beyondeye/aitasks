@@ -179,17 +179,31 @@ class ProposalPreviewPane(Horizontal):
     }
     """
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, proposal_text: str | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
         self._parsed = None
         self._text = ""
         self._numbered = False
+        # When supplied, populate() runs from this pane's own on_mount instead
+        # of a caller's call_after_refresh — see on_mount below.
+        self._pending_text = proposal_text
 
     def compose(self) -> ComposeResult:
         from section_viewer import SectionAwareMarkdown
         yield _PreviewMinimap.cls()(classes="preview_proposal_minimap")
         yield SectionAwareMarkdown(id="preview_proposal_content")
         yield _NumberedProposal(id="preview_proposal_numbered")
+
+    def on_mount(self) -> None:
+        # Populate from the pane's own mount lifecycle: Textual guarantees this
+        # fires after compose() has mounted #preview_proposal_content, so
+        # populate()'s query_one can never hit a transient NoMatches (the race
+        # that forced a tolerant populate patch under headless run_test). A
+        # None pending text means a caller will populate() directly later (e.g.
+        # the unit tests in test_brainstorm_proposal_preview.py).
+        if self._pending_text is not None:
+            self.populate(self._pending_text)
+            self._pending_text = None
 
     def _content(self):
         from section_viewer import SectionAwareMarkdown

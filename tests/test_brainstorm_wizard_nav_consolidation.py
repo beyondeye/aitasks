@@ -213,27 +213,10 @@ class _FakeSectionSelected:
 
 
 class WizardNavTests(unittest.TestCase):
-    def setUp(self):
-        # Headless-timing workaround: the wizard mounts the preview pane
-        # dynamically and populates it via call_after_refresh; under run_test the
-        # screen's idle can fire that callback before the pane finishes composing
-        # on its own pump, so populate() hits a transient NoMatches. (In the real
-        # app the extra layout refreshes win the race.) populate() is exercised
-        # directly by test_brainstorm_proposal_preview.py; here we only care that
-        # the pane exists and routes, so make populate tolerant for these tests.
-        import brainstorm.brainstorm_app as bapp
-        self._orig_populate = bapp.ProposalPreviewPane.populate
-
-        def _safe(pane, text, _orig=self._orig_populate):
-            try:
-                _orig(pane, text)
-            except Exception:
-                pass
-
-        bapp.ProposalPreviewPane.populate = _safe
-        self.addCleanup(
-            setattr, bapp.ProposalPreviewPane, "populate", self._orig_populate
-        )
+    # t1050: the preview-pane populate-timing race is fixed at the source —
+    # ProposalPreviewPane.populate now runs from the pane's own on_mount, so the
+    # tolerant populate monkeypatch this setUp used to install is no longer
+    # needed. The real populate() runs unpatched under run_test.
 
     def _run(self, coro):
         return asyncio.run(coro)

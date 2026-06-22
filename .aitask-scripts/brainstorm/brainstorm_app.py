@@ -1927,17 +1927,21 @@ class ActionsWizardScreen(RowNavMixin, ModalScreen):
         unambiguous.
         """
         left = VerticalScroll(classes="config_preview_left")
-        pane = ProposalPreviewPane(classes="config_preview_pane")
+        pane = ProposalPreviewPane(
+            proposal_text=proposal_text, classes="config_preview_pane"
+        )
         split = Horizontal(left, pane, classes="config_preview_split")
         container.mount(split)
         self._preview_ratio = 0
 
         def _fill() -> None:
             left_builder(left)
-            pane.populate(proposal_text)
 
-        # Defer nested mounts until the split has settled (mirrors the
-        # call_after_refresh pattern used by the compare/synthesize configs).
+        # Defer the left-side nested mounts until the split has settled (mirrors
+        # the call_after_refresh pattern used by the compare/synthesize configs).
+        # The proposal preview populates itself from ProposalPreviewPane.on_mount
+        # — its content widget is guaranteed composed there — so it no longer
+        # races this callback (the headless-only NoMatches fixed in t1050).
         self.call_after_refresh(_fill)
 
     def _apply_preview_ratio(self, left, pane, ratio: int) -> None:
