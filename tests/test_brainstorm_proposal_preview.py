@@ -542,18 +542,19 @@ class NumberedViewTests(unittest.TestCase):
 
 
 class PreviewKeyDispatchTests(unittest.TestCase):
-    """Real key-dispatch coverage for the wizard preview keys (t1018_1).
+    """Real key-dispatch coverage for the wizard preview keys.
 
-    Before t1018_1 the preview pane was driven by ``ctrl+shift+b`` /
-    ``ctrl+shift+l`` — undeliverable chords (the ghostty->tmux->Textual stack
-    collapses ``Ctrl+Shift+<letter>`` to ``Ctrl+<letter>``, dropping Shift). The
-    suite only ever called the action methods directly, so the dead chords
-    passed CI. These tests press the *bound keys* through the pilot, so a
-    regression back to an undeliverable / wrong key fails here.
+    History: ``ctrl+shift+b`` / ``ctrl+shift+l`` (undeliverable chords) →
+    ``alt+w`` / ``alt+n`` (t1018_1) → plain ``w`` / ``l`` (t1047). t1047 made
+    them single keys, shown in the footer and context-scoped (via
+    ``ActionsWizardScreen.check_action``) to when the proposal/minimap is
+    focused — so a focused Mandate ``TextArea`` keeps ``w``/``l`` as typed text.
 
     The host borrows ``ActionsWizardScreen.BINDINGS`` and the two preview action
     methods verbatim and reproduces the config-with-preview layout, so the test
     exercises the shipping bindings + actions, not a copy of the key strings.
+    These tests focus the proposal content before pressing (where the bindings
+    apply); the TextArea-focused case below proves the bare key is typed there.
     """
 
     def _run(self, coro):
@@ -589,42 +590,45 @@ class PreviewKeyDispatchTests(unittest.TestCase):
 
         return _KeyHost()
 
-    def test_alt_w_press_cycles_preview_ratio(self):
+    def test_w_press_cycles_preview_ratio(self):
         async def runner():
             app = self._host()
             async with app.run_test(size=(80, 24)) as pilot:
                 pane = app.query_one(ProposalPreviewPane)
                 pane.populate(PROPOSAL_WITH_SECTIONS)
                 left = app.query_one(".config_preview_left")
+                app.query_one("#preview_proposal_content").focus()
                 await pilot.pause()
                 # balanced (0): no ratio class yet
                 self.assertFalse(left.has_class("ratio_proposal_wide"))
-                # alt+w advances balanced -> proposal-wide (real key dispatch)
-                await pilot.press("alt+w")
+                # w advances balanced -> proposal-wide (real key dispatch)
+                await pilot.press("w")
                 await pilot.pause()
                 self.assertTrue(left.has_class("ratio_proposal_wide"))
                 self.assertTrue(pane.has_class("ratio_proposal_wide"))
 
         self._run(runner())
 
-    def test_alt_n_press_toggles_numbered_view(self):
+    def test_l_press_toggles_numbered_view(self):
         async def runner():
             app = self._host()
             async with app.run_test(size=(80, 24)) as pilot:
                 pane = app.query_one(ProposalPreviewPane)
                 pane.populate(PROPOSAL_WITH_SECTIONS)
+                app.query_one("#preview_proposal_content").focus()
                 await pilot.pause()
                 self.assertFalse(getattr(pane, "_numbered", False))
-                await pilot.press("alt+n")
+                await pilot.press("l")
                 await pilot.pause()
                 self.assertTrue(pane._numbered)
 
         self._run(runner())
 
-    def test_alt_w_does_not_corrupt_focused_textarea(self):
-        # Why alt+<letter> beats a bare letter: it is ESC-prefixed /
-        # non-printable, so a focused TextArea does NOT insert it as text (the
-        # typed steer content stays intact) while the screen binding still fires.
+    def test_bare_key_typed_into_focused_textarea_does_not_toggle(self):
+        # t1047 rationale for gating w/l to a focused proposal: while the Mandate
+        # TextArea has focus, a bare letter is INSERTED as text and the screen
+        # binding does NOT fire. (The wizard's check_action enforces this scope
+        # in the real app; this host just shows the underlying key behaviour.)
         async def runner():
             app = self._host()
             async with app.run_test(size=(80, 24)) as pilot:
@@ -634,12 +638,12 @@ class PreviewKeyDispatchTests(unittest.TestCase):
                 ta = app.query_one("#ta")
                 ta.focus()
                 await pilot.pause()
-                await pilot.press("alt+w")
+                await pilot.press("w")
                 await pilot.pause()
-                # The keypress did NOT land in the TextArea as text ...
-                self.assertEqual(ta.text, "")
-                # ... but the binding still fired (usable while typing).
-                self.assertTrue(left.has_class("ratio_proposal_wide"))
+                # The key landed in the TextArea as text ...
+                self.assertEqual(ta.text, "w")
+                # ... and the preview binding did NOT fire.
+                self.assertFalse(left.has_class("ratio_proposal_wide"))
 
         self._run(runner())
 

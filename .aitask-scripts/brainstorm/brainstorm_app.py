@@ -87,6 +87,7 @@ from brainstorm.brainstorm_op_refs import (
     resolve_ref,
 )
 from brainstorm.polling_indicator import PollingIndicator
+from brainstorm.nav_mixin import RowNavMixin
 from brainstorm.brainstorm_session import (
     _module_deferred_map,
     _read_browse_view,
@@ -3304,7 +3305,7 @@ class ProcessRow(Static, can_focus=True):
 # ---------------------------------------------------------------------------
 
 
-class ActionsWizardScreen(ModalScreen):
+class ActionsWizardScreen(RowNavMixin, ModalScreen):
     """Contextual multi-step design-op wizard, re-hosted out of the former
     Actions tab into a modal overlay (t983_11).
 
@@ -3319,14 +3320,14 @@ class ActionsWizardScreen(ModalScreen):
     BINDINGS = [
         Binding("escape", "close", "Close", show=False),
         Binding("H", "op_help", "Op help", show=False),
-        # t1018_1: alt+w / alt+n replace the undeliverable ctrl+shift+b /
-        # ctrl+shift+l chords. The ghostty→tmux→Textual stack collapses
-        # Ctrl+Shift+<letter> to Ctrl+<letter> (dropping Shift before Textual
-        # sees it), so those chords never arrived. alt+<letter> is ESC-prefixed
-        # and non-printable, so a focused TextArea ignores it as a no-op for
-        # these preview actions instead of swallowing the key.
-        Binding("alt+w", "cycle_preview_ratio", "Preview width", show=False),
-        Binding("alt+n", "toggle_preview_numbered", "Line numbers", show=False),
+        # t1047: the preview toggles are now plain single keys, shown in the
+        # footer. They are context-scoped via ``check_action`` to the preview
+        # config step AND to when the proposal/minimap is focused — so the
+        # focused Mandate TextArea still receives ``w``/``l`` as text (you Tab to
+        # the proposal to toggle). This replaces the t1018_1 ``alt+`` chords,
+        # which existed only to dodge that TextArea-swallowing problem.
+        Binding("w", "cycle_preview_ratio", "Preview width", show=True),
+        Binding("l", "toggle_preview_numbered", "Line numbers", show=True),
     ]
 
     # Shortcut-resolution scope (mirrors BrainstormApp) so resolve_key works for
@@ -3492,6 +3493,21 @@ class ActionsWizardScreen(ModalScreen):
                 event.prevent_default()
                 event.stop()
                 return
+        # Section-select step: up/down navigate the section checkboxes (t1047).
+        # They are direct children of #actions_content; reuse the shared helper.
+        if (
+            event.key in ("up", "down")
+            and self._wizard_step_id == "section_select"
+            and isinstance(self.focused, Checkbox)
+            and "chk_section" in self.focused.classes
+        ):
+            if self._navigate_rows(
+                1 if event.key == "down" else -1,
+                "actions_content", (Checkbox,),
+            ):
+                event.prevent_default()
+                event.stop()
+                return
         # Up/down: navigate OperationRow widgets in the row-select steps
         if event.key in ("up", "down") and self._wizard_step_id in (
             "op_select", "subgraph_select", "node_select",
@@ -3552,6 +3568,9 @@ class ActionsWizardScreen(ModalScreen):
         """Track wizard node selection: focusing an OperationRow on the
         node-select step seeds _selected_node and enables Next (moved from
         BrainstormApp.on_descendant_focus, t983_11)."""
+        # Focus moving into/out of the preview pane flips the preview-toggle
+        # check_action verdict — refresh so the footer shows/hides w/l (t1047).
+        self.refresh_bindings()
         if (
             isinstance(event.widget, OperationRow)
             and self._wizard_step_id == "node_select"
@@ -3566,60 +3585,8 @@ class ActionsWizardScreen(ModalScreen):
             except Exception:
                 pass
 
-    def _navigate_rows(self, direction: int, container_id: str, row_types: tuple) -> bool:
-        """Navigate up/down among focusable rows in a container.
-
-        Returns True if the event was handled.
-        direction: -1 for up, +1 for down.
-        """
-        try:
-            container = self.query_one(f"#{container_id}")
-        except Exception:
-            return False
-
-        focusable = [w for w in container.children if isinstance(w, row_types) and w.can_focus]
-        if not focusable:
-            return False
-
-        focused = self.focused
-        tabbed = self.query_one(TabbedContent)
-        tabs_widget = tabbed.query_one(Tabs)
-
-        # If focus is on the Tabs bar and direction is down, focus first row
-        if focused is tabs_widget:
-            if direction == 1:
-                focusable[0].focus()
-                focusable[0].scroll_visible()
-                return True
-            return False
-
-        # If no row is focused, focus the first (down) or last (up) row
-        if not isinstance(focused, row_types):
-            target = focusable[0] if direction == 1 else focusable[-1]
-            target.focus()
-            target.scroll_visible()
-            return True
-
-        # Find current index
-        try:
-            idx = focusable.index(focused)
-        except ValueError:
-            focusable[0].focus()
-            focusable[0].scroll_visible()
-            return True
-
-        new_idx = idx + direction
-
-        # At boundary: up past top → focus tabs; down past bottom → stop
-        if new_idx < 0:
-            tabs_widget.focus()
-            return True
-        if new_idx >= len(focusable):
-            return True  # Stop at bottom, don't wrap
-
-        focusable[new_idx].focus()
-        focusable[new_idx].scroll_visible()
-        return True
+    # _navigate_rows / _focus_within now live on RowNavMixin (t1047); the
+    # tab-bar boundary is the inherited default (None → stop at top).
 
     def _cycle_confirm_focus(self, direction: int) -> bool:
         """Cycle focus among focusable descendants of the confirm step container.
@@ -3651,15 +3618,6 @@ class ActionsWizardScreen(ModalScreen):
         except Exception:
             pass
         return True
-
-    def _focus_within(self, container) -> bool:
-        """True if the currently focused widget is `container` or a descendant."""
-        node = self.focused
-        while node is not None:
-            if node is container:
-                return True
-            node = node.parent
-        return False
 
     def _cycle_wizard_groups(self, direction: int) -> bool:
         """Tab/Shift+Tab cycle focus between whole control groups on the
@@ -4080,6 +4038,12 @@ class ActionsWizardScreen(ModalScreen):
             container.mount(Label(
                 "[dim]  ↑↓ Navigate  Space Toggle  "
                 "Tab Switch group  Type to filter[/]"))
+        elif op in ("explore", "module_decompose"):
+            # Preview ops: the proposal toggles (w/l) are shown in the footer
+            # contextually via check_action; this line covers the non-binding
+            # navigation keys only (t1047).
+            container.mount(Label(
+                "[dim]  Tab Focus proposal  ↑↓ Navigate[/]"))
 
         if op == "explore":
             self._config_explore_no_node(container)
@@ -4150,6 +4114,46 @@ class ActionsWizardScreen(ModalScreen):
         if not panes:
             raise SkipAction()
         panes.first().toggle_numbered()
+
+    def on_section_minimap_section_selected(self, event) -> None:
+        """Route a preview-pane minimap selection to the pane (t1047).
+
+        The config-step preview lives inside this ModalScreen, so the minimap's
+        ``SectionSelected`` message bubbles here, not to the App. (The former
+        BrainstormApp handler was dead code once the wizard became a modal.) The
+        ``preview_proposal_minimap`` class guard mirrors the old App handler.
+        """
+        ctrl = getattr(event, "control", None)
+        if ctrl is None or not ctrl.has_class("preview_proposal_minimap"):
+            return
+        panes = self.query(ProposalPreviewPane)
+        if not panes:
+            return
+        panes.first().scroll_to_section(event.section_name)
+        event.stop()
+
+    def _focus_within_preview(self) -> bool:
+        """True when focus is inside the config-step proposal preview pane."""
+        panes = self.query(ProposalPreviewPane)
+        return bool(panes) and self._focus_within(panes.first())
+
+    def check_action(self, action: str, parameters) -> bool | None:
+        """Context-scope the preview toggles (t1047).
+
+        ``w`` (width) / ``l`` (line numbers) apply only on the explore /
+        module_decompose preview config step AND only while the proposal or
+        minimap is focused. The footer therefore advertises them exactly then,
+        and a focused Mandate ``TextArea`` keeps ``w``/``l`` as typed text
+        (returning False leaves the key unbound at the screen, so it reaches the
+        input). Other actions are unaffected.
+        """
+        if action in ("toggle_preview_numbered", "cycle_preview_ratio"):
+            on_preview_step = (
+                self._wizard_step_id == "config"
+                and self._wizard_op in ("explore", "module_decompose")
+            )
+            return on_preview_step and self._focus_within_preview()
+        return True
 
     def _cycle_preview_focus(self, forward: bool = True) -> bool:
         """Tab / Shift+Tab on the config-with-preview step → step the focus ring.
@@ -4872,7 +4876,7 @@ class ActionsWizardScreen(ModalScreen):
         return group_dimensions_by_prefix(merged)
 
 
-class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
+class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
     """Textual app for interactive brainstorm session orchestration."""
 
     _shortcuts_scope = "brainstorm"
@@ -6672,71 +6676,18 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return _focus_first_dim_row()
         return False
 
-    def _navigate_rows(self, direction: int, container_id: str, row_types: tuple) -> bool:
-        """Navigate up/down among focusable rows in a container.
+    def _nav_tab_bar(self):
+        """The main-screen ``Tabs`` for RowNavMixin's top boundary (t1047).
 
-        Returns True if the event was handled.
-        direction: -1 for up, +1 for down.
+        Browse/Session row nav hands focus back to the tab bar when arrowing up
+        past the first row; the shared helper queries this hook for the widget.
         """
         try:
-            container = self.query_one(f"#{container_id}")
+            return self.query_one(TabbedContent).query_one(Tabs)
         except Exception:
-            return False
+            return None
 
-        focusable = [w for w in container.children if isinstance(w, row_types) and w.can_focus]
-        if not focusable:
-            return False
-
-        focused = self.focused
-        tabbed = self.query_one(TabbedContent)
-        tabs_widget = tabbed.query_one(Tabs)
-
-        # If focus is on the Tabs bar and direction is down, focus first row
-        if focused is tabs_widget:
-            if direction == 1:
-                focusable[0].focus()
-                focusable[0].scroll_visible()
-                return True
-            return False
-
-        # If no row is focused, focus the first (down) or last (up) row
-        if not isinstance(focused, row_types):
-            target = focusable[0] if direction == 1 else focusable[-1]
-            target.focus()
-            target.scroll_visible()
-            return True
-
-        # Find current index
-        try:
-            idx = focusable.index(focused)
-        except ValueError:
-            focusable[0].focus()
-            focusable[0].scroll_visible()
-            return True
-
-        new_idx = idx + direction
-
-        # At boundary: up past top → focus tabs; down past bottom → stop
-        if new_idx < 0:
-            tabs_widget.focus()
-            return True
-        if new_idx >= len(focusable):
-            return True  # Stop at bottom, don't wrap
-
-        focusable[new_idx].focus()
-        focusable[new_idx].scroll_visible()
-        return True
-
-
-    def _focus_within(self, container) -> bool:
-        """True if the currently focused widget is `container` or a descendant."""
-        node = self.focused
-        while node is not None:
-            if node is container:
-                return True
-            node = node.parent
-        return False
-
+    # _navigate_rows / _focus_within now live on RowNavMixin (t1047).
 
     def on_mount(self) -> None:
         """Session lifecycle: load existing or prompt to initialize."""
@@ -8621,22 +8572,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
 
 
-    def on_section_minimap_section_selected(self, event) -> None:
-        """Route an Actions-tab preview minimap selection to its pane.
-
-        NodeDetailModal / NodeHub handle their own minimap (each is a separate
-        ModalScreen); only the config-step preview pane's minimap bubbles up to
-        the App. The
-        ``preview_proposal_minimap`` class guards against any other source.
-        """
-        ctrl = getattr(event, "control", None)
-        if ctrl is None or not ctrl.has_class("preview_proposal_minimap"):
-            return
-        panes = self.query(ProposalPreviewPane)
-        if not panes:
-            return
-        panes.first().scroll_to_section(event.section_name)
-        event.stop()
+    # The config-step preview minimap is now handled by ActionsWizardScreen
+    # (the pane lives inside that modal, so the SectionSelected message never
+    # reaches the App). The former App handler here was dead code (t1047).
+    # NodeDetailModal / NodeHub still handle their own modal minimaps.
 
 
 
