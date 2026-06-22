@@ -232,15 +232,15 @@ the live smoke) passes.
 ## Risk
 
 ### Code-health risk: medium
-- Large mechanical move (~3,850 lines across 5 new modules) risks a missed import or module-level NameError on a runtime path not covered by unit tests (e.g. a rarely-hit modal) · severity: medium · → mitigation: brainstorm_modularize_live_smoke
-- CSS block relocated to `styles.py`; an accidental reorder could shift specificity-tie rendering · severity: low (mitigated by verbatim move) · → mitigation: brainstorm_modularize_live_smoke
+- Large mechanical move (~3,850 lines across 5 new modules) risks a missed import or module-level NameError on a runtime path not covered by unit tests (e.g. a rarely-hit modal) · severity: medium · → mitigation: t1052 (brainstorm_modularize_live_smoke)
+- CSS block relocated to `styles.py`; an accidental reorder could shift specificity-tie rendering · severity: low (mitigated by verbatim move) · → mitigation: t1052 (brainstorm_modularize_live_smoke)
 
 ### Goal-achievement risk: low
 - Approach validated in planning (one-way DAG, no cycles, re-export preserves the surface); AC fully covered. None of material concern.
 - None identified.
 
 ### Planned mitigations
-- timing: after | name: brainstorm_modularize_live_smoke | type: manual_verification | priority: medium | effort: low | addresses: code-health (runtime NameError on a UI path unit tests don't cover) | desc: Regression backstop (the in-session live-smoke gate already proves the AC) — re-run a live smoke of `ait brainstorm` exercising Browse (graph/list + node-op wizard), proposal preview + minimap, Session tab, and Running-tab polling to catch any deferred runtime regression.
+- timing: after | name: brainstorm_modularize_live_smoke | created: t1052 | type: manual_verification | priority: medium | effort: low | addresses: code-health (runtime NameError on a UI path unit tests don't cover) | desc: Regression backstop (the in-session live-smoke gate already proves the AC) — re-run a live smoke of `ait brainstorm` exercising Browse (graph/list + node-op wizard), proposal preview + minimap, Session tab, and Running-tab polling to catch any deferred runtime regression.
 
 ## Out of scope (potential follow-up)
 
