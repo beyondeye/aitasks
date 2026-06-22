@@ -9,7 +9,7 @@ status: Done
 labels: [brainstorming, tui, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1018
-implemented_with: codex/gpt-5
+implemented_with: codex/gpt5_5
 created_at: 2026-06-21 13:38
 updated_at: 2026-06-22 16:47
 completed_at: 2026-06-22 16:47
