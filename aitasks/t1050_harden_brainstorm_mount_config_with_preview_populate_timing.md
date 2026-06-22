@@ -44,3 +44,5 @@ children on its own message pump, so `query_one` raises a transient `NoMatches`.
 > **✅ gate:plan_approved** run=2026-06-22T14:00:03Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-22T14:00:04Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-22T14:03:06Z status=pass attempt=1 type=human
