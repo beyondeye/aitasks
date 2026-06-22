@@ -249,3 +249,40 @@ the live smoke) passes.
   coupling).
 - Splitting `widgets.py` / `modals.py` into `widgets/` + `modals/` sub-packages.
 - "Organizing" the CSS (moved verbatim here).
+
+## Final Implementation Notes
+
+- **Actual work done:** Extracted the conservative split exactly as planned into 5
+  flat sibling modules under `.aitask-scripts/brainstorm/`: `constants.py` (420),
+  `utils.py` (498), `styles.py` (694, CSS verbatim as `APP_CSS`), `widgets.py` (887),
+  `modals.py` (1488). `brainstorm_app.py` dropped **9163 → 5621 lines (−39%)**,
+  keeping `ActionsWizardScreen`, `BrainstormApp`, `__main__`, `CSS = APP_CSS`, and a
+  re-import block that preserves the external import surface. The split was driven by
+  a deterministic AST-based extraction (a throwaway `/tmp` generator) so block moves
+  were byte-faithful and the CSS literal was relocated exactly; module imports were
+  auto-derived per-name (code-token-aware) so the new modules carry only the imports
+  they use, and `brainstorm_app.py`'s original imports were trimmed to what the kept
+  code references.
+- **Deviations from plan:** None of substance. The plan's `widgets/` + `modals/`
+  package option was rejected in planning in favour of flat files (user choice).
+- **Issues encountered:** First-pass import heuristic over-imported (matched
+  identifiers inside help-text strings), producing pyflakes "unused import" noise.
+  Fixed by switching the generator to a `tokenize`-based code-token scan with
+  per-name import reconstruction. `DEFAULT_LAUNCH_MODE` (re-exported from
+  `launch_modes`, part of the test surface) was force-kept so import-trimming could
+  not drop it.
+- **Key decisions:** (1) CSS moved verbatim (no reorganization) to guarantee
+  identical rendering. (2) Layering `constants → utils → widgets → modals →
+  brainstorm_app`, one-directional, no cycles. (3) Each new module self-bootstraps
+  `sys.path` (matching sibling convention) so it is import-order-independent. (4)
+  App-CSS-only modals stay app-CSS-only this pass (behaviour-neutral; existing
+  minimal-host modal tests already pass without `BrainstormApp.CSS`).
+- **Verification performed:** smoke import; re-export guard (52-name surface incl.
+  `DEFAULT_LAUNCH_MODE`); pyflakes (0 undefined names, new modules 0 unused, app
+  unused = intentional re-exports only); full brainstorm suite **51/51** (identical
+  to the pre-refactor baseline); shortcut/registry tests pass; headless full-boot
+  pilot across Browse/Session/Running; and the real launcher
+  (`python brainstorm_app.py`) booted and rendered the live TUI. The interactive
+  visual smoke is carried by the approved follow-up `manual_verification` task
+  (regression backstop).
+- **Upstream defects identified:** None.
