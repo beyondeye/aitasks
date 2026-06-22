@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: high
 depends: [1047]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [brainstorm, tech-debt]
 risk_mitigation_tasks: [1052]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-22 09:52
-updated_at: 2026-06-22 12:19
+updated_at: 2026-06-22 12:20
+completed_at: 2026-06-22 12:20
 ---
 
 `.aitask-scripts/brainstorm/brainstorm_app.py` has grown to ~9,224 lines
