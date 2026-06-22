@@ -305,3 +305,39 @@ risk-mitigation task to avoid duplication.
 
 Follow shared workflow Step 8 (review) → Step 8c (offer the live
 manual-verification follow-up) → Step 9 (no separate branch on `fast`; archive).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. New pure module
+  `.aitask-scripts/applink/firewall_doctor.py` (stdlib-only) with the full
+  public surface: `detect_backend` (failure-silent `systemctl is-active`),
+  `parse_lan_cidr`/`host_lan_cidr`, `build_open_commands` (ufw/firewalld/
+  nftables/iptables), `auto_fixable`, `privilege_wrapper` (pkexec), `shlex`-safe
+  `display_command`, `generic_help`, `interpret_result`, `FirewallStatus` +
+  always-returning `diagnose`, `run_open`, `render_firewall_block`. Wired into
+  `applink_app.py` (`FirewallFixModal`, `f`-key advisory/consent on
+  `PairingScreen`, off-thread `diagnose` in `_start_server`) and `headless.py`
+  (advisory block / generic hint after bind). New `tests/test_applink_firewall.sh`
+  (41 assertions) + a construction spy in `tests/test_applink_smoke.sh`.
+- **Deviations from plan:** None of substance. The "show me the command"
+  affordance is realized by always rendering the command (selectable Static) in
+  the modal rather than behind a separate button — cleaner, and covers every
+  backend including nft/iptables which have no auto-fix.
+- **Issues encountered:** None. All 9 `tests/test_applink_*.sh` pass; shellcheck
+  clean (only benign SC1091 source-info, same as sibling tests); live read-only
+  `diagnose()` on the repo host correctly detected active ufw, derived the real
+  `192.168.1.0/24`, found pkexec, and rendered the exact command from the
+  motivation.
+- **Key decisions:** Replaced the task's self-connect probe with active-backend
+  detection (the self-connect loops back through `lo` and can't observe an
+  external INPUT drop — rationale preserved in the task's "Why not a self-connect
+  probe" section so it isn't reintroduced). Auto-fix limited to the natively
+  idempotent ufw/firewalld; nft/iptables and undetected/raw setups covered by the
+  always-reachable generic show-command help. `diagnose` always returns a
+  `FirewallStatus` (carrying the real cidr even when undetected) so the generic
+  fallback never lacks a CIDR; `run_open(status)` carries the backend for
+  idempotent result classification.
+- **Upstream defects identified:** None.
+- **Live verification deferred to manual-verification follow-up:** real pkexec/
+  polkit dialog under Hyprland, an actual blocked-port → phone-pairing round
+  trip, and re-press idempotency cannot be exercised by unit tests.
