@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -7,8 +9,9 @@ status: Implementing
 labels: [brainstorming, tui, ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1018
+implemented_with: codex/gpt-5
 created_at: 2026-06-21 13:38
-updated_at: 2026-06-22 16:41
+updated_at: 2026-06-22 16:43
 ---
 
 ## Origin
