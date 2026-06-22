@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: [1047]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [brainstorm, tech-debt]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-22 09:52
-updated_at: 2026-06-22 09:52
+updated_at: 2026-06-22 11:24
 ---
 
 `.aitask-scripts/brainstorm/brainstorm_app.py` has grown to ~9,224 lines
