@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ui, brainstorm]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-22 09:51
-updated_at: 2026-06-22 10:35
+updated_at: 2026-06-22 11:21
+completed_at: 2026-06-22 11:21
 ---
 
 Three related UX bugs in the `ait brainstorm` node-operation wizard
