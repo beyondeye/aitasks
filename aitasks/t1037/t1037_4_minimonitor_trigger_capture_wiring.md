@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [t1037_3]
 issue_type: feature
@@ -7,8 +9,9 @@ status: Implementing
 labels: [aitask_monitormini, shadow, tui, clipboard]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1037
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 11:43
-updated_at: 2026-06-22 09:57
+updated_at: 2026-06-22 10:51
 ---
 
 ## Context
@@ -97,3 +100,8 @@ the hotkey as the backstop — not the only trigger.
 
 - This closes the loop; capture any gotchas about shadow-pane resolution and
   the capture path choice for the parent's Final Implementation Notes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-22T07:51:52Z status=pass attempt=1 type=human
