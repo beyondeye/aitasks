@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_monitormini, shadow, claudeskills, clipboard, tui]
-children_to_implement: [t1037_3, t1037_4, t1037_5]
+children_to_implement: [t1037_4, t1037_5]
 created_at: 2026-06-21 11:19
-updated_at: 2026-06-21 18:15
+updated_at: 2026-06-22 09:35
 boardidx: 50
 ---
 
