@@ -7,8 +7,9 @@ status: Implementing
 labels: [verification, bug]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1018
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 13:54
-updated_at: 2026-06-22 16:49
+updated_at: 2026-06-22 17:20
 ---
 
 ## Failed verification item from t1018_1
@@ -34,3 +35,8 @@ updated_at: 2026-06-22 16:49
 ### Next steps
 
 Reproduce the failure locally (see the commits and files above, and the origin archived plan for implementation context), identify the offending change, and fix. This task was auto-generated from a manual-verification failure in t1018_4 item #2.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-22T14:20:16Z status=pass attempt=1 type=human
