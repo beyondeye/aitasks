@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: high
 depends: [t1037_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_monitormini, shadow, tui, clipboard]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1037
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 11:43
-updated_at: 2026-06-22 10:51
+updated_at: 2026-06-22 11:10
+completed_at: 2026-06-22 11:10
 ---
 
 ## Context
