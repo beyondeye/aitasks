@@ -48,3 +48,8 @@ each peer Running-tab row type that has both a `:focus` ($accent) and a `:hover`
 the same pattern (e.g. `OperationRow`, `NodeRow`, `DimensionRow`, `StatusLogRow`
 if they exhibit it). Mirror the `GroupRow:focus:hover` rule from t1018_3.
 Consider whether a shared CSS class would reduce duplication.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-22T13:47:32Z status=pass attempt=1 type=human
