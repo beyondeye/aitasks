@@ -304,11 +304,52 @@ handled in-task (async/timeout discipline, guards, the integration + behavioral
   auto-offer fires once per new block; tmux-stall does not hang the UI) → deferred
   to the t1037_5 manual-verification sibling.
 
-## Final Implementation Notes (fill at completion)
+## Final Implementation Notes
 
-Record: the capture-path choice (option (a), `-J` added to `aitask_shadow_capture.sh`);
-the reverse-lookup correction (fresh `list-panes -a` query, not a snapshot scan);
-any shadow-pane resolution gotchas; whether the auto-offer proved noisy enough to
-fall back to lazy. These feed the parent t1037 Final Implementation Notes.
+- **Actual work done:** All of §1–§6 landed as planned.
+  - `aitask_shadow_capture.sh`: added `-J` to the `ait_tmux capture-pane` call
+    (option (a)) + comment. Verified live: a 62-char line in a 20-col pane comes
+    back contiguous through the script.
+  - `monitor_core.py`: added public `tmux_run_async` (thin alias of the internal
+    `_tmux_async`) so the async picker/auto-offer paths get a gateway-routed,
+    event-loop-safe tmux call symmetric with the sync `tmux_run`.
+  - `minimonitor_app.py`: module-level pure `match_shadow_pane` (+ `_pane_id_sort_key`
+    newest-wins tie-break); `_shadow_query_args` shared by `_find_shadow_pane_for_sync`
+    (guard) and async `_find_shadow_pane_for` (picker/auto-offer); async
+    `_capture_shadow_text` (subprocess of the shadow capture script under
+    `asyncio.wait_for(_SHADOW_CAPTURE_TIMEOUT=3s)`, → `None` on any failure); `c`
+    binding + async `action_pick_concerns` + `_on_concerns_picked`; duplicate-shadow
+    guard at the top of `action_launch_shadow`; strict, parsed-block-de-duped
+    `_maybe_offer_concerns` wired at the end of `_refresh_data`; `c:concerns`
+    key-hint line.
+- **Deviations from plan:**
+  - **Reverse-lookup correction (was wrong in the task AC):** the followed agent's
+    shadow is resolved by a **fresh `list-panes -a` gateway query**, not a snapshot
+    scan — `monitor_core._parse_list_panes` filters shadow panes out of
+    `self._snapshots` and never stores `@aitask_shadow_target`. The pure matcher
+    keys on that target value.
+  - **Test file:** instead of a new `tests/test_shadow_capture_join.sh`, the live
+    `-J` behavioral test was **added to the existing `tests/test_shadow_capture.sh`**
+    (cohesion — that is THE shadow-capture test). The Python action/auto-offer
+    tests live in the new `tests/test_minimonitor_concern_action.py`.
+  - **De-dup field name:** stored as `self._last_concern_block_payload`
+    (the canonical clipboard payload string, exact-compared) rather than a separate
+    hash — simpler and exact; no `hashlib`.
+- **Issues encountered:** the live `-J` test initially captured an empty pane —
+  a race (the pane exists before its `printf` emits output). Fixed by polling the
+  capture until non-empty. Test runs on an isolated `-L ait_jtest_$$` socket and
+  skips when tmux is unavailable.
+- **Key decisions:** capture path = option (a) (reuse `aitask_shadow_capture.sh`
+  with `-J`) per the parent constraint + `shadow_concern_format.md`; auto-offer
+  uses strict `has_concern_block` as the trigger and forgiving `parse_concerns`
+  for the hotkey, matching the parser's documented split; `action_launch_shadow`
+  stays sync (uses the sync reader) — no async conversion of an existing action.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (t1037_5 manual verification):** live e2e is owed here
+  — launch `ait minimonitor` beside an agent, `e` to spawn a shadow, have it emit a
+  concern block, then verify (a) the auto-offer hint fires once per new block, (b)
+  `c` opens the picker, (c) confirm copies the preamble+selected concerns to the
+  clipboard, and (d) a stalled/again-pressed path never hangs the UI. The
+  duplicate-shadow guard means a second `e` on the same agent is refused.
 
 See parent t1037 and **Step 9 (Post-Implementation)** for archival/merge.
