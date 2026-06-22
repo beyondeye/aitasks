@@ -19,3 +19,9 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1039
+
+## Verification Checklist
+
+- [ ] [t1039] In a live `ait brainstorm <task>` session through the real ghostty->tmux->Textual stack: on the (B)rowse and (S)ession tabs, `ctrl+r Retry initializer apply` does NOT appear in the footer (not even dimmed/greyed).
+- [ ] [t1039] On the (R)unning tab, `ctrl+r Retry initializer apply` IS visible in the footer and is enabled (its owning surface).
+- [ ] [t1039] The sibling contextual keys do not leak dimmed either: `A Node action` / `f Defer module` show only on Browse with a node selected; `enter Open detail` shows only where a node detail is openable.
