@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [applink]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 17:21
-updated_at: 2026-06-22 10:01
+updated_at: 2026-06-22 11:24
 ---
 
 On AppLink server launch, detect when the host firewall is blocking the
@@ -64,3 +65,8 @@ On startup (and/or on the pairing screen), the server should:
   task addresses the server/host-side firewall UX.
 - Server code: `.aitask-scripts/applink/` (`applink_app.py`, `server.py`,
   `pairing.py` `detect_lan_ip()`, `tls.py`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-22T08:24:04Z status=pass attempt=1 type=human
