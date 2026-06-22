@@ -26,12 +26,18 @@ from monitor.monitor_core import (  # noqa: E402,F401
     TaskInfoCache,
 )
 
+from typing import TYPE_CHECKING
+
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, VerticalScroll  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
 from textual.widgets import Button, Label, Markdown, Static  # noqa: E402
 from textual.app import ComposeResult  # noqa: E402
 from rich.text import Text  # noqa: E402
+from rich.markup import escape  # noqa: E402
+
+if TYPE_CHECKING:  # annotations only (PEP 563 via `from __future__`); no runtime cost
+    from monitor.concern_parser import Concern
 
 
 # Dark background for terminal preview — hard-coded because we're rendering
@@ -461,3 +467,199 @@ class ChooseSiblingModal(ModalScreen):
 
     def action_dismiss_dialog(self) -> None:
         self.dismiss(None)
+
+
+# Priority → rich-markup badge for a concern row. Colors mirror the broader
+# high=red / medium=yellow / low=dim convention used across the monitor TUIs.
+_CONCERN_BADGE = {
+    "high": "[bold red]HIGH[/]",
+    "medium": "[bold yellow]MED[/]",
+    "low": "[dim]LOW[/]",
+}
+
+
+class _ConcernRow(Static):
+    """A focusable, toggleable concern row inside ConcernPickerModal.
+
+    Holds one ``Concern`` and a ``selected`` flag. The checkbox glyph follows the
+    t1004 convention (☑/☐, never a dot; marked = bold yellow). Navigation mirrors
+    ``_SiblingRow``; ``space`` toggles the selection (``enter`` confirm is handled
+    at the modal level).
+    """
+
+    can_focus = True
+
+    DEFAULT_CSS = """
+    _ConcernRow {
+        height: 1;
+        padding: 0 1;
+    }
+    _ConcernRow:focus {
+        background: $accent 30%;
+    }
+    /* Focused + hovered stays a shade of the focus accent — never gray hover. */
+    _ConcernRow:focus:hover {
+        background: $accent 40%;
+    }
+    """
+
+    def __init__(self, concern: "Concern", **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._concern = concern
+        self._selected = False
+
+    @property
+    def concern(self) -> "Concern":
+        return self._concern
+
+    @property
+    def selected(self) -> bool:
+        return self._selected
+
+    def toggle(self) -> None:
+        self.set_selected(not self._selected)
+
+    def set_selected(self, value: bool) -> None:
+        if self._selected != value:
+            self._selected = value
+            self.refresh()
+
+    def render(self) -> str:
+        mark = "[bold yellow]☑[/]" if self._selected else "☐"
+        badge = _CONCERN_BADGE.get(self._concern.priority, "[dim]LOW[/]")
+        region = escape(self._concern.region) or "[dim]—[/]"
+        body = escape(self._concern.body)
+        return f"{mark}  {badge} [dim]{region}[/]  {body}"
+
+    def on_key(self, event) -> None:
+        if event.key == "space":
+            self.toggle()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "down":
+            self._focus_neighbor(1)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "up":
+            self._focus_neighbor(-1)
+            event.prevent_default()
+            event.stop()
+
+    def _focus_neighbor(self, delta: int) -> None:
+        parent = self.parent
+        if parent is None:
+            return
+        rows = [w for w in parent.children if isinstance(w, _ConcernRow)]
+        try:
+            idx = rows.index(self)
+        except ValueError:
+            return
+        new_idx = max(0, min(len(rows) - 1, idx + delta))
+        if new_idx != idx:
+            rows[new_idx].focus()
+            rows[new_idx].scroll_visible()
+
+
+class ConcernPickerModal(ModalScreen):
+    """Modal letting the user pick which shadow concerns to forward.
+
+    Shared by the full monitor and minimonitor (both push it), so it carries its
+    own ``DEFAULT_CSS`` per the TUI conventions for multi-App modals.
+
+    **Dismiss contract (consumed by t1037_4):** dismisses with the **selected**
+    ``list[Concern]`` on confirm (OK / Enter) or with the full list on "copy ALL"
+    (``A``); dismisses with ``None`` on Esc / Cancel. The modal stays pure-UI: it
+    does NOT build the clipboard payload or touch the clipboard — the caller's
+    action handler runs ``concern_parser.build_clipboard_payload`` +
+    ``app.copy_to_clipboard``. This keeps it unit-testable without a clipboard
+    backend.
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss_dialog", "Close", show=False),
+        Binding("enter", "confirm", "OK"),
+        Binding("a", "toggle_all", "Select all/none"),
+        Binding("A", "copy_all", "Copy ALL"),
+    ]
+
+    DEFAULT_CSS = """
+    ConcernPickerModal { align: center middle; }
+    #concern-dialog {
+        width: 70%;
+        max-height: 80%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #concern-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
+    #concern-context { color: $text-muted; margin: 0 0 1 0; }
+    #concern-list { height: 1fr; min-height: 3; margin: 0 0 1 0; }
+    #concern-help { color: $text-muted; margin: 0 0 1 0; }
+    #concern-buttons { width: 100%; height: auto; layout: horizontal; }
+    #concern-buttons Button { margin: 0 1; }
+
+    /* Narrow variant (minimonitor companion pane, ~40 cols): widen the dialog
+       so the header, concern rows, and OK/Cancel render fully. */
+    ConcernPickerModal.narrow #concern-dialog { width: 90%; min-width: 30; }
+    """
+
+    def __init__(self, concerns: list["Concern"], narrow: bool = False) -> None:
+        super().__init__()
+        self._concerns = list(concerns)
+        self._narrow = narrow
+
+    def compose(self) -> ComposeResult:
+        if self._narrow:
+            self.add_class("narrow")
+        with Container(id="concern-dialog"):
+            yield Static("[bold]Concerns[/]", id="concern-header")
+            yield Static(
+                f"{len(self._concerns)} concern(s)  ·  select to forward",
+                id="concern-context",
+            )
+            with VerticalScroll(id="concern-list"):
+                for concern in self._concerns:
+                    yield _ConcernRow(concern)
+            yield Static(
+                "[dim]\\[↑/↓] navigate  \\[Space] toggle  \\[a] all/none  "
+                "\\[A] copy all  \\[Enter/OK] confirm  \\[Esc] cancel[/]",
+                id="concern-help",
+            )
+            with Container(id="concern-buttons"):
+                yield Button("OK", variant="primary", id="btn-ok")
+                yield Button("Cancel", variant="default", id="btn-cancel")
+
+    def on_mount(self) -> None:
+        rows = list(self.query(_ConcernRow))
+        if rows:
+            rows[0].focus()
+
+    def _rows(self) -> list[_ConcernRow]:
+        return list(self.query(_ConcernRow))
+
+    def _selected_concerns(self) -> list["Concern"]:
+        return [row.concern for row in self._rows() if row.selected]
+
+    def action_toggle_all(self) -> None:
+        rows = self._rows()
+        # If every row is already selected, a second press clears them all.
+        target = not (bool(rows) and all(row.selected for row in rows))
+        for row in rows:
+            row.set_selected(target)
+
+    def action_confirm(self) -> None:
+        self.dismiss(self._selected_concerns())
+
+    def action_copy_all(self) -> None:
+        # Fast path: forward every concern in one keystroke (preamble is attached
+        # downstream by build_clipboard_payload).
+        self.dismiss(list(self._concerns))
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-ok":
+            self.dismiss(self._selected_concerns())
+        else:
+            self.dismiss(None)
