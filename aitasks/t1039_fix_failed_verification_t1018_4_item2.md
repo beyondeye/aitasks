@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1018_1]
 issue_type: bug
@@ -42,3 +44,5 @@ Reproduce the failure locally (see the commits and files above, and the origin a
 > **✅ gate:plan_approved** run=2026-06-22T14:20:16Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-22T14:20:18Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-22T14:24:35Z status=pass attempt=1 type=human
