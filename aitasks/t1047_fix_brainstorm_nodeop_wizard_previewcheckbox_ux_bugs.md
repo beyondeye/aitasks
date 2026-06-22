@@ -12,10 +12,22 @@ updated_at: 2026-06-22 09:53
 
 Three related UX bugs in the `ait brainstorm` node-operation wizard
 (`ActionsWizardScreen`) and its side-by-side proposal preview. All live in
-`.aitask-scripts/brainstorm/brainstorm_app.py`. The wizard and
-`ProposalPreviewPane` are shared by every node operation (explore, compare,
-synthesize, module ops), so the preview fixes (#2, #3) cover all of them in one
-place.
+`.aitask-scripts/brainstorm/brainstorm_app.py`. The proposal preview
+(`ProposalPreviewPane`) is used by the **explore** and **module_decompose**
+config steps; the wizard hosts every node operation.
+
+> **Re-scoped (2026-06-22):** investigation showed these are not three
+> independent bugs but **fallout from the t983_11 relocation** that re-hosted
+> the former "Actions tab" into the `ActionsWizardScreen` modal. Two helpers
+> (`_navigate_rows`, `_focus_within`) were copied byte-for-byte App↔wizard, and
+> the copied `_navigate_rows` hard-codes `self.query_one(TabbedContent)` for its
+> tab-bar boundary — which raises `NoMatches` in the modal (no `TabbedContent`),
+> breaking **all** wizard arrow-nav routed through it. The App's
+> `on_section_minimap_section_selected` is now dead code (the preview pane is
+> modal-only). So the fix is a **targeted consolidation** — remove the
+> duplication that caused the bugs — not three per-symptom patches. The broader
+> file modularization stays in **t1048** (depends on this task), which will
+> later relocate the new shared mixin into a module.
 
 ## Bug 1 — Arrow keys don't move focus between dimension checkboxes (explore op)
 
@@ -26,11 +38,12 @@ Tab-focusable. `ActionsWizardScreen.on_key()` (~line 3415) has **no up/down
 branch for the `section_select` step**, whereas the **compare** op's `config`
 step already supports arrow nav via `_navigate_rows(...)` (lines 3481–3494).
 
-**Fix:** add an up/down branch for the `section_select` step that reuses the
-existing `_navigate_rows(...)` helper (target container `actions_content`,
-row type `(Checkbox,)`), mirroring the compare-config pattern. Boundary
-behaviour (no wrap, focus hand-off to the tab bar at top) should match the
-existing helper.
+**Fix (consolidation):** extract a shared, context-agnostic `RowNavMixin`
+(new module `brainstorm/nav_mixin.py`) holding the single `_navigate_rows` /
+`_focus_within`, with the tab-bar boundary as an overridable hook
+(`_nav_tab_bar()` — App returns its `Tabs`, the modal returns `None` → stop at
+top). Delete both copies. Then add the missing `section_select` up/down branch
+to `on_key` (reusing the now-fixed helper).
 
 ## Bug 2 — Contextual shortcuts not visible (wizard step 3 of 4)
 
@@ -57,23 +70,26 @@ calls `ProposalPreviewPane.scroll_to_section()`. But `ActionsWizardScreen` is a
 `ModalScreen`: the message bubbles to the modal and stops — the modal has no
 handler, so it never reaches the app. `scroll_to_section()` itself works.
 
-**Fix:** add `on_section_minimap_section_selected()` to `ActionsWizardScreen`
-that routes the event to its own `ProposalPreviewPane` (guard on the
-`preview_proposal_minimap` control class, mirroring the app handler).
+**Fix (consolidation):** move the handler onto `ActionsWizardScreen` (where the
+pane lives) and **delete the dead App copy**. Leave `NodeDetailModal`'s separate
+id-based minimap handler untouched.
 
 ## Scope note
-Fixes #2 and #3 are on the shared `ActionsWizardScreen` / `ProposalPreviewPane`,
-so they apply to all node-op wizards that show a proposal side-by-side
-(compare, synthesize, module ops), not just explore. Verify the compare and
-synthesize wizards after the change.
+The preview steps (explore, module_decompose) share `ActionsWizardScreen` /
+`ProposalPreviewPane`, so the hint (#2) and minimap (#3) fixes cover both. The
+shared `RowNavMixin` is also on the App's Browse/Session nav path — verify no
+regression there.
 
 ## Acceptance criteria
+- `_navigate_rows` / `_focus_within` exist in exactly one place (shared mixin);
+  no byte-for-byte App↔wizard duplicate remains.
 - Up/down arrows move focus between dimension checkboxes in the explore
-  `section_select` step (Tab still works; boundary behaviour matches compare).
+  `section_select` step (Tab still works); pressing up at the top boundary does
+  not crash (the `NoMatches` regression).
+- App Browse/Session row nav is unchanged (up-past-top still focuses the tab bar).
 - The proposal-preview shortcuts (line numbers, preview width, navigation) are
-  visibly indicated on the explore step-3 screen and on any other node-op
-  wizard step that shows the proposal side-by-side.
-- Clicking a minimap section in the wizard scrolls the proposal to that section.
-- Verified across explore, compare, and synthesize wizards.
-- Follow TUI conventions (`aidocs/framework/tui_conventions.md`); add/adjust
-  tests where the existing brainstorm TUI test suite allows.
+  visibly indicated on the explore (and module_decompose) preview config step.
+- Clicking a minimap section in the wizard scrolls the proposal to that section;
+  the dead App handler is removed.
+- Follow TUI conventions (`aidocs/framework/tui_conventions.md`); add pilot/unit
+  tests for the mixin contract, the section nav, the hint, and the minimap route.
