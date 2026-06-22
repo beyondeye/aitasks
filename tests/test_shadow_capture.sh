@@ -75,6 +75,48 @@ out=$("$CAPTURE" --help 2>&1)
 assert_contains "help shows usage" "Usage:" "$out"
 
 # ============================================================
+# Tests: wrap-join (-J) over a live tmux pane (t1037_4)
+# ============================================================
+# Proves the script actually passes `capture-pane -J`: a logical line longer
+# than the pane width must come back contiguous, not split mid-string by a
+# soft-wrap (the concern parser's capture-join contract). Runs on an isolated
+# dedicated socket so it never touches the user's tmux server; skipped when
+# tmux is unavailable or a test pane cannot be started.
+echo "--- wrap-join (-J) live tmux ---"
+if ! command -v tmux >/dev/null 2>&1; then
+    echo "SKIP: tmux not available — -J join test skipped"
+else
+    JSOCK="ait_jtest_$$"
+    LONG="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    # 20-col pane forces the 62-char string to soft-wrap across display rows.
+    tmux -L "$JSOCK" new-session -d -x 20 -y 10 \
+        "printf '%s' '$LONG'; sleep 30" 2>/dev/null || true
+    jpane=""
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        jpane=$(tmux -L "$JSOCK" list-panes -F '#{pane_id}' 2>/dev/null | head -1 || true)
+        [[ -n "$jpane" ]] && break
+        sleep 0.1
+    done
+    jout=""
+    if [[ -n "$jpane" ]]; then
+        # Poll until the pane's printf output has rendered (the pane exists
+        # before its command emits anything — capturing too early races to "").
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            jout=$(AITASKS_TMUX_SOCKET="$JSOCK" "$CAPTURE" "$jpane" 2>/dev/null || true)
+            [[ -n "$jout" ]] && break
+            sleep 0.1
+        done
+    fi
+    tmux -L "$JSOCK" kill-server 2>/dev/null || true
+    if [[ -z "$jpane" ]]; then
+        echo "SKIP: could not start test tmux pane — -J join test skipped"
+    else
+        assert_contains "-J rejoins a soft-wrapped logical line (contiguous)" \
+            "$LONG" "$jout"
+    fi
+fi
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""

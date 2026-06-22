@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import contextlib
 import os
 import subprocess
@@ -29,13 +30,18 @@ from monitor.tmux_monitor import (  # noqa: E402
     PaneSnapshot,
     SHADOW_TARGET_OPTION,
     TmuxMonitor,
+    is_shadow_target,
     load_monitor_config,
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
+    ConcernPickerModal,
     format_compare_mode_glyph, format_pane_status,
+)
+from monitor.concern_parser import (  # noqa: E402
+    build_clipboard_payload, has_concern_block, parse_concerns,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
@@ -69,6 +75,53 @@ class MiniPaneCard(Static, can_focus=True):
     def __init__(self, pane_id: str, text: str, **kwargs) -> None:
         super().__init__(text, **kwargs)
         self.pane_id = pane_id
+
+
+# Hard ceiling for the shadow-pane tmux query + capture shell-out (seconds).
+# Keeps the picker hotkey and the refresh-tick auto-offer from ever blocking the
+# Textual event loop on a stalled tmux / helper (t1037_4).
+_SHADOW_CAPTURE_TIMEOUT = 3.0
+
+
+def _pane_id_sort_key(pane_id: str) -> int:
+    """Numeric ordering key for a ``%N`` tmux pane id (newest == largest).
+
+    tmux assigns pane ids monotonically, so the largest numeric id is the most
+    recently created pane. Non-numeric / malformed ids sort first (-1).
+    """
+    try:
+        return int(pane_id.lstrip("%"))
+    except (ValueError, AttributeError):
+        return -1
+
+
+def match_shadow_pane(list_output: str, followed_pane_id: str) -> str | None:
+    """Resolve the shadow pane bound to ``followed_pane_id`` from tmux output.
+
+    Pure (no tmux): ``list_output`` is ``list-panes -F '#{pane_id}\\t
+    #{@aitask_shadow_target}'`` text. Returns the ``pane_id`` whose
+    ``@aitask_shadow_target`` equals ``followed_pane_id`` (the shadow pane carries
+    the followed pane's id — see ``shadow_agent.md``). An empty target marks a
+    non-shadow pane and is ignored (``is_shadow_target``).
+
+    Defense-in-depth: if more than one pane matches (an orphaned live shadow that
+    escaped cleanup — the launch guard in ``action_launch_shadow`` normally
+    prevents this), return the **newest** (largest ``%N``) deterministically. The
+    caller may notify when ``> 1`` match is seen.
+    """
+    matches: list[str] = []
+    for line in list_output.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        pane_id, target = parts[0].strip(), parts[1].strip()
+        if not is_shadow_target(target):
+            continue
+        if target == followed_pane_id:
+            matches.append(pane_id)
+    if not matches:
+        return None
+    return max(matches, key=_pane_id_sort_key)
 
 
 # -- Main app -----------------------------------------------------------------
@@ -146,6 +199,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("k", "kill_own_agent", "Kill", show=False),
         Binding("n", "pick_next_for_own", "Next", show=False),
         Binding("e", "launch_shadow", "Shadow", show=False),
+        Binding("c", "pick_concerns", "Concerns", show=False),
         Binding("j", "tui_switcher", "TUI switcher", show=False),
         Binding("q", "quit", "Quit", show=False),
         Binding("s", "switch_to", "Switch", show=False),
@@ -194,6 +248,9 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # The followed-agent docked panel is built once (static identity, no
         # per-cycle status refresh) — see _maybe_build_own_agent_panel.
         self._own_panel_built: bool = False
+        # Auto-offer de-dup (t1037_4): last forwarded concern payload per shadow
+        # pane id, so a re-detected *unchanged* block does not re-fire the hint.
+        self._last_concern_block_payload: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Static(id="mini-session-bar")
@@ -204,7 +261,8 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             "s/\u2191\u2193:switch  enter:send\n"
             "d:detect (\u2248 strip, = raw)\n"
             "j:tui switcher  m:full monitor\n"
-            "k:kill  n:next  e:shadow",
+            "k:kill  n:next  e:shadow\n"
+            "c:concerns",
             id="mini-key-hints",
         )
 
@@ -377,6 +435,11 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         await self._rebuild_pane_list()
 
         self._restore_focus(saved_pane_id)
+
+        # Proactive concern auto-offer (t1037_4): hint once per *new* complete
+        # concern block on the followed agent's shadow pane. Best-effort and
+        # event-loop safe — any failure silently skips this tick.
+        await self._maybe_offer_concerns()
 
     def _check_auto_close(self) -> None:
         """Exit if no other panes remain in our window (besides ourselves)."""
@@ -982,6 +1045,15 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if not followed_pane:
             self.notify("Followed agent pane id unavailable", severity="warning")
             return
+        # One shadow per followed agent (the @aitask_shadow_target option is the
+        # lifecycle binding). Refuse a duplicate so the concern picker's reverse
+        # lookup stays unambiguous by construction (t1037_4). Sync lookup — this
+        # action is sync and already issues sync tmux_run calls.
+        if self._find_shadow_pane_for_sync(followed_pane):
+            self.notify(
+                "A shadow is already running for this agent", severity="warning"
+            )
+            return
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
 
         target_root = self._root_for_snap(snap)
@@ -1052,6 +1124,153 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 severity="warning",
             )
         self.call_later(self._refresh_data)
+
+    # -- Shadow concern picker (t1037_4) ---------------------------------------
+
+    def _shadow_query_args(self) -> list[str]:
+        """tmux argv listing every pane's id + @aitask_shadow_target value.
+
+        Shared by the sync and async reverse-lookups so the format never drifts.
+        """
+        return ["list-panes", "-a", "-F",
+                f"#{{pane_id}}\t#{{{SHADOW_TARGET_OPTION}}}"]
+
+    def _find_shadow_pane_for_sync(self, followed_pane_id: str) -> str | None:
+        """Sync reverse lookup of the shadow pane bound to ``followed_pane_id``.
+
+        For the sync duplicate-launch guard only — ``action_launch_shadow`` is a
+        sync action already issuing sync ``tmux_run`` calls. The picker action and
+        the refresh-tick auto-offer use the async :meth:`_find_shadow_pane_for` so
+        they never block the event loop.
+        """
+        if self._monitor is None:
+            return None
+        rc, out = self._monitor.tmux_run(self._shadow_query_args(), timeout=2)
+        if rc != 0:
+            return None
+        return match_shadow_pane(out, followed_pane_id)
+
+    async def _find_shadow_pane_for(self, followed_pane_id: str) -> str | None:
+        """Async (event-loop safe) reverse lookup for the picker / auto-offer."""
+        if self._monitor is None:
+            return None
+        rc, out = await self._monitor.tmux_run_async(
+            self._shadow_query_args(), timeout=_SHADOW_CAPTURE_TIMEOUT
+        )
+        if rc != 0:
+            return None
+        return match_shadow_pane(out, followed_pane_id)
+
+    async def _capture_shadow_text(self, shadow_pane: str) -> str | None:
+        """Capture a shadow pane as clean, wrap-joined text, or ``None`` on failure.
+
+        Reuses ``aitask_shadow_capture.sh`` (the shadow skill's own capture path,
+        now ``-J``-joined per the parser's capture-join contract) so cleaning never
+        diverges. Async with a hard timeout: a stalled tmux / helper degrades to
+        ``None`` rather than hanging the UI (t1037_4).
+        """
+        script = _SCRIPT_DIR / "aitask_shadow_capture.sh"
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                str(script), shadow_pane,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError:
+            return None
+        try:
+            stdout_bytes, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=_SHADOW_CAPTURE_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.wait()
+            return None
+        if proc.returncode:
+            return None
+        return stdout_bytes.decode("utf-8", errors="replace")
+
+    async def action_pick_concerns(self) -> None:
+        """Forward the shadow agent's concerns to the followed agent (via clipboard).
+
+        Captures the bound shadow pane, parses its concern block, opens the picker
+        modal, and on confirm copies the selected concerns (with a preamble) to the
+        clipboard. The hotkey path uses the forgiving ``parse_concerns`` — the user
+        deliberately asked to look now; the refresh-tick auto-offer uses the strict
+        ``has_concern_block`` trigger instead (see :meth:`_maybe_offer_concerns`).
+        """
+        snap = self._find_own_agent_snapshot()
+        if snap is None:
+            self.notify("No followed agent in this window", severity="warning")
+            return
+        shadow_pane = await self._find_shadow_pane_for(snap.pane.pane_id)
+        if not shadow_pane:
+            self.notify(
+                "No shadow agent running — press 'e' to launch one",
+                severity="warning",
+            )
+            return
+        text = await self._capture_shadow_text(shadow_pane)
+        if text is None:
+            self.notify("Could not read the shadow pane", severity="warning")
+            return
+        concerns = parse_concerns(text)
+        if not concerns:
+            self.notify("No concerns detected on the shadow pane")
+            return
+        self.push_screen(
+            ConcernPickerModal(concerns, narrow=True),
+            callback=self._on_concerns_picked,
+        )
+
+    def _on_concerns_picked(self, selected: list | None) -> None:
+        """Modal callback: copy the selected concerns to the clipboard.
+
+        ``selected`` is the chosen ``list[Concern]`` on confirm (or the full list
+        on copy-all), or ``None``/empty on cancel — in which case nothing is
+        written (no side effect before an explicit confirm).
+        """
+        if not selected:
+            return
+        payload = build_clipboard_payload(selected)
+        self.copy_to_clipboard(payload)
+        self.notify("Concerns copied to clipboard.")
+
+    async def _maybe_offer_concerns(self) -> None:
+        """Proactively hint when a fresh, complete concern block appears on the shadow.
+
+        Strict trigger: ``has_concern_block`` (requires a *closing* fence + >=1
+        concern) so a still-streaming, unclosed block does not fire mid-stream.
+        De-duped per shadow pane on the *parsed* payload — not the raw capture —
+        so unrelated pane churn around an unchanged block does not re-hint.
+        Best-effort and event-loop safe: any capture/query failure silently skips
+        the tick without touching the de-dup state.
+
+        NOTE: if continuous detection proves noisy in live use, the documented
+        fallback is to drop this and rely on the 'c' hotkey alone (verified by the
+        t1037_5 manual-verification sibling).
+        """
+        snap = self._find_own_agent_snapshot()
+        if snap is None or not snap.pane.pane_id:
+            return
+        shadow_pane = await self._find_shadow_pane_for(snap.pane.pane_id)
+        if not shadow_pane:
+            return
+        text = await self._capture_shadow_text(shadow_pane)
+        if text is None or not has_concern_block(text):
+            return
+        concerns = parse_concerns(text)
+        if not concerns:
+            return
+        payload = build_clipboard_payload(concerns)
+        if self._last_concern_block_payload.get(shadow_pane) == payload:
+            return
+        self._last_concern_block_payload[shadow_pane] = payload
+        self.notify(
+            "Shadow raised concerns — press 'c' to pick", severity="information"
+        )
 
     def action_switch_to(self) -> None:
         """Switch tmux focus to the focused pane's window (prefer minimonitor pane)."""

@@ -881,6 +881,18 @@ class TmuxMonitor:
         """
         return self._tmux.run_via_control(self._backend, args, timeout=timeout)
 
+    async def tmux_run_async(
+        self, args: list[str], timeout: float = 5.0
+    ) -> tuple[int, str]:
+        """Async sibling of :meth:`tmux_run` — same ``(rc, stdout)`` contract.
+
+        Use from async Textual handlers / the refresh loop so a tmux stall never
+        blocks the event loop (the sync :meth:`tmux_run` would block the calling
+        thread, which on an async path is the loop thread). Thin public alias for
+        the internal :meth:`_tmux_async`.
+        """
+        return await self._tmux_async(args, timeout=timeout)
+
     def resize_pane(
         self, pane: str, *, x: int | None = None, y: int | None = None,
         timeout: float = 2.0,

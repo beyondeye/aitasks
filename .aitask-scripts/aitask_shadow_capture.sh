@@ -22,8 +22,11 @@
 # Capture flags mirror monitor_core.py (`-p`, `-S -<N>`) but deliberately OMIT
 # `-e`, so tmux emits escape-free cell text directly; shadow_strip_ansi is a
 # belt-and-suspenders pass for stray control bytes a program wrote into the
-# visible cells. All tmux access routes through lib/tmux_exec.sh per
-# tests/test_no_raw_tmux.sh.
+# visible cells. `-J` joins soft-wrapped rows back into their logical lines so a
+# long line is not split mid-word at the pane edge: required by the concern
+# parser's capture-join contract (aidocs/framework/shadow_concern_format.md,
+# t1037_4) and harmless for the shadow skill's prose reading. All tmux access
+# routes through lib/tmux_exec.sh per tests/test_no_raw_tmux.sh.
 
 set -euo pipefail
 
@@ -73,7 +76,7 @@ shadow_clean() {
 # shadow_capture_pane - capture a pane through the gateway -> stdout (raw).
 shadow_capture_pane() {
     local pane="$1"
-    ait_tmux capture-pane -p -t "$pane" -S "-${SHADOW_CAPTURE_LINES}"
+    ait_tmux capture-pane -p -J -t "$pane" -S "-${SHADOW_CAPTURE_LINES}"
 }
 
 main() {
