@@ -3,11 +3,11 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [aitask_monitormini, shadow, claudeskills, clipboard, tui]
-children_to_implement: [t1037_5]
 created_at: 2026-06-21 11:19
-updated_at: 2026-06-22 11:10
+updated_at: 2026-06-22 16:48
+completed_at: 2026-06-22 16:48
 boardidx: 50
 ---
 
