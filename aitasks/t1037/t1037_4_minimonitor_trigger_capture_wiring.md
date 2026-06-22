@@ -3,11 +3,12 @@ priority: high
 effort: high
 depends: [t1037_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, shadow, tui, clipboard]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1037
 created_at: 2026-06-21 11:43
-updated_at: 2026-06-21 11:43
+updated_at: 2026-06-22 09:57
 ---
 
 ## Context
