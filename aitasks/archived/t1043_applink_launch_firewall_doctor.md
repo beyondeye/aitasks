@@ -5,12 +5,13 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [applink]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 17:21
-updated_at: 2026-06-22 11:24
+updated_at: 2026-06-22 11:36
+completed_at: 2026-06-22 11:36
 ---
 
 On AppLink server launch, detect when the host firewall is blocking the
