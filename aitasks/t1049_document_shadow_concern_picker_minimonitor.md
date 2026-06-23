@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: low
-depends: [1037_5]
+depends: [t1037_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [shadow, tui, aitask_monitormini, web_site]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1037
 created_at: 2026-06-22 11:19
-updated_at: 2026-06-22 11:19
+updated_at: 2026-06-23 14:25
 ---
 
 ## Origin
