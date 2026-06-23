@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -71,3 +73,5 @@ return to Browse there. Surfaced during the t1052 live smoke test of t1048.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-23T14:11:34Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-23T14:11:36Z status=pass attempt=1 type=machine
