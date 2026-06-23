@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [ait_brainstorm, brainstom_modules]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-23 14:27
-updated_at: 2026-06-23 14:37
+updated_at: 2026-06-23 17:11
 ---
 
 ## Problem
@@ -65,3 +66,8 @@ return to Browse there. Surfaced during the t1052 live smoke test of t1048.
   leaking onto Session/Running).
 - Add/extend a test that exercises tab switching from each tab (the brainstorm
   suite already boots the live TUI).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-23T14:11:34Z status=pass attempt=1 type=human
