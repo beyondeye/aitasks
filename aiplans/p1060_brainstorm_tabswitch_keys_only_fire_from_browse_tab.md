@@ -156,3 +156,35 @@ confirm the new tab-bar focus landing on Session doesn't break its assumptions.
 
 Follow shared **Step 9** for archival/merge (profile 'fast', current branch —
 no worktree to clean up).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned in
+  `.aitask-scripts/brainstorm/brainstorm_app.py`:
+  - Added `_select_tab(tab_id)` (before `action_tab_browse`) that sets
+    `TabbedContent.active` and, only when the tab actually changes, hands focus
+    to the tab bar via the existing `_nav_tab_bar()` hook.
+  - Routed all five `action_tab_*` handlers (`browse`, `dashboard`, `graph`,
+    `session`, `running`) through `_select_tab`.
+  - Gated the `b` task-brief handler in `on_key` with
+    `and tabbed.active == "tab_browse"` so `b` falls through to the
+    `tab_browse` binding on other tabs.
+  - Added `tests/test_brainstorm_tab_switch.py` (4 tests).
+- **Deviations from plan:** None to the source changes. One test was adjusted
+  during authoring: the "view-key preserves focus" test originally pressed `d`
+  unconditionally, but `d`/`g` legitimately swap graph↔list which re-mounts the
+  focused content widget. Fixed by pressing the view key matching the *current*
+  view (no swap) so the assertion isolates the "no tab-bar bounce" guarantee.
+- **Issues encountered:** The root cause was non-obvious from static reading —
+  the binding *fires* (`action_tab_running` was observed being called) but
+  Textual's `TabbedContent` re-syncs `active` back to the pane owning the
+  focused widget. Confirmed via a series of pilot-harness diagnostics
+  (set `.active` with `OperationRow` focused → reverts; with focus on the tab
+  bar / cleared → sticks).
+- **Key decisions:** Reused the established `_nav_tab_bar()` tab-bar focus hook
+  (the same widget RowNavMixin hands focus back to) rather than importing the
+  private `ContentTabs` class. The footer staleness was a symptom of the
+  revert, not a separate defect — it resolves once the switch sticks
+  (`check_action` reads live `TabbedContent.active`), verified by the footer
+  test.
+- **Upstream defects identified:** None.
