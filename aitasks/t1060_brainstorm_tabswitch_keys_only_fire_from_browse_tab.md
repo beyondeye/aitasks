@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, brainstom_modules]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-23 14:27
-updated_at: 2026-06-23 14:27
+updated_at: 2026-06-23 14:37
 ---
 
 ## Problem
