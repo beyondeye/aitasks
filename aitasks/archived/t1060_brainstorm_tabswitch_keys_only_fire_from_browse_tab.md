@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ait_brainstorm, brainstom_modules]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-23 14:27
-updated_at: 2026-06-23 17:11
+updated_at: 2026-06-23 22:59
+completed_at: 2026-06-23 22:59
 ---
 
 ## Problem
