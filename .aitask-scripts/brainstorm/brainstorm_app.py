@@ -2395,8 +2395,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
             # the footer hint is surfaced. Falls through here when focus is
             # something else.
 
-        # b: show task brief
-        if event.key == "b":
+        # b: show task brief — Browse-tab only (t1060). On other tabs `b` falls
+        # through to the `tab_browse` binding so it switches back to Browse
+        # (otherwise the unconditional stop() here swallowed `b` everywhere).
+        if event.key == "b" and tabbed.active == "tab_browse":
             spec = getattr(self, "session_data", {}).get("initial_spec", "")
             if spec:
                 self._show_brief_in_detail(spec)
@@ -2699,6 +2701,26 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
         ids = sorted(self._selection.marked)
         label.update(format_node_id_summary(ids, "Marked") if ids else "")
 
+    def _select_tab(self, tab_id: str) -> None:
+        """Activate a TabbedContent pane so the switch is not reverted (t1060).
+
+        Setting ``TabbedContent.active`` alone does not stick when a focusable
+        row in the *current* pane holds focus: Textual re-syncs ``active`` back
+        to the pane owning the focused widget on the next refresh, so the
+        single-key tab switches (`b`/`g`/`d`/`s`/`r`) silently failed once focus
+        moved into content. Handing focus to the tab bar (its boot-time home,
+        from which ``down`` re-enters content) makes the switch durable. We only
+        refocus when the tab actually changes, so toggling the Browse view
+        (`d`/`g`) from within Browse keeps the node cursor.
+        """
+        tabbed = self.query_one(TabbedContent)
+        changed = tabbed.active != tab_id
+        tabbed.active = tab_id
+        if changed:
+            bar = self._nav_tab_bar()
+            if bar is not None:
+                bar.focus()
+
     def action_tab_browse(self) -> None:
         """`b`: select the Browse tab, preserving the persisted view (t983_9).
 
@@ -2707,20 +2729,20 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
         """
         if isinstance(self.screen, ModalScreen):
             return
-        self.query_one(TabbedContent).active = "tab_browse"
+        self._select_tab("tab_browse")
 
     def action_tab_dashboard(self) -> None:
         """`d`: select Browse and show the list view (muscle memory)."""
         if isinstance(self.screen, ModalScreen):
             return
-        self.query_one(TabbedContent).active = "tab_browse"
+        self._select_tab("tab_browse")
         self._set_browse_view("list")
 
     def action_tab_graph(self) -> None:
         """`g`: select Browse and show the graph view (muscle memory)."""
         if isinstance(self.screen, ModalScreen):
             return
-        self.query_one(TabbedContent).active = "tab_browse"
+        self._select_tab("tab_browse")
         self._set_browse_view("graph")
 
     def action_browse_toggle_view(self) -> None:
@@ -3061,13 +3083,13 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
     def action_tab_session(self) -> None:
         if isinstance(self.screen, ModalScreen):
             return
-        self.query_one(TabbedContent).active = "tab_session"
+        self._select_tab("tab_session")
         self._refresh_session_tab()
 
     def action_tab_running(self) -> None:
         if isinstance(self.screen, ModalScreen):
             return
-        self.query_one(TabbedContent).active = "tab_running"
+        self._select_tab("tab_running")
 
     # t983_11: op_help moved to ActionsWizardScreen.action_op_help (the wizard
     # is a modal now). The Operations dialog keeps its own
