@@ -72,7 +72,9 @@ For a full dashboard with previews, pane classification, and kill/switch control
 
 ## Launching a shadow agent
 
-Minimonitor is also where you launch a [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}): press **e** on a followed agent to spawn an advisory companion that reads its terminal output and helps you reason about it. The shadow is a *second* kind of companion pane alongside minimonitor — where minimonitor is a passive status sidebar, the shadow is an interactive, read-only coding agent that explains, helps answer prompts, and interrogates plans. By default it opens in the same window as the agent it watches and, like minimonitor, never shows up in the agent list and closes when that agent exits. See [How to Launch a Shadow Agent](how-to/#how-to-launch-a-shadow-agent).
+Minimonitor is also where you launch a [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}): press **e** on a followed agent to spawn an advisory companion that reads its terminal output and helps you reason about it. The shadow is a *second* kind of companion pane alongside minimonitor — where minimonitor is a passive status sidebar, the shadow is an interactive, read-only coding agent that explains, helps answer prompts, and interrogates plans. By default it opens in the same window as the agent it watches and, like minimonitor, never shows up in the agent list and closes when that agent exits. Only one shadow runs per followed agent — a second **e** on the same agent is refused. See [How to Launch a Shadow Agent](how-to/#how-to-launch-a-shadow-agent).
+
+Once a shadow is running and it has interrogated a plan, press **c** to pick from the concerns it raised: minimonitor reads the shadow's structured concern block, opens a checklist, and copies the ones you tick — with a preamble — to your clipboard so you can paste them into the followed agent. When a fresh concern block appears, minimonitor also proactively surfaces a `Shadow raised concerns — press 'c' to pick` toast (once per block). See [How to Pick Shadow Concerns](how-to/#how-to-pick-shadow-concerns).
 
 ---
 

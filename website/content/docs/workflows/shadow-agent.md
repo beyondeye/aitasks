@@ -50,6 +50,12 @@ Before you approve a plan an agent has produced, the shadow can examine it for y
 
 Ask for one of these specifically, or ask broadly ("review this plan") and the shadow runs several and presents a combined result.
 
+### Forward concerns to the followed agent
+
+When the shadow interrogates a plan, alongside its human-readable findings it also emits a structured, machine-parseable **concern block** — a fenced list (`===AITASK-CONCERNS===` … `===END-CONCERNS===`) of `- [priority | region] body` items, where `priority` is `high`, `medium`, or `low` and `region` names the part of the plan the concern targets. The block is additive: the shadow still prints its normal prose; the block is an extra copy meant for pick-and-forward.
+
+From [minimonitor](../../tuis/minimonitor/) you can then **selectively forward** these concerns to the followed agent without retyping them. Press **c** to open a checklist of the shadow's concerns, tick the ones you want, and minimonitor copies them — with a short preamble — to your clipboard for you to paste into the agent. When a fresh concern block appears, minimonitor also proactively hints that the shadow raised concerns. This keeps the advisory-only contract intact: the concerns land on *your* clipboard, and you decide what to paste. See [How to pick shadow concerns](../../tuis/minimonitor/how-to/#how-to-pick-shadow-concerns).
+
 ## Advisory only
 
 The shadow is read-only with respect to the followed agent. It never sends keystrokes or answers into the agent's pane — not even an answer it just suggested. Everything it produces goes to you, and you decide what to do with it. This is the core contract of the shadow: it informs your decisions without ever making them for you.

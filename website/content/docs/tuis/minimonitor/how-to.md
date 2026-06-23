@@ -112,9 +112,22 @@ Press **e** to launch a *shadow agent* next to the code agent you are following 
 
 The shadow is read-only and advisory: it can explain what the agent is doing, help you answer a prompt the agent is stuck on, or critically interrogate a plan before you approve it — but it never types into the followed agent's pane. You stay the driver.
 
-Like minimonitor itself, the shadow pane is a companion: it never appears in the agent list, and it closes automatically when the agent it shadows exits.
+Like minimonitor itself, the shadow pane is a companion: it never appears in the agent list, and it closes automatically when the agent it shadows exits. Only one shadow runs per followed agent — if a shadow is already running for the agent you are following, a second **e** is refused with a notification.
 
 For what the shadow can do and how to drive it once it is running, see the [Shadow Agent]({{< relref "/docs/workflows/shadow-agent" >}}) workflow guide.
+
+### How to Pick Shadow Concerns
+
+When the shadow agent interrogates a plan, it emits a structured **concern block** alongside its prose. You can forward a subset of those concerns to the followed agent without retyping them:
+
+1. Make sure a shadow is running for the agent (press **e** if not)
+2. Press **c**
+
+Minimonitor reads the shadow pane, parses its concern block, and opens a checklist modal of the concerns — each tagged with a priority (`high`, `medium`, or `low`) and the plan region it targets. Tick the ones you want, confirm, and minimonitor copies them — with a short preamble — to your clipboard, ready to paste into the followed agent. Nothing is written to the clipboard until you confirm, and minimonitor never types into the agent itself: you stay the driver.
+
+If no shadow is running, pressing **c** tells you to launch one with **e**; if the shadow has not raised any concerns yet, minimonitor says so and does nothing.
+
+> **Auto-offer:** when the shadow produces a fresh concern block, minimonitor proactively surfaces a `Shadow raised concerns — press 'c' to pick` toast — once per block — so you don't have to poll the shadow pane for it.
 
 > **Configuration:** two settings control the shadow, both editable in [`ait settings`]({{< relref "/docs/tuis/settings" >}}):
 >
@@ -191,6 +204,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `s` | Switch tmux focus to the selected agent's window |
 | `i` | Show task info for the selected agent |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
+| `c` | Pick the shadow's plan concerns and copy the selected ones to the clipboard |
 | `j` | Open the TUI switcher |
 | `r` | Refresh the agent list |
 | `M` | Toggle the multi-session view ON/OFF |
