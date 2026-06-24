@@ -57,3 +57,8 @@ Route all four nested push sites through a single app-level helper (e.g. `Kanban
 - The fix is structural: a single callback-wired helper used by all four push sites (`:1629`, `:1805`, `:2154`, `:2478`), so no future push site can drop results.
 - Refresh after a nested-detail action does not assume a focused board card (works when the nested task is filtered/off-board).
 - Back/Escape from a nested detail still simply returns to the parent detail.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-24T13:20:38Z status=pass attempt=1 type=human
