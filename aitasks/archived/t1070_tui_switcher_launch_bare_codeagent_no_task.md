@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui_switcher, codeagent, agent_chooser]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-24 23:39
-updated_at: 2026-06-25 00:38
+updated_at: 2026-06-25 01:51
+completed_at: 2026-06-25 01:51
 ---
 
 ## Goal
