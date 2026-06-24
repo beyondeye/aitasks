@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -78,3 +80,5 @@ This is **not** a code-divergence bug: the sibling repos run v0.25.0 of `aitask_
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-24T21:43:19Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-24T21:43:21Z status=pass attempt=1 type=machine
