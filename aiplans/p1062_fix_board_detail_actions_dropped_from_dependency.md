@@ -270,3 +270,39 @@ merge approval, archival, push.
 - The fix targets the confirmed root cause (callback-less push) and the regression
   test asserts the exact reported repro (pick on a nested dependency routes to that
   dependency). · severity: low · → mitigation: None needed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `KanbanApp.open_task_detail` (the single wired push
+  site) and `KanbanApp._on_detail_result` (lifted from the `check_edit` closure,
+  operating on the dismissed screen's task with a `source_card`-branched refresh
+  tail and a passive nested-Escape early return). Re-pointed every nested
+  `TaskDetailScreen` open (Depends/Verifies/Children/Parent/target fields, the three
+  picker items, and `_reload_detail_screen`) through the helper. Added
+  `tests/test_board_detail_nested_actions.py` (4 cases) and a structural-invariant
+  test (exactly one `TaskDetailScreen(` instantiation, inside `open_task_detail`).
+
+- **Deviations from plan:** Added a fourth method, `KanbanApp.replace_screen_with_detail`,
+  not in the approved plan. During testing the multi-dependency picker repro
+  (968→929_3) still failed even with the callback wired: doing `self.screen.dismiss()`
+  immediately followed by `push_screen(..., callback)` **inside a picker item's
+  `on_key` handler** pushes the screen but silently drops the result callback (Textual
+  processes the dismiss and the push in the same message). `call_after_refresh` was
+  insufficient; only `call_later` (deferring the open past the current message) lets
+  the callback attach. `replace_screen_with_detail` encapsulates this dismiss +
+  deferred-open so the three picker items (`DepPickerItem`, `ChildPickerItem`,
+  `FoldedTaskPickerItem`) and `_reload_detail_screen` share one documented site. The
+  single-field opens (no preceding dismiss) attach the callback fine and stayed plain
+  `open_task_detail` calls.
+
+- **Issues encountered:** The picker-path callback drop above, root-caused via Pilot
+  experiments (direct-call vs real-keypress; `direct`/`call_after_refresh`/`call_later`
+  deferral modes). Resolved with the `call_later` deferral.
+
+- **Key decisions:** Unified `read_only` (archived ⇒ read-only) across all open paths,
+  including the board's own open — user-approved, removes the prior archived-editable
+  quirk. Kept the board path's refresh byte-identical by threading the originating
+  `source_card`, so expanded child cards (whose visible column ≠ their `board_col`)
+  are unaffected.
+
+- **Upstream defects identified:** None.
