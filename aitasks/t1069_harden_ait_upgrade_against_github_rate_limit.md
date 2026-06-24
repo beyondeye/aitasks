@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [framework]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-24 23:35
-updated_at: 2026-06-24 23:40
+updated_at: 2026-06-25 00:43
 ---
 
 ## Problem
@@ -72,3 +73,8 @@ This is **not** a code-divergence bug: the sibling repos run v0.25.0 of `aitask_
 - Shell conventions apply (`aidocs/framework/shell_conventions.md`): `set -euo pipefail`, error helpers, macOS sed/grep portability for any parsing.
 - Keep the existing `--force --dir` installer flow and the `~/.aitask/update_check` cache-clear behavior intact.
 - Sibling repos will pick up the fix on their next `ait upgrade` once it's released; no per-repo change needed.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-24T21:43:19Z status=pass attempt=1 type=human
