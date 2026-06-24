@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: []
 verifies: [t1018_1, t1018_2, t1018_3]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1018
 created_at: 2026-06-21 13:58
-updated_at: 2026-06-24 18:29
+updated_at: 2026-06-24 18:43
+completed_at: 2026-06-24 18:43
 ---
 
 Carry-over of deferred manual-verification items from t1018_4. Re-pick this task to continue the remaining checklist.
