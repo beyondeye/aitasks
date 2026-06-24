@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: chore
 status: Implementing
 labels: [ait_bridge]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 12:29
-updated_at: 2026-06-24 18:21
+updated_at: 2026-06-24 19:28
 boardidx: 160
 ---
 
@@ -31,3 +34,8 @@ Perform a security review and hardening pass on the `ait applink` WebSocket cont
 - **Audit logging:** log denied verbs (PERMISSION_DENIED) and auth failures for observability (deferred in protocol/permissions docs).
 
 Deliverables: a short threat-model note, the implemented hardening changes, and tests where practical. Coordinate any wire-protocol implications with `aidocs/applink/protocol.md` and the mobile app (`aitasks_mobile`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-24T16:28:41Z status=pass attempt=1 type=human
