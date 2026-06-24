@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [ait_bridge]
 risk_mitigation_tasks: [1066, 1067, 1068]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 12:29
-updated_at: 2026-06-24 22:27
+updated_at: 2026-06-24 22:28
+completed_at: 2026-06-24 22:28
 boardidx: 160
 ---
 
