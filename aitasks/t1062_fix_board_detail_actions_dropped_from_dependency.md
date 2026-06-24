@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -7,7 +9,7 @@ status: Implementing
 labels: [ui]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-24 14:40
-updated_at: 2026-06-24 14:46
+updated_at: 2026-06-24 16:20
 ---
 
 ## Problem
@@ -62,3 +64,5 @@ Route all four nested push sites through a single app-level helper (e.g. `Kanban
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-24T13:20:38Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-24T13:20:40Z status=pass attempt=1 type=machine
