@@ -8,8 +8,9 @@ issue_type: feature
 status: Implementing
 labels: [tui_switcher, codeagent, agent_chooser]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-24 23:39
-updated_at: 2026-06-25 00:37
+updated_at: 2026-06-25 00:38
 ---
 
 ## Goal
@@ -126,3 +127,5 @@ no Claude/Codex/OpenCode skill port is implied.
 > **✅ gate:plan_approved** run=2026-06-24T21:37:39Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-24T21:37:41Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-24T21:57:07Z status=pass attempt=1 type=human
