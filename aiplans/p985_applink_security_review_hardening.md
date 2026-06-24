@@ -312,14 +312,14 @@ follow-up.
 ### Goal-achievement risk: low
 - Every area the task names is addressed; the deferred items (cert rotation,
   bearer rotation, time-based rate-limiting) are scoped with explicit user consent
-  and tracked as after-mitigation follow-ups · severity: low · → mitigation: applink_cert_rotation, applink_bearer_rotation, applink_request_rate_limit
+  and tracked as after-mitigation follow-ups · severity: low · → mitigation: t1066 (cert rotation), t1067 (bearer rotation), t1068 (request rate-limit)
 - TLS floor at 1.2 (not 1.3) could still allow a 1.2 suite — bounded by AEAD-only
   ciphers · severity: low · → mitigation: none (accepted)
 
 ### Planned mitigations
-- timing: after | name: applink_cert_rotation | type: enhancement | priority: medium | effort: medium | addresses: 10-year static self-signed cert residual | desc: re-mint the applink cert on a shorter validity near expiry, with a client re-pair flow for the changed fingerprint
-- timing: after | name: applink_bearer_rotation | type: enhancement | priority: low | effort: medium | addresses: 7-day static bearer residual | desc: rotate the bearer on each resume to shorten a leaked bearer's useful life (wire-protocol + mobile-client change)
-- timing: after | name: applink_request_rate_limit | type: enhancement | priority: medium | effort: medium | addresses: no time-based per-IP request throttling (only a concurrent per-IP cap ships in t985) | desc: add per-IP token-bucket throttling of authenticated requests/verbs to bound sustained abuse from a paired client
+- timing: after | name: applink_cert_rotation | created: t1066 | type: enhancement | priority: medium | effort: medium | addresses: 10-year static self-signed cert residual | desc: re-mint the applink cert on a shorter validity near expiry, with a client re-pair flow for the changed fingerprint
+- timing: after | name: applink_bearer_rotation | created: t1067 | type: enhancement | priority: low | effort: medium | addresses: 7-day static bearer residual | desc: rotate the bearer on each resume to shorten a leaked bearer's useful life (wire-protocol + mobile-client change)
+- timing: after | name: applink_request_rate_limit | created: t1068 | type: enhancement | priority: medium | effort: medium | addresses: no time-based per-IP request throttling (only a concurrent per-IP cap ships in t985) | desc: add per-IP token-bucket throttling of authenticated requests/verbs to bound sustained abuse from a paired client
 
 ## Final Implementation Notes
 

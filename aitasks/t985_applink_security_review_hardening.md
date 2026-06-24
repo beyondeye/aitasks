@@ -7,10 +7,11 @@ depends: []
 issue_type: chore
 status: Implementing
 labels: [ait_bridge]
+risk_mitigation_tasks: [1066, 1067, 1068]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 12:29
-updated_at: 2026-06-24 19:28
+updated_at: 2026-06-24 22:27
 boardidx: 160
 ---
 
