@@ -1,5 +1,100 @@
 # Changelog
 
+## v0.26.0
+
+### Features
+
+- **Gate orchestrator engine** (t635_11): Added a gate orchestrator that runs a task's declared verification gates — handling retries, parallelism, and stuck-detection — plus `ait gates run` and gate-authoring scaffolding.
+- **Resume in-flight tasks** (t635_6): Added an `aitask-resume` command that re-enters an interrupted task at its last checkpoint, driven by the recorded gate ledger.
+- **Gate-aware task picking** (t635_7): `aitask-pick` now surfaces in-flight tasks as resume candidates and routes a picked task straight back to where it left off.
+- **Shared gate-ledger parser** (t635_8): Added a shared parser for gate-run state so TUIs and tools read task progress from one consistent source.
+- **Board In-Flight view** (t635_9): The board gained an In-Flight view listing actively implementing tasks with their gate state and a one-key resume launch.
+- **Monitor gate status** (t635_10): The monitor now shows a compact gate summary (passed/pending/failed) for each running agent.
+- **Mobile live terminal streaming** (t822_8): Applink can stream live terminal snapshots to the mobile companion as compact binary keyframes.
+- **Mobile delta streaming** (t822_9): Terminal updates stream as row-level deltas, sending only changed lines to the mobile app.
+- **Mobile append fast path** (t822_10): Scrolling output uses an append fast path that sends just the new bottom rows, cutting bandwidth for log-like panes.
+- **Mobile task-action handshakes** (t822_11): Added confirm/suggest handshakes for restarting a task or picking the next sibling from the mobile app.
+- **Headless applink bridge** (t822_13): `ait monitor --headless-for-applink` runs the mobile bridge without the terminal UI, printing an ASCII-QR pairing block — ideal for servers.
+- **Device name in pairing QR** (t822_5): The mobile pairing QR now carries the host's name so the companion app can label the connection.
+- **Applink firewall doctor** (t1043): Applink diagnoses LAN firewall issues at launch and offers a guided, consent-based fix so pairing isn't silently blocked.
+- **Project groups** (t1025_1): Projects can be organized into named groups via `ait projects group`, with an explicit ungrouped bucket and slug validation.
+- **Two-axis project navigation** (t1025_2): The TUI switcher and stats view added group-aware navigation, letting you cycle by project group as well as by session.
+- **Project Groups settings tab** (t1025_3): The settings TUI gained a Project Groups tab to assign, clear, rename, and sync groups, with create-on-type support.
+- **Topic anchor field** (t1016_1): Tasks can carry an `anchor` field grouping them under a root topic, with `--anchor`/`--followup-of` flags on create and update.
+- **Board By-Topic view** (t1016_4): The board gained a By-Topic view (`y`) that groups tasks into topic lanes by their anchor, with an editable anchor field in task detail.
+- **Shadow concern format** (t1037_1): Defined a structured concern-block format and parser so a shadow agent's plan critiques can be machine-read.
+- **Shadow emits concerns** (t1037_2): The shadow agent now emits its plan challenges and assumption checks as a structured, prioritized concern block.
+- **Concern picker** (t1037_3): Added a picker modal to select among a shadow agent's surfaced concerns and copy them for the followed agent.
+- **Forward shadow concerns** (t1037_4): minimonitor can capture a shadow agent's concerns (`c`), offer them automatically, and copy the selected ones to the clipboard.
+
+### Enhancements
+
+- **Restart operations from Running tab** (t1018_2): The brainstorm Running tab can re-run a whole operation group fresh (`n`) or retry-apply it (`i`), with one-call group cleanup.
+- **Double-click to open group detail** (t1018_3): Double-clicking a group row in the brainstorm Running tab opens its detail, and a focused+hovered row keeps the accent color.
+- **Cross-group project browsing** (t1036): Session cycling in the switcher and stats walks a cross-group ring, re-pointing the group axis as you move.
+- **Auto-refresh In-Flight board** (t1024): Switching to the board's In-Flight view reloads task and gate state automatically.
+- **DAG node marks** (t1004): Marked nodes in the brainstorm graph show a ☑/☐ checkbox glyph, matching the list view.
+- **Follow-up anchor provenance** (t1016_3): Auto-created follow-up tasks inherit their origin via `--followup-of`, keeping them grouped with the originating topic.
+- **Richer concern framing** (t1037_6): Shadow concern bodies carry full framing (problem, why it bites, how to confirm) rather than a bare one-liner.
+
+### Improvements
+
+- **Unified Browse tab** (t983_3): Merged the brainstorm list and graph tabs into a single Browse tab with a toggle and one shared node-detail panel.
+- **Operations dialog** (t983_4): The node-action dialog became a unified Operations dialog with selection-aware ops, a target summary, and in-modal help.
+- **Node Hub overlay** (t983_5): Pressing Enter on a node opens a Node Hub overlay combining detail view with an Operations entry point.
+- **Pre-seeded operation wizard** (t983_6): Launching an operation from a node or marked set pre-seeds the wizard, skipping the redundant node-selection step.
+- **Compare overlay** (t983_7): The brainstorm Compare tab became an on-demand overlay reachable from the Node Hub and Browse.
+- **Session tab** (t983_8): Split session-lifecycle actions into their own Session tab, keeping the operations picker focused on design ops.
+- **Running tab + status strip** (t983_9): Renamed the Status tab to Running, added an always-on runtime strip, and added agent cleanup/retry actions.
+- **Operation wizard as overlay** (t983_11): Moved the multi-step operation wizard out of a tab into a dedicated modal screen.
+- **Footer keybinding hygiene** (t1018_1): Scoped brainstorm retry actions to their owning tab and replaced undeliverable chord shortcuts with working ones.
+- **Single Browse cursor state** (t1003): Consolidated the brainstorm Browse cursor onto a single selection model.
+- **Modularized brainstorm code** (t1048): Split the large brainstorm TUI module into focused submodules, shrinking the main file by ~39% with no behavior change.
+- **Named project registry records** (t1029): Project registry rows are parsed into named records for clearer, safer field access.
+- **Shared group-cycle logic** (t1033): Centralized the project-group cycling logic shared by the switcher and stats views.
+
+### Bug Fixes
+
+- **Cross-repo & archived board relations** (t1021): The board resolves archived tasks in cross-repo, child, and folded relations.
+- **Board detail actions from dependencies** (t1062): Fixed board detail actions being dropped when a task was opened from a dependency.
+- **Parent/child task resolution** (t1026): A parent id no longer wrongly matches an active child.
+- **Primary-branch detection in sync** (t1027): Sync/desync detects the repo's primary branch instead of assuming `main`.
+- **Primary-branch in contribute/externalize** (t1031): Fixed hardcoded `main` assumptions in the contribute and plan-externalize flows.
+- **Brainstorm comparator lifecycle** (t1020): Gave the comparator a proper completion lifecycle so results apply reliably.
+- **Brainstorm crew status** (t1041): Fixed stale crew status by deriving the rollup on read.
+- **Brainstorm tab-switch keys** (t1060): Tab-switch keys fire from any tab, not just Browse.
+- **Brainstorm wizard/preview UX** (t1047): Fixed several node-operation wizard and preview-checkbox UX bugs.
+- **Brainstorm config mount timing** (t1050): Hardened config mounting so the proposal preview populates reliably.
+- **Root node delete guard** (t1010): Guarded against deleting the root node in a brainstorm graph.
+- **Brainstorm footer scoping** (t1039): The footer no longer shows actions that don't apply to the current tab.
+- **Brainstorm cycle-field contrast** (t1019): Fixed low-contrast text on a focused cycle field.
+- **Focused-row hover color** (t1038): Fixed focused brainstorm rows losing their accent color on hover.
+- **Applink empty subscribe** (t1044): An empty applink subscribe expands to all panes instead of subscribing to none.
+- **Monitor pane resize** (t981): Fixed monitor pane resize to use the subprocess path, restoring correct geometry.
+- **Narrow agent-command dialog** (t1012): Fixed the minimonitor agent-command dialog to render correctly in narrow panes.
+- **Codex plan helper readiness** (t1006): The Codex plan helper waits for the composer to be ready before sending the prompt.
+- **Codex/OpenCode mirror markers** (t1028): Fixed duplicated instruction markers in the Codex and OpenCode mirrors.
+- **Helper-script permission drift** (t1001): Restored a missing helper-script permission entry that caused approval drift.
+- **Pre-existing test failures** (t1014): Fixed pre-existing board and workflow test failures.
+- **Multi-session monitor test** (t987): Fixed a multi-session monitor test by isolating its tmux environment.
+
+### Documentation
+
+- **Brainstorm TUI docs** (t929_3): Added a code-verified brainstorm TUI documentation set (overview, how-to, reference).
+- **Brainstorm agent defaults** (t968): Documented brainstorm per-agent model defaults and stopped the settings UI from rendering orphaned agent rows.
+- **Project group docs** (t1025_4): Added code-verified documentation for project groups and the new navigation behaviors.
+- **Anchor docs** (t1016_2): Documented the new task `anchor` field across all schema, skill, and website surfaces.
+- **Shadow agent docs** (t986_6): Documented the shadow companion agent across the framework docs and website.
+- **Shadow concern picker docs** (t1049): Documented the shadow concern-forwarding flow and the minimonitor `c` picker.
+- **Applink permissions docs** (t822_12): Synced the applink permission/verb gating table with the canonical command inventory.
+- **Monitor design doc refresh** (t1013): Refreshed the applink monitor-port design doc to drift-proof symbol references.
+
+### Maintenance
+
+- **Applink security hardening** (t985): Hardened applink security — TLS 1.2+ floor, connection/rate caps, input validation on all verbs, secure file permissions, and audit logging.
+- **Applink push scheduler resilience** (t822_14): Hardened the push scheduler against send failures and added resilience tests.
+- **Brainstorm stale-ref cleanup** (t1008): Removed stale references to retired brainstorm detail/patch operations.
+
 ## v0.25.0
 
 ### Features
