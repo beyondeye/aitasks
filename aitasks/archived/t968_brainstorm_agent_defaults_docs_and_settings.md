@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: [t929_3]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [ait_brainstorm, ait_settings]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:15
-updated_at: 2026-06-24 18:28
+updated_at: 2026-06-24 18:44
+completed_at: 2026-06-24 18:44
 boardidx: 20
 ---
 
