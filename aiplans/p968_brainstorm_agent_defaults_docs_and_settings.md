@@ -229,3 +229,44 @@ via `aitask_archive.sh 968` and push.
 - None otherwise identified.
 
 `risk_mitigations_planned = false` — no before/after mitigation tasks warranted.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four deliverables landed as planned. (1) Added an
+  `### Agent model defaults` section to
+  `website/content/docs/tuis/brainstorm/reference.md` (after "Operations and
+  agents"): all 7 agent types incl. explicit `initializer`, the
+  `codeagent_config.json` `defaults` layout with `<agent>/<model>` placeholders,
+  3-layer resolution, session-init binding, launch-mode override, and a Settings
+  cross-link. (2a) Added 6 `OPERATION_DESCRIPTIONS` entries for the 3 `module_*`
+  types + launch-mode variants in `settings_app.py`. (2b) Added a structural
+  `BRAINSTORM_AGENT_TYPES` filter in the `_populate_agent_tab` render loop so
+  orphan brainstorm keys in *either* config layer never render. (3) Removed the
+  orphaned `brainstorm-detailer`/`brainstorm-patcher` keys from
+  `aitasks/metadata/codeagent_config.json`. (4) Added
+  `tests/test_settings_brainstorm_descriptions.py` (2 derive-from-source guard
+  cases).
+- **Deviations from plan:** None of substance. The plan corrected the task's
+  stale "verified" section (the design dropped `detail`/`patch` ops since
+  2026-06-10); implementation followed the corrected scope.
+- **Issues encountered:** `pytest` is not installed in the framework venv; ran
+  the guard test via `python3 tests/...py` (unittest) instead — both cases pass.
+  The recursive `grep` for stale-key references initially missed the symlinked
+  `aitasks/` tree (grep does not follow symlinks); re-ran against `.aitask-data/`
+  and `aitasks/metadata/` explicitly to confirm the keys were truly orphaned.
+- **Key decisions:** Chose a structural render-loop filter (robust across both
+  config layers) as the *guarantee*, with the project-config key removal as
+  complementary cleanup — rather than writing helper text for the dead
+  `detailer`/`patcher` types. This addresses the reviewer concern that
+  project-only cleanup would not suppress orphan rows sourced from
+  `codeagent_config.local.json`.
+- **Upstream defects identified:** None. The stale `detailer`/`patcher` config
+  drift was a pre-existing artifact but is fully resolved within this task, not
+  deferred.
+
+## Verification (executed)
+
+- `python3 tests/test_settings_brainstorm_descriptions.py` → both tests OK.
+- `python3 -m py_compile .aitask-scripts/settings/settings_app.py tests/...py` → OK.
+- `cd website && hugo build --gc --minify` → 218 pages built, no relref errors
+  (only pre-existing Hugo deprecation WARNs).
