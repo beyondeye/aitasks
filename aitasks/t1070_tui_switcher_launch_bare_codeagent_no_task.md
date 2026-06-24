@@ -117,3 +117,8 @@ doesn't regress the existing callers.
 
 This is a TUI (`tui_switcher.py`) change — pure Python, not a skill surface — so
 no Claude/Codex/OpenCode skill port is implied.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-24T21:37:39Z status=pass attempt=1 type=human
