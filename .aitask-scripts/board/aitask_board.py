@@ -1626,12 +1626,7 @@ class DependsField(Static):
         if len(self.deps) == 1:
             task = self._find_task_by_number(self.deps[0])
             if task:
-                self.app.push_screen(
-                    TaskDetailScreen(
-                        task, self.manager,
-                        read_only=getattr(task, "archived", False),
-                    )
-                )
+                self.app.open_task_detail(task)
             else:
                 self._ask_remove_dep(self.deps[0])
         else:
@@ -1704,12 +1699,7 @@ class VerifiesField(Static):
         if len(self.verifies) == 1:
             task = self._find_task_by_number(self.verifies[0])
             if task:
-                self.app.push_screen(
-                    TaskDetailScreen(
-                        task, self.manager,
-                        read_only=getattr(task, "archived", False),
-                    )
-                )
+                self.app.open_task_detail(task)
             else:
                 self._ask_remove_verify(self.verifies[0])
         else:
@@ -1801,8 +1791,7 @@ class CrossRepoDepsField(Static):
 def _reload_detail_screen(app, task, manager):
     """Dismiss the current detail screen and re-push it with updated task data."""
     task.load()
-    app.screen.dismiss()
-    app.push_screen(TaskDetailScreen(task, manager))
+    app.replace_screen_with_detail(task)
 
 
 class ChildrenField(Static):
@@ -1836,12 +1825,7 @@ class ChildrenField(Static):
         if len(self.children_ids) == 1:
             task = self._find_task_by_number(self.children_ids[0])
             if task:
-                self.app.push_screen(
-                    TaskDetailScreen(
-                        task, self.manager,
-                        read_only=getattr(task, "archived", False),
-                    )
-                )
+                self.app.open_task_detail(task)
         else:
             child_items = []
             for child_id in self.children_ids:
@@ -1891,8 +1875,7 @@ class FoldedTasksField(Static):
             tid = task_id if task_id.startswith('t') else f"t{task_id}"
             task = self.manager.find_task_including_archived(tid)
             if task:
-                self.app.push_screen(
-                    TaskDetailScreen(task, self.manager, read_only=True))
+                self.app.open_task_detail(task, read_only=True)
         else:
             folded_items = []
             for fid in self.folded_ids:
@@ -2115,12 +2098,7 @@ class FoldedIntoField(Static):
         tid = f"t{self.target_num}" if not str(self.target_num).startswith('t') else str(self.target_num)
         task = self.manager.find_task_including_archived(tid)
         if task:
-            self.app.push_screen(
-                TaskDetailScreen(
-                    task, self.manager,
-                    read_only=getattr(task, "archived", False),
-                )
-            )
+            self.app.open_task_detail(task)
 
     def on_focus(self):
         self.add_class("ro-focused")
@@ -2151,12 +2129,7 @@ class ParentField(Static):
     def _open_parent(self):
         task = self.manager.find_task_including_archived(self.parent_num)
         if task:
-            self.app.push_screen(
-                TaskDetailScreen(
-                    task, self.manager,
-                    read_only=getattr(task, "archived", False),
-                )
-            )
+            self.app.open_task_detail(task)
 
     def on_focus(self):
         self.add_class("ro-focused")
@@ -2474,13 +2447,7 @@ class DepPickerItem(Static):
     def on_key(self, event):
         if event.key == "enter":
             if self.dep_task:
-                self.screen.dismiss()
-                self.app.push_screen(
-                    TaskDetailScreen(
-                        self.dep_task, self.manager,
-                        read_only=getattr(self.dep_task, "archived", False),
-                    )
-                )
+                self.app.replace_screen_with_detail(self.dep_task)
             else:
                 self._ask_remove_dep()
             event.prevent_default()
@@ -2778,13 +2745,7 @@ class ChildPickerItem(Static):
     def on_key(self, event):
         if event.key == "enter":
             if self.child_task:
-                self.screen.dismiss()
-                self.app.push_screen(
-                    TaskDetailScreen(
-                        self.child_task, self.manager,
-                        read_only=getattr(self.child_task, "archived", False),
-                    )
-                )
+                self.app.replace_screen_with_detail(self.child_task)
             event.prevent_default()
             event.stop()
 
@@ -2840,10 +2801,7 @@ class FoldedTaskPickerItem(Static):
     def on_key(self, event):
         if event.key == "enter":
             if self.folded_task:
-                self.screen.dismiss()
-                self.app.push_screen(
-                    TaskDetailScreen(self.folded_task, self.manager,
-                                     read_only=True))
+                self.app.replace_screen_with_detail(self.folded_task, read_only=True)
             event.prevent_default()
             event.stop()
 
@@ -5232,108 +5190,159 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def action_view_details(self):
         focused = self._focused_card()
         if focused:
-            def check_edit(result):
-                if result == "edit":
-                    self.run_editor(focused.task_data.filepath)
-                elif result == "edit_plan":
-                    plan_path = self._resolve_plan_path_for(focused.task_data)
-                    if plan_path:
-                        self.run_editor(plan_path)
-                elif result == "pick":
-                    task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
-                    if task_num:
-                        full_cmd = self._resolve_pick_command(task_num)
-                        if full_cmd:
-                            num = task_num.lstrip("t")
-                            prompt_str = f"/aitask-pick {num}"
-                            agent_string = resolve_agent_string(Path("."), "pick")
-                            screen = AgentCommandScreen(
-                                f"Pick Task t{num}", full_cmd, prompt_str,
-                                default_window_name=f"agent-pick-{num}",
-                                project_root=Path("."),
-                                operation="pick",
-                                operation_args=[num],
-                                default_agent_string=agent_string,
-                                skill_name="pick",
-                                default_profile=self._resolve_pick_profile(),
-                            )
-                            def on_pick_result(pick_result):
-                                if pick_result == "run":
-                                    self.run_aitask_pick(focused.task_data.filename)
-                                elif isinstance(pick_result, TmuxLaunchConfig):
-                                    _, err = launch_in_tmux(screen.full_command, pick_result)
-                                    if err:
-                                        self.notify(err, severity="error")
-                                    elif pick_result.new_window:
-                                        maybe_spawn_minimonitor(pick_result.session, pick_result.window)
-                                self.refresh_board(refocus_filename=focused.task_data.filename)
-                            self.push_screen(screen, on_pick_result)
-                            return
-                    self.run_aitask_pick(focused.task_data.filename)
-                elif result == "brainstorm":
-                    task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
-                    if task_num:
-                        num = task_num.lstrip("t")
-                        self._launch_brainstorm(num, focused.task_data.filename)
-                        return
-                elif result == "rename":
-                    def on_rename_result(rename_result):
-                        if rename_result and rename_result[0] == "rename":
-                            new_name = rename_result[1]
-                            self._rename_task(focused.task_data, new_name)
-                    self.push_screen(
-                        RenameTaskScreen(focused.task_data.filename), on_rename_result)
-                    return
-                elif result == "delete_archive":
-                    task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
-                    is_child = focused.task_data.filepath.parent.name.startswith("t")
-                    _, paths = self._collect_delete_files(focused.task_data)
-                    dep_warnings, related = self._check_task_dependencies(focused.task_data, is_child)
-                    fate = self._build_fate_buckets(focused.task_data)
-                    cascade_children = fate["cascade_children"]
-                    captured_task = focused.task_data
+            self.open_task_detail(focused.task_data, source_card=focused)
 
-                    def on_action_chosen(action):
-                        if action == "delete":
-                            self._execute_delete(task_num, paths, captured_task)
-                        elif action == "archive":
-                            self._execute_archive(task_num, captured_task,
-                                                  cascade_children=cascade_children)
-                        else:
-                            self.apply_filter()
-                            self.call_after_refresh(self._refocus_card, captured_task.filename)
+    def open_task_detail(self, task, read_only=None, source_card=None):
+        """Push a TaskDetailScreen wired to the shared result handler.
 
-                    self.push_screen(
-                        DeleteArchiveConfirmScreen(
-                            focused.task_data.filename,
-                            delete_files=fate["delete_files"],
-                            archive_kept=fate["archive_kept"],
-                            archive_deleted=fate["archive_deleted"],
-                            dep_warnings=dep_warnings,
-                            related_tasks=related,
-                            is_child=is_child,
-                            blocking_files=fate["blocking_files"],
-                            blocked_reason=fate["blocked_reason"],
-                        ),
-                        on_action_chosen,
+        This is the ONLY sanctioned way to open a task detail screen. Every
+        nested navigation (dependency / parent / child / verifies / folded
+        pickers) routes through here so the screen's dismiss-result (pick,
+        edit, rename, …) is always acted on. Pushing a TaskDetailScreen
+        without this callback silently drops the action (t1062).
+
+        ``read_only`` defaults to the task's archived state. ``source_card`` is
+        the originating board TaskCard when the detail is opened from the board
+        (None for nested opens); it keeps the post-action refresh identical to
+        the board's historical behavior.
+        """
+        if read_only is None:
+            read_only = getattr(task, "archived", False)
+        self.push_screen(
+            TaskDetailScreen(task, self.manager, read_only=read_only),
+            lambda result: self._on_detail_result(task, result, source_card),
+        )
+
+    def replace_screen_with_detail(self, task, read_only=None):
+        """Dismiss the current screen (a picker) and open ``task``'s detail in
+        its place.
+
+        Picker items select a task and then want to swap the picker for that
+        task's detail. Doing ``self.screen.dismiss()`` immediately followed by a
+        ``push_screen(..., callback)`` *within the item's key handler* pushes the
+        screen but drops the result callback (Textual processes the dismiss and
+        the push in the same message, and the new screen's callback is lost).
+        Deferring the open with ``call_later`` lets the dismiss settle first, so
+        ``open_task_detail`` attaches the result callback correctly and actions
+        (pick, edit, …) fire from a picker-opened detail (t1062).
+        """
+        self.screen.dismiss()
+        self.call_later(self.open_task_detail, task, read_only)
+
+    def _on_detail_result(self, task_data, result, source_card=None):
+        if result == "edit":
+            self.run_editor(task_data.filepath)
+        elif result == "edit_plan":
+            plan_path = self._resolve_plan_path_for(task_data)
+            if plan_path:
+                self.run_editor(plan_path)
+        elif result == "pick":
+            task_num, _ = TaskCard._parse_filename(task_data.filename)
+            if task_num:
+                full_cmd = self._resolve_pick_command(task_num)
+                if full_cmd:
+                    num = task_num.lstrip("t")
+                    prompt_str = f"/aitask-pick {num}"
+                    agent_string = resolve_agent_string(Path("."), "pick")
+                    screen = AgentCommandScreen(
+                        f"Pick Task t{num}", full_cmd, prompt_str,
+                        default_window_name=f"agent-pick-{num}",
+                        project_root=Path("."),
+                        operation="pick",
+                        operation_args=[num],
+                        default_agent_string=agent_string,
+                        skill_name="pick",
+                        default_profile=self._resolve_pick_profile(),
                     )
+                    def on_pick_result(pick_result):
+                        if pick_result == "run":
+                            self.run_aitask_pick(task_data.filename)
+                        elif isinstance(pick_result, TmuxLaunchConfig):
+                            _, err = launch_in_tmux(screen.full_command, pick_result)
+                            if err:
+                                self.notify(err, severity="error")
+                            elif pick_result.new_window:
+                                maybe_spawn_minimonitor(pick_result.session, pick_result.window)
+                        self.refresh_board(refocus_filename=task_data.filename)
+                    self.push_screen(screen, on_pick_result)
                     return
-                # Granular refresh: reload single task + refresh affected column(s)
-                needs_locks = result in ("locked", "unlocked")
-                filename = focused.task_data.filename
-                old_col = focused.column_id
-                self.manager.reload_task(filename)
-                self.manager.refresh_git_status()
-                if needs_locks:
-                    self.manager.refresh_lock_map()
-                task = self.manager.task_datas.get(filename) or self.manager.child_task_datas.get(filename)
-                new_col = task.board_col if task else old_col
-                if new_col != old_col:
-                    self.refresh_columns({old_col, new_col}, refocus_filename=filename)
-                else:
-                    self.refresh_column(old_col, refocus_filename=filename)
+            self.run_aitask_pick(task_data.filename)
+        elif result == "brainstorm":
+            task_num, _ = TaskCard._parse_filename(task_data.filename)
+            if task_num:
+                num = task_num.lstrip("t")
+                self._launch_brainstorm(num, task_data.filename)
+                return
+        elif result == "rename":
+            def on_rename_result(rename_result):
+                if rename_result and rename_result[0] == "rename":
+                    new_name = rename_result[1]
+                    self._rename_task(task_data, new_name)
+            self.push_screen(
+                RenameTaskScreen(task_data.filename), on_rename_result)
+            return
+        elif result == "delete_archive":
+            task_num, _ = TaskCard._parse_filename(task_data.filename)
+            is_child = task_data.filepath.parent.name.startswith("t")
+            _, paths = self._collect_delete_files(task_data)
+            dep_warnings, related = self._check_task_dependencies(task_data, is_child)
+            fate = self._build_fate_buckets(task_data)
+            cascade_children = fate["cascade_children"]
+            captured_task = task_data
 
-            self.push_screen(TaskDetailScreen(focused.task_data, self.manager), check_edit)
+            def on_action_chosen(action):
+                if action == "delete":
+                    self._execute_delete(task_num, paths, captured_task)
+                elif action == "archive":
+                    self._execute_archive(task_num, captured_task,
+                                          cascade_children=cascade_children)
+                else:
+                    self.apply_filter()
+                    self.call_after_refresh(self._refocus_card, captured_task.filename)
+
+            self.push_screen(
+                DeleteArchiveConfirmScreen(
+                    task_data.filename,
+                    delete_files=fate["delete_files"],
+                    archive_kept=fate["archive_kept"],
+                    archive_deleted=fate["archive_deleted"],
+                    dep_warnings=dep_warnings,
+                    related_tasks=related,
+                    is_child=is_child,
+                    blocking_files=fate["blocking_files"],
+                    blocked_reason=fate["blocked_reason"],
+                ),
+                on_action_chosen,
+            )
+            return
+        # Granular refresh: reload single task + refresh affected column(s).
+        # Reached for edit / edit_plan / reverted / locked / unlocked / None.
+        if not result and source_card is None:
+            # Bare Back/Escape from a nested detail: stay passive. The screen has
+            # already popped; just return to the parent detail (t1062).
+            return
+        needs_locks = result in ("locked", "unlocked")
+        filename = task_data.filename
+        self.manager.reload_task(filename)
+        self.manager.refresh_git_status()
+        if needs_locks:
+            self.manager.refresh_lock_map()
+        if source_card is not None:
+            # Board path: refresh the originating card's visible column. Uses the
+            # card's column_id (correct for expanded child cards) — unchanged from
+            # the historical board behavior.
+            old_col = source_card.column_id
+            task = self.manager.task_datas.get(filename) or self.manager.child_task_datas.get(filename)
+            new_col = task.board_col if task else old_col
+            if new_col != old_col:
+                self.refresh_columns({old_col, new_col}, refocus_filename=filename)
+            else:
+                self.refresh_column(old_col, refocus_filename=filename)
+        else:
+            # Nested/cardless action (e.g. revert/lock/unlock from a dependency
+            # detail): the task may be filtered/off-board, so rebuild the whole
+            # board; _refocus_card no-ops when no matching card exists.
+            self.refresh_board(refocus_filename=filename)
 
     def _gather_cross_repo_refs(self, task):
         """Collect ordered, de-duplicated (repo, id) cross-repo references for
