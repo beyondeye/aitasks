@@ -150,7 +150,7 @@ class TuiSwitcherScopeTests(unittest.TestCase):
         "shortcut_applink", "shortcut_board", "shortcut_monitor",
         "shortcut_codebrowser", "shortcut_settings", "shortcut_stats",
         "shortcut_syncer", "shortcut_brainstorm", "shortcut_explore",
-        "shortcut_git", "shortcut_create",
+        "shortcut_git", "shortcut_create", "shortcut_agent",
     }
     _STRUCTURAL = {"dismiss_overlay", "select_tui", "prev_session", "next_session"}
 

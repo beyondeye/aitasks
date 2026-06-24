@@ -437,11 +437,16 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
     def on_mount(self) -> None:
         # Populate direct tab
         direct = self.query_one("#direct_content")
-        direct.mount(Label("Prompt only:"))
-        row = Horizontal(classes="agent-cmd-copy-row")
-        direct.mount(row)
-        row.mount(Label(self.prompt_str, id="agent_cmd_prompt_label"))
-        row.mount(Button(self.label("copy_prompt", "Copy Prompt"), variant="primary", id="btn_copy_prompt"))
+        # The prompt row is only meaningful when there is a prompt to copy. A
+        # no-task launch (e.g. the switcher's bare-agent command, operation
+        # "raw" with an empty prompt) leaves prompt_str empty — skip the row so
+        # it does not render as a vestigial empty "Prompt only:" field.
+        if self.prompt_str:
+            direct.mount(Label("Prompt only:"))
+            row = Horizontal(classes="agent-cmd-copy-row")
+            direct.mount(row)
+            row.mount(Label(self.prompt_str, id="agent_cmd_prompt_label"))
+            row.mount(Button(self.label("copy_prompt", "Copy Prompt"), variant="primary", id="btn_copy_prompt"))
         buttons = Horizontal(classes="agent-cmd-buttons")
         direct.mount(buttons)
         buttons.mount(Button(self.label("copy_command", "Copy cmd"), variant="primary", id="btn_copy_command"))

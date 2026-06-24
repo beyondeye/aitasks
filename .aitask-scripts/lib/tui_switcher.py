@@ -225,6 +225,7 @@ _HINT_ITEMS = [
     ("shortcut_git", "git", "g"),
     ("shortcut_explore", "explore", "x"),
     ("shortcut_create", "new task", "n"),
+    ("shortcut_agent", "agent", "e"),
 ]
 
 _KEY_PAREN_RE = re.compile(r"\(([^)]*)\)")
@@ -373,6 +374,7 @@ _QUICK_JUMP_BINDINGS = [
     Binding("x", "shortcut_explore", "Explore", show=False),
     Binding("g", "shortcut_git", "Git", show=False),
     Binding("n", "shortcut_create", "New Task", show=False),
+    Binding("e", "shortcut_agent", "Code Agent", show=False),
 ]
 
 # The overlay closes on the same key that opens it (a toggle). Resolve the
@@ -1072,6 +1074,79 @@ class TuiSwitcherOverlay(ModalScreen):
             self.app.notify("Failed to launch create", severity="error")
             return
         self.dismiss("create-task")
+
+    def action_shortcut_agent(self) -> None:
+        """Open the agent command dialog to launch a bare code agent (no task).
+
+        Unlike the explore/create shortcuts (which fire-and-forget via
+        ``_spawn_in_session``), this opens the shared ``AgentCommandScreen`` with
+        ``operation="raw"`` and an empty prompt so the user can pick agent /
+        model / tmux target before starting an interactive agent that runs no
+        ``/aitask-*`` slash command.
+        """
+        if self._handle_stale_selection():
+            return
+        if not self._ensure_session_live():
+            return
+        project_root = self._project_root_for_session(self._session)
+        from agent_command_screen import AgentCommandScreen
+        from agent_launch_utils import (
+            TmuxLaunchConfig,
+            find_terminal,
+            launch_in_tmux,
+            maybe_spawn_minimonitor,
+            resolve_agent_string,
+            resolve_dry_run_command,
+            spawn_in_terminal,
+        )
+        full_cmd = resolve_dry_run_command(project_root, "raw")
+        if not full_cmd:
+            self.app.notify(
+                "Could not resolve agent command — check model configuration.",
+                severity="error",
+            )
+            return
+        agent_string = resolve_agent_string(project_root, "raw")
+        n = 1
+        while f"agent-raw-{n}" in self._running_names:
+            n += 1
+        window_name = f"agent-raw-{n}"
+        screen = AgentCommandScreen(
+            "Launch Code Agent (no task)",
+            full_cmd,
+            "",  # empty prompt — no task / no slash command
+            default_window_name=window_name,
+            project_root=project_root,
+            operation="raw",
+            operation_args=[],
+            default_agent_string=agent_string,
+        )
+
+        def on_result(result) -> None:
+            if isinstance(result, TmuxLaunchConfig):
+                _, err = launch_in_tmux(screen.full_command, result)
+                if err:
+                    self.app.notify(err, severity="error")
+                elif result.new_window:
+                    maybe_spawn_minimonitor(
+                        result.session, result.window, project_root=project_root,
+                    )
+                self.dismiss(window_name)
+            elif result == "run":
+                terminal = find_terminal()
+                if terminal:
+                    spawn_in_terminal(
+                        terminal, ["sh", "-c", screen.full_command],
+                        cwd=str(project_root),
+                    )
+                    self.dismiss(window_name)
+                else:
+                    self.app.notify(
+                        "No terminal emulator found", severity="error",
+                    )
+            # result is None (cancelled) → leave the overlay open
+
+        self.app.push_screen(screen, on_result)
 
     def _switch_to(self, name: str, running: bool, window_index: str | None = None) -> None:
         # If the selected entry is a STALE registry row (t826_10), push
