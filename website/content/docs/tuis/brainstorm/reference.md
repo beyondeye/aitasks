@@ -144,6 +144,34 @@ Design operations are launched from the Operations dialog (`A`); each dispatches
 
 Session-lifecycle operations (Session tab) run no agents: **pause**, **resume**, **finalize** (export HEAD proposal to `aiplans/`), **archive**, **delete**.
 
+### Agent model defaults
+
+Each design operation dispatches a code agent of a fixed **agent type**, and every agent type has a configurable default **model** and **launch mode**. There are seven agent types: the six design-operation agents in the table above (`explorer`, `comparator`, `synthesizer`, `module decomposer`, `module merger`, `module syncer`) plus the **initializer** — the bootstrap agent that reformats an imported markdown draft (`ait brainstorm init --proposal-file`) into the first graph node.
+
+**Where the defaults live.** Per-type defaults are stored in `aitasks/metadata/codeagent_config.json` under `defaults`, keyed `brainstorm-<type>`:
+
+```json
+"defaults": {
+  "brainstorm-explorer": "<agent>/<model>",
+  "brainstorm-synthesizer": "<agent>/<model>",
+  "brainstorm-module_decomposer": "<agent>/<model>"
+}
+```
+
+Each `brainstorm-<type>` value is an `<agent>/<model>` string — the code-agent binary and the model it runs. An optional paired `brainstorm-<type>-launch-mode` key sets that type's default launch mode.
+
+**Layered resolution.** Defaults resolve in three layers, each overriding the one before it:
+
+1. Built-in resource defaults (per-type `max_parallel` and `launch_mode`).
+2. Project config — `codeagent_config.json` (shared, committed).
+3. Per-user override — `codeagent_config.local.json` (gitignored).
+
+The agent and model are **bound when a session is initialized** (when the brainstorm crew registers its agent types). Changing a default therefore takes effect on the **next** session you start — not one that is already running.
+
+**Launch mode.** Every type has a default launch mode (`interactive`). Override it globally with the `brainstorm-<type>-launch-mode` config key, or per operation from the launch-mode selector in the operation wizard when you run that operation.
+
+**Changing a default.** The simplest way to edit these is the [Settings]({{< relref "/docs/tuis/settings" >}}) TUI: open the **Agent Defaults** tab, where every brainstorm agent type appears with an agent/model picker and a paired launch-mode picker. Each row shows the **project** value with your **user** override below it, so you can change a model for the whole project or just for yourself.
+
 ### Module decompose modes
 
 The Module Decompose wizard offers three modes:

@@ -126,10 +126,16 @@ OPERATION_DESCRIPTIONS: dict[str, str] = {
     "brainstorm-comparator": "Model for comparing and analyzing design proposals",
     "brainstorm-synthesizer": "Model for merging and synthesizing design proposals",
     "brainstorm-initializer": "Model for reformatting imported markdown proposals into the n000_init root node",
+    "brainstorm-module_decomposer": "Model for forking module subgraph roots from a proposal",
+    "brainstorm-module_merger": "Model for merging a module subgraph up into an ancestor node",
+    "brainstorm-module_syncer": "Model for pulling a linked module's as-implemented design back into the graph",
     "brainstorm-explorer-launch-mode": "Default launch mode (headless | interactive) for the explorer brainstorm agent type",
     "brainstorm-comparator-launch-mode": "Default launch mode (headless | interactive) for the comparator brainstorm agent type",
     "brainstorm-synthesizer-launch-mode": "Default launch mode (headless | interactive) for the synthesizer brainstorm agent type",
     "brainstorm-initializer-launch-mode": "Default launch mode (headless | interactive) for the initializer brainstorm agent type",
+    "brainstorm-module_decomposer-launch-mode": "Default launch mode (headless | interactive) for the module decomposer brainstorm agent type",
+    "brainstorm-module_merger-launch-mode": "Default launch mode (headless | interactive) for the module merger brainstorm agent type",
+    "brainstorm-module_syncer-launch-mode": "Default launch mode (headless | interactive) for the module syncer brainstorm agent type",
 }
 
 # Config file descriptions shown during import
@@ -2110,6 +2116,15 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         for key in all_keys:
             # Skip launch-mode keys — they render under their paired agent-string row
             if key.endswith("-launch-mode"):
+                continue
+
+            # Skip orphaned brainstorm agent types no longer in
+            # BRAINSTORM_AGENT_TYPES (a removed op can leave a stale key in
+            # either config layer) — they would otherwise render as dead orphan
+            # rows for ops that no longer exist. Mirrors the launch-mode filter
+            # below at the paired-row emission.
+            if key.startswith("brainstorm-") and \
+                    key[len("brainstorm-"):] not in BRAINSTORM_AGENT_TYPES:
                 continue
 
             # Insert brainstorm section header before first brainstorm key
