@@ -61,3 +61,5 @@ Depends on **t929_1** and **t929_2**: the docs should describe the *improved* mo
 > **✅ gate:plan_approved** run=2026-06-24T13:14:55Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-24T13:14:56Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-24T13:35:16Z status=pass attempt=1 type=human
