@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tui_switcher, codeagent, agent_chooser]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-24 23:39
-updated_at: 2026-06-24 23:39
+updated_at: 2026-06-25 00:24
 ---
 
 ## Goal
