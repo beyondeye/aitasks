@@ -164,7 +164,7 @@ check_for_updates() {
         latest_version="$(curl -sS --max-time 5 \
             "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null \
             | grep '"tag_name"' | head -1 \
-            | sed 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/')" || true
+            | sed -E 's/.*"tag_name": *"v?([^"]*)".*/\1/')" || true
 
         mkdir -p "$(dirname "$cache_file")"
         if [[ -n "$latest_version" && "$latest_version" =~ $version_re ]]; then

@@ -8,6 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AIT_DIR="$SCRIPT_DIR/.."
 REPO="beyondeye/aitasks"
 
+# shellcheck source=lib/github_release.sh
+source "$SCRIPT_DIR/lib/github_release.sh"
+
 # --- Color helpers ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()    { echo -e "${BLUE}[ait]${NC} $1"; }
@@ -42,24 +45,40 @@ resolve_version() {
     local requested="${1:-latest}"
 
     if [[ "$requested" == "latest" ]]; then
-        local api_response=""
-        api_response="$(curl -sS --max-time 10 \
-            "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null)" || true
+        # Only the bare version is written to stdout (it is captured by main's
+        # command substitution); every diagnostic goes to stderr.
+        local version="" rc=0
+        version="$(github_latest_release_version "$REPO" 2>/dev/null)" || rc=$?
 
-        if [[ -z "$api_response" ]]; then
-            die "Could not reach GitHub API. Check your network connection."
-        fi
+        case "$rc" in
+            0)
+                echo "$version"
+                ;;
+            2)
+                # Rate-limited: report accurately, then fall back to git tags
+                # (the git protocol is not subject to the REST API quota).
+                local mins hint
+                mins="$(github_ratelimit_reset_minutes)"
+                hint="GitHub API rate limit exceeded (60 requests/hour unauthenticated)."
+                [[ -n "$mins" ]] && hint="$hint Try again in ~${mins} min."
+                hint="$hint Set GH_TOKEN (or GITHUB_TOKEN) to raise the limit to 5000/hour."
+                warn "$hint" >&2
 
-        local version=""
-        version="$(echo "$api_response" \
-            | grep '"tag_name"' | head -1 \
-            | sed -E 's/.*"tag_name": *"v?([^"]*)".*/\1/')" || true
-
-        if [[ -z "$version" ]]; then
-            die "Could not determine latest version. No releases found at https://github.com/$REPO/releases"
-        fi
-
-        echo "$version"
+                version="$(github_latest_tag_version "$REPO")"
+                if [[ -n "$version" ]]; then
+                    info "Resolved latest version via git tags (REST API was rate-limited): v${version}" >&2
+                    echo "$version"
+                else
+                    die "$hint"
+                fi
+                ;;
+            3)
+                die "No published releases found at https://github.com/$REPO/releases"
+                ;;
+            *)
+                die "Could not reach GitHub API. Check your network connection."
+                ;;
+        esac
     else
         # Strip leading 'v' if present
         requested="${requested#v}"

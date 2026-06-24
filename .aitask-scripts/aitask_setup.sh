@@ -14,6 +14,10 @@ REPO="beyondeye/aitasks"
 # shellcheck source=lib/python_resolve.sh
 source "$SCRIPT_DIR/lib/python_resolve.sh"
 
+# Shared GitHub-release resolver (rate-limit-aware, git-tag fallback).
+# shellcheck source=lib/github_release.sh
+source "$SCRIPT_DIR/lib/github_release.sh"
+
 # Preferred is the version we install when no modern python is found.
 AIT_VENV_PYTHON_PREFERRED="${AIT_VENV_PYTHON_PREFERRED:-3.13}"
 
@@ -1616,9 +1620,10 @@ check_latest_version() {
         return
     fi
 
+    # Resolve via the shared helper (REST API with a git-tag fallback). Keep the
+    # silent-degrade contract: any failure or empty result returns with no notice.
     local latest_version=""
-    latest_version="$(curl -sS --max-time 5 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
-        | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name": *"v?([^"]*)".*/\1/')" || true
+    latest_version="$(github_resolve_latest_version "$REPO" 2>/dev/null)" || return
 
     if [[ -z "$latest_version" ]]; then
         return
