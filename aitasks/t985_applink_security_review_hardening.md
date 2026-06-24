@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [ait_bridge]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 12:29
-updated_at: 2026-06-14 12:29
+updated_at: 2026-06-24 18:21
 boardidx: 160
 ---
 
