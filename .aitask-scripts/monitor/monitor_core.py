@@ -1272,7 +1272,9 @@ class TmuxMonitor:
         return snapshots
 
     def send_enter(self, pane_id: str) -> bool:
-        rc, _ = self.tmux_run(["send-keys", "-t", pane_id, "Enter"])
+        # `--` ends option parsing so a hostile pane_id/key can't be read as a
+        # tmux flag (defense-in-depth; pane_id is already the -t value).
+        rc, _ = self.tmux_run(["send-keys", "-t", pane_id, "--", "Enter"])
         return rc == 0
 
     def send_keys(self, pane_id: str, keys: str, literal: bool = False) -> bool:
@@ -1284,6 +1286,9 @@ class TmuxMonitor:
         cmd = ["send-keys", "-t", pane_id]
         if literal:
             cmd.append("-l")
+        # `--` ends option parsing: without it a leading-dash `keys` value (e.g.
+        # "-R", "-N") is consumed by tmux as a flag rather than sent as keys.
+        cmd.append("--")
         cmd.append(keys)
         rc, _ = self.tmux_run(cmd)
         return rc == 0
@@ -1421,6 +1426,14 @@ class TmuxMonitor:
         return self.kill_pane(pane_id), False
 
     def spawn_tui(self, tui_name: str) -> bool:
+        # SECURITY (t985): tmux `new-window`'s last arg is a shell command, so an
+        # unconstrained tui_name interpolated into f"ait {tui_name}" is arbitrary
+        # command execution. Refuse anything not in the canonical TUI registry
+        # (TUI_NAMES) BEFORE it reaches the shell — closes the sink for every
+        # caller (desktop monitor + applink). Valid spawns derive from the same
+        # registry, so legitimate launches are unaffected.
+        if tui_name not in TUI_NAMES:
+            return False
         rc, _ = self.tmux_run([
             "new-window", "-t", tmux_window_target(self.session, ""),
             "-n", tui_name, f"ait {tui_name}",

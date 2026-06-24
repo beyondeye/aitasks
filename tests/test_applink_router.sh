@@ -24,6 +24,7 @@ if ! "$PYTHON" -c "import yaml" 2>/dev/null; then
 fi
 
 "$PYTHON" - "$PROJECT_DIR" <<'PYEOF'
+import logging
 import shutil
 import sys
 from pathlib import Path
@@ -355,6 +356,86 @@ r = router.handle(req("bye", auth=full.bearer), conn)
 check("bye -> ok + close", r["payload"]["ok"] is True and conn.close_requested is True)
 r = router.handle(req("send_enter", {"pane_id": "%1"}, auth=full.bearer), ConnState())
 check("revoked bearer (post-bye) -> AUTH_FAILED", r["payload"]["code"] == "AUTH_FAILED")
+
+# --- input-validation hardening (t985) -------------------------------------
+import router as R
+
+# Fresh bearers: the bye test below revokes earlier ones, and `full`/`ro` from
+# the gating section are reused — issue our own so this block is self-contained.
+vfull = st.issue_bearer("full").bearer
+vro = st.issue_bearer("read_only").bearer
+
+# spawn_tui: shell-command-execution sink — only canonical registry names pass.
+mon.calls.clear()
+r = router.handle(req("spawn_tui", {"tui_name": "board"}, auth=vfull), ConnState())
+check("spawn_tui valid registry name -> reaches monitor", ("spawn_tui", "board") in mon.calls)
+for evil in ("board; rm -rf ~", "$(touch /tmp/pwned)", "a|b", "x`id`", "../../bin"):
+    mon.calls.clear()
+    r = router.handle(req("spawn_tui", {"tui_name": evil}, auth=vfull), ConnState())
+    check(f"spawn_tui rejects {evil!r} -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+    check(f"spawn_tui {evil!r} never reaches monitor", not any(c[0] == "spawn_tui" for c in mon.calls))
+
+# pane_id must be a real tmux pane id (%N): the rich target-spec surface is rejected.
+for bad in ("{mouse}", "=sess:win.pane", "top", "-R", "%1; kill", "% 1", ""):
+    r = router.handle(req("send_keys", {"pane_id": bad, "keys": "x"}, auth=vfull), ConnState())
+    check(f"send_keys bad pane_id {bad!r} -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+r = router.handle(req("send_keys", {"pane_id": "%9", "keys": "ok"}, auth=vfull), ConnState())
+check("send_keys valid pane_id %9 -> res ok", r["kind"] == "res")
+
+# the validator is applied to EVERY pane/window verb, incl. the deferred ones.
+for verb in ("send_enter", "forward_key", "focus", "cycle_compare_mode",
+             "request_keyframe", "kill_pane", "restart_task", "pick_next_sibling"):
+    pl = {"pane_id": "nonsense"}
+    if verb == "forward_key":
+        pl["key"] = "up"
+    r = router.handle(req(verb, pl, auth=vfull), ConnState())
+    check(f"{verb} bad pane_id -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+
+# kill_window validates window_id (@N).
+r = router.handle(req("kill_window", {"window_id": "win5"}, auth=vfull), ConnState())
+check("kill_window bad window_id -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+r = router.handle(req("kill_window", {"window_id": "@5"}, auth=vfull), ConnState())
+check("kill_window valid window_id -> confirm_required", r["payload"].get("confirm_required") is True)
+
+# subscribe: per-entry %N enforcement, over-long list rejected (not truncated).
+sc = ConnState()
+r = router.handle(req("subscribe", {"panes": ["%1", "junk", "%2", "{mouse}"]}, auth=vfull), sc)
+check("subscribe keeps only valid %N entries", sc.subscription.panes == {"%1", "%2"})
+sc2 = ConnState()
+r = router.handle(req("subscribe", {"panes": ["junk", "{mouse}"]}, auth=vfull), sc2)
+check("subscribe all-invalid explicit list -> subscribes to nothing (not 'all')",
+      sc2.subscription.panes == set())
+big = ["%%%d" % i for i in range(R._MAX_PANES + 1)]
+r = router.handle(req("subscribe", {"panes": big}, auth=vfull), ConnState())
+check("subscribe over-long pane list -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+
+# oversized string fields are rejected.
+r = router.handle(req("send_keys", {"pane_id": "%1", "keys": "x" * (R._MAX_STR + 1)}, auth=vfull), ConnState())
+check("oversized keys -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+r = router.handle(req("z" * (R._MAX_STR + 1), {}, auth=vfull), ConnState())
+check("oversized verb -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+
+# --- audit logging (t985) --------------------------------------------------
+class _CapHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.msgs = []
+    def emit(self, record):
+        self.msgs.append(record.getMessage())
+
+caplog = logging.getLogger("applink.audit.test985")
+caplog.handlers.clear()
+caplog.setLevel(logging.INFO)
+_cap = _CapHandler()
+caplog.addHandler(_cap)
+arouter = FrameRouter(st, gate, mon, pair_profile="monitor_control", audit=caplog)
+arouter.handle(req("send_keys", {"pane_id": "%1", "keys": "x"}, auth="bad-bearer"), ConnState())
+check("audit records AUTH_FAILED", any("AUTH_FAILED" in m for m in _cap.msgs))
+arouter.handle(req("send_keys", {"pane_id": "%1", "keys": "x"}, auth=vro), ConnState())
+check("audit records PERMISSION_DENIED", any("PERMISSION_DENIED" in m for m in _cap.msgs))
+arouter.handle(req("spawn_tui", {"tui_name": "board; rm -rf ~"}, auth=vfull), ConnState())
+check("audit records SPAWN_TUI_REJECTED", any("SPAWN_TUI_REJECTED" in m for m in _cap.msgs))
+check("audit never logs a full bearer", all("bad-bearer" not in m for m in _cap.msgs))
 
 # --- malformed envelopes ---------------------------------------------------
 r = router.handle("not-an-object", ConnState())

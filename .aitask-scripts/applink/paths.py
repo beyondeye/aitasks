@@ -17,6 +17,23 @@ def project_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def ensure_secure_dir(path: Path) -> Path:
+    """``mkdir -p`` the dir and best-effort ``chmod 0o700`` (owner-only).
+
+    Owner-only mode on the gitignored runtime dir is the *structural* guard for
+    the secrets it holds (TLS key, ``sessions.json``, audit log): even if a file
+    inside is created world-readable by a lax umask, another local user cannot
+    traverse in to read it. Best-effort — silently tolerated on filesystems
+    without POSIX modes (mirrors the key-file ``chmod`` in ``tls.py``).
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.chmod(0o700)
+    except OSError:
+        pass
+    return path
+
+
 def metadata_dir() -> Path:
     return project_root() / "aitasks" / "metadata"
 

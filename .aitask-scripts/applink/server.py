@@ -11,6 +11,7 @@ The binary snapshot/data plane is NOT here — it is the next sibling (t822_8).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -30,10 +31,22 @@ from router import (  # noqa: E402
 )
 from pusher import PushScheduler  # noqa: E402
 import paths  # noqa: E402
+import audit  # noqa: E402
 
 DEFAULT_HOST = "0.0.0.0"   # accept from the LAN; the QR carries the routable IP
 DEFAULT_SESSION = "aitasks"
 DEFAULT_PORT = 8765
+
+# DoS / abuse ceilings (t985). The control plane is a small LAN listener: frames
+# are tiny, a handful of devices pair, and a single host should never be able to
+# starve the others. Time-based per-IP request throttling is a documented
+# residual (follow-up applink_request_rate_limit); these bound the obvious cases.
+MAX_CONNECTIONS = 64        # global concurrent-socket ceiling
+MAX_PER_IP = 8              # per-source-IP concurrent ceiling
+MAX_FRAME_BYTES = 64 * 1024  # max inbound WebSocket frame (control frames are tiny)
+MAX_PREAUTH_FRAMES = 16     # frames allowed before a successful pair/resume
+PREAUTH_TIMEOUT = 15.0      # seconds an unauthenticated socket may live
+OPEN_TIMEOUT = 10.0         # TLS/WS opening-handshake deadline (slow-loris)
 # v1 default permission profile assigned to a freshly paired device. The single
 # source of truth for this default across the package (the TUI runtime, the
 # server constructor, and the headless runner all reference it).
@@ -62,8 +75,12 @@ class AppLinkServer:
         self._conns: set[ConnState] = set()
         self._live: dict[ConnState, object] = {}   # conn -> live websocket
         self._pushers: dict[ConnState, PushScheduler] = {}  # conn -> data-plane loop
+        self._conns_by_ip: dict[str, int] = {}     # per-source-IP concurrent count
         self._sessions = session_table
         self.error: str | None = None
+        # Security audit logger, configured once here (so both the TUI and
+        # headless startup paths inherit it) and threaded into the router.
+        self._audit = audit.get_logger(paths.sessions_dir())
 
         project_root = paths.project_root()
         config = load_monitor_config(project_root)
@@ -80,6 +97,7 @@ class AppLinkServer:
         self._router = FrameRouter(
             session_table, profile_gate, self._monitor,
             pair_profile=pair_profile, task_resolver=task_cache,
+            audit=self._audit,
         )
 
     # -- Lifecycle -------------------------------------------------------------
@@ -101,6 +119,7 @@ class AppLinkServer:
         try:
             self._ws_server = await websockets.serve(
                 self._handle, self._host, self._port, ssl=self._ssl,
+                max_size=MAX_FRAME_BYTES, open_timeout=OPEN_TIMEOUT,
             )
         except Exception as exc:
             self.error = f"listener failed: {exc}"
@@ -125,12 +144,40 @@ class AppLinkServer:
     # -- Connection handler ----------------------------------------------------
 
     async def _handle(self, ws) -> None:
+        ip = self._peer_ip(ws)
+        # Admission control (t985): global + per-IP concurrent-connection
+        # ceilings, enforced BEFORE the connection is registered so a flood
+        # cannot grow the bookkeeping sets. Per-IP stops one LAN host from
+        # starving the legitimate paired phone of the global pool.
+        if len(self._conns) >= MAX_CONNECTIONS:
+            self._audit.warning("CONN_REJECTED reason=global_cap ip=%s", ip)
+            await ws.close()
+            return
+        if self._conns_by_ip.get(ip, 0) >= MAX_PER_IP:
+            self._audit.warning("CONN_REJECTED reason=per_ip_cap ip=%s", ip)
+            await ws.close()
+            return
+
         conn = ConnState()
         self._conns.add(conn)
         self._live[conn] = ws
+        self._conns_by_ip[ip] = self._conns_by_ip.get(ip, 0) + 1
+        self._audit.info("CONN_ACCEPT ip=%s", ip)
+        # Close a socket that never authenticates within PREAUTH_TIMEOUT — bounds
+        # the "open a socket, send nothing" slow-loris the frame budget misses.
+        watchdog = asyncio.ensure_future(self._preauth_watchdog(conn, ws))
+        preauth_frames = 0
         self._notify()
         try:
             async for raw in ws:
+                # Pre-auth frame budget: cap frames sent before a session binds,
+                # throttling an unauthenticated malformed-frame flood.
+                if conn.session is None:
+                    preauth_frames += 1
+                    if preauth_frames > MAX_PREAUTH_FRAMES:
+                        self._audit.warning("CONN_DROP reason=preauth_flood ip=%s", ip)
+                        await ws.close()
+                        break
                 reply = self._route_raw(raw, conn)
                 if conn.bearer is not None:
                     self._sessions.touch(conn.bearer)
@@ -148,16 +195,50 @@ class AppLinkServer:
             # Connection-closed and decode errors: just drop the connection.
             pass
         finally:
+            watchdog.cancel()
             pusher = self._pushers.pop(conn, None)
             if pusher is not None:
                 await pusher.stop()
             self._conns.discard(conn)
             self._live.pop(conn, None)
+            remaining = self._conns_by_ip.get(ip, 0) - 1
+            if remaining <= 0:
+                self._conns_by_ip.pop(ip, None)
+            else:
+                self._conns_by_ip[ip] = remaining
             # A socket that drops while still holding a valid bearer is
             # Suspended (resumable), not gone — the bearer survives.
             if conn.session is not None and not conn.close_requested:
                 self._suspend(conn)
+            self._audit.info(
+                "CONN_CLOSE ip=%s authed=%s", ip, conn.session is not None,
+            )
             self._notify()
+
+    @staticmethod
+    def _peer_ip(ws) -> str:
+        """Best-effort source IP of a websocket for audit + per-IP accounting."""
+        addr = getattr(ws, "remote_address", None)
+        if isinstance(addr, (tuple, list)) and addr:
+            return str(addr[0])
+        return "?"
+
+    async def _preauth_watchdog(self, conn: ConnState, ws) -> None:
+        """Close *conn* if it has not authenticated within ``PREAUTH_TIMEOUT``.
+
+        Cancelled in ``_handle``'s ``finally`` once the connection ends; if the
+        connection authenticated, the post-sleep check no-ops.
+        """
+        try:
+            await asyncio.sleep(PREAUTH_TIMEOUT)
+        except asyncio.CancelledError:
+            return
+        if conn.session is None and not conn.close_requested:
+            self._audit.warning("CONN_DROP reason=preauth_timeout ip=%s", self._peer_ip(ws))
+            try:
+                await ws.close()
+            except Exception:
+                pass
 
     def _ensure_pusher(self, conn: ConnState, ws) -> PushScheduler:
         """Return the connection's PushScheduler, starting it on first use."""

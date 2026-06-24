@@ -24,6 +24,7 @@ fi
 "$PYTHON" - "$PROJECT_DIR" <<'PYEOF'
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -504,6 +505,8 @@ async def main():
     srv._conns = set()
     srv._live = {}
     srv._pushers = {}
+    srv._conns_by_ip = {}              # t985 admission control (per-IP accounting)
+    srv._audit = logging.getLogger("applink.audit.test")  # t985 audit (no handlers)
     srv._on_change = None
     srv._sessions = object()           # touch()/_suspend() not reached (bearer/session None)
     monh = FakeMonitor()

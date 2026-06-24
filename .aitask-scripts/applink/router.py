@@ -16,11 +16,30 @@ tasks — they return ``UNKNOWN_VERB`` here.
 """
 from __future__ import annotations
 
+import logging
+import re
+import sys
 import time
+from pathlib import Path
 
 from content import Subscription
 
+# ``lib/`` holds the canonical TUI registry (the spawn_tui allowlist). Insert it
+# explicitly so the router resolves it whether imported by the server or a test.
+_LIB_DIR = Path(__file__).resolve().parent.parent / "lib"
+if str(_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIB_DIR))
+from tui_registry import TUI_NAMES  # noqa: E402
+
 PROTOCOL_VERSION = 1
+
+# Input-validation bounds (t985). tmux pane/window ids have a fixed shape;
+# constraining client-supplied ids to it removes the rich tmux target-spec
+# surface ({mouse}, =sess:win.pane, top, …) and any leading-dash value.
+_PANE_ID_RE = re.compile(r"^%\d+$")
+_WINDOW_ID_RE = re.compile(r"^@\d+$")
+_MAX_STR = 4096        # cap any single client-supplied string field
+_MAX_PANES = 256       # cap a subscribe pane-list (bounds Subscription + push loop)
 
 # Error codes (protocol.md §Message envelope error frame).
 ERR_AUTH_FAILED = "AUTH_FAILED"
@@ -80,6 +99,13 @@ def _iso8601(epoch: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
 
 
+def _tag(bearer) -> str:
+    """Short, non-reversible bearer tag for audit log lines (never the full token)."""
+    if not isinstance(bearer, str) or not bearer:
+        return "<none>"
+    return f"{bearer[:8]}…"
+
+
 def error_frame(msg_id, verb, code, message, detail=None):
     """Build an ``err`` envelope. Public so the transport can reply to frames
     that never reach the router (e.g. undecodable JSON)."""
@@ -124,12 +150,17 @@ class FrameRouter:
         *,
         pair_profile: str = "monitor_control",
         task_resolver=None,
+        audit=None,
     ) -> None:
         self._sessions = session_table
         self._gate = profile_gate
         self._monitor = monitor
         self._pair_profile = pair_profile
         self._tasks = task_resolver
+        # Security audit logger (auth/permission/pairing/reject events). Defaults
+        # to the package logger; unit tests inject a captured logger. Unconfigured
+        # it simply has no handlers, so the router stays I/O-free under test.
+        self._audit = audit if audit is not None else logging.getLogger("applink.audit")
 
     def set_pair_profile(self, profile: str) -> None:
         self._pair_profile = profile
@@ -147,6 +178,13 @@ class FrameRouter:
                 verb if isinstance(verb, str) else None,
                 ERR_BAD_PAYLOAD, "missing or invalid envelope fields (id, kind, verb)",
             )
+        # Bound the envelope strings so an oversized id/verb can't be used to
+        # exhaust parser/log memory (the verb is also membership-checked below).
+        if len(verb) > _MAX_STR or len(msg_id) > _MAX_STR:
+            return self._err(
+                msg_id if len(msg_id) <= _MAX_STR else None, None,
+                ERR_BAD_PAYLOAD, "envelope field too long",
+            )
         payload = env.get("payload")
         if payload is None:
             payload = {}
@@ -161,6 +199,9 @@ class FrameRouter:
         session = self._sessions.lookup(env.get("auth"))
         if session is None:
             conn.close_requested = True
+            self._audit.warning(
+                "AUTH_FAILED verb=%s bearer=%s", verb, _tag(env.get("auth")),
+            )
             return self._err(msg_id, verb, ERR_AUTH_FAILED, "missing or invalid bearer")
         conn.bind(session)
 
@@ -176,6 +217,11 @@ class FrameRouter:
 
         if verb in IMPLEMENTED_COMMAND_VERBS:
             if not self._gate.is_allowed(session.profile, verb):
+                self._audit.warning(
+                    "PERMISSION_DENIED verb=%s profile=%s device=%s bearer=%s",
+                    verb, session.profile, session.device_name or "?",
+                    _tag(session.bearer),
+                )
                 return self._err(
                     msg_id, verb, ERR_PERMISSION_DENIED,
                     f"verb '{verb}' is not permitted for profile '{session.profile}'",
@@ -194,25 +240,34 @@ class FrameRouter:
     # -- Pairing ---------------------------------------------------------------
 
     def _do_pair(self, msg_id, conn, payload):
-        token = payload.get("token")
-        if not isinstance(token, str) or not self._sessions.validate_and_consume_token(token):
-            conn.close_requested = True
-            return self._err(msg_id, "pair", ERR_AUTH_FAILED, "invalid or expired pairing token")
         device = payload.get("device")
         device_name = ""
         platform = ""
         location = ""
         if isinstance(device, dict):
-            device_name = str(device.get("name", ""))
-            platform = str(device.get("platform", ""))
+            device_name = str(device.get("name", ""))[:_MAX_STR]
+            platform = str(device.get("platform", ""))[:_MAX_STR]
             # Optional, additive: a coarse locality string the phone may send.
-            location = str(device.get("location", ""))
+            location = str(device.get("location", ""))[:_MAX_STR]
+        token = payload.get("token")
+        if not isinstance(token, str) or not self._sessions.validate_and_consume_token(token):
+            conn.close_requested = True
+            # Never log the token bytes — just that a pairing attempt failed.
+            self._audit.warning(
+                "PAIR_FAILED device=%s reason=invalid_or_expired_token",
+                device_name or "?",
+            )
+            return self._err(msg_id, "pair", ERR_AUTH_FAILED, "invalid or expired pairing token")
         session = self._sessions.issue_bearer(
             self._pair_profile,
             device_name=device_name, platform=platform, location=location,
         )
         conn.bind(session)
         conn.state = STATE_CONNECTED
+        self._audit.info(
+            "PAIR_SUCCESS device=%s profile=%s bearer=%s",
+            device_name or "?", session.profile, _tag(session.bearer),
+        )
         return self._res(msg_id, "pair", {
             "bearer": session.bearer,
             "profile": session.profile,
@@ -223,30 +278,30 @@ class FrameRouter:
 
     def _dispatch(self, msg_id, verb, payload, conn):
         if verb == "send_enter":
-            pane_id = self._req_str(payload, "pane_id")
+            pane_id = self._req_pane_id(payload)
             if pane_id is None:
                 return self._bad_field(msg_id, verb, "pane_id")
             return self._res(msg_id, verb, {"ok": bool(self._monitor.send_enter(pane_id))})
 
         if verb == "send_keys":
-            pane_id = self._req_str(payload, "pane_id")
+            pane_id = self._req_pane_id(payload)
             keys = payload.get("keys")
-            if pane_id is None or not isinstance(keys, str):
+            if pane_id is None or not isinstance(keys, str) or len(keys) > _MAX_STR:
                 return self._bad_field(msg_id, verb, "pane_id/keys")
             literal = bool(payload.get("literal", False))
             ok = self._monitor.send_keys(pane_id, keys, literal=literal)
             return self._res(msg_id, verb, {"ok": bool(ok)})
 
         if verb == "forward_key":
-            pane_id = self._req_str(payload, "pane_id")
+            pane_id = self._req_pane_id(payload)
             key = self._req_str(payload, "key")
-            if pane_id is None or key is None:
+            if pane_id is None or key is None or len(key) > _MAX_STR:
                 return self._bad_field(msg_id, verb, "pane_id/key")
             ok = self._monitor.forward_key(pane_id, key)
             return self._res(msg_id, verb, {"ok": bool(ok)})
 
         if verb == "focus":
-            pane_id = self._req_str(payload, "pane_id")
+            pane_id = self._req_pane_id(payload)
             if pane_id is None:
                 return self._bad_field(msg_id, verb, "pane_id")
             prefer = bool(payload.get("prefer_companion", False))
@@ -262,14 +317,30 @@ class FrameRouter:
             panes = payload.get("panes")
             if panes is not None and not isinstance(panes, list):
                 return self._bad_field(msg_id, verb, "panes")
-            if not panes:
+            # An *explicit* non-empty list is validated entry-by-entry; an
+            # empty/absent list keeps its "all currently-discovered panes"
+            # meaning. Distinguishing the two matters: an explicit list whose
+            # entries are all invalid must subscribe to NOTHING, not silently
+            # fall through to "all".
+            explicit = isinstance(panes, list) and len(panes) > 0
+            payload = dict(payload)
+            if explicit:
+                # Reject (not truncate) an over-long list so the client learns;
+                # entries must be real pane ids (%N), same as the single-pane
+                # verbs — keeps the pane-id contract uniform and bounds
+                # Subscription.panes + the push loop.
+                if len(panes) > _MAX_PANES:
+                    return self._bad_field(msg_id, verb, "panes")
+                payload["panes"] = [
+                    p for p in panes if isinstance(p, str) and _PANE_ID_RE.match(p)
+                ]
+            else:
                 # Empty or absent `panes` means "all currently-discovered panes"
                 # (roster subscribe). The mobile client (aitasks_mobile
                 # MonitorSessionMediator) sends `panes: []` intending "all"; without
                 # this expansion it would subscribe to nothing and the data plane
                 # would stay silent. See aidocs/applink/protocol.md §Subscription and
                 # content_transport.md §subscribe. Point-in-time: panes discovered now.
-                payload = dict(payload)
                 payload["panes"] = self._discover_pane_ids()
             if conn.subscription is None:
                 conn.subscription = Subscription()
@@ -277,7 +348,7 @@ class FrameRouter:
             return self._res(msg_id, verb, {"ok": True, "panes": sorted(accepted)})
 
         if verb == "request_keyframe":
-            pane_id = self._req_str(payload, "pane_id")
+            pane_id = self._req_pane_id(payload)
             if pane_id is None:
                 return self._bad_field(msg_id, verb, "pane_id")
             if conn.subscription is not None:
@@ -285,7 +356,7 @@ class FrameRouter:
             return self._res(msg_id, verb, {"ok": True})
 
         if verb == "cycle_compare_mode":
-            pane_id = self._req_str(payload, "pane_id")
+            pane_id = self._req_pane_id(payload)
             if pane_id is None:
                 return self._bad_field(msg_id, verb, "pane_id")
             mode, following = self._monitor.cycle_compare_mode(pane_id)
@@ -294,6 +365,18 @@ class FrameRouter:
         if verb == "spawn_tui":
             tui_name = self._req_str(payload, "tui_name")
             if tui_name is None:
+                return self._bad_field(msg_id, verb, "tui_name")
+            # SECURITY (t985): spawn_tui interpolates tui_name into a tmux
+            # shell command. Reject anything outside the canonical TUI registry
+            # here (and audit the attempt) so a hostile name never reaches the
+            # monitor; monitor_core.spawn_tui re-checks as defense-in-depth.
+            if tui_name not in TUI_NAMES:
+                self._audit.warning(
+                    "SPAWN_TUI_REJECTED tui_name=%r device=%s bearer=%s",
+                    tui_name[:64],
+                    getattr(conn.session, "device_name", "") or "?",
+                    _tag(getattr(conn.session, "bearer", None)),
+                )
                 return self._bad_field(msg_id, verb, "tui_name")
             return self._res(msg_id, verb, {"ok": bool(self._monitor.spawn_tui(tui_name))})
 
@@ -376,7 +459,7 @@ class FrameRouter:
         return target
 
     def _kill_pane(self, msg_id, payload):
-        pane_id = self._req_str(payload, "pane_id")
+        pane_id = self._req_pane_id(payload)
         if pane_id is None:
             return self._bad_field(msg_id, "kill_pane", "pane_id")
 
@@ -392,7 +475,7 @@ class FrameRouter:
                                build_details=build_details, execute=execute)
 
     def _kill_window(self, msg_id, payload):
-        window_id = self._req_str(payload, "window_id")
+        window_id = self._req_window_id(payload)
         if window_id is None:
             return self._bad_field(msg_id, "kill_window", "window_id")
 
@@ -408,7 +491,9 @@ class FrameRouter:
 
     def _restart_task(self, msg_id, payload):
         """Idle-gated restart confirm (gate: full). Execution is deferred."""
-        pane_id = self._req_str(payload, "pane_id")
+        # Validate even though execution is deferred — the build_details phase
+        # still reaches tmux via capture_pane(pane_id).
+        pane_id = self._req_pane_id(payload)
         if pane_id is None:
             return self._bad_field(msg_id, "restart_task", "pane_id")
 
@@ -452,7 +537,9 @@ class FrameRouter:
 
     def _pick_next_sibling(self, msg_id, payload):
         """Suggest/choose sibling round-trip (gate: full). Execution deferred."""
-        pane_id = self._req_str(payload, "pane_id")
+        # Validate even though execution is deferred — the suggest phase still
+        # reaches tmux via _resolve_pane_task(pane_id).
+        pane_id = self._req_pane_id(payload)
         if pane_id is None:
             return self._bad_field(msg_id, "pick_next_sibling", "pane_id")
         pane, task_id, session_name = self._resolve_pane_task(pane_id)
@@ -538,9 +625,24 @@ class FrameRouter:
     @staticmethod
     def _req_str(payload: dict, key: str) -> str | None:
         value = payload.get(key)
-        if isinstance(value, str) and value:
+        if isinstance(value, str) and value and len(value) <= _MAX_STR:
             return value
         return None
+
+    def _req_pane_id(self, payload: dict, key: str = "pane_id") -> str | None:
+        """A required, format-validated tmux pane id (``%N``), else None.
+
+        Constrains the value to an explicit unique pane id, removing the rich
+        tmux target-spec surface ({mouse}, =sess:win.pane, …) and any
+        leading-dash value before it reaches the monitor / tmux.
+        """
+        value = self._req_str(payload, key)
+        return value if value is not None and _PANE_ID_RE.match(value) else None
+
+    def _req_window_id(self, payload: dict, key: str = "window_id") -> str | None:
+        """A required, format-validated tmux window id (``@N``), else None."""
+        value = self._req_str(payload, key)
+        return value if value is not None and _WINDOW_ID_RE.match(value) else None
 
     def _bad_field(self, msg_id, verb, field):
         return self._err(msg_id, verb, ERR_BAD_PAYLOAD, f"missing or invalid field: {field}")

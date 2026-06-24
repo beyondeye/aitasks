@@ -93,7 +93,7 @@ Error frame payload:
 The PC server is always-on (started by the user via `ait applink`). The phone bootstraps via QR:
 
 1. **Server generates pairing token** — 256-bit random token `T = secrets.token_urlsafe(32)`. Stored in memory only; expires after a configurable TTL (default 5 minutes) if unused.
-2. **Server computes its TLS-cert fingerprint** — SHA-256 of the self-signed cert's DER form, base64url-encoded. (Cert lifecycle and crypto-suite review are deferred — see "Out of scope".)
+2. **Server computes its TLS-cert fingerprint** — SHA-256 of the self-signed cert's DER form, base64url-encoded. (The TLS suite/version posture is documented in [security.md](security.md); cert rotation remains a tracked follow-up there.)
 3. **TUI renders QR.** The QR encodes:
    ```
    applink://<lan-ip>:<port>/pair?t=<base64url(T)>&fp=<fp>&name=<urlencoded(hostname)>
@@ -205,7 +205,10 @@ The relay design itself (broker dial protocol, session-ID issuance, end-to-end k
 
 ## Out of scope (this document)
 
-- Cryptographic primitive review — TLS suite selection, cert rotation, bearer-token entropy audit are deferred to a follow-up security task.
+- Security model — the TLS suite/version posture, token/bearer model, at-rest
+  permissions, input validation, DoS limits, and audit logging are documented in
+  [security.md](security.md). (Cert rotation and bearer rotation remain tracked
+  follow-ups; see that page's "Residuals & deferred work".)
 - Mobile-side bindings — lives in `../aitasks_mobile`; the user mirrors a matching task there manually after this PR lands.
 - Concrete verb inventory — the canonical list of `monitor`-derived verbs (e.g., `send_keys`, `kill_pane`, `spawn_tui`) and their payload schemas are authored by sibling task t822_3 in [monitor_port_design.md](monitor_port_design.md). This document fixes the envelope and lifecycle only.
 - Implementation — see follow-up tasks spawned after t822_2 lands the TUI skeleton.

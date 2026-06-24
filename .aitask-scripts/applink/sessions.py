@@ -23,6 +23,7 @@ from pathlib import Path
 # Reuse the token generator that documents the stable-connection-ID invariant.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pairing import generate_token  # noqa: E402
+from paths import ensure_secure_dir  # noqa: E402
 
 DEFAULT_TOKEN_TTL = 300.0            # 5 min (protocol.md §Pairing flow step 1)
 DEFAULT_BEARER_TTL = 7 * 24 * 3600.0  # bearers are long-lived
@@ -199,11 +200,18 @@ class SessionTable:
     def _save(self) -> None:
         if not self._persist:
             return
-        self._dir.mkdir(parents=True, exist_ok=True)
+        ensure_secure_dir(self._dir)
         payload = {"bearers": [asdict(s) for s in self._bearers.values()]}
         tmp = self._path().with_suffix(".json.tmp")
         try:
             tmp.write_text(json.dumps(payload, indent=2))
+            # Lock the file down BEFORE the atomic rename so the live
+            # sessions.json (live bearer secrets) is never world-readable — the
+            # 0o700 dir is the structural guard, this is defense-in-depth.
+            try:
+                tmp.chmod(0o600)
+            except OSError:
+                pass
             tmp.replace(self._path())
         except OSError:
             pass

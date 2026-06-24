@@ -17,7 +17,13 @@ import hashlib
 import shutil
 import ssl
 import subprocess
+import sys
 from pathlib import Path
+
+# Self-sufficient import of the sibling ``paths`` module regardless of who
+# imported us first (mirrors sessions.py).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths  # noqa: E402
 
 CERT_FILENAME = "server.crt"
 KEY_FILENAME = "server.key"
@@ -39,7 +45,7 @@ def ensure_cert(cert_dir: Path) -> tuple[Path, Path]:
     ``openssl``'s own stdout/stderr is captured and never leaked to the caller's
     streams (so callers like the TUI smoke test stay output-clean).
     """
-    cert_dir.mkdir(parents=True, exist_ok=True)
+    paths.ensure_secure_dir(cert_dir)
     cert_path = cert_dir / CERT_FILENAME
     key_path = cert_dir / KEY_FILENAME
     if cert_path.is_file() and key_path.is_file():
@@ -83,8 +89,17 @@ def fingerprint(cert_path: Path) -> str:
 
 
 def build_ssl_context(cert_path: Path, key_path: Path) -> ssl.SSLContext:
-    """Server-side TLS context loaded with the self-signed cert+key."""
+    """Server-side TLS context loaded with the self-signed cert+key.
+
+    Hardened beyond the ``PROTOCOL_TLS_SERVER`` defaults (t985): the floor is
+    TLS 1.2 (drops 1.0/1.1) and the 1.2 cipher list is restricted to modern
+    forward-secret AEAD suites. The floor is 1.2 — **not** 1.3 — deliberately,
+    so the mobile client's TLS stack can still negotiate; TLS 1.3 suites are
+    AEAD by construction and need no explicit pinning.
+    """
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!eNULL:!MD5")
     ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
     return ctx
 
