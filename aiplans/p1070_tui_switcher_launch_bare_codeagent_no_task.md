@@ -245,3 +245,38 @@ low and the single code-health concern is mitigated within this plan._
 
 Profile 'fast' works on the current branch (no worktree/branch cleanup). After
 review/commit, archive via `./.aitask-scripts/aitask_archive.sh 1070` and push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `tui_switcher.py`: added `action_shortcut_agent` (opens `AgentCommandScreen`
+    with `operation="raw"`, empty prompt; callback routes `TmuxLaunchConfig` →
+    `launch_in_tmux` + `maybe_spawn_minimonitor` (new window), `"run"` →
+    `spawn_in_terminal` with `cwd=project_root`, `None` → leave overlay open).
+    Added the `e`→`shortcut_agent` `Binding` to `_QUICK_JUMP_BINDINGS` and the
+    `("shortcut_agent","agent","e")` entry to `_HINT_ITEMS`.
+  - `agent_command_screen.py`: `on_mount` now skips the "Prompt only:" /
+    "Copy Prompt" row when `prompt_str` is empty.
+  - Tests: `test_tui_switcher_agent_launch.py` (new), 
+    `test_agent_command_dialog_empty_prompt.py` (new), and a one-line update to
+    `test_shortcut_scopes.py`'s expected `_QUICK_JUMPS` set.
+- **Deviations from plan:** One correction — the plan note claimed
+  `resolve_dry_run_command` / `resolve_agent_string` were already imported at the
+  top of `tui_switcher.py`; they were not. Resolved by importing all needed
+  helpers **locally inside the method** (mirroring the existing local
+  `maybe_spawn_minimonitor` import at the old `:1046`), which the plan already
+  specified for the other symbols — so the net code matches the plan. Also
+  dropped the `Any` type annotation on the callback (the file does not import
+  `Any`; existing board/codebrowser callbacks use no annotation).
+- **Issues encountered:** `test_shortcut_scopes.py` hardcodes the expected
+  `_QUICK_JUMPS` action set and failed until `shortcut_agent` was added to it
+  (this is the intended fixture-maintenance signal, not a defect). The
+  registry-coverage and footer-fit tests passed without changes (defaults derive
+  from `_QUICK_JUMP_BINDINGS` via `register_app_bindings`; the new `(E) agent`
+  hint segment still fits).
+- **Key decisions:** Used `operation="raw"` (not bare `operation=None`) so the
+  dialog renders the agent-override row, letting the user switch agent/model for
+  the no-task launch. No `skill_name` passed → no profile row (raw has no skill
+  profile). Window name `agent-raw-N` uses the `agent-` prefix so it is
+  classified under the switcher's "Code Agents" group.
+- **Upstream defects identified:** None
