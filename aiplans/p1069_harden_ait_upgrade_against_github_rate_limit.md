@@ -194,3 +194,32 @@ install copy includes `.aitask-scripts/lib/`.)
 
 No before/after risk-mitigation follow-up tasks proposed (risks are bounded and covered by
 the in-task test + verification).
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `.aitask-scripts/lib/github_release.sh` (sourceable resolver:
+  `github_latest_release_version` with RATELIMIT/NOTFOUND/NETWORK classification via captured
+  HTTP status, `github_latest_tag_version` git-tag fallback, `github_ratelimit_reset_minutes`,
+  and the combined `github_resolve_latest_version`; honors `GH_TOKEN`/`GITHUB_TOKEN`). Rewrote
+  `resolve_version()` in `aitask_upgrade.sh` to branch on the helper's exit code with accurate
+  messages + git-tag fallback. Routed `check_latest_version()` in `aitask_setup.sh` through the
+  helper (silent-degrade preserved). Fixed the GNU-only `\?` sed in `ait`'s `check_for_updates()`
+  to portable `sed -E`. Added `tests/test_github_release.sh` (14 assertions).
+- **Deviations from plan:** None structurally. One bug found during verification and fixed: the
+  rewritten `resolve_version` originally sent its `warn`/`info` diagnostics to **stdout**, which
+  `main()` captures into `target_version` — corrupting the value and leaking the raw `RATELIMIT`
+  token. Redirected all diagnostics to stderr; only the bare version goes to stdout.
+- **Issues encountered:** During development the machine's public IP became genuinely
+  rate-limited (exploration + test curls), which turned out to be an ideal live test: `ait
+  upgrade` exercised the real rate-limit path end-to-end and resolved `v0.26.0` via the git-tag
+  fallback, then reported "Already up to date" (exit 0). The pre-fix code would have died here
+  with the misleading "No releases found".
+- **Key decisions:** Focused scope (user-approved) — shared helper for the two `.aitask-scripts`
+  callers; the `ait` dispatcher gets only the portability sed fix (its cache/background/skip
+  logic is already correct), avoiding a `tests/lib/test_scaffold.sh` source-on-startup baseline
+  change. Portability throughout: ERE sed, numeric `sort` (no `sort -V`), integer minute math
+  (no `date` formatting). Corrected the task's AC4 + root-cause narrative in-place (the
+  dispatcher already caches at 24h TTL and degrades gracefully — the original "burns quota on
+  every ait run" premise was wrong).
+- **Upstream defects identified:** None. (The latent GNU-only `\?` sed bug in `ait:167` was
+  pre-existing but is *related and fixed within this task*, not a separate open defect.)
