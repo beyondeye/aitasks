@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: high
 depends: [t929_2]
 issue_type: documentation
 status: Implementing
 labels: [ait_brainstorm]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-03 15:53
-updated_at: 2026-06-24 16:01
+updated_at: 2026-06-24 16:14
 ---
 
 ## Context
@@ -51,3 +54,8 @@ Depends on **t929_1** and **t929_2**: the docs should describe the *improved* mo
 2. Confirm `/docs/tuis/` brainstorm bullet links the new page and no longer says "Dedicated documentation is pending".
 3. Cross-check every documented keybinding/flow against `brainstorm_app.py` (and the t929_1/t929_2 changes once landed).
 4. `hugo build --gc --minify` (in `website/`) succeeds.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-24T13:14:55Z status=pass attempt=1 type=human
