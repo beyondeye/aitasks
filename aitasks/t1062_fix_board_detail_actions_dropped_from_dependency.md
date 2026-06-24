@@ -8,8 +8,9 @@ issue_type: bug
 status: Implementing
 labels: [ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-24 14:40
-updated_at: 2026-06-24 16:20
+updated_at: 2026-06-24 16:21
 ---
 
 ## Problem
@@ -66,3 +67,5 @@ Route all four nested push sites through a single app-level helper (e.g. `Kanban
 > **✅ gate:plan_approved** run=2026-06-24T13:20:38Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-24T13:20:40Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-24T14:10:58Z status=pass attempt=1 type=human
