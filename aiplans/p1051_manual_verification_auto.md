@@ -57,37 +57,37 @@ created_at: 2026-06-24 18:30
 ### Item 1
 - Item text: With ufw active and port 8765 closed, launch `ait applink` and confirm the firewall advisory appears on the pairing screen.
 - Approach: live TUI inspection.
-- Action run: `systemctl is-active ufw firewalld nftables`; attempted exact default-port headless launch separately for port availability.
-- Output trimmed: `ufw` was active; `firewalld` and `nftables` were inactive. Default port 8765 was already bound, so a fresh default-port listener could not be launched safely.
-- Verdict: defer.
+- Action run: reused the already-running default-port `ait applink` TUI (`applink_app.py`) after confirming `ufw` was active.
+- Output trimmed: user confirmed the visible Pairing screen showed the firewall advisory with ufw active.
+- Verdict: pass.
 
 ### Item 2
 - Item text: Press `f`; confirm `FirewallFixModal` opens and "Open it for me" runs `pkexec` under Hyprland/Wayland.
 - Approach: live desktop/polkit inspection.
-- Action run: not executed from this non-GUI automation session.
-- Output trimmed: `pkexec` is installed, but observing the Hyprland/Wayland polkit dialog requires an interactive desktop session.
-- Verdict: defer.
+- Action run: user pressed `f` in the visible default-port TUI and selected "Open it for me".
+- Output trimmed: user confirmed `FirewallFixModal` opened and `pkexec` raised the polkit dialog under Hyprland/Wayland.
+- Verdict: pass.
 
 ### Item 3
 - Item text: Approve polkit; confirm the LAN-scoped ufw rule is added and a real phone pairs.
 - Approach: live privileged system change plus real mobile pairing.
-- Action run: not executed automatically; this requires explicit user approval in polkit and a phone on the LAN.
-- Output trimmed: no privileged firewall mutation was attempted.
-- Verdict: defer.
+- Action run: user approved the polkit dialog and paired the physical device.
+- Output trimmed: user confirmed the LAN-scoped ufw rule was added and the phone completed the pairing round trip.
+- Verdict: pass.
 
 ### Item 4
 - Item text: Re-press `f` or relaunch and confirm the doctor reports "already open".
 - Approach: live idempotency check.
-- Action run: not executed because item 3 was not completed.
-- Output trimmed: unit coverage in `tests/test_applink_firewall.sh` confirms the idempotent result parser maps existing ufw/firewalld rules to success, but the live no-op path still depends on the real firewall-open flow.
-- Verdict: defer.
+- Action run: user reran the firewall flow from the visible TUI after the rule was added.
+- Output trimmed: user confirmed the second run reported "already open" rather than a failure.
+- Verdict: pass.
 
 ### Item 5
 - Item text: Headless `ait monitor --headless-for-applink` prints the advisory block and exact sudo command after the listener binds.
 - Approach: CLI invocation with captured stdout.
 - Action run: `timeout 14s bash ./.aitask-scripts/aitask_monitor.sh --headless-for-applink --port 18765 --no-qr`; then `timeout 14s bash ./.aitask-scripts/aitask_monitor.sh --headless-for-applink --no-qr`.
-- Output trimmed: temporary-port run printed the pairing block and firewall advisory: `sudo ufw allow from 10.0.0.0/24 to any port 18765 proto tcp`. Exact default-port run failed with `address already in use` for `0.0.0.0:8765`.
-- Verdict: defer, because the checklist explicitly requires default port 8765.
+- Output trimmed: temporary-port run printed the advisory first. After the visible TUI was closed and port 8765 was free, the exact default-port run printed the pairing block and firewall advisory: `sudo ufw allow from 10.0.0.0/24 to any port 8765 proto tcp`.
+- Verdict: pass.
 
 ### Item 6
 - Item text: Generic fallback shows backend-agnostic multi-backend commands with the real LAN CIDR.
@@ -99,4 +99,4 @@ created_at: 2026-06-24 18:30
 ### Supporting Checks
 - `bash tests/test_applink_firewall.sh`: passed all firewall doctor unit checks.
 - `systemctl is-active ufw firewalld nftables`: `active`, `inactive`, `inactive`.
-- `ss -ltnp 'sport = :8765'`: confirmed a listener is already bound on `0.0.0.0:8765`; process details were not visible without elevated inspection.
+- `ss -ltnp 'sport = :8765'`: initially showed the existing visible `ait applink` TUI on port 8765; after it was closed, the exact headless default-port check bound successfully.
