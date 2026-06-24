@@ -110,6 +110,52 @@ envelope / pairing / verbs / permissions; only connectivity changes:
    (`aitasks_mobile`) — currently untracked there.
 4. (Optional) Hosted-box deployment guide (Alternative B) and Phase-4 WebRTC.
 
+## Prior art / external references
+
+Two existing implementations solve this exact problem (remote access to a live
+local coding-agent session). **Borrow their *connectivity* ideas, not their
+*rendering* model** — the web-terminal genre streams a raw VT/ANSI stream to a
+browser terminal, which `wish_ssh_evaluation.md` already rejected for the
+*native* mobile companion (needs a VT parser, loses per-verb permission gating).
+The useful part is purely *how they reach the machine from outside the LAN*.
+
+- **Anthropic Claude Code "Remote Control"** (closest architectural sibling — a
+  native client into a live local session). Connectivity model:
+  *outbound-HTTPS-only, never opens inbound ports*; the local process registers
+  with the API and polls, and the server routes messages between the mobile/web
+  client and the local session. **This is exactly Phase 3 (PC dials out to a
+  broker), with Anthropic's API as the broker** — validates the architecture and
+  its CGNAT/firewall immunity. Also: *multiple short-lived, purpose-scoped
+  credentials expiring independently* (feeds t985 / the Phase-3 E2E story);
+  auto-reconnect on sleep/network-drop with a ~10-min outage→exit policy
+  (validates `Suspended → Connected` + bearer TTL); push notifications +
+  presence suppression (which themselves require a broker path).
+  See https://code.claude.com/docs/en/remote-control
+- **`decolua/9remote`** (open-source; same "terminal in your pocket" genre as the
+  @JC_builds web-terminal thread that prompted this). Two ideas not yet captured
+  above: (a) *auto-spawned zero-config Cloudflare Quick Tunnel (outbound-only)* —
+  the app spawns the tunnel itself and encodes the public URL in the QR, turning
+  Phase 2 from "user runs a tunnel" into a near-turnkey "app runs the tunnel"
+  without building our own broker; (b) *`LocalFirstAdapter` races LAN vs. tunnel
+  and uses whichever is faster* — keep direct-LAN for latency AND a tunnel for
+  reach, prefer LAN when co-located. Plus a permanent-machine-key + one-time
+  30-min QR-key model and a *PTY daemon that survives restarts* (stronger resume
+  than today's process-bound session). See https://github.com/decolua/9remote
+- @JC_builds web-terminal thread (origin of this note):
+  https://x.com/JC_builds/status/2069507796291498022
+
+**Transferable refinements to fold into decomposition:**
+1. Auto-spawned zero-config tunnel (Cloudflare Quick Tunnel) → makes the Phase-2
+   tunnel item (decomposition #1) near-turnkey; QR carries the auto-generated
+   public URL.
+2. LAN-vs-tunnel racing (LocalFirstAdapter) → fills the mobile multi-address /
+   failover gap (decomposition #3); one client handles co-located and remote.
+3. Outbound-only dial-to-broker → confirms the Phase-3 design (decomposition #2).
+4. Multiple short-lived purpose-scoped credentials → feeds t985 and the Phase-3
+   end-to-end key story.
+5. Persistent session daemon surviving restarts → resume robustness beyond the
+   current process-bound `Suspended → Connected`.
+
 ## References
 
 - `aidocs/applink/protocol.md` (§Roadmap to cross-network, §Pairing flow)
