@@ -231,8 +231,8 @@ See parent task **Step 9 (Post-Implementation)** for cleanup, archival, merge.
   `<!-- SCREENSHOT: … -->` placeholders (the TUI has no captured assets yet), mirroring the
   board page's convention. Page maturity tagged `stabilizing` (not `stable`) to match the
   TUI's state.
-- **Upstream defects identified:** None. The staleness was in the task/plan prose, not a
-  code defect; no source bug was surfaced while cross-checking.
+- **Upstream defects identified:** None. (The staleness was in the inherited task/plan
+  prose, not a code defect — see "Issues encountered" above; no source bug was surfaced.)
 - **Notes for sibling tasks:** This is the **last child of t929** — on archival the parent
   t929 archives too and folded t776 is deleted. Future doc work on this TUI: the pages are
   code-verified as of this session against the cited file:line anchors; when the brainstorm
