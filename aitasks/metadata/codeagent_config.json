@@ -10,8 +10,6 @@
     "brainstorm-explorer": "claudecode/opus4_8",
     "brainstorm-comparator": "claudecode/sonnet4_6",
     "brainstorm-synthesizer": "claudecode/opus4_8",
-    "brainstorm-detailer": "claudecode/opus4_8",
-    "brainstorm-patcher": "claudecode/sonnet4_6",
     "brainstorm-initializer": "claudecode/sonnet4_6",
     "brainstorm-module_decomposer": "claudecode/opus4_8",
     "brainstorm-module_merger": "claudecode/opus4_8",
