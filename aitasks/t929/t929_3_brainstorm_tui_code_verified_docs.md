@@ -59,3 +59,5 @@ Depends on **t929_1** and **t929_2**: the docs should describe the *improved* mo
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-24T13:14:55Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-24T13:14:56Z status=pass attempt=1 type=machine
