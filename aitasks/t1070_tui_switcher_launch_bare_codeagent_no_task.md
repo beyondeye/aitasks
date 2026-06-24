@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
@@ -7,7 +9,7 @@ status: Implementing
 labels: [tui_switcher, codeagent, agent_chooser]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-24 23:39
-updated_at: 2026-06-25 00:24
+updated_at: 2026-06-25 00:37
 ---
 
 ## Goal
@@ -122,3 +124,5 @@ no Claude/Codex/OpenCode skill port is implied.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-24T21:37:39Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-24T21:37:41Z status=pass attempt=1 type=machine
