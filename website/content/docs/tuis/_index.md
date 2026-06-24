@@ -21,7 +21,7 @@ The aitasks framework includes several terminal-based user interfaces (TUIs) bui
 - **[Settings](settings/)** (`ait settings`) — Configuration editor for code agent defaults, board settings, available models, and execution profiles. Also hosts the Tmux tab for editing integration settings.
 - **[Stats](stats/)** (`ait stats-tui`) — Pane-based viewer for archived task completion statistics: summary, daily/weekly trends, label and issue-type breakdowns, code agent / LLM model histograms, and verified model score rankings. Swappable built-in layouts plus user-defined custom layouts.
 - **[Syncer](syncer/)** (`ait syncer`) — Tracks remote desync state for `main` and `aitask-data` with one-keystroke pull, push, and sync actions plus an agent-based escape hatch when an action fails. Optionally auto-launched by `ait ide`.
-- **Brainstorm** (`ait brainstorm`) — Interactive planning/brainstorming TUI for drafting new tasks. Dedicated documentation is pending.
+- **[Brainstorm](brainstorm/)** (`ait brainstorm`) — Graph-structured design exploration TUI: branch a seed proposal into variants, compare and synthesize them, optionally split it into modules, and finalize the chosen node into an `aiplans/` implementation proposal.
 
 All TUIs require the shared Python virtual environment installed by [`ait setup`]({{< relref "/docs/commands/setup-install" >}}).
 
