@@ -160,3 +160,81 @@ See parent task **Step 9 (Post-Implementation)** for cleanup, archival, merge.
 
 ### Planned mitigations
 - None — risks are low on both axes and covered in-plan by the verification step.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-24 16:20)
+- **Requested by user:** Asked whether the docs mention that a brainstorm can be
+  started from `ait board` when a task is selected.
+- **Investigation:** Verified in `.aitask-scripts/board/aitask_board.py` — `b`/`B`
+  and the task-detail "Brainstorm" button (`btn_brainstorm`) launch
+  `ait brainstorm <num>` via an `AgentCommandScreen`, reusing an existing
+  `brainstorm-<num>` tmux window if present (`_launch_brainstorm`, ~:5430). Also
+  found the launch flow was mis-documented: the TUI self-initializes — `on_mount`
+  (:3183) pushes `InitSessionModal` when `session_exists()` is false — so
+  `ait brainstorm <num>` works directly on an uninitialized task; the rigid
+  "init first, then launch" framing was inaccurate.
+- **Changes made:** Rewrote the `### Launching` section: lead with the direct
+  `ait brainstorm <num>` launch + in-app init prompt, add the board `b` /
+  Brainstorm-button path (with the existing-window reuse note and a cross-link to
+  the board page), and reframe `ait brainstorm init … --proposal-file` as the
+  explicit CLI seed path rather than a required first step.
+- **Files affected:** `website/content/docs/tuis/brainstorm/_index.md`.
+
+### Change Request 2 (2026-06-24 16:35)
+- **Requested by user:** Flagged the single-page docs as too brief; chose to add the
+  full-tier `how-to.md` + `reference.md` split (matching board/codebrowser/settings/
+  monitor) rather than keep one page. This reverses the plan's deliberate deferral
+  of the split.
+- **Changes made:** Added `website/content/docs/tuis/brainstorm/how-to.md` (step-by-step:
+  start a session, explore variants, compare/synthesize, decompose a module, review/steer,
+  bring a module back, inspect provenance, set HEAD + finalize, manage sessions, tmux) and
+  `reference.md` (complete keybinding tables per surface — Browse/DAG/node-hub/wizard/
+  operation-detail/log/module-preview — gathered from every `BINDINGS` block; node-box
+  anatomy; operation + module-status color legends; operations/agents table; decompose-modes
+  table; provenance surfaces; and the session file layout at
+  `.aitask-crews/crew-brainstorm-<task_num>/`). Updated the `_index.md` closing nav to point
+  into the new pages.
+- **Files affected:** `website/content/docs/tuis/brainstorm/{_index,how-to,reference}.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created the full-tier brainstorm TUI doc set —
+  `website/content/docs/tuis/brainstorm/{_index,how-to,reference}.md` — and linked it
+  from `website/content/docs/tuis/_index.md` (replaced the "Dedicated documentation is
+  pending" bullet with a `[Brainstorm](brainstorm/)` link). All content cross-checked
+  against the current source (`brainstorm_app.py`, `brainstorm_dag_display.py`,
+  `constants.py`, `brainstorm_session.py`, the board's brainstorm launch path, and the
+  init launcher). `hugo build --gc --minify` passes; all three pages render and every
+  `relref` resolves.
+- **Deviations from plan:** (1) Plan scoped a single `_index.md` with the full-tier split
+  deferred; the user reversed that mid-review and the `how-to.md` + `reference.md` pages
+  were added (Change Request 2). (2) The launch flow was corrected after the user's question
+  (Change Request 1): the TUI self-initializes via `InitSessionModal` (`brainstorm_app.py`
+  `on_mount`, ~:3183), so `ait brainstorm <num>` works directly on an uninitialized task —
+  the plan's implied "init first" sequence was wrong. Added the board launch path
+  (`b` / Brainstorm button, `_launch_brainstorm`).
+- **Issues encountered:** The dominant finding was that the **inherited task body / plan
+  were substantially stale** (verify-mode confirmed it): they documented operations
+  `hybridize` / `detail` / `patch` and a DAG footer `j Next  k Prev …` that no longer
+  exist after the t983_* / t1018_* refactors. Current reality (documented instead):
+  design ops are `explore` / `compare` / `synthesize` / `module_decompose` / `module_merge`
+  / `module_sync` (`hybridize` survives only as a legacy color alias); DAG navigation is
+  arrow-key based (`↑/↓` layer, `←/→` column) plus `enter`/`h`/`o`/`p`/`x`; tabs are
+  Browse / Session / Running (the old Compare and Actions tabs are gone). The badge color
+  legend was corrected to cyan=explore, yellow=compare, magenta=synthesize,
+  green=module_decompose, orange=module_merge, purple=module_sync, dim=bootstrap (red is
+  the `deferred` module-status overlay, not an op color).
+- **Key decisions:** Docs are written current-state-positive per
+  `aidocs/framework/documentation_conventions.md` (the staleness is recorded here in the
+  plan, not as "it used to be X" prose in the page). SVG screenshots are left as
+  `<!-- SCREENSHOT: … -->` placeholders (the TUI has no captured assets yet), mirroring the
+  board page's convention. Page maturity tagged `stabilizing` (not `stable`) to match the
+  TUI's state.
+- **Upstream defects identified:** None. The staleness was in the task/plan prose, not a
+  code defect; no source bug was surfaced while cross-checking.
+- **Notes for sibling tasks:** This is the **last child of t929** — on archival the parent
+  t929 archives too and folded t776 is deleted. Future doc work on this TUI: the pages are
+  code-verified as of this session against the cited file:line anchors; when the brainstorm
+  ops/keys change again, re-grep `BINDINGS` / `OP_BADGE_STYLES` / `_DESIGN_OPS` rather than
+  trusting the prose. No SVG screenshots exist yet — capturing them is a clean follow-up.
