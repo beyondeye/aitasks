@@ -3,12 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: enhancement
-status: Ready
+status: Done
 labels: [ait_brainstorm]
-children_to_implement: [t929_3]
 folded_tasks: [776]
 created_at: 2026-06-03 14:06
-updated_at: 2026-06-05 11:22
+updated_at: 2026-06-24 16:36
+completed_at: 2026-06-24 16:36
 boardcol: now
 boardidx: 20
 ---
