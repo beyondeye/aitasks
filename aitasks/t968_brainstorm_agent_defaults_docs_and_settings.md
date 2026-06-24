@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t929_3]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, ait_settings]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 18:15
-updated_at: 2026-06-10 18:15
+updated_at: 2026-06-24 17:11
 boardidx: 20
 ---
 
