@@ -28,6 +28,21 @@ Autonomously drive the live gate orchestrator (`ait gates run` /
 `aitask-run-gates`) end-to-end against the FIRST real machine-gate verifier
 (landed by t635_12), confirming the engine's runtime behavior — not just stubs.
 
+## Available verifiers (from t635_12 — now landed)
+
+t635_12 shipped the first real machine-gate verifiers, so this task can run now:
+- `build_verified` → `aitask-gate-build` (project_config.yaml `verify_build`)
+- `tests_pass` → `aitask-gate-tests-pass` (`test_command`)
+- `lint` → `aitask-gate-lint` (`lint_command`)
+
+All three are registered in `aitasks/metadata/gates.yaml` and **skip (exit 2)**
+when their command is unset. To drive the checklist, point a scratch task's
+`gates:` at one (e.g. `gates: [build_verified]`) with a `verify_build` set to a
+controllable command (`true` / `false`) in a scratch `project_config.yaml`, then
+run `ait gates run <id>`. See the t635_12 plan
+(`aiplans/archived/p635/p635_12_build_test_machine_gates.md`) and
+`tests/test_gate_verifiers.sh` for the exact fixture shapes.
+
 ## Verification checklist
 
 - [ ] On a task declaring a real machine gate, `ait gates run <id>` dispatches the
