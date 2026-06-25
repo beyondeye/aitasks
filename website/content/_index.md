@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.26.1: Spin Up an Agent,  No Task Required, and Upgrades That Survive GitHub Rate Limits](blog/v0261-spin-up-an-agent-no-task-required-upgrades-that-survive-github-rate-limits/)** -- Jun 25, 2026
 - **[v0.26.0: Gate orchestration,  end to end, Your terminals,  on your phone, and Project groups](blog/v0260-gate-orchestration-end-to-end-your-terminals-on-your-phone-project-groups/)** -- Jun 24, 2026
 - **[v0.25.0: Task gates that actually drive the workflow, Your phone can now talk to your workspace, and Meet the shadow companion](blog/v0250-task-gates-that-actually-drive-the-workflow-your-phone-can-now-talk-to-you/)** -- Jun 15, 2026
-- **[v0.24.0: See your proposal while you work, Your tmux sessions stop dying, and Smarter module decomposition](blog/v0240-see-your-proposal-while-you-work-your-tmux-sessions-stop-dying-smarter-mod/)** -- Jun 12, 2026
 
 [All releases &rarr;](blog/)
 
