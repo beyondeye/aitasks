@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [applink, applink_dataplane]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-22 16:51
-updated_at: 2026-06-25 10:16
+updated_at: 2026-06-25 10:54
+completed_at: 2026-06-25 10:54
 ---
 
 AppLink live keyframes must carry viewport-only positive row_ids; today the server bundles ~200 scrollback rows into a viewport-sized keyframe, violating content_transport.md §Row schema (row_id 0 = top of visible viewport; scrollback uses NEGATIVE ids, history RPC only).
