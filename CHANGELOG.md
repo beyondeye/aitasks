@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.26.1
+
+### Features
+
+- **Launch a bare code agent from the TUI switcher** (t1070): The TUI switcher gained an `e` shortcut to start a code agent in a fresh window with no task attached, letting you pick the agent and model on the spot for ad-hoc work.
+
+### Bug Fixes
+
+- **Resilient `ait upgrade` under GitHub rate limiting** (t1069): `ait upgrade` and `ait setup` now handle GitHub API rate limits gracefully — falling back to git tags and reporting accurate status instead of failing with a misleading "No releases found" message.
+
 ## v0.26.0
 
 ### Features

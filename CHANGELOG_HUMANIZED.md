@@ -1,5 +1,19 @@
 # Releases
 
+## v0.26.1
+
+A small but handy maintenance release that smooths out two rough edges.
+
+## Spin Up an Agent, No Task Required
+
+Sometimes you just want a code agent in front of you without ceremony. Hit `e` in the TUI switcher and you get a fresh agent window with nothing attached — pick the agent and model right there and start hacking. Perfect for quick experiments and one-off questions.
+
+## Upgrades That Survive GitHub Rate Limits
+
+If GitHub's API throttled you, `ait upgrade` used to give up with a confusing "No releases found." Now it quietly falls back to git tags and tells you the truth about where you stand, so checking for updates keeps working even when the API doesn't.
+
+---
+
 ## v0.26.0
 
 v0.26.0 is a big one — it lands a full gate-driven verification system, brings the mobile companion's live-terminal data plane online, and adds project groups plus a bunch of brainstorm TUI polish.
