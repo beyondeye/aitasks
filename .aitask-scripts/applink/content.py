@@ -242,21 +242,42 @@ def parse_sgr_line(line: str):
     return spans, urls
 
 
-def parse_snapshot(content: str):
+def parse_snapshot(content: str, viewport_height: Optional[int] = None):
     """Parse a ``PaneSnapshot.content`` blob into a list of ``(row_id, spans, urls)``.
 
-    ``row_id`` 0 == top of the captured viewport. ``spans`` is the list of
-    fixed-arity ``[text, fg, bg, attrs, width]`` arrays for the row; ``urls`` is
-    the parallel per-span OSC8 hyperlink list (``""`` when not a hyperlink). This
-    is the low-level parse that retains per-span URLs so a delta can build its
-    ``osc8`` sidecar over a *subset* of rows (:func:`build_osc8`); the keyframe
-    path uses it via :func:`snapshot_to_rows`.
+    ``spans`` is the list of fixed-arity ``[text, fg, bg, attrs, width]`` arrays
+    for the row; ``urls`` is the parallel per-span OSC8 hyperlink list (``""``
+    when not a hyperlink). This is the low-level parse that retains per-span URLs
+    so a delta can build its ``osc8`` sidecar over a *subset* of rows
+    (:func:`build_osc8`).
+
+    When ``viewport_height`` is given (the **live push path**, ``pusher.py``),
+    only the **live viewport** — the trailing ``viewport_height`` rows of the
+    capture — is parsed, and those rows are renumbered ``0..viewport_height-1``
+    so ``row_id`` 0 == top of the **visible viewport** (content_transport.md
+    §Row schema). The capture carries ~200 scrollback rows above the viewport
+    (``-S -<capture_lines>``); those are dropped from live frames — history is
+    served separately via the (future) history RPC with negative row_ids. Every
+    downstream live frame (keyframe ``full_rows``, the delta ``row_sigs``
+    baseline, :func:`deltify`, :func:`detect_append`, :func:`build_osc8`) derives
+    from this list, so passing the height here makes them all viewport-only at
+    once.
+
+    ``viewport_height=None`` (default) parses every captured row from 0 — the
+    legacy/full behavior used by :func:`snapshot_to_rows` (and its tests). When
+    ``viewport_height`` exceeds the captured row count, all rows are returned
+    (renumbered from 0); ``viewport_height=0`` yields no rows.
     """
     parsed: list = []
     lines = content.split("\n")
     if lines and lines[-1] == "":
         lines = lines[:-1]  # drop the trailing empty cell from a final newline
-    for row_id, line in enumerate(lines):
+    if viewport_height is not None:
+        # Trim to the live viewport (trailing N rows). The `> 0` guard matters:
+        # `lines[-0:]` is `lines[:]` (the whole list), so a zero-height pane must
+        # short-circuit to no rows rather than emit the full capture.
+        lines = lines[-viewport_height:] if viewport_height > 0 else []
+    for row_id, line in enumerate(lines):  # enumerate from 0 == top of viewport
         spans, urls = parse_sgr_line(line)
         parsed.append((row_id, spans, urls))
     return parsed
@@ -357,10 +378,16 @@ def snapshot_to_rows(content: str):
     """Parse a ``PaneSnapshot.content`` blob into ``(rows, osc8)`` for a keyframe.
 
     ``rows`` is a list of ``[row_id, [span, ...]]`` (``row_id`` 0 == top of the
-    captured viewport). ``osc8`` is the frame-global sidecar map
-    ``{flat_span_offset: url}`` (row-major over all rows). Thin wrapper over
-    :func:`parse_snapshot` + :func:`build_osc8` — byte-for-byte identical output
-    to the pre-t822_9 implementation.
+    captured buffer — **all** captured rows, scrollback included). ``osc8`` is the
+    frame-global sidecar map ``{flat_span_offset: url}`` (row-major over all
+    rows). Thin wrapper over :func:`parse_snapshot` + :func:`build_osc8` —
+    byte-for-byte identical output to the pre-t822_9 implementation.
+
+    **Not the live push path.** This helper does not trim scrollback. The live
+    push path (``pusher._push_pane``) must call ``parse_snapshot(content,
+    viewport_height)`` so frames carry only the visible viewport per
+    content_transport.md §Row schema (t1054); a caller that streams the output of
+    this helper would re-emit scrollback rows with the wrong row-id basis.
     """
     parsed = parse_snapshot(content)
     rows = [[row_id, spans] for row_id, spans, _urls in parsed]

@@ -144,7 +144,14 @@ class PushScheduler:
 
         cursor = await self._monitor.capture_cursor_async(pane_id)
         cursor = list(cursor) if cursor is not None else [0, 0, False, 0]
-        parsed = content.parse_snapshot(snap.content)
+        # Live frames carry only the visible viewport (content_transport.md §Row
+        # schema: row_id 0 == top of the viewport). The capture holds ~200
+        # scrollback rows above the viewport (-S -capture_lines); trimming to the
+        # trailing `dims[1]` (pane height) rows here makes every downstream frame
+        # type — keyframe, delta, append, osc8 — viewport-only and aligns row_ids
+        # with the viewport-relative cursor row (t1054). Scrollback is reachable
+        # via the (future) history RPC with negative row_ids.
+        parsed = content.parse_snapshot(snap.content, dims[1])
         new_sigs = {row_id: content.row_signature(spans) for row_id, spans, _u in parsed}
 
         # Stage 2 (t822_9): emit a `delta` (changed rows only) against the

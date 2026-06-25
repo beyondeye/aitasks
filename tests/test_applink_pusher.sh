@@ -536,6 +536,31 @@ async def main():
     check("disconnect(B2): connection removed from _conns/_live",
           len(srv._conns) == 0 and len(srv._live) == 0)
 
+    # === t1054 viewport-only keyframe =======================================
+    # The capture holds scrollback above the visible viewport (-S -capture_lines).
+    # A live keyframe must carry ONLY the trailing `height` viewport rows,
+    # renumbered 0..height-1, with the wire `rows` field matching that count
+    # (content_transport.md §Row schema). Decode the actual wire bytes and assert
+    # against the viewport, never the scrollback.
+    subvp = C.Subscription()
+    subvp.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wsvp, monvp, panevp = FakeWS(), FakeMonitor(), FakePane("%1", height=3)
+    # 3 scrollback rows (s0..s2) above the 3-row viewport (v0..v2).
+    monvp.snaps["%1"] = FakeSnap(panevp, "s0\ns1\ns2\nv0\nv1\nv2\n")
+    nvp = {"t": 20000.0}
+    schedvp = PushScheduler(FakeConn(subvp), wsvp, monvp, clock=lambda: nvp["t"])
+    await schedvp._run_once()
+    kfvp = binaries(wsvp)
+    check("viewport: forced pass -> one keyframe", len(kfvp) == 1 and kfvp[0][0] == C.FRAME_KEYFRAME)
+    decvp = msgpack.unpackb(kfvp[0][1:], raw=False, strict_map_key=False)
+    # decvp = [pane, fid, cols, rows, cursor, rowlist, osc8?]
+    check("viewport: wire `rows` field == pane height (3)", decvp[3] == 3)
+    rowlist = decvp[5]
+    check("viewport: keyframe carries exactly `height` rows (no scrollback)", len(rowlist) == 3)
+    check("viewport: row_ids renumbered 0..height-1", [r[0] for r in rowlist] == [0, 1, 2])
+    check("viewport: rows are the VISIBLE viewport, not scrollback",
+          [r[1][0][0] for r in rowlist] == ["v0", "v1", "v2"])
+
     # Whole-suite assertion: no "Task exception was never retrieved" / unhandled
     # callback ever surfaced through the loop exception handler.
     check("no unretrieved task / unhandled-callback exceptions across the suite",

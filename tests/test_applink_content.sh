@@ -130,6 +130,25 @@ check("snapshot_to_rows unchanged after refactor",
       ([[0, [["a", None, None, 0, 1]]],
         [1, [["b", None, None, C.ATTR_HYPERLINK, 1]]]], {1: "u"}))
 
+# --- t1054 viewport trim: live frames carry only the visible viewport ------
+# Capture = 3 scrollback rows above the 3-row viewport. parse_snapshot with a
+# viewport_height keeps only the trailing `height` rows, renumbered from 0 so
+# row_id 0 == top of the VISIBLE viewport (content_transport.md §Row schema).
+vp = C.parse_snapshot("s0\ns1\ns2\nv0\nv1\nv2\n", 3)
+check("viewport trim keeps exactly `height` rows", len(vp) == 3)
+check("viewport rows renumbered 0..height-1", [p[0] for p in vp] == [0, 1, 2])
+check("row_id 0 == first VISIBLE row, not oldest scrollback",
+      [p[1][0][0] for p in vp] == ["v0", "v1", "v2"])
+# Defensive: height >= captured row count -> all rows, numbered from 0.
+vp_all = C.parse_snapshot("only\n", 24)
+check("viewport_height > captured rows -> all rows from 0",
+      [p[0] for p in vp_all] == [0] and vp_all[0][1][0][0] == "only")
+# Degenerate zero-height pane -> no rows (NOT the whole capture via lines[-0:]).
+check("viewport_height 0 -> no rows", C.parse_snapshot("a\nb\n", 0) == [])
+# No viewport_height (default) -> full parse, unchanged (snapshot_to_rows path).
+check("parse_snapshot without height is unchanged (full parse)",
+      [p[0] for p in C.parse_snapshot("s0\ns1\nv0\nv1\n")] == [0, 1, 2, 3])
+
 # build_osc8 over a row SUBSET -> offsets relative to the subset, not the grid.
 psub = C.parse_snapshot("plain\n\x1b]8;;z\x1b\\link\x1b]8;;\x1b\\\n")
 check("build_osc8 over subset -> subset-relative offset", C.build_osc8([psub[1]]) == {0: "z"})
