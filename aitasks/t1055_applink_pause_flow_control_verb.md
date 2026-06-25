@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [applink, applink_dataplane]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-22 16:51
-updated_at: 2026-06-25 09:55
+updated_at: 2026-06-25 11:28
 ---
 
 AppLink server does not handle the `pause` flow-control verb. content_transport.md §Back-pressure specifies: 'Mobile MAY send a pause push (verb: pause) when backgrounded but not yet Suspended ... server stops all pushes until resume push, no state lost.'
