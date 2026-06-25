@@ -3,10 +3,11 @@ priority: low
 effort: medium
 depends: [t635_11]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [gates, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-02 12:49
-updated_at: 2026-06-10 18:55
+updated_at: 2026-06-25 11:31
 ---
 
 > **Formerly standalone task t912** (`t912_risk_evaluation_gate_integration`),
