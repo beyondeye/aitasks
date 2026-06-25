@@ -159,3 +159,5 @@ attempt to scope its details in this task.
 > **✅ gate:plan_approved** run=2026-06-25T07:38:23Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-25T07:38:25Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-25T08:08:20Z status=pass attempt=1 type=human
