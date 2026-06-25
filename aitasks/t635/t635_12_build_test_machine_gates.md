@@ -47,3 +47,5 @@ become machine gates.
 > **✅ gate:plan_approved** run=2026-06-25T07:28:44Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-25T07:28:45Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-25T07:53:19Z status=pass attempt=1 type=human
