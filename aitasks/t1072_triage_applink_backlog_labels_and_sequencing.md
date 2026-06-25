@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [applink]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-25 09:35
-updated_at: 2026-06-25 09:35
+updated_at: 2026-06-25 09:43
 ---
 
 Organize the open AppLink task backlog so each task's purpose is legible from its
