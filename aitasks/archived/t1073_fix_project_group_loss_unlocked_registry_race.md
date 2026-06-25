@@ -1,13 +1,16 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [backend, projects, concurrency]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-25 10:00
-updated_at: 2026-06-25 10:01
+updated_at: 2026-06-25 10:52
+completed_at: 2026-06-25 10:52
 ---
 
 ## Problem
