@@ -22,9 +22,13 @@
 #                     bare `aitask-gate-<x>` resolves to
 #                     .aitask-scripts/aitask_gate_<x>.sh; a path runs directly.
 #                     EMPTY (or absent) = no auto-run (recorded by the workflow /
-#                     a human, not executed). Concrete verifiers land in later
-#                     children (build/tests t635_12, risk t635_13, docs t635_19);
-#                     they stay empty here.
+#                     a human, not executed). The build/tests/lint verifiers are
+#                     populated (t635_12, below); the risk (t635_13) and docs
+#                     (t635_19) verifiers land in later children and stay empty
+#                     until then. The command-driven verifiers (build/tests/lint)
+#                     read their command from project_config.yaml and SKIP
+#                     (exit 2, terminal-satisfied) when that command is unset, so
+#                     a gate that does not apply to a project never blocks it.
 #   max_retries     - re-attempts after a failure (int, default 0 = single shot).
 #   timeout_seconds - max wall-clock for one machine-gate run (optional).
 #   unlocks         - gates this gate unlocks on pass. ABSENT (key omitted) =
@@ -85,10 +89,26 @@ gates:
     type: machine
     description: "Project build/verify command(s) pass after implementation"
     blocks_dependents: true
-    # verifier populated by t635_12 (build/tests machine gate); empty = no auto-run.
-    verifier: ""
+    # Runs project_config.yaml `verify_build`; skips (exit 2) when unset (t635_12).
+    verifier: aitask-gate-build
     max_retries: 1
     timeout_seconds: 600
+  tests_pass:
+    type: machine
+    description: "Project test suite passes after implementation"
+    blocks_dependents: true
+    # Runs project_config.yaml `test_command`; skips (exit 2) when unset (t635_12).
+    verifier: aitask-gate-tests-pass
+    max_retries: 1
+    timeout_seconds: 600
+  lint:
+    type: machine
+    description: "Project linter reports no errors"
+    # Style check — does not gate dependents (a lint nit shouldn't block downstream).
+    blocks_dependents: false
+    # Runs project_config.yaml `lint_command`; skips (exit 2) when unset (t635_12).
+    verifier: aitask-gate-lint
+    max_retries: 0
   review_approved:
     type: human
     description: "Implemented changes reviewed and approved before commit"
