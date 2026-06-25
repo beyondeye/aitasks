@@ -6,7 +6,7 @@ issue_type: refactor
 status: Ready
 labels: [gates, execution_profiles, task_workflow]
 created_at: 2026-06-10 18:55
-updated_at: 2026-06-14 17:36
+updated_at: 2026-06-25 10:45
 ---
 
 ## Context
@@ -74,6 +74,18 @@ workflow and archive normally — only post-integration gates that pass out of b
 guard is profile-INVARIANT (it reads declared gates, not `record_gates`), so the
 profile→declaration mapping you build is exactly what activates it. See
 `aidocs/gates/gate-guarded-archival.md`.
+
+## Coordination (from t635_12)
+
+t635_12 converted build/tests/lint into machine gates and wired task-workflow
+Step 9 to `ait gates run`, but kept the **legacy inline `verify_build`
+procedure** as a transitional fallback for tasks that declare no `gates:` (the
+common case until this task makes declaration universal). **t635_24
+(`depends: [t635_14]`) removes that fallback** — the inline `verify_build` block,
+its `record_gates` manual recording, and the standalone `verify_build` settings
+surface — once this unification lands. Coordinate: this task should leave the
+fallback intact (its removal is t635_24's job), and t635_24 unblocks only after
+this completes.
 
 ## References
 
