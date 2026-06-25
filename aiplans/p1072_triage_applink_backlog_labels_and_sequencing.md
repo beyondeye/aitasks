@@ -130,3 +130,24 @@ paths only (concurrent-writer hygiene — do not blanket-add):
   → mitigation: none
 
 risk_mitigations_planned: false
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly as planned. (1) `labels.txt`: removed legacy
+  `ait_bridge`, added `applink_connectivity`, `applink_control`,
+  `applink_dataplane`, `applink_security`. (2) Relabeled 13 tasks to the dual
+  scheme via `aitask_update.sh --batch <id> --labels` (t1002 → umbrella only;
+  t1007/t1045/t1054-58 → dataplane; t1011 → control; t1061 → connectivity;
+  t1066-68 → security). (3) Rewrote t1061's `## Dependencies & sequencing` —
+  t985 corrected to DONE/unblocked, added a `### Suggested implementation order`
+  subsection with Tiers 0/1/2 + independent.
+- **Deviations from plan:** None.
+- **Issues encountered:** The `aitask_update.sh --labels` calls re-wrote each
+  task file (frontmatter `updated_at` bump), which invalidated an in-flight Edit
+  on t1061 ("file modified since read") — re-read the section and re-applied; the
+  body text was unmodified by the label op. No data lost.
+- **Key decisions:** Dual labels (umbrella + sub-area) over replace-only, to keep
+  one-filter roll-up of all AppLink work; 4 sub-area buckets; sequencing recorded
+  in t1061's body (source-of-truth next to the roadmap) rather than a separate
+  aidocs note. All confirmed with the user before implementing.
+- **Upstream defects identified:** None.
