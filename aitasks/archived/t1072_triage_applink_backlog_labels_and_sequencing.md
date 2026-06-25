@@ -5,11 +5,12 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: chore
-status: Implementing
+status: Done
 labels: [applink]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-25 09:35
-updated_at: 2026-06-25 09:54
+updated_at: 2026-06-25 10:01
+completed_at: 2026-06-25 10:01
 ---
 
 Organize the open AppLink task backlog so each task's purpose is legible from its
