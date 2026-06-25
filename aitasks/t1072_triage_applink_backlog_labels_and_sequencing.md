@@ -124,3 +124,5 @@ a remote link worth having. Recommended sequence (record on t1061):
 > **✅ gate:plan_approved** run=2026-06-25T06:54:49Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-25T06:54:51Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-25T07:00:47Z status=pass attempt=1 type=human
