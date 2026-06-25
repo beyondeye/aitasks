@@ -53,3 +53,15 @@ docs-drift checkpoint thereafter.
 Children carry explicit `depends:` (sibling auto-deps disabled) matching the
 roadmap's dependency table — the phases overlap deliberately (e.g. t635_8
 only needs t635_1).
+
+## Coordination — artifact-producing gate family (t1076_4)
+
+The integration roadmap names a **third gate family** — "artifact-producing
+follow-ups" — alongside verifications and approvals, but leaves it as a
+pseudo-gate with no child here. The unified artifact design
+(`aidocs/unified_artifact_design.md` §8) formalizes it as the **artifact-producing
+gate archetype**, tracked under **t1076_4** (parent t1076), which `depends: [.., 635]`
+and builds on the orchestrator/verifier contract (t635_11). When that work plans,
+decide whether it ultimately lands as a t635 child or stays under the artifact
+umbrella; either way it is the concrete realization of this framework's third gate
+family.

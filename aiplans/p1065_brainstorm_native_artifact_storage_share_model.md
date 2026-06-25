@@ -273,3 +273,42 @@ This is a design/doc task — no build/tests.
   (this is a brainstorm doc, fully reviewable and revisable pre-commit).
 
 _No before/after risk-mitigation tasks planned (risk_mitigations_planned = false)._
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-25)
+- **Requested by user:** during review, clarify implementation order/dependencies
+  and whether the design's decomposition is mapped to existing tasks.
+- **Changes made:** added design-doc §11 "Coverage against the existing task graph"
+  (mapped vs. gap) + a dependency-ordered sequence with an ASCII diagram.
+
+### Change Request 2 (2026-06-25)
+- **Requested by user:** "create the new aitasks that are missing, update references
+  and commit changes" — overrides the original "proposal-only, no tasks created"
+  decision.
+- **Changes made:** created umbrella parent **t1076** (`unified_artifact_implementation`,
+  anchored to t1065) with children **t1076_1** (storage generalization, depends t1030),
+  **t1076_2** (artifact pointer/version model + frontmatter), **t1076_3** (share-handle
+  resolution + cache wrapper), **t1076_4** (artifact-producing gate archetype, depends
+  t1076_3 + t635). Re-scoped **t774** to `depends: [1076]`. Added bidirectional
+  coordination notes on t774, t1030, and t635 (t635↔t1076_4). Updated §11 from
+  "proposal only" to the realized mapping.
+
+## Final Implementation Notes
+
+- **Actual work done:** authored the design doc `aidocs/unified_artifact_design.md`
+  (14 sections) honoring the four pre-settled decisions + three user design decisions
+  (pointer-layer model, handle-only/never-rewrite-task-files, HTML-plan remote-backend
+  policy with mandatory cache). Created the t1076 umbrella + 4 children, re-scoped t774,
+  wired deps, and added bidirectional coordination notes.
+- **Deviations from plan:** the plan said "no child tasks created"; the user explicitly
+  reversed this mid-review, so the decomposition was realized as real tasks (t1076 +
+  children) and the doc's §11 updated accordingly.
+- **Issues encountered:** the umbrella parent first auto-numbered to **t1075**, colliding
+  with a concurrently-created `t1075_install_sh_*` on the shared aitask-data branch
+  (known concurrent-writer hazard). Resolved by renumbering my task t1075→**t1076** via
+  `./ait git mv`; the other session's t1075 was left untouched.
+- **Key decisions:** stable-handle / mutable-manifest split (the crux that makes
+  "never rewrite task files" hold); artifact-producing gate as a t1076 child coordinated
+  with t635 rather than a t635 child (driven primarily by the artifact model).
+- **Upstream defects identified:** None.

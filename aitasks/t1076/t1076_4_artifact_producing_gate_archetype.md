@@ -1,13 +1,13 @@
 ---
 priority: medium
 effort: high
-depends: [t1076_3]
+depends: [t1076_3, 635]
 issue_type: feature
 status: Ready
 labels: [task_attachments, html_plans, gates]
 anchor: 1065
 created_at: 2026-06-25 11:04
-updated_at: 2026-06-25 11:04
+updated_at: 2026-06-25 11:05
 ---
 
 **Design spec:** `aidocs/unified_artifact_design.md` §8 (planning-mode-write seam).

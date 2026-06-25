@@ -1,12 +1,12 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [1076]
 issue_type: feature
 status: Ready
 labels: [aitask_pick, html_plans]
 created_at: 2026-05-14 15:46
-updated_at: 2026-05-14 15:46
+updated_at: 2026-06-25 11:05
 boardidx: 180
 ---
 
@@ -16,3 +16,33 @@ Recently claude code shipped a new feature that encapsulate working with html pl
 https://code.claude.com/docs/en/artifacts
 This is obviously a way to take advantage of html ouput from the codeagent in more structured and use-case oriented way.
 when brainstorming about the integrating of html in aitasks framework we should take a look also as how artifacts are designed in claude code.
+
+## Coordination — t1065 unified artifact model
+
+t1065 (`aidocs/unified_artifact_design.md`) brainstormed this integration and
+**revises the planned approach** for HTML plans:
+
+- **HTML plans become an "artifact", not a 3rd inline-committed file.** Instead of
+  committing/archiving/zipping the HTML alongside the markdown plan, it flows
+  through the unified artifact storage layer (pluggable backend + universal local
+  cache). Archive/query/zip parity is delivered *through the storage layer*.
+- **Storage policy:** the **configured remote backend is the preferred home** for
+  shareable HTML plans; the **local cache is always active/mandatory** for
+  open/edit/preview/offline; the zero-config `local` backend is bootstrap/dev/
+  offline-only (resolves only on machines with the `aitask-data` branch; bloats it
+  for large HTML). The markdown plan stays inline and authoritative.
+- **Handle-only references:** the task/plan stores only a stable `art:<id>`
+  handle; mutable pointer/version/backend state lives in a manifest, so backend
+  migration / cache refresh never rewrite task files.
+- **Planning-mode write blocker:** addressed by a proposed **artifact-producing
+  gate archetype** (t635's unbuilt third gate family). The handle is preallocated
+  (derivable) during planning; content is materialized post-approval; the approved
+  plan body is never patched.
+
+See `aidocs/unified_artifact_design.md` §7 (HTML-plan policy) and §8
+(planning-mode-write seam).
+
+**Implementation:** the artifact substrate is built under **t1076**
+(`unified_artifact_implementation`) and its children t1076_1..t1076_4. This task
+(t774) `depends: [1076]` and is the **HTML-plan consumer** that routes plans
+through that substrate once it lands.
