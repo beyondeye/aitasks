@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: feature
@@ -7,7 +9,7 @@ status: Implementing
 labels: [html_plans, task_attachments]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-24 21:56
-updated_at: 2026-06-25 09:10
+updated_at: 2026-06-25 10:38
 ---
 
 ## Brainstorm / design (not implementation)
@@ -155,3 +157,5 @@ attempt to scope its details in this task.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-25T07:38:23Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-25T07:38:25Z status=pass attempt=1 type=machine
