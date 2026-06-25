@@ -39,8 +39,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/python_resolve.sh
 source "$SCRIPT_DIR/lib/python_resolve.sh"
+# shellcheck source=lib/registry_lock.sh
+source "$SCRIPT_DIR/lib/registry_lock.sh"
 
 REGISTRY_FILE="${AITASKS_PROJECTS_INDEX:-$HOME/.config/aitasks/projects.yaml}"
+# Mutex dir for serializing registry read-modify-write (t1073). Derived from
+# REGISTRY_FILE so it follows AITASKS_PROJECTS_INDEX overrides (tests included).
+REGISTRY_LOCK_DIR="${REGISTRY_FILE}.lockd"
+
+# Acquire the registry mutex or abort. NEVER proceed unlocked (t1073): a failed
+# acquire dies, which the silent bootstrap `add` (tmux_bootstrap.sh invokes it as
+# `... >/dev/null 2>&1 || true`) swallows — harmlessly skipping a last_opened
+# refresh instead of clobbering a concurrent writer's groups.
+registry_lock_or_die() {
+    # The lock dir lives beside the registry; its parent may not exist yet on a
+    # first-ever write (atomic_write would otherwise create it). mkdir the parent
+    # so `mkdir "$lockdir"` can succeed.
+    mkdir -p "$(dirname "$REGISTRY_LOCK_DIR")" 2>/dev/null || true
+    registry_lock_acquire "$REGISTRY_LOCK_DIR" \
+        || die "Registry is locked by another ait process — try again."
+}
 RESOLVER="$SCRIPT_DIR/aitask_project_resolve.sh"
 
 # Project-group constants (t1025_1) — must match agent_launch_utils.py
@@ -327,6 +345,10 @@ cmd_add() {
     new_remote=$(read_project_field "$target_path" "git_remote")
     new_last=$(date -u +"%Y-%m-%d")
 
+    # Serialize the read-modify-write so a concurrent bootstrap `add` (or any
+    # mutating verb) cannot clobber this rewrite with a stale snapshot (t1073).
+    registry_lock_or_die
+
     local tsv_in tsv_out
     tsv_in=$(list_registry_entries || true)
 
@@ -364,7 +386,14 @@ cmd_add() {
 
     local body
     body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
-    atomic_write "$REGISTRY_FILE" "$body"
+    # No-op elision: skip the write (and its commit churn) when nothing changed.
+    # The hot bootstrap path usually re-adds an entry whose last_opened is already
+    # today — eliding an identical write shrinks the lock-contention window during
+    # a restart burst. Safe: an identical write is a pure no-op.
+    if [[ ! -f "$REGISTRY_FILE" || "$body" != "$(cat "$REGISTRY_FILE")" ]]; then
+        atomic_write "$REGISTRY_FILE" "$body"
+    fi
+    registry_lock_release "$REGISTRY_LOCK_DIR"
 
     info "Registered $new_name → $target_path"
 }
@@ -415,12 +444,20 @@ cmd_remove() {
         esac
     fi
 
+    # Acquire the lock only now — after the interactive confirmation — so the
+    # mutex is never held across a human-thinking prompt (which would stall
+    # concurrent bootstrap `add`s). Re-read inside the lock so the rewrite is
+    # based on the current registry, not the pre-prompt snapshot (t1073).
+    registry_lock_or_die
+    tsv=$(list_registry_entries || true)
+
     local tsv_out
     tsv_out=$(awk -F'|' -v skip="$name" '$1 != skip { print }' <<< "$tsv")
 
     local body
     body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
     atomic_write "$REGISTRY_FILE" "$body"
+    registry_lock_release "$REGISTRY_LOCK_DIR"
 
     info "Removed $name"
 }
@@ -441,6 +478,8 @@ cmd_update() {
         die "Not an aitasks project (no aitasks/metadata/project_config.yaml under $new_path)"
     fi
     new_path=$(cd "$new_path" && pwd)
+
+    registry_lock_or_die  # serialize read-modify-write (t1073)
 
     local tsv
     tsv=$(list_registry_entries || true)
@@ -467,6 +506,7 @@ cmd_update() {
     local body
     body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
     atomic_write "$REGISTRY_FILE" "$body"
+    registry_lock_release "$REGISTRY_LOCK_DIR"
 
     info "Updated $name → $new_path"
 }
@@ -731,6 +771,7 @@ group_effective() {
 set_registry_group() {
     local name="$1"
     local value="$2"
+    registry_lock_or_die  # serialize read-modify-write (t1073)
     local tsv
     tsv=$(list_registry_entries || true)
     if [[ -z "$tsv" ]] || ! awk -F'|' -v want="$name" '$1 == want { f=1 } END { exit !f }' <<< "$tsv"; then
@@ -743,6 +784,7 @@ set_registry_group() {
     local body
     body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
     atomic_write "$REGISTRY_FILE" "$body"
+    registry_lock_release "$REGISTRY_LOCK_DIR"
 }
 
 # Rewrite the registry, renaming every entry whose project_group is <old> to
@@ -753,6 +795,7 @@ set_registry_group() {
 rename_registry_group() {
     local old="$1"
     local new="$2"
+    registry_lock_or_die  # serialize read-modify-write (t1073)
     local tsv
     tsv=$(list_registry_entries || true)
     if [[ -z "$tsv" ]] || ! awk -F'|' -v want="$old" '$5 == want { f=1 } END { exit !f }' <<< "$tsv"; then
@@ -765,6 +808,7 @@ rename_registry_group() {
     local body
     body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
     atomic_write "$REGISTRY_FILE" "$body"
+    registry_lock_release "$REGISTRY_LOCK_DIR"
 }
 
 cmd_group() {
@@ -846,9 +890,11 @@ cmd_group() {
             # Backfill absent/empty registry groups from each repo's config.
             # Never overwrites a real value or the `-` sentinel. Rejects invalid
             # config slugs with a sourced message.
+            registry_lock_or_die  # serialize read-modify-write (t1073)
             local tsv
             tsv=$(list_registry_entries || true)
             if [[ -z "$tsv" ]]; then
+                registry_lock_release "$REGISTRY_LOCK_DIR"
                 info "No registered projects."
                 return 0
             fi
@@ -871,6 +917,7 @@ cmd_group() {
             local body
             body=$(printf '%s' "$tsv_out" | build_registry_yaml)
             atomic_write "$REGISTRY_FILE" "$body"
+            registry_lock_release "$REGISTRY_LOCK_DIR"
             info "Synced project groups from repo configs ($changed updated)."
             ;;
         ""|--help|-h)
