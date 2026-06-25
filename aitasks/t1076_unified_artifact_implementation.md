@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [html_plans, task_attachments]
-children_to_implement: [t1076_1, t1076_2]
+children_to_implement: [t1076_1, t1076_2, t1076_3]
 anchor: 1065
 created_at: 2026-06-25 11:01
 updated_at: 2026-06-25 11:04
