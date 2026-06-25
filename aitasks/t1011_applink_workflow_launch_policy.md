@@ -4,9 +4,9 @@ effort: medium
 depends: []
 issue_type: feature
 status: Ready
-labels: [ait_bridge]
+labels: [applink, applink_control]
 created_at: 2026-06-16 16:56
-updated_at: 2026-06-16 16:56
+updated_at: 2026-06-25 09:55
 boardidx: 120
 ---
 

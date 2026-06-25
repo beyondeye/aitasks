@@ -4,10 +4,10 @@ effort: medium
 depends: []
 issue_type: enhancement
 status: Ready
-labels: [ait_bridge]
+labels: [applink, applink_security]
 anchor: 985
 created_at: 2026-06-24 22:27
-updated_at: 2026-06-24 22:27
+updated_at: 2026-06-25 09:55
 ---
 
 ## Origin

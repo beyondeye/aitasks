@@ -4,9 +4,9 @@ effort: high
 depends: []
 issue_type: feature
 status: Ready
-labels: [applink]
+labels: [applink, applink_dataplane]
 created_at: 2026-06-22 16:52
-updated_at: 2026-06-22 16:52
+updated_at: 2026-06-25 09:55
 ---
 
 Implement the AppLink `history` RPC (Stage 5) on the server: a scrollback query endpoint that returns past rows as a single binary keyframe with NEGATIVE row_ids (-1 = line immediately above before_line, etc.) per content_transport.md §Scrollback / §history.

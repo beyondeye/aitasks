@@ -19,11 +19,14 @@ aitask_reviewguide
 aitask_undo
 aitask_wrap
 ait_brainstorm
-ait_bridge
 ait_dispatcher
 ait_settings
 ait_setup
 applink
+applink_connectivity
+applink_control
+applink_dataplane
+applink_security
 archiveformat
 auto-update
 bash_scripts

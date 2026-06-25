@@ -5,9 +5,9 @@ depends: [985]
 xdeprepo: aitasks_mobile
 issue_type: feature
 status: Ready
-labels: [applink]
+labels: [applink, applink_connectivity]
 created_at: 2026-06-24 14:38
-updated_at: 2026-06-24 14:38
+updated_at: 2026-06-25 09:55
 ---
 
 Umbrella / roadmap task: enable the `ait applink` mobile companion to connect to
@@ -91,14 +91,45 @@ envelope / pairing / verbs / permissions; only connectivity changes:
 
 ## Dependencies & sequencing
 
-- **Hard gate: t985 (AppLink security review & hardening, Ready/high)** blocks ANY
-  public exposure (Alternatives B, Phase 3, Phase 4). Wired as `depends`.
-- **Robustness, parallel & non-blocking:** t1007 (data-plane limits) + data-plane
-  tasks t1045 / t1054 / t1055 / t1056 / t1057 / t1058 make remote links *usable*
-  but aren't strict blockers.
+- **Hard gate t985 (AppLink security review & hardening) is DONE / archived** —
+  so the public-exposure phases (Alternative B, Phase 3, Phase 4) are now
+  **unblocked** on their security prerequisite. The `depends: [985]` edge is
+  satisfied. (Its three deferred residuals live on as the Tier-2 follow-ups
+  below: t1066 cert rotation, t1067 bearer rotation, t1068 request rate-limit.)
 - Phase-1 foundation (DONE): t822 tree (protocol t822_1, listener t822_7,
   monitor_core t822_6, data plane t822_8/9), t950/p950 (wish + hosted-deployment
   evaluation), t953 (dedicated tmux socket for hosted topology).
+
+### Suggested implementation order relative to this roadmap
+
+None of the tasks below are *strict* blockers (the only hard gate, t985, is
+done), but remote/cellular links are bandwidth- and correctness-sensitive, so
+the data-plane work is what makes a remote link worth having. Recommended order
+(established in t1072):
+
+- **Tier 0 — do before decomposing/starting t1061 (correct + usable remote
+  link), cheap-first:**
+  1. **t1054** (HIGH, bug) — viewport-only keyframe rows. Server-side root cause
+     of a real mobile render bug; fixes the wire row-id scheme everything builds
+     on. *Do first.*
+  2. **t1055** (bug, low effort) — `pause` flow-control verb (server/phone
+     currently disagree). Cheap, isolated.
+  3. **t1007** (chore, low effort) — data-plane DoS / resource caps. Cheap, and
+     matters before any beyond-LAN exposure.
+  4. **t1045** (perf) — roster-vs-focused content split. The key cellular
+     bandwidth win (stream binary content only for the focused pane).
+- **Tier 1 — strongly recommended, larger:**
+  5. **t1057** (feature, high) — history RPC scrollback (follows t1054: once live
+     keyframes are viewport-only, scrollback is reached only via this RPC).
+  6. **t1056** (feature) — `viewport_hint` clipping (more bandwidth savings;
+     paired with mobile, value lands once both ship).
+- **Tier 2 — pair with this roadmap's PUBLIC-EXPOSURE phases (Alternative B /
+  Phase 3-4), not the cheap Phase-2 tunnel:** **t1068** (request rate-limit),
+  **t1066** (cert rotation), **t1067** (bearer rotation). Phase-2 (mesh VPN /
+  user-run tunnel) reuses the existing LAN trust model and needs none of these.
+- **Independent of t1061 (any time):** t1011 (workflow launch policy — control
+  plane), t1002 (shellcheck hygiene bug on `aitask_applink.sh`), t1058 (cursor
+  frames, low priority).
 
 ## Suggested decomposition (later)
 

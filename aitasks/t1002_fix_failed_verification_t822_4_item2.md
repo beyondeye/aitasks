@@ -4,9 +4,9 @@ effort: medium
 depends: [t822_2]
 issue_type: bug
 status: Ready
-labels: [verification, bug]
+labels: [verification, bug, applink]
 created_at: 2026-06-15 18:01
-updated_at: 2026-06-15 18:01
+updated_at: 2026-06-25 09:55
 boardidx: 100
 ---
 
