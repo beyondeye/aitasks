@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: chore
@@ -7,7 +9,7 @@ status: Implementing
 labels: [applink]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-25 09:35
-updated_at: 2026-06-25 09:43
+updated_at: 2026-06-25 09:54
 ---
 
 Organize the open AppLink task backlog so each task's purpose is legible from its
@@ -115,3 +117,8 @@ a remote link worth having. Recommended sequence (record on t1061):
 - `aidocs/applink/` (protocol.md, content_transport.md, security.md,
   wish_ssh_evaluation.md, implementation_status_2026-06-22.md).
 - `aitasks/metadata/labels.txt` (canonical label list).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-25T06:54:49Z status=pass attempt=1 type=human
