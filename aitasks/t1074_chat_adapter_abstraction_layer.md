@@ -5,9 +5,10 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [chat_surface, python]
+children_to_implement: [t1074_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-25 10:14
-updated_at: 2026-06-25 10:20
+updated_at: 2026-06-25 11:52
 ---
 
 ## Goal
