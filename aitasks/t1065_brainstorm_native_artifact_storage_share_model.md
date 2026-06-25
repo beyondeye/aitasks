@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [html_plans, task_attachments]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-24 21:56
-updated_at: 2026-06-24 21:56
+updated_at: 2026-06-25 09:10
 ---
 
 ## Brainstorm / design (not implementation)
