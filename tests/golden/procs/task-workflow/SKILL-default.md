@@ -478,15 +478,45 @@ authorizing the merge in chat before the prompt fires.
 
 - **Handle merge conflicts:** Ask user for guidance if needed.
 
-- **Verify build (if configured):**
-  - Read `aitasks/metadata/project_config.yaml` and check the `verify_build` field
-  - **If `verify_build` is absent, null, or empty (or file doesn't exist):** Display "No verify_build configured — skipping build verification." and skip this step.
-  - **If `verify_build` is a single command string:** Run it.
-  - **If `verify_build` is a list of commands:** Run each sequentially (stop on first failure).
-  - **If the build fails:**
-    1. Analyze the error output and compare against the changes introduced by this task (`git diff` against the base)
-    2. **If the failure is caused by this task's changes:** Go back to the implementation to fix the build errors. After fixing, re-run the build command(s). Repeat until the build passes.
-    3. **If the failure is NOT related to this task's changes** (pre-existing issue, environment problem, etc.): Log the build failure details in the plan file's "Final Implementation Notes" section under a "Build verification" entry and proceed with the workflow. Do not attempt to fix pre-existing issues.
+- **Verify implementation (build / tests / lint):**
+
+  Do **not** re-derive which gates this task declares — the **gate orchestrator**
+  owns that decision and reports it. Dispatch it once, capturing both its output
+  and exit status, then branch on the result:
+
+  ```bash
+  gates_out="$(./ait gates run <task_id> 2>&1)"; gates_rc=$?
+  ```
+
+  - **If `gates_rc` is nonzero** — an *infrastructure* failure (`ait`/wrapper
+    error, task resolution failed, Python unavailable, bad registry path, usage
+    error). `ait gates run` exits 0 for every normal gate outcome (a `fail`/`error`
+    is a recorded result, not a process error), so a nonzero exit is never an
+    ordinary gate failure. **STOP and diagnose** using `gates_out`; do **NOT** fall
+    through to either branch below (the declared-vs-not decision is only meaningful
+    on a clean exit).
+
+  - **Else if `gates_out` contains the line `No gates declared; nothing to do.`** —
+    the task has not opted into the gate system (the common case today). Run the
+    legacy inline build verification:
+    - Read `aitasks/metadata/project_config.yaml` and check the `verify_build` field
+    - **If `verify_build` is absent, null, or empty (or file doesn't exist):** Display "No verify_build configured — skipping build verification." and skip this step.
+    - **If `verify_build` is a single command string:** Run it.
+    - **If `verify_build` is a list of commands:** Run each sequentially (stop on first failure).
+    - **If the build fails:**
+      1. Analyze the error output and compare against the changes introduced by this task (`git diff` against the base)
+      2. **If the failure is caused by this task's changes:** Go back to the implementation to fix the build errors. After fixing, re-run the build command(s). Repeat until the build passes.
+      3. **If the failure is NOT related to this task's changes** (pre-existing issue, environment problem, etc.): Log the build failure details in the plan file's "Final Implementation Notes" section under a "Build verification" entry and proceed with the workflow. Do not attempt to fix pre-existing issues.
+
+  - **Otherwise** — the orchestrator ran the task's declared gates and **recorded
+    each run itself**. Read its per-gate report lines (`  <gate>: <status> …`) and
+    act per status:
+    - `pass` / `skip` — satisfied (`skip` = not applicable, e.g. no command configured); continue.
+    - `fail` — an *ordinary* gate failure: inspect `./ait gate log <task_id> <gate>` and diff against the base. If caused by this task, fix and re-run `./ait gates run <task_id>`; repeat until it passes. If pre-existing/unrelated, record `./ait gate fail <task_id> <gate> --reason "…"` and log it in the plan's Final Implementation Notes.
+    - `error` (`  <gate>: error …`) **or** a malformed-correction line (`  ⚠ <gate>: malformed …`) — a verifier **infrastructure** failure (launch failure, timeout, exit 3, or a status that contradicted the exit code), NOT an ordinary gate result. **Diagnose the verifier/config** (its log, the command, the timeout); do not "fix the code" as if it were a `fail`, do not record a manual pass, and do **not** proceed to archival until the verifier itself runs cleanly.
+    - `blocked: …` — an unlocked gate could not run / none remain runnable. `blocked: exhausted …` or `blocked: upstream … not satisfied` means the gate is **unsatisfied** — surface and diagnose; do **not** treat it as satisfied or proceed. `blocked: pending human signal` → route to the human sign-off action (never self-signal).
+    - `pending` (human gate) — surface to the user; never self-signal.
+    - Do **NOT** also run the manual "Record build-verified gate" step in this branch — the orchestrator already appended each gate's run (no double-record).
 
 - **Clean up branch and worktree:**
   ```bash
@@ -674,9 +704,9 @@ Project-level settings are stored in `aitasks/metadata/project_config.yaml` (git
 
 | Key | Type | Default | Description | Used in |
 |-----|------|---------|-------------|---------|
-| `verify_build` | string or list | (none — skip) | Shell command(s) to verify the build after implementation | Step 9 |
-| `test_command` | string or list | (none — auto-detect) | Shell command(s) for running project tests | aitask-qa Step 4 |
-| `lint_command` | string or list | (none — skip) | Shell command(s) for linting project code | aitask-qa Step 4 |
+| `verify_build` | string or list | (none — skip) | Shell command(s) to verify the build after implementation | Step 9; `build_verified` gate |
+| `test_command` | string or list | (none — auto-detect) | Shell command(s) for running project tests | aitask-qa Step 4; `tests_pass` gate |
+| `lint_command` | string or list | (none — skip) | Shell command(s) for linting project code | aitask-qa Step 4; `lint` gate |
 
 If the file does not exist or a field is absent, the corresponding feature is skipped.
 
