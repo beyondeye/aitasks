@@ -387,3 +387,59 @@ risk-mitigation procedure.**
   note to `aitasks/t635/t635_17...`/the t1015 task file recording that t635_12's
   verifiers are ready for it to drive. (`risk_mitigations_planned: false` — no new
   task.)
+
+## Final Implementation Notes
+
+- **Actual work done:** Built the shared `lib/gate_verifier_lib.sh`
+  (`run_command_gate`: reads a `project_config.yaml` key as scalar-or-list, runs
+  the command(s) stopping at the first failure, tees a sidecar log, appends the
+  terminal block via `aitask_gate.sh`, returns 0/1/2) plus three thin whitelisted
+  wrappers `aitask_gate_build.sh` / `aitask_gate_tests_pass.sh` /
+  `aitask_gate_lint.sh`. Populated `build_verified.verifier` and added `tests_pass`
+  + `lint` gates in `gates.yaml` (all skip via exit 2 when their command is unset).
+  Rewired task-workflow Step 9 to the deterministic engine-owned seam and updated
+  the Project Configuration table; regenerated SKILL goldens + the tracked
+  `-remote-` renders. Whitelisted the 3 helpers across the 4 framework touchpoints.
+  Added `tests/test_gate_verifiers.sh` (47 assertions).
+
+- **Deviations from plan:** None of substance. The task text said verifier
+  *"skills"*; per t635_11's frozen contract these are resolvable **command
+  scripts** (documented up front as a scope-honesty note, not a silent change).
+  Per-verifier pass/fail/skip is parametrized over all three; the command-list,
+  sidecar, integration, retry, and seam tests use `build` as the representative.
+  Only the `-remote-` rendered variants are git-tracked (default/fast renders are
+  gitignored via `.claude/skills/*-/`), so only those were committed.
+
+- **Issues encountered:** `read_yaml_list` returns empty for a scalar value, so
+  the lib falls back to `read_yaml_field` and strips one layer of surrounding
+  quotes (e.g. `"true"`). shellcheck needed a `#!/usr/bin/env bash` line on the
+  sourced lib (SC2148) to match the other libs; SC1091 "not following sourced
+  file" info remains (the project baseline — `aitask_gate_log.sh` emits it too).
+  The repo had concurrent unrelated changes from other sessions
+  (`aitask_projects.sh`, `registry_lock.sh`, …) — staged only this task's paths
+  explicitly.
+
+- **Key decisions:** Verifiers SKIP (exit 2, terminal-satisfied) when their
+  command is unset — a gate that doesn't apply to a project never blocks it,
+  matching today's "No verify_build configured — skipping" behavior. Step 9 routes
+  ALWAYS through `ait gates run`, branching on its exit code first (nonzero =
+  infrastructure failure → stop) and then on the literal `No gates declared;
+  nothing to do.` sentinel (engine owns the declared-vs-not decision; no agent-side
+  registry parsing). The declared-gate branch distinguishes ordinary `fail` from
+  verifier-infrastructure `error`/`blocked`. `applies_when` change-scoped skipping
+  was explicitly deferred (only `docs_updated`/t635_19 needs it). The legacy inline
+  `verify_build` path is a transitional fallback removed by the new **t635_24**
+  (depends on t635_14), per user request.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:** The verifier-authoring pattern is now concrete:
+  add `aitask_gate_<name>.sh` (8-line wrapper sourcing `gate_verifier_lib.sh`,
+  calling `run_command_gate <gate> <config_key> <verifier-name> "$@"`), set the
+  gate's `verifier:` in `gates.yaml`, and whitelist the script across the 4
+  framework touchpoints (`seed/claude_settings.local.json`,
+  `.codex/rules/default.rules`, `seed/codex_rules.default.rules`,
+  `seed/opencode_config.seed.json`). `resolve_verifier` maps `aitask-gate-foo-bar`
+  → `aitask_gate_foo_bar.sh`. The Step 9 seam is the convergence point: t635_14
+  makes tasks declare `gates:` (activating the orchestrator branch for real);
+  t635_24 then removes the inline fallback. t1015 is the live-verify MV task.
