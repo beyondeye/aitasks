@@ -5,11 +5,12 @@ risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [html_plans, task_attachments]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-24 21:56
-updated_at: 2026-06-25 10:38
+updated_at: 2026-06-25 11:08
+completed_at: 2026-06-25 11:08
 ---
 
 ## Brainstorm / design (not implementation)
