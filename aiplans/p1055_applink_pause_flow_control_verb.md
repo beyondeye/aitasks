@@ -160,3 +160,33 @@ the verification suites, then archive via `./.aitask-scripts/aitask_archive.sh 1
 
 ### Planned mitigations
 None — both dimensions are low; no before/after mitigation tasks warranted.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned across 7 files. `router.py`:
+  `pause` added to `IMPLEMENTED_COMMAND_VERBS`, `ConnState.paused` flag (default
+  `False`), `resume` clears it, `_dispatch` `pause` case sets it and returns
+  `{ok:True}`. `pusher.py`: `_run_once` early-returns when `conn.paused` (halts
+  binary frames + `pane_status` heartbeat, preserves subscription/force set).
+  `profiles.py` `DEFAULT_ALLOWED` + the 3 shipped YAMLs gained `pause` at the
+  `read_only` tier. `monitor_port_design.md` and `permissions.md` gained a `pause`
+  row. Tests added to `test_applink_router.sh` (gating + flag toggle) and
+  `test_applink_pusher.sh` (paused emits nothing; un-pause flushes preserved keyframe).
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Discovered that `test_applink_router.sh` already
+  contains an auto-validator loop asserting every profile's `allowed_verbs` entry
+  is a member of `KNOWN_VERBS` — so the YAML + `IMPLEMENTED_COMMAND_VERBS` additions
+  produced passing "profile verb 'pause' is registered" checks for free, confirming
+  no orphaned verb name.
+- **Key decisions:** `pause` halts pushes via a `ConnState.paused` flag (not a
+  `STATE_SUSPENDED` transition) — the spec mandates pause happens "not yet
+  Suspended" with no state lost, and `STATE_SUSPENDED` is the socket-drop path that
+  tears the pusher down. `pause` is a `read_only`-gated command verb (per task);
+  `resume` stays an ungated session verb and doubles as the un-pause. Cumulative
+  profiles make read_only the floor, so every profile can pause — matching `resume`'s
+  reachability.
+- **Cross-repo:** The mobile half (`aitasks_mobile`) is already shipped and tested
+  (`MonitorSessionMediator.pause()`, `ControlFrames.kt`, `MonitorSessionMediatorTest`);
+  this is purely the server half. No coordination task needed.
+- **Upstream defects identified:** None.
+- **Verification:** `test_applink_router.sh` 150/150, `test_applink_pusher.sh` 73/73,
+  plus smoke/pairing/sessions/server_limits/headless/content/devices suites all pass.
