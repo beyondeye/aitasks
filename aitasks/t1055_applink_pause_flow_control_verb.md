@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -23,3 +25,5 @@ Surfaced by the aitasks_mobile t14_11 AppLink audit (aidocs/applink/implementati
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-26T04:56:43Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-26T04:56:44Z status=pass attempt=1 type=machine
