@@ -69,3 +69,12 @@ Update `.aitask-scripts/aitask_create.sh`:
 - If a real ID-claim race occurs, retry behavior remains intact.
 - Batch task creation surfaces useful, non-misleading diagnostics.
 - Add a regression test or script-level test case that simulates fetch failure with an existing remote branch and verifies no auto-upgrade loop occurs.
+
+## Coordination — t1079 (counter-drift correctness)
+
+t1079 (`harden_task_id_assignment_against_counter_drift`) is the **correctness
+counterpart** to this task: same file (`aitask_claim_id.sh`), different bug. This
+task fixes misleading *fetch-failure diagnostics / error messaging*; t1079 fixes
+the *drift / duplicate-ID invariant* (counter falling below `max(task ids)` and
+handing out duplicates — observed live 2026-06-25/26). Implement coherently since
+both touch the claim path. See t1079.
