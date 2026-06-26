@@ -4,6 +4,7 @@ allowed_verbs:
   - snapshot
   - subscribe
   - request_keyframe
+  - pause
   - task_detail
   - send_enter
   - send_keys

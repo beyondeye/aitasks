@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [applink, applink_dataplane]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-16 10:54
-updated_at: 2026-06-25 09:55
+updated_at: 2026-06-26 11:12
 boardidx: 110
 ---
 
