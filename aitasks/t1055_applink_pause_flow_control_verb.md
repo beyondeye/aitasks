@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [applink, applink_dataplane]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-22 16:51
-updated_at: 2026-06-25 11:28
+updated_at: 2026-06-26 07:56
 ---
 
 AppLink server does not handle the `pause` flow-control verb. content_transport.md §Back-pressure specifies: 'Mobile MAY send a pause push (verb: pause) when backgrounded but not yet Suspended ... server stops all pushes until resume push, no state lost.'
@@ -17,3 +18,8 @@ Current state: applink/router.py registers `resume` and `bye` as session verbs (
 Fix: add a `pause` verb that halts the PushScheduler for the connection until `resume`, mirroring the resume path. Gate at the read_only tier (it is a self-throttle, like subscribe/request_keyframe).
 
 Surfaced by the aitasks_mobile t14_11 AppLink audit (aidocs/applink/implementation_status_2026-06-22.md, server #5).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-26T04:56:43Z status=pass attempt=1 type=human
