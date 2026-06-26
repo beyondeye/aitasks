@@ -68,6 +68,10 @@ IMPLEMENTED_COMMAND_VERBS = frozenset({
     # Data-plane control verbs (t822_8): mutate the per-connection Subscription;
     # the actual binary pushes are driven by server's pusher.PushScheduler.
     "subscribe", "request_keyframe",
+    # Connection-level self-throttle (t1055): halt this connection's
+    # PushScheduler until `resume`. Gated at read_only like subscribe /
+    # request_keyframe — it steers the client's own stream, not the agent.
+    "pause",
     # Workflow modal handshakes (t822_11): the suggest/choose + idle-gated confirm
     # round-trips are served here; their final kill+relaunch execution is deferred
     # (returns NOT_IMPLEMENTED) until the applink launch policy lands.
@@ -135,6 +139,10 @@ class ConnState:
         # Data-plane subscription (None until the first `subscribe`). Mutated by
         # the router; consumed by server's per-connection PushScheduler (t822_8).
         self.subscription: Subscription | None = None
+        # Data plane halted by a `pause` verb until `resume` (t1055). The
+        # subscription is preserved (no state lost — content_transport.md
+        # §Back-pressure); PushScheduler skips every push while this is set.
+        self.paused: bool = False
 
     def bind(self, session) -> None:
         self.bearer = session.bearer
@@ -208,6 +216,9 @@ class FrameRouter:
         if verb == "resume":
             self._sessions.set_state(session.bearer, STATE_CONNECTED)
             conn.state = STATE_CONNECTED
+            # resume doubles as the un-pause: clear any `pause` self-throttle so
+            # the PushScheduler resumes streaming (t1055).
+            conn.paused = False
             return self._res(msg_id, verb, {"profile": session.profile})
         if verb == "bye":
             self._sessions.revoke(session.bearer)
@@ -353,6 +364,13 @@ class FrameRouter:
                 return self._bad_field(msg_id, verb, "pane_id")
             if conn.subscription is not None:
                 conn.subscription.request_keyframe(pane_id)
+            return self._res(msg_id, verb, {"ok": True})
+
+        if verb == "pause":
+            # Self-throttle: halt this connection's PushScheduler until `resume`.
+            # No pane arg; the subscription is preserved so no state is lost
+            # (content_transport.md §Back-pressure). `resume` clears the flag.
+            conn.paused = True
             return self._res(msg_id, verb, {"ok": True})
 
         if verb == "cycle_compare_mode":

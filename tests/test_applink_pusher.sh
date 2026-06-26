@@ -88,8 +88,9 @@ class FakeWS:
 
 
 class FakeConn:
-    def __init__(self, sub):
+    def __init__(self, sub, paused=False):
         self.subscription = sub
+        self.paused = paused   # t1055: when True, PushScheduler halts all pushes
 
 
 def binaries(ws):
@@ -465,6 +466,33 @@ async def main():
           client_bp == truth("gamma\n"))
     check("back-pressure: force cleared after the successful coalesced send",
           "%1" not in subbp.force)
+
+    # === t1055: `pause` self-throttle halts ALL pushes ======================
+    # A paused connection emits nothing — neither binary frames nor the
+    # pane_status heartbeat — even with a fresh forced keyframe pending and the
+    # buffer well under high-water. Un-pausing emits again, with the forced
+    # keyframe preserved across the pause (no state lost).
+    subpz = C.Subscription()
+    subpz.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wspz, monpz, panepz = FakeWS(), FakeMonitor(), FakePane("%1")
+    monpz.snaps["%1"] = FakeSnap(panepz, "hello\n")
+    connpz = FakeConn(subpz, paused=True)
+    npz = {"t": 14000.0}
+    schedpz = PushScheduler(connpz, wspz, monpz, clock=lambda: npz["t"])
+
+    await schedpz._run_once()
+    check("pause: zero binary frames while paused", len(binaries(wspz)) == 0)
+    check("pause: zero pane_status (text) frames while paused", len(texts(wspz)) == 0)
+    check("pause: nothing sent at all while paused", len(wspz.sent) == 0)
+    check("pause: forced keyframe preserved in force during pause", "%1" in subpz.force)
+
+    # resume (router clears conn.paused) -> next tick emits the preserved keyframe
+    connpz.paused = False
+    await schedpz._run_once()
+    bpz = binaries(wspz)
+    check("pause: un-pause -> emits exactly one binary keyframe",
+          len(bpz) == 1 and bpz[0][0] == C.FRAME_KEYFRAME)
+    check("pause: un-pause flushes the preserved forced keyframe", "%1" not in subpz.force)
 
     # === t822_14 resilience: abrupt disconnect mid-send =====================
     # Gap 2, layer B1 (PushScheduler). A send that raises is swallowed by _send

@@ -291,6 +291,8 @@ check("fallback DEFAULT_ALLOWED[full] permits pick_next_sibling",
       gate_default.is_allowed("full", "pick_next_sibling"))
 check("fallback DEFAULT_ALLOWED[full] permits restart_task",
       gate_default.is_allowed("full", "restart_task"))
+check("fallback DEFAULT_ALLOWED[read_only] permits pause (t1055)",
+      gate_default.is_allowed("read_only", "pause"))
 
 # --- data-plane control verbs (subscribe / focus / request_keyframe) -------
 dconn = ConnState()
@@ -349,6 +351,21 @@ check("read_only subscribe allowed (not PERMISSION_DENIED)",
 r = router.handle(req("focus", {"pane_id": "%1"}, auth=ro.bearer), ConnState())
 check("read_only focus -> PERMISSION_DENIED (monitor_control+ only)",
       r["payload"]["code"] == "PERMISSION_DENIED")
+
+# --- pause / resume self-throttle (t1055) ----------------------------------
+# `pause` is a read_only-gated command verb (allowed in every profile, like
+# subscribe); `resume` (session verb) doubles as the un-pause. The flag halts
+# the per-connection PushScheduler (covered behaviorally in test_applink_pusher).
+check("pause in KNOWN_VERBS", "pause" in KNOWN_VERBS)
+pconn = ConnState()
+check("fresh conn not paused", pconn.paused is False)
+r = router.handle(req("pause", auth=ro.bearer), pconn)
+check("read_only pause allowed -> res ok (not PERMISSION_DENIED)",
+      r["kind"] == "res" and r["payload"]["ok"] is True)
+check("pause sets conn.paused True", pconn.paused is True)
+r = router.handle(req("resume", auth=ro.bearer), pconn)
+check("resume on paused conn -> res ok", r["kind"] == "res")
+check("resume clears conn.paused (un-pause)", pconn.paused is False)
 
 # --- session verbs ---------------------------------------------------------
 conn = ConnState()

@@ -100,6 +100,12 @@ class PushScheduler:
     # -- One emit pass (the testable unit) -------------------------------------
 
     async def _run_once(self) -> None:
+        if self._conn.paused:
+            # `pause` verb (t1055): halt ALL pushes — binary frames and the
+            # pane_status heartbeat — until `resume` clears the flag. The
+            # subscription/force set is left intact (content_transport.md
+            # §Back-pressure: "no state lost").
+            return
         sub = self._conn.subscription
         if sub is None or not sub.panes:
             return

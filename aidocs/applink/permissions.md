@@ -35,6 +35,7 @@ The v1 verb set is the canonical inventory in [monitor_port_design.md §Command 
 |------|----------------------------------------------------------|:-----------:|:-----------------:|:------:|
 | `snapshot` (server push) | `monitor_core.py` (`capture_all`) | ✓ | ✓ | ✓ |
 | `subscribe` / `request_keyframe` (data-plane control) | [content_transport.md §Refresh control](content_transport.md#refresh-control-focus-back-pressure) | ✓ | ✓ | ✓ |
+| `pause` (data-plane self-throttle) | `applink/router.py` (`ConnState.paused`; halts `pusher.py` `PushScheduler` until `resume`) | ✓ | ✓ | ✓ |
 | `task_detail` | `monitor_core.py` (`TaskInfoCache._resolve`) | ✓ | ✓ | ✓ |
 | `send_enter` | `monitor_core.py` (`send_enter`) | ✗ | ✓ | ✓ |
 | `send_keys` | `monitor_core.py` (`send_keys`) | ✗ | ✓ | ✓ |
