@@ -302,3 +302,4 @@ Standard archival via `./.aitask-scripts/aitask_archive.sh 717_3`. Folded tasks:
 - **Notes for sibling tasks (t717_4):**
   - The `_recent_aggregate(op_buckets) -> (runs, score_sum)` pattern works for both verifiedstats and usagestats — score_sum just stays 0 for usage. If t717_4 wants the same recent-window aggregation in `stats_data.py`, copy the helper rather than introducing a new module dependency. Keep the term "recent" consistent (= `month + prev_month`).
   - The picker's `_format_op_stats` extension is purely additive: `prev_month` only shows when `pm_runs > 0`. Stats TUI's analogous formatter (if any) should follow the same pattern so cold-start models stay terse.
+- **Manual-verification failure:** item "[t717_3] Open the agent picker via `ait board` run-with dialog. Cycle modes with Shift+→" failed; follow-up task t1080.
