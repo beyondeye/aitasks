@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [t717_1, t717_2, t717_3, t717_4]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 00:49
-updated_at: 2026-04-30 14:29
+updated_at: 2026-06-27 23:15
 ---
 
 ## Manual Verification Task
