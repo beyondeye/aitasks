@@ -727,3 +727,4 @@ Standard archival via `./.aitask-scripts/aitask_archive.sh 717_4`. Folded tasks:
   - Footer hint shows `[: prev window  ]: next window` alongside the existing `←: ← Cycle  →: → Cycle`. The verifier should see all four hints in the footer when standing on either `agents.verified` or `agents.usage`.
   - In-pane hint reads `press [ or ] to switch time window` (bracket key chars bolded). Use this exact phrasing in the manual checklist for at-a-glance recognition.
   - `agents.usage` is now part of the default `agents` preset. Users with a customized layout (saved in `stats_config.local.json`) will need to add it manually via the `+ New custom` flow — this is expected behavior, not a bug to chase.
+- **Manual-verification failure:** item "[t717_4] Open `./ait stats tui`, navigate to verified pane. Press `]` repeatedly" failed; follow-up task t1083.
