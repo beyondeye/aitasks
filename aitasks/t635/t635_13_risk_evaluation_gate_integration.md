@@ -7,7 +7,7 @@ status: Implementing
 labels: [gates, task_workflow]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-02 12:49
-updated_at: 2026-06-25 11:31
+updated_at: 2026-06-27 22:38
 ---
 
 > **Formerly standalone task t912** (`t912_risk_evaluation_gate_integration`),
