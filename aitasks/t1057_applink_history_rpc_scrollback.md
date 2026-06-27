@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [applink, applink_dataplane]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-22 16:52
-updated_at: 2026-06-25 09:55
+updated_at: 2026-06-27 22:35
 ---
 
 Implement the AppLink `history` RPC (Stage 5) on the server: a scrollback query endpoint that returns past rows as a single binary keyframe with NEGATIVE row_ids (-1 = line immediately above before_line, etc.) per content_transport.md §Scrollback / §history.
