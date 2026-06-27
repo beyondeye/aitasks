@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [installer, upgrade, github-api, reliability]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-25 11:30
-updated_at: 2026-06-27 22:35
+updated_at: 2026-06-27 23:19
 ---
 
 ## Problem
@@ -118,3 +119,8 @@ These are not the reported failure and degrade gracefully; fold in only if cheap
 - `ait:164`, `.aitask-scripts/aitask_setup.sh:226/290/324/2779` — secondary
   API touchpoints noted in the audit above
 - Note macOS/sed portability conventions — see `aidocs/framework/sed_macos_issues.md`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-27T20:19:28Z status=pass attempt=1 type=human
