@@ -3,11 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [installer, upgrade, github-api, reliability]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-25 11:30
-updated_at: 2026-06-25 11:30
+updated_at: 2026-06-27 22:35
 ---
 
 ## Problem
