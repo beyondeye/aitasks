@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t635_12, t635_13]
 issue_type: refactor
@@ -7,7 +9,7 @@ status: Implementing
 labels: [gates, execution_profiles, task_workflow]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 18:55
-updated_at: 2026-06-28 11:10
+updated_at: 2026-06-28 12:46
 ---
 
 ## Context
@@ -123,3 +125,8 @@ until this task declares the gate. When this task makes profiles *declare*
 - `aidocs/gates/dependency-unblock-semantics.md` (t635_3 — blocks_dependents / also_blocks_dependents)
 - `aidocs/gates/gate-guarded-archival.md` (t635_4 — declared-gate archival guard)
 - `.claude/skills/task-workflow/profiles.md`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-28T09:46:08Z status=pass attempt=1 type=human
