@@ -30,3 +30,8 @@ Once the paired mobile client (`aitasks_mobile` t14_13) lands, verify end-to-end
 - Confirm a stale/nonexistent subscribed pane yields a token but no rendered scrollback (best-effort delivery), and that an unsubscribed pane is rejected (`not_subscribed`).
 
 This closes the cross-repo coordinate-space + anchoring agreement between the t1057 server and the t14_13 mobile client.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-28T10:03:53Z status=pass attempt=1 type=human
