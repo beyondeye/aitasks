@@ -183,3 +183,41 @@ no-remote Test 7 unchanged by design).
 
 See **Step 9 (Post-Implementation)** for cleanup, build/verify gates,
 archival, and merge.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `aitask_claim_id.sh`: added `remote_branch_state()` helper (echoes
+    `PRESENT` / `ABSENT` / `ERROR:<msg>` via `git ls-remote`, which does not
+    write `.git/FETCH_HEAD`); restructured the Step 1 fetch in
+    `claim_next_id()` to capture stderr, use an explicit refspec, and branch on
+    the remote state (PRESENT → surface real fetch error; ERROR → unreachable
+    message; ABSENT → auto-upgrade as before); made `try_push_local_to_remote`
+    suppress the "auto-upgrade" line on a no-op "up-to-date" push.
+  - `aitask_create.sh`: 3 sites now relay the claim error verbatim instead of
+    always appending `Run 'ait setup'` (claim_id.sh owns the setup hint, emitted
+    only in the genuinely-uninitialized message).
+  - `tests/test_claim_id.sh`: added Test 15 (fetch fails, branch present — no
+    auto-upgrade loop, real error surfaced, counter untouched) and Test 16
+    (origin unreachable — `Cannot reach origin`, no auto-upgrade), both via a
+    PATH-shadowing `git` shim.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. The `set -e` + command-substitution capture and
+  the git-shim test approach were both validated in a scratch repo before
+  implementation.
+- **Key decisions:** Let `aitask_claim_id.sh` be the single source of truth for
+  the `ait setup` suggestion (only in the ABSENT/uninitialized message) and have
+  `aitask_create.sh` relay verbatim — avoids a fragile sentinel and duplicate
+  logic. Kept the explicit-refspec fetch on the success path (task's "consider"
+  suggestion) for cross-version robustness.
+- **Upstream defects identified:** `.aitask-scripts/aitask_claim_id.sh:255-262 —
+  peek_counter() has the same latent diagnostic weakness this task fixed in the
+  claim path: it discards `git fetch` stderr (`2>/dev/null`) and, when no local
+  branch exists, dies with a `Run 'ait setup'` hint even if the fetch failed for
+  a real environmental reason while the remote branch is healthy. Out of scope
+  for t1077 (claim-path-only); low impact (peek is read-only and already falls
+  back to the local branch when present). Coheres with t1079, which also touches
+  this file.`
+- **Coordination:** t1079 (`harden_task_id_assignment_against_counter_drift`) is
+  the correctness counterpart (same file, drift/duplicate-ID invariant) and
+  remains separate/Ready — no overlap with this diagnostics fix.
