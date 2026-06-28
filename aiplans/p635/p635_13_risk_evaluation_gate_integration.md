@@ -334,3 +334,55 @@ Commit the t635_14 edit with `./ait git`.
 - The "no live declared-gate exercise until t635_14" risk is covered by the **pre-existing
   t1015** (no new before/after task). Risk-specific coordination is captured in the t635_14
   note (§5). `risk_mitigations_planned: false`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added the standalone state-inspection verifier
+  `.aitask-scripts/aitask_gate_risk.sh` (contract `<task-id> <attempt> <run-id>`; exit
+  0=pass / 1=fail / 3=error; no skip path). It resolves the task + plan files via
+  `lib/task_utils.sh` (`resolve_task_file` / `resolve_plan_file` / `read_yaml_field`) and
+  passes only when the PLAN has a `## Risk` section with BOTH `### Code-health risk` and
+  `### Goal-achievement risk` subsections (evidence) AND the TASK frontmatter has both
+  `risk_code_health` / `risk_goal_achievement` levels in {high,medium,low} (verdict). It
+  self-appends a terminal block whose status matches its exit code via `aitask_gate.sh
+  append`. Populated `risk_evaluated.verifier: aitask-gate-risk` in
+  `aitasks/metadata/gates.yaml` (+ updated the header & inline comments to current state).
+  Whitelisted the helper across the 4 framework touchpoints (`seed/claude_settings.local.json`,
+  `seed/codex_rules.default.rules`, `.codex/rules/default.rules`, `seed/opencode_config.seed.json`).
+  Added `tests/test_gate_risk_verifier.sh` (9 functions / 26 assertions). Amended t635_13's
+  own `## Scope` (§0) and added a required-AC coordination block to t635_14 (§5).
+
+- **Deviations from plan:** None of substance. Per the §0 scope amendment, this child ships
+  ONLY the verifier (the "checker"); it edits no skill markdown, so there were no goldens to
+  regenerate — `aitask_skill_verify.sh` was run and confirmed a clean no-op (12 templates OK).
+  The producer/checker split and the t635_14 producer-preservation + no-double-record
+  requirements were added to the plan and t635_14 in response to review.
+
+- **Issues encountered:** `shellcheck` emits only SC1091 (info, "not following sourced
+  lib/task_utils.sh") — the documented project baseline the sibling command verifiers also
+  emit; not an error. The repo had heavy concurrent activity from other sessions on BOTH the
+  main and aitask-data branches (applink work, t1063, applink_profiles); changes were staged
+  path-by-path after verifying each diff was exclusively this task's.
+
+- **Key decisions:** Risk is a STATE-inspection gate, not a project-command gate, so it is a
+  standalone verifier (NOT a `run_command_gate` wrapper — that lib is command-specific). NO
+  skip (exit 2) path: a task that *declares* the gate has opted into risk evaluation, so the
+  artifacts must exist (opt-OUT = non-declaration, wired by t635_14). NO "no unmitigated high
+  risk" blocking policy (the seam leaves it open; the Goal defines satisfied = section +
+  levels). Evidence requires both dimension subsections (a bare `## Risk` heading fails). The
+  verifier is the CHECKER only; the planning-time PRODUCER (`risk-evaluation.md`) is untouched
+  and must remain a planning-time step driven by declaration (a t635_14 requirement).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:** The state-inspection verifier pattern is now concrete (distinct
+  from t635_12's command verifiers): a standalone `aitask_gate_<name>.sh` that sources
+  `lib/task_utils.sh`, inspects task/plan state, self-appends a terminal block whose status ==
+  its exit code, and exits the contract code. The orchestrator's `reconcile_terminal`
+  (gate_orchestrator.py:309–330) makes a matching self-append a no-op, so test for "exactly one
+  terminal marker + no `malformed:`/`error` correction" (see test 8). **For t635_14:** declaring
+  `risk_evaluated` must (1) keep triggering the planning-time producer before plan approval —
+  the gate never replaces the producer; (2) toggle producer+checker together from the
+  `risk_evaluation` opt-in; (3) close the Step 7-vs-Step 9 double-record with a structural fix
+  (gate the Step 7 self-record on non-declaration) + a regression test. The risk verifier is
+  dormant until t635_14 makes a task declare the gate.
