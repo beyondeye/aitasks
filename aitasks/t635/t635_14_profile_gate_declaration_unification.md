@@ -132,3 +132,5 @@ until this task declares the gate. When this task makes profiles *declare*
 > **✅ gate:plan_approved** run=2026-06-28T09:46:08Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-28T09:46:10Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-28T15:09:19Z status=pass attempt=1 type=human
