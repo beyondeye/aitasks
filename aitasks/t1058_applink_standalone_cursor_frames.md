@@ -7,6 +7,7 @@ status: Ready
 labels: [applink, applink_dataplane]
 created_at: 2026-06-22 16:52
 updated_at: 2026-06-25 09:55
+boardidx: 70
 ---
 
 Emit standalone AppLink `cursor` (0x04) frames for cursor-only motion. content_transport.md defines the cursor frame for REPL-prompt blink / vim normal-mode motion where no cells change.

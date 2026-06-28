@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [717_4]
+depends: [t717_4]
 issue_type: bug
 status: Ready
 labels: [verification, bug]
 anchor: 717
 created_at: 2026-06-27 23:19
 updated_at: 2026-06-27 23:19
+boardidx: 190
 ---
 
 ## Failed verification item from t717_4
