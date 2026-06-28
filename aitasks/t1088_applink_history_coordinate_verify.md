@@ -35,3 +35,5 @@ This closes the cross-repo coordinate-space + anchoring agreement between the t1
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-28T10:03:53Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-28T10:03:53Z status=pass attempt=1 type=machine
