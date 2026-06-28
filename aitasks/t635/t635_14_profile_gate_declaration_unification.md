@@ -87,6 +87,35 @@ surface — once this unification lands. Coordinate: this task should leave the
 fallback intact (its removal is t635_24's job), and t635_24 unblocks only after
 this completes.
 
+## Coordination (from t635_13)
+
+t635_13 built and registered the `aitask-gate-risk` **state-inspection verifier**
+(`.aitask-scripts/aitask_gate_risk.sh`, registry `risk_evaluated.verifier`), dormant
+until this task declares the gate. When this task makes profiles *declare*
+`risk_evaluated`, the following are **required acceptance criteria**:
+
+1. **Keep the planning-time PRODUCER alive (core requirement).** The risk feature is
+   a planning-time *producer* (the `risk-evaluation.md` procedure that authors the
+   `## Risk` section + threads the two levels, run **before plan approval**) plus a
+   verify-time *checker* (the new gate). A machine verifier can only check artifacts,
+   never produce them. So declaring `risk_evaluated` MUST continue to trigger the
+   planning-time risk-evaluation procedure before plan approval — the gate must not
+   become a post-planning-only check. Dropping the producer keeps the gate but loses
+   the plan-quality benefit (and the verifier would just fail, with no `## Risk`).
+2. **Toggle producer and checker together.** A task declares `risk_evaluated` iff
+   risk evaluation is enabled (the `risk_evaluation` opt-in), so the producer never
+   runs without the checker, nor the checker without the producer.
+3. **No double-recording of `risk_evaluated`.** Today task-workflow Step 7
+   self-records `risk_evaluated` (guarded by `record_gates`); once a task *declares*
+   the gate, the Step 9 orchestrator also records it → two terminal `risk_evaluated`
+   runs for one planning approval. Close this with a **structural fix** (preferred
+   over a fragile test-only invariant): gate the Step 7 self-record so it fires
+   **only when the task does not declare `risk_evaluated`** (the orchestrator owns
+   recording for declared gates), making the double-record impossible. **Plus a
+   regression test** asserting exactly **one** terminal `risk_evaluated` run is
+   recorded across a full plan→implement→Step 9 pass for a declaring task. This is
+   the risk analog of t635_24 removing build's inline self-record.
+
 ## References
 
 - `aidocs/gates/integration-roadmap.md` (Phase 4)

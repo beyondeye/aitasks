@@ -48,14 +48,26 @@ feature currently lives in:
 
 ## Scope
 
-Replace the standalone profile-gated dispatch with the gate wrapper per the seam
-doc, keeping the `risk_evaluation` opt-in semantics. Regenerate goldens and run
-`./.aitask-scripts/aitask_skill_verify.sh` in the same commit (gotcha #2 from the
-t884 parent plan).
+**Build and register the `aitask-gate-risk` verifier** (the gate wrapper) so the
+orchestrator can run it: a *state-inspection* verifier that passes when the plan's
+`## Risk` section (with its `### Code-health risk` / `### Goal-achievement risk`
+subsections) exists AND the task's `risk_code_health` / `risk_goal_achievement`
+levels are set. Keep the `risk_evaluation` opt-in semantics. Mirrors t635_12
+(build/tests/lint): the verifier is **dormant until a task declares the gate**.
 
-Note: the broader profile→gate-declaration configuration unification (which
-checkpoint is toggled where) is t635_14 — this child performs the risk-specific
-conversion per the seam doc; t635_14 then retires the duplicated Jinja toggle.
+**Scope split (revised during implementation — no silent AC deviation).** The
+*dispatch replacement* — profiles *declaring* the gate, retiring the duplicated
+`risk_evaluation` Jinja toggle, and transitioning the Step 7 self-record to the
+orchestrator — is **t635_14** (`depends: [t635_12, t635_13]`). This child performs
+only the risk-specific verifier conversion per the seam doc. The **planning-time
+producer** (the `risk-evaluation.md` procedure that authors the `## Risk` section +
+threads the levels, before plan approval) stays untouched here — the gate is only
+the *checker*, never a replacement for the producer.
+
+Because this child **edits no skill markdown, there are no goldens to regenerate**;
+`./.aitask-scripts/aitask_skill_verify.sh` is run only to confirm a clean no-op.
+(The original scope wording — "replace the dispatch … regenerate goldens" — predated
+the t635_12/t635_14 split and is reconciled here rather than dropped.)
 
 ## Reference
 
