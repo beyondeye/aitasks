@@ -31,3 +31,8 @@ Add a drift-guard test that drives the **same stubbed `git ls-remote` output** t
 - Add a second fixture (e.g. a 4-part / pre-release-ish tag, or an empty result) to lock in identical edge-case behavior.
 
 Suggested home: extend `tests/test_install_tarball_download.sh` (already sources `install.sh --source-only` and stubs `git`) or `tests/test_github_release.sh`. Run with `bash tests/<file>.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-28T14:43:57Z status=pass attempt=1 type=human
