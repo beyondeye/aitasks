@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t635_11]
 issue_type: enhancement
@@ -8,7 +10,7 @@ labels: [gates, task_workflow]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-02 12:49
-updated_at: 2026-06-28 10:43
+updated_at: 2026-06-28 10:44
 ---
 
 > **Formerly standalone task t912** (`t912_risk_evaluation_gate_integration`),
@@ -66,3 +68,5 @@ conversion per the seam doc; t635_14 then retires the duplicated Jinja toggle.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-28T07:44:09Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-28T07:44:10Z status=pass attempt=1 type=machine
