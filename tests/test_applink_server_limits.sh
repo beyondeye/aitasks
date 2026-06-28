@@ -147,6 +147,19 @@ async def main():
     check("idle watchdog: audited", any("preauth_timeout" in m for m in msgs))
     check("idle watchdog: connection cleaned up", len(srv._conns) == 0)
 
+    # --- (t1007) decode-bomb: _route_raw degrades to BAD_PAYLOAD, never raises --
+    # A JSON nested deep enough to raise RecursionError needs ~200 KB; the transport
+    # max_size (64 KB) already rejects that, so this is defense-in-depth, exercised
+    # here by calling _route_raw directly (bypassing the cap). The FakeRouter returns
+    # AUTH_FAILED for any *decoded* frame, so a BAD_PAYLOAD reply proves the
+    # RecursionError catch fired rather than the bomb parsing through.
+    srv, _ = new_server()
+    bomb = "[" * 200000 + "]" * 200000
+    reply = srv._route_raw(bomb, ConnState())
+    check("decode bomb -> BAD_PAYLOAD frame (no raise, no connection drop)",
+          isinstance(reply, dict) and reply.get("kind") == "err"
+          and reply["payload"]["code"] == "BAD_PAYLOAD")
+
 asyncio.run(main())
 print(f"\nALL PASSED ({PASS} checks)")
 PYEOF

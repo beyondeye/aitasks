@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -48,12 +49,23 @@ from monitor.monitor_core import task_id_from_window_name  # noqa: E402
 # Back-pressure high-water mark (content_transport.md §Back-pressure).
 HIGH_WATER_BYTES = 256 * 1024
 
+# Hard ceiling on a single outbound binary frame (t1007). A legit dense full-screen
+# keyframe is low-hundreds-of-KB and HIGH_WATER_BYTES already coalesces below this, so
+# this only trips on genuinely pathological/adversarial pane content (or a dense
+# max-`count` history pull) — bounding the mobile decode-bomb + server write-buffer
+# blowup. An oversize frame is dropped (audited), never sent.
+MAX_PUSH_FRAME_BYTES = 2 * 1024 * 1024   # 2 MiB
+
 
 class PushScheduler:
-    def __init__(self, conn, ws, monitor, *, clock=None) -> None:
+    def __init__(self, conn, ws, monitor, *, clock=None, audit=None) -> None:
         self._conn = conn
         self._ws = ws
         self._monitor = monitor
+        # Security/resilience audit logger (oversize-frame drops, per-pane faults).
+        # The server threads its own logger in; default to the package logger so a
+        # bare-constructed scheduler (unit tests) stays silent (no handlers).
+        self._audit = audit if audit is not None else logging.getLogger("applink.audit")
         # Injectable monotonic clock (tests pass a controllable one).
         if clock is None:
             import time
@@ -93,7 +105,15 @@ class PushScheduler:
                 self._wake.clear()
                 if self._stopped:
                     break
-                await self._run_once()
+                try:
+                    await self._run_once()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # Resilience (t1007): a whole-pass fault (e.g. capture_all_async
+                    # raised) must not kill the connection's push loop — log and
+                    # recover on the next tick.
+                    self._audit.warning("PUSH_RUN_ONCE_ERROR", exc_info=True)
         except asyncio.CancelledError:
             return
 
@@ -120,7 +140,15 @@ class PushScheduler:
             snap = snaps.get(pane_id)
             if snap is None:
                 continue  # pane gone this tick
-            await self._push_pane(sub, pane_id, snap, now)
+            try:
+                await self._push_pane(sub, pane_id, snap, now)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Resilience (t1007): one pane's encode/capture fault must not abort
+                # the pass or kill the loop — log and continue to the next pane.
+                self._audit.warning("PUSH_PANE_ERROR pane=%s", pane_id, exc_info=True)
+                continue
 
         # Stage 5 (t1057): drain queued scrollback (history RPC) pulls AFTER the
         # live loop, reusing this tick's `snaps`. Ordering matters: the live loop
@@ -150,13 +178,24 @@ class PushScheduler:
             snap = snaps.get(pane_id)
             if snap is None:
                 continue
-            pane = snap.pane
-            cols, rows_h = pane.width, pane.height
-            rows, osc8 = content.history_rows(snap.content, rows_h, before_line, count)
-            frame_id = sub.state_for(pane_id).frame_id  # read; do NOT advance the chain
-            cursor = [0, 0, False, 0]                    # history has no cursor (hidden)
-            await self._send(content.encode_keyframe(
-                pane_id, frame_id, cols, rows_h, cursor, rows, osc8 or None))
+            try:
+                pane = snap.pane
+                cols, rows_h = pane.width, pane.height
+                rows, osc8 = content.history_rows(snap.content, rows_h, before_line, count)
+                frame_id = sub.state_for(pane_id).frame_id  # read; do NOT advance the chain
+                cursor = [0, 0, False, 0]                    # history has no cursor (hidden)
+                # Best-effort: an oversize history keyframe is dropped by _send (its
+                # token acked acceptance, not delivery); off the live frame_id chain,
+                # so a drop corrupts no live state (t1007).
+                await self._send(content.encode_keyframe(
+                    pane_id, frame_id, cols, rows_h, cursor, rows, osc8 or None))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Resilience (t1007): one history pane's encode fault must not abort
+                # the remaining best-effort drains — log and skip.
+                self._audit.warning("HISTORY_DRAIN_ERROR pane=%s", pane_id, exc_info=True)
+                continue
 
     async def _push_pane(self, sub, pane_id, snap, now) -> None:
         st = sub.state_for(pane_id)
@@ -184,6 +223,11 @@ class PushScheduler:
         if not ((changed or forced or interval_due) and (due or forced)):
             return
 
+        if self._stopped:
+            # A pre-content send (pane_status / dim) hit a dead socket: bail before
+            # the cursor capture / parse / encode rather than doing doomed work
+            # (t1007). `force`/state are left intact (mirrors the tail hardening).
+            return
         cursor = await self._monitor.capture_cursor_async(pane_id)
         cursor = list(cursor) if cursor is not None else [0, 0, False, 0]
         # Live frames carry only the visible viewport (content_transport.md §Row
@@ -203,6 +247,7 @@ class PushScheduler:
         emit_keyframe = forced or interval_due or st.row_sigs is None
         sent_keyframe = False
         sent_append = False
+        delivered = True       # set False if _send drops an oversize content frame (t1007)
         bottom_row = dims[1] - 1
         if not emit_keyframe:
             # Stage 3 (t822_10): try the `append` (0x03) fast path before the delta
@@ -220,7 +265,7 @@ class PushScheduler:
                 if not any(u for _r, _s, urls in appended for u in urls):
                     append_wire = [[row_id, spans] for row_id, spans, _u in appended]
                     frame_id = sub.next_frame_id(pane_id)    # bump the monotonic chain
-                    await self._send(content.encode_append(pane_id, frame_id, append_wire))
+                    delivered = await self._send(content.encode_append(pane_id, frame_id, append_wire))
                     sent_append = True
 
         if not emit_keyframe and not sent_append:
@@ -243,7 +288,7 @@ class PushScheduler:
                 delta_wire = changed_wire + [[row_id, []] for row_id in removed]
                 prev_frame_id = st.frame_id
                 frame_id = sub.next_frame_id(pane_id)        # = prev_frame_id + 1
-                await self._send(content.encode_delta(
+                delivered = await self._send(content.encode_delta(
                     pane_id, frame_id, prev_frame_id, cursor, delta_wire,
                     content.build_osc8(changed_subset) or None,
                 ))
@@ -251,7 +296,7 @@ class PushScheduler:
         if emit_keyframe:
             full_rows = [[row_id, spans] for row_id, spans, _u in parsed]
             frame_id = sub.next_frame_id(pane_id)
-            await self._send(content.encode_keyframe(
+            delivered = await self._send(content.encode_keyframe(
                 pane_id, frame_id, dims[0], dims[1], cursor, full_rows,
                 content.build_osc8(parsed) or None,
             ))
@@ -263,6 +308,23 @@ class PushScheduler:
             # forced keyframe whose send failed then survives in `force` for a
             # future (re)send instead of being silently dropped — correct
             # regardless of when the connection is actually torn down.
+            return
+        if not delivered:
+            # An oversize content frame was dropped by _send (t1007). Re-anchor:
+            # row_sigs=None forces the NEXT emit through the self-contained keyframe
+            # path (never an append/delta against a baseline the client never
+            # received — which would silently mis-render). Advance the seen/cadence
+            # markers so a *static* oversize pane does not re-encode every tick (the
+            # retry is throttled to the keyframe interval); a change to sub-cap
+            # content still emits a fresh keyframe at once (row_sigs is None). `force`
+            # is cleared — the drop is final for this exact content.
+            st.row_sigs = None
+            st.last_hash = content_hash
+            st.last_dims = dims
+            st.last_cursor = list(cursor)
+            st.last_keyframe_t = now
+            st.last_send_t = now
+            sub.force.discard(pane_id)
             return
         st.row_sigs = new_sigs
         st.last_hash = content_hash
@@ -294,13 +356,26 @@ class PushScheduler:
         }
         await self._send(json.dumps(frame))
 
-    async def _send(self, data) -> None:
+    async def _send(self, data) -> bool:
+        """Send one frame. Returns True if sent, False if dropped or the socket died.
+
+        The single outbound sink, so it carries the oversize-frame cap (t1007): a
+        binary frame over MAX_PUSH_FRAME_BYTES is audited and dropped (NOT sent, and
+        NOT a dead socket — `_stopped` is left clear so the loop keeps serving other
+        panes). `pane_status` JSON text frames are bounded by construction, so only
+        binary frames are capped."""
+        if isinstance(data, (bytes, bytearray)) and len(data) > MAX_PUSH_FRAME_BYTES:
+            self._audit.warning(
+                "PUSH_FRAME_OVERSIZE bytes=%d cap=%d", len(data), MAX_PUSH_FRAME_BYTES)
+            return False
         try:
             await self._ws.send(data)
         except Exception:
             # A dead socket: stop pushing; the transport's _handle finally will
             # tear us down.
             self._stopped = True
+            return False
+        return True
 
     def _over_high_water(self) -> bool:
         transport = getattr(self._ws, "transport", None)

@@ -22,7 +22,7 @@ import sys
 import time
 from pathlib import Path
 
-from content import Subscription
+from content import Subscription, MAX_SUBSCRIBED_PANES
 
 # ``lib/`` holds the canonical TUI registry (the spawn_tui allowlist). Insert it
 # explicitly so the router resolves it whether imported by the server or a test.
@@ -39,7 +39,7 @@ PROTOCOL_VERSION = 1
 _PANE_ID_RE = re.compile(r"^%\d+$")
 _WINDOW_ID_RE = re.compile(r"^@\d+$")
 _MAX_STR = 4096        # cap any single client-supplied string field
-_MAX_PANES = 256       # cap a subscribe pane-list (bounds Subscription + push loop)
+_MAX_PANES = MAX_SUBSCRIBED_PANES  # subscribe pane-list reject threshold (canonical bound in content.py)
 _MAX_HISTORY_ROWS = 1000  # cap a history `count` (bounds the scrollback scan)
 
 # Error codes (protocol.md §Message envelope error frame).

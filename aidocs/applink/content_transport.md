@@ -191,6 +191,10 @@ If the WebSocket send buffer exceeds a configurable high-water mark (default 256
 2. Drops `cursor` frames (lowest priority).
 3. Skips a refresh tick rather than queueing.
 
+Independently of the high-water back-pressure, every outbound binary frame has a hard size ceiling (`MAX_PUSH_FRAME_BYTES`, well above any legitimate frame). A frame that exceeds it — only possible from pathological pane content — is **dropped and audited**, never sent, bounding the mobile-side decode and the server write buffer. When a *live* frame is dropped the server re-anchors that pane: its next emit is a fresh self-contained `keyframe` (never a `delta`/`append` against a baseline the client never received), and a static oversized pane is not re-encoded every tick. A dropped *history* keyframe (see Scrollback) is simply not delivered.
+
+A single pane's encode/capture error never aborts the other panes' updates or the per-connection push loop — it is caught, audited, and the loop continues.
+
 Mobile MAY send a `pause` push (`verb: "pause"`) when backgrounded but not yet `Suspended` (e.g., screen off but socket alive) — server stops all pushes until `resume` push, no state lost.
 
 ## Scrollback
@@ -205,7 +209,7 @@ Live updates cover only the current viewport. History is pulled on demand:
  "payload":{"pane_id":"<id>", "before_line": 1234, "count": 500}}
 ```
 
-Server responds (control plane `res`) with a token, then sends a **single** binary `keyframe` on the data plane with `rows` populated using **negative** `row_id`s (`-1` = line immediately above `before_line`, `-2` = two above, etc.). No further updates for history rows.
+Server responds (control plane `res`) with a token, then sends a **single** binary `keyframe` on the data plane with `rows` populated using **negative** `row_id`s (`-1` = line immediately above `before_line`, `-2` = two above, etc.). No further updates for history rows. `count` is server-capped, and the token acks **acceptance, not delivery** — best-effort: if the pane vanished from the drain-time capture, or the encoded history keyframe exceeds the outbound frame ceiling (Back-pressure), it is silently not delivered (history reads the pane's `frame_id` without advancing the live chain, so a drop disturbs no live state).
 
 Rationale: history is read-mostly and bursty. Reusing `keyframe` shape avoids a sixth frame type.
 

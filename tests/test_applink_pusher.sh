@@ -681,6 +681,117 @@ async def main():
     check("paused conn -> no history drain; request preserved",
           len(binaries(wsp)) == 0 and subp.has_pending_history() is True)
 
+    # === t1007: outbound frame-size cap + re-anchor on oversize drop ============
+    # A capturing audit logger so the drop/fault audits can be asserted.
+    cap_msgs = []
+    cap_log = logging.getLogger("applink.audit.t1007")
+    cap_log.handlers.clear()
+    cap_log.setLevel(logging.WARNING)
+    class _CapH(logging.Handler):
+        def emit(self, rec): cap_msgs.append(rec.getMessage())
+    cap_log.addHandler(_CapH())
+
+    subov = C.Subscription()
+    subov.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wsov, monov, paneov = FakeWS(), FakeMonitor(), FakePane("%1", height=1)
+    huge = "A" * (3 * 1024 * 1024)            # one row encodes to > MAX_PUSH_FRAME_BYTES
+    monov.snaps["%1"] = FakeSnap(paneov, huge + "\n")
+    nov = {"t": 30000.0}
+    schedov = PushScheduler(FakeConn(subov), wsov, monov, clock=lambda: nov["t"], audit=cap_log)
+
+    await schedov._run_once()                 # forced keyframe is oversize -> dropped
+    check("oversize: zero binary frames sent (frame dropped)", len(binaries(wsov)) == 0)
+    check("oversize: drop audited (PUSH_FRAME_OVERSIZE)",
+          any("PUSH_FRAME_OVERSIZE" in m for m in cap_msgs))
+    check("oversize: loop NOT stopped (drop is not a dead socket)", schedov._stopped is False)
+    stov = subov.state_for("%1")
+    check("oversize: re-anchor sets row_sigs=None (next emit is a self-contained keyframe)",
+          stov.row_sigs is None)
+    check("oversize: force cleared (drop is final for this exact content)", "%1" not in subov.force)
+
+    # static oversize content next tick -> NO binary re-encode (no spin)
+    nov["t"] += 2.0; wsov.sent.clear(); cap_msgs.clear()
+    await schedov._run_once()
+    check("oversize: static next tick emits no binary frame (throttled, no re-encode spin)",
+          len(binaries(wsov)) == 0)
+
+    # content shrinks below the cap -> next emit is a fresh KEYFRAME that reconstructs state
+    nov["t"] += 2.0; wsov.sent.clear()
+    monov.snaps["%1"] = FakeSnap(paneov, "small\n")
+    await schedov._run_once()
+    rbov = binaries(wsov)
+    check("oversize: shrink -> recovery is a fresh keyframe (not append/delta)",
+          len(rbov) == 1 and rbov[0][0] == C.FRAME_KEYFRAME)
+    kfov = msgpack.unpackb(rbov[0][1:], raw=False, strict_map_key=False)
+    check("oversize: recovery keyframe carries the new (sub-cap) content",
+          kfov[5][0][1][0][0] == "small")
+
+    # === t1007: per-pane fault isolation -> one bad pane doesn't sink the others =
+    class FaultyMonitor(FakeMonitor):
+        def __init__(self, bad):
+            super().__init__(); self._bad = bad
+        async def capture_cursor_async(self, pane_id):
+            if pane_id == self._bad:
+                raise RuntimeError("capture_cursor boom")
+            return self.cursor
+    subf = C.Subscription()
+    subf.apply_subscribe({"panes": ["%bad", "%good"], "cadence_idle_ms": 1000})
+    wsf, monf = FakeWS(), FaultyMonitor("%bad")
+    monf.snaps["%bad"] = FakeSnap(FakePane("%bad"), "boom\n")
+    monf.snaps["%good"] = FakeSnap(FakePane("%good"), "ok\n")
+    schedf = PushScheduler(FakeConn(subf), wsf, monf, clock=lambda: 40000.0, audit=cap_log)
+    cap_msgs.clear()
+    await schedf._run_once()                  # %bad raises in capture; must not propagate
+    check("fault isolation: _run_once did not raise (one pane's error swallowed)", True)
+    check("fault isolation: the good pane still emitted a keyframe",
+          any(b[0] == C.FRAME_KEYFRAME for b in binaries(wsf)))
+    check("fault isolation: per-pane fault audited (PUSH_PANE_ERROR)",
+          any("PUSH_PANE_ERROR" in m for m in cap_msgs))
+    check("fault isolation: loop not stopped", schedf._stopped is False)
+
+    # === t1007: a _run_once-level fault (capture_all_async) doesn't kill the loop =
+    class BurstFailMonitor(FakeMonitor):
+        def __init__(self): super().__init__(); self.n = 0
+        async def capture_all_async(self):
+            self.n += 1
+            if self.n == 1:
+                raise RuntimeError("capture_all boom")
+            return dict(self.snaps)
+    subl = C.Subscription()
+    subl.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wsl, monl = FakeWS(), BurstFailMonitor()
+    monl.snaps["%1"] = FakeSnap(FakePane("%1"), "live\n")
+    schedl = PushScheduler(FakeConn(subl), wsl, monl, audit=cap_log)
+    cap_msgs.clear()
+    schedl.start()
+    schedl.wake(); await asyncio.sleep(0.05)  # first pass raises in capture_all -> caught
+    schedl.wake(); await asyncio.sleep(0.05)  # second pass succeeds -> keyframe
+    await schedl.stop()
+    check("loop survives capture_all_async error (recovers next tick)",
+          any(b[0] == C.FRAME_KEYFRAME for b in binaries(wsl)))
+    check("loop-level fault audited (PUSH_RUN_ONCE_ERROR)",
+          any("PUSH_RUN_ONCE_ERROR" in m for m in cap_msgs))
+    check("loop task torn down cleanly after recovery", schedl._task is None)
+
+    # === t1007: an oversize history keyframe is dropped; live state untouched =====
+    subh2 = C.Subscription()
+    subh2.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wsh2, monh2 = FakeWS(), FakeMonitor()
+    big_hist = ("A" * 100000 + "\n") * 30     # 30 huge scrollback rows -> >2 MiB keyframe
+    monh2.snaps["%1"] = FakeSnap(FakePane("%1", height=2), big_hist)
+    schedh2 = PushScheduler(FakeConn(subh2), wsh2, monh2, clock=lambda: 50000.0, audit=cap_log)
+    fid_before = subh2.state_for("%1").frame_id
+    subh2.request_history("%1", 2, 30)        # before_line=2, count=30 -> 30 history rows
+    cap_msgs.clear()
+    await schedh2._drain_history(subh2, monh2.snaps)
+    check("history oversize: nothing sent (frame dropped)", len(binaries(wsh2)) == 0)
+    check("history oversize: drop audited (PUSH_FRAME_OVERSIZE)",
+          any("PUSH_FRAME_OVERSIZE" in m for m in cap_msgs))
+    check("history oversize: live frame_id chain untouched (history off the live chain)",
+          subh2.state_for("%1").frame_id == fid_before)
+    check("history oversize: queue drained best-effort (no retry queued)",
+          subh2.has_pending_history() is False)
+
     # Whole-suite assertion: no "Task exception was never retrieved" / unhandled
     # callback ever surfaced through the loop exception handler.
     check("no unretrieved task / unhandled-callback exceptions across the suite",

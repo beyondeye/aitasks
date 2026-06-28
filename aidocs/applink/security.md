@@ -70,10 +70,12 @@ The router rejects malformed input before it reaches tmux or the monitor:
 
 ## DoS / abuse limits
 
-Enforced in `server.py`:
+Enforced at the transport (`server.py`):
 
 - **Frame size** — inbound WebSocket frames are capped (`max_size`); the control
-  plane only carries small frames.
+  plane only carries small frames. A decoded-but-malformed envelope (non-object
+  JSON, or a decode-time error) returns `BAD_PAYLOAD` rather than dropping the
+  connection.
 - **Connection caps** — a global concurrent-connection ceiling and a per-source-IP
   ceiling, so one LAN host cannot starve the legitimate paired phone of the pool.
 - **Handshake / idle deadlines** — a TLS/WS opening-handshake timeout (slow-loris
@@ -81,6 +83,28 @@ Enforced in `server.py`:
   but never authenticates.
 - **Pre-auth frame budget** — an unauthenticated connection may send only a small
   number of frames before it is dropped (malformed-frame flood).
+
+Enforced in the binary data plane (`content.py` / `pusher.py`):
+
+- **Subscribed-pane count** — a connection's pane set is bounded
+  (`MAX_SUBSCRIBED_PANES`): the router rejects an over-long *explicit* `subscribe`
+  list, and `Subscription.apply_subscribe` enforces the same cap on the model so
+  the roster-subscribe path (empty/absent `panes`, expanded server-side) stays
+  bounded too — the push loop iterates every subscribed pane each tick.
+- **Cadence band** — client-requested cadences are clamped into the server policy
+  band: idle/focused are floored, and `keyframe_interval_ms` is floored *and*
+  capped (`MAX_KEYFRAME_INTERVAL_MS`) so periodic resync keyframes cannot be
+  disabled. Non-numeric/out-of-range cadence values coerce to safe defaults
+  instead of raising (a malformed cadence no longer drops the connection).
+- **Outbound frame size** — every outbound binary frame (live keyframe / delta /
+  append / dim and history keyframes) is capped (`MAX_PUSH_FRAME_BYTES`); a frame
+  over the cap from pathological pane content is dropped and audited rather than
+  sent, bounding both the mobile-side decode-bomb and the server write buffer. A
+  dropped *live* frame re-anchors the pane (its next emit is a fresh keyframe); a
+  dropped *history* frame is simply not delivered (history is best-effort).
+- **Scheduler fault isolation** — a single pane's encode/capture error (or a
+  whole-pass capture error) is caught and audited; it cannot abort the other
+  panes' updates or kill the per-connection push loop.
 
 ## Audit logging
 

@@ -241,6 +241,32 @@ check("focused cadence clamped up to floor", sub.cadence_focused_ms == C.FLOOR_F
 check("keyframe interval clamped up to floor", sub.keyframe_interval_ms == C.MIN_KEYFRAME_INTERVAL_MS)
 check("subscribe seeds force set", sub.force == {"%1", "%2"})
 
+# --- t1007: cadence + pane-count hardening ---------------------------------
+# keyframe interval is also UPPER-bounded (an unbounded value defeats periodic resync)
+subk = C.Subscription()
+subk.apply_subscribe({"panes": ["%1"], "keyframe_interval_ms": 10**9})
+check("keyframe interval clamped DOWN to MAX", subk.keyframe_interval_ms == C.MAX_KEYFRAME_INTERVAL_MS)
+
+# non-numeric / null / inf cadences coerce to defaults instead of raising (a bare
+# int("abc") would escape apply_subscribe and drop the whole connection)
+subc = C.Subscription()
+subc.apply_subscribe({
+    "panes": ["%1"], "cadence_idle_ms": "abc",
+    "cadence_focused_ms": None, "keyframe_interval_ms": float("inf"),
+})
+check("non-numeric idle coerces to default", subc.cadence_idle_ms == C.DEFAULT_IDLE_MS)
+check("null focused coerces to default", subc.cadence_focused_ms == C.DEFAULT_FOCUSED_MS)
+check("inf keyframe coerces to default (no OverflowError)",
+      subc.keyframe_interval_ms == C.DEFAULT_KEYFRAME_INTERVAL_MS)
+
+# subscribed-pane count is capped at MAX_SUBSCRIBED_PANES — the only bound on the
+# roster-subscribe path (the router does not cap the discovered roster)
+big_panes = ["%%%d" % i for i in range(C.MAX_SUBSCRIBED_PANES + 50)]
+subp = C.Subscription()
+accepted_big = subp.apply_subscribe({"panes": big_panes})
+check("apply_subscribe caps pane count at MAX_SUBSCRIBED_PANES",
+      len(subp.panes) == C.MAX_SUBSCRIBED_PANES and len(accepted_big) == C.MAX_SUBSCRIBED_PANES)
+
 sub.set_focus("%1")
 check("cadence_for focused pane", sub.cadence_for("%1") == sub.cadence_focused_ms)
 check("cadence_for idle pane", sub.cadence_for("%2") == sub.cadence_idle_ms)

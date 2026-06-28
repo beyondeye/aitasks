@@ -485,6 +485,14 @@ check("oversized keys -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
 r = router.handle(req("z" * (R._MAX_STR + 1), {}, auth=vfull), ConnState())
 check("oversized verb -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
 
+# t1007: a successfully-decoded but non-object envelope (e.g. JSON [], 123, "x")
+# is BAD_PAYLOAD, not an AttributeError / connection drop — handle's first-line
+# isinstance(env, dict) guard. Locks the malformed-input behavior.
+for bad_env in ([], "x", 123, None):
+    r = router.handle(bad_env, ConnState())
+    check("non-object envelope %r -> BAD_PAYLOAD" % (bad_env,),
+          r["kind"] == "err" and r["payload"]["code"] == "BAD_PAYLOAD")
+
 # --- audit logging (t985) --------------------------------------------------
 class _CapHandler(logging.Handler):
     def __init__(self):

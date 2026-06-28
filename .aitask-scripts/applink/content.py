@@ -53,6 +53,18 @@ DEFAULT_IDLE_MS = 3000        # desktop main refresh (monitor_port_design.md)
 DEFAULT_FOCUSED_MS = 300      # desktop fast-preview refresh
 DEFAULT_KEYFRAME_INTERVAL_MS = 30000
 MIN_KEYFRAME_INTERVAL_MS = 1000
+# Upper bound on a client-requested keyframe interval (t1007). The interval is the
+# anti-divergence anchor — an unbounded value lets one missed frame diverge the
+# client until a manual `request_keyframe`, so the server caps it at its own policy
+# ceiling (the doc's "server picks min of this and its own policy").
+MAX_KEYFRAME_INTERVAL_MS = 300000   # 5 min
+
+# Canonical bound on a connection's subscribed-pane count (t1007). The push loop
+# iterates every subscribed pane each tick, so this bounds per-tick work. The
+# router imports it as its `subscribe` reject threshold (single source of truth);
+# `Subscription.apply_subscribe` also enforces it as the model's own invariant so
+# the roster-subscribe path (router does not cap the discovered roster) stays bounded.
+MAX_SUBSCRIBED_PANES = 256
 
 
 # -- SGR / OSC8 parser ---------------------------------------------------------
@@ -495,11 +507,30 @@ def encode_dim(pane_id, cols, rows, palette_hash=0) -> bytes:
 
 # -- Subscription state --------------------------------------------------------
 
+def _coerce_int(value, default):
+    """Coerce a client-supplied cadence to int, falling back to ``default``.
+
+    A hostile/buggy client can send a non-numeric, ``null``, list, ``inf`` or
+    ``nan`` cadence; bare ``int(value)`` would raise and (uncaught upstream) drop
+    the whole connection. Falling back keeps the connection alive on a safe rate.
+    ``bool`` is harmless (``int(True) == 1``, then floored)."""
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 def clamp_cadences(idle_ms, focused_ms, keyframe_interval_ms):
-    """Clamp client-requested cadences up to the server policy floors."""
-    idle = max(int(idle_ms), FLOOR_IDLE_MS)
-    focused = max(int(focused_ms), FLOOR_FOCUSED_MS)
-    kf = max(int(keyframe_interval_ms), MIN_KEYFRAME_INTERVAL_MS)
+    """Clamp client-requested cadences into the server policy band (t1007).
+
+    Idle/focused are floored (a too-fast cadence is the load risk); the keyframe
+    interval is floored AND capped at ``MAX_KEYFRAME_INTERVAL_MS`` (an unbounded
+    interval defeats periodic resync). Non-numeric inputs coerce to the defaults
+    rather than raising."""
+    idle = max(_coerce_int(idle_ms, DEFAULT_IDLE_MS), FLOOR_IDLE_MS)
+    focused = max(_coerce_int(focused_ms, DEFAULT_FOCUSED_MS), FLOOR_FOCUSED_MS)
+    kf = min(max(_coerce_int(keyframe_interval_ms, DEFAULT_KEYFRAME_INTERVAL_MS),
+                 MIN_KEYFRAME_INTERVAL_MS), MAX_KEYFRAME_INTERVAL_MS)
     return idle, focused, kf
 
 
@@ -552,6 +583,14 @@ class Subscription:
         panes = payload.get("panes")
         if isinstance(panes, list):
             self.panes = {p for p in panes if isinstance(p, str) and p}
+        # Bound the subscribed-pane count (t1007) before force-seeding / history
+        # pruning below both reference it. The router rejects an over-long *explicit*
+        # list, but the roster-subscribe path (empty/absent `panes`) expands to the
+        # full discovered roster uncapped — so this model cap is the only bound there.
+        # Deterministic truncation; the trimmed set is echoed to the client in the
+        # `subscribe` reply.
+        if len(self.panes) > MAX_SUBSCRIBED_PANES:
+            self.panes = set(sorted(self.panes)[:MAX_SUBSCRIBED_PANES])
         self.cadence_idle_ms, self.cadence_focused_ms, self.keyframe_interval_ms = (
             clamp_cadences(
                 payload.get("cadence_idle_ms", self.cadence_idle_ms),

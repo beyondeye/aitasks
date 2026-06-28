@@ -244,7 +244,7 @@ class AppLinkServer:
         """Return the connection's PushScheduler, starting it on first use."""
         pusher = self._pushers.get(conn)
         if pusher is None:
-            pusher = PushScheduler(conn, ws, self._monitor)
+            pusher = PushScheduler(conn, ws, self._monitor, audit=self._audit)
             self._pushers[conn] = pusher
             pusher.start()
         return pusher
@@ -252,7 +252,14 @@ class AppLinkServer:
     def _route_raw(self, raw, conn: ConnState):
         try:
             env = json.loads(raw)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, RecursionError):
+            # Robust single decode sink (t1007). RecursionError is defense-in-depth:
+            # a JSON nested deep enough to recurse needs ~200 KB, which the transport
+            # `max_size` (64 KB) already rejects, and a shallower nested-but-decoded
+            # value is caught by FrameRouter.handle's isinstance(env, dict) guard — so
+            # this only matters if the cap is ever bypassed/raised. Either way the
+            # decode failure returns BAD_PAYLOAD instead of escaping to _handle's
+            # bare connection drop.
             return error_frame(None, None, ERR_BAD_PAYLOAD, "frame is not valid JSON")
         return self._router.handle(env, conn)
 
