@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_attachments]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1030
 created_at: 2026-06-28 12:07
-updated_at: 2026-06-28 12:07
+updated_at: 2026-06-28 12:28
 ---
 
 Scaffold the `attachments:` frontmatter schema and the `ait attach` CLI surface — **no actual blob storage yet** (that is t1030_2). This child lands the pure, headless, unit-testable units (YAML list-of-mappings parsing, SHA-256 hashing, hash/shard path helpers) and a working read-only `ait attach ls`.
