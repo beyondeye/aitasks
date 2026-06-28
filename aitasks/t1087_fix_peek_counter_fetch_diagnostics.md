@@ -12,6 +12,7 @@ anchor: 1077
 implemented_with: codex/gpt5_5
 created_at: 2026-06-28 10:54
 updated_at: 2026-06-28 12:21
+boardidx: 90
 ---
 
 ## Origin
@@ -53,3 +54,5 @@ suggest `ait setup`). Coheres with t1079, which also touches
 > **✅ gate:plan_approved** run=2026-06-28T09:22:03Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-28T09:22:03Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-28T09:35:21Z status=pass attempt=1 type=human
