@@ -128,3 +128,5 @@ These are not the reported failure and degrade gracefully; fold in only if cheap
 > **✅ gate:plan_approved** run=2026-06-27T20:19:28Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-27T20:19:29Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-28T07:06:06Z status=pass attempt=1 type=human
