@@ -7,7 +7,7 @@ This procedure copies the approved plan from Claude Code's **internal plan file*
 
 ## Scope
 
-**Run this only if running in Claude Code.** Other code agents (OpenCode, Codex CLI, Gemini CLI) do not have an internal plan-mode file — they write plans directly to `aiplans/`, so there is nothing to externalize. When porting `task-workflow/` to those agent trees, omit this procedure file and its references in `planning.md` / `SKILL.md`.
+**Run this only if running in Claude Code.** Other code agents (OpenCode, Codex CLI) do not have an internal plan-mode file — they write plans directly to `aiplans/`, so there is nothing to externalize. When porting `task-workflow/` to those agent trees, omit this procedure file and its references in `planning.md` / `SKILL.md`.
 
 ## Background
 

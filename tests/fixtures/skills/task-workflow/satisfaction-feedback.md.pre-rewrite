@@ -54,11 +54,10 @@ Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedb
    **Fast path:** If `detected_agent_string` is available (non-null, non-empty), use it directly — skip the self-detection below and proceed to step 3.
 
    **Self-detection fallback** (when `detected_agent_string` is not available):
-   - Determine which code agent you are running in. Use one of: `claudecode`, `geminicli`, `codex`, `opencode`. **IMPORTANT:** Use `claudecode` (not `claude`), `geminicli` (not `gemini`).
+   - Determine which code agent you are running in. Use one of: `claudecode`, `codex`, `opencode`. **IMPORTANT:** Use `claudecode` (not `claude`).
    - Obtain your current model ID:
      - **Claude Code:** Read the "exact model ID" from the system message (e.g., `claude-opus-4-6`).
      - **Codex CLI:** Run: `grep '^model' ~/.codex/config.toml | sed 's/^model[[:space:]]*=[[:space:]]*//' | tr -d '"'`
-     - **Gemini CLI:** Read the model ID from system context, or run: `jq -r '.model // empty' ~/.gemini/settings.json 2>/dev/null`
      - **OpenCode:** Read the model ID from system context.
    - If detection fails or no supported agent/model can be identified, skip silently.
 
