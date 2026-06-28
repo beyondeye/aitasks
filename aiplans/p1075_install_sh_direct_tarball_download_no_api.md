@@ -172,7 +172,7 @@ declared → legacy `verify_build` from `project_config.yaml`), then archival.
 
 ### Code-health risk: low
 - Inlined duplication of `github_latest_tag_version` in `install.sh` (cannot source the
-  lib on the curl|bash path). · severity: low · → mitigation: drift_guard_gittag_resolver
+  lib on the curl|bash path). · severity: low · → mitigation: t1084
   (also mitigated in-design by a "Mirrors … keep in sync" comment, matching the existing
   install.sh duplication convention)
 - Adding `-f` to the curl download changes 404 handling (now fails instead of writing the
@@ -180,11 +180,11 @@ declared → legacy `verify_build` from `project_config.yaml`), then archival.
 
 ### Goal-achievement risk: low
 - The deterministic-CDN happy path and token-aware REST fallback are unit-tested, but the
-  full live `ait upgrade` e2e (block api.github.com → success) can't run in CI. · severity: medium · → mitigation: manual_verify_upgrade_no_api
+  full live `ait upgrade` e2e (block api.github.com → success) can't run in CI. · severity: medium · → mitigation: t1085
 
 ### Planned mitigations
-- timing: after | name: drift_guard_gittag_resolver | type: test | priority: low | effort: low | addresses: code-health sync-drift (inlined resolver vs lib) | desc: add a test that feeds the same stubbed git output to install.sh's resolve_latest_version_gittags and lib/github_release.sh's github_latest_tag_version and asserts identical output, guarding against drift between the two
-- timing: after | name: manual_verify_upgrade_no_api | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement e2e-gap (no live upgrade test in CI) | desc: block api.github.com (e.g. /etc/hosts) and confirm ait upgrade <VERSION> still downloads and installs from the CDN with zero REST calls
+- timing: after | name: drift_guard_gittag_resolver | type: test | priority: low | effort: low | addresses: code-health sync-drift (inlined resolver vs lib) | desc: add a test that feeds the same stubbed git output to install.sh's resolve_latest_version_gittags and lib/github_release.sh's github_latest_tag_version and asserts identical output, guarding against drift between the two | created: t1084
+- timing: after | name: manual_verify_upgrade_no_api | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement e2e-gap (no live upgrade test in CI) | desc: block api.github.com (e.g. /etc/hosts) and confirm ait upgrade <VERSION> still downloads and installs from the CDN with zero REST calls | created: t1085
 
 ## Final Implementation Notes
 
