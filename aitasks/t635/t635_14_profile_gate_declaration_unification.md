@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t635_12, t635_13]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [gates, execution_profiles, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 18:55
-updated_at: 2026-06-25 10:45
+updated_at: 2026-06-28 11:10
 ---
 
 ## Context
