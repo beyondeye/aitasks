@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -8,7 +10,7 @@ labels: [aitasks, task-management, git]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-26 07:40
-updated_at: 2026-06-28 10:44
+updated_at: 2026-06-28 10:45
 ---
 
 ## Problem
@@ -85,3 +87,5 @@ both touch the claim path. See t1079.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-28T07:44:59Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-28T07:45:00Z status=pass attempt=1 type=machine
