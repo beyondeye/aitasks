@@ -13,6 +13,6 @@ enableFeedbackQuestions: true
 explore_auto_continue: false
 qa_mode: ask
 manual_verification_followup_mode: ask
-risk_evaluation: true
 record_gates: true
+default_gates: [risk_evaluated]
 max_parallel_gates: 2

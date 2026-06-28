@@ -3,11 +3,12 @@ priority: low
 effort: low
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [installer, upgrade, github-api, reliability]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1075
 created_at: 2026-06-28 10:09
-updated_at: 2026-06-28 10:09
+updated_at: 2026-06-28 13:10
 boardidx: 50
 ---
 
