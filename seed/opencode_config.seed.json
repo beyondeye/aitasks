@@ -69,6 +69,7 @@
       "./.aitask-scripts/aitask_gate_fail.sh *": "allow",
       "./.aitask-scripts/aitask_gate_lint.sh *": "allow",
       "./.aitask-scripts/aitask_gate_log.sh *": "allow",
+      "./.aitask-scripts/aitask_gate_risk.sh *": "allow",
       "./.aitask-scripts/aitask_gate_tests_pass.sh *": "allow",
       "./.aitask-scripts/aitask_run_gates.sh *": "allow",
       "./.aitask-scripts/aitask_query_files.sh *": "allow",

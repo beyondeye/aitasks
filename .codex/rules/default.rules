@@ -30,6 +30,7 @@ prefix_rule(pattern = ["./.aitask-scripts/aitask_gate_build.sh"], decision = "al
 prefix_rule(pattern = ["./.aitask-scripts/aitask_gate_fail.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_gate_lint.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_gate_log.sh"], decision = "allow", justification = "Aitasks helper script")
+prefix_rule(pattern = ["./.aitask-scripts/aitask_gate_risk.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_gate_tests_pass.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_run_gates.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_init_data.sh"], decision = "allow", justification = "Aitasks helper script")
