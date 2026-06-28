@@ -8,7 +8,7 @@ labels: [installer, upgrade, github-api, reliability]
 anchor: 1075
 created_at: 2026-06-28 10:09
 updated_at: 2026-06-28 10:09
-boardidx: 10
+boardidx: 50
 ---
 
 ## Origin

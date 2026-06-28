@@ -7,7 +7,7 @@ status: Ready
 labels: [shadow, claudeskills]
 created_at: 2026-06-25 00:37
 updated_at: 2026-06-25 00:37
-boardidx: 130
+boardidx: 10
 ---
 
 Add two new capabilities to the shadow-agent surface. Both originate from the

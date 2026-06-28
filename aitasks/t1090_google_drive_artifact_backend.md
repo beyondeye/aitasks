@@ -8,6 +8,7 @@ labels: [task_attachments, html_plans]
 anchor: 1065
 created_at: 2026-06-28 12:10
 updated_at: 2026-06-28 12:10
+boardidx: 80
 ---
 
 Implement the **Google Drive artifact backend** against the **generalized `artifact_backend`** contract (serves both attachments and artifacts).

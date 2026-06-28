@@ -7,7 +7,7 @@ status: Ready
 labels: [bash_scripts, git]
 created_at: 2026-06-26 07:48
 updated_at: 2026-06-26 07:48
-boardidx: 20
+boardidx: 40
 ---
 
 Make task-ID assignment robust against **counter drift**, so `ait create` can
