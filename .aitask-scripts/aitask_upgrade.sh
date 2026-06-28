@@ -140,10 +140,16 @@ main() {
 
     download_installer "$target_version" "$tmpdir/install.sh"
 
-    # Run install.sh with --force pointing to the project root
+    # Run install.sh with --force pointing to the project root. Thread the
+    # resolved version via the AIT_TARGET_VERSION env var (NOT a --version flag):
+    # the installer we just downloaded is the *target* version's, and a
+    # pre-t1075 installer silently ignores an unknown env var (falling back to
+    # its old latest-release behavior) but would die on an unknown flag. A
+    # t1075+ installer honors it and downloads that exact version straight from
+    # the rate-limit-free release CDN.
     info "Running installer..."
     echo ""
-    bash "$tmpdir/install.sh" --force --dir "$AIT_DIR"
+    AIT_TARGET_VERSION="$target_version" bash "$tmpdir/install.sh" --force --dir "$AIT_DIR"
 
     # Clear the update check cache so the "update available" message disappears
     rm -f "$HOME/.aitask/update_check"

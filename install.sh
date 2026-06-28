@@ -9,6 +9,10 @@ REPO="beyondeye/aitasks"
 INSTALL_DIR="."
 FORCE=false
 LOCAL_TARBALL=""
+# Explicit release version to install (no leading 'v'). Set by --version or the
+# AIT_TARGET_VERSION env var (the latter is how `ait upgrade` threads the
+# resolved version through). Empty => resolve the latest release.
+TARGET_VERSION=""
 
 # --- Color helpers ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -27,6 +31,9 @@ Install the aitask framework into a project directory.
 Options:
   --force             Overwrite existing framework files (preserves data dirs)
   --dir PATH          Install to PATH instead of current directory
+  --version VERSION   Install a specific release (e.g. 0.26.1) directly from the
+                      release-assets CDN — no GitHub REST API call. Defaults to
+                      the latest release when omitted.
   --local-tarball PATH  Use a local tarball instead of downloading from GitHub
   --help              Show this help message
 
@@ -34,6 +41,7 @@ Examples:
   curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash
   bash install.sh --dir ~/my-project
   bash install.sh --force
+  bash install.sh --version 0.26.1
   bash install.sh --local-tarball ./aitasks-0.1.0.tar.gz
 EOF
     exit 0
@@ -56,6 +64,11 @@ while [[ $# -gt 0 ]]; do
         --dir)
             [[ $# -ge 2 ]] || die "--dir requires a path argument"
             INSTALL_DIR="$2"
+            shift 2
+            ;;
+        --version)
+            [[ $# -ge 2 ]] || die "--version requires a version argument"
+            TARGET_VERSION="$2"
             shift 2
             ;;
         --local-tarball)
@@ -175,7 +188,72 @@ confirm_install() {
     fi
 }
 
+# --- Download a URL to a file (follow redirects, fail on HTTP error) ---
+# Returns the downloader's exit status so callers can fall back. The curl `-f`
+# is load-bearing: without it curl exits 0 on a 404 and writes the error page to
+# $dest, which would defeat the fallback logic in download_tarball(). `-L`
+# follows the release CDN's 302 redirect. wget already exits non-zero on HTTP
+# errors and follows redirects by default.
+download_url() {
+    local url="$1" dest="$2"
+    if [[ "$DOWNLOAD_CMD" == "curl" ]]; then
+        curl -fsSL --max-time 120 "$url" -o "$dest"
+    else
+        wget -q --timeout=120 "$url" -O "$dest"
+    fi
+}
+
+# Resolve the latest release version from git tags — NO GitHub REST API call
+# (the git protocol is exempt from the REST rate limit). install.sh runs
+# standalone via `curl | bash`, so it CANNOT source
+# .aitask-scripts/lib/github_release.sh (the lib is not on disk until we extract
+# the tarball). This mirrors github_latest_tag_version() in that file — keep the
+# two in sync. Portable: ERE sed/grep + numeric sort, no GNU-isms (see
+# aidocs/framework/sed_macos_issues.md). Prints the highest version (no 'v'), or
+# nothing if git is unavailable or no tag matches.
+resolve_latest_version_gittags() {
+    command -v git &>/dev/null || return 0
+    git ls-remote --tags --refs "https://github.com/$REPO" 'v*' 2>/dev/null \
+        | sed -E 's#.*refs/tags/v?##' \
+        | grep -E '^[0-9]+(\.[0-9]+)*$' \
+        | sort -t. -k1,1n -k2,2n -k3,3n \
+        | tail -1
+}
+
+# Discover the release tarball URL via the GitHub REST API. This is the
+# rate-limited LAST RESORT (only reached when the deterministic CDN download
+# fails on the resolve-latest path). Honors $GH_TOKEN / $GITHUB_TOKEN, which
+# raises the unauthenticated 60/hour cap to 5000/hour. Prints the URL, or
+# nothing.
+github_api_tarball_url() {
+    local tok="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+    local api_url="https://api.github.com/repos/$REPO/releases/latest"
+    local api_response=""
+    if [[ "$DOWNLOAD_CMD" == "curl" ]]; then
+        local -a auth=()
+        [[ -n "$tok" ]] && auth=(-H "Authorization: Bearer $tok")
+        api_response="$(curl -sS --max-time 15 "${auth[@]+"${auth[@]}"}" "$api_url" 2>/dev/null)" || true
+    else
+        local -a auth=()
+        [[ -n "$tok" ]] && auth=(--header="Authorization: Bearer $tok")
+        api_response="$(wget -qO- --timeout=15 "${auth[@]+"${auth[@]}"}" "$api_url" 2>/dev/null)" || true
+    fi
+
+    [[ -z "$api_response" ]] && return 0
+    printf '%s' "$api_response" \
+        | grep '"browser_download_url".*\.tar\.gz"' \
+        | head -1 \
+        | sed 's/.*"\(http[^"]*\)".*/\1/'
+}
+
 # --- Download tarball ---
+# Strategy (rate-limit-resilient — see t1075):
+#   1. --local-tarball       -> copy it (unchanged)
+#   2. explicit version      -> deterministic release-assets CDN URL, NO REST API
+#   3. no version            -> resolve latest via git tags, then the CDN URL
+#   4. CDN download fails     -> REST API last resort, EXCEPT when an explicit
+#                               version was requested (then die — never silently
+#                               install a different version).
 download_tarball() {
     local dest="$1"
 
@@ -185,36 +263,53 @@ download_tarball() {
         return
     fi
 
-    info "Fetching latest release from GitHub..."
-
-    local api_response=""
-    if [[ "$DOWNLOAD_CMD" == "curl" ]]; then
-        api_response="$(curl -sS --max-time 15 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null)" || true
-    else
-        api_response="$(wget -qO- --timeout=15 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null)" || true
+    # An explicit target version (--version flag or AIT_TARGET_VERSION env, the
+    # latter set by `ait upgrade`). The flag wins over the env var.
+    local requested_version="${TARGET_VERSION:-${AIT_TARGET_VERSION:-}}"
+    requested_version="${requested_version#v}"
+    if [[ -n "$requested_version" \
+          && ! "$requested_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+        die "Invalid version: $requested_version (expected X.Y.Z)"
     fi
 
-    if [[ -z "$api_response" ]]; then
-        die "Could not reach GitHub API. Download manually from: https://github.com/$REPO/releases"
+    local version="$requested_version"
+    if [[ -z "$version" ]]; then
+        # Standalone curl|bash with no version: resolve latest via git tags
+        # (exempt from the REST rate limit).
+        info "Resolving latest aitasks release..."
+        version="$(resolve_latest_version_gittags)" || true
     fi
 
+    # The release asset name is deterministic (release.yml builds
+    # aitasks-v<tag>.tar.gz) and lives on the release-assets CDN, NOT
+    # api.github.com — so this path is not subject to the REST rate limit.
+    if [[ -n "$version" ]]; then
+        local cdn_url="https://github.com/$REPO/releases/download/v${version}/aitasks-v${version}.tar.gz"
+        info "Downloading aitasks v${version}: $cdn_url"
+        if download_url "$cdn_url" "$dest"; then
+            return
+        fi
+        # An explicitly requested version that won't download must NOT silently
+        # degrade to "latest" — that is exactly the defect this fix removes.
+        if [[ -n "$requested_version" ]]; then
+            die "Could not download aitasks v${version} from:
+  $cdn_url
+  Verify the version exists: https://github.com/$REPO/releases"
+        fi
+        warn "Direct download of v${version} failed — falling back to the GitHub API..."
+    fi
+
+    # Last resort: discover the URL via the (rate-limited) REST API.
+    info "Fetching latest release via the GitHub API..."
     local tarball_url=""
-    tarball_url="$(echo "$api_response" \
-        | grep '"browser_download_url".*\.tar\.gz"' \
-        | head -1 \
-        | sed 's/.*"\(http[^"]*\)".*/\1/')" || true
+    tarball_url="$(github_api_tarball_url)"
 
     if [[ -z "$tarball_url" ]]; then
         die "Could not find release tarball. Download manually from: https://github.com/$REPO/releases"
     fi
 
     info "Downloading: $tarball_url"
-
-    if [[ "$DOWNLOAD_CMD" == "curl" ]]; then
-        curl -sSL --max-time 120 "$tarball_url" -o "$dest" || die "Download failed."
-    else
-        wget -q --timeout=120 "$tarball_url" -O "$dest" || die "Download failed."
-    fi
+    download_url "$tarball_url" "$dest" || die "Download failed."
 }
 
 # --- Install skills ---
