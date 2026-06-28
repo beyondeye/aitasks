@@ -219,3 +219,61 @@ signatures — they are the primary reference for t1030_2 and t1030_3.
   displaying wrong data · severity: low · → mitigation: malformed-hash test in Step 5
 - Scope is well-defined by design §3/§6 with a known SHA-256 test vector and stable
   helper signatures; storage is explicitly out of scope · severity: low · → mitigation: none needed
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned — (1) `attach)` arm in `ait`
+  + a help-text line under Task Management; (2) `lib/attachment_utils.sh` with
+  `attachment_sha256` / `attachment_validate_hash` / `attachment_shard_path` /
+  `attachment_cache_path`; (3) `read_yaml_mappings` + private parse helpers in
+  `lib/yaml_utils.sh`; (4) `aitask_attach.sh` (`ls`+`help` functional, storage
+  verbs stubbed); (5) `tests/test_attach_scaffold.sh` (47 assertions). All
+  verification passed: `test_attach_scaffold.sh` 47/47, `test_yaml_utils.sh` 28/28
+  (no regression), shellcheck clean, and `ait attach` manual smoke (help / ls on a
+  real child id / stub / bad-verb) all correct.
+
+- **`read_yaml_mappings` OUTPUT CONTRACT (the stable interface for t1030_2 / t1030_3 —
+  also documented at the function top in `lib/yaml_utils.sh`):**
+  - One `key=value` line per **present** field, in **schema order**
+    `hash, name, mime, size, added_at, backend, url`. Absent keys are omitted.
+  - Records (attachments) separated by a **single blank line**.
+  - **Consumers MUST split on the FIRST `=` only** → values may contain `=`, `;`,
+    spaces, etc. with **no escaping** (this is why the format is newline-delimited,
+    not `k=v;k=v`).
+  - Missing field / empty `[]` → emits nothing, exit 0. `url: null` → `url=null`.
+  - Parsing handles: frontmatter-only scan, full-line comments, inline
+    `<whitespace>#…` comments (stripped from unquoted values; a `#` not preceded by
+    whitespace, e.g. `bug#3.png`, is literal), and `"…"`/`'…'` quoting.
+  - Only the design §3 schema keys are recognized; an added key needs a new arm in
+    `_read_yaml_mappings_set` + `_read_yaml_mappings_flush` (kept bash-3.2-safe with
+    named vars, not an associative array).
+
+- **`attachment_utils.sh` signatures (reuse everywhere — do NOT re-derive shard
+  logic inline):** `attachment_sha256 <file>` → `sha256:<64hex>` (CLI choice
+  openssl→sha256sum→shasum encapsulated in one function); `attachment_validate_hash
+  <hash>` predicate (`^sha256:[0-9a-f]{64}$`, no output); `attachment_shard_path
+  <hash>` → `<2>/<62>` (dies on bad hash); `attachment_cache_path <hash>` →
+  `${XDG_CACHE_HOME:-$HOME/.cache}/ait/attachments/<full-hash>`.
+
+- **Key decisions / deviations:** (1) Replaced the originally-sketched
+  `key=val;key=val` single-line output with the newline-delimited record format —
+  the old format had no escaping story for names/URLs containing `;`/`=` (review
+  concern #1). (2) `cmd_list` validates each row's `hash` via
+  `attachment_validate_hash` and dies loudly on a malformed/missing hash rather than
+  printing garbage (review concern #3) — the reader stays a pure parser; the
+  consumer validates. t1030_2/t1030_3 consumers should likewise validate via the
+  shared helper. (3) Inline-comment stripping uses `sed 's/[[:space:]]#.*$//'`
+  whose leftmost match correctly implements "comment = first whitespace-preceded #"
+  (review concern #2).
+
+- **Upstream defects identified:** None. (Note for awareness, not a defect from this
+  task: `lib/yaml_utils.sh:135` in the pre-existing `read_yaml_list` carries a
+  shellcheck SC2001 *style* info — untouched by this task; all new code is below
+  line 141 and shellcheck-clean apart from the standard SC1091 source-follow info.)
+
+- **Notes for sibling tasks:** t1030_2 (add/get/rm/move) writes/mutates the
+  `attachments:` block — pair its writer with this reader and round-trip them in
+  tests. Reuse `attachment_shard_path` for blob layout and `attachment_cache_path`
+  for the universal cache (design §5). The storage verbs are stubbed in
+  `aitask_attach.sh` (`cmd_stub`) — replace each stub with the real implementation;
+  the `NOT_YET` message names which child owns which verb.
