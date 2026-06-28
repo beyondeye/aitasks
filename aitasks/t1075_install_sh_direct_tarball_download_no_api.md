@@ -7,10 +7,11 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [installer, upgrade, github-api, reliability]
+risk_mitigation_tasks: [1084, 1085]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-25 11:30
-updated_at: 2026-06-27 23:19
+updated_at: 2026-06-28 10:09
 ---
 
 ## Problem
