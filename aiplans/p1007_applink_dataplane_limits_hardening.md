@@ -261,3 +261,47 @@ bash tests/test_applink_smoke.sh
 Each limit is exercised against the synthetic FakeWS/FakeMonitor client (no tmux, no
 sockets), matching the existing data-plane test idiom. See Step 9 (Post-Implementation)
 of the task-workflow for cleanup, gate verification, and archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four scope items landed as planned, across `content.py`
+  (`MAX_KEYFRAME_INTERVAL_MS` / `MAX_SUBSCRIBED_PANES`, `_coerce_int` + keyframe upper
+  bound in `clamp_cadences`, the `apply_subscribe` pane cap), `router.py` (`_MAX_PANES`
+  imported from `content.MAX_SUBSCRIBED_PANES`), `server.py` (`_route_raw` catch +
+  pusher audit wiring), and `pusher.py` (`MAX_PUSH_FRAME_BYTES`, `_send` → `bool` with
+  the oversize cap, the `_push_pane` early dead-socket bail + re-anchor-on-drop tail,
+  per-pane / per-history / `_loop` fault isolation, ctor `audit`). Docs updated:
+  `security.md` §DoS-limits, `content_transport.md` §Back-pressure + §Scrollback.
+  Tests: +5 content, +19 pusher, +4 router, +1 server_limits (395 checks total, all
+  green; `py_compile` clean; shellcheck only pre-existing SC1091 infos).
+- **Deviations from plan:**
+  - **`_route_raw` `RecursionError` catch is defense-in-depth, not a reachable
+    in-pipeline fix.** Verified empirically: `json.loads` only recurses deep enough to
+    raise `RecursionError` at array depth ~100000 (≈200 KB), which the transport
+    `max_size` (64 KB) already rejects; a shallower nested-but-decoded value is caught
+    by `FrameRouter.handle`'s `isinstance(env, dict)` guard. The catch was kept (cheap,
+    upgrades the worst case from a connection-drop to BAD_PAYLOAD) and the code comment
+    corrected to say so. The server_limits test exercises it at the unit level (depth
+    200000, bypassing the cap). The plan's earlier "within the 64 KB cap" wording was
+    inaccurate.
+  - `MAX_PUSH_FRAME_BYTES` set to **2 MiB** (not 1 MiB) for headroom on ultrawide /
+    dense full-screen + max-`count` history frames; `HIGH_WATER_BYTES` (256 KB) still
+    coalesces far below it.
+  - The non-object-envelope guard (C1) already existed in `handle` — no code change
+    there, only a regression test was added to lock it.
+- **Issues encountered:** Mid-session the working tree advanced (main moved past t1055
+  to t635_13; **t1057 history RPC landed**), changing `pusher.py`/`content.py`/
+  `router.py` and their tests under me after my first reads. Re-read all affected files
+  and folded the history surface (`_drain_history`) into the design (the oversize cap
+  and fault isolation now cover history keyframes; C4). Also excluded two unrelated
+  concurrently-modified files (`aitask_claim_id.sh`, `test_claim_id.sh`) from the commit.
+- **Key decisions:** re-anchor on oversize drop sets `st.row_sigs = None` so the next
+  emit is a self-contained keyframe (closes the adversarially-found keyframe-drop →
+  append-on-phantom-buffer hole) while advancing `last_hash`/`last_keyframe_t` to avoid
+  a re-encode spin; `_send` returns `bool` so `_push_pane` distinguishes an oversize
+  drop (re-anchor) from a dead socket (`_stopped`, keep `force`); the pane bound is a
+  single constant in `content.py` enforced at both the router (reject) and the model
+  (truncate, the only bound on the roster path); resilience uses one `try/except` per
+  unit (per-pane, per-history-pane) plus a `_loop`-level guard, all re-raising
+  `CancelledError`.
+- **Upstream defects identified:** None.
