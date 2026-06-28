@@ -185,3 +185,36 @@ declared → legacy `verify_build` from `project_config.yaml`), then archival.
 ### Planned mitigations
 - timing: after | name: drift_guard_gittag_resolver | type: test | priority: low | effort: low | addresses: code-health sync-drift (inlined resolver vs lib) | desc: add a test that feeds the same stubbed git output to install.sh's resolve_latest_version_gittags and lib/github_release.sh's github_latest_tag_version and asserts identical output, guarding against drift between the two
 - timing: after | name: manual_verify_upgrade_no_api | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement e2e-gap (no live upgrade test in CI) | desc: block api.github.com (e.g. /etc/hosts) and confirm ait upgrade <VERSION> still downloads and installs from the CDN with zero REST calls
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `install.sh`: added `TARGET_VERSION` global + `--version VERSION` arg + usage/example;
+    added three helpers above `download_tarball()` — `download_url` (curl now `-fsSL`, the
+    `-f` is load-bearing so a 404 fails instead of writing the error page),
+    `resolve_latest_version_gittags` (mirrors `lib/github_release.sh:github_latest_tag_version`
+    with a keep-in-sync comment), and `github_api_tarball_url` (extracted REST lookup, now
+    token-aware via `Authorization: Bearer`); rewrote `download_tarball()` to the 3-tier
+    strategy (local → explicit-version CDN → git-tag-latest CDN → REST last resort), with an
+    explicit-version download failure calling `die` (never silently installs latest).
+  - `aitask_upgrade.sh`: `main()` now runs the installer with
+    `AIT_TARGET_VERSION="$target_version"` prefixed (env, not flag — backward-safe).
+  - `tests/test_install_tarball_download.sh`: NEW, 7 cases / 22 assertions, all ACs covered.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. shellcheck on `install.sh` reports three findings (lines 512,
+  597, 1126) — all in pre-existing, untouched code (reviewguides rel_path, codex
+  single-item loop, setup source) and not in the project's enforced lint surface
+  (`shellcheck .aitask-scripts/aitask_*.sh`); left as-is (out of scope). The test's only
+  shellcheck output is SC1091 (info) for dynamically-sourced paths, same as sibling tests.
+- **Key decisions:** (1) env-var handoff over a `--version` flag for the upgrade path, because
+  the downloaded installer is the *target* version's and a pre-t1075 installer would die on
+  an unknown flag but silently ignores an unknown env var; the `--version` flag still exists
+  for standalone use and wins over the env var. (2) Inlined the git-tag resolver (cannot
+  source the lib on the curl|bash path) following the established install.sh
+  duplicate-with-sync-comment convention. (3) Explicit-version CDN failure dies rather than
+  falling back to REST `releases/latest`, to avoid re-introducing the "ignores requested
+  version" defect.
+- **Verification performed:** `tests/test_install_tarball_download.sh` 22/22; regressions
+  `test_github_release` (7/7), `test_install_merge` (37/37), `test_t167_integration`,
+  `test_t644_branch_mode_upgrade` all pass; shellcheck clean on changed code.
+- **Upstream defects identified:** None
