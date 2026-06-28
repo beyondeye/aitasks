@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -7,8 +9,9 @@ status: Implementing
 labels: [aitasks, task-management, git]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1077
+implemented_with: codex/gpt5_5
 created_at: 2026-06-28 10:54
-updated_at: 2026-06-28 12:20
+updated_at: 2026-06-28 12:21
 ---
 
 ## Origin
@@ -43,3 +46,8 @@ present but fetch failed -> show local value with the real error), an
 unreachable-origin message, and the genuinely-uninitialized case (only then
 suggest `ait setup`). Coheres with t1079, which also touches
 `aitask_claim_id.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-28T09:22:03Z status=pass attempt=1 type=human
