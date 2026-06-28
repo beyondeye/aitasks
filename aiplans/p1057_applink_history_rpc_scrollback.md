@@ -350,11 +350,11 @@ surface changes).
 - `before_line`'s coordinate space + the best-effort anchoring contract must
   match `aitasks_mobile` t14_13, or end-to-end scrollback renders at the wrong
   offset on the phone even though the server is internally correct · severity:
-  medium · → mitigation: applink_history_coordinate_verify
+  medium · → mitigation: t1088
 - Anchoring to the drain-time capture means an actively-scrolling pane can return
   overlapping rows; this is documented best-effort (no replay buffer) and pinned
   by the intervening-scroll test, exact for the dominant idle-pane case ·
-  severity: low · → mitigation: applink_history_coordinate_verify
+  severity: low · → mitigation: t1088
 - Explicit `subscribe` accepts unverified `%N` ids, so a stale/nonexistent (or
   vanished) subscribed pane yields a token but no keyframe; the token is
   documented as an acceptance ack (not delivery), correlation is by keyframe
@@ -362,7 +362,7 @@ surface changes).
   severity: low · → mitigation: none needed
 
 ### Planned mitigations
-- timing: after | name: applink_history_coordinate_verify | type: test | priority: medium | effort: low | addresses: goal-achievement before_line coordinate-space + anchoring agreement with aitasks_mobile t14_13 | desc: once mobile t14_13 lands, verify end-to-end that the server's negative-id before_line mapping renders scrollback at the correct offset on the phone, including behavior over an actively-scrolling pane
+- timing: after | name: applink_history_coordinate_verify | created: t1088 | type: test | priority: medium | effort: low | addresses: goal-achievement before_line coordinate-space + anchoring agreement with aitasks_mobile t14_13 | desc: once mobile t14_13 lands, verify end-to-end that the server's negative-id before_line mapping renders scrollback at the correct offset on the phone, including behavior over an actively-scrolling pane
 
 ## Final Implementation Notes
 
