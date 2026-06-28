@@ -4,5 +4,6 @@ allowed_verbs:
   - snapshot
   - subscribe
   - request_keyframe
+  - history
   - pause
   - task_detail
