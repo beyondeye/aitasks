@@ -47,3 +47,5 @@ Scope:
 > **✅ gate:plan_approved** run=2026-06-28T09:09:25Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-28T09:09:26Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-28T09:27:55Z status=pass attempt=1 type=human
