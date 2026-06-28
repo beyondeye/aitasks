@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitasks, task-management, git]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1077
 implemented_with: codex/gpt5_5
 created_at: 2026-06-28 10:54
-updated_at: 2026-06-28 12:21
+updated_at: 2026-06-28 12:35
+completed_at: 2026-06-28 12:35
 boardidx: 90
 ---
 
