@@ -369,3 +369,75 @@ In the canonical parent + child `aitask_create.sh --batch` templates, inject aft
 - No new before/after task: live validation is covered by the **pre-existing t1015**
   MV (Phase-4 live verify) — add a coordination note that risk gate-declaration
   landed. `risk_mitigations_planned: false`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Realized the Phase-4 configuration-unification principle for
+  the risk checkpoint. (1) Added a `default_gates` **profile** key + a new `list`
+  type to `profile_editor.py` (PROFILE_SCHEMA / PROFILE_FIELD_INFO / "Gates"
+  PROFILE_FIELD_GROUPS; list edited as a comma-separated string row reusing the
+  string-widget infra, serialized as a YAML list), and **removed** the
+  `risk_evaluation` key. (2) Added three gate-resolution helpers in
+  `lib/gate_ledger.py` — `effective_gates` (task `gates:` if the field is present,
+  else profile `default_gates`, with graceful degradation on a missing/unreadable
+  profile), `should_self_record` (literal-declaration check), and
+  `_frontmatter_has_key` — exposed via `aitask_gate.sh` `effective-gates` /
+  `has-gates-field` / `should-self-record`. (3) Retired every `{% if
+  profile.risk_evaluation %}` Jinja gate in `planning.md` + `SKILL.md`, replacing
+  them with always-rendered, runtime-gated prose driven by `effective-gates`; added
+  a **Step-7 gate-declaration backfill** (keyed off the `has-gates-field` presence
+  oracle so an explicit `gates: []` opt-out is never overwritten) so producer +
+  checker toggle together; gated the Step-7 `risk_evaluated` self-record on
+  `should-self-record`. (4) Injected `--gates` from `default_gates` into the shared
+  `task-creation-batch.md`. (5) Set `default_gates: [risk_evaluated]` on seed +
+  active `fast.yaml`. (6) Updated `profiles.md` (Gate Declaration Model),
+  `gate-recording.md`, and four `aidocs/gates/*` docs to current state. (7) Added
+  `tests/test_gate_effective_gates.sh`, `tests/test_gate_declaration_backfill.sh`,
+  `tests/test_gate_no_double_record.sh`; rewrote Test 5 + extended Test 6 of
+  `test_skill_render_task_workflow.sh`; regenerated 7 procedure goldens and the
+  committed `remote` prerenders across all 3 agent trees.
+
+- **Deviations from plan:** (a) The `list` type reuses the existing `profile_str_`
+  widget id (comma-separated string row) instead of a new `profile_list_` prefix —
+  this avoids touching `on_key`/`_apply_string_edit`, which already map non-int
+  types to `profile_str_`. (b) The negative-control assertion in the double-record
+  test was reframed: empirically the orchestrator **skips an already-`pass` gate**
+  ("All gates satisfied"), so bypassing the Step-7 guard does not duplicate the
+  record — it lets the self-record **mask the real `aitask-gate-risk` verifier**
+  (which never runs). The test asserts that the guard ensures the verifier's
+  authoritative record exists (`Result: risk evaluated`), and the negative control
+  proves the verifier is masked without it. The structural fix is unchanged; the
+  test now pins the actual failure mode.
+
+- **Issues encountered:** `set -u` tripped on a same-`local`-statement self-reference
+  in a test helper (split into two `local`s). The active `aitasks/metadata/profiles/
+  fast.yaml` edit was swept into a concurrent syncer commit on the aitask-data
+  branch (expected per the concurrent-writers model) — it is persisted correctly.
+  shellcheck emits only the documented SC1091 baseline.
+
+- **Key decisions:** `default_gates` is a **profile** key (per t635_2 coordination);
+  the registry-level `default_gates` fallback is **deferred** (it would require
+  profile-less orchestrator resolution) — documented in `aitask-gate-framework.md`,
+  `integration-roadmap.md`, and `profiles.md`. The shipped `fast` declares only
+  `risk_evaluated` (machine gate, `blocks_dependents: false`): so dependency-unblock
+  (t635_3) stays dormant, while the archival guard (t635_4) goes live for `fast`
+  tasks (the Step-9 orchestrator records `risk_evaluated pass`, so a normal run
+  archives through). All edits are profile-dimension and agent-invariant (no
+  `{% if agent %}` gate) — Test 1b byte-identity across agents still holds
+  (`agent_runtime_guards_audit.md` checked). No new helper scripts → no whitelist
+  changes (new subcommands ride the already-whitelisted `aitask_gate.sh`).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:** The effective-gate-set model is now concrete:
+  `aitask_gate.sh effective-gates <id> [--profile <file>]` = task `gates:` if present
+  else profile `default_gates`; `has-gates-field` is the presence oracle (distinguishes
+  absent from `gates: []`); `should-self-record <id> <gate>` decides Step-7
+  self-record (exit 0 record / 1 skip). A profile declares gates via the
+  `default_gates` list key; new tasks get it via `--gates` at creation and a picked
+  task gets it via the Step-7 backfill. **For t635_24:** the legacy inline
+  `verify_build` path is still present (its removal is t635_24's job); this task did
+  not touch it. **Caveat for any profile that declares human gates** (plan/review/
+  merge): pair it with `record_gates: true` or the archival guard deadlocks. The
+  pre-existing **t1015** (`gate_orchestrator_live_verify` MV) covers live end-to-end
+  validation of the declared-gate flow.
