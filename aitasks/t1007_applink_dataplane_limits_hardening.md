@@ -7,10 +7,11 @@ depends: []
 issue_type: chore
 status: Implementing
 labels: [applink, applink_dataplane]
+risk_mitigation_tasks: [1091]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 10:54
-updated_at: 2026-06-28 12:09
+updated_at: 2026-06-28 12:31
 boardidx: 280
 ---
 

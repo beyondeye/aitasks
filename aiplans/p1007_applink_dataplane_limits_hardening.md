@@ -235,10 +235,10 @@ Current state only, per doc conventions.
 - The only residual is the pre-existing **"no real mobile client"** constraint: limits
   are exercised against the synthetic FakeWS/FakeMonitor unit path, not a live `wss://`
   socket or the real aitasks_mobile app. Inherited from t822_8, not introduced here.
-  · severity: low · → mitigation: applink_dataplane_live_socket_e2e
+  · severity: low · → mitigation: t1091
 
 ### Planned mitigations
-- timing: after | name: applink_dataplane_live_socket_e2e | type: test | priority: low | effort: medium | addresses: goal-achievement "no real mobile client / synthetic-only verification" | desc: Exercise the oversize-drop / pane-cap / cadence-clamp / per-pane-fault / oversize-history paths end-to-end through a real wss:// AppLinkServer socket with a scripted synthetic client, vs the current in-process FakeWS/FakeMonitor unit path.
+- timing: after | name: applink_dataplane_live_socket_e2e | created: t1091 | type: test | priority: low | effort: medium | addresses: goal-achievement "no real mobile client / synthetic-only verification" | desc: Exercise the oversize-drop / pane-cap / cadence-clamp / per-pane-fault / oversize-history paths end-to-end through a real wss:// AppLinkServer socket with a scripted synthetic client, vs the current in-process FakeWS/FakeMonitor unit path.
 
 ## Files
 - `.aitask-scripts/applink/content.py` — constants, `clamp_cadences`, `apply_subscribe`
