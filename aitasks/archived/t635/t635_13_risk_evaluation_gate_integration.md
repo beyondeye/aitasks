@@ -5,12 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: [t635_11]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [gates, task_workflow]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-02 12:49
-updated_at: 2026-06-28 10:44
+updated_at: 2026-06-28 10:57
+completed_at: 2026-06-28 10:57
 ---
 
 > **Formerly standalone task t912** (`t912_risk_evaluation_gate_integration`),
