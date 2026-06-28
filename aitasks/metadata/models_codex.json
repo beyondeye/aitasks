@@ -33,18 +33,18 @@
       "usagestats": {
         "wrap": {
           "all_time": {
-            "runs": 1
+            "runs": 2
           },
           "prev_month": {
-            "period": "",
-            "runs": 0
-          },
-          "month": {
             "period": "2026-05",
             "runs": 1
           },
+          "month": {
+            "period": "2026-06",
+            "runs": 1
+          },
           "week": {
-            "period": "2026-W21",
+            "period": "2026-W26",
             "runs": 1
           }
         },
