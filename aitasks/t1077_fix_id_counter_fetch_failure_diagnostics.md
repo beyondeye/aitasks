@@ -11,6 +11,7 @@ assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-26 07:40
 updated_at: 2026-06-28 10:45
+boardidx: 220
 ---
 
 ## Problem
@@ -89,3 +90,5 @@ both touch the claim path. See t1079.
 > **✅ gate:plan_approved** run=2026-06-28T07:44:59Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-28T07:45:00Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-28T07:52:56Z status=pass attempt=1 type=human
