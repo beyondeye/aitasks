@@ -6,8 +6,9 @@ issue_type: chore
 status: Implementing
 labels: [applink, applink_dataplane]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 10:54
-updated_at: 2026-06-27 22:38
+updated_at: 2026-06-28 12:09
 boardidx: 280
 ---
 
@@ -37,3 +38,8 @@ Scope:
 - `aiplans/archived/p822/p822_8_applink_snapshot_push_loop.md` (Final Implementation Notes) — what currently exists and what is explicitly NOT yet bounded.
 - `.aitask-scripts/applink/pusher.py`, `.aitask-scripts/applink/content.py`, `.aitask-scripts/applink/router.py`.
 - `aidocs/applink/content_transport.md` §Back-pressure; `aidocs/applink/permissions.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-28T09:09:25Z status=pass attempt=1 type=human
