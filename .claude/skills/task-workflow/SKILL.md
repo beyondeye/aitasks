@@ -324,7 +324,20 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
 
 **Record plan-approved gate:** Reaching Step 7 means the Step 6 checkpoint approved the plan. Execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=plan_approved`, `status=pass`, `fields="type=human"`.
 {%- endif %}
-{%- if profile.risk_evaluation is defined and profile.risk_evaluation %}
+
+**Gate-declaration backfill (post-approval write):** Make this task's planning-time gate decision durable so the Step-9 checker runs in lockstep with the planning producer. If the task has **no** `gates:` field yet — and only then — declare the active profile's `default_gates` on it:
+
+```bash
+if ! ./.aitask-scripts/aitask_gate.sh has-gates-field <task_id>; then
+  eff="$(./.aitask-scripts/aitask_gate.sh effective-gates <task_id> --profile aitasks/metadata/profiles/<active_profile_filename> | paste -sd, -)"
+  if [ -n "$eff" ]; then
+    ./.aitask-scripts/aitask_update.sh --batch <task_id> --gates "$eff"
+    ./ait git add aitasks/ && ./ait git commit -m "ait: Declare gates for t<task_id> from profile" 2>/dev/null || true
+  fi
+fi
+```
+
+`has-gates-field` exits non-zero **only** when the `gates:` key is absent (it exits 0 even for an explicit `gates: []`), so a deliberate opt-out is never overwritten. Omit the `--profile` argument if `active_profile_filename` is unset (no active profile). It is a no-op when the task already declares gates or the profile declares none.
 
 **Risk fields (post-approval write):** If the approved plan contains a `## Risk` section (authored by the Risk Evaluation Procedure during planning), write the two decided levels to the task's frontmatter now:
 
@@ -334,13 +347,17 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
   --risk-goal-achievement <risk_level_goal_achievement>
 ```
 
-Skip silently if the plan has no `## Risk` section (e.g. the evaluation was not run). This is the post-approval write gate: planning runs in read-only plan mode, so the fields are not written during Step 6.
+Skip silently if the plan has no `## Risk` section (e.g. the task is not risk-gated). This is the post-approval write gate: planning runs in read-only plan mode, so the fields are not written during Step 6.
 {%- if profile.record_gates is defined and profile.record_gates %}
 
-**Record risk-evaluated gate:** When the plan has a `## Risk` section, execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=risk_evaluated`, `status=pass`, `fields="type=machine"`.
+**Record risk-evaluated gate (only when the task does NOT declare it):** When the plan has a `## Risk` section, decide whether to self-record `risk_evaluated`. The Step-9 orchestrator records it for any task that *declares* `risk_evaluated` in `gates:`; self-recording here too would double-record. Check first:
+
+```bash
+./.aitask-scripts/aitask_gate.sh should-self-record <task_id> risk_evaluated
+```
+
+If it exits **0** (the task does not literally declare the gate), execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=risk_evaluated`, `status=pass`, `fields="type=machine"`. If it exits **1** (declared), **skip** — the Step-9 orchestrator records it (no double-record).
 {%- endif %}
-{%- endif %}
-{%- if profile.risk_evaluation is defined and profile.risk_evaluation %}
 
 **Risk-mitigation "before" creation (post-approval):** If the approved plan has a `### Planned mitigations` subsection with ≥1 `before` line (authored during planning by the Risk-Mitigation Follow-up Procedure), execute **Part 2 (Step 7 "before" creation)** of that procedure now (see `risk-mitigation-followup.md`). It creates each "before" mitigation as an **independent task the original depends on** (not a child), read-modify-writes the original's `depends:` and `risk_mitigation_tasks` to wire the blocking edge, and back-fills the plan's mitigation links.
 
@@ -360,7 +377,6 @@ If it returns `risk_before_created: true`, the original is now blocked by an unf
 4. Display: "Created risk-mitigation 'before' task(s) the original depends on. Task t\<task_id\> reverted to Ready — implement the mitigation first, then re-pick t\<task_id\> (its plan will be force re-verified)." Then **END the workflow** — do NOT proceed to the implementation below or to Step 8.
 
 If it returns `risk_before_created: false` (no "before" mitigations), continue to implementation normally.
-{%- endif %}
 
 Follow the approved plan, working in the directory specified in the plan metadata.
 
@@ -503,15 +519,13 @@ Execute the **Manual Verification Follow-up Procedure** (see `manual-verificatio
 - `task_file`, `task_id`, `is_child`, `active_profile`, `parent_id` from the current context.
 - `task_slug` — filename stem with the `t<id>_` prefix stripped (e.g. `aitasks/t42_add_login.md` → `add_login`).
 
-When the procedure returns, proceed to {% if profile.risk_evaluation is defined and profile.risk_evaluation %}Step 8d{% else %}Step 9{% endif %}.
-{%- if profile.risk_evaluation is defined and profile.risk_evaluation %}
+When the procedure returns, proceed to Step 8d.
 
 ### Step 8d: Risk-Mitigation "After" Follow-up
 
-Entered from Step 8c. At this point the code and plan files have already been committed. If the approved plan has a `### Planned mitigations` subsection with ≥1 `after` line (authored during planning by the Risk-Mitigation Follow-up Procedure), execute **Part 3 (Step 8d "after" creation)** of that procedure now (see `risk-mitigation-followup.md`) with `task_id`, `task_num`, `plan_file`, `is_child`, `parent_id`, and `active_profile` from the current context.
+Entered from Step 8c. At this point the code and plan files have already been committed. This step applies only when the task was risk-gated; if the approved plan has a `### Planned mitigations` subsection with ≥1 `after` line (authored during planning by the Risk-Mitigation Follow-up Procedure), execute **Part 3 (Step 8d "after" creation)** of that procedure now (see `risk-mitigation-followup.md`) with `task_id`, `task_num`, `plan_file`, `is_child`, `parent_id`, and `active_profile` from the current context. If the plan has no such subsection (the common case for non-risk-gated tasks), this step is a no-op.
 
 It creates each "after" mitigation as an independent follow-up task and records it in the original's `risk_mitigation_tasks`. "After" mitigations block nothing, so the workflow continues normally. When the procedure returns, proceed to Step 9.
-{%- endif %}
 
 ### Step 9: Post-Implementation
 

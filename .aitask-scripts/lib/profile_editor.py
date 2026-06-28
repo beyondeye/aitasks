@@ -15,6 +15,7 @@ profile-string Enter handler and value collection stay compatible:
     bool/enum -> "profile_{key}__{id_prefix}"
     string    -> "profile_str_{key}__{id_prefix}"
     int       -> "profile_int_{key}__{id_prefix}"
+    list      -> "profile_str_{key}__{id_prefix}" (comma-separated string row)
 """
 from __future__ import annotations
 
@@ -42,7 +43,7 @@ from textual.widgets import Button, Input, Label, Static  # noqa: E402
 # Profile schema and metadata
 # ---------------------------------------------------------------------------
 # Profile schema: key -> (type, options)
-# type: "bool", "enum", "string", "int"
+# type: "bool", "enum", "string", "int", "list"
 PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "name": ("string", None),
     "description": ("string", None),
@@ -56,8 +57,8 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "plan_verification_stale_after_hours": ("int", None),
     "post_plan_action": ("enum", ["start_implementation", "ask"]),
     "post_plan_action_for_child": ("enum", ["start_implementation", "ask"]),
-    "risk_evaluation": ("bool", None),
     "record_gates": ("bool", None),
+    "default_gates": ("list", None),
     "max_parallel_gates": ("int", None),
     "enableFeedbackQuestions": ("bool", None),
     "manual_verification_followup_mode": ("enum", ["ask", "never"]),
@@ -175,16 +176,6 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "but only applies when the current task is a child. Takes priority over "
         "post_plan_action in that case. Omit to fall back to post_plan_action."
     ),
-    "risk_evaluation": (
-        "Enable risk evaluation during planning",
-        "When true, the planning workflow assesses the task's code-health and "
-        "goal-achievement risk at the end of planning and records it, then offers "
-        "to spawn risk-mitigation follow-up tasks. Gates both the risk-evaluation "
-        "step and the mitigation follow-up offer.\n"
-        "  true    — run risk evaluation and offer mitigation follow-ups\n"
-        "  false   — disabled\n"
-        "  (unset) — disabled (opt-in feature)"
-    ),
     "record_gates": (
         "Record approval checkpoints as gate runs",
         "When true, task-workflow records its approval checkpoints (plan, "
@@ -195,6 +186,23 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "  true    — record checkpoints into the gate ledger\n"
         "  false   — disabled\n"
         "  (unset) — disabled (opt-in feature)"
+    ),
+    "default_gates": (
+        "Gates declared into new tasks (drives risk evaluation)",
+        "Comma-separated gate names that profile-driven task creation declares "
+        "in each new task's `gates:` frontmatter (via `--gates`), and that the "
+        "task-workflow backfills onto a picked task lacking the field. The "
+        "registry (aitasks/metadata/gates.yaml) defines HOW each gate runs; this "
+        "list chooses WHICH gates a task declares — the single config point "
+        "(replaces the old `risk_evaluation` toggle: declaring `risk_evaluated` "
+        "is what now runs the planning risk producer + the verify-time checker, "
+        "in lockstep). Effective set for a task = its own `gates:` field if "
+        "present (even empty = opt-out), else this list.\n"
+        "  risk_evaluated         — run risk evaluation (producer + gate)\n"
+        "  <gate1,gate2,...>      — declare these gates on new tasks\n"
+        "  (unset/empty)          — declare nothing (behaves as today)\n"
+        "Note: declaring a HUMAN gate (plan_approved/review_approved/"
+        "merge_approved) requires record_gates: true, or archival deadlocks."
     ),
     "max_parallel_gates": (
         "Max machine gates the orchestrator runs in parallel",
@@ -340,9 +348,8 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
         "plan_verification_stale_after_hours",
         "post_plan_action",
         "post_plan_action_for_child",
-        "risk_evaluation",
     ]),
-    ("Gates", ["record_gates", "max_parallel_gates"]),
+    ("Gates", ["record_gates", "default_gates", "max_parallel_gates"]),
     ("Feedback", ["enableFeedbackQuestions"]),
     ("Manual Verification", [
         "manual_verification_followup_mode",
@@ -550,6 +557,7 @@ def compose_profile_fields(
         bool/enum -> CycleField id "profile_{key}__{id_prefix}"
         string    -> ConfigRow  id "profile_str_{key}__{id_prefix}"
         int       -> ConfigRow  id "profile_int_{key}__{id_prefix}"
+        list      -> ConfigRow  id "profile_str_{key}__{id_prefix}" (CSV row)
     """
     for group_label, field_keys in PROFILE_FIELD_GROUPS:
         yield Label(f"  {group_label}", classes="section-header")
@@ -597,6 +605,21 @@ def compose_profile_fields(
                 yield ConfigRow(
                     key, current, config_layer="project", row_key=key,
                     id=f"profile_int_{key}__{id_prefix}",
+                )
+            elif ktype == "list":
+                # Edited as a comma-separated string row (reuses the string
+                # widget + EditStringScreen infra, so it lands on the
+                # `profile_str_` id); parsed back to a YAML list in
+                # collect_profile_values. (t635_14 default_gates.)
+                if isinstance(current_raw, (list, tuple)):
+                    current = ", ".join(str(x) for x in current_raw)
+                elif current_raw is None:
+                    current = ""
+                else:
+                    current = str(current_raw)
+                yield ConfigRow(
+                    key, current, config_layer="project", row_key=key,
+                    id=f"profile_str_{key}__{id_prefix}",
                 )
 
             info = PROFILE_FIELD_INFO.get(key)
@@ -674,6 +697,19 @@ def collect_profile_values(
                         errors.append(
                             f"{key}: '{val}' is not an integer — not saved"
                         )
+            except Exception:
+                pass
+        elif ktype == "list":
+            # List values are edited via the string row (see compose). Parse the
+            # comma-separated text back to a list; empty clears the key so it is
+            # omitted from the profile YAML. (t635_14 default_gates.)
+            try:
+                row = query_one(f"#{str_widget_id}", ConfigRow)
+                items = [x.strip() for x in (row.value or "").split(",") if x.strip()]
+                if items:
+                    data[key] = items
+                else:
+                    data.pop(key, None)
             except Exception:
                 pass
 

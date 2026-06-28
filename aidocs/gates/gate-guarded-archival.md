@@ -97,21 +97,25 @@ it (it defers instead).
 
 ## Dormancy / sequencing
 
-The guard keys off the **declared `gates:` field**, which no task carries yet —
-`gates:` population is **t635_14** (Phase 4). So the mechanism ships the contract
-+ enforcement now and is **inert** until t635_14 makes it live: `aitask_archive.sh`
-finds no task with declared gates, the guard is a no-op, and archival proceeds
-exactly as today. `record_gates: true` records checkpoint *runs* in `## Gate
-Runs`, but the `gates:` *field* stays empty, so even on the `fast` profile the
-guard does not fire. Correctness is proven by synthetic-fixture tests
-(`tests/test_gate_guarded_archival.sh`). This task lands after t635_2/t635_3 and
-before t635_14 flips the switch.
+The guard keys off the **declared `gates:` field**. `gates:` population is
+**t635_14** (Phase 4), which has now landed: the shipped `fast` profile declares
+`default_gates: [risk_evaluated]`, so `fast` tasks (and any task backfilled or
+created under `fast`) carry `gates: [risk_evaluated]` and the guard **is now live
+for them** — archival defers until `risk_evaluated` is recorded `pass`. The Step-9
+gate orchestrator records that pass during the workflow (the risk verifier inspects
+the `## Risk` section + frontmatter levels the producer authored), so a normal
+`fast` run archives straight through; the guard only bites if the risk artifacts
+are missing. The `default` profile declares no gates, so its tasks remain in the
+dormant case (no `gates:` field → guard is a no-op → archives as today). Correctness
+is proven by synthetic-fixture tests (`tests/test_gate_guarded_archival.sh`).
 
-When t635_14 populates `gates:`, the integration gates recorded `pass` by t635_2
+For a task declaring more gates, the integration gates recorded `pass` by t635_2
 (`build_verified` / `review_approved` / `merge_approved`) archive normally; only
 post-integration gates that pass out-of-band (async human review, `docs_updated`,
 manual verification) defer archival — exactly the regression class this design
-neutralizes.
+neutralizes. **Caveat:** declaring a human gate requires `record_gates: true` (only
+the workflow records those), or archival deadlocks — see `task-workflow/profiles.md`
+§Gate Declaration Model.
 
 ## Rejected alternatives
 

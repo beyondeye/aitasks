@@ -129,12 +129,16 @@ Each phase is independently shippable and leaves the framework consistent.
   task-workflow. Change-scoped (`skip` when the diff touches no
   doc-relevant surface, distinct from `pass`); doc roots come from project
   config, not hardcoded.
-- **Configuration unification principle** lands here: profiles stop being the
-  *runtime* toggle for converted checkpoints. Instead, profiles (and
-  `default_gates`) choose which gates get **declared** in `gates:` at
-  planning time; the registry defines how gates run. Jinja profile-gating of
-  converted pseudo-gates retires gradually — never configure the same
-  checkpoint in two places.
+- **Configuration unification principle** lands here (t635_14, done): profiles
+  stop being the *runtime* toggle for converted checkpoints. A `default_gates`
+  **profile** key chooses which gates get **declared** in `gates:` at planning
+  time (auto-injected at creation + backfilled at Step 7); the registry defines
+  how gates run. The `risk_evaluation` Jinja toggle was retired — declaring
+  `risk_evaluated` now drives the planning producer (in lockstep with the
+  verify-time checker) via a runtime effective-gate-set check. Realized scope:
+  the **profile** `default_gates` is the active mechanism; a registry-level
+  `default_gates` baseline (profile-less fallback) is **deferred** (not yet
+  implemented). Never configure the same checkpoint in two places.
 
 ### Phase 5 — Async human gates + remote projection
 

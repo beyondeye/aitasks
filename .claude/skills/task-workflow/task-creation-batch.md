@@ -22,6 +22,14 @@ Creates a task using `aitask_create.sh` in batch mode.
 | `contributor` | optional | Contributor name (for PR/issue imports) |
 | `contributor_email` | optional | Contributor email (for PR/issue imports) |
 
+> **Profile-driven gate declaration (auto-injected, t635_14):** When the active
+> profile declares `default_gates`, the templates below auto-inject `--gates "<list>"`
+> so every task created here declares those gates in its frontmatter — the single
+> config point that also drives the risk producer. The registry
+> (`aitasks/metadata/gates.yaml`) defines how each gate runs; the profile chooses
+> which to declare. This is rendered into the command for you (no caller parameter);
+> when the profile declares none, the flag is omitted.
+
 ## Output
 
 The script prints `Created: <filepath>` on success. To extract the task ID after creation:
@@ -72,6 +80,9 @@ The closing `TASK_DESC` must be on its own line with no leading whitespace.
   --effort <effort> \
   --type <issue_type> \
   --labels "<labels>" \
+{%- if profile.default_gates is defined and profile.default_gates %}
+  --gates "{{ profile.default_gates | join(',') }}" \
+{%- endif %}
   --desc-file - <<'TASK_DESC'
 <description>
 TASK_DESC
@@ -87,6 +98,9 @@ TASK_DESC
   --effort <effort> \
   --type <issue_type> \
   --labels "<labels>" \
+{%- if profile.default_gates is defined and profile.default_gates %}
+  --gates "{{ profile.default_gates | join(',') }}" \
+{%- endif %}
   --desc-file - <<'TASK_DESC'
 <description>
 TASK_DESC

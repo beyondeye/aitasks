@@ -16,10 +16,11 @@
 #      verbatim (no key is defined → all guards fall through to {% else %}).
 #   4. remote_drift_check synthetic profile demonstrates the true branch
 #      fires when the key is defined (no committed profile uses it).
-#   5. risk_evaluation synthetic profile demonstrates the gated risk steps
-#      (planning.md eval step + mitigation design, SKILL.md two-field write +
-#      "before" creation + Step 8d "after" creation) fire when the key is
-#      defined; default renders show none (no committed profile uses it).
+#   5. risk steps are profile-invariant + runtime-gated (t635_14): the planning
+#      eval step + mitigation design, SKILL.md two-field write + "before"/Step-8d
+#      "after" creation, and the gate-declaration backfill render in EVERY
+#      profile (the old `risk_evaluation` toggle is gone — they are gated at
+#      runtime via aitask_gate.sh effective-gates / has-gates-field).
 # Run: bash tests/test_skill_render_task_workflow.sh
 
 set -e
@@ -208,69 +209,61 @@ assert_contains "synthetic profile triggers true branch (return immediately)" \
 assert_not_contains "synthetic profile suppresses fallback prose" \
     '**Profile check.** If the active profile has' "$SYNTH_OUT"
 
-# === Test 5: synthetic risk_evaluation: true fires the gated risk steps (t884_3) ===
+# === Test 5: risk steps are profile-invariant + runtime-gated (t635_14) ===
 #
-# The risk-evaluation gate is a zero-footprint {%- if profile.risk_evaluation
-# is defined and profile.risk_evaluation %} wrap at two dispatch sites:
-# planning.md §6.1 (the eval step) and SKILL.md Step 7 (the two-field write).
-# fast.yaml sets risk_evaluation: true, so the committed fast goldens
-# (planning-fast / SKILL-fast) carry the gated steps, while default/remote omit
-# them (all proven by Test 1's per-profile goldens). The synthetic
-# risk_evaluation: true profile below still proves both branches fire
-# independently of any committed profile, and the default profile (key absent)
-# proves absence.
-echo "=== Test 5: synthetic risk_evaluation: true profile ==="
-TMP_RISK="$(mktemp "${TMPDIR:-/tmp}/test_risk_XXXXXX.yaml")"
-trap 'rm -f "$TMP_PROFILE" "$TMP_RISK"' EXIT
-cat > "$TMP_RISK" <<'YAML'
-name: test_risk_eval
-description: "Synthetic profile for t884_3 test (risk_evaluation true)"
-risk_evaluation: true
-YAML
-RISK_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$TMP_RISK" claude 2>&1)"
-RISK_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$TMP_RISK" claude 2>&1)"
-assert_contains "risk_evaluation true: planning.md emits the eval step" \
-    'Risk evaluation (end of planning)' "$RISK_PLAN"
-assert_contains "risk_evaluation true: planning.md emits the mitigation design step" \
-    'Risk-mitigation design (end of planning)' "$RISK_PLAN"
-assert_contains "risk_evaluation true: SKILL.md emits the two-field write" \
-    '--risk-code-health' "$RISK_SKILL"
-assert_contains "risk_evaluation true: SKILL.md write includes goal-achievement flag" \
-    '--risk-goal-achievement' "$RISK_SKILL"
-assert_contains "risk_evaluation true: SKILL.md emits the Step 7 'before' creation hook" \
-    'Risk-mitigation "before" creation' "$RISK_SKILL"
-assert_contains "risk_evaluation true: SKILL.md emits Step 8d 'after' creation" \
-    'Step 8d: Risk-Mitigation' "$RISK_SKILL"
-assert_contains "risk_evaluation true: Step 8c points to Step 8d" \
-    'proceed to Step 8d' "$RISK_SKILL"
-# Default profile (key absent) shows none — guards the zero-footprint claim.
-DEFAULT_RISK_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
-DEFAULT_RISK_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
-assert_not_contains "default profile: no planning risk step" \
-    'Risk evaluation (end of planning)' "$DEFAULT_RISK_PLAN"
-assert_not_contains "default profile: no planning mitigation design step" \
-    'Risk-mitigation design (end of planning)' "$DEFAULT_RISK_PLAN"
-assert_not_contains "default profile: no Step 7 risk write" \
-    '--risk-code-health' "$DEFAULT_RISK_SKILL"
-assert_not_contains "default profile: no Step 7 'before' creation hook" \
-    'Risk-mitigation "before" creation' "$DEFAULT_RISK_SKILL"
-assert_not_contains "default profile: no Step 8d" \
-    'Step 8d: Risk-Mitigation' "$DEFAULT_RISK_SKILL"
-# Step 8c's default pointer to Step 9 must be byte-stable when the key is absent.
-assert_contains "default profile: Step 8c points to Step 9" \
-    'proceed to Step 9.' "$DEFAULT_RISK_SKILL"
+# t635_14 retired the `risk_evaluation` profile toggle. The planning risk
+# producer + mitigation design, the Step-7 risk-field write, the "before" /
+# Step-8d "after" creation, and the gate-declaration backfill are now ALWAYS
+# rendered and gated at RUNTIME (aitask_gate.sh effective-gates / has-gates-field),
+# not by a render-time profile key. So they appear in EVERY profile render
+# (default included), and Step 8c always points to Step 8d. (Previously these
+# were wrapped in {%- if profile.risk_evaluation %} and proven by per-profile
+# goldens; that gate is gone.)
+echo "=== Test 5: risk steps profile-invariant (runtime-gated, t635_14) ==="
+for profile in "${PROFILES[@]}"; do
+    RP="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    RS="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    assert_contains "planning.md $profile: emits the eval step" \
+        'Risk evaluation (end of planning)' "$RP"
+    assert_contains "planning.md $profile: emits the mitigation design step" \
+        'Risk-mitigation design (end of planning)' "$RP"
+    assert_contains "planning.md $profile: emits the runtime risk-gate check" \
+        'aitask_gate.sh effective-gates' "$RP"
+    assert_contains "SKILL.md $profile: emits the two-field write" \
+        '--risk-code-health' "$RS"
+    assert_contains "SKILL.md $profile: write includes goal-achievement flag" \
+        '--risk-goal-achievement' "$RS"
+    assert_contains "SKILL.md $profile: emits the Step 7 'before' creation hook" \
+        'Risk-mitigation "before" creation' "$RS"
+    assert_contains "SKILL.md $profile: emits Step 8d 'after' creation" \
+        'Step 8d: Risk-Mitigation' "$RS"
+    assert_contains "SKILL.md $profile: Step 8c points to Step 8d" \
+        'proceed to Step 8d' "$RS"
+    # Gate-declaration backfill (always rendered, t635_14): keys off the
+    # field-presence oracle so an explicit `gates: []` opt-out is preserved.
+    assert_contains "SKILL.md $profile: emits the gate-declaration backfill" \
+        'Gate-declaration backfill' "$RS"
+    assert_contains "SKILL.md $profile: backfill uses the has-gates-field oracle" \
+        'aitask_gate.sh has-gates-field' "$RS"
+    # The retired profile key must not reappear as a render-time Jinja gate.
+    assert_not_contains "planning.md $profile: no profile.risk_evaluation Jinja" \
+        'profile.risk_evaluation' "$RP"
+    assert_not_contains "SKILL.md $profile: no profile.risk_evaluation Jinja" \
+        'profile.risk_evaluation' "$RS"
+done
 
 # === Test 6: synthetic record_gates: true fires the gated recording sites (t635_2) ===
 #
 # The record_gates gate is a zero-footprint {%- if profile.record_gates
 # is defined and profile.record_gates %} wrap at six dispatch sites:
-# SKILL.md Step 7 (plan_approved; risk_evaluated nested in the risk_evaluation
-# block), Step 8 (review_approved), Step 9 (build_verified, merge_approved),
-# the Procedures list, and planning.md's "Approve and stop here" branch
-# (deferred plan_approved). fast.yaml sets record_gates: true, so the committed
-# fast goldens carry these sites while default/remote omit them (Test 1). The
-# synthetic profile sets risk_evaluation too, so the nested risk_evaluated
-# recording is also exercised.
+# SKILL.md Step 7 (plan_approved; risk_evaluated — now guarded additionally by a
+# runtime `should-self-record` check, t635_14), Step 8 (review_approved), Step 9
+# (build_verified, merge_approved), the Procedures list, and planning.md's
+# "Approve and stop here" branch (deferred plan_approved). fast.yaml sets
+# record_gates: true, so the committed fast goldens carry these sites while
+# default/remote omit them (Test 1). The risk-field write is now always rendered
+# (no longer risk_evaluation-gated), so record_gates alone exercises the nested
+# risk_evaluated recording.
 echo "=== Test 6: synthetic record_gates: true profile ==="
 TMP_REC="$(mktemp "${TMPDIR:-/tmp}/test_record_XXXXXX.yaml")"
 trap 'rm -f "$TMP_PROFILE" "$TMP_RISK" "$TMP_REC"' EXIT
@@ -278,7 +271,6 @@ cat > "$TMP_REC" <<'YAML'
 name: test_record_gates
 description: "Synthetic profile for t635_2 test (record_gates true)"
 record_gates: true
-risk_evaluation: true
 YAML
 REC_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$TMP_REC" claude 2>&1)"
 REC_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$TMP_REC" claude 2>&1)"
@@ -286,6 +278,8 @@ assert_contains "record_gates true: SKILL.md emits plan_approved recording" \
     'gate_name=plan_approved' "$REC_SKILL"
 assert_contains "record_gates true: SKILL.md emits risk_evaluated recording (nested)" \
     'gate_name=risk_evaluated' "$REC_SKILL"
+assert_contains "record_gates true: risk_evaluated record guarded by should-self-record (t635_14)" \
+    'should-self-record' "$REC_SKILL"
 assert_contains "record_gates true: SKILL.md emits review_approved recording" \
     'gate_name=review_approved' "$REC_SKILL"
 assert_contains "record_gates true: SKILL.md emits build_verified recording" \

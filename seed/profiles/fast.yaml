@@ -11,3 +11,4 @@ enableFeedbackQuestions: true
 explore_auto_continue: false
 manual_verification_followup_mode: never
 record_gates: true
+default_gates: [risk_evaluated]

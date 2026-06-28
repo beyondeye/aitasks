@@ -10,6 +10,15 @@ Invoked only when the active profile sets `record_gates: true` — every call-si
 in `SKILL.md` / `planning.md` is wrapped in that Jinja guard, so this procedure
 never runs for profiles that have not opted in.
 
+> **`risk_evaluated` is conditional (t635_14).** The Step-7 `risk_evaluated`
+> self-record additionally fires **only when the task does not literally declare
+> the gate** (checked via `aitask_gate.sh should-self-record <task_id>
+> risk_evaluated`). For a task that *declares* `risk_evaluated` in `gates:`, the
+> Step-9 gate orchestrator records it instead — self-recording here too would
+> double-record. The other checkpoints (`plan_approved`, `review_approved`,
+> `merge_approved`) are human gates the orchestrator never records, so they have
+> no such guard.
+
 ## Inputs (from the calling context)
 
 | Variable | Description |

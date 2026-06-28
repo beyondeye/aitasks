@@ -416,6 +416,53 @@ cmd_resume_point() {
     delegate_python resume-point "$file" || echo "PLAN"
 }
 
+# effective-gates: resolve a task's effective gate set (t635_14). The task's
+# literal `gates:` field wins when present (even `[]`); otherwise fall back to the
+# active profile's `default_gates` (when --profile names a readable file). Used by
+# the task-workflow producer trigger in the read-only planning window. Python-only;
+# degrades to empty output (no gates → producer skipped) when python is
+# unavailable. Prints one gate per line.
+cmd_effective_gates() {
+    local task_id="" profile=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --profile) profile="${2:-}"; shift 2 ;;
+            *) task_id="$1"; shift ;;
+        esac
+    done
+    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh effective-gates <task-id> [--profile <file>]"
+    local file
+    file="$(resolve_task_file "$task_id")"
+    delegate_python effective-gates "$file" "$profile" || true
+}
+
+# has-gates-field: field-presence oracle (t635_14). Exit 0 iff the task's
+# frontmatter declares a `gates:` key AT ALL (even `gates: []`); exit 1 when
+# absent. The Step-7 backfill keys off this so a deliberate `gates: []` opt-out is
+# never overwritten — `list` can't make this distinction (it returns "no gates"
+# for both absent and `[]`). Python-unavailable degrades to exit 1 (treated as
+# absent; the paired effective-gates call then yields nothing, so no write).
+cmd_has_gates_field() {
+    local task_id="${1:-}"
+    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh has-gates-field <task-id>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+    delegate_python has-gates-field "$file"
+}
+
+# should-self-record: decide whether task-workflow self-records <gate> at Step 7
+# (t635_13/t635_14). Exit 0 = record (task does NOT literally declare the gate);
+# exit 1 = skip (the gate is declared, so the Step-9 orchestrator records it — a
+# self-record here would double-record). Keys off the LITERAL `gates:` field, not
+# the effective set.
+cmd_should_self_record() {
+    local task_id="${1:-}" gate="${2:-}"
+    [[ -z "$task_id" || -z "$gate" ]] && die "Usage: aitask_gate.sh should-self-record <task-id> <gate>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+    delegate_python should-self-record "$file" "$gate"
+}
+
 # --- usage / dispatch ------------------------------------------------------
 
 show_help() {
@@ -464,6 +511,22 @@ Commands:
         post-implementation). Keys off the recorded plan_approved/review_approved
         runs, not the declared `gates:` field.
 
+  effective-gates <task-id> [--profile <file>]
+        Resolve the task's effective gate set (t635_14). The literal `gates:`
+        field wins when present (even `[]`); otherwise fall back to the profile's
+        `default_gates` (when --profile names a readable file). Prints one gate
+        per line. Used by the task-workflow producer trigger during planning.
+
+  has-gates-field <task-id>
+        Field-presence oracle (t635_14): exit 0 iff the task declares a `gates:`
+        key at all (even `gates: []`), exit 1 when absent. The Step-7 backfill
+        keys off this so an explicit `gates: []` opt-out is never overwritten.
+
+  should-self-record <task-id> <gate>
+        Decide whether task-workflow self-records <gate> at Step 7 (t635_14):
+        exit 0 = record (gate not literally declared), exit 1 = skip (declared →
+        the orchestrator records it; avoids a double-record).
+
 Backend:
   Primary path is bash + awk. Set AIT_GATES_BACKEND=python to force the
   lib/gate_ledger.py fallback (identical output).
@@ -479,6 +542,9 @@ main() {
         deps-unblock) shift; cmd_deps_unblock "$@" ;;
         archive-ready) shift; cmd_archive_ready "$@" ;;
         resume-point) shift; cmd_resume_point "$@" ;;
+        effective-gates) shift; cmd_effective_gates "$@" ;;
+        has-gates-field) shift; cmd_has_gates_field "$@" ;;
+        should-self-record) shift; cmd_should_self_record "$@" ;;
         --help|-h|help|"") show_help ;;
         *) die "Unknown command: $cmd (try --help)" ;;
     esac

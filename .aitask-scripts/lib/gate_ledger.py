@@ -394,6 +394,67 @@ def read_declared_gates_from_text(text: str) -> list[str]:
     return _read_frontmatter_list_from_text(text, "gates")
 
 
+def _frontmatter_has_key(text: str, key: str) -> bool:
+    """True iff the frontmatter declares ``key:`` at all (even empty / ``[]``).
+
+    Distinguishes an ABSENT field from a present-but-empty one — e.g. ``gates:``
+    absent (eligible for profile backfill) vs an explicit ``gates: []`` opt-out
+    (which must be preserved). ``read_declared_gates`` returns ``[]`` for both, so
+    it cannot make this distinction; the Step-7 backfill keys off this oracle so a
+    deliberate opt-out is never overwritten (t635_14).
+    """
+    fm = _frontmatter_text(text)
+    return re.search(rf"(?m)^{re.escape(key)}:", fm) is not None
+
+
+def _read_profile_default_gates(profile_file: str) -> list[str]:
+    """Read ``default_gates`` from a profile YAML file.
+
+    Profiles are plain YAML (no ``---`` fence); ``_frontmatter_text`` returns the
+    whole document when unfenced, so the shared list reader handles both inline
+    ``[a, b]`` and block form. Graceful degradation (t635_14): an unreadable or
+    missing file warns to stderr and yields ``[]`` — never raises.
+    """
+    try:
+        with open(profile_file, encoding="utf-8") as fh:
+            return _read_frontmatter_list_from_text(fh.read(), "default_gates")
+    except OSError as exc:
+        sys.stderr.write(f"Warning: could not read profile {profile_file!r}: {exc}\n")
+        return []
+
+
+def effective_gates(task_file: str, profile_file: str | None = None) -> list[str]:
+    """Resolve the task's *effective* gate set (t635_14).
+
+    If the task's frontmatter declares a ``gates:`` field (present, even ``[]``),
+    it is authoritative. Otherwise fall back to the active profile's
+    ``default_gates`` (when ``profile_file`` is given and readable). Returns ``[]``
+    when neither applies. Used ONLY in the read-only planning window — once Step 7
+    backfills ``gates:`` onto the task, the literal field is authoritative
+    everywhere (producer + orchestrator + archival all read it).
+    """
+    with open(task_file, encoding="utf-8") as fh:
+        text = fh.read()
+    if _frontmatter_has_key(text, "gates"):
+        return read_declared_gates_from_text(text)
+    if profile_file:
+        return _read_profile_default_gates(profile_file)
+    return []
+
+
+def should_self_record(task_file: str, gate: str) -> bool:
+    """Whether task-workflow should self-record ``gate`` at Step 7.
+
+    True iff the task does **not** literally declare the gate in its ``gates:``
+    field — the LITERAL declaration, not the effective set, because the Step-9
+    orchestrator runs and records based on the literal field. A declared gate is
+    recorded by the orchestrator, so the Step-7 self-record must skip it; this is
+    the structural fix for the ``risk_evaluated`` double-record (t635_13 req #3 /
+    t635_14).
+    """
+    return gate not in read_declared_gates(task_file)
+
+
 def _truthy(value: str) -> bool:
     """YAML-ish boolean: true/yes/on/1 (case-insensitive) -> True, else False."""
     return value.strip().strip("'\"").lower() in ("true", "yes", "on", "1")
@@ -797,6 +858,29 @@ def main(argv: list[str]) -> int:
             return 2
         sys.stdout.write(resume_point(argv[1]) + "\n")
         return 0
+
+    if cmd == "effective-gates":
+        if len(argv) < 2:
+            sys.stderr.write("Usage: gate_ledger.py effective-gates <file> [profile_file]\n")
+            return 2
+        profile = argv[2] if len(argv) > 2 and argv[2] else None
+        for g in effective_gates(argv[1], profile):
+            sys.stdout.write(g + "\n")
+        return 0
+
+    if cmd == "has-gates-field":
+        if len(argv) < 2:
+            sys.stderr.write("Usage: gate_ledger.py has-gates-field <file>\n")
+            return 2
+        with open(argv[1], encoding="utf-8") as fh:
+            present = _frontmatter_has_key(fh.read(), "gates")
+        return 0 if present else 1
+
+    if cmd == "should-self-record":
+        if len(argv) < 3:
+            sys.stderr.write("Usage: gate_ledger.py should-self-record <file> <gate>\n")
+            return 2
+        return 0 if should_self_record(argv[1], argv[2]) else 1
 
     sys.stderr.write(f"Unknown command: {cmd}\n")
     return 2

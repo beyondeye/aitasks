@@ -109,15 +109,23 @@ holding dependents.
 The new behavior only differs from today for a task that is **active AND declares
 gates AND has all required gates passed while still active**. That state is only
 produced once **deferred archival** (t635_4) and a **populated `gates:` field**
-(t635_14, Phase 4) exist. Until then, `aitask_ls.sh` finds no active task with a
-`gates:` field, the gate-aware path is skipped entirely (a grep guard → zero
-overhead, zero behavior change), and correctness is proven by synthetic-fixture
-tests (`tests/test_dependency_unblock.sh`).
+(t635_14, Phase 4) exist.
+
+t635_14 has landed, but profile gate **declaration** does not by itself activate
+the dependency-unblock path: the unblock criterion filters declared gates to those
+flagged `blocks_dependents: true` in the registry, and the shipped `fast` profile
+declares only `risk_evaluated` (`blocks_dependents: false`). So a `fast` task's
+required-unblock set is still empty → `NO_GATES` → file-existence fallback, exactly
+as before. This path goes live only when a profile/task declares a
+`blocks_dependents` gate (e.g. `build_verified` / `tests_pass` / `review_approved` /
+`merge_approved`) or sets `also_blocks_dependents`. Correctness remains proven by
+synthetic-fixture tests (`tests/test_dependency_unblock.sh`).
 
 This is deliberate: t635_3 ships the **mechanism + contract**; t635_4 flips the
-switch that makes it matter. t635_3 must land **before or with** t635_4 (a
-deferred-archival change without this design would regress dependent
-availability).
+switch that makes it matter; t635_14 lets profiles populate `gates:`, but only a
+declared `blocks_dependents` gate exercises this path. t635_3 must land **before or
+with** t635_4 (a deferred-archival change without this design would regress
+dependent availability).
 
 ## Edge cases
 

@@ -463,7 +463,7 @@ The history is the full event log; the derived current state is `{lint: pass, te
 
 | Existing surface | Change |
 |---|---|
-| `task-workflow/planning.md` §Plan output | Optionally writes `gates: [...]` into the new task's frontmatter, chosen from the registry's `default_gates` or the plan's risk profile. |
+| `task-workflow/planning.md` §Plan output | Writes `gates: [...]` into new tasks' frontmatter from the **active profile's `default_gates`** — auto-injected as `--gates` by `task-creation-batch.md` at creation, and backfilled onto a picked task lacking the field at Step 7 (t635_14). Effective set = a task's own `gates:` field if present, else the profile `default_gates`. The registry-level `default_gates` baseline (profile-less fallback) is **deferred** — not yet implemented. |
 | `task-workflow/implementation.md` §Verify | Replaces ad-hoc "run tests, check lint" with a single call: `ait gates run <task-id>`. |
 | `aitask-pickrem` (autonomous lane) | Runs `aitask-run-gates` as its verify step. Respects human gates — stops on pending-human without escalating. Profile flag `auto_complete_on_all_gates_pass: true` lets the autonomous lane finalize the task. |
 | `aitask-archive` | Refuses to archive if any declared gate is not in `pass` state (profile-gated). Blocks human archive on unreviewed work. |

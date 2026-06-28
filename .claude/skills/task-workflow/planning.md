@@ -160,7 +160,7 @@ Otherwise, use `AskUserQuestion`:
 
 Use the `EnterPlanMode` tool to enter Claude Code's plan mode.
 
-**If entering from the "Verify plan" path in 6.0:** Start by reading the existing plan file. Then explore the current codebase to check if the plan's assumptions, file paths, and approach are still valid. Focus on identifying what changed since the plan was written. Update the plan if needed, or confirm it is still sound{% if profile.risk_evaluation is defined and profile.risk_evaluation %}. Then — **do not `ExitPlanMode` yet** — run the shared **End-of-planning terminal step** at the bottom of this §6.1 (Risk Evaluation + Risk-Mitigation design). It is **NON-SKIPPABLE on the verify path exactly as on the create-new path**: even when the existing plan already has a `## Risk` section, re-run the Risk Evaluation Procedure to re-check it against the (possibly changed) plan and update it in place. Only after it completes, `ExitPlanMode`.{% else %} and exit plan mode.{% endif %}
+**If entering from the "Verify plan" path in 6.0:** Start by reading the existing plan file. Then explore the current codebase to check if the plan's assumptions, file paths, and approach are still valid. Focus on identifying what changed since the plan was written. Update the plan if needed, or confirm it is still sound. Then — **do not `ExitPlanMode` yet** — run the shared **End-of-planning terminal step** at the bottom of this §6.1. It decides at runtime whether this task is risk-gated; when it is, re-run the Risk Evaluation Procedure even if the existing plan already has a `## Risk` section (re-check it against the possibly-changed plan and update it in place). Only after the terminal step completes, `ExitPlanMode`.
 
 **After `ExitPlanMode` on the verify path (post-externalization, pre-commit):**
 
@@ -304,15 +304,27 @@ While in plan mode:
       - **If "Stop here":** Display: "Child tasks and plans written to `aiplans/p<parent>/`. Pick individual children later with `/aitask-pick <parent>_<N>`." Execute the **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from the context variables. Then end the workflow.
 {%- include "_planning_plan_contract.md" -%}
 - Include a reference to **Step 9 (Post-Implementation)** in the plan for the cleanup, archival, and merge steps
-{%- if profile.risk_evaluation is defined and profile.risk_evaluation %}
 
 #### End-of-planning terminal step (NON-SKIPPABLE — runs on EVERY plan path)
 
-This is the shared terminus of **all** planning paths that reach `ExitPlanMode` — create-new, verify, and `ASK_STALE → Verify now`. It is **not** specific to the create-new narrative above. Whichever path you arrived by (including the verify path, where you read and re-checked an existing plan), run **both** sub-steps below **before** `ExitPlanMode`. An existing `## Risk` section does not exempt the verify path — re-run the evaluation and update the section in place.
+This is the shared terminus of **all** planning paths that reach `ExitPlanMode` — create-new, verify, and `ASK_STALE → Verify now`. It is **not** specific to the create-new narrative above. Whichever path you arrived by, first decide whether this task is **gated for risk evaluation**, then run the risk sub-steps below (when gated) **before** `ExitPlanMode`.
+
+**Risk-gate check (runtime — replaces the old `risk_evaluation` profile toggle).** Compute this task's effective gate set. If `active_profile_filename` is set:
+
+```bash
+./.aitask-scripts/aitask_gate.sh effective-gates <task_id> --profile aitasks/metadata/profiles/<active_profile_filename>
+```
+
+Otherwise (no active profile — e.g. a manual / resume invocation), omit `--profile`:
+
+```bash
+./.aitask-scripts/aitask_gate.sh effective-gates <task_id>
+```
+
+If the output includes `risk_evaluated`, run **both** risk sub-steps below; otherwise **skip** them (no `## Risk` section is authored, and Step 7 writes no risk fields). The effective set = this task's own `gates:` field if present (even empty = opt-out), else the active profile's `default_gates` — so the planning-time producer here and the verify-time checker (the `risk_evaluated` gate at Step 9) **toggle together**. An existing `## Risk` section does not exempt the verify path — when risk-gated, re-run the evaluation and update the section in place.
 
 - **Risk evaluation (end of planning):** Now that the plan is designed (or re-verified), read and follow the **Risk Evaluation Procedure** (see `risk-evaluation.md`). It assesses the two risk dimensions (code-health and goal-achievement) **separately**, assigns a level to each, and appends (or updates) a `## Risk` section in the plan. Thread `risk_level_code_health`, `risk_level_goal_achievement`, and `risk_mitigations_planned` into the workflow context — `SKILL.md` Step 7 writes the two fields post-approval (plan mode is read-only).
 - **Risk-mitigation design (end of planning):** Immediately after the risk evaluation, read and follow **Part 1 (Design-in-planning)** of the **Risk-Mitigation Follow-up Procedure** (see `risk-mitigation-followup.md`). It proposes before/after mitigation tasks for the identified risks (propose-and-confirm), records the confirmed ones into the plan's `## Risk` section, and threads `risk_mitigations_confirmed`. It creates nothing (plan mode is read-only) — `SKILL.md` Step 7 creates the "before" mitigations and Step 8d creates the "after" ones, post-approval.
-{%- endif %}
 - Use `ExitPlanMode` when ready for user approval
 
 ## Child Task Documentation Requirements
@@ -387,17 +399,15 @@ Base branch: main
 ---
 ```
 
-{% if profile.risk_evaluation is defined and profile.risk_evaluation -%}
-**Risk-section guard (NON-SKIPPABLE — verifies the §6.1 terminal step ran):** If `cross_repo_planned` is true, skip this guard (a cross-repo parent has no single-task `## Risk` section). Otherwise, before proceeding to the Checkpoint, confirm the externalized plan file contains a `## Risk` section:
+**Risk-section guard (NON-SKIPPABLE when risk-gated — verifies the §6.1 terminal step ran):** This guard applies only when this task is **gated for risk evaluation** (the §6.1 risk-gate check found `risk_evaluated` in the effective gate set). If it is *not* risk-gated, skip the guard. Also skip if `cross_repo_planned` is true (a cross-repo parent has no single-task `## Risk` section). Otherwise, before proceeding to the Checkpoint, confirm the externalized plan file contains a `## Risk` section:
 
 ```bash
 grep -q '^## Risk' aiplans/<plan_file> && echo "RISK_OK" || echo "RISK_MISSING"
 ```
 
 - `RISK_OK` → the end-of-planning Risk Evaluation ran; proceed to the Checkpoint.
-- `RISK_MISSING` → the §6.1 End-of-planning terminal step was skipped on this path. Do **not** proceed. Re-enter plan mode (`EnterPlanMode`), run the **Risk Evaluation Procedure** and the **Risk-Mitigation design** step now, `ExitPlanMode`, and re-run **Save Plan to External File** so the `## Risk` section is persisted.
+- `RISK_MISSING` → the §6.1 End-of-planning terminal step was skipped on this risk-gated path. Do **not** proceed. Re-enter plan mode (`EnterPlanMode`), run the **Risk Evaluation Procedure** and the **Risk-Mitigation design** step now, `ExitPlanMode`, and re-run **Save Plan to External File** so the `## Risk` section is persisted.
 
-{% endif -%}
 ## Checkpoint (after plan is saved)
 
 **Determine effective post-plan action:**
