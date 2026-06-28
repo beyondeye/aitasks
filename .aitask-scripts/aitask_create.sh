@@ -785,11 +785,11 @@ finalize_draft() {
                 if [[ "$answer" =~ ^[Yy]$ ]]; then
                     claimed_id=$(get_next_task_number_local)
                 else
-                    die "Aborted. Fix the remote counter or run 'ait setup'."
+                    die "Aborted. See the counter error above."
                 fi
             else
                 # Batch/non-interactive mode: fail hard
-                die "Atomic ID counter failed: ${claim_err:-unknown error}. Run 'ait setup' to initialize the counter."
+                die "Atomic ID counter failed: ${claim_err:-unknown error}"
             fi
         }
         rm -f "$claim_stderr" 2>/dev/null
@@ -1986,7 +1986,7 @@ run_batch_mode() {
                 local claim_err
                 claim_err=$(cat "$claim_stderr")
                 rm -f "$claim_stderr"
-                die "Atomic ID counter failed: ${claim_err:-unknown error}. Run 'ait setup' to initialize the counter."
+                die "Atomic ID counter failed: ${claim_err:-unknown error}"
             }
             rm -f "$claim_stderr" 2>/dev/null
 

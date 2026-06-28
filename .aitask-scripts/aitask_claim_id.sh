@@ -54,6 +54,28 @@ require_remote() {
     fi
 }
 
+# Query origin for the counter branch WITHOUT writing .git/FETCH_HEAD.
+# Echoes exactly one of:
+#   PRESENT         - branch exists on origin
+#   ABSENT          - origin reachable, branch not present
+#   ERROR:<message> - could not query origin (network/auth/etc.)
+# This disambiguates a failed `git fetch`: ls-remote does not touch FETCH_HEAD,
+# so it still reports PRESENT in the exact scenario where a fetch fails on an
+# unwritable FETCH_HEAD — letting the caller surface the real error instead of
+# mistaking it for a missing branch and looping the auto-upgrade path.
+remote_branch_state() {
+    local ls_out
+    if ls_out=$(git ls-remote --heads origin "$BRANCH" 2>&1); then
+        if printf '%s' "$ls_out" | grep -q "refs/heads/$BRANCH"; then
+            echo "PRESENT"
+        else
+            echo "ABSENT"
+        fi
+    else
+        echo "ERROR:$(printf '%s' "$ls_out" | tr '\n' ' ')"
+    fi
+}
+
 # --- Init: create the aitask-ids branch ---
 
 init_counter_branch() {
@@ -149,12 +171,18 @@ claim_local() {
 try_push_local_to_remote() {
     if has_local_branch; then
         debug "Attempting to push local '$BRANCH' to remote (auto-upgrade)..."
-        if git push origin "$BRANCH:refs/heads/$BRANCH" 2>/dev/null; then
-            info "Pushed local counter branch to remote (auto-upgrade)" >&2
-            git fetch origin "$BRANCH" --quiet 2>/dev/null || true
+        local push_out
+        if push_out=$(git push origin "$BRANCH:refs/heads/$BRANCH" 2>&1); then
+            # Only announce an auto-upgrade when the push actually created or
+            # advanced the remote branch. A no-op "up-to-date" push must not
+            # masquerade as an upgrade (that was the misleading-loop symptom).
+            if ! printf '%s' "$push_out" | grep -qi "up-to-date"; then
+                info "Pushed local counter branch to remote (auto-upgrade)" >&2
+            fi
+            git fetch origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" --quiet 2>/dev/null || true
             return 0
         fi
-        debug "Push of local branch failed"
+        debug "Push of local branch failed: $push_out"
     fi
     return 1
 }
@@ -177,14 +205,33 @@ claim_next_id() {
         attempt=$((attempt + 1))
         debug "Attempt $attempt/$MAX_RETRIES"
 
-        # Step 1: Fetch latest counter
+        # Step 1: Fetch latest counter. Capture stderr (do NOT discard it) and
+        # use an explicit refspec so origin/$BRANCH is reliably updated across
+        # git versions/configs.
         debug "Fetching branch '$BRANCH' from origin..."
-        if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
-            # Remote branch doesn't exist — try auto-upgrade from local branch
-            if try_push_local_to_remote; then
-                continue  # Retry with the now-available remote branch
-            fi
-            die "Failed to fetch '$BRANCH' from origin. Run 'ait setup' to initialize the counter."
+        local fetch_err
+        if ! fetch_err=$(git fetch origin \
+            "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" --quiet 2>&1 >/dev/null); then
+            # Fetch failed. Only a genuinely-absent remote branch may trigger
+            # the auto-upgrade path (or suggest 'ait setup'). A real fetch /
+            # environment error (network, auth, unwritable .git/FETCH_HEAD) must
+            # be surfaced verbatim — never mistaken for a missing branch.
+            local rstate
+            rstate=$(remote_branch_state)
+            case "$rstate" in
+                PRESENT)
+                    die "Failed to fetch counter branch '$BRANCH' from origin: ${fetch_err:-unknown git fetch error}"
+                    ;;
+                ERROR:*)
+                    die "Cannot reach origin to verify counter branch '$BRANCH': ${rstate#ERROR:}"
+                    ;;
+                *)  # ABSENT — remote branch missing; auto-upgrade from local.
+                    if try_push_local_to_remote; then
+                        continue  # Retry with the now-available remote branch
+                    fi
+                    die "Counter branch '$BRANCH' is not initialized on origin and no local branch exists to upgrade. Run 'ait setup' to initialize the counter."
+                    ;;
+            esac
         fi
         debug "Fetch successful"
 

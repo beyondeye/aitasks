@@ -378,6 +378,75 @@ fi
 
 rm -rf "$TMPDIR_14"
 
+# --- Test 15: Fetch failure with existing remote branch (no auto-upgrade loop) ---
+echo "--- Test 15: Fetch failure with existing remote branch ---"
+
+TMPDIR_15="$(setup_paired_repos)"
+(cd "$TMPDIR_15/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+
+# Build a git shim that fails 'git fetch' but passes everything else (incl.
+# 'git ls-remote') through to real git. This reproduces the live bug: a fetch
+# failure while the remote counter branch is healthy. ls-remote does not write
+# .git/FETCH_HEAD, so it still reports the branch PRESENT.
+REAL_GIT="$(command -v git)"
+SHIM_DIR_15="$TMPDIR_15/shim"
+mkdir -p "$SHIM_DIR_15"
+cat > "$SHIM_DIR_15/git" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == "fetch" ]]; then
+    echo "fatal: could not write to '.git/FETCH_HEAD': simulated failure" >&2
+    exit 128
+fi
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$SHIM_DIR_15/git"
+
+claim15_out=$(cd "$TMPDIR_15/local" && PATH="$SHIM_DIR_15:$PATH" ./.aitask-scripts/aitask_claim_id.sh --claim 2>&1)
+claim15_rc=$?
+
+assert_exit_nonzero_rc "Claim fails when fetch errors but branch exists" "$claim15_rc"
+assert_contains "Surfaces the real fetch error verbatim" "FETCH_HEAD" "$claim15_out"
+assert_not_contains "No misleading auto-upgrade message" "auto-upgrade" "$claim15_out"
+assert_not_contains "No misleading retry-exhaustion message" "5 attempts" "$claim15_out"
+assert_not_contains "No spurious 'ait setup' suggestion" "ait setup" "$claim15_out"
+
+# Counter must be untouched — the failed claim consumed no ID.
+counter15=$(cd "$TMPDIR_15/local" && git fetch origin aitask-ids --quiet 2>/dev/null && git show origin/aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
+assert_eq "Counter unchanged after failed claim" "6" "$counter15"
+
+rm -rf "$TMPDIR_15"
+
+# --- Test 16: Remote unreachable (ls-remote also fails) ---
+echo "--- Test 16: Remote unreachable (ls-remote also fails) ---"
+
+TMPDIR_16="$(setup_paired_repos)"
+(cd "$TMPDIR_16/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+
+# Shim fails both 'fetch' and 'ls-remote' — a genuine connectivity failure. The
+# claim must report it as such, NOT auto-upgrade or suggest 'ait setup'.
+REAL_GIT="$(command -v git)"
+SHIM_DIR_16="$TMPDIR_16/shim"
+mkdir -p "$SHIM_DIR_16"
+cat > "$SHIM_DIR_16/git" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == "fetch" || "\$1" == "ls-remote" ]]; then
+    echo "fatal: unable to access remote: simulated connectivity failure" >&2
+    exit 128
+fi
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$SHIM_DIR_16/git"
+
+claim16_out=$(cd "$TMPDIR_16/local" && PATH="$SHIM_DIR_16:$PATH" ./.aitask-scripts/aitask_claim_id.sh --claim 2>&1)
+claim16_rc=$?
+
+assert_exit_nonzero_rc "Claim fails when origin is unreachable" "$claim16_rc"
+assert_contains "Reports the unreachable-origin error" "Cannot reach origin" "$claim16_out"
+assert_not_contains "No auto-upgrade attempt on unreachable origin" "auto-upgrade" "$claim16_out"
+assert_not_contains "No spurious 'ait setup' on connectivity failure" "ait setup" "$claim16_out"
+
+rm -rf "$TMPDIR_16"
+
 # --- Summary ---
 echo ""
 echo "==============================="
