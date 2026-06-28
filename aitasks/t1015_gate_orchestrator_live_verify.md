@@ -7,7 +7,7 @@ status: Ready
 labels: [gates]
 verifies: ['635_11']
 created_at: 2026-06-17 00:35
-updated_at: 2026-06-17 00:35
+updated_at: 2026-06-28 18:14
 boardidx: 330
 ---
 
@@ -43,6 +43,23 @@ run `ait gates run <id>`. See the t635_12 plan
 (`aiplans/archived/p635/p635_12_build_test_machine_gates.md`) and
 `tests/test_gate_verifiers.sh` for the exact fixture shapes.
 
+## Coordination (from t635_14 — landed 2026-06-28)
+
+t635_14 (profile→gate-declaration unification) makes profiles **declare** gates: the
+shipped `fast` profile sets `default_gates: [risk_evaluated]`, so a real `ait`
+pick under `fast` now exercises the orchestrator end-to-end **without scratch
+fixtures** — a child created under `fast` declares `risk_evaluated`, and a picked
+gateless task gets it backfilled at Step 7. The `aitask-gate-risk` verifier
+(t635_13) is the live machine gate. So this MV can additionally verify the *real
+pick flow*, not just `ait gates run` against a hand-built task. New runtime
+behaviors to confirm (all from t635_14): gate **injection at creation** (new tasks
+carry `gates:` from the profile), the **Step-7 backfill** (a gateless picked task
+adopts `default_gates`, while an explicit `gates: []` opt-out is preserved), and
+**exactly one** `risk_evaluated` record end-to-end (the Step-7 self-record is
+suppressed for declared tasks via `aitask_gate.sh should-self-record`, so the
+orchestrator's verifier is the sole authoritative recorder — it is NOT masked).
+See `aiplans/archived/p635/p635_14_profile_gate_declaration_unification.md`.
+
 ## Verification checklist
 
 - [ ] On a task declaring a real machine gate, `ait gates run <id>` dispatches the
@@ -57,3 +74,8 @@ run `ait gates run <id>`. See the t635_12 plan
 - [ ] Human gate: an unsignalled `file-touch` gate stays `pending` and the engine
       never self-signals; creating the signal file flips it to `pass` on re-run.
 - [ ] Archive-readiness reflects skip-as-satisfied for any not-applicable gate.
+- [ ] Live declared-gate pick (t635_14): a child created under `fast` carries
+      `gates: [risk_evaluated]`; a gateless task picked under `fast` is backfilled at
+      Step 7 (and an explicit `gates: []` is left untouched); the end-to-end run
+      records exactly ONE authoritative `risk_evaluated` (verifier-origin, not a
+      masked self-record).
