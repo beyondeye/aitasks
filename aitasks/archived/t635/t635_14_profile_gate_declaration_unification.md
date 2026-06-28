@@ -5,11 +5,12 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t635_12, t635_13]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [gates, execution_profiles, task_workflow]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 18:55
-updated_at: 2026-06-28 12:46
+updated_at: 2026-06-28 18:10
+completed_at: 2026-06-28 18:10
 ---
 
 ## Context
