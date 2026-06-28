@@ -90,3 +90,30 @@ coverage.
 - `../aitasks_mobile` remains the paired mobile checkout.
 - No new risk-mitigation task should be created from this plan because t1088 is
   already the after-mitigation created by t1057.
+
+## Execution Notes
+
+- **Readiness gate:** Passed. Mobile t14_13 landed in git history
+  (`feature: Add AppLink history RPC scrollback to mobile monitor (t14_13)`)
+  and was followed by task/plan archival. Current mobile source contains
+  `HistoryPayload`, `MonitorSessionMediator.history`, negative-row merge logic
+  in `PaneRenderStateMediator`, top-edge scrollback request wiring in
+  `PaneContentViewer`, and related common tests.
+- **Server automated verification:** Passed.
+  - `bash tests/test_applink_content.sh` passed (103 checks).
+  - `bash tests/test_applink_router.sh` passed (172 checks).
+  - `bash tests/test_applink_pusher.sh` passed (104 checks).
+  - `bash tests/test_applink_headless_live.sh` passed; history control-plane
+    token was confirmed and the negative-row keyframe branch correctly skipped
+    because the throwaway pane had no scrollback.
+- **Mobile automated verification:** Passed with escalated filesystem access for
+  Gradle cache writes:
+  `cd ../aitasks_mobile && ./gradlew :domain:allTests :shared:allTests`
+  completed successfully (`BUILD SUCCESSFUL`, 111 actionable tasks, 11
+  executed, 100 up-to-date). Gradle emitted existing Kotlin warnings about API
+  dependency types in test source sets.
+- **Manual phone verification:** Not completed in this environment. The Android
+  CLI exists at `/usr/local/bin/android`, but `adb` is unavailable and no
+  attached device/emulator was visible from the shell. Do not archive t1088 until
+  the idle-pane, active-pane, stale subscribed pane, and unsubscribed pane manual
+  scenarios are verified on a paired mobile device.
