@@ -23,12 +23,15 @@
 #                     .aitask-scripts/aitask_gate_<x>.sh; a path runs directly.
 #                     EMPTY (or absent) = no auto-run (recorded by the workflow /
 #                     a human, not executed). The build/tests/lint verifiers are
-#                     populated (t635_12, below); the risk (t635_13) and docs
-#                     (t635_19) verifiers land in later children and stay empty
-#                     until then. The command-driven verifiers (build/tests/lint)
-#                     read their command from project_config.yaml and SKIP
-#                     (exit 2, terminal-satisfied) when that command is unset, so
-#                     a gate that does not apply to a project never blocks it.
+#                     populated (t635_12, below); the risk verifier (t635_13) is
+#                     populated below and is STATE-inspection (no command); the docs
+#                     (t635_19) verifier lands later and stays empty until then. The
+#                     command-driven verifiers (build/tests/lint) read their command
+#                     from project_config.yaml and SKIP (exit 2, terminal-satisfied)
+#                     when that command is unset, so a gate that does not apply to a
+#                     project never blocks it. The risk verifier has NO skip path: a
+#                     task that declares it has opted into risk evaluation, so the
+#                     `## Risk` section + the two levels must exist (else fail).
 #   max_retries     - re-attempts after a failure (int, default 0 = single shot).
 #   timeout_seconds - max wall-clock for one machine-gate run (optional).
 #   unlocks         - gates this gate unlocks on pass. ABSENT (key omitted) =
@@ -82,8 +85,13 @@ gates:
     type: machine
     description: "Plan assessed for code-health and goal-achievement risk"
     blocks_dependents: false
-    # verifier populated by t635_13 (risk-evaluation gate); empty = no auto-run.
-    verifier: ""
+    # State-inspection verifier (t635_13): passes when the plan's `## Risk` section
+    # (with its `### Code-health risk` / `### Goal-achievement risk` subsections)
+    # exists AND the task's `risk_code_health` / `risk_goal_achievement` levels are
+    # set. Not command-driven => no exit-2/skip. The planning-time risk-evaluation
+    # procedure is the producer; this only checks its output. Dormant until a task
+    # declares the gate (t635_14).
+    verifier: aitask-gate-risk
     max_retries: 0
   build_verified:
     type: machine
