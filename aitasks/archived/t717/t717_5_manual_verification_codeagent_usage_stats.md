@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [t717_1, t717_2, t717_3, t717_4]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-04-30 00:49
-updated_at: 2026-06-27 23:21
+updated_at: 2026-06-28 10:09
 completed_at: 2026-06-27 23:21
 ---
 
@@ -30,9 +30,9 @@ archived; Defer is allowed but creates a carry-over task.
 - [x] [t717_2] Run `shellcheck .aitask-scripts/aitask_verified_update.sh .aitask-scripts/aitask_usage_update.sh .aitask-scripts/lib/verified_update_lib.sh` — PASS 2026-06-27 23:20 auto: shellcheck on verified_update, usage_update, and verified_update_lib produced clean output.
 - [x] [t717_2] Pick a small task with codex selected as the agent, run /aitask-pick, observe satisfaction-feedback fires usagestats bump even though codex skipped the score AskUserQuestion — PASS 2026-06-27 23:20 auto: isolated codex/gpt5_5 usage update incremented usagestats.pick.month.runs 24->25 and left verifiedstats unchanged; satisfaction-feedback Step 0 calls usage update unconditionally.
 - [x] [t717_2] In a fresh shell, run `./.aitask-scripts/aitask_usage_update.sh --help` — PASS 2026-06-27 23:20 auto: ./.aitask-scripts/aitask_usage_update.sh --help ran in a fresh shell with no permission prompt and exited 0.
-- [fail] [t717_2] Verify all 5 whitelist touchpoints contain the new entry: `.claude/settings.local.json`, `.gemini/policies/aitasks-whitelist.toml`, `seed/claude_settings.local.json`, `seed/geminicli_policies/aitasks-whitelist.toml`, `seed/opencode_config.seed.json`. — FAIL 2026-06-27 23:16 follow-up t1081
+- [skip] [t717_2] Verify all 5 whitelist touchpoints contain the new entry: `.claude/settings.local.json`, `.gemini/policies/aitasks-whitelist.toml`, `seed/claude_settings.local.json`, `seed/geminicli_policies/aitasks-whitelist.toml`, `seed/opencode_config.seed.json`. — SKIP 2026-06-28 10:09 geminicli/Gemini policy touchpoints are obsolete because geminicli is no longer supported; t1081 removed.
 - [x] [t717_3] Run `python3 -m py_compile .aitask-scripts/lib/agent_model_picker.py` — PASS 2026-06-27 23:20 auto: python3 -m py_compile .aitask-scripts/lib/agent_model_picker.py succeeded.
-- [fail] [t717_3] Open the agent picker via `ait board` run-with dialog. Cycle modes with Shift+→ — FAIL 2026-06-27 23:16 follow-up t1080
+- [skip] [t717_3] Open the agent picker via `ait board` run-with dialog. Cycle modes with Shift+→ — SKIP 2026-06-28 10:09 old expectation included geminicli mode; geminicli is no longer supported, so six modes without geminicli is correct; t1080 removed.
 - [fail] [t717_3] In "Top verified models (recent)" mode, confirm rankings reflect recent-window scores not all-time (a model with high all-time but no recent runs falls below a model with recent activity). — FAIL 2026-06-27 23:17 follow-up t1082
 - [x] [t717_3] In "Top by usage (recent)" mode, confirm at least one codex model appears (after t717_2 has produced usage data). — PASS 2026-06-27 23:20 auto: Top by usage (recent) options include codex/gpt5_5 from live codex usagestats.
 - [x] [t717_3] Per-agent modes show detail strings like "96 (9 runs, 5 this mo, 3 prev mo)" when prev_month data exists. — PASS 2026-06-27 23:20 auto: _format_op_stats renders prev_month detail as '96 (9 runs, 5 this mo, 3 prev mo)'.

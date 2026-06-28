@@ -5,7 +5,7 @@ Worktree: (current branch - fast profile)
 Branch: main
 Base branch: main
 Verified by: codex
-Verified at: 2026-06-27 23:20
+Verified at: 2026-06-28 10:09
 ---
 
 # t717_5 - Manual verification: code-agent usage statistics
@@ -14,10 +14,11 @@ Verified at: 2026-06-27 23:20
 
 ### Summary
 
-- Checklist result: 18 pass, 4 fail, 0 skip, 0 defer.
-- Follow-up bug tasks created for every failed item:
-  - t1081: missing `aitask_usage_update.sh` whitelist entries in Gemini policy files.
-  - t1080: agent picker omits `geminicli` provider/mode.
+- Checklist result after geminicli cleanup: 18 pass, 2 fail, 2 skip, 0 defer.
+- Obsolete follow-up tasks removed:
+  - t1081: removed because Gemini/geminicli whitelist touchpoints are obsolete.
+  - t1080: removed because geminicli provider/mode is no longer supported.
+- Follow-up bug tasks retained for real failed items:
   - t1082: top-verified recent mode still lets no-recent flat verified scores outrank recent data.
   - t1083: `./ait stats tui` is not routed by the `ait` dispatcher; the working entrypoint is `./ait stats-tui` / `.aitask-scripts/aitask_stats_tui.sh`.
 
@@ -90,8 +91,8 @@ Verified at: 2026-06-27 23:20
 - Item text: Verify all five whitelist touchpoints contain `aitask_usage_update.sh`.
 - Approach: file inspection.
 - Action run: Python path scan over `.claude/settings.local.json`, `.gemini/policies/aitasks-whitelist.toml`, `seed/claude_settings.local.json`, `seed/geminicli_policies/aitasks-whitelist.toml`, `seed/opencode_config.seed.json`.
-- Output: missing from `.gemini/policies/aitasks-whitelist.toml` and `seed/geminicli_policies/aitasks-whitelist.toml`.
-- Verdict: fail; follow-up t1081.
+- Output: old checklist expectation includes Gemini/geminicli policy files, but geminicli is no longer supported.
+- Verdict: skip; obsolete follow-up t1081 removed.
 
 ### Item 10
 
@@ -107,7 +108,7 @@ Verified at: 2026-06-27 23:20
 - Approach: Python inspection of `AgentModelPickerScreen._MODES` and `MODEL_FILES`.
 - Action run: import `agent_model_picker`, print modes/providers.
 - Output: six modes/providers only: top verified, top usage, all, codex, opencode, claudecode; providers are `claudecode|codex|opencode`. `geminicli` is absent.
-- Verdict: fail; follow-up t1080.
+- Verdict: skip; the old seven-mode expectation is obsolete because geminicli is no longer supported. Obsolete follow-up t1080 removed.
 
 ### Item 12
 
