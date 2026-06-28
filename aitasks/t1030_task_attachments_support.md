@@ -3,13 +3,12 @@ priority: low
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [task_attachments]
 file_references: [aidocs/task_attachments_design.md]
 children_to_implement: [t1030_1, t1030_2, t1030_3]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-18 15:26
-updated_at: 2026-06-28 12:08
+updated_at: 2026-06-28 12:09
 boardidx: 240
 ---
 
