@@ -256,5 +256,70 @@ sub.apply_subscribe({"panes": ["%2"]})
 check("re-subscribe drops unsubscribed pane state", "%1" not in sub._pane)
 check("re-subscribe clears focus when focused pane dropped", sub.focused_pane is None)
 
+# --- history_rows: scrollback with negative row_ids (t1057) -----------------
+# Each line's text == its absolute capture index, so the expected row is read
+# straight from the line list (independent ground truth, not the function).
+hist_lines = [f"L{i}" for i in range(10)]
+hist_content = "\n".join(hist_lines) + "\n"
+H = 3
+base = len(hist_lines) - H  # = 7; capture index of viewport row 0
+
+def hist_text(rows):
+    return {rid: "".join(s[0] for s in spans) for rid, spans in rows}
+
+rows, osc8 = C.history_rows(hist_content, H, 0, 3)
+got = hist_text(rows)
+check("history_rows before_line=0 numbers rows -1..-3", [r for r, _ in rows] == [-1, -2, -3])
+check("history_rows -j == lines[base+before_line-j] (ground truth)",
+      all(got[-j] == hist_lines[base + 0 - j] for j in (1, 2, 3)))
+check("history_rows osc8 empty when no hyperlinks", osc8 == {})
+
+rows, _ = C.history_rows(hist_content, H, -2, 2)  # a deeper scrollback page
+got = hist_text(rows)
+check("history_rows negative before_line maps via base+before_line-j",
+      [r for r, _ in rows] == [-1, -2]
+      and all(got[-j] == hist_lines[base + (-2) - j] for j in (1, 2)))
+
+rows, _ = C.history_rows(hist_content, H, 2, 2)  # anchor inside the viewport
+got = hist_text(rows)
+check("history_rows positive in-viewport before_line anchors correctly",
+      all(got[-j] == hist_lines[base + 2 - j] for j in (1, 2)))
+
+rows, _ = C.history_rows(hist_content, H, 0, 50)  # count exceeds retained scrollback
+ids = [r for r, _ in rows]
+check("history_rows clips at buffer top -> contiguous -1..-m, m<count",
+      ids == list(range(-1, -(base + 1), -1)) and len(ids) == base)
+
+rows, _ = C.history_rows(hist_content, H, 99, 5)  # anchor past the buffer
+check("history_rows far-positive before_line -> empty (never sparse)", rows == [])
+
+# osc8 sidecar is flat-offset over the EMITTED history rows
+osc_lines = ["plain0", "\x1b]8;;https://ex\x07link\x1b]8;;\x07", "plain2", "v0", "v1"]
+osc_content = "\n".join(osc_lines) + "\n"
+# H=2 -> viewport=(v0,v1); base=3; before_line=0: -1->plain2, -2->hyperlink line
+rows, osc8 = C.history_rows(osc_content, 2, 0, 3)
+check("history_rows osc8 keyed by flat offset over history rows",
+      list(osc8.values()) == ["https://ex"])
+
+# --- Subscription history queue (t1057) ------------------------------------
+hs = C.Subscription()
+hs.apply_subscribe({"panes": ["%1", "%2"]})
+tok1 = hs.request_history("%1", 0, 100)
+check("request_history returns a token", isinstance(tok1, str) and bool(tok1))
+check("has_pending_history true after request", hs.has_pending_history() is True)
+tok2 = hs.request_history("%1", -50, 100)  # same pane -> coalesce (last wins)
+check("request_history coalesces to one entry per pane", len(hs._pending_history) == 1)
+check("coalesced entry keeps latest before_line + new token",
+      hs._pending_history[0][1] == -50 and hs._pending_history[0][3] == tok2 and tok2 != tok1)
+hs.request_history("%2", 0, 10)
+drained = hs.take_pending_history()
+check("take_pending_history returns all and clears the queue",
+      len(drained) == 2 and hs.has_pending_history() is False)
+hs.request_history("%1", 0, 5)
+hs.request_history("%2", 0, 5)
+hs.apply_subscribe({"panes": ["%2"]})  # %1 dropped
+check("re-subscribe prunes pending history for unsubscribed panes",
+      [r[0] for r in hs._pending_history] == ["%2"])
+
 print(f"\nALL PASSED ({PASS} checks)")
 PYEOF

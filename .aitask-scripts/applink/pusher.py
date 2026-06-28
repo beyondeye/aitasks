@@ -122,6 +122,42 @@ class PushScheduler:
                 continue  # pane gone this tick
             await self._push_pane(sub, pane_id, snap, now)
 
+        # Stage 5 (t1057): drain queued scrollback (history RPC) pulls AFTER the
+        # live loop, reusing this tick's `snaps`. Ordering matters: the live loop
+        # above emits each subscribed pane's forced keyframe first (subscribe
+        # seeds `force`), so a `subscribe`+immediate-`history` can never deliver a
+        # negative-row history keyframe before the pane's first live keyframe.
+        if self._stopped:
+            return  # a live send failed: do not touch a dead socket
+        if sub.has_pending_history():
+            await self._drain_history(sub, snaps)
+
+    async def _drain_history(self, sub, snaps) -> None:
+        """Serve queued scrollback pulls as single negative-row-id keyframes.
+
+        Reuses this tick's `snaps` (so a history keyframe is anchored to the same
+        capture as the pane's concurrent live frame). Delivery is best-effort: a
+        pane absent from the capture (stale/nonexistent subscribed id, or one that
+        vanished this tick) is silently skipped — the control-plane token only
+        acked acceptance, not delivery (content_transport.md §Scrollback). The
+        history keyframe reads the pane's current `frame_id` WITHOUT advancing the
+        live monotonic chain; the negative row_ids are the sole signal that
+        distinguishes it from a live keyframe.
+        """
+        for pane_id, before_line, count, _token in sub.take_pending_history():
+            if self._stopped:
+                return
+            snap = snaps.get(pane_id)
+            if snap is None:
+                continue
+            pane = snap.pane
+            cols, rows_h = pane.width, pane.height
+            rows, osc8 = content.history_rows(snap.content, rows_h, before_line, count)
+            frame_id = sub.state_for(pane_id).frame_id  # read; do NOT advance the chain
+            cursor = [0, 0, False, 0]                    # history has no cursor (hidden)
+            await self._send(content.encode_keyframe(
+                pane_id, frame_id, cols, rows_h, cursor, rows, osc8 or None))
+
     async def _push_pane(self, sub, pane_id, snap, now) -> None:
         st = sub.state_for(pane_id)
         pane = snap.pane

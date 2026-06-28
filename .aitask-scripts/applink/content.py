@@ -394,6 +394,49 @@ def snapshot_to_rows(content: str):
     return rows, build_osc8(parsed)
 
 
+def history_rows(content: str, viewport_height: int, before_line: int, count: int):
+    """Build a scrollback ``keyframe``'s rows with **negative** row_ids (history RPC).
+
+    Returns ``(rows, osc8)`` for the single binary ``keyframe`` the ``history``
+    verb pushes (content_transport.md §Scrollback). ``rows`` is a list of
+    ``[row_id, spans]`` with ``row_id`` running ``-1`` (the line immediately
+    above ``before_line``) down to ``-count``; ``osc8`` is the frame-level OSC8
+    sidecar, row-major over the emitted history rows (:func:`build_osc8`).
+
+    Geometry mirrors the live-viewport convention (:func:`parse_snapshot` /
+    ``pusher._push_pane``, t1054): the **viewport is the trailing
+    ``viewport_height`` lines** of ``content`` (``row_id 0`` == viewport top), so
+    a viewport-relative position ``r`` maps to capture line index ``base + r``
+    where ``base = L - viewport_height`` (``L`` = captured line count). History
+    ``row_id -j`` therefore maps to capture index ``base + before_line - j``.
+
+    ``before_line`` is viewport-relative (``0`` == viewport top; negative ==
+    already-fetched scrollback). The response is always numbered ``-1..-count``
+    *relative to* ``before_line`` (the client translates back to its own
+    coordinates). Because that capture index **decreases monotonically with
+    ``j``**, the loop stops (``break``) at the first index outside ``[0, L)`` —
+    so the result is always a **contiguous** ``-1..-m`` run (``m <= count``): a
+    far-positive ``before_line`` whose first line is already past the captured
+    buffer yields **no** rows (an empty keyframe), never a sparse
+    ``-977``-without-``-1..-976`` response; running off the buffer top stops the
+    run cleanly.
+    """
+    lines = content.split("\n")
+    if lines and lines[-1] == "":
+        lines = lines[:-1]  # drop the trailing empty cell from a final newline
+    total = len(lines)
+    base = total - viewport_height
+    parsed: list = []
+    for j in range(1, count + 1):
+        idx = base + before_line - j
+        if idx < 0 or idx >= total:
+            break  # idx decreases with j: the first out-of-range row ends the run
+        spans, urls = parse_sgr_line(lines[idx])
+        parsed.append((-j, spans, urls))
+    rows = [[row_id, spans] for row_id, spans, _urls in parsed]
+    return rows, build_osc8(parsed)
+
+
 # -- Frame encoders (lazy msgpack) --------------------------------------------
 
 def _packb(obj) -> bytes:
@@ -492,6 +535,13 @@ class Subscription:
         self.viewport_hint = None  # stored, ignored until Stage 4 clipping
         self.force: set[str] = set()
         self._pane: dict[str, PaneState] = {}
+        # Pending scrollback (history RPC, Stage 5) pulls, drained by
+        # pusher._drain_history. Each entry is (pane_id, before_line, count,
+        # token); at most one per pane (request_history coalesces). The token is
+        # an acceptance ack returned on the control plane, NOT a delivery
+        # guarantee (content_transport.md §Scrollback).
+        self._pending_history: list[tuple] = []
+        self._history_seq = 0
 
     def apply_subscribe(self, payload: dict) -> set[str]:
         """Apply a ``subscribe`` payload; returns the accepted pane set.
@@ -514,12 +564,47 @@ class Subscription:
         for pid in list(self._pane):
             if pid not in self.panes:
                 del self._pane[pid]
+        # Drop pending history for panes no longer subscribed, mirroring the
+        # per-pane-state pruning above so a re-subscribe cannot strand a stale
+        # scrollback pull.
+        if self._pending_history:
+            self._pending_history = [
+                req for req in self._pending_history if req[0] in self.panes
+            ]
         if self.focused_pane not in self.panes:
             self.focused_pane = None
         return set(self.panes)
 
     def request_keyframe(self, pane_id: str) -> None:
         self.force.add(pane_id)
+
+    def request_history(self, pane_id: str, before_line: int, count: int) -> str:
+        """Queue a scrollback pull for ``pane_id`` and return its acceptance token.
+
+        Keeps **at most one pending request per pane** — a newer request
+        supersedes any un-drained older one (last-write-wins coalescing, matching
+        the pusher's back-pressure model). The returned ``h<N>`` token (monotonic
+        per subscription) acknowledges acceptance on the control plane; delivery
+        of the binary keyframe is best-effort (pusher._drain_history sends nothing
+        when the pane is absent from the drain-time capture).
+        """
+        if self._pending_history:
+            self._pending_history = [
+                req for req in self._pending_history if req[0] != pane_id
+            ]
+        self._history_seq += 1
+        token = f"h{self._history_seq}"
+        self._pending_history.append((pane_id, before_line, count, token))
+        return token
+
+    def has_pending_history(self) -> bool:
+        return bool(self._pending_history)
+
+    def take_pending_history(self) -> list[tuple]:
+        """Return the queued history pulls and clear the queue (drain-once)."""
+        pending = self._pending_history
+        self._pending_history = []
+        return pending
 
     def set_focus(self, pane_id: str) -> None:
         self.focused_pane = pane_id

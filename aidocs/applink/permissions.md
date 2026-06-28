@@ -35,6 +35,7 @@ The v1 verb set is the canonical inventory in [monitor_port_design.md §Command 
 |------|----------------------------------------------------------|:-----------:|:-----------------:|:------:|
 | `snapshot` (server push) | `monitor_core.py` (`capture_all`) | ✓ | ✓ | ✓ |
 | `subscribe` / `request_keyframe` (data-plane control) | [content_transport.md §Refresh control](content_transport.md#refresh-control-focus-back-pressure) | ✓ | ✓ | ✓ |
+| `history` (scrollback pull, data-plane) | `applink/router.py` (queues on `Subscription`); served by `pusher._drain_history` ([content_transport.md §Scrollback](content_transport.md#scrollback)) | ✓ | ✓ | ✓ |
 | `pause` (data-plane self-throttle) | `applink/router.py` (`ConnState.paused`; halts `pusher.py` `PushScheduler` until `resume`) | ✓ | ✓ | ✓ |
 | `task_detail` | `monitor_core.py` (`TaskInfoCache._resolve`) | ✓ | ✓ | ✓ |
 | `send_enter` | `monitor_core.py` (`send_enter`) | ✗ | ✓ | ✓ |
@@ -48,7 +49,7 @@ The v1 verb set is the canonical inventory in [monitor_port_design.md §Command 
 | `pick_next_sibling` | `monitor_app.py` (`action_pick_next_sibling`) | ✗ | ✗ | ✓ |
 | `restart_task` | `monitor_app.py` (`action_restart_task`) | ✗ | ✗ | ✓ |
 
-`snapshot` is a server-initiated `push` frame (not a client `req`) — gating still applies on the client → server side because a `read_only` session has no control verbs the server will execute, but the server pushes snapshots regardless of profile. The `subscribe` / `request_keyframe` data-plane control frames (refresh cadence, keyframe recovery) sit in the same read-only band: a `read_only` client steers its own snapshot stream without invoking any control action.
+`snapshot` is a server-initiated `push` frame (not a client `req`) — gating still applies on the client → server side because a `read_only` session has no control verbs the server will execute, but the server pushes snapshots regardless of profile. The `subscribe` / `request_keyframe` / `history` data-plane control frames (refresh cadence, keyframe recovery, scrollback pull) sit in the same read-only band: a `read_only` client steers its own snapshot stream without invoking any control action.
 
 Notes:
 
@@ -77,6 +78,7 @@ allowed_verbs:
   - snapshot
   - subscribe
   - request_keyframe
+  - history
   - task_detail
   - send_enter
   - send_keys

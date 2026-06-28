@@ -79,6 +79,7 @@ Request frames use the JSON envelope from [protocol.md §Message envelope](proto
 | `restart_task` | `monitor_app.py` (`action_restart_task`) | `{pane_id, confirmed:bool}` | full | Y |
 | `task_detail` | `monitor_core.py` (`TaskInfoCache._resolve`) | `{task_id}` | read_only | N |
 | `subscribe` / `request_keyframe` (data-plane control) | [content_transport.md §Refresh control](content_transport.md#refresh-control-focus-back-pressure) | per content_transport.md | read_only | N |
+| `history` (scrollback pull, data-plane) | `applink/router.py` (queues on `Subscription`); served by `applink/pusher.py` (`_drain_history`) as a negative-row-id `keyframe` | `{pane_id, before_line, count}` ([content_transport.md §Scrollback](content_transport.md#scrollback)) | read_only | N |
 | `pause` (data-plane self-throttle) | `applink/router.py` (`ConnState.paused`); halts `applink/pusher.py` (`PushScheduler`) until `resume` | `{}` (empty — [content_transport.md §Back-pressure](content_transport.md#back-pressure)) | read_only | N |
 
 Notes:

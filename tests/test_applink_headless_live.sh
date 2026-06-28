@@ -90,6 +90,7 @@ port, token, printed_fp, cert_path, pane_id = sys.argv[1:6]
 port = int(port)
 
 import websockets
+import msgpack
 
 
 def cert_fingerprint(path):
@@ -159,6 +160,47 @@ async def main():
             print("ok - received a binary keyframe (0x01) on the empty-subscribe data plane")
         else:
             print("SKIP: roster verified; no keyframe within timeout (pane may be empty/undiscovered)")
+
+        # t1057: history RPC (Stage 5). The pane is subscribed (empty-subscribe
+        # expanded to it), so a scrollback pull is accepted: the control-plane
+        # res carries a token (definitive), then the server best-effort pushes a
+        # single binary keyframe with NEGATIVE row_ids (skipped if the throwaway
+        # pane has no scrollback).
+        await ws.send(json.dumps({
+            "v": 1, "id": "3", "kind": "req", "verb": "history",
+            "auth": bearer, "payload": {"pane_id": pane_id, "before_line": 0, "count": 50},
+        }))
+        got_history_token = False
+        got_neg_keyframe = False
+        try:
+            deadline = asyncio.get_event_loop().time() + 8
+            while asyncio.get_event_loop().time() < deadline:
+                msg = await asyncio.wait_for(ws.recv(), timeout=8)
+                if isinstance(msg, (bytes, bytearray)):
+                    if msg and msg[0] == 0x01:
+                        body = msgpack.unpackb(msg[1:], raw=False, strict_map_key=False)
+                        rows = body[5] if len(body) > 5 else []
+                        if rows and rows[0][0] < 0:
+                            got_neg_keyframe = True
+                    continue
+                frame = json.loads(msg)
+                if frame.get("id") == "3" and frame.get("kind") == "res":
+                    if not frame.get("payload", {}).get("token"):
+                        print(f"FAIL: history res missing token: {frame}")
+                        return 1
+                    got_history_token = True
+                if got_history_token and got_neg_keyframe:
+                    break
+        except asyncio.TimeoutError:
+            pass
+        if not got_history_token:
+            print("FAIL: no history ack (res id=3) with token received")
+            return 1
+        print("ok - history RPC accepted (control-plane res carries a token)")
+        if got_neg_keyframe:
+            print("ok - received a history keyframe (0x01) with negative row_ids")
+        else:
+            print("SKIP: history token received; no negative-id keyframe (pane has no scrollback)")
         return 0
 
 sys.exit(asyncio.run(main()))

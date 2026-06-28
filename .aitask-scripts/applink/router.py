@@ -40,6 +40,7 @@ _PANE_ID_RE = re.compile(r"^%\d+$")
 _WINDOW_ID_RE = re.compile(r"^@\d+$")
 _MAX_STR = 4096        # cap any single client-supplied string field
 _MAX_PANES = 256       # cap a subscribe pane-list (bounds Subscription + push loop)
+_MAX_HISTORY_ROWS = 1000  # cap a history `count` (bounds the scrollback scan)
 
 # Error codes (protocol.md §Message envelope error frame).
 ERR_AUTH_FAILED = "AUTH_FAILED"
@@ -68,6 +69,10 @@ IMPLEMENTED_COMMAND_VERBS = frozenset({
     # Data-plane control verbs (t822_8): mutate the per-connection Subscription;
     # the actual binary pushes are driven by server's pusher.PushScheduler.
     "subscribe", "request_keyframe",
+    # Scrollback pull (history RPC, Stage 5 / t1057): queues a one-shot
+    # negative-row-id keyframe on the Subscription; pusher._drain_history serves
+    # it on the data plane. Gated at read_only like subscribe / request_keyframe.
+    "history",
     # Connection-level self-throttle (t1055): halt this connection's
     # PushScheduler until `resume`. Gated at read_only like subscribe /
     # request_keyframe — it steers the client's own stream, not the agent.
@@ -366,6 +371,29 @@ class FrameRouter:
                 conn.subscription.request_keyframe(pane_id)
             return self._res(msg_id, verb, {"ok": True})
 
+        if verb == "history":
+            pane_id = self._req_pane_id(payload)
+            before_line = self._req_int(payload, "before_line")
+            count = self._req_int(payload, "count")
+            if (pane_id is None or before_line is None
+                    or count is None or count < 1 or count > _MAX_HISTORY_ROWS):
+                return self._bad_field(msg_id, verb, "pane_id/before_line/count")
+            # History serves scrollback for a pane the client is actively
+            # streaming. Requiring a live subscription that already contains the
+            # pane guarantees it was discovered + cached (capture needs
+            # _pane_cache); a never-subscribed pane is rejected here. The returned
+            # token acks acceptance, NOT delivery — pusher._drain_history sends no
+            # keyframe when the pane is absent from the drain-time capture
+            # (content_transport.md §Scrollback).
+            if conn.subscription is None or pane_id not in conn.subscription.panes:
+                return self._err(
+                    msg_id, verb, ERR_BAD_PAYLOAD,
+                    f"pane '{pane_id}' is not subscribed",
+                    detail={"reason": "not_subscribed"},
+                )
+            token = conn.subscription.request_history(pane_id, before_line, count)
+            return self._res(msg_id, verb, {"ok": True, "token": token})
+
         if verb == "pause":
             # Self-throttle: halt this connection's PushScheduler until `resume`.
             # No pane arg; the subscription is preserved so no state is lost
@@ -646,6 +674,15 @@ class FrameRouter:
         if isinstance(value, str) and value and len(value) <= _MAX_STR:
             return value
         return None
+
+    @staticmethod
+    def _req_int(payload: dict, key: str):
+        """A required integer field, else None. Rejects bools (``True``/``False``
+        are ``int`` subclasses in Python) and non-int JSON values (e.g. floats)."""
+        value = payload.get(key)
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value
 
     def _req_pane_id(self, payload: dict, key: str = "pane_id") -> str | None:
         """A required, format-validated tmux pane id (``%N``), else None.

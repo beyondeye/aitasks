@@ -344,6 +344,59 @@ r = router.handle(req("focus", {"pane_id": "%1"}, auth=bearer), dconn)
 check("focus -> switch_to_pane reached monitor", ("focus", "%1", False) in mon.calls)
 check("focus sets subscription focused_pane (cadence)", dconn.subscription.focused_pane == "%1")
 
+# --- history (scrollback pull, Stage 5 / t1057) ----------------------------
+# dconn is subscribed to {%1, %2}. History requires the pane to be in the active
+# subscription; the res returns an acceptance token (not a delivery guarantee).
+check("history in KNOWN_VERBS", "history" in KNOWN_VERBS)
+r = router.handle(req("history", {"pane_id": "%1", "before_line": 0, "count": 100}, auth=bearer), dconn)
+check("history -> res ok with token (no longer UNKNOWN_VERB)",
+      r["kind"] == "res" and r["payload"]["ok"] is True and bool(r["payload"].get("token")))
+check("history queues onto subscription", dconn.subscription.has_pending_history() is True)
+_hp = dconn.subscription._pending_history[-1]
+check("history pending entry matches request", _hp[0] == "%1" and _hp[1] == 0 and _hp[2] == 100)
+
+# not_subscribed: a pane outside the subscription is rejected (no token / queue)
+hconn = ConnState()
+router.handle(req("subscribe", {"panes": ["%1"]}, auth=bearer), hconn)
+r = router.handle(req("history", {"pane_id": "%9", "before_line": 0, "count": 10}, auth=bearer), hconn)
+check("history unsubscribed pane -> BAD_PAYLOAD reason=not_subscribed",
+      r["payload"]["code"] == "BAD_PAYLOAD"
+      and r["payload"].get("detail", {}).get("reason") == "not_subscribed")
+check("history not_subscribed queues nothing", hconn.subscription.has_pending_history() is False)
+r = router.handle(req("history", {"pane_id": "%1", "before_line": 0, "count": 10}, auth=bearer), ConnState())
+check("history with no subscription -> not_subscribed",
+      r["payload"]["code"] == "BAD_PAYLOAD"
+      and r["payload"].get("detail", {}).get("reason") == "not_subscribed")
+
+# validation (bad pane_id / before_line / count); dconn keeps %1 subscribed
+r = router.handle(req("history", {"before_line": 0, "count": 10}, auth=bearer), dconn)
+check("history missing pane_id -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+r = router.handle(req("history", {"pane_id": "%1", "before_line": "x", "count": 10}, auth=bearer), dconn)
+check("history non-int before_line -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+r = router.handle(req("history", {"pane_id": "%1", "before_line": 0, "count": 0}, auth=bearer), dconn)
+check("history count<1 -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+r = router.handle(req("history", {"pane_id": "%1", "before_line": 0, "count": 10**9}, auth=bearer), dconn)
+check("history count>max -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+r = router.handle(req("history", {"pane_id": "%1", "before_line": 0, "count": True}, auth=bearer), dconn)
+check("history bool count rejected -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+
+# coalescing: two history for the same pane -> one pending entry, latest wins
+dconn.subscription.take_pending_history()  # clear queue
+r1 = router.handle(req("history", {"pane_id": "%1", "before_line": 0, "count": 5}, auth=bearer), dconn)
+r2 = router.handle(req("history", {"pane_id": "%1", "before_line": -5, "count": 7}, auth=bearer), dconn)
+_hp = dconn.subscription._pending_history
+check("history coalesces same-pane requests to one pending entry",
+      len([p for p in _hp if p[0] == "%1"]) == 1 and _hp[-1][1] == -5 and _hp[-1][2] == 7)
+check("history coalesce returns distinct tokens",
+      r1["payload"]["token"] != r2["payload"]["token"])
+
+# read_only: history is allowed (gated like subscribe); needs a subscription
+roh = ConnState()
+router.handle(req("subscribe", {"panes": ["%1"]}, auth=ro.bearer), roh)
+r = router.handle(req("history", {"pane_id": "%1", "before_line": 0, "count": 10}, auth=ro.bearer), roh)
+check("read_only history allowed (not PERMISSION_DENIED)",
+      r["kind"] == "res" and r["payload"].get("code") != "PERMISSION_DENIED")
+
 # read_only: subscribe is allowed (gated like snapshot); focus stays denied.
 r = router.handle(req("subscribe", {"panes": ["%1"]}, auth=ro.bearer), ConnState())
 check("read_only subscribe allowed (not PERMISSION_DENIED)",

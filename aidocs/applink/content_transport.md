@@ -209,6 +209,16 @@ Server responds (control plane `res`) with a token, then sends a **single** bina
 
 Rationale: history is read-mostly and bursty. Reusing `keyframe` shape avoids a sixth frame type.
 
+#### Server semantics (v1)
+
+The v1 server (`applink/router.py` + `pusher._drain_history`) pins down the parts the wire shape leaves implicit:
+
+- **`before_line` is viewport-relative.** It is a `row_id` in the same coordinate space as live frames — `0` = top of the current viewport, positive = into the viewport, negative = already-fetched scrollback. The response is **always numbered `-1..-count` relative to `before_line`** (`row_id -j` ⇒ the line at viewport-relative position `before_line - j`); the client translates each `-j` back to its own absolute `before_line - j`. The `1234` in the request example above is **illustrative** — the server only retains its capture buffer's scrollback (`capture-pane -S -<capture_lines>`, ~200 lines), so a `before_line` whose lines lie past the retained buffer yields an **empty** history keyframe. The returned run is always **contiguous** from `-1` (never sparse).
+- **Best-effort, anchored to the drain-time capture.** The rows are read from the capture taken when the pusher drains the request — the *same* snapshot as that tick's live frame for the pane, so the two are mutually consistent. It is **not** anchored to the exact frame the client had rendered when it scrolled: if the pane emits output in between, the returned rows can overlap/shift by the scroll delta. This is intentional — there is no per-frame replay buffer (see [Out of scope](#out-of-scope-this-document)). It is exact for idle/static panes (the dominant scrollback case).
+- **The token acks acceptance, not delivery.** The keyframe wire shape carries no token (correlation is by `pane_id` + the negative ids), so the control-plane token only confirms the request was accepted and queued. A subscribed pane that is absent from the drain-time capture (a stale/nonexistent subscribed id, or one that vanished) produces a token but **no** keyframe; the client learns the pane is gone from the roster via `pane_status`. History additionally requires the pane to be in the connection's active subscription (else `BAD_PAYLOAD` `reason: not_subscribed`).
+- **≤1 outstanding request per pane.** A newer `history` for a pane supersedes any un-drained older one (last-write-wins), so two outstanding pulls can never produce ambiguous same-pane frames.
+- **`frame_id` does not advance the live chain.** The history keyframe carries the pane's current `frame_id` without bumping it; the negative `row_id`s are the sole signal distinguishing it from a live keyframe, so the live `delta`/`prev_frame_id` chain is never desynced by a scrollback pull.
+
 ## Frame integrity and recovery
 
 - `frame_id` is a monotonic u32 per (pane, session). Resets on a new `keyframe` after subscribe/resume.

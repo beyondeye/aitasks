@@ -34,7 +34,7 @@ sys.path.insert(0, str(root / ".aitask-scripts" / "applink"))
 
 import msgpack
 import content as C
-from pusher import PushScheduler
+from pusher import PushScheduler, HIGH_WATER_BYTES
 from server import AppLinkServer
 
 PASS = 0
@@ -588,6 +588,98 @@ async def main():
     check("viewport: row_ids renumbered 0..height-1", [r[0] for r in rowlist] == [0, 1, 2])
     check("viewport: rows are the VISIBLE viewport, not scrollback",
           [r[1][0][0] for r in rowlist] == ["v0", "v1", "v2"])
+
+    # === history RPC: drain-after-live, negative row_ids (t1057) ===========
+    def hist_frame(ws):
+        """The single negative-row-id keyframe among a pass's binary frames."""
+        out = None
+        for b in binaries(ws):
+            if b[0] != C.FRAME_KEYFRAME:
+                continue
+            body = msgpack.unpackb(b[1:], raw=False, strict_map_key=False)
+            if body[5] and body[5][0][0] < 0:
+                out = body
+        return out
+
+    def row_text(body):
+        return {rid: "".join(s[0] for s in spans) for rid, spans in body[5]}
+
+    # 6-line capture: scrollback L0..L2 (idx 0..2), viewport L3..L5; base = 3.
+    SCROLL6 = "\n".join(f"L{i}" for i in range(6)) + "\n"
+
+    subh = C.Subscription()
+    subh.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wsh, monh = FakeWS(), FakeMonitor()
+    monh.snaps["%1"] = FakeSnap(FakePane("%1", width=40, height=3), SCROLL6)
+    schedh = PushScheduler(FakeConn(subh), wsh, monh, clock=lambda: 9000.0)
+    subh.request_history("%1", 0, 2)               # queue BEFORE the first live keyframe
+    await schedh._run_once()
+    bh = binaries(wsh)
+    live_body = msgpack.unpackb(bh[0][1:], raw=False, strict_map_key=False)
+    check("history pass: live keyframe FIRST (non-negative rows, frame_id=1)",
+          bh[0][0] == C.FRAME_KEYFRAME and live_body[1] == 1
+          and all(rid >= 0 for rid, _ in live_body[5]))
+    hb = hist_frame(wsh)
+    check("history keyframe emitted AFTER the live one (negative row_ids)",
+          hb is not None and [rid for rid, _ in hb[5]] == [-1, -2])
+    check("history rows are the scrollback lines above the viewport (-1->L2, -2->L1)",
+          row_text(hb) == {-1: "L2", -2: "L1"})
+    check("history hidden cursor", hb[4] == [0, 0, False, 0])
+    check("history frame_id == live frame_id; live chain not advanced",
+          hb[1] == live_body[1] and subh.state_for("%1").frame_id == 1)
+    check("history queue drained after the pass", subh.has_pending_history() is False)
+
+    # anchoring: history reflects the DRAIN-TIME capture, not the queue-time one
+    suba = C.Subscription()
+    suba.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wsa, mona, panea = FakeWS(), FakeMonitor(), FakePane("%1", width=40, height=3)
+    mona.snaps["%1"] = FakeSnap(panea, "\n".join(f"A{i}" for i in range(6)) + "\n")
+    na = {"t": 9000.0}
+    scheda = PushScheduler(FakeConn(suba), wsa, mona, clock=lambda: na["t"])
+    await scheda._run_once()                        # establish the live baseline
+    suba.request_history("%1", 0, 2)
+    mona.snaps["%1"] = FakeSnap(panea, "\n".join(f"B{i}" for i in range(6)) + "\n")  # mutate
+    na["t"] += 2.0; wsa.sent.clear()
+    await scheda._run_once()
+    check("history reflects the drain-time capture (best-effort anchoring)",
+          row_text(hist_frame(wsa)) == {-1: "B2", -2: "B1"})
+
+    # back-pressure: over high-water -> NO frame, history stays pending
+    subb = C.Subscription()
+    subb.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wsb, monb = FakeWS(), FakeMonitor()
+    wsb.transport = FakeTransport(size=HIGH_WATER_BYTES + 1)
+    monb.snaps["%1"] = FakeSnap(FakePane("%1", width=40, height=3), SCROLL6)
+    schedb = PushScheduler(FakeConn(subb), wsb, monb, clock=lambda: 9000.0)
+    subb.request_history("%1", 0, 2)
+    await schedb._run_once()
+    check("over high-water -> no binary frames (history included)",
+          len(binaries(wsb)) == 0)
+    check("over high-water -> history request stays pending (no loss)",
+          subb.has_pending_history() is True)
+
+    # best-effort delivery: subscribed pane absent from capture -> no keyframe
+    subm = C.Subscription()
+    subm.apply_subscribe({"panes": ["%9"], "cadence_idle_ms": 1000})  # %9 never captured
+    wsm, monm = FakeWS(), FakeMonitor()                               # empty snaps
+    schedm = PushScheduler(FakeConn(subm), wsm, monm, clock=lambda: 9000.0)
+    subm.request_history("%9", 0, 5)
+    await schedm._run_once()
+    check("subscribed-but-missing pane -> no history keyframe (token != delivery)",
+          hist_frame(wsm) is None)
+    check("missing-pane history request is drained (no infinite retry)",
+          subm.has_pending_history() is False)
+
+    # paused: drain is halted until resume (request preserved)
+    subp = C.Subscription()
+    subp.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wsp, monp = FakeWS(), FakeMonitor()
+    monp.snaps["%1"] = FakeSnap(FakePane("%1", width=40, height=3), SCROLL6)
+    schedp = PushScheduler(FakeConn(subp, paused=True), wsp, monp, clock=lambda: 9000.0)
+    subp.request_history("%1", 0, 2)
+    await schedp._run_once()
+    check("paused conn -> no history drain; request preserved",
+          len(binaries(wsp)) == 0 and subp.has_pending_history() is True)
 
     # Whole-suite assertion: no "Task exception was never retrieved" / unhandled
     # callback ever surfaced through the loop exception handler.
