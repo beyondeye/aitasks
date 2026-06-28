@@ -299,14 +299,38 @@ peek_counter() {
         return 0
     fi
 
-    if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
-        # Fall back to local branch if remote fetch fails
+    local fetch_err
+    if ! fetch_err=$(git fetch origin \
+        "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" --quiet 2>&1 >/dev/null); then
+        local diagnostic rstate
+        rstate=$(remote_branch_state)
+        case "$rstate" in
+            PRESENT)
+                diagnostic="Failed to fetch counter branch '$BRANCH' from origin: ${fetch_err:-unknown git fetch error}"
+                ;;
+            ERROR:*)
+                diagnostic="Cannot reach origin to verify counter branch '$BRANCH': ${rstate#ERROR:}"
+                ;;
+            *)
+                diagnostic="Counter branch '$BRANCH' is not initialized on origin"
+                ;;
+        esac
+
+        # Fall back to local branch if remote fetch fails.
         if has_local_branch; then
-            warn "Could not fetch remote counter — showing local value" >&2
+            warn "$diagnostic — showing local value" >&2
             git show "$BRANCH:$COUNTER_FILE" 2>/dev/null | tr -d '[:space:]'
             return 0
         fi
-        die "Failed to fetch '$BRANCH'. Run 'ait setup' to initialize."
+
+        case "$rstate" in
+            ABSENT)
+                die "$diagnostic and no local branch exists to read. Run 'ait setup' to initialize the counter."
+                ;;
+            *)
+                die "$diagnostic"
+                ;;
+        esac
     fi
 
     local current_id

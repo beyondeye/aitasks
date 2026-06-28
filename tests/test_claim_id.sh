@@ -447,6 +447,109 @@ assert_not_contains "No spurious 'ait setup' on connectivity failure" "ait setup
 
 rm -rf "$TMPDIR_16"
 
+# --- Test 17: Peek fetch failure with local fallback ---
+echo "--- Test 17: Peek fetch failure with local fallback ---"
+
+TMPDIR_17="$(setup_paired_repos)"
+(cd "$TMPDIR_17/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_17/local" && ./.aitask-scripts/aitask_claim_id.sh --claim >/dev/null 2>&1)
+
+REAL_GIT="$(command -v git)"
+SHIM_DIR_17="$TMPDIR_17/shim"
+mkdir -p "$SHIM_DIR_17"
+cat > "$SHIM_DIR_17/git" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == "fetch" ]]; then
+    echo "fatal: could not write to '.git/FETCH_HEAD': simulated failure" >&2
+    exit 128
+fi
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$SHIM_DIR_17/git"
+
+peek17_err="$TMPDIR_17/peek.err"
+peek17_stdout=$(cd "$TMPDIR_17/local" && PATH="$SHIM_DIR_17:$PATH" ./.aitask-scripts/aitask_claim_id.sh --peek 2>"$peek17_err")
+peek17_rc=$?
+peek17_stderr=$(cat "$peek17_err")
+
+assert_exit_zero_rc "Peek succeeds with local fallback when fetch errors" "$peek17_rc"
+assert_eq "Peek fallback shows local counter value" "7" "$peek17_stdout"
+assert_contains "Peek fallback surfaces real fetch error" "FETCH_HEAD" "$peek17_stderr"
+assert_contains "Peek fallback explains local value" "showing local value" "$peek17_stderr"
+assert_not_contains "Peek fallback has no spurious setup hint" "ait setup" "$peek17_stderr"
+
+rm -rf "$TMPDIR_17"
+
+# --- Test 18: Peek fetch failure with branch present but no local fallback ---
+echo "--- Test 18: Peek fetch failure with branch present and no local fallback ---"
+
+TMPDIR_18="$(setup_paired_repos)"
+(cd "$TMPDIR_18/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+
+REAL_GIT="$(command -v git)"
+SHIM_DIR_18="$TMPDIR_18/shim"
+mkdir -p "$SHIM_DIR_18"
+cat > "$SHIM_DIR_18/git" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == "fetch" ]]; then
+    echo "fatal: could not write to '.git/FETCH_HEAD': simulated failure" >&2
+    exit 128
+fi
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$SHIM_DIR_18/git"
+
+peek18_out=$(cd "$TMPDIR_18/local" && PATH="$SHIM_DIR_18:$PATH" ./.aitask-scripts/aitask_claim_id.sh --peek 2>&1)
+peek18_rc=$?
+
+assert_exit_nonzero_rc "Peek fails when fetch errors and no local branch exists" "$peek18_rc"
+assert_contains "Peek failure surfaces real fetch error" "FETCH_HEAD" "$peek18_out"
+assert_not_contains "Peek failure has no spurious setup hint" "ait setup" "$peek18_out"
+
+rm -rf "$TMPDIR_18"
+
+# --- Test 19: Peek remote unreachable (ls-remote also fails) ---
+echo "--- Test 19: Peek remote unreachable (ls-remote also fails) ---"
+
+TMPDIR_19="$(setup_paired_repos)"
+(cd "$TMPDIR_19/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+
+REAL_GIT="$(command -v git)"
+SHIM_DIR_19="$TMPDIR_19/shim"
+mkdir -p "$SHIM_DIR_19"
+cat > "$SHIM_DIR_19/git" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == "fetch" || "\$1" == "ls-remote" ]]; then
+    echo "fatal: unable to access remote: simulated connectivity failure" >&2
+    exit 128
+fi
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$SHIM_DIR_19/git"
+
+peek19_out=$(cd "$TMPDIR_19/local" && PATH="$SHIM_DIR_19:$PATH" ./.aitask-scripts/aitask_claim_id.sh --peek 2>&1)
+peek19_rc=$?
+
+assert_exit_nonzero_rc "Peek fails when origin is unreachable" "$peek19_rc"
+assert_contains "Peek reports the unreachable-origin error" "Cannot reach origin" "$peek19_out"
+assert_not_contains "Peek unreachable error has no setup hint" "ait setup" "$peek19_out"
+
+rm -rf "$TMPDIR_19"
+
+# --- Test 20: Peek remote branch absent still suggests setup ---
+echo "--- Test 20: Peek remote branch absent still suggests setup ---"
+
+TMPDIR_20="$(setup_paired_repos)"
+
+peek20_out=$(cd "$TMPDIR_20/local" && ./.aitask-scripts/aitask_claim_id.sh --peek 2>&1)
+peek20_rc=$?
+
+assert_exit_nonzero_rc "Peek fails when remote counter is absent and no local branch exists" "$peek20_rc"
+assert_contains "Peek absent-branch error says counter is uninitialized" "not initialized on origin" "$peek20_out"
+assert_contains "Peek absent-branch error keeps setup hint" "ait setup" "$peek20_out"
+
+rm -rf "$TMPDIR_20"
+
 # --- Summary ---
 echo ""
 echo "==============================="
