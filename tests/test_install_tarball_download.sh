@@ -24,6 +24,8 @@ TOTAL=0
 # returns before main() runs). See tests/test_install_merge.sh for the pattern.
 # shellcheck source=../install.sh
 source "$PROJECT_DIR/install.sh" --source-only
+# shellcheck source=../.aitask-scripts/lib/github_release.sh
+. "$PROJECT_DIR/.aitask-scripts/lib/github_release.sh"
 set +euo pipefail
 
 # --- scratch + invocation logs ---------------------------------------------
@@ -91,6 +93,17 @@ git() {
 
 reset_logs() { : > "$CURL_LOG"; : > "$WGET_LOG"; : > "$GIT_LOG"; rm -f "$DEST"; }
 
+assert_gittag_resolver_parity() {
+    local desc="$1" fixture="$2" expected="$3" install_out lib_out
+    reset_logs
+    GIT_TAGS_OUTPUT="$fixture"
+    install_out="$(resolve_latest_version_gittags)"
+    lib_out="$(github_latest_tag_version "$REPO")"
+    assert_eq "$desc: install.sh resolver output" "$expected" "$install_out"
+    assert_eq "$desc: shared lib resolver output" "$expected" "$lib_out"
+    assert_eq "$desc: resolvers stay in sync" "$install_out" "$lib_out"
+}
+
 # Shared baseline globals consumed by the sourced download_tarball(). Per-test
 # overrides are passed as command-prefix assignments to the subshelled call so
 # they never leak between tests. (shellcheck can't see the cross-file use.)
@@ -139,6 +152,22 @@ assert_contains "resolves latest via git tags (0.10.0 > 0.9.0 numerically) and u
     "aitasks-v0.10.0.tar.gz" "$log"
 assert_not_contains "no api.github.com call when git-tag resolution succeeds" \
     "api.github.com" "$log"
+
+# --- Test 2b: installer/lib git-tag resolver drift guard (numeric sort) ---
+echo "--- Test 2b: git-tag resolver parity, numeric sort ---"
+numeric_fixture="$(printf 'abc\trefs/tags/v0.9.0\ndef\trefs/tags/v0.10.0\nghi\trefs/tags/v0.2.1\n')"
+assert_gittag_resolver_parity \
+    "numeric tag ordering" \
+    "$numeric_fixture" \
+    "0.10.0"
+
+# --- Test 2c: installer/lib git-tag resolver drift guard (edge filtering) ---
+echo "--- Test 2c: git-tag resolver parity, edge filtering ---"
+edge_fixture="$(printf 'abc\trefs/tags/v1.2.3-alpha\ndef\trefs/tags/v1.2.3\nghi\trefs/tags/v1.2.10\njkl\trefs/tags/v1.2.3.4\n')"
+assert_gittag_resolver_parity \
+    "pre-release tags are ignored while numeric tags stay sortable" \
+    "$edge_fixture" \
+    "1.2.10"
 
 # --- Test 3: explicit version + CDN failure -> die (never silently latest) ---
 echo "--- Test 3: explicit version + CDN download failure ---"
