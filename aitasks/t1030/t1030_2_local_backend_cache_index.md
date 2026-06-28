@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: [t1030_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_attachments]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1030
 created_at: 2026-06-28 12:08
-updated_at: 2026-06-28 12:08
+updated_at: 2026-06-28 17:47
 ---
 
 Implement the **local attachment backend**, the **universal local cache**, the **`index.json` refcount ledger**, and the **backend adapter seam** — making `ait attach add/get/rm` fully functional over the `.aitask-data` worktree. Depends on the scaffold from t1030_1.
