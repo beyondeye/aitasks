@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitasks, task-management, git]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-26 07:40
-updated_at: 2026-06-26 07:40
+updated_at: 2026-06-28 10:23
 ---
 
 ## Problem
