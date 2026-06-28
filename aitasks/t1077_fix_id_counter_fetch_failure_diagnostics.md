@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [aitasks, task-management, git]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-26 07:40
-updated_at: 2026-06-28 10:23
+updated_at: 2026-06-28 10:44
 ---
 
 ## Problem
@@ -79,3 +80,8 @@ task fixes misleading *fetch-failure diagnostics / error messaging*; t1079 fixes
 the *drift / duplicate-ID invariant* (counter falling below `max(task ids)` and
 handing out duplicates — observed live 2026-06-25/26). Implement coherently since
 both touch the claim path. See t1079.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-28T07:44:59Z status=pass attempt=1 type=human
