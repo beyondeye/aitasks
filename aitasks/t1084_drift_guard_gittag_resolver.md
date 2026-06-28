@@ -36,3 +36,5 @@ Suggested home: extend `tests/test_install_tarball_download.sh` (already sources
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-28T14:43:57Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-06-28T14:45:37Z status=pass attempt=1 type=human
