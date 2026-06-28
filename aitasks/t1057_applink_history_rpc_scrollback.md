@@ -11,6 +11,7 @@ assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-22 16:52
 updated_at: 2026-06-28 10:42
+boardidx: 210
 ---
 
 Implement the AppLink `history` RPC (Stage 5) on the server: a scrollback query endpoint that returns past rows as a single binary keyframe with NEGATIVE row_ids (-1 = line immediately above before_line, etc.) per content_transport.md §Scrollback / §history.
@@ -27,3 +28,5 @@ Surfaced by the aitasks_mobile t14_11 AppLink audit (aidocs/applink/implementati
 > **✅ gate:plan_approved** run=2026-06-28T07:42:19Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-28T07:42:20Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-28T07:55:40Z status=pass attempt=1 type=human
