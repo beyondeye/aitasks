@@ -7,8 +7,9 @@ status: Implementing
 labels: [task_attachments]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1030
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-28 12:07
-updated_at: 2026-06-28 12:28
+updated_at: 2026-06-28 13:00
 ---
 
 Scaffold the `attachments:` frontmatter schema and the `ait attach` CLI surface — **no actual blob storage yet** (that is t1030_2). This child lands the pure, headless, unit-testable units (YAML list-of-mappings parsing, SHA-256 hashing, hash/shard path helpers) and a working read-only `ait attach ls`.
@@ -51,3 +52,8 @@ First of three children of t1030 (local-only attachment v1). It exists to extrac
 ## Notes for sibling tasks
 - The `read_yaml_mappings` output contract and `attachment_utils.sh` helper signatures established here are consumed by t1030_2 (add/get/rm) and t1030_3 (gc/archive). Keep them stable; document the output format at the top of `read_yaml_mappings`.
 - `attachment_validate_hash` + shard path are the canonical hash-handling units — reuse them everywhere; do not re-derive shard logic inline.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-28T10:00:55Z status=pass attempt=1 type=human
