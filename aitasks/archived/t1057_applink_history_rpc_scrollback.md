@@ -5,12 +5,14 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [applink, applink_dataplane]
+risk_mitigation_tasks: [1088]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-22 16:52
-updated_at: 2026-06-28 10:42
+updated_at: 2026-06-28 10:58
+completed_at: 2026-06-28 10:58
 boardidx: 210
 ---
 
