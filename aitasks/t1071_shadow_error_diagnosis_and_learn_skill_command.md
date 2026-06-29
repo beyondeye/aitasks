@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [shadow, claudeskills]
-children_to_implement: [t1071_1, t1071_2]
+children_to_implement: [t1071_2]
 created_at: 2026-06-25 00:37
-updated_at: 2026-06-29 12:06
+updated_at: 2026-06-29 16:07
 boardidx: 40
 ---
 

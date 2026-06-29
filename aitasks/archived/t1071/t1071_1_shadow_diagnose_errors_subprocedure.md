@@ -5,14 +5,15 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [shadow, claudeskills]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-29 12:05
-updated_at: 2026-06-29 15:35
+updated_at: 2026-06-29 16:07
+completed_at: 2026-06-29 16:07
 ---
 
 Capability A of t1071: give the shadow agent a sub-procedure that detects
@@ -136,3 +137,14 @@ Exploration findings (confirmed against source):
 > **✅ gate:plan_approved** run=2026-06-29T12:35:42Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-06-29T12:53:28Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-06-29T13:07:08Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:153adc1fc4acf27a
+
+> **✅ gate:risk_evaluated** run=2026-06-29T13:07:08Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1071_1/risk_evaluated_2026-06-29T13:07:08Z-risk_evaluated-a1.log`
