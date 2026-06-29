@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: high
 depends: [t1030_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [task_attachments]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1030
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-28 12:08
-updated_at: 2026-06-29 10:17
+updated_at: 2026-06-29 10:47
+completed_at: 2026-06-29 10:47
 ---
 
 Implement the **local attachment backend**, the **universal local cache**, the **`index.json` refcount ledger**, and the **backend adapter seam** — making `ait attach add/get/rm` fully functional over the `.aitask-data` worktree. Depends on the scaffold from t1030_1.
@@ -67,3 +68,14 @@ Second of three children of t1030. Builds the storage core on the t1030_1 primit
 > **✅ gate:plan_approved** run=2026-06-29T07:16:51Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-06-29T07:46:28Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-06-29T07:46:59Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f7ffa0f9367dc653
+
+> **✅ gate:risk_evaluated** run=2026-06-29T07:46:59Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1030_2/risk_evaluated_2026-06-29T07:46:59Z-risk_evaluated-a1.log`
