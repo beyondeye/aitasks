@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1016
 implemented_with: codex/gpt5_5
 created_at: 2026-06-18 16:46
-updated_at: 2026-06-29 12:04
+updated_at: 2026-06-29 12:43
+completed_at: 2026-06-29 12:43
 boardidx: 290
 ---
 
