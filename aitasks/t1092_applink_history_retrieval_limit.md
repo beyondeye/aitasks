@@ -69,5 +69,7 @@ negative-row_id lines that the client merges above row 0.
 ## Related
 - t1088 (applink history coordinate-verify) — manual verification of the
   just-landed history RPC; coordinate so this investigation does not conflict.
-- Paired follow-up in aitasks_mobile: add a loading indicator while the history
-  RPC is in flight (tracked as a separate cross-repo task).
+- Paired follow-up in aitasks_mobile: aitasks_mobile#25 (history RPC loading
+  indicator) — add a loading indicator while the history RPC is in flight.
+  Independent of this server work, but the indicator must handle an empty
+  history keyframe (bounded scrollback) as "no more history", not a hang.
