@@ -3,10 +3,9 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [shadow, claudeskills]
 children_to_implement: [t1071_1, t1071_2]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-25 00:37
 updated_at: 2026-06-29 12:06
 boardidx: 10
