@@ -8,7 +8,7 @@ status: Ready
 labels: [applink, applink_connectivity]
 created_at: 2026-06-24 14:38
 updated_at: 2026-06-25 09:55
-boardidx: 200
+boardidx: 190
 ---
 
 Umbrella / roadmap task: enable the `ait applink` mobile companion to connect to

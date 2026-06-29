@@ -9,7 +9,7 @@ file_references: [aidocs/task_attachments_design.md]
 children_to_implement: [t1030_3, t1030_4, t1030_5]
 created_at: 2026-06-18 15:26
 updated_at: 2026-06-29 10:47
-boardidx: 280
+boardidx: 10
 ---
 
 look at

@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
@@ -7,8 +9,10 @@ status: Implementing
 labels: [applink, applink_dataplane]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-29 09:23
-updated_at: 2026-06-29 11:42
+updated_at: 2026-06-29 15:28
+boardidx: 30
 ---
 
 Investigate (and relax where safe) the limit on how much terminal history the

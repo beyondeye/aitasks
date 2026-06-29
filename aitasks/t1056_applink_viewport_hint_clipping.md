@@ -7,7 +7,7 @@ status: Ready
 labels: [applink, applink_dataplane]
 created_at: 2026-06-22 16:52
 updated_at: 2026-06-25 09:55
-boardidx: 140
+boardidx: 130
 ---
 
 Implement AppLink `viewport_hint` (Stage 4) span/row clipping on the server. content_transport.md §subscribe: the server clips spans/rows to the client's requested column window before encoding, halving bandwidth for wide TUIs on narrow screens.

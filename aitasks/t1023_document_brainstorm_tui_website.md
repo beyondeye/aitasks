@@ -7,7 +7,7 @@ status: Ready
 labels: [brainstorming, tui]
 created_at: 2026-06-17 12:08
 updated_at: 2026-06-17 12:08
-boardidx: 270
+boardidx: 250
 ---
 
 ## Context

@@ -8,7 +8,7 @@ labels: [applink, applink_dataplane]
 anchor: 1044
 created_at: 2026-06-21 18:17
 updated_at: 2026-06-25 09:55
-boardidx: 110
+boardidx: 100
 ---
 
 Follow-up to t1044. After t1044, an empty/absent `subscribe` expands to **all**
