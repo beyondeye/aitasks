@@ -170,6 +170,37 @@ the signals change.
   Bounded further: the capability is advisory-only and user-confirmed, never
   proactive, and the negative fixture directly exercises the false-positive case.
 
+## Final Implementation Notes
+
+- **Actual work done:** Created `.claude/skills/aitask-shadow/plan-diagnose-errors.md`
+  (on-request error-diagnosis sub-procedure); added one Step 3 routing entry to
+  `.claude/skills/aitask-shadow/SKILL.md` (no Step 1 proactive trigger); added one
+  capability-level bullet to `aidocs/framework/shadow_agent.md` (and reworded the
+  "Four structured plan analyses" lead-in to "Several structured analyses … four
+  review a plan; one diagnoses the followed agent's errors").
+- **Deviations from plan:** None from the *revised* plan. The revised scope itself
+  deviated from the original task outline per user plan-review: on-request only (no
+  Step 1 proactive trigger), user picks which concerns to act on, a single
+  `/aitask-explore` seed-only offer (no batch-creation branch), a negative-control
+  verification fixture, and capability-level docs (no signal-list duplication).
+  The t1071_1 AC was updated in the same revision to match.
+- **Issues encountered:** None.
+- **Key decisions:** Reused the existing `===AITASK-CONCERNS===` format and
+  `concern_parser.py` verbatim — no minimonitor/parser changes. The concern-block
+  example authored into the sub-procedure was round-tripped through the real
+  `concern_parser.py` (2 concerns parsed, closing fence present) to prove the
+  producer/parser contract holds.
+- **Upstream defects identified:** None.
+- **Verification status:** `aitask_skill_verify.sh: OK (12 templates, 3 agents)`;
+  greeting confirmed still derived from Step 3 (no hardcoded list); concern-block
+  parser round-trip passed. The positive/negative behavioral fixtures are manual
+  (require a live shadow session against a captured screen) and remain to be
+  exercised by the user when shadowing.
+- **Notes for sibling tasks:** t1071_2 adds its own Step 3 routing line to the same
+  `aitask-shadow/SKILL.md`; the diagnose-errors bullet is already present, so it
+  appends independently. The greeting-derives-from-Step-3 invariant is intact and
+  must stay so.
+
 ## Post-implementation
 
 Follow shared workflow **Step 9 (Post-Implementation)** for cleanup, gate
