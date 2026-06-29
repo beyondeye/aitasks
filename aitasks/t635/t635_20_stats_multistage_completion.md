@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [gates, statistics, stats_ui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 21:39
-updated_at: 2026-06-29 11:42
+updated_at: 2026-06-29 15:27
 ---
 
 ## Context
@@ -59,3 +60,8 @@ Design questions to settle:
   `iter_archived_markdown_files`)
 - `aidocs/framework/python_tui_performance.md` (if TUI runtime questions
   arise)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-29T12:27:39Z status=pass attempt=1 type=human
