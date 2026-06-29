@@ -20,6 +20,22 @@ Detect -> mark -> OFFER (user confirms; never auto-launch). Claude-only — no
 cross-agent port (shadow `plan-*.md` sub-procedures live only in the Claude tree;
 Codex/OpenCode shadow are thin wrappers redirecting there).
 
+## AC revision (after plan review 2026-06-29)
+
+These supersede the original outline below where they conflict:
+- **On-request only — NOT proactive.** Reached only when the user asks the shadow
+  to diagnose what is going wrong (Step 3 routing). Do **not** add a Step 1
+  proactive-surface trigger; the shadow never emits unsolicited error concerns.
+- **User picks which concerns to act on.** When triggered, present the candidate
+  concerns (concern-block format, like plan review) and let the user choose which —
+  if any — warrant a fix-task.
+- **One offer behavior (v1):** `/aitask-explore` with a seed prompt only. Drop the
+  "or batch task creation" branch (possible later enhancement).
+- **Negative-control fixture required** in verification (benign error-shaped text
+  must NOT emit a concern block).
+- **Docs stay capability-level:** `shadow_agent.md` gets one bullet, no signal-list
+  duplication.
+
 ## Context
 
 The `aitask-shadow` skill (`.claude/skills/aitask-shadow/`) is the advisory-only
