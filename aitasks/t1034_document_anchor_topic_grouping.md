@@ -10,8 +10,9 @@ labels: [documentation]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1016
+implemented_with: codex/gpt5_5
 created_at: 2026-06-18 16:46
-updated_at: 2026-06-29 12:02
+updated_at: 2026-06-29 12:04
 boardidx: 290
 ---
 
