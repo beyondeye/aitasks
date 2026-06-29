@@ -6,6 +6,8 @@ Archived Sibling Plans: aiplans/archived/p1071/p1071_*_*.md
 Worktree: aiwork/t1071_1_shadow_diagnose_errors_subprocedure
 Branch: aitask/t1071_1_shadow_diagnose_errors_subprocedure
 Base branch: main
+plan_verified:
+  - claudecode/opus4_8 @ 2026-06-29 13:58
 ---
 
 # Plan — Capability A: shadow error-diagnosis sub-procedure
@@ -118,6 +120,22 @@ so the doc stays current with the skill source.
   appends its own line independently — no conflict expected.
 - The greeting-derives-from-Step-3 invariant (no hardcoded capability list) must
   be preserved by both children.
+
+## Risk
+
+### Code-health risk: low
+- None identified. The change is markdown-only and additive (one new `plan-*.md`
+  sub-procedure + two additive `SKILL.md` clauses + one doc update); it reuses the
+  existing `===AITASK-CONCERNS===` format and `concern_parser.py` verbatim, so no
+  code path or parser is touched. `aitask_skill_verify.sh` passes trivially.
+
+### Goal-achievement risk: medium
+- The error-signal detection and skill/helper attribution are heuristic
+  agent-judgment at runtime, not deterministic code — false positives/negatives
+  are possible (e.g. benign retries flagged, or a real error mis-attributed). ·
+  severity: medium · → mitigation: covered by the plan's fixture verification step
+  Bounded: the capability is advisory-only and user-confirmed (detect → mark →
+  OFFER), and is behaviorally verifiable against a captured-screen fixture.
 
 ## Post-implementation
 
