@@ -93,3 +93,8 @@ Live incident diagnosis 2026-06-25/26: counter (`next_id`) had fallen to the
 current max task ID, so the next claim collided. Root cause confirmed as the
 missing `counter >= max(task ids)` invariant + no self-heal, with manual renames
 and multi-machine local-counter divergence as the drift sources.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:review_approved** run=2026-06-29T09:15:35Z status=pass attempt=1 type=human
