@@ -553,11 +553,13 @@ Standard per `task-workflow` Step 9. Final Notes MUST record, **explicitly**:
   quotes colon-space values (valid-YAML correctness) on top of the
   whitespace-`#` / leading-indicator cases the t1030_1 reader requires.
 
-- **Upstream defects identified:** None that block. One observation (not a defect
-  from this task): `aidocs/task_attachments_design.md` was **untracked in git on
-  both branches** — authored during t1030 planning but never committed. This task
-  commits it (it is the spec the code implements and the §4 doc-sync target). The
-  unrelated `aidocs/slack/` directory remains untracked and was left untouched.
+- **Upstream defects identified:** None.
+
+- **Process observation (not a code defect):** `aidocs/task_attachments_design.md`
+  was **untracked in git on both branches** — authored during t1030 planning but
+  never committed. This task commits it (it is the spec the code implements and the
+  §4 doc-sync target), so the gap is already resolved. The unrelated
+  `aidocs/slack/` directory remains untracked and was left untouched.
 
 - **Notes for sibling tasks (t1030_3):** consume `lib/attachment_meta.py`
   (`--meta-dir attachments/meta`) for decref/zero-refcount/rebind, ALWAYS under
