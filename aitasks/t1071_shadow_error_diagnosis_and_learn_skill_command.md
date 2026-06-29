@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-25 00:37
-updated_at: 2026-06-25 00:37
+updated_at: 2026-06-29 11:42
 boardidx: 10
 ---
 
