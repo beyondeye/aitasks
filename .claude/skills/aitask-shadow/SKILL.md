@@ -151,6 +151,13 @@ to spell it out).
   think it through") → read and follow `plan-socratic.md`.
 - **Surface a plan's assumptions** ("what is this assuming?", "what has to be
   true?") → read and follow `plan-assumptions.md`.
+- **Diagnose skill/helper errors in the followed agent** ("what's going wrong
+  here?", "why does it keep erroring/retrying?", "diagnose these errors") — when
+  the screen shows tool-call errors or retries (`InputValidationError`,
+  tracebacks, bash stderr, repeated commands) → read and follow
+  `plan-diagnose-errors.md`. It diagnoses the errors, presents candidate concerns
+  for the user to pick from, and offers to spin chosen ones into `/aitask-explore`
+  fix-tasks. On-request only — never offered proactively.
 
 When a broad ask like "review this plan" spans several of these, run the relevant
 sub-procedures in sequence and present a combined result. When the user's intent

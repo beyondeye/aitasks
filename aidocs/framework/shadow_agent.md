@@ -74,8 +74,9 @@ free-form ask once it is running decides which capability applies:
 - **Step 3 — serve.** Simple, free-form-expressible asks are handled **inline**
   (explain the output / "what is the agent doing?"; help answer an
   `AskUserQuestion` by laying out the options and *suggesting* an answer the user
-  types themselves). Four **structured plan analyses** each live in a
-  read-and-follow sub-procedure with a defined methodology:
+  types themselves). Several **structured analyses** each live in a
+  read-and-follow sub-procedure with a defined methodology (four review a plan;
+  one diagnoses the followed agent's errors):
   - `plan-explain.md` — explain a plan to a non-expert: surface the technical
     subjects the plan rests on and offer per-subject introduction + motivation
     (multiSelect), then a plain-language walkthrough.
@@ -88,6 +89,11 @@ free-form ask once it is running decides which capability applies:
   - `plan-assumptions.md` — enumerate the plan's assumptions
     (environment / data / behavior / sequencing / intent) and flag the
     load-bearing-and-unverified ones first.
+  - `plan-diagnose-errors.md` — diagnose skill/helper errors the followed agent
+    hit (tool-call errors / retries), present candidate concerns for the user to
+    pick from, and offer to spin chosen ones into `/aitask-explore` fix-tasks.
+    On-request only — never offered proactively. (Detailed signal list lives in
+    the sub-procedure, not here.)
 
   A broad ask ("review this plan") runs several sub-procedures in sequence.
 
