@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [applink, applink_dataplane]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-29 09:23
-updated_at: 2026-06-29 09:23
+updated_at: 2026-06-29 11:42
 ---
 
 Investigate (and relax where safe) the limit on how much terminal history the
