@@ -52,6 +52,37 @@ OPEN_TIMEOUT = 10.0         # TLS/WS opening-handshake deadline (slow-loris)
 # server constructor, and the headless runner all reference it).
 DEFAULT_PAIR_PROFILE = "monitor_control"
 
+# History-RPC scrollback capture ceiling (t1092). Applink-only; decoupled from the
+# monitor's live `capture_lines`. The default coincides with tmux's own default
+# server `history-limit` (~2000). The config value is clamped to a sane range at
+# load (a runtime bound on the per-pull tmux capture, not just a comment).
+DEFAULT_HISTORY_CAPTURE_LINES = 2000
+HARD_MAX_HISTORY_CAPTURE_LINES = 10000
+
+
+def load_applink_config(project_root) -> dict:
+    """Load applink-specific config from project_config.yaml's ``tmux.applink``
+    section. Fault-tolerant: a missing file / missing key / non-dict / non-int /
+    out-of-range value falls back to the default, never raises. The
+    ``history_capture_lines`` value is clamped to ``[1, HARD_MAX]``.
+    """
+    lines = DEFAULT_HISTORY_CAPTURE_LINES
+    try:
+        import yaml
+        from pathlib import Path
+        cfg = Path(project_root) / "aitasks" / "metadata" / "project_config.yaml"
+        data = yaml.safe_load(cfg.read_text()) or {}
+        tmux = data.get("tmux") or {}
+        applink = tmux.get("applink") or {}
+        raw = applink.get("history_capture_lines")
+        if raw is not None:
+            val = int(raw)                 # non-int (str/list) raises → default below
+            if val >= 1:                   # sub-1 is nonsensical → keep the default
+                lines = min(val, HARD_MAX_HISTORY_CAPTURE_LINES)
+    except Exception:
+        pass  # any malformed config → safe default
+    return {"history_capture_lines": lines}
+
 
 class AppLinkServer:
     """Owns the WebSocket listener, the TmuxMonitor, and the frame router."""
@@ -84,6 +115,9 @@ class AppLinkServer:
 
         project_root = paths.project_root()
         config = load_monitor_config(project_root)
+        # Applink-only history scrollback ceiling (t1092), clamped at load.
+        self._history_capture_lines = load_applink_config(
+            project_root)["history_capture_lines"]
         self._monitor = TmuxMonitor(
             session=DEFAULT_SESSION,
             multi_session=True,
@@ -244,7 +278,10 @@ class AppLinkServer:
         """Return the connection's PushScheduler, starting it on first use."""
         pusher = self._pushers.get(conn)
         if pusher is None:
-            pusher = PushScheduler(conn, ws, self._monitor, audit=self._audit)
+            pusher = PushScheduler(
+                conn, ws, self._monitor, audit=self._audit,
+                history_capture_lines=getattr(
+                    self, "_history_capture_lines", DEFAULT_HISTORY_CAPTURE_LINES))
             self._pushers[conn] = pusher
             pusher.start()
         return pusher

@@ -160,6 +160,49 @@ async def main():
           isinstance(reply, dict) and reply.get("kind") == "err"
           and reply["payload"]["code"] == "BAD_PAYLOAD")
 
+    # --- (t1092) applink history-capture config: load + clamp + threading -----
+    # Pins the exact YAML path (tmux.applink.history_capture_lines), the clamp,
+    # and the graceful-fallback so a nesting/path typo fails here instead of
+    # silently leaving the server on the default.
+    import tempfile
+    from pusher import PushScheduler, DEFAULT_HISTORY_CAPTURE_LINES
+
+    def _cfg(td, body):
+        meta = Path(td) / "aitasks" / "metadata"
+        meta.mkdir(parents=True, exist_ok=True)
+        (meta / "project_config.yaml").write_text(body)
+        return td
+
+    with tempfile.TemporaryDirectory() as td:                      # missing applink key
+        _cfg(td, "tmux:\n  monitor:\n    capture_lines: 200\n")
+        check("load_applink_config: missing tmux.applink -> default 2000",
+              SV.load_applink_config(td)["history_capture_lines"] == 2000)
+    with tempfile.TemporaryDirectory() as td:                      # missing file entirely
+        check("load_applink_config: missing config file -> default 2000",
+              SV.load_applink_config(td)["history_capture_lines"] == 2000)
+    with tempfile.TemporaryDirectory() as td:                      # configured value
+        _cfg(td, "tmux:\n  applink:\n    history_capture_lines: 3000\n")
+        check("load_applink_config: configured value honored (3000)",
+              SV.load_applink_config(td)["history_capture_lines"] == 3000)
+    with tempfile.TemporaryDirectory() as td:                      # over-ceiling clamp
+        _cfg(td, "tmux:\n  applink:\n    history_capture_lines: 999999\n")
+        check("load_applink_config: over-ceiling clamped to HARD_MAX (10000)",
+              SV.load_applink_config(td)["history_capture_lines"]
+              == SV.HARD_MAX_HISTORY_CAPTURE_LINES == 10000)
+    for bad in ('"abc"', "-5", "0", "null", "[1, 2]"):            # malformed -> default
+        with tempfile.TemporaryDirectory() as td:
+            _cfg(td, f"tmux:\n  applink:\n    history_capture_lines: {bad}\n")
+            check(f"load_applink_config: malformed ({bad}) -> safe default 2000",
+                  SV.load_applink_config(td)["history_capture_lines"] == 2000)
+
+    # threading: the loaded value reaches the scheduler verbatim
+    ps = PushScheduler(ConnState(), FakeWS(), object(), history_capture_lines=4242)
+    check("PushScheduler threads history_capture_lines verbatim (4242)",
+          ps._history_capture_lines == 4242)
+    ps_def = PushScheduler(ConnState(), FakeWS(), object())
+    check("PushScheduler default ceiling == DEFAULT_HISTORY_CAPTURE_LINES (2000)",
+          ps_def._history_capture_lines == DEFAULT_HISTORY_CAPTURE_LINES == 2000)
+
 asyncio.run(main())
 print(f"\nALL PASSED ({PASS} checks)")
 PYEOF

@@ -102,6 +102,15 @@ Enforced in the binary data plane (`content.py` / `pusher.py`):
   sent, bounding both the mobile-side decode-bomb and the server write buffer. A
   dropped *live* frame re-anchors the pane (its next emit is a fresh keyframe); a
   dropped *history* frame is simply not delivered (history is best-effort).
+- **History scrollback capture depth** — the `history` RPC takes a deeper
+  on-demand `capture-pane` than the live ~200-line capture, but it is bounded on
+  three sides: the per-request capture depth is sized to `viewport + count` and
+  clamped to the `tmux.applink.history_capture_lines` ceiling (itself clamped to
+  `[1, 10000]` at config load, so a hostile/typo'd config cannot request an
+  unbounded capture); `count` is capped at `_MAX_HISTORY_ROWS` (1000) so the
+  emitted keyframe stays bounded; and an oversize keyframe is dropped by the
+  `MAX_PUSH_FRAME_BYTES` guard above. The deeper capture is also non-finalizing —
+  it never perturbs idle/awaiting-input state.
 - **Scheduler fault isolation** — a single pane's encode/capture error (or a
   whole-pass capture error) is caught and audited; it cannot abort the other
   panes' updates or kill the per-connection push loop.

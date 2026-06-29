@@ -1175,17 +1175,22 @@ class TmuxMonitor:
             awaiting_input_kind=awaiting_input_kind,
         )
 
-    def _capture_args(self, pane_id: str) -> list[str]:
+    def _capture_args(
+        self, pane_id: str, capture_lines: int | None = None
+    ) -> list[str]:
+        n = self.capture_lines if capture_lines is None else capture_lines
         return [
             "capture-pane", "-p", "-e", "-t", pane_id,
-            "-S", f"-{self.capture_lines}",
+            "-S", f"-{n}",
         ]
 
-    def capture_pane(self, pane_id: str) -> PaneSnapshot | None:
+    def capture_pane(
+        self, pane_id: str, capture_lines: int | None = None
+    ) -> PaneSnapshot | None:
         pane = self._pane_cache.get(pane_id)
         if pane is None:
             return None
-        rc, content = self.tmux_run(self._capture_args(pane_id))
+        rc, content = self.tmux_run(self._capture_args(pane_id, capture_lines))
         if rc != 0:
             return None
         return self._finalize_capture(pane, content)
@@ -1201,14 +1206,37 @@ class TmuxMonitor:
         """
         return self._pane_cache.get(pane_id)
 
-    async def capture_pane_async(self, pane_id: str) -> PaneSnapshot | None:
+    async def capture_pane_async(
+        self, pane_id: str, capture_lines: int | None = None
+    ) -> PaneSnapshot | None:
         pane = self._pane_cache.get(pane_id)
         if pane is None:
             return None
-        rc, content = await self._tmux_async(self._capture_args(pane_id))
+        rc, content = await self._tmux_async(self._capture_args(pane_id, capture_lines))
         if rc != 0:
             return None
         return self._finalize_capture(pane, content)
+
+    async def capture_pane_content_async(
+        self, pane_id: str, capture_lines: int | None = None
+    ) -> tuple["TmuxPaneInfo", str] | None:
+        """Raw one-shot capture for consumers (the applink history RPC) that must
+        NOT perturb idle/awaiting-input state.
+
+        Returns ``(pane, content)`` or ``None``. Unlike :meth:`capture_pane_async`
+        it does **not** call :meth:`_finalize_capture`, so it never touches
+        ``_last_content`` / ``_last_change_time`` — idle and prompt detection stay
+        driven solely by the live ``capture_all_async`` path. A deeper-than-live
+        capture (history pulls ~2000 lines vs the 200-line live capture) would
+        otherwise reset the pane's idle clock on every scrollback request.
+        """
+        pane = self._pane_cache.get(pane_id)
+        if pane is None:
+            return None
+        rc, content = await self._tmux_async(self._capture_args(pane_id, capture_lines))
+        if rc != 0:
+            return None
+        return pane, content
 
     async def capture_cursor_async(
         self, pane_id: str

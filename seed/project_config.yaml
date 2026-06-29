@@ -326,3 +326,26 @@ tmux:
   # ──────────────────────────────────────────────────────────────────
   # monitor:
   #   compare_mode_default: stripped
+
+  # ──────────────────────────────────────────────────────────────────
+  # applink — `ait applink` mobile-companion data-plane settings.
+  #
+  # history_capture_lines — CEILING (max depth) for a single on-demand
+  # terminal-scrollback capture served by the applink "history" RPC. This
+  # is decoupled from monitor.capture_lines: live frames only need the
+  # viewport, but a history pull wants deep scrollback. The per-request
+  # capture depth is sized to `viewport + count` and clamped to this value;
+  # it is NOT a fixed depth.
+  #
+  # Bounds: clamped to [1, 10000] at load. It is itself capped by tmux's own
+  # server `history-limit` (default ~2000), so values past ~2000 retrieve no
+  # further scrollback unless tmux's history-limit is also raised.
+  #
+  # Default: 2000 (coincides with tmux's default history-limit).
+  #
+  # Example:
+  #   applink:
+  #     history_capture_lines: 2000
+  # ──────────────────────────────────────────────────────────────────
+  # applink:
+  #   history_capture_lines: 2000

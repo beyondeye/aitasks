@@ -34,7 +34,7 @@ sys.path.insert(0, str(root / ".aitask-scripts" / "applink"))
 
 import msgpack
 import content as C
-from pusher import PushScheduler, HIGH_WATER_BYTES
+from pusher import PushScheduler, HIGH_WATER_BYTES, DEFAULT_HISTORY_CAPTURE_LINES
 from server import AppLinkServer
 
 PASS = 0
@@ -73,10 +73,29 @@ class FakeMonitor:
     def __init__(self):
         self.snaps = {}
         self.cursor = (2, 3, True, 0)
+        self.last_capture_lines = {}   # t1092: records the depth each history pull asked for
     async def capture_all_async(self):
         return dict(self.snaps)
     async def capture_cursor_async(self, pane_id):
         return self.cursor
+    def get_pane(self, pane_id):       # t1092: _pane_cache accessor (no subprocess)
+        snap = self.snaps.get(pane_id)
+        return snap.pane if snap is not None else None
+    async def capture_pane_content_async(self, pane_id, capture_lines=None):
+        # t1092: non-finalizing raw capture used by _drain_history. Models tmux
+        # `capture-pane -S -<capture_lines>`: returns at most the trailing
+        # `capture_lines` lines, so depth genuinely gates what history can see.
+        self.last_capture_lines[pane_id] = capture_lines
+        snap = self.snaps.get(pane_id)
+        if snap is None:
+            return None
+        lines = snap.content.split("\n")
+        trailing_nl = bool(lines) and lines[-1] == ""
+        if trailing_nl:
+            lines = lines[:-1]
+        if capture_lines is not None and len(lines) > capture_lines:
+            lines = lines[-capture_lines:]
+        return snap.pane, "\n".join(lines) + ("\n" if trailing_nl else "")
 
 
 class FakeWS:
@@ -644,6 +663,68 @@ async def main():
     check("history reflects the drain-time capture (best-effort anchoring)",
           row_text(hist_frame(wsa)) == {-1: "B2", -2: "B1"})
 
+    # === t1092: history capture is DECOUPLED from the live 200-line capture =====
+    # (1) the drain sizes its OWN capture depth per-request (viewport+count+scroll),
+    #     clamped to the scheduler's history_capture_lines ceiling, and asks the
+    #     monitor for it via the non-finalizing capture_pane_content_async. The old
+    #     snaps-reuse path never called that method at all.
+    subd = C.Subscription()
+    subd.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wsd, mond, paned = FakeWS(), FakeMonitor(), FakePane("%1", width=40, height=3)
+    mond.snaps["%1"] = FakeSnap(paned, SCROLL6)
+    schedd = PushScheduler(FakeConn(subd), wsd, mond, clock=lambda: 9000.0,
+                           history_capture_lines=2000)
+    subd.request_history("%1", -5, 7)              # count=7, before_line=-5 (scrolled)
+    await schedd._run_once()
+    check("history depth sized per-request (viewport+count+scroll), not the live 200",
+          mond.last_capture_lines["%1"] == min(2000, 3 + 7 + 5))
+    sched_def = PushScheduler(FakeConn(C.Subscription()), FakeWS(), FakeMonitor())
+    check("PushScheduler default history ceiling == DEFAULT_HISTORY_CAPTURE_LINES (2000)",
+          sched_def._history_capture_lines == DEFAULT_HISTORY_CAPTURE_LINES == 2000)
+
+    # (2) behavioral: a >200-line buffer + a before_line 200 deep returns rows a
+    #     shallow live-200 capture never could. If the drain wrongly used a ~200
+    #     depth, the trimmed buffer would not reach these rows and the keyframe
+    #     would be EMPTY — so this discriminates the decouple from the old bound.
+    sube = C.Subscription()
+    sube.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
+    wse, panee = FakeWS(), FakePane("%1", width=40, height=3)
+    mone = FakeMonitor()
+    DEEP = "\n".join(f"D{i}" for i in range(300)) + "\n"   # 300 lines (>> old 200)
+    mone.snaps["%1"] = FakeSnap(panee, DEEP)
+    schede = PushScheduler(FakeConn(sube), wse, mone, clock=lambda: 9000.0,
+                           history_capture_lines=2000)
+    sube.request_history("%1", -200, 3)            # 200 already fetched; 3 more, deep
+    await schede._run_once()
+    hbe = hist_frame(wse)
+    check("history reaches deep scrollback beyond the old ~200-line bound",
+          hbe is not None and row_text(hbe) == {-1: "D96", -2: "D95", -3: "D94"})
+
+    # (3) concern-1 guard (REAL TmuxMonitor): the deep history capture is
+    #     NON-FINALIZING — it must not perturb idle/awaiting-input detection state.
+    from monitor.monitor_core import TmuxMonitor
+    tm = TmuxMonitor(session="aitasks")
+    tm._pane_cache["%1"] = FakePane("%1", height=3)
+    calls = {"n": 0, "args": None}
+    async def _fake_tmux(args):
+        calls["n"] += 1; calls["args"] = args
+        return 0, "x\ny\nz\n"
+    tm._tmux_async = _fake_tmux
+    check("monitor _capture_args(depth) -> -S -<depth>",
+          tm._capture_args("%1", 1500)[-2:] == ["-S", "-1500"])
+    check("monitor _capture_args() default -> live -S -<capture_lines> (200)",
+          tm._capture_args("%1")[-2:] == ["-S", f"-{tm.capture_lines}"])
+    res = await tm.capture_pane_content_async("%1", 1500)
+    check("capture_pane_content_async returns (pane, content)",
+          res is not None and res[0].pane_id == "%1" and "x" in res[1])
+    check("capture_pane_content_async requested the deep -S -1500",
+          calls["args"][-2:] == ["-S", "-1500"])
+    check("capture_pane_content_async does NOT touch idle state (_last_content/_last_change_time)",
+          "%1" not in tm._last_content and "%1" not in tm._last_change_time)
+    await tm.capture_pane_async("%1", 1500)   # finalizing sibling: control
+    check("capture_pane_async (finalizing) DOES record _last_content (control)",
+          "%1" in tm._last_content)
+
     # back-pressure: over high-water -> NO frame, history stays pending
     subb = C.Subscription()
     subb.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000})
@@ -783,7 +864,7 @@ async def main():
     fid_before = subh2.state_for("%1").frame_id
     subh2.request_history("%1", 2, 30)        # before_line=2, count=30 -> 30 history rows
     cap_msgs.clear()
-    await schedh2._drain_history(subh2, monh2.snaps)
+    await schedh2._drain_history(subh2)
     check("history oversize: nothing sent (frame dropped)", len(binaries(wsh2)) == 0)
     check("history oversize: drop audited (PUSH_FRAME_OVERSIZE)",
           any("PUSH_FRAME_OVERSIZE" in m for m in cap_msgs))

@@ -56,12 +56,27 @@ HIGH_WATER_BYTES = 256 * 1024
 # blowup. An oversize frame is dropped (audited), never sent.
 MAX_PUSH_FRAME_BYTES = 2 * 1024 * 1024   # 2 MiB
 
+# Ceiling on a single on-demand history (scrollback pull) capture depth (t1092).
+# Decoupled from the monitor's live `capture_lines` (~200): live frames only need
+# the viewport, but a history pull wants deep scrollback. The per-request depth is
+# sized to `viewport + count` and clamped to this ceiling, which is aligned with
+# tmux's own default server `history-limit` (~2000, the real hard ceiling on what
+# `capture-pane -S` can ever retrieve). The server overrides this from
+# `tmux.applink.history_capture_lines` (clamped at load).
+DEFAULT_HISTORY_CAPTURE_LINES = 2000
+
 
 class PushScheduler:
-    def __init__(self, conn, ws, monitor, *, clock=None, audit=None) -> None:
+    def __init__(
+        self, conn, ws, monitor, *, clock=None, audit=None,
+        history_capture_lines=DEFAULT_HISTORY_CAPTURE_LINES,
+    ) -> None:
         self._conn = conn
         self._ws = ws
         self._monitor = monitor
+        # Ceiling on a single history-pull capture depth (t1092); server-overridden
+        # from tmux.applink.history_capture_lines (clamped at load).
+        self._history_capture_lines = history_capture_lines
         # Security/resilience audit logger (oversize-frame drops, per-pane faults).
         # The server threads its own logger in; default to the package logger so a
         # bare-constructed scheduler (unit tests) stays silent (no handlers).
@@ -151,23 +166,27 @@ class PushScheduler:
                 continue
 
         # Stage 5 (t1057): drain queued scrollback (history RPC) pulls AFTER the
-        # live loop, reusing this tick's `snaps`. Ordering matters: the live loop
-        # above emits each subscribed pane's forced keyframe first (subscribe
-        # seeds `force`), so a `subscribe`+immediate-`history` can never deliver a
-        # negative-row history keyframe before the pane's first live keyframe.
+        # live loop. Ordering matters: the live loop above emits each subscribed
+        # pane's forced keyframe first (subscribe seeds `force`), so a
+        # `subscribe`+immediate-`history` can never deliver a negative-row history
+        # keyframe before the pane's first live keyframe.
         if self._stopped:
             return  # a live send failed: do not touch a dead socket
         if sub.has_pending_history():
-            await self._drain_history(sub, snaps)
+            await self._drain_history(sub)
 
-    async def _drain_history(self, sub, snaps) -> None:
+    async def _drain_history(self, sub) -> None:
         """Serve queued scrollback pulls as single negative-row-id keyframes.
 
-        Reuses this tick's `snaps` (so a history keyframe is anchored to the same
-        capture as the pane's concurrent live frame). Delivery is best-effort: a
-        pane absent from the capture (stale/nonexistent subscribed id, or one that
-        vanished this tick) is silently skipped — the control-plane token only
-        acked acceptance, not delivery (content_transport.md §Scrollback). The
+        Takes a **fresh, request-sized, non-finalizing** capture per pull (t1092):
+        the depth is sized to `viewport + count` and clamped to
+        `self._history_capture_lines`, so a history pull reaches deep scrollback
+        without taxing the monitor's shallow live capture or perturbing its idle
+        state (capture_pane_content_async does NOT touch _last_content). It is
+        NOT the same buffer as this tick's live frame — history is best-effort and
+        not anchored to the exact rendered frame (content_transport.md
+        §Scrollback): a pane that has vanished (capture returns None) is silently
+        skipped (the control-plane token acked acceptance, not delivery). The
         history keyframe reads the pane's current `frame_id` WITHOUT advancing the
         live monotonic chain; the negative row_ids are the sole signal that
         distinguishes it from a live keyframe.
@@ -175,13 +194,21 @@ class PushScheduler:
         for pane_id, before_line, count, _token in sub.take_pending_history():
             if self._stopped:
                 return
-            snap = snaps.get(pane_id)
-            if snap is None:
+            cached = self._monitor.get_pane(pane_id)   # _pane_cache read (no subprocess)
+            # Capture only what THIS request can use (viewport + count + scroll
+            # offset), clamped to the configured ceiling. Bounds the tmux capture
+            # regardless of config; the keyframe size is separately bounded by
+            # `count` (<= _MAX_HISTORY_ROWS) and the 2 MiB frame drop.
+            depth = self._history_capture_lines
+            if cached is not None:
+                depth = min(depth, cached.height + count + max(0, -before_line))
+            cap = await self._monitor.capture_pane_content_async(pane_id, depth)
+            if cap is None:
                 continue
             try:
-                pane = snap.pane
+                pane, text = cap
                 cols, rows_h = pane.width, pane.height
-                rows, osc8 = content.history_rows(snap.content, rows_h, before_line, count)
+                rows, osc8 = content.history_rows(text, rows_h, before_line, count)
                 frame_id = sub.state_for(pane_id).frame_id  # read; do NOT advance the chain
                 cursor = [0, 0, False, 0]                    # history has no cursor (hidden)
                 # Best-effort: an oversize history keyframe is dropped by _send (its
