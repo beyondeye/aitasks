@@ -41,9 +41,11 @@ No CLI, schema, or runtime changes. This is documentation-only for existing
 
 ## Risk
 
-- **Code-health risk:** low.
-- **Goal-achievement risk:** low.
-- **Planned mitigations:** none.
+### Code-health risk: low
+None identified.
+
+### Goal-achievement risk: low
+None identified.
 
 ## Verification
 
