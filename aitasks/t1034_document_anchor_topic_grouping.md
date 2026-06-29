@@ -1,14 +1,17 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: documentation
 status: Implementing
 labels: [documentation]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1016
 created_at: 2026-06-18 16:46
-updated_at: 2026-06-29 12:01
+updated_at: 2026-06-29 12:02
 boardidx: 290
 ---
 
