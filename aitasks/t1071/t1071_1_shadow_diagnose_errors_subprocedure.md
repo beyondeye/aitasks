@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
@@ -8,8 +10,9 @@ labels: [shadow, claudeskills]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-29 12:05
-updated_at: 2026-06-29 14:00
+updated_at: 2026-06-29 15:35
 ---
 
 Capability A of t1071: give the shadow agent a sub-procedure that detects
