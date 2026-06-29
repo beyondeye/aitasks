@@ -1,20 +1,25 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [t1030_1]
 issue_type: feature
 status: Implementing
 labels: [task_attachments]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1030
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-28 12:08
-updated_at: 2026-06-29 10:16
+updated_at: 2026-06-29 10:17
 ---
 
 Implement the **local attachment backend**, the **universal local cache**, the **`index.json` refcount ledger**, and the **backend adapter seam** — making `ait attach add/get/rm` fully functional over the `.aitask-data` worktree. Depends on the scaffold from t1030_1.
 
 Design spec: `aidocs/task_attachments_design.md` §2 (content addressing), §4 (storage layout), §5 (adapter interface + universal cache), §8 (lifecycle add/fetch). Generalizability target: `aidocs/unified_artifact_design.md` §5 — keep the contract/naming so t1076_1 can promote `attachment_backend` → `artifact_backend` by rename+widen, not re-plumb.
+
+> **Design update during implementation (2026-06-29) — supersedes the `index.json` references in this task.** The canonical refcount ledger is **per-attachment metadata files** (`attachments/meta/<2>/<62>.json`), **not** a single global `attachments/index.json`; blobs move to `attachments/blobs/<2>/<62>`. Rationale: a single index.json is a global write-hotspot that manufactures conflicts between unrelated attachments on the shared `.aitask-data` branch; per-blob files give isolated diffs/conflicts. The helper is `attachment_meta.py` (a lock-free primitive), and the whole `add`/`rm` body runs under a single global `.attach.lock` transaction. Any future aggregate index is a generated cache only, never source of truth. Full rationale + the design-doc/t1030_3 doc-sync are in the approved plan `aiplans/p1030/p1030_2_local_backend_cache_index.md` (Key design decision + Coordination sections). The functional requirement (a refcount ledger driving GC) is unchanged — only its on-disk shape.
 
 ## Context
 Second of three children of t1030. Builds the storage core on the t1030_1 primitives (`attachment_sha256`, `attachment_shard_path`, `attachment_cache_path`, `read_yaml_mappings`). The adapter seam is built **here, upfront** (not deferred to a later refactor) so the design is clean from the start and t1076_1's generalization is a rename. Establishes the `index.json` schema and backend contract that t1030_3 (archive/gc/fold) and the S3/GDrive follow-ups consume.
