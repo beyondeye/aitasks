@@ -83,6 +83,37 @@ clone_second_local() {
     echo "$local2_dir"
 }
 
+set_remote_counter() {
+    local repo_dir="$1"
+    local value="$2"
+    (
+        cd "$repo_dir" || exit 1
+        git fetch origin aitask-ids --quiet 2>/dev/null || true
+        local parent blob tree commit
+        parent=$(git rev-parse origin/aitask-ids)
+        blob=$(echo "$value" | git hash-object -w --stdin)
+        tree=$(printf "100644 blob %s\tnext_id.txt\n" "$blob" | git mktree)
+        commit=$(echo "test: set counter to $value" | git commit-tree "$tree" -p "$parent")
+        git push --quiet origin "$commit:refs/heads/aitask-ids"
+        git update-ref refs/remotes/origin/aitask-ids "$commit"
+        git update-ref refs/heads/aitask-ids "$commit" 2>/dev/null || true
+    )
+}
+
+set_local_counter() {
+    local repo_dir="$1"
+    local value="$2"
+    (
+        cd "$repo_dir" || exit 1
+        local parent blob tree commit
+        parent=$(git rev-parse aitask-ids)
+        blob=$(echo "$value" | git hash-object -w --stdin)
+        tree=$(printf "100644 blob %s\tnext_id.txt\n" "$blob" | git mktree)
+        commit=$(echo "test: set local counter to $value" | git commit-tree "$tree" -p "$parent")
+        git update-ref refs/heads/aitask-ids "$commit"
+    )
+}
+
 # Disable strict mode for test error handling
 set +e
 
@@ -549,6 +580,73 @@ assert_contains "Peek absent-branch error says counter is uninitialized" "not in
 assert_contains "Peek absent-branch error keeps setup hint" "ait setup" "$peek20_out"
 
 rm -rf "$TMPDIR_20"
+
+# --- Test 21: Normal remote claim self-heals active drift only ---
+echo "--- Test 21: Claim self-heals active drift ---"
+
+TMPDIR_21="$(setup_paired_repos)"
+(cd "$TMPDIR_21/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+(
+    cd "$TMPDIR_21/local"
+    echo "---" > aitasks/t20_active_drift.md
+    git add aitasks/t20_active_drift.md && git commit -m "Add active drift task" --quiet && git push --quiet 2>/dev/null
+)
+set_remote_counter "$TMPDIR_21/local" "6"
+claimed21=$(cd "$TMPDIR_21/local" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
+counter21=$(cd "$TMPDIR_21/local" && git fetch origin aitask-ids --quiet 2>/dev/null && git show origin/aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
+assert_eq "Claim skips active drift and returns max+1" "21" "$claimed21"
+assert_eq "Counter advances past active drift claim" "22" "$counter21"
+
+rm -rf "$TMPDIR_21"
+
+# --- Test 22: Normal local claim self-heals active drift only ---
+echo "--- Test 22: Local claim self-heals active drift ---"
+
+TMPDIR_22="$(mktemp -d)"
+(
+    cd "$TMPDIR_22"
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p aitasks/archived
+    setup_fake_aitask_repo "$PWD"
+    echo "---" > aitasks/t1_first.md
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_claim_id.sh
+    echo "init" > dummy.txt && git add -A && git commit -m "init" --quiet
+    ./.aitask-scripts/aitask_claim_id.sh --claim >/dev/null 2>&1
+    echo "---" > aitasks/t10_active_drift.md
+)
+set_local_counter "$TMPDIR_22" "3"
+claimed22=$(cd "$TMPDIR_22" && ./.aitask-scripts/aitask_claim_id.sh --claim 2>/dev/null)
+counter22=$(cd "$TMPDIR_22" && git show aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
+assert_eq "Local claim skips active drift and returns max+1" "11" "$claimed22"
+assert_eq "Local counter advances past active drift claim" "12" "$counter22"
+
+rm -rf "$TMPDIR_22"
+
+# --- Test 23: Resync repairs archived drift ---
+echo "--- Test 23: Resync repairs archived drift ---"
+
+TMPDIR_23="$(setup_paired_repos)"
+(cd "$TMPDIR_23/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
+(
+    cd "$TMPDIR_23/local"
+    echo "---" > aitasks/archived/t50_archived_drift.md
+    git add aitasks/archived/t50_archived_drift.md && git commit -m "Add archived drift task" --quiet && git push --quiet 2>/dev/null
+)
+set_remote_counter "$TMPDIR_23/local" "6"
+resync23=$(cd "$TMPDIR_23/local" && ./.aitask-scripts/aitask_claim_id.sh --resync 2>/dev/null)
+counter23=$(cd "$TMPDIR_23/local" && git fetch origin aitask-ids --quiet 2>/dev/null && git show origin/aitask-ids:next_id.txt 2>/dev/null | tr -d '[:space:]')
+assert_contains "Resync reports repair" "RESYNCED:6:51" "$resync23"
+assert_eq "Resync uses active+archived max" "51" "$counter23"
+
+resync23b=$(cd "$TMPDIR_23/local" && ./.aitask-scripts/aitask_claim_id.sh --resync 2>/dev/null)
+assert_contains "Resync is idempotent when healthy" "OK:51" "$resync23b"
+
+rm -rf "$TMPDIR_23"
 
 # --- Summary ---
 echo ""

@@ -103,6 +103,22 @@ TASK
     PROJECT_UNDER_TEST="$local_dir"
 }
 
+install_sequence_claim_stub() {
+    local first_id="$1"
+    local second_id="$2"
+    cat > .aitask-scripts/aitask_claim_id.sh <<EOF
+#!/usr/bin/env bash
+state_file=".claim_stub_state"
+if [[ ! -f "\$state_file" ]]; then
+    echo used > "\$state_file"
+    echo "$first_id"
+else
+    echo "$second_id"
+fi
+EOF
+    chmod +x .aitask-scripts/aitask_claim_id.sh
+}
+
 teardown() {
     popd > /dev/null 2>&1 || true
 }
@@ -149,6 +165,41 @@ test_silent_commit_single_line() {
         FAIL=$((FAIL + 1))
         echo "FAIL: stdout did not contain slug 'silent_smoke': '$stdout'"
     fi
+
+    teardown
+}
+
+test_silent_commit_retries_active_collision() {
+    echo ""
+    echo "=== Test 1b: --batch --commit --silent retries active ID collision ==="
+    setup_project
+    install_sequence_claim_stub "1" "2"
+
+    local stdout rc stderr_file stderr
+    stderr_file="$(mktemp)"
+    set +e
+    stdout=$(./.aitask-scripts/aitask_create.sh --batch --commit --silent \
+        --name "silent_collision" --desc "Silent collision test" 2>"$stderr_file")
+    rc=$?
+    set -e
+    stderr="$(cat "$stderr_file")"
+    rm -f "$stderr_file"
+
+    assert_eq "exit code 0 (collision retry)" "0" "$rc"
+
+    local lines
+    lines="$(line_count "$stdout")"
+    assert_eq "collision retry stdout is exactly one line" "1" "$lines"
+
+    TOTAL=$((TOTAL + 1))
+    if [[ "$stdout" == "aitasks/t2_silent_collision.md" && -f "$stdout" ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: collision retry stdout was not the retried file path: '$stdout'"
+    fi
+
+    assert_contains "collision warning stays on stderr" "already exists as an active parent task" "$stderr"
 
     teardown
 }
@@ -224,6 +275,7 @@ test_nonsilent_commit_smoke() {
 
 # --- Run ---
 test_silent_commit_single_line
+test_silent_commit_retries_active_collision
 test_silent_commit_child_single_line
 test_nonsilent_commit_smoke
 

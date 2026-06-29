@@ -56,6 +56,7 @@ BATCH_AUTO_MERGE=false
 BATCH_FINALIZE=""
 BATCH_FINALIZE_ALL=false
 DRAFT_DIR="aitasks/new"
+MAX_PARENT_ID_CLAIM_RETRIES=5
 
 # Resolved topic-anchor (bare task id, or "" for a topic root). Computed by
 # resolve_anchor() in batch mode from --anchor/--followup-of/--parent; the
@@ -766,33 +767,7 @@ finalize_draft() {
     else
         # Parent task: claim from atomic counter
         local claimed_id
-        local claim_stderr
-        claim_stderr=$(mktemp)
-        claimed_id=$("$SCRIPT_DIR/aitask_claim_id.sh" --claim 2>"$claim_stderr") || {
-            local claim_err
-            claim_err=$(cat "$claim_stderr")
-            rm -f "$claim_stderr"
-
-            if [[ -t 0 ]]; then
-                # Interactive mode: warn and offer local scan fallback
-                echo "" >&2
-                warn "Atomic ID counter failed: ${claim_err:-unknown error}" >&2
-                warn "Local scan may cause duplicate IDs if other users are active." >&2
-                echo "" >&2
-                printf "Use local scan anyway? (y/N): " >&2
-                local answer
-                read -r answer
-                if [[ "$answer" =~ ^[Yy]$ ]]; then
-                    claimed_id=$(get_next_task_number_local)
-                else
-                    die "Aborted. See the counter error above."
-                fi
-            else
-                # Batch/non-interactive mode: fail hard
-                die "Atomic ID counter failed: ${claim_err:-unknown error}"
-            fi
-        }
-        rm -f "$claim_stderr" 2>/dev/null
+        claimed_id=$(claim_unique_parent_id true)
 
         task_id="t${claimed_id}"
         filepath="$TASK_DIR/${task_id}_${task_name}.md"
@@ -882,6 +857,59 @@ get_next_task_number_local() {
     fi
 
     echo $((max_num + 1))
+}
+
+active_parent_task_exists() {
+    local task_num="$1"
+    ls "$TASK_DIR"/t${task_num}_*.md &>/dev/null
+}
+
+claim_parent_id_once() {
+    local allow_interactive_fallback="${1:-false}"
+    local claimed_id
+    local claim_stderr
+    claim_stderr=$(mktemp)
+    claimed_id=$("$SCRIPT_DIR/aitask_claim_id.sh" --claim 2>"$claim_stderr") || {
+        local claim_err
+        claim_err=$(cat "$claim_stderr")
+        rm -f "$claim_stderr"
+
+        if [[ "$allow_interactive_fallback" == "true" && -t 0 ]]; then
+            echo "" >&2
+            warn "Atomic ID counter failed: ${claim_err:-unknown error}" >&2
+            warn "Local scan may cause duplicate IDs if other users are active." >&2
+            echo "" >&2
+            printf "Use local scan anyway? (y/N): " >&2
+            local answer
+            read -r answer
+            if [[ "$answer" =~ ^[Yy]$ ]]; then
+                claimed_id=$(get_next_task_number_local)
+            else
+                die "Aborted. See the counter error above."
+            fi
+        else
+            die "Atomic ID counter failed: ${claim_err:-unknown error}"
+        fi
+    }
+    rm -f "$claim_stderr" 2>/dev/null
+    echo "$claimed_id"
+}
+
+claim_unique_parent_id() {
+    local allow_interactive_fallback="${1:-false}"
+    local attempt claimed_id
+
+    for ((attempt = 1; attempt <= MAX_PARENT_ID_CLAIM_RETRIES; attempt++)); do
+        claimed_id=$(claim_parent_id_once "$allow_interactive_fallback")
+        if active_parent_task_exists "$claimed_id"; then
+            warn "Claimed task ID t$claimed_id already exists as an active parent task; retrying ($attempt/$MAX_PARENT_ID_CLAIM_RETRIES)." >&2
+            continue
+        fi
+        echo "$claimed_id"
+        return 0
+    done
+
+    die "Failed to claim a unique active parent task ID after $MAX_PARENT_ID_CLAIM_RETRIES attempts."
 }
 
 # List draft files with summary info
@@ -1980,15 +2008,7 @@ run_batch_mode() {
         else
             # Parent task: claim real ID from atomic counter
             local claimed_id
-            local claim_stderr
-            claim_stderr=$(mktemp)
-            claimed_id=$("$SCRIPT_DIR/aitask_claim_id.sh" --claim 2>"$claim_stderr") || {
-                local claim_err
-                claim_err=$(cat "$claim_stderr")
-                rm -f "$claim_stderr"
-                die "Atomic ID counter failed: ${claim_err:-unknown error}"
-            }
-            rm -f "$claim_stderr" 2>/dev/null
+            claimed_id=$(claim_unique_parent_id false)
 
             local deduped_file_refs
             deduped_file_refs=$(dedup_file_refs BATCH_FILE_REFS)

@@ -985,6 +985,15 @@ setup_id_counter() {
     # Check if branch already exists
     if git ls-remote --heads origin "aitask-ids" 2>/dev/null | grep -q "aitask-ids"; then
         success "Task ID counter branch already initialized"
+        local resync_out
+        if resync_out=$(cd "$project_dir" && "$SCRIPT_DIR/aitask_claim_id.sh" --resync 2>&1); then
+            case "$resync_out" in
+                RESYNCED:*) success "Task ID counter resynced (${resync_out#RESYNCED:})" ;;
+                OK:*) info "Task ID counter already healthy (${resync_out#OK:})" ;;
+            esac
+        else
+            warn "Task ID counter resync failed: ${resync_out:-unknown error}"
+        fi
         return
     fi
 

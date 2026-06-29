@@ -103,6 +103,23 @@ TASK
     echo "$tmpdir"
 }
 
+install_sequence_claim_stub() {
+    local repo_dir="$1"
+    local first_id="$2"
+    local second_id="$3"
+    cat > "$repo_dir/.aitask-scripts/aitask_claim_id.sh" <<EOF
+#!/usr/bin/env bash
+state_file=".claim_stub_state"
+if [[ ! -f "\$state_file" ]]; then
+    echo used > "\$state_file"
+    echo "$first_id"
+else
+    echo "$second_id"
+fi
+EOF
+    chmod +x "$repo_dir/.aitask-scripts/aitask_claim_id.sh"
+}
+
 # Disable strict mode for test error handling
 set +e
 
@@ -202,6 +219,23 @@ draft_name5=$(ls "$TMPDIR_5/local/aitasks/new"/ 2>/dev/null | head -1)
 assert_file_exists "Finalized as t3" "$TMPDIR_5/local/aitasks/t3_claim_test.md"
 
 rm -rf "$TMPDIR_5"
+
+# --- Test 5b: Finalize retries active parent ID collision ---
+echo "--- Test 5b: Finalize retries active parent ID collision ---"
+
+TMPDIR_5b="$(setup_draft_project)"
+(cd "$TMPDIR_5b/local" && ./.aitask-scripts/aitask_create.sh --batch --name "collision_retry" --desc "Retry active collision" >/dev/null 2>&1)
+install_sequence_claim_stub "$TMPDIR_5b/local" "2" "3"
+
+draft_name5b=$(ls "$TMPDIR_5b/local/aitasks/new"/ 2>/dev/null | head -1)
+output5b=$(cd "$TMPDIR_5b/local" && ./.aitask-scripts/aitask_create.sh --batch --finalize "$draft_name5b" 2>&1)
+exit_code5b=$?
+
+assert_eq_trim "Finalize succeeds after active collision retry" "0" "$exit_code5b"
+assert_file_exists "Finalized with retry ID t3" "$TMPDIR_5b/local/aitasks/t3_collision_retry.md"
+assert_contains "Finalize warns about active collision" "already exists as an active parent task" "$output5b"
+
+rm -rf "$TMPDIR_5b"
 
 # --- Test 6: Finalize commits to git ---
 echo "--- Test 6: Finalize commits to git ---"

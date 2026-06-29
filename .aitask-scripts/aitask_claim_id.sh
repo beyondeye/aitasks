@@ -12,6 +12,7 @@
 #   aitask_claim_id.sh --init     Initialize the aitask-ids counter branch
 #   aitask_claim_id.sh --claim    Claim the next task ID (default)
 #   aitask_claim_id.sh --peek     Show current counter value without claiming
+#   aitask_claim_id.sh --resync   Repair the counter against active+archived tasks
 #
 # Called by:
 #   aitask_create.sh (during finalization)
@@ -40,6 +41,64 @@ debug() {
     if [[ "$DEBUG" == true ]]; then
         info "[debug] $*" >&2
     fi
+}
+
+# Hot-path scan: active task files only. Do not traverse aitasks/archived or
+# inspect archive tarballs during normal ID claims.
+scan_max_active_task_id() {
+    local task_dir="$1"
+    local max_num=0
+    local num
+
+    if ls "$task_dir"/t*_*.md &>/dev/null; then
+        for f in "$task_dir"/t*_*.md; do
+            num=$(basename "$f" | grep -oE '^t[0-9]+' | sed 's/t//')
+            [[ -n "$num" && "$num" -gt "$max_num" ]] && max_num="$num"
+        done
+    fi
+
+    if ls "$task_dir"/t*/t*_*.md &>/dev/null; then
+        for f in "$task_dir"/t*/t*_*.md; do
+            num=$(basename "$f" | grep -oE '^t[0-9]+' | sed 's/t//')
+            [[ -n "$num" && "$num" -gt "$max_num" ]] && max_num="$num"
+        done
+    fi
+
+    echo "$max_num"
+}
+
+safe_claim_id_from_counter() {
+    local current_id="$1"
+    local active_max active_next
+    active_max=$(scan_max_active_task_id "$TASK_DIR")
+    active_next=$((active_max + 1))
+    if [[ "$current_id" -lt "$active_next" ]]; then
+        debug "Counter drift detected on active tasks: counter=$current_id active_next=$active_next"
+        echo "$active_next"
+    else
+        echo "$current_id"
+    fi
+}
+
+full_repair_next_id() {
+    local max_id
+    max_id=$(scan_max_task_id "$TASK_DIR" "$ARCHIVED_DIR")
+    echo $((max_id + 1))
+}
+
+commit_counter_value() {
+    local ref_name="$1"
+    local parent_ref="$2"
+    local next_id="$3"
+    local message="$4"
+    local blob_hash tree_hash commit_hash parent_hash
+
+    parent_hash=$(git rev-parse "$parent_ref")
+    blob_hash=$(echo "$next_id" | git hash-object -w --stdin)
+    tree_hash=$(printf "100644 blob %s\t%s\n" "$blob_hash" "$COUNTER_FILE" | git mktree)
+    commit_hash=$(echo "$message" | git commit-tree "$tree_hash" -p "$parent_hash")
+    git update-ref "$ref_name" "$commit_hash"
+    echo "$commit_hash"
 }
 
 # Check whether a git remote named 'origin' exists (non-fatal)
@@ -153,18 +212,15 @@ claim_local() {
         die "Invalid local counter value: '$current_id' (expected a number)"
     fi
 
-    local new_id=$((current_id + 1))
-    debug "Local claim: ID $current_id, advancing counter to $new_id"
+    local claimed_id
+    claimed_id=$(safe_claim_id_from_counter "$current_id")
+    local new_id=$((claimed_id + 1))
+    debug "Local claim: ID $claimed_id, advancing counter from $current_id to $new_id"
 
-    local blob_hash tree_hash commit_hash parent_hash
-    parent_hash=$(git rev-parse "$BRANCH")
-    blob_hash=$(echo "$new_id" | git hash-object -w --stdin)
-    tree_hash=$(printf "100644 blob %s\t%s\n" "$blob_hash" "$COUNTER_FILE" | git mktree)
-    commit_hash=$(echo "ait: Claim task ID t$current_id, advance counter to $new_id" | \
-        git commit-tree "$tree_hash" -p "$parent_hash")
-    git update-ref "refs/heads/$BRANCH" "$commit_hash"
+    commit_counter_value "refs/heads/$BRANCH" "$BRANCH" "$new_id" \
+        "ait: Claim task ID t$claimed_id, advance counter to $new_id" >/dev/null
 
-    echo "$current_id"
+    echo "$claimed_id"
 }
 
 # Try to push local branch to remote (auto-upgrade when remote becomes available)
@@ -250,9 +306,13 @@ claim_next_id() {
             die "Invalid counter value: '$current_id' (expected a number)"
         fi
 
-        # Step 3: Compute new value
-        local new_id=$((current_id + 1))
-        debug "Claiming ID $current_id, advancing counter to $new_id"
+        # Step 3: Compute new value. Normal claims only self-heal against
+        # active task files; full active+archived repair is reserved for
+        # --resync/setup so the common create path never scans archives.
+        local claimed_id
+        claimed_id=$(safe_claim_id_from_counter "$current_id")
+        local new_id=$((claimed_id + 1))
+        debug "Claiming ID $claimed_id, advancing counter from $current_id to $new_id"
 
         # Step 4: Create new commit via git plumbing
         local blob_hash tree_hash commit_hash parent_hash
@@ -260,7 +320,7 @@ claim_next_id() {
         parent_hash=$(git rev-parse "origin/$BRANCH")
         blob_hash=$(echo "$new_id" | git hash-object -w --stdin)
         tree_hash=$(printf "100644 blob %s\t%s\n" "$blob_hash" "$COUNTER_FILE" | git mktree)
-        commit_hash=$(echo "ait: Claim task ID t$current_id, advance counter to $new_id" | \
+        commit_hash=$(echo "ait: Claim task ID t$claimed_id, advance counter to $new_id" | \
             git commit-tree "$tree_hash" -p "$parent_hash")
 
         # Step 5: Push - fails if another PC claimed simultaneously (non-fast-forward)
@@ -268,8 +328,8 @@ claim_next_id() {
         if git push origin "$commit_hash:refs/heads/$BRANCH" 2>/dev/null; then
             # Keep local branch in sync with remote
             git update-ref "refs/heads/$BRANCH" "$commit_hash" 2>/dev/null || true
-            debug "Push successful, claimed ID: $current_id"
-            echo "$current_id"
+            debug "Push successful, claimed ID: $claimed_id"
+            echo "$claimed_id"
             return 0
         fi
 
@@ -282,6 +342,103 @@ claim_next_id() {
     done
 
     die "Failed to claim task ID after $MAX_RETRIES attempts. Try again later."
+}
+
+# --- Resync: repair counter against active + archived history ---
+
+resync_local() {
+    local desired_id current_id
+    desired_id=$(full_repair_next_id)
+
+    if ! has_local_branch; then
+        init_local_branch >/dev/null 2>&1 || true
+    fi
+
+    current_id=$(git show "$BRANCH:$COUNTER_FILE" 2>/dev/null | tr -d '[:space:]') || {
+        die "Could not read $COUNTER_FILE from local $BRANCH. Branch may be corrupted."
+    }
+    if ! [[ "$current_id" =~ ^[0-9]+$ ]]; then
+        die "Invalid local counter value: '$current_id' (expected a number)"
+    fi
+
+    if [[ "$current_id" -ge "$desired_id" ]]; then
+        echo "OK:$current_id"
+        return 0
+    fi
+
+    commit_counter_value "refs/heads/$BRANCH" "$BRANCH" "$desired_id" \
+        "ait: Resync local task ID counter to $desired_id" >/dev/null
+    echo "RESYNCED:$current_id:$desired_id"
+}
+
+resync_counter() {
+    if ! has_remote; then
+        debug "No remote — resyncing local counter branch"
+        resync_local
+        return 0
+    fi
+
+    local attempt=0 desired_id
+    desired_id=$(full_repair_next_id)
+
+    while [[ $attempt -lt $MAX_RETRIES ]]; do
+        attempt=$((attempt + 1))
+
+        local fetch_err
+        if ! fetch_err=$(git fetch origin \
+            "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" --quiet 2>&1 >/dev/null); then
+            local rstate
+            rstate=$(remote_branch_state)
+            case "$rstate" in
+                PRESENT)
+                    die "Failed to fetch counter branch '$BRANCH' from origin: ${fetch_err:-unknown git fetch error}"
+                    ;;
+                ERROR:*)
+                    die "Cannot reach origin to verify counter branch '$BRANCH': ${rstate#ERROR:}"
+                    ;;
+                *)
+                    if try_push_local_to_remote; then
+                        continue
+                    fi
+                    die "Counter branch '$BRANCH' is not initialized on origin and no local branch exists to upgrade. Run 'ait setup' to initialize the counter."
+                    ;;
+            esac
+        fi
+
+        local current_id
+        current_id=$(git show "origin/$BRANCH:$COUNTER_FILE" 2>/dev/null | tr -d '[:space:]') || {
+            die "Could not read $COUNTER_FILE from origin/$BRANCH. Branch may be corrupted."
+        }
+        if ! [[ "$current_id" =~ ^[0-9]+$ ]]; then
+            die "Invalid counter value: '$current_id' (expected a number)"
+        fi
+
+        if [[ "$current_id" -ge "$desired_id" ]]; then
+            git update-ref "refs/heads/$BRANCH" "origin/$BRANCH" 2>/dev/null || true
+            echo "OK:$current_id"
+            return 0
+        fi
+
+        local blob_hash tree_hash commit_hash parent_hash
+        parent_hash=$(git rev-parse "origin/$BRANCH")
+        blob_hash=$(echo "$desired_id" | git hash-object -w --stdin)
+        tree_hash=$(printf "100644 blob %s\t%s\n" "$blob_hash" "$COUNTER_FILE" | git mktree)
+        commit_hash=$(echo "ait: Resync task ID counter to $desired_id" | \
+            git commit-tree "$tree_hash" -p "$parent_hash")
+
+        if git push origin "$commit_hash:refs/heads/$BRANCH" 2>/dev/null; then
+            git update-ref "refs/heads/$BRANCH" "$commit_hash" 2>/dev/null || true
+            echo "RESYNCED:$current_id:$desired_id"
+            return 0
+        fi
+
+        if [[ $attempt -lt $MAX_RETRIES ]]; then
+            warn "ID counter resync race detected (attempt $attempt/$MAX_RETRIES), retrying..." >&2
+            sleep "0.$((RANDOM % 4 + 1))"
+        fi
+    done
+
+    die "Failed to resync task ID counter after $MAX_RETRIES attempts. Try again later."
 }
 
 # --- Peek: show current counter without claiming ---
@@ -344,7 +501,7 @@ peek_counter() {
 
 show_help() {
     cat <<'EOF'
-Usage: aitask_claim_id.sh [--debug] [--init|--claim|--peek]
+Usage: aitask_claim_id.sh [--debug] [--init|--claim|--peek|--resync]
 
 Internal script for atomic task ID management.
 
@@ -357,6 +514,7 @@ Options:
   --init    Initialize the aitask-ids counter branch on remote
   --claim   Claim the next task ID (atomic if remote, local scan otherwise)
   --peek    Show current/next counter value without claiming
+  --resync  Repair counter to max(active+archived task IDs)+1
   --debug   Enable verbose debug output
   --help    Show this help message
 EOF
@@ -377,6 +535,9 @@ case "${1:-claim}" in
         ;;
     --peek|peek)
         peek_counter
+        ;;
+    --resync|resync)
+        resync_counter
         ;;
     --help|-h)
         show_help

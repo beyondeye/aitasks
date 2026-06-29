@@ -247,6 +247,50 @@ assert_eq_trim "ID counter branch created" "1" "$branch_exists"
 
 rm -rf "$TMPDIR_9"
 
+# --- Test 9b: setup_id_counter resyncs existing branch against archived drift ---
+echo "--- Test 9b: setup_id_counter resyncs existing branch ---"
+
+TMPDIR_9b="$(mktemp -d)"
+git init --bare --quiet "$TMPDIR_9b/remote.git"
+git clone --quiet "$TMPDIR_9b/remote.git" "$TMPDIR_9b/local"
+(
+    cd "$TMPDIR_9b/local"
+    git config user.email "t@t.com"
+    git config user.name "T"
+    mkdir -p aitasks/archived
+    setup_fake_aitask_repo "$PWD"
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_claim_id.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" .aitask-scripts/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+    chmod +x .aitask-scripts/aitask_claim_id.sh .aitask-scripts/aitask_setup.sh
+    echo "---" > aitasks/t1_test.md
+    git add -A && git commit -m "init" --quiet && git push --quiet 2>/dev/null
+    ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1
+    echo "---" > aitasks/archived/t50_archived_drift.md
+    git add aitasks/archived/t50_archived_drift.md && git commit -m "archived drift" --quiet && git push --quiet 2>/dev/null
+    git fetch origin aitask-ids --quiet 2>/dev/null
+    parent=$(git rev-parse origin/aitask-ids)
+    blob=$(echo "2" | git hash-object -w --stdin)
+    tree=$(printf "100644 blob %s\tnext_id.txt\n" "$blob" | git mktree)
+    commit=$(echo "test: drift counter" | git commit-tree "$tree" -p "$parent")
+    git push --quiet origin "$commit:refs/heads/aitask-ids"
+    git update-ref refs/remotes/origin/aitask-ids "$commit"
+)
+
+source "$TMPDIR_9b/local/.aitask-scripts/aitask_setup.sh" --source-only 2>/dev/null || true
+set +euo pipefail
+SCRIPT_DIR="$TMPDIR_9b/local/.aitask-scripts"
+
+(cd "$TMPDIR_9b/local" && setup_id_counter >/dev/null 2>&1 </dev/null)
+
+counter9b=$(git -C "$TMPDIR_9b/local" fetch origin aitask-ids --quiet 2>/dev/null \
+    && git -C "$TMPDIR_9b/local" show origin/aitask-ids:next_id.txt 2>/dev/null \
+    | tr -d '[:space:]')
+assert_eq_trim "Setup resync repairs archived drift" "51" "$counter9b"
+
+rm -rf "$TMPDIR_9b"
+
 # Re-source the project's setup script to restore SCRIPT_DIR for remaining tests
 source "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" --source-only
 set +euo pipefail
