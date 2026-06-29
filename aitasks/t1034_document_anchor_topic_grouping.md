@@ -65,3 +65,8 @@ Create a new page under `website/content/docs/workflows/` (e.g.
 - Use invented placeholder project names if examples need them; never the
   author's real repos. Use "cross-repo / linked repo", never "sister".
 - Build check: `cd website && hugo build --gc --minify` must succeed.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-29T09:02:18Z status=pass attempt=1 type=human
