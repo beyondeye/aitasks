@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [applink, applink_dataplane]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-29 09:23
-updated_at: 2026-06-29 15:28
+updated_at: 2026-06-29 15:43
+completed_at: 2026-06-29 15:43
 boardidx: 30
 ---
 
@@ -85,3 +86,14 @@ negative-row_id lines that the client merges above row 0.
 > **✅ gate:plan_approved** run=2026-06-29T12:28:50Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-06-29T12:41:41Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-06-29T12:43:17Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:86f30e77fff96a69
+
+> **✅ gate:risk_evaluated** run=2026-06-29T12:43:17Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1092/risk_evaluated_2026-06-29T12:43:17Z-risk_evaluated-a1.log`
