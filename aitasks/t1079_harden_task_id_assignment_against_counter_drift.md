@@ -1,13 +1,17 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
 status: Implementing
 labels: [bash_scripts, git]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_5
 created_at: 2026-06-26 07:48
-updated_at: 2026-06-29 11:40
+updated_at: 2026-06-29 11:56
 boardidx: 40
 ---
 

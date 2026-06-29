@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1016
 created_at: 2026-06-18 16:46
-updated_at: 2026-06-18 16:46
+updated_at: 2026-06-29 12:01
 boardidx: 290
 ---
 
