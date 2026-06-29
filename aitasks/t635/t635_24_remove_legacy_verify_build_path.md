@@ -7,7 +7,7 @@ status: Ready
 labels: [gates, task_workflow]
 anchor: 635
 created_at: 2026-06-25 10:41
-updated_at: 2026-06-25 10:41
+updated_at: 2026-06-29 11:30
 ---
 
 ## Context
@@ -74,7 +74,23 @@ have not opted into gates — which is every task until t635_14 lands.
   through `ait gates run` (which skips when no build gate is declared).
 - Settings TUI exposes gate configuration; no orphaned `verify_build`-only field.
 
+## Coordination (from t635_25)
+
+t635_14 (the `depends` blocker) has **landed** (2026-06-29) — profiles now declare
+gates via `default_gates`, so this task is unblocked.
+
+**t635_25 (leaner gate check invocation)** scopes the extraction of the Step-9
+gate-RUN glue (the `ait gates run` dispatch + status-handling block) into a
+procedure file to **this** task, because both rewrite the same Step-9 region: this
+task removes the legacy inline `verify_build` fallback there, and the natural
+follow-through is to lift the remaining inline dispatch into a `gate-run` procedure
+(one-line pointer from Step 9). Do them together to avoid double-editing /
+re-rendering Step 9. The complementary call-shape work (decision/action verbs,
+self-gating procedures in planning + Step 7) lives in t635_25.
+
 ## Reverse links
 
 - t635_12 plan: `aiplans/archived/p635/p635_12_build_test_machine_gates.md`
   (this task is the convergence follow-up it scheduled).
+- t635_25 (`aitasks/t635/t635_25_leaner_gate_check_invocation.md`) — gate-run
+  dispatch extraction coordinates here; call-shape optimization there.
