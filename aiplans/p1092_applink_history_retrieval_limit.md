@@ -309,3 +309,46 @@ deepen capture; raising the request cap alone is theatre.
   severity: low · → mitigation: documented explicitly in config comment + docs
   (AC4 note)
 
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned (decouple history capture).
+  - `monitor_core.py`: added optional `capture_lines` override to `_capture_args`,
+    `capture_pane`, `capture_pane_async`; added the non-finalizing
+    `capture_pane_content_async` returning `(pane, content)`.
+  - `pusher.py`: `DEFAULT_HISTORY_CAPTURE_LINES = 2000`; `PushScheduler`
+    `history_capture_lines` kwarg; `_drain_history(sub)` now takes a fresh,
+    request-sized (`min(ceiling, height + count + max(0, -before_line))`),
+    non-finalizing capture per pull; `_run_once` call site updated.
+  - `server.py`: `load_applink_config()` (fault-tolerant; clamps to
+    `[1, 10000]`, sub-1 → default) + `HARD_MAX_HISTORY_CAPTURE_LINES = 10000`;
+    threaded into `_ensure_pusher` via `getattr` (tolerates `__new__` test build).
+  - Config: documented `tmux.applink.history_capture_lines` in `seed/` (commented)
+    and the active `aitasks/metadata/project_config.yaml` (value 2000).
+  - Docs: `content_transport.md` §Scrollback truth-synced (dedicated request-sized
+    non-finalizing capture, not the live ~200 buffer) + AC4 out-of-scope note;
+    `security.md` DoS-bounding paragraph.
+  - Tests: `test_applink_pusher.sh` (+ per-request depth assertion, deep-scrollback
+    behavioral discriminator, concern-1 real-`TmuxMonitor` non-mutation guard);
+    `test_applink_server_limits.sh` (load_applink_config matrix: default / missing
+    file / configured / over-ceiling clamp / malformed→default, + scheduler
+    threading).
+- **Deviations from plan:** One refinement during review-driven implementation:
+  the loader treats a sub-1 value (`-5`, `0`) as malformed → default 2000 rather
+  than clamping to 1 (the approved pseudocode showed `max(1, min(...))`); this
+  better matches "malformed → safe default" and is pinned by the config matrix.
+- **Issues encountered:** None. The per-request depth formula is self-consistent
+  with `history_rows()` (`base = total − viewport_height` shifts with the trimmed
+  capture), so capturing exactly `viewport + count` yields the same rows as a
+  full-buffer capture — verified by the existing drain tests staying green.
+- **Key decisions:** Non-finalizing capture is the load-bearing choice — reusing
+  the finalizing `capture_pane_async` at a deeper depth would have corrupted the
+  applink server's own idle/awaiting-input detection (the `pane_status` mobile
+  badge heartbeat). `_MAX_HISTORY_ROWS` (1000) and `MAX_PUSH_FRAME_BYTES` (2 MiB)
+  were deliberately left unchanged (count-bounded keyframe stays safe).
+- **Upstream defects identified:** None.
+- **Coordination:** Live end-to-end scrollback verification is owned by t1088
+  (history coordinate-verify); paired mobile follow-up is aitasks_mobile#25
+  (loading indicator must treat an empty deep keyframe as "no more history").
+  AC4 follow-up (client-negotiated/per-session history depth) noted out-of-scope
+  in `content_transport.md`.
+
