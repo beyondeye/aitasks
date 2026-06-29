@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: medium
 depends: [t635_4, t635_8]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [gates, statistics, stats_ui]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 21:39
-updated_at: 2026-06-29 15:27
+updated_at: 2026-06-29 15:53
+completed_at: 2026-06-29 15:53
 ---
 
 ## Context
