@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, claudeskills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-06-29 12:05
-updated_at: 2026-06-29 12:05
+updated_at: 2026-06-29 12:42
 ---
 
 Capability A of t1071: give the shadow agent a sub-procedure that detects

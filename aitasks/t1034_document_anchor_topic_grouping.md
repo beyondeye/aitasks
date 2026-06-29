@@ -73,3 +73,14 @@ Create a new page under `website/content/docs/workflows/` (e.g.
 > **✅ gate:plan_approved** run=2026-06-29T09:02:18Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-06-29T09:19:59Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-06-29T09:42:35Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ced28d14688cf54d
+
+> **❌ gate:risk_evaluated** run=2026-06-29T09:42:35Z-risk_evaluated-a1 status=fail attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluation incomplete: plan '## Risk' missing '### Code-health risk' subsection
+> Log: `.aitask-gates/1034/risk_evaluated_2026-06-29T09:42:35Z-risk_evaluated-a1.log`
