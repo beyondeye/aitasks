@@ -20,6 +20,13 @@ tmux:
     # codes — required to detect Codex CLI agents as idle. "raw" compares
     # full bytes (legacy). Per-pane override via `d` in monitor / minimonitor.
     compare_mode_default: stripped
+  applink:
+    # Ceiling (max depth) for a single on-demand scrollback capture served by
+    # the applink "history" RPC. Decoupled from monitor.capture_lines (live
+    # frames only need the viewport); per-request depth is sized to
+    # `viewport + count` and clamped to this value. Clamped to [1, 10000] at
+    # load, and itself bounded by tmux's server `history-limit` (~2000).
+    history_capture_lines: 2000
   default_session: aitasks
   default_split: horizontal
   prefer_tmux: true
