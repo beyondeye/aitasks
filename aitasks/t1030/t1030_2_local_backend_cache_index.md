@@ -7,8 +7,9 @@ status: Implementing
 labels: [task_attachments]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1030
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-28 12:08
-updated_at: 2026-06-28 17:47
+updated_at: 2026-06-29 10:16
 ---
 
 Implement the **local attachment backend**, the **universal local cache**, the **`index.json` refcount ledger**, and the **backend adapter seam** — making `ait attach add/get/rm` fully functional over the `.aitask-data` worktree. Depends on the scaffold from t1030_1.
@@ -54,3 +55,8 @@ Second of three children of t1030. Builds the storage core on the t1030_1 primit
 - **`index.json` schema is defined here** — t1030_3 (decref-on-archive, gc, fold rebind) and t1076_1 (manifest generalization) build directly on it. Keep `refs` as the refcount source of truth.
 - The `attachment_backend_*` contract + `# BACKEND-EXTENSION-POINT` marker is what the S3/GDrive follow-ups and t1076_1 extend. Do not bake `local`-only assumptions into the dispatcher or cache layer.
 - Decisions to record in Final Implementation Notes: where frontmatter mutation lives (bash vs Python), exact `index.json` schema, and the size-cap default/config location.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-29T07:16:51Z status=pass attempt=1 type=human
