@@ -78,3 +78,8 @@ negative-row_id lines that the client merges above row 0.
   indicator) — add a loading indicator while the history RPC is in flight.
   Independent of this server work, but the indicator must handle an empty
   history keyframe (bounded scrollback) as "no more history", not a hang.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-29T12:28:50Z status=pass attempt=1 type=human
