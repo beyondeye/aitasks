@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t1030_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_attachments]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1030
 created_at: 2026-06-28 12:08
-updated_at: 2026-06-28 12:08
+updated_at: 2026-06-29 15:30
 ---
 
 Wire attachments into the **task lifecycle**: decref attachment hashes on archival, add an opt-in **`ait attach gc`** orphan sweep with a grace knob, and **re-bind attachments on fold**. Depends on the per-blob metadata ledger + local backend from t1030_2.
