@@ -129,3 +129,8 @@ Exploration findings (confirmed against source):
   error-shaped text (a passing run that prints `error:`, an intentionally failing
   test, a pasted traceback excerpt being discussed) and confirm the shadow emits
   **no** concern block — guards the false-positive surface.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-29T12:35:42Z status=pass attempt=1 type=human
