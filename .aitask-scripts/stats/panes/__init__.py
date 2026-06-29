@@ -6,6 +6,6 @@ calls at import time populate `PANE_DEFS`. Consumers do:
     from stats.panes import PANE_DEFS
 """
 from .base import PANE_DEFS, PaneDef  # noqa: F401 — re-export
-from . import overview, labels, agents, velocity, sessions  # noqa: F401 — side-effect imports
+from . import overview, labels, agents, velocity, sessions, pipeline  # noqa: F401 — side-effect imports
 
 __all__ = ["PANE_DEFS", "PaneDef"]

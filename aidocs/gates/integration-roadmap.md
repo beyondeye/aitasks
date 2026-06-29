@@ -107,7 +107,8 @@ Each phase is independently shippable and leaves the framework consistent.
   pick-resume.
 - **Monitor gate-status column** (framework doc integration table).
 - **Stats redesign for multi-stage completion** (t635_20, design pass
-  first): `ait stats` / `ait stats-tui` currently count only archived
+  first; see [[stats-multistage-completion]]): `ait stats` / `ait stats-tui`
+  currently count only archived
   tasks and date them via `completed_at`/`updated_at` — deferred archival
   (Phase 2) makes both misleading. Settle which event is "completion",
   whether implementation-complete-but-gated tasks get their own series,

@@ -11,6 +11,7 @@ import argparse
 import csv
 import io
 import os
+import statistics
 import sys
 
 # Make the stats package importable regardless of how this script is launched.
@@ -27,7 +28,9 @@ from stats.stats_data import (
     DAY_FULL_NAMES,
     DAY_NAMES,
     ImplementationInfo,
+    InflightData,
     LEGACY_IMPLEMENTED_WITH_CLI_IDS,
+    PhaseTimings,
     StatsData,
     TASK_DIR,
     TASK_TYPES_FILE,
@@ -42,9 +45,12 @@ from stats.stats_data import (
     canonical_model_id,
     chart_totals,
     codeagent_display_name,
+    collect_inflight,
     collect_stats,
+    format_duration,
     get_valid_task_types,
     is_child_task,
+    iter_active_markdown_files,
     iter_archived_markdown_files,
     load_model_cli_ids,
     load_usage_rankings,
@@ -53,6 +59,7 @@ from stats.stats_data import (
     model_key_from_cli_id,
     normalize_implemented_with,
     parse_completed_date,
+    resolve_completion_date,
     parse_frontmatter,
     parse_labels,
     recent_aggregate,
@@ -72,7 +79,9 @@ __all__ = [
     "DAY_FULL_NAMES",
     "DAY_NAMES",
     "ImplementationInfo",
+    "InflightData",
     "LEGACY_IMPLEMENTED_WITH_CLI_IDS",
+    "PhaseTimings",
     "StatsData",
     "TASK_DIR",
     "TASK_TYPES_FILE",
@@ -98,6 +107,10 @@ __all__ = [
     "model_key_from_cli_id",
     "normalize_implemented_with",
     "parse_completed_date",
+    "resolve_completion_date",
+    "collect_inflight",
+    "format_duration",
+    "iter_active_markdown_files",
     "parse_frontmatter",
     "parse_labels",
     "recent_aggregate",
@@ -209,6 +222,36 @@ def get_type_display_name(raw: str) -> str:
     return mapping.get(raw, raw.capitalize())
 
 
+def render_pipeline_timing(data: StatsData, out: io.StringIO) -> None:
+    """Time-in-phase aggregate from the gate ledger (t635_20 D-3).
+
+    Spans use ledger timestamps only (no archival fallback); each row reports its
+    own sample N, which legitimately differ — e.g. current-branch tasks count
+    toward Implement but never Review→Merge (they record no merge_approved).
+    """
+    pt = data.phase_timings
+    rows = [
+        ("Implement (plan→review)", pt.implement_hours if pt else []),
+        ("Review→Merge (review→merge)", pt.review_merge_hours if pt else []),
+    ]
+    print("### Pipeline Timing (gated tasks)", file=out)
+    if not any(samples for _, samples in rows):
+        print("No gated tasks with ledger timing yet.", file=out)
+        print(file=out)
+        return
+    print("| Span                        | Median | Mean   | N    |", file=out)
+    print("|-----------------------------|--------|--------|------|", file=out)
+    for label, samples in rows:
+        if samples:
+            median = format_duration(statistics.median(samples))
+            mean = format_duration(statistics.fmean(samples))
+            n = str(len(samples))
+        else:
+            median = mean = n = "—"
+        print(f"| {label:<27} | {median:<6} | {mean:<6} | {n:<4} |", file=out)
+    print(file=out)
+
+
 def render_text_report(data: StatsData, days: int, verbose: bool, week_start_dow: int, today: date) -> str:
     out = io.StringIO()
 
@@ -223,6 +266,11 @@ def render_text_report(data: StatsData, days: int, verbose: bool, week_start_dow
     print(f"| Total Tasks Completed     | {data.total_tasks:<5} |", file=out)
     print(f"| Completed (Last 7 days)   | {data.tasks_7d:<5} |", file=out)
     print(f"| Completed (Last 30 days)  | {data.tasks_30d:<5} |", file=out)
+    print(file=out)
+    # In-flight is a SEPARATE series (never summed into the archived totals
+    # above) — implementation done but archival held by a pending gate (t635_20).
+    inflight_n = data.inflight.count if data.inflight else 0
+    print(f"_In flight (implementation done, awaiting gates): {inflight_n}_", file=out)
     print(file=out)
 
     print(f"### Daily Completions (Last {days} Days)", file=out)
@@ -272,6 +320,8 @@ def render_text_report(data: StatsData, days: int, verbose: bool, week_start_dow
             file=out,
         )
     print(file=out)
+
+    render_pipeline_timing(data, out)
 
     print("### Completions by Label - Weekly Trend (Last 4 Weeks)", file=out)
     print("| Label          | Total | W-3 | W-2 | W-1 | This Week |", file=out)

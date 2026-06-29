@@ -12,7 +12,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -22,6 +22,15 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from archive_iter import iter_all_archived_markdown  # noqa: E402
+
+# Shared gate-ledger parser (t635_8). Content-level primitives only — the active
+# scan must never open a path (it operates on the content it already read), so it
+# stays deterministic under a rebased project_root / TASK_DIR.
+from gate_ledger import (  # noqa: E402
+    archive_status_from_text,
+    derive_gate_runs,
+    has_gate_markers,
+)
 
 TASK_DIR = Path("aitasks")
 ARCHIVE_DIR = TASK_DIR / "archived"
@@ -90,6 +99,32 @@ class SessionTotals:
 
 
 @dataclass
+class InflightData:
+    """In-flight 'completed, awaiting gates' series (t635_20 D-2).
+
+    Active (non-archived) tasks whose implementation was reviewed
+    (``review_approved`` pass) but whose archival is gate-blocked. Kept strictly
+    separate from the archived totals — never summed into ``total_tasks``.
+    """
+    count: int
+    daily_counts: Counter            # date -> count (by review_approved ts)
+    task_ids: List[str]
+
+
+@dataclass
+class PhaseTimings:
+    """Time-in-phase span samples derived from ledger timestamps (t635_20 D-3).
+
+    Spans are computed only from ``## Gate Runs`` ``run=`` stamps (uniform UTC
+    second precision) with passing endpoints — never the day-granular archival
+    date. Each span carries its own sample, so the two legitimately differ in N
+    (e.g. current-branch tasks contribute to implement but not review→merge).
+    """
+    implement_hours: List[float]     # plan_approved -> review_approved
+    review_merge_hours: List[float]  # review_approved -> merge_approved
+
+
+@dataclass
 class StatsData:
     total_tasks: int
     tasks_7d: int
@@ -113,6 +148,8 @@ class StatsData:
     model_display_names: Dict[str, str]
     csv_rows: List[List[str]]
     session_breakdown: Optional[List[SessionTotals]] = None
+    inflight: Optional[InflightData] = None
+    phase_timings: Optional[PhaseTimings] = None
 
 
 @dataclass(frozen=True)
@@ -241,6 +278,77 @@ def parse_completed_date(frontmatter: Dict[str, str]) -> Optional[date]:
         return date.fromisoformat(date_str)
     except ValueError:
         return None
+
+
+# Ledger checkpoint gates whose run= timestamp dates "when the work landed",
+# in precedence order (t635_20 D-1). merge_approved is the shared/canonical
+# "landed in main" event; review_approved is the fallback for current-branch
+# profiles (fast) where Step 9 records no merge.
+_COMPLETION_GATES = ("merge_approved", "review_approved")
+
+
+def format_duration(hours: float) -> str:
+    """Human-friendly span: minutes under 1h, hours under a day, else days.
+
+    Shared by the CLI report and the TUI Pipeline pane (t635_20) so the two
+    surfaces format ledger-derived span durations identically.
+    """
+    if hours < 1:
+        return f"{round(hours * 60)}m"
+    if hours < 24:
+        return f"{hours:.1f}h"
+    return f"{hours / 24:.1f}d"
+
+
+def _ledger_ts_to_date(run_id: str) -> Optional[date]:
+    """Parse a gate-run ``run=`` ISO-8601-Z stamp to a calendar date.
+
+    Day granularity (slice ``[:10]``) matches the precision the rest of stats
+    already uses for ``completed_at`` / ``updated_at``; see the design doc's
+    accepted UTC-vs-local approximation note.
+    """
+    try:
+        return date.fromisoformat(run_id[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def _ledger_ts_to_datetime(run_id: str) -> Optional[datetime]:
+    """Parse a gate-run ``run=`` ISO-8601-Z stamp to a full UTC datetime.
+
+    Used only for phase-timing span deltas (uniform second precision); returns
+    None on any malformed value so a bad marker drops the sample rather than
+    crashing the report.
+    """
+    try:
+        return datetime.fromisoformat(run_id.replace("Z", "+00:00"))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def resolve_completion_date(content: str, frontmatter: Dict[str, str]) -> Optional[date]:
+    """Ledger-aware completion date (t635_20 D-1).
+
+    Prefers a passing ledger checkpoint (``merge_approved`` → ``review_approved``)
+    so deferred archival no longer misdates work; falls back to the legacy
+    frontmatter dating (``parse_completed_date``) for pre-gates / no-ledger tasks.
+
+    **Pass-only, resolver-only:** a checkpoint marker is honored only when its
+    *current* derived status is ``pass`` (``derive_gate_runs`` is last-wins, so a
+    ``fail``→``pass`` retry counts via its final ``pass``; a marker left ``fail`` /
+    ``error`` is skipped to the next rung). There is no whole-task exclusion — a
+    task with an unrelated lingering failure still dates by its passing checkpoint
+    and stays counted.
+    """
+    if has_gate_markers(content):
+        runs = derive_gate_runs(content)
+        for gate in _COMPLETION_GATES:
+            run = runs.get(gate)
+            if run is not None and run.status == "pass":
+                d = _ledger_ts_to_date(run.run_id)
+                if d is not None:
+                    return d
+    return parse_completed_date(frontmatter)
 
 
 def load_model_cli_ids(project_root: Optional[Path] = None) -> Dict[Tuple[str, str], str]:
@@ -719,6 +827,32 @@ def iter_archived_markdown_files(
     return iter_all_archived_markdown(archive_dir)
 
 
+def iter_active_markdown_files(
+    project_root: Optional[Path] = None,
+) -> Iterable[Tuple[str, str]]:
+    """Yield ``(basename, content)`` for active (non-archived) task files.
+
+    Walks ``<task_dir>`` (parent ``t*.md`` plus child ``t<N>/t<N>_*.md``),
+    pruning ``archived/`` and ``metadata/``. The content is read here so the
+    caller classifies from the body alone — no second open — keeping the scan
+    correct under a rebased ``project_root`` (t635_20 D-2). Unreadable files are
+    skipped silently (best-effort, like the archive iterator).
+    """
+    task_dir, _, _ = _paths_for(project_root)
+    if not task_dir.exists():
+        return
+    for root, dirs, files in os.walk(task_dir):
+        dirs[:] = [d for d in dirs if d not in ("archived", "metadata")]
+        for name in files:
+            if not name.startswith("t") or not name.endswith(".md"):
+                continue
+            try:
+                content = (Path(root) / name).read_text(encoding="utf-8")
+            except OSError:
+                continue
+            yield name, content
+
+
 def get_valid_task_types(project_root: Optional[Path] = None) -> List[str]:
     task_dir, _, _ = _paths_for(project_root)
     types_file = task_dir / "metadata" / "task_types.txt"
@@ -785,6 +919,71 @@ def chart_totals(
     return labels, values
 
 
+def _span_hours(runs: dict, start_gate: str, end_gate: str) -> Optional[float]:
+    """Hours between two passing ledger checkpoints, or None.
+
+    Both markers must exist and be ``pass``, and both timestamps must parse;
+    otherwise the task contributes no sample to this span (never zero — zero
+    would bias the median).
+    """
+    start, end = runs.get(start_gate), runs.get(end_gate)
+    if start is None or end is None:
+        return None
+    if start.status != "pass" or end.status != "pass":
+        return None
+    t0 = _ledger_ts_to_datetime(start.run_id)
+    t1 = _ledger_ts_to_datetime(end.run_id)
+    if t0 is None or t1 is None:
+        return None
+    delta = (t1 - t0).total_seconds() / 3600.0
+    return delta if delta >= 0 else None
+
+
+def _accumulate_phase_timings(
+    content: str, implement_hours: List[float], review_merge_hours: List[float]
+) -> None:
+    """Append this task's phase-span samples (t635_20 D-3), ledger stamps only."""
+    if not has_gate_markers(content):
+        return
+    runs = derive_gate_runs(content)
+    imp = _span_hours(runs, "plan_approved", "review_approved")
+    if imp is not None:
+        implement_hours.append(imp)
+    rm = _span_hours(runs, "review_approved", "merge_approved")
+    if rm is not None:
+        review_merge_hours.append(rm)
+
+
+def collect_inflight(
+    today: date,
+    week_start_dow: int,
+    project_root: Optional[Path] = None,
+) -> InflightData:
+    """Count active tasks that are implementation-complete but gate-blocked.
+
+    Classifies purely from each file's content (t635_20 D-2): a gate ledger is
+    present, ``review_approved`` is ``pass``, and archival is ``BLOCKED`` (a
+    declared gate is not yet pass — t635_4's deferred-archival state). Tasks that
+    are merely mid-implementation (``plan_approved`` only) are excluded.
+    """
+    daily_counts: Counter = Counter()
+    task_ids: List[str] = []
+    for filename, content in iter_active_markdown_files(project_root=project_root):
+        if not has_gate_markers(content):
+            continue
+        runs = derive_gate_runs(content)
+        review = runs.get("review_approved")
+        if review is None or review.status != "pass":
+            continue
+        if archive_status_from_text(content)[0] != "BLOCKED":
+            continue
+        task_ids.append(Path(filename).stem)
+        reviewed = _ledger_ts_to_date(review.run_id)
+        if reviewed is not None:
+            daily_counts[reviewed] += 1
+    return InflightData(count=len(task_ids), daily_counts=daily_counts, task_ids=task_ids)
+
+
 def collect_stats(
     today: date,
     week_start_dow: int,
@@ -815,11 +1014,16 @@ def collect_stats(
     tasks_30d = 0
     curr_week_start = week_start_for(today, week_start_dow)
 
+    implement_hours: List[float] = []
+    review_merge_hours: List[float] = []
+
     for filename, content in iter_archived_markdown_files(project_root=project_root):
         frontmatter = parse_frontmatter(content)
-        completed = parse_completed_date(frontmatter)
+        completed = resolve_completion_date(content, frontmatter)
         if completed is None:
             continue
+
+        _accumulate_phase_timings(content, implement_hours, review_merge_hours)
 
         issue_type = frontmatter.get("issue_type") or "feature"
         labels = parse_labels(frontmatter.get("labels"))
@@ -902,6 +1106,11 @@ def collect_stats(
         codeagent_display_names=codeagent_display_names,
         model_display_names=model_display_names,
         csv_rows=csv_rows,
+        inflight=collect_inflight(today, week_start_dow, project_root=project_root),
+        phase_timings=PhaseTimings(
+            implement_hours=implement_hours,
+            review_merge_hours=review_merge_hours,
+        ),
     )
 
 
@@ -928,6 +1137,8 @@ def _empty_stats_data() -> StatsData:
         codeagent_display_names={"unknown": AGENT_DISPLAY_NAMES["unknown"]},
         model_display_names={"unknown": "Unknown"},
         csv_rows=[],
+        inflight=InflightData(count=0, daily_counts=Counter(), task_ids=[]),
+        phase_timings=PhaseTimings(implement_hours=[], review_merge_hours=[]),
     )
 
 
@@ -961,5 +1172,13 @@ def merge_stats_data(parts: List[StatsData]) -> StatsData:
         merged.codeagent_display_names.update(part.codeagent_display_names)
         merged.model_display_names.update(part.model_display_names)
         merged.csv_rows.extend(part.csv_rows)
+
+        if part.inflight is not None and merged.inflight is not None:
+            merged.inflight.count += part.inflight.count
+            merged.inflight.daily_counts.update(part.inflight.daily_counts)
+            merged.inflight.task_ids.extend(part.inflight.task_ids)
+        if part.phase_timings is not None and merged.phase_timings is not None:
+            merged.phase_timings.implement_hours.extend(part.phase_timings.implement_hours)
+            merged.phase_timings.review_merge_hours.extend(part.phase_timings.review_merge_hours)
 
     return merged

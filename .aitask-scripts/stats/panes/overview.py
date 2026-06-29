@@ -22,6 +22,8 @@ def _render_summary(stats: StatsData, container: Container) -> None:
         ("Last 7 days", stats.tasks_7d),
         ("Last 30 days", stats.tasks_30d),
         ("Today", today_count),
+        # Separate series: implementation done, archival held by a pending gate.
+        ("In flight", stats.inflight.count if stats.inflight else 0),
     ]
     row = Horizontal()
     container.mount(row)

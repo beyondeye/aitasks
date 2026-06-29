@@ -196,6 +196,35 @@ def test_compact_gate_summary() -> None:
     assert_eq("last run wins (fail then pass)", "1/1 pass", _summary_for(requalified))
 
 
+def test_archive_status_from_text() -> None:
+    # Content-level twin of archive_status (t635_20 D-2) — no filesystem open.
+    no_gates = "---\nstatus: Done\n---\n\nbody\n"
+    assert_eq("no declared gates -> NO_GATES", "NO_GATES",
+              gate_ledger.archive_status_from_text(no_gates)[0])
+
+    blocked = FIXTURE  # declares plan/build/review; review is pending
+    decision, pending = gate_ledger.archive_status_from_text(blocked)
+    assert_eq("pending review -> BLOCKED", "BLOCKED", decision)
+    assert_true("review_approved listed as pending", "review_approved" in pending)
+
+    all_pass = (
+        "---\nstatus: Implementing\ngates: [plan_approved, review_approved]\n---\n\n"
+        "## Gate Runs\n\n"
+        "> **✅ gate:plan_approved** run=2026-01-01T00:00:00Z status=pass attempt=1 type=human\n\n"
+        "> **✅ gate:review_approved** run=2026-01-01T01:00:00Z status=pass attempt=1 type=human\n"
+    )
+    assert_eq("all declared gates pass -> ALL_PASS", "ALL_PASS",
+              gate_ledger.archive_status_from_text(all_pass)[0])
+
+    # Parity with the path-based archive_status.
+    with tempfile.TemporaryDirectory(prefix="gate_archstatus_") as tmp:
+        p = Path(tmp) / "t10.md"
+        p.write_text(blocked, encoding="utf-8")
+        assert_eq("content twin matches path-based archive_status",
+                  gate_ledger.archive_status(str(p)),
+                  gate_ledger.archive_status_from_text(blocked))
+
+
 def test_bash_status_parity() -> None:
     with tempfile.TemporaryDirectory(prefix="gate_status_parity_") as tmp:
         task_dir = Path(tmp) / "aitasks"
@@ -214,6 +243,7 @@ def main() -> int:
     test_prefilter_and_empty()
     test_task_gate_state()
     test_compact_gate_summary()
+    test_archive_status_from_text()
     test_bash_status_parity()
 
     print("")

@@ -699,7 +699,20 @@ def archive_status(task_file: str) -> tuple[str, list[str]]:
     """
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
-    return _archive_status_from_state(read_declared_gates_from_text(text), derive_gate_runs(text))
+    return archive_status_from_text(text)
+
+
+def archive_status_from_text(text: str) -> tuple[str, list[str]]:
+    """Content-level twin of :func:`archive_status` — no filesystem open.
+
+    Lets callers that already hold the task body (e.g. the stats active-task
+    scan, which iterates ``(filename, content)`` pairs) classify archival
+    readiness deterministically, without re-reading a path that may not exist
+    under a rebased project root. Composes the shared primitives — no parsing
+    fork (D6).
+    """
+    return _archive_status_from_state(
+        read_declared_gates_from_text(text), derive_gate_runs(text))
 
 
 # --- Ledger-driven re-entry decision (t635_5) -----------------------------
