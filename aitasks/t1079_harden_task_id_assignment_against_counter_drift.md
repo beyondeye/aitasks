@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [bash_scripts, git]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-26 07:48
-updated_at: 2026-06-26 07:48
+updated_at: 2026-06-29 11:40
 boardidx: 40
 ---
 
