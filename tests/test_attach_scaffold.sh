@@ -186,7 +186,9 @@ assert_exit_nonzero_rc "attach ls fails loudly on a malformed hash" "$bad_rc"
 assert_contains "attach ls names the invalid-hash error" "invalid or missing hash" "$bad_out"
 
 # --- Test 7: stub verbs are not-yet-implemented ----------------------------
-for verb in add get rm move gc; do
+# add/get/rm are implemented in t1030_2 (see test_attach_local_backend.sh); only
+# move/gc remain stubs until t1030_3.
+for verb in move gc; do
     stub_out="$(run_attach "$verb" 9001 2>&1)"; stub_rc=$?
     assert_exit_nonzero_rc "attach $verb stub exits non-zero" "$stub_rc"
     assert_contains "attach $verb stub explains it is not yet available" \
