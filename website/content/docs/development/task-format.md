@@ -47,7 +47,7 @@ Detailed description of what needs to be done.
 | `boardidx` | integer | Board UI sort index within column |
 | `folded_tasks` | `[138, 129_5]` | Task IDs folded into this task by `/aitask-explore` or `/aitask-fold` (deleted on archival) |
 | `folded_into` | task number | Task this was folded into (set by `/aitask-fold` or `/aitask-explore`) |
-| `anchor` | task id (`130`, `130_2`) | Topic-group key pointing at a subject's **root** task, so loosely-related and follow-up tasks cluster together. Absent ⇒ the task is its own root. Set via `--anchor` / `--followup-of` at creation (a child inherits its parent's root) or edited later with `aitask_update.sh --anchor` |
+| `anchor` | task id (`130`, `130_2`) | Topic-group key pointing at a subject's **root** task, so loosely-related and follow-up tasks cluster together. Absent ⇒ the task is its own root. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}). |
 | `file_references` | `[path, path:N, path:N-M, path:N-M^N-M]` | Structured pointers to source files / line ranges. 1-indexed, inclusive. Exact-string dedup. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) |
 | `verifies` | `[t10_1, t10_2]` | Task IDs this task verifies (used by `manual_verification` sibling tasks that gate release on human-checked behavior) |
 | `risk_code_health` | `high`, `medium`, `low` | Code-health risk (stability, quality, maintainability, blast-radius) assigned by the [risk-evaluation planning step]({{< relref "/docs/workflows/risk-evaluation" >}}); display-only, omitted unless evaluated |
@@ -59,6 +59,25 @@ Detailed description of what needs to be done.
 | `contributor_email` | email | Email for the contributor's `Co-Authored-By` trailer |
 
 ---
+
+## Topic Anchoring
+
+The optional `anchor` field groups related tasks around a topic root without
+making them children of that root. A root task omits the field; its own task id
+is its topic key. A related task stores the root id in bare form:
+
+```yaml
+anchor: 130
+```
+
+Anchors are written by `aitask_create.sh --anchor <id>` or derived with
+`--followup-of <source_id>`, which always resolves to the source task's root
+rather than chaining follow-ups together. Children created with `--parent`
+inherit the parent's root, so a topic can include a parent, its child tasks, and
+loose follow-ups in one board lane.
+
+Use `aitask_update.sh --batch <id> --anchor <root>` to move a task to a topic,
+or `--anchor ""` to clear the field and make the task its own root again.
 
 ## Status Workflow
 

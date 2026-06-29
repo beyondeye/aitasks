@@ -141,9 +141,15 @@ It splits filtering into a **base radio** (mutually exclusive — exactly one is
 | Locked | `l` | `l Locked` | Busy tasks: status `Implementing` **or** present in the lock list. When a *child* is busy, also includes its parent and all sibling children (context grouping). |
 | Free | `f` | `f Free` | Tasks that are ready to pick: neither `Implementing` nor locked. Parents are hidden when any of their children is busy. |
 | In-Flight | `i` | `i In-Flight` | Active `Implementing` tasks grouped by next required action: Needs your action, Agent can continue, and Blocked. |
-| By-Topic | `y` | `y By-Topic` | Tasks clustered into per-anchor swimlanes by their topic key (`anchor`, else a child's parent topic, else own id). A topic with two or more tasks gets its own lane (labelled by the root task); lone tasks collapse into one **Ungrouped** lane. |
+| By-Topic | `y` | `y By-Topic` | Tasks clustered into per-anchor swimlanes by their [topic key]({{< relref "/docs/concepts/topic-anchoring" >}}) (`anchor`, else a child's parent topic, else own id). A topic with two or more tasks gets its own lane (labelled by the root task); lone tasks collapse into one **Ungrouped** lane. |
 
 Pressing the key for the currently active base is a no-op. Locked and Free are leaf-level inverses (`Locked ∪ Free = All`, `Locked ∩ Free = ∅`) — the Locked view additionally includes parent/sibling cards as context.
+
+**By-Topic lanes:** The By-Topic view uses the task's `anchor` field when set;
+otherwise a child falls back to its parent topic and a standalone task falls
+back to its own id. If the root task is archived or not currently loaded, the
+anchor id still remains the stable lane key. Topics with only one visible task
+are collected in the trailing **Ungrouped** lane. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}) for creation flags, inheritance rules, and when to use anchors instead of parent-child tasks or dependencies.
 
 #### Add-on filters (toggle)
 
@@ -225,6 +231,7 @@ The board reads and displays the following frontmatter fields from task files:
 | `children_to_implement` | list | Read-only | Child task IDs for parent tasks |
 | `folded_tasks` | list | Read-only | Task IDs that were merged into this task |
 | `folded_into` | string | Read-only | Task ID this task was folded into |
+| `anchor` | string | Yes | Topic root used by the By-Topic view. Empty means the task is its own topic root. |
 | `file_references` | list | Read-only | Pointers to source files / line ranges (e.g., `foo.py:10-20`). Pressing **Enter** on a focused row opens `ait codebrowser` at the referenced location. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}). |
 | `boardcol` | string | Auto-managed | Column ID (set by board operations) |
 | `boardidx` | integer | Auto-managed | Sort index within column (set by board operations) |

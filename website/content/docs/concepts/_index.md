@@ -14,6 +14,7 @@ The files and structures that make up the framework's primary state.
 - **[Tasks]({{< relref "/docs/concepts/tasks" >}})** — Markdown files with YAML frontmatter, one per unit of work.
 - **[Plans]({{< relref "/docs/concepts/plans" >}})** — The implementation contract for a task, written and approved before code changes.
 - **[Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}})** — How a complex task is decomposed into siblings that share context.
+- **[Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}})** — How loosely related follow-up tasks cluster around a shared subject.
 - **[Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}})** — How related tasks are merged into a single primary task.
 - **[Review guides]({{< relref "/docs/concepts/review-guides" >}})** — Structured prompts that drive batched code review.
 
