@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t635_20]
 issue_type: feature
 status: Ready
 labels: [gates, statistics, stats_ui]
