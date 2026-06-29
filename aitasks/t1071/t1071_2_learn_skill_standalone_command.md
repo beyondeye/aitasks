@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t1071_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, claudeskills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-06-29 12:06
-updated_at: 2026-06-29 12:06
+updated_at: 2026-06-29 16:21
 ---
 
 Capability B of t1071: a `/learn`-style "learn a skill from sources" command as a
