@@ -479,3 +479,90 @@ Standard per `task-workflow` Step 9. Final Notes MUST record, **explicitly**:
 - confirmation the `attachment_backend_*` contract + extension-point marker are
   `local`-agnostic (t1076_1 + S3/GDrive follow-ups depend on it);
 - the doc-sync done to design §4 + t1030_3.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented the full local storage core under
+  `ait attach add/get/rm`:
+  - `lib/attachment_backend.sh` (dispatcher seam, `# BACKEND-EXTENSION-POINT`
+    markers) + `lib/attachment_backends/local.sh` (blobs at
+    `attachments/blobs/<2>/<62>`; idempotent atomic `put`, `get`/`head`/`delete`/`list`).
+  - `lib/attachment_meta.py` — the **lock-free** per-blob ledger primitive
+    (`--meta-dir <dir>` + `incref|decref|refs|zero-refcount|rebind`); set-based
+    idempotent mutations; atomic temp+`os.replace` writes.
+  - `lib/attachment_cache.sh` — universal cache resolver (cache → backend
+    head+get → loud miss); local backend short-circuits via an **absolute**
+    symlink to the worktree blob.
+  - `lib/frontmatter_patch.py` — surgical line-based `attachments:` block
+    append/remove (no full-YAML round-trip → unrelated frontmatter/body
+    byte-preserved); writer quotes exactly when the t1030_1 reader needs it.
+  - `lib/attachment_lock.sh` — `with_attach_lock` global transaction mutex over
+    `registry_lock.sh`.
+  - `aitask_attach.sh` — `add`/`get`/`rm` wired; size cap; duplicate hash+name
+    rejection; single-transaction commit + preimage rollback.
+  - Tests: `test_attach_meta.sh` (33), `test_attach_local_backend.sh` (28);
+    narrowed `test_attach_scaffold.sh` stub loop to `move`/`gc` (40→…; 41/41).
+  - Doc-sync: `aidocs/task_attachments_design.md` §4/§5/§8/§10 and the t1030_3
+    task file → per-blob model.
+  All verification passed: meta 33/33, e2e 28/28, scaffold 41/41 (no regression),
+  yaml_utils 28/28, shellcheck clean, `py_compile` OK, plus a manual e2e smoke
+  (add/ls/get/rm/dup/rollback/lock-busy) in a scratch git repo.
+
+- **Per-attachment metadata files are the canonical lifecycle ledger.** One JSON
+  file per blob at `attachments/meta/<2>/<62>.json` — there is no global
+  `index.json`. Any future aggregate index is a generated cache/reporting
+  artifact only, NEVER source of truth. Schema is blob-intrinsic + refs only:
+  `{hash, refs:[task_id…], mime, size, backend}` — per-task display fields
+  (`name`, `added_at`) stay authoritative in the task frontmatter.
+
+- **Where frontmatter mutation lives:** Python (`lib/frontmatter_patch.py`),
+  chosen over bash (block list-of-mappings mutation is fiddly and error-prone in
+  bash). It edits ONLY the target block line-range so unrelated frontmatter/body
+  is byte-preserved; it bumps `updated_at` (overridable via `--now` for tests).
+
+- **Size-cap key + lookup:** `attachment_max_size_mb` in
+  `aitasks/metadata/project_config.yaml` (the shared, git-tracked project-config
+  home — same file as `verify_build`/`test_command`), default **25** when
+  absent/empty/unparseable. *Deviation note:* design §10 said "configurable in
+  profile", but `ait attach` does not run inside an execution profile, so
+  `project_config.yaml` is the correct home (design §10 Q3 updated to match).
+
+- **Lock design:** a SINGLE global `attachments/.attach.lock` wraps the entire
+  `add`/`rm` body (mutate meta → mutate frontmatter → stage → commit →
+  rollback). `attachment_meta.py` is lock-free; the bash caller owns the lock, so
+  at most one lock is ever held (respects `registry_lock.sh`'s single-active-lock
+  limit — no nesting, no helper change). Standalone metadata MUTATIONS (t1030_3
+  gc/fold) must take the same global lock; reads are lock-free (atomic writes ⇒
+  untorn reads). `zero-refcount` is advisory — gc must re-check `refs` under the
+  lock before deleting. Commit uses `git commit -- <explicit paths>` (partial
+  commit) so a concurrent writer's staged index is never swept in. Rollback is
+  pre-existence-keyed: HEAD-restore tracked files, `rm` newly-created ones.
+
+- **Backend contract is `local`-agnostic:** the dispatcher (`_attachment_backend_call`)
+  and the cache layer carry no local-only assumptions (the local symlink
+  short-circuit is the only local-aware spot, gated on `ATTACHMENT_BACKEND==local`).
+  The `# BACKEND-EXTENSION-POINT` markers + `attachment_backend_{put,get,head,delete,list}`
+  names/shape are exactly what t1076_1 widens to `artifact_backend_*` and what
+  the S3/GDrive follow-ups extend.
+
+- **Key decisions / deviations:** (1) `git commit -- <paths>` partial-commit was
+  added after a smoke test caught a bare `git commit` sweeping a pre-staged
+  unrelated file into the attach commit (the shared-index hazard). (2) Reject
+  duplicate HASH per task (not just name) so `(hash,task)` is strictly 1:1 and a
+  task-ID set in `refs` is unambiguous for decref. (3) Frontmatter writer also
+  quotes colon-space values (valid-YAML correctness) on top of the
+  whitespace-`#` / leading-indicator cases the t1030_1 reader requires.
+
+- **Upstream defects identified:** None that block. One observation (not a defect
+  from this task): `aidocs/task_attachments_design.md` was **untracked in git on
+  both branches** — authored during t1030 planning but never committed. This task
+  commits it (it is the spec the code implements and the §4 doc-sync target). The
+  unrelated `aidocs/slack/` directory remains untracked and was left untouched.
+
+- **Notes for sibling tasks (t1030_3):** consume `lib/attachment_meta.py`
+  (`--meta-dir attachments/meta`) for decref/zero-refcount/rebind, ALWAYS under
+  `with_attach_lock` (lib/attachment_lock.sh). `zero-refcount` is advisory →
+  re-check `refs` under the lock before `attachment_backend_delete`. Stage the
+  touched per-blob meta files in the archival/fold commit. The t1030_3 task file
+  has a design-update banner with the full contract. For t1076_1: per-blob meta
+  files are already close to the per-artifact manifest shape.
