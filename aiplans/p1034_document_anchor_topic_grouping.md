@@ -55,3 +55,19 @@ No CLI, schema, or runtime changes. This is documentation-only for existing
 After implementation and review, run the normal post-implementation workflow:
 record review approval, run configured gates/build verification, archive t1034,
 and keep code/docs commits separate from task/plan commits.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `website/content/docs/concepts/topic-anchoring.md`
+  as the narrative home for anchor/topic grouping, updated the Concepts index,
+  expanded the task-format reference with storage and command rules, and linked
+  the Board By-Topic reference to the new concept page.
+- **Deviations from plan:** None. Per user direction, no
+  `website/content/docs/workflows/` files were added or edited.
+- **Issues encountered:** None. `hugo build --gc --minify` completed
+  successfully with only pre-existing Hugo deprecation warnings from the theme.
+- **Key decisions:** Kept the narrative in Concepts while preserving short
+  reference entries in task-format and board docs. Documented current behavior
+  from the live scripts: bare stored ids, flattened `--followup-of`, child
+  inheritance, archived roots, and `aitask_update.sh --anchor ""` clearing.
+- **Upstream defects identified:** None.
