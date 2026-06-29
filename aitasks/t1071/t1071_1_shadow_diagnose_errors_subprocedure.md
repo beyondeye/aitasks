@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-06-29 12:05
-updated_at: 2026-06-29 12:42
+updated_at: 2026-06-29 14:00
 ---
 
 Capability A of t1071: give the shadow agent a sub-procedure that detects
@@ -69,9 +69,8 @@ Exploration findings (confirmed against source):
 - `.claude/skills/aitask-shadow/SKILL.md` — add ONE Step 3 routing entry under
   "Structured analyses (read and follow the sub-procedure file)", e.g.
   "Diagnose skill/helper errors in the followed agent (`InputValidationError`,
-  tracebacks, retry loops) -> read and follow `plan-diagnose-errors.md`." Also
-  add a Step 1 proactive-surface trigger: when a fresh capture shows error/retry
-  signals, offer this capability unprompted (suggestion-only, never auto-run).
+  tracebacks, retry loops) -> read and follow `plan-diagnose-errors.md`."
+  **No Step 1 proactive trigger** (see AC revision — on-request only).
   Do NOT hardcode the capability in the Step 0 greeting — it derives from Step 3
   automatically (single source of truth; a maintainer note in SKILL.md forbids a
   second copy).
@@ -99,14 +98,18 @@ Exploration findings (confirmed against source):
    (c) Attribute each error to the likely skill/helper it came from (which
        workflow skill or `aitask_*.sh` helper the followed agent was running, and
        the wrong-parameter vs bug-in-script distinction where inferable).
-   (d) Emit the marked concern block (one concern per error cluster) per the
-       `shadow_concern_format.md` rules.
-   (e) OFFER (via AskUserQuestion) to launch `/aitask-explore` pre-seeded with the
-       buggy skill/helper path(s) + the captured error excerpt; only on explicit
-       confirm. Reinforce advisory-only: the explore runs in the shadow's OWN
-       pane, never the followed pane.
-2. Add the Step 3 routing entry + Step 1 proactive trigger to `SKILL.md`.
-3. Update `aidocs/framework/shadow_agent.md` Step 3 list.
+   (d) Present the candidate concerns (human-readable list) and emit the marked
+       concern block (one concern per error cluster) per the
+       `shadow_concern_format.md` rules. If no signal is found, say so and stop.
+   (e) Let the user choose which concerns (if any) warrant a fix-task
+       (AskUserQuestion, multiSelect, incl. a "none" path). For each chosen one,
+       OFFER to launch `/aitask-explore` seeded with a prompt naming that
+       concern's skill/helper path(s) + the captured error excerpt; only on
+       explicit confirm, in the shadow's OWN pane. v1: `/aitask-explore` seed only
+       (no batch-creation branch). Never auto-launch; never drive the followed pane.
+2. Add the Step 3 routing entry to `SKILL.md` (no Step 1 trigger).
+3. Update `aidocs/framework/shadow_agent.md` with ONE capability-level bullet (no
+   signal-list duplication).
 
 ## Verification steps
 
@@ -114,8 +117,12 @@ Exploration findings (confirmed against source):
   but confirms no surface breakage).
 - Grep-confirm the greeting still derives from Step 3 (no hardcoded capability
   list); the new routing line is present and well-formed.
-- Behavioral (manual, candidate for the aggregate manual-verification sibling):
-  feed `aitask_shadow_capture.sh -` a fixture screen containing an
-  `InputValidationError` / traceback / retry loop and confirm the shadow emits a
-  valid concern block (round-trips through `concern_parser.py`) and offers
+- Behavioral — positive fixture (manual): feed `aitask_shadow_capture.sh -` a
+  fixture screen containing an `InputValidationError` / traceback / retry loop and
+  confirm the shadow emits a valid concern block (round-trips through
+  `concern_parser.py`), lets the user pick which concerns to act on, and offers
   explore-to-fix without driving the followed pane.
+- Behavioral — negative-control fixture (manual): feed ≥1 fixture with benign
+  error-shaped text (a passing run that prints `error:`, an intentionally failing
+  test, a pasted traceback excerpt being discussed) and confirm the shadow emits
+  **no** concern block — guards the false-positive surface.
