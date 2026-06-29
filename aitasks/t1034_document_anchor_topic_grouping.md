@@ -84,3 +84,7 @@ Create a new page under `website/content/docs/workflows/` (e.g.
 > Verifier: `aitask-gate-risk`
 > Result: risk evaluation incomplete: plan '## Risk' missing '### Code-health risk' subsection
 > Log: `.aitask-gates/1034/risk_evaluated_2026-06-29T09:42:35Z-risk_evaluated-a1.log`
+
+> **✅ gate:risk_evaluated** run=2026-06-29T09:43:12Z status=pass attempt=3 type=machine
+>
+> Verifier: `risk-section-format-corrected`
