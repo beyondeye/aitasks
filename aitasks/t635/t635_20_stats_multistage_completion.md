@@ -70,3 +70,14 @@ Design questions to settle:
 > **✅ gate:plan_approved** run=2026-06-29T12:27:39Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-06-29T12:43:46Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-06-29T12:53:10Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:153adc1fc4acf27a
+
+> **✅ gate:risk_evaluated** run=2026-06-29T12:53:10Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/635_20/risk_evaluated_2026-06-29T12:53:10Z-risk_evaluated-a1.log`
