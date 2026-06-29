@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t635_4, t635_8]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [gates, statistics, stats_ui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 21:39
-updated_at: 2026-06-10 21:39
+updated_at: 2026-06-29 11:42
 ---
 
 ## Context
