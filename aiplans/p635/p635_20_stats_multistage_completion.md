@@ -387,3 +387,63 @@ Post-implementation cleanup and archival follow the shared **Step 9
 (Post-Implementation)** flow (`fast` profile — current branch, no worktree/merge).
 This task's own archival: it declares the profile default gate `risk_evaluated`
 (recorded `pass` at planning), so the gate guard lets it archive straight through.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all six deliverables as planned.
+  `lib/gate_ledger.py` gained `archive_status_from_text()` (content-level twin of
+  `archive_status`, no filesystem open). `stats/stats_data.py` gained
+  `resolve_completion_date()` (pass-only, resolver-only ledger precedence
+  merge_approved → review_approved → completed_at → updated_at),
+  `iter_active_markdown_files()`, `InflightData` + `collect_inflight()`,
+  `PhaseTimings` + ledger-timestamp-only span computation (`_accumulate_phase_timings`
+  / `_span_hours`), `format_duration()` (shared by CLI + TUI), plus
+  `_ledger_ts_to_date`/`_ledger_ts_to_datetime`; `collect_stats` dates via the
+  resolver and attaches `inflight`/`phase_timings`; `_empty_stats_data` and
+  `merge_stats_data` extended for the two new fields. `aitask_stats.py` re-exports the
+  new surface, prints a Summary "In flight" line and a `### Pipeline Timing (gated
+  tasks)` section (per-span N). TUI: overview "In flight" card, new
+  `stats/panes/pipeline.py` (`pipeline.timing` + `pipeline.inflight`), registered in
+  `panes/__init__.py`, and a `pipeline` preset added to BOTH `stats/stats_config.py`
+  and `aitasks/metadata/stats_config.json`. New design doc
+  `aidocs/gates/stats-multistage-completion.md` + roadmap backlink. Tests:
+  `tests/test_stats_multistage.py` (22 cases) + a new `archive_status_from_text` case
+  in `tests/test_gate_ledger_python_parser.py`.
+
+- **Deviations from plan:** Minor surface choice — the in-flight figure renders as a
+  note line under the Summary table (and an overview card) rather than a table row,
+  since the label is wider than the fixed Summary column and a row would break
+  plain-text alignment. Confirmed at impl time that `load_layered_config` `deep_merge`s
+  the `presets` dict (either config file alone would surface the pane) but updated both
+  as planned. `format_duration` was placed in `stats_data.py` (shared) rather than
+  private to the CLI, so CLI and TUI format spans identically (no duplication).
+
+- **Issues encountered:** None functional. An initial smoke ran from the wrong cwd
+  (TASK_DIR is repo-relative) showing 0 tasks — re-ran from repo root (1479 archived,
+  101 implement-span samples, 0 review→merge — current-branch records no merge).
+
+- **Key decisions (settled with user during planning):** (1) Completion date = ledger
+  precedence preferring `merge_approved` (shared/canonical landing), falling back to
+  `review_approved` on current-branch profiles — resolves the review-vs-merge tension
+  without a config knob. (2) Pass-only, **resolver-only**: a checkpoint is honored for
+  dating only when its current derived status is `pass`; no whole-task exclusion (an
+  unrelated lingering `build_verified: fail` still dates by its passing checkpoint and
+  stays counted). (3) Time-in-phase spans use ledger timestamps ONLY (no archival
+  fallback); Review→Merge is scoped to merge profiles, so current-branch tasks
+  contribute to Implement only, and each span reports its own N. (4) In-flight is a
+  strictly separate series, never summed into the archived totals. Scope: Core +
+  time-in-phase; per-gate pass/fail/retry + pending-human-wait deferred to a follow-up.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t635_15 (async human gates) / t635_19 (`docs_updated` gate):** once these land
+    and enter `default_gates` (or per-task `gates:`), the in-flight "completed,
+    awaiting gates" series and the Review→Merge timing span begin to populate — the
+    surfaces already render them (currently `0`/empty by design).
+  - **Deferred-analytics follow-up:** per-gate pass/fail/retry-rate table +
+    pending-human-wait metric (CLI + a `pipeline.gate_health` pane) are fully specified
+    in `aidocs/gates/stats-multistage-completion.md` — turnkey.
+  - **`archive_status_from_text` (gate_ledger.py):** content-level archival decision
+    for any consumer that already holds the task body — prefer it over the
+    path-opening `archive_status`/`read_task_gate_state` in scans.
