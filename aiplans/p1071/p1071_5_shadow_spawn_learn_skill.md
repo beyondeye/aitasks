@@ -211,3 +211,56 @@ No before/after risk-mitigation tasks needed (`risk_mitigations_planned = false`
 Follow shared workflow **Step 8** (review/commit) and **Step 9** (post-implementation:
 gate verification, child-plan completeness, archival, merge). The task is risk-gated
 (`risk_evaluated`) — the gate is recorded post-approval (Step 7) and verified at Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a `learn` operation to `aitask_codeagent.sh`
+  (claudecode / codex / opencode argv → `/aitask-learn-skill <pane>`, plus the
+  `show_help` line); added `learn` to the relaxed set in `codex_plan_policy.sh`;
+  added explicit `"learn": "claudecode/opus4_8"` defaults to
+  `aitasks/metadata/codeagent_config.json` and `seed/codeagent_config.json`; added
+  two reusable helpers to `lib/agent_launch_utils.py` — `pane_session()` (gateway
+  lookup of a pane's session) and the pure `unique_window_name()` (counter-suffix,
+  mirrors tui_switcher's `agent-explore-{n}` loop); created the executable launcher
+  `aitask_shadow_spawn_learner.py` that reuses `resolve_dry_run_command` +
+  `TmuxLaunchConfig(new_window=True)` + `launch_in_tmux` + `resolve_pane_id_by_pid`;
+  created the shadow sub-procedure `aitask-shadow/spawn-learn-skill.md` and a Step 3
+  routing entry in `aitask-shadow/SKILL.md` (greeting auto-derives). New test
+  `tests/test_shadow_spawn_learner.sh` (20 assertions): per-agent `learn` dry-run
+  resolution, explicit-default resolution, op support, codex relaxed-mode, the
+  launcher `--dry-run` (no live tmux — passes even when the pane does not exist),
+  and the pure `unique_window_name()`.
+- **Deviations from plan:** none. Implemented the post-review-revised plan as
+  written (Python shim reusing `launch_in_tmux`; `--dry-run` command-resolution
+  seam independent of live tmux; counter-based unique window naming; explicit
+  `learn` config defaults).
+- **Issues encountered:** A concurrent **t1093** session ran `./ait git add
+  aitasks/` mid-implementation and swept my uncommitted
+  `aitasks/metadata/codeagent_config.json` edit into its commit `3e316526a`
+  ("Declare gates + risk fields for t1093 from profile"). The `learn` default still
+  landed in the data branch (verified present in HEAD) — just under another
+  session's commit message. Documented shared-data-branch concurrent-writer
+  behavior; reconciliation left to the syncer. No data lost. Only the eight
+  main-branch code files were committed by this task, staged by explicit path.
+- **Key decisions:** (1) Reuse the centralized `launch_in_tmux()` via a Python shim
+  rather than a bash `ait_tmux new-window`, so the change does not fork the launcher
+  contract (cwd / targeting / pane-pid). (2) Learner = **first-class, user-managed
+  agent** — `agent-learn-*` window (visible in `ait monitor`), NO
+  `@aitask_shadow_target` classifier, NO pane-died cleanup hook. (3) `--dry-run`
+  proves command resolution with zero tmux access; live session targeting is
+  exercised only by the deferred MV.
+- **Upstream defects identified:** `tests/test_shadow_spawn_config.sh:31-33 — stale
+  default-agent assertion: the test asserts `defaults.shadow → claudecode` ("default
+  shadow resolves to claude"), but the project
+  `aitasks/metadata/codeagent_config.json` sets `shadow: codex/gpt5_5`, so 2
+  assertions fail. Pre-existing (predates this task; this change does not touch the
+  shadow default) and out of scope here — the fix (update the test's default-agent
+  expectation, or pin the test to an explicit `--agent-string`) belongs in its own
+  task.
+- **Notes for sibling tasks:** t1071_7 (website docs) should document the
+  shadow→learner spawn: the `aitask_shadow_spawn_learner.py` launcher, the
+  `spawn-learn-skill.md` routing, and the `agent-learn-*` first-class-agent
+  lifecycle (visible in monitor, user-closed). The live shadow→learner spawn is
+  runtime-behavioral and was NOT executed here (static checks only: `--dry-run` +
+  pure unit tests + `test_no_raw_tmux`); it is queued as a manual-verification
+  follow-up at Step 8c.
