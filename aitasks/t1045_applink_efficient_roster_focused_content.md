@@ -59,3 +59,5 @@ format additive/versioned per protocol.md §Versioning so older clients still wo
 > **✅ gate:plan_approved** run=2026-06-30T15:54:05Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-06-30T15:54:06Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-06-30T16:03:58Z status=pass attempt=1 type=human
