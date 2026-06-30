@@ -143,5 +143,45 @@ Note: `.opencode/commands/` is **plural** (confirmed on disk).
 - Requirement coverage complete: Codex skill, OpenCode skill, OpenCode command stub,
   verify gate. · severity: low · → mitigation: TBD
 
+## Post-Review Changes
+
+### Change Request 1 (2026-06-30)
+- **Requested by user:** The `.agents/skills/aitask-learn-skill/SKILL.md` glue file
+  should not be framed as Codex-specific — `.agents/` is the shared skills root for
+  any agent using that standard (Codex now, Antigravity CLI / `agy` later), so the
+  same wrapper serves them all.
+- **Changes made:** Reworded the Codex wrapper's "Source of Truth" to describe it as
+  a wrapper for code agents using the shared `.agents/` root (not Codex-only), while
+  keeping the Codex-specific `codex_tool_mapping.md` pointer as an "If you are Codex
+  CLI:" conditional.
+- **Files affected:** `.agents/skills/aitask-learn-skill/SKILL.md`.
+
+## Final Implementation Notes
+- **Actual work done:** Created three thin wrapper files for `aitask-learn-skill` —
+  `.agents/skills/aitask-learn-skill/SKILL.md` (shared `.agents`-root wrapper),
+  `.opencode/skills/aitask-learn-skill/SKILL.md` (OpenCode skill wrapper), and
+  `.opencode/commands/aitask-learn-skill.md` (OpenCode command stub) — each
+  redirecting to the canonical Claude `SKILL.md`. Rewrote the task AC to drop the
+  `(+ generate.md)` copy and record the SKILL.md-only wrapper rationale.
+- **Deviations from plan:** Did NOT copy `generate.md` into the other trees (the
+  original AC's "+generate.md" was the wrong shape for a wrapper port; corrected
+  explicitly — see the AC-correction section in the task and the Scope decision
+  above). Per Change Request 1, the `.agents/` wrapper is worded as a shared-root
+  wrapper (not Codex-specific).
+- **Issues encountered:** None. All three wrappers mirror the on-disk
+  `aitask-reviewguide-import` pattern.
+- **Key decisions:** Static (non-`.j2`) skills port as SKILL.md-only wrappers that
+  redirect to the Claude source; sub-procedure files (`generate.md`) stay Claude-only
+  because the redirect resolves the same-dir relative reference there. The `.agents/`
+  root is shared across `.agents`-standard agents (Codex, future Antigravity/`agy`),
+  so its wrapper is agent-neutral with a Codex-conditional tool-mapping pointer.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** This was the cross-agent port follow-up created by
+  t1071_2. Remaining t1071 children: t1071_5 (shadow spawn-learner), t1071_6
+  (configurable skill-authoring-conventions source), t1071_7 (website docs) — none
+  blocked by this task beyond what was already declared. The wrapper pattern here is
+  the template for porting any future static skill: SKILL.md stubs only, no
+  sub-procedure duplication.
+
 ## Post-implementation
 Follow shared workflow **Step 9** for gate verification, archival, and merge.
