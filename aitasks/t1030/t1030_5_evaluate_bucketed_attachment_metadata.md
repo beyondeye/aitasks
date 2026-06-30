@@ -10,6 +10,7 @@ labels: [task_attachments, brainstorming, design]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1030
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-29 10:14
 updated_at: 2026-06-30 17:36
 ---

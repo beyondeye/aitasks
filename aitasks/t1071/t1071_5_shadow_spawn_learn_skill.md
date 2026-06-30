@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: [t1071_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-06-30 11:16
-updated_at: 2026-06-30 11:16
+updated_at: 2026-06-30 17:48
 ---
 
 Let the shadow agent, on user request while shadowing, **spawn a dedicated learner
