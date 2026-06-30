@@ -6,9 +6,9 @@ issue_type: feature
 status: Ready
 labels: [task_attachments]
 file_references: [aidocs/task_attachments_design.md]
-children_to_implement: [t1030_4, t1030_5]
+children_to_implement: [t1030_5]
 created_at: 2026-06-18 15:26
-updated_at: 2026-06-30 10:07
+updated_at: 2026-06-30 11:35
 boardidx: 10
 ---
 

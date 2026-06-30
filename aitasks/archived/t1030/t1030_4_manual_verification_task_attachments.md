@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: [t1030_3]
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [verification, manual]
 verifies: [t1030_1, t1030_2, t1030_3]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1030
 created_at: 2026-06-28 12:17
-updated_at: 2026-06-30 11:30
+updated_at: 2026-06-30 11:35
+completed_at: 2026-06-30 11:35
 ---
 
 ## Manual Verification Task
