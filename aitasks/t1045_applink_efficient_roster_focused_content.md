@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [applink, applink_dataplane]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1044
 created_at: 2026-06-21 18:17
-updated_at: 2026-06-25 09:55
+updated_at: 2026-06-30 18:07
 boardidx: 100
 ---
 
