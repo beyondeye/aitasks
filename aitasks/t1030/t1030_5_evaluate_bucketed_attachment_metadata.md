@@ -1,14 +1,17 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1030_2]
 issue_type: enhancement
 status: Implementing
 labels: [task_attachments, brainstorming, design]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1030
 created_at: 2026-06-29 10:14
-updated_at: 2026-06-30 11:49
+updated_at: 2026-06-30 17:36
 ---
 
 ## Heads-up — shipped storage model (verified t1030_4, 2026-06-30)
