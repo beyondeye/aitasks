@@ -799,6 +799,7 @@ Project-level settings are stored in `aitasks/metadata/project_config.yaml` (git
 | `verify_build` | string or list | (none — skip) | Shell command(s) to verify the build after implementation | Step 9; `build_verified` gate |
 | `test_command` | string or list | (none — auto-detect) | Shell command(s) for running project tests | aitask-qa Step 4; `tests_pass` gate |
 | `lint_command` | string or list | (none — skip) | Shell command(s) for linting project code | aitask-qa Step 4; `lint` gate |
+| `attachments_gc_grace` | duration (`30d`/`24h`/`90m`/`120s`/int seconds) | `30d` | Grace window before a **fully-orphaned** attachment (no active *or archived* task references it) is reclaimed by `ait attach gc`. Archiving never decrefs, so an archived task's attachments are kept indefinitely; this knob only governs blobs left unreferenced by `ait attach rm` or task deletion. | `ait attach gc` |
 
 If the file does not exist or a field is absent, the corresponding feature is skipped.
 

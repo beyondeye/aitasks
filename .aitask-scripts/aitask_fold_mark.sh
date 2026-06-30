@@ -29,6 +29,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# The per-blob attachment ledger libs (attachment_lock.sh + attachment_meta.sh)
+# are sourced LAZILY in Step 5b — only when a folded task actually carries an
+# attachment — so a plain fold needs neither lib present (keeps the common path
+# and minimal test fixtures dependency-free).
 
 usage() {
     cat <<EOF
@@ -339,10 +343,166 @@ for tid in "${transitive_ids[@]}"; do
     echo "TRANSITIVE:${tid}"
 done
 
+# Step 5b (t1030_3): transfer folded tasks' attachments to the primary.
+# Re-bind the refcount (so blobs survive the folded files' deletion at archival)
+# AND merge the folded frontmatter entries into the primary (so they stay
+# accessible via `ait attach ls/get <primary>` and are decref-discoverable).
+# Processes direct + transitive folded tasks; both have their files deleted at
+# archival. All under ONE global attach lock. Skipped entirely when no folded
+# task carries an attachment (the common case) so a plain fold never touches the
+# attach lock or creates the attachments/ tree.
+
+# Data-root-relative meta paths touched by rebind, for staging + rollback.
+fold_meta_relpaths=()
+
+# _fold_unique_name <base_name> <hash> -> a name not already in seen_names.
+# Deterministic: <stem>~<first8hex><ext>, lengthening the hex suffix (8->16->32
+# ->64) until unique, then a numeric counter on the (astronomically unlikely)
+# full-hash collision. Reads/uses the caller's seen_names assoc (dynamic scope).
+_fold_unique_name() {
+    local base="$1" hexall="${2#sha256:}" stem ext len cand i
+    if [[ "$base" == *.* ]]; then ext=".${base##*.}"; stem="${base%.*}"; else ext=""; stem="$base"; fi
+    for len in 8 16 32 64; do
+        cand="${stem}~${hexall:0:$len}${ext}"
+        [[ -z "${seen_names[$cand]:-}" ]] && { printf '%s' "$cand"; return 0; }
+    done
+    i=2
+    while [[ -n "${seen_names[${stem}~${hexall}-${i}${ext}]:-}" ]]; do i=$((i + 1)); done
+    printf '%s' "${stem}~${hexall}-${i}${ext}"
+}
+
+# _fold_transfer_attachments <primary_file> <folded_file...> -- merge each folded
+# file's attachment frontmatter entries into the primary, skipping duplicate
+# hashes and disambiguating same-name/different-hash entries.
+_fold_transfer_attachments() {
+    local primary_file="$1"; shift
+    local py; py="$(require_python)"
+    declare -A seen_hashes=() seen_names=()
+    local f recs ln k v h n mime size added backend have
+
+    # Seed seen sets from the primary's current attachments (no append).
+    recs="$(read_yaml_mappings "$primary_file" attachments)" || true
+    h=""; n=""; have=false
+    while IFS= read -r ln; do
+        if [[ -z "$ln" ]]; then
+            $have && { [[ -n "$h" ]] && seen_hashes["$h"]=1; [[ -n "$n" ]] && seen_names["$n"]=1; }
+            h=""; n=""; have=false; continue
+        fi
+        have=true; k="${ln%%=*}"; v="${ln#*=}"
+        case "$k" in hash) h="$v" ;; name) n="$v" ;; esac
+    done <<< "$recs"
+    $have && { [[ -n "$h" ]] && seen_hashes["$h"]=1; [[ -n "$n" ]] && seen_names["$n"]=1; }
+
+    for f in "$@"; do
+        [[ -f "$f" ]] || continue
+        recs="$(read_yaml_mappings "$f" attachments)" || true
+        [[ -z "$recs" ]] && continue
+        h=""; n=""; mime=""; size=""; added=""; backend=""; have=false
+        while IFS= read -r ln; do
+            if [[ -z "$ln" ]]; then
+                $have && _fold_merge_one
+                h=""; n=""; mime=""; size=""; added=""; backend=""; have=false; continue
+            fi
+            have=true; k="${ln%%=*}"; v="${ln#*=}"
+            case "$k" in
+                hash) h="$v" ;; name) n="$v" ;; mime) mime="$v" ;;
+                size) size="$v" ;; added_at) added="$v" ;; backend) backend="$v" ;;
+            esac
+        done <<< "$recs"
+        $have && _fold_merge_one
+    done
+}
+
+# _fold_merge_one -- append the current folded attachment (dynamic-scope locals
+# h/n/mime/size/added/backend from _fold_transfer_attachments) into the primary,
+# updating the seen sets. Skips on missing hash or a hash already on the primary.
+_fold_merge_one() {
+    [[ -n "$h" ]] || return 0
+    [[ -n "${seen_hashes[$h]:-}" ]] && return 0   # dup hash: rebind drops folded id
+    local name="${n:-$h}"
+    [[ -n "${seen_names[$name]:-}" ]] && name="$(_fold_unique_name "$name" "$h")"
+    "$py" "$SCRIPT_DIR/lib/frontmatter_patch.py" append "$primary_file" attachments \
+        "hash=$h" "name=$name" \
+        ${mime:+"mime=$mime"} ${size:+"size=$size"} \
+        ${added:+"added_at=$added"} ${backend:+"backend=$backend"}
+    seen_hashes["$h"]=1
+    seen_names["$name"]=1
+}
+
+# _fold_rebind_refs <primary_id> <folded_id...> -- rebind each folded id's refs
+# to the primary; collect each changed blob's meta relpath for staging/rollback.
+_fold_rebind_refs() {
+    local primary_id="$1"; shift
+    local fid changed
+    for fid in "$@"; do
+        fid="${fid#t}"
+        [[ -z "$fid" ]] && continue
+        while IFS= read -r changed; do
+            [[ -n "$changed" ]] && fold_meta_relpaths+=( "$(attach_meta_relpath "$changed")" )
+        done < <(attach_meta rebind "$fid" "$primary_id")
+    done
+}
+
+# _fold_attach_txn -- rebind + merge, run as one transaction under the attach lock.
+_fold_attach_txn() {
+    _fold_rebind_refs "$primary_id" \
+        "${folded_ids[@]}" ${transitive_ids[@]+"${transitive_ids[@]}"}
+    _fold_transfer_attachments "$primary_file" \
+        ${folded_files[@]+"${folded_files[@]}"} \
+        ${transitive_files[@]+"${transitive_files[@]}"}
+}
+
+# Only enter the attach transaction if a folded/transitive task actually carries
+# an attachment — keeps the common no-attachment fold off the attach lock and
+# free of the attachment libs (detection uses read_yaml_mappings, already
+# available; the libs are sourced lazily only when needed).
+_fold_any_attachments=false
+for _ff in ${folded_files[@]+"${folded_files[@]}"} ${transitive_files[@]+"${transitive_files[@]}"}; do
+    [[ -f "$_ff" ]] || continue
+    if read_yaml_mappings "$_ff" attachments 2>/dev/null | grep -q '^hash='; then
+        _fold_any_attachments=true; break
+    fi
+done
+if [[ "$_fold_any_attachments" == true ]]; then
+    # shellcheck source=lib/attachment_lock.sh
+    source "$SCRIPT_DIR/lib/attachment_lock.sh"
+    # shellcheck source=lib/attachment_meta.sh
+    source "$SCRIPT_DIR/lib/attachment_meta.sh"
+    with_attach_lock _fold_attach_txn
+fi
+
+# Full rollback path set for a failed fold commit (review concern 6): every task
+# file the fold mutated in place (deletion happens later, at archival) plus the
+# rebound meta files — all HEAD-restorable. Paths are data-root-relative (the
+# task_git contract), matching primary_file / folded_files entries.
+rollback_paths=( "$primary_file" )
+for _f in ${folded_files[@]+"${folded_files[@]}"} ${transitive_files[@]+"${transitive_files[@]}"}; do
+    rollback_paths+=( "$_f" )
+done
+for _fid in "${folded_ids[@]}"; do
+    _fid="${_fid#t}"
+    if [[ "$_fid" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+        _pf="$(resolve_file_by_id "${BASH_REMATCH[1]}")"
+        [[ -n "$_pf" ]] && rollback_paths+=( "$_pf" )
+    fi
+done
+for _m in ${fold_meta_relpaths[@]+"${fold_meta_relpaths[@]}"}; do
+    rollback_paths+=( "$_m" )
+done
+
+# _fold_rollback -- restore the whole fold transaction from HEAD (on commit fail).
+_fold_rollback() {
+    task_git reset -q -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
+    task_git checkout -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
+}
+
 # Step 6: commit
 case "$commit_mode" in
     fresh)
         task_git add aitasks/ >/dev/null 2>&1 || true
+        if (( ${#fold_meta_relpaths[@]} > 0 )); then
+            task_git add -- "${fold_meta_relpaths[@]}" >/dev/null 2>&1 || true
+        fi
         joined=""
         for fid in "${folded_ids[@]}"; do
             fid="${fid#t}"
@@ -352,14 +512,28 @@ case "$commit_mode" in
                 joined="t${fid}"
             fi
         done
-        task_git commit -m "ait: Fold tasks into t${primary_id}: merge ${joined}" --quiet >/dev/null 2>&1 || true
-        hash=$(task_git rev-parse --short HEAD 2>/dev/null || echo "")
-        echo "COMMITTED:${hash}"
+        if task_git commit -m "ait: Fold tasks into t${primary_id}: merge ${joined}" --quiet >/dev/null 2>&1; then
+            hash=$(task_git rev-parse --short HEAD 2>/dev/null || echo "")
+            echo "COMMITTED:${hash}"
+        elif task_git diff --cached --quiet >/dev/null 2>&1; then
+            # Nothing was staged (no real change) — benign no-op, not a failure.
+            echo "NO_COMMIT"
+        else
+            _fold_rollback
+            die "fold commit failed — rolled back the whole fold transaction"
+        fi
         ;;
     amend)
         task_git add aitasks/ >/dev/null 2>&1 || true
-        task_git commit --amend --no-edit --quiet >/dev/null 2>&1 || true
-        echo "AMENDED"
+        if (( ${#fold_meta_relpaths[@]} > 0 )); then
+            task_git add -- "${fold_meta_relpaths[@]}" >/dev/null 2>&1 || true
+        fi
+        if task_git commit --amend --no-edit --quiet >/dev/null 2>&1; then
+            echo "AMENDED"
+        else
+            _fold_rollback
+            die "fold amend-commit failed — rolled back the whole fold transaction"
+        fi
         ;;
     none)
         echo "NO_COMMIT"

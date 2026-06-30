@@ -11,6 +11,13 @@ bytes can be attached to two tasks under different names):
     {"hash": "sha256:<hex>", "refs": ["1030_2", "42"],
      "mime": "image/png", "size": 12345, "backend": "local"}
 
+An optional integer `orphaned_at` (epoch) is stamped when `decref` empties `refs`
+(set-once-per-orphan-episode; never re-stamped, cleared by `incref`). `ait attach
+gc` (t1030_3) reads it via `orphaned-at <hash>` to apply the grace window. Git
+does not preserve filesystem mtimes across checkout/clone on the shared
+.aitask-data branch, so this committed field -- not mtime -- is the portable
+orphan clock.
+
 LOCK-FREE PRIMITIVE: this script NEVER takes a lock -- callers own concurrency.
 `ait attach add/rm` run the whole transaction under the single global
 attachments/.attach.lock; standalone/administrative callers (t1030_3 gc/fold)
@@ -105,10 +112,13 @@ def cmd_incref(meta_dir, h, task, kv):
     refs = set(rec.get("refs") or [])
     refs.add(task)
     rec["refs"] = sorted(refs)
+    # A blob that just gained a ref is no longer an orphan -- clear any
+    # orphaned_at stamp so a later genuine orphaning re-stamps with a fresh time.
+    rec.pop("orphaned_at", None)
     atomic_write(path, rec)
 
 
-def cmd_decref(meta_dir, h, task):
+def cmd_decref(meta_dir, h, task, kv):
     path = meta_path(meta_dir, h)
     rec = load(path)
     if rec is None:
@@ -116,6 +126,20 @@ def cmd_decref(meta_dir, h, task):
     refs = set(rec.get("refs") or [])
     refs.discard(task)
     rec["refs"] = sorted(refs)
+    # Stamp orphaned_at ONLY on a true non-empty->empty transition, and NEVER
+    # re-stamp: an existing orphaned_at is preserved across retry/rebase/partial-
+    # failure re-runs so a re-decref of an already-orphaned blob keeps the
+    # original orphan time (it cannot be pushed back inside the grace window).
+    # Callers pass now=<epoch> for testability; default to wall-clock otherwise.
+    if not refs and "orphaned_at" not in rec:
+        if "now" in kv:
+            try:
+                rec["orphaned_at"] = int(kv["now"])
+            except ValueError:
+                die("now must be an integer epoch: " + kv["now"])
+        else:
+            import time
+            rec["orphaned_at"] = int(time.time())
     atomic_write(path, rec)
 
 
@@ -125,6 +149,17 @@ def cmd_refs(meta_dir, h):
         return
     for task in sorted(set(rec.get("refs") or [])):
         print(task)
+
+
+def cmd_orphaned_at(meta_dir, h):
+    """Print the blob's orphaned_at epoch (or nothing). Lets gc read the orphan
+    age without parsing the JSON itself."""
+    rec = load(meta_path(meta_dir, h))
+    if rec is None:
+        return
+    val = rec.get("orphaned_at")
+    if val is not None:
+        print(val)
 
 
 def iter_meta_files(meta_dir):
@@ -159,12 +194,18 @@ def cmd_rebind(meta_dir, old_task, new_task):
             refs.add(new_task)
             rec["refs"] = sorted(refs)
             atomic_write(path, rec)
+            # Report each changed blob so the shell caller can stage exactly
+            # those meta files (rebind scans the whole tree, so the caller
+            # cannot otherwise know which files changed).
+            changed = rec.get("hash")
+            if changed:
+                print(changed)
 
 
 def main(argv):
     if len(argv) < 3 or argv[0] != "--meta-dir":
         die("usage: attachment_meta.py --meta-dir <dir> "
-            "<incref|decref|refs|zero-refcount|rebind> ...")
+            "<incref|decref|refs|orphaned-at|zero-refcount|rebind> ...")
     meta_dir = argv[1]
     cmd = argv[2]
     rest = argv[3:]
@@ -173,13 +214,17 @@ def main(argv):
             die("incref <hash> <task> [k=v ...]")
         cmd_incref(meta_dir, rest[0], rest[1], parse_kv(rest[2:]))
     elif cmd == "decref":
-        if len(rest) != 2:
-            die("decref <hash> <task>")
-        cmd_decref(meta_dir, rest[0], rest[1])
+        if len(rest) < 2:
+            die("decref <hash> <task> [now=<epoch>]")
+        cmd_decref(meta_dir, rest[0], rest[1], parse_kv(rest[2:]))
     elif cmd == "refs":
         if len(rest) != 1:
             die("refs <hash>")
         cmd_refs(meta_dir, rest[0])
+    elif cmd == "orphaned-at":
+        if len(rest) != 1:
+            die("orphaned-at <hash>")
+        cmd_orphaned_at(meta_dir, rest[0])
     elif cmd == "zero-refcount":
         if rest:
             die("zero-refcount takes no arguments")

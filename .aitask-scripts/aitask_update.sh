@@ -519,6 +519,27 @@ get_timestamp() {
 
 # --- File Writing ---
 
+# extract_frontmatter_block <file> <field> -- print the raw lines of a top-level
+# frontmatter block field (the `<field>:` header plus its indented body), or
+# nothing if absent. Used to PRESERVE fields write_task_file does not model
+# (notably `attachments:`, a block list-of-mappings from t1030) across a rewrite
+# — without this, any aitask_update on an attachment-bearing task would silently
+# drop its attachments.
+extract_frontmatter_block() {
+    local file="$1" field="$2"
+    [[ -f "$file" ]] || return 0
+    awk -v field="$field" '
+        NR==1 && $0=="---" { infm=1; next }
+        infm==1 && $0=="---" { exit }
+        infm==1 {
+            if ($0 ~ /^[^[:space:]]/) {           # a top-level key line
+                capturing = ($0 ~ ("^" field ":")) ? 1 : 0
+            }
+            if (capturing) print
+        }
+    ' "$file"
+}
+
 write_task_file() {
     local file_path="$1"
     local priority="$2"
@@ -550,6 +571,12 @@ write_task_file() {
     local gates="${28:-}"
     local also_blocks_dependents="${29:-}"
     local anchor="${30:-}"
+
+    # Preserve the `attachments:` block (t1030) verbatim: write_task_file rebuilds
+    # frontmatter from a fixed field set and would otherwise drop it. Capture it
+    # from the still-intact file BEFORE the truncating redirect below runs.
+    local preserved_attachments
+    preserved_attachments="$(extract_frontmatter_block "$file_path" attachments)"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -660,6 +687,10 @@ write_task_file() {
         fi
         if [[ -n "$implemented_with" ]]; then
             echo "implemented_with: $implemented_with"
+        fi
+        # Preserve any existing attachments block verbatim (t1030).
+        if [[ -n "$preserved_attachments" ]]; then
+            printf '%s\n' "$preserved_attachments"
         fi
         echo "created_at: $created_at"
         echo "updated_at: $updated_at"

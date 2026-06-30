@@ -6,8 +6,10 @@
 # `attachments:` frontmatter (schema: aidocs/task_attachments_design.md §3) and
 # stored in a pluggable backend (design §4/§5). Full CLI surface: design §6.
 #
-# STATE: `ls`/`add`/`get`/`rm` (and `help`) are functional. `move`/`gc` are stubs
-# until t1030_3 (backend move + archive-driven garbage collection).
+# STATE: `ls`/`add`/`get`/`rm`/`gc` (and `help`) are functional. `move` is a stub
+# (remote backend move — a later remote-backend task). `gc` (t1030_3) reclaims
+# fully-orphaned blobs, honoring the grace knob; archival itself never decrefs
+# (an archived task is still a real referrer — browsable history).
 #
 # STORAGE MODEL (t1030_2): the canonical refcount ledger is PER-BLOB metadata
 # files (attachments/meta/<2>/<62>.json via lib/attachment_meta.py) — NOT a single
@@ -34,8 +36,10 @@ source "$SCRIPT_DIR/lib/attachment_backend.sh"
 source "$SCRIPT_DIR/lib/attachment_cache.sh"
 # shellcheck source=lib/attachment_lock.sh
 source "$SCRIPT_DIR/lib/attachment_lock.sh"
+# shellcheck source=lib/attachment_meta.sh
+source "$SCRIPT_DIR/lib/attachment_meta.sh"
 
-NOT_YET="not yet available — implemented in t1030_3 (backend move / gc)"
+NOT_YET="not yet available — backend move arrives with a remote-backend task"
 
 show_help() {
     cat <<'EOF'
@@ -48,7 +52,7 @@ Manage content-addressed file attachments on a task (design §6).
   get  <task> <name-or-hash> [--out <path>]    Fetch an attachment.
   rm   <task> <name-or-hash>                   Remove an attachment.
   move <task> <name-or-hash> --to <backend>    Move an attachment backend. (not yet implemented)
-  gc                                           Sweep orphaned blobs.       (not yet implemented)
+  gc                                           Sweep fully-orphaned blobs (opt-in; honors grace).
   help                                         Show this help.
 
 <task> accepts a parent id (e.g. 16) or a child id (e.g. 16_2), with or without
@@ -114,23 +118,9 @@ cmd_list() {
 
 # ── Storage helpers (t1030_2) ────────────────────────────────────────────────
 
-# _attach_meta_dir -> per-blob metadata dir in the data worktree.
-_attach_meta_dir() {
-    _ait_detect_data_worktree
-    printf '%s/attachments/meta' "$_AIT_DATA_WORKTREE"
-}
-
-# _attach_meta <subcommand> [args...] -- run the lock-free per-blob ledger helper.
-# Callers MUST already hold the global attach lock for mutating subcommands.
-_attach_meta() {
-    local py; py="$(require_python)"
-    "$py" "$SCRIPT_DIR/lib/attachment_meta.py" --meta-dir "$(_attach_meta_dir)" "$@"
-}
-
-# _attach_meta_relpath <hash> -> data-root-relative meta file path (staging).
-_attach_meta_relpath() {
-    printf 'attachments/meta/%s.json' "$(attachment_shard_path "$1")"
-}
+# Per-blob ledger helpers (attach_meta_dir / attach_meta / attach_meta_relpath /
+# attach_task_hashes / parse_duration_to_seconds) live in lib/attachment_meta.sh
+# (t1030_3 — shared with aitask_fold_mark.sh). Sourced above.
 
 # _attach_records <task_file> -- print "<hash>\t<name>\t<backend>" per attachment.
 _attach_records() {
@@ -254,7 +244,7 @@ _attach_add_txn() {
     # Pre-existence (for deterministic rollback).
     local blob_pre=false meta_pre=false
     attachment_backend_head "$hash" && blob_pre=true
-    local meta_file; meta_file="$(_attach_meta_dir)/$(attachment_shard_path "$hash").json"
+    local meta_file; meta_file="$(attach_meta_dir)/$(attachment_shard_path "$hash").json"
     [[ -f "$meta_file" ]] && meta_pre=true
 
     # Store blob (idempotent atomic copy) + populate cache.
@@ -262,7 +252,7 @@ _attach_add_txn() {
     attachment_resolve "$hash" >/dev/null
 
     local added_at; added_at="$(date '+%Y-%m-%d %H:%M')"
-    _attach_meta incref "$hash" "$task_id" "mime=$mime" "size=$size" "backend=$backend"
+    attach_meta incref "$hash" "$task_id" "mime=$mime" "size=$size" "backend=$backend"
     require_python >/dev/null
     "$(require_python)" "$SCRIPT_DIR/lib/frontmatter_patch.py" append "$task_file" attachments \
         "hash=$hash" "name=$name" "mime=$mime" "size=$size" "added_at=$added_at" "backend=$backend"
@@ -270,7 +260,7 @@ _attach_add_txn() {
     # Commit the trio (blob + meta + task) as one commit.
     local blob_rel meta_rel
     blob_rel="$(attachment_local_blob_relpath "$hash")"
-    meta_rel="$(_attach_meta_relpath "$hash")"
+    meta_rel="$(attach_meta_relpath "$hash")"
     if ! _attach_commit "ait: Attach ${name} to t${task_id}" "$blob_rel" "$meta_rel" "$task_file"; then
         _attach_rollback_add "$task_file" "$meta_rel" "$meta_file" "$meta_pre" "$blob_rel" "$hash" "$blob_pre"
         die "ait attach add: commit failed — rolled back to pre-attach state"
@@ -347,16 +337,106 @@ _attach_rm_txn() {
     local task_id="$1" task_file="$2" ref="$3"
     local hash; hash="$(_attach_resolve_ref "$task_file" "$ref")" \
         || die "ait attach rm: no attachment matching '$ref' on t${task_id}"
-    _attach_meta decref "$hash" "$task_id"     # blob NOT deleted — gc is t1030_3
+    # decref stamps orphaned_at if this empties refs (the gc grace clock); blob
+    # NOT deleted here — reclamation is `ait attach gc` (also t1030_3).
+    attach_meta decref "$hash" "$task_id" "now=$(date +%s)"
     "$(require_python)" "$SCRIPT_DIR/lib/frontmatter_patch.py" remove "$task_file" attachments \
         --match-key hash --match-val "$hash"
-    local meta_rel; meta_rel="$(_attach_meta_relpath "$hash")"
+    local meta_rel; meta_rel="$(attach_meta_relpath "$hash")"
     if ! _attach_commit "ait: Detach attachment from t${task_id}" "$meta_rel" "$task_file"; then
         task_git reset -q -- "$task_file" "$meta_rel" >/dev/null 2>&1 || true
         task_git checkout -- "$task_file" "$meta_rel" >/dev/null 2>&1 || true
         die "ait attach rm: commit failed — rolled back"
     fi
     success "Removed attachment '${ref}' from t${task_id}"
+}
+
+# ── Verb: gc ─────────────────────────────────────────────────────────────────
+
+# _attach_gc_grace -- grace duration string from project_config.yaml
+# (attachments_gc_grace, default 30d). The window after a blob becomes FULLY
+# orphaned (no active OR archived task references it) before gc may reclaim it.
+_attach_gc_grace() {
+    local cfg="aitasks/metadata/project_config.yaml" v=""
+    if [[ -f "$cfg" ]]; then
+        v="$(read_yaml_field "$cfg" attachments_gc_grace 2>/dev/null || true)"
+        v="${v//\"/}"; v="${v//\'/}"; v="$(printf '%s' "$v" | tr -d '[:space:]')"
+    fi
+    [[ -n "$v" ]] || v="30d"
+    printf '%s' "$v"
+}
+
+# _attach_gc_blocking_hashes -- print every attachment hash referenced by a task
+# that must KEEP its blobs: all active tasks AND all archived tasks (archived
+# references are real — browsable history, D4), EXCLUDING Folded tasks (pending-
+# deletion; their refs were rebound to the primary). This is the belt-and-
+# suspenders cross-check against ledger drift before any delete.
+_attach_gc_blocking_hashes() {
+    shopt -s nullglob
+    local files=( "$TASK_DIR"/t*.md "$TASK_DIR"/t*/t*.md \
+                  "$ARCHIVED_DIR"/t*.md "$ARCHIVED_DIR"/t*/t*.md )
+    shopt -u nullglob
+    local f st
+    for f in "${files[@]}"; do
+        [[ -f "$f" ]] || continue
+        st="$(read_task_status "$f" 2>/dev/null || true)"
+        [[ "$st" == "Folded" ]] && continue
+        attach_task_hashes "$f"
+    done
+}
+
+cmd_gc() {
+    [[ $# -eq 0 ]] || die "Usage: ait attach gc"
+    with_attach_lock _attach_gc_txn
+}
+
+# _attach_gc_txn -- the orphan sweep (runs under the global attach lock).
+_attach_gc_txn() {
+    local grace_sec now
+    grace_sec="$(parse_duration_to_seconds "$(_attach_gc_grace)")"
+    now="$(date +%s)"
+
+    # Blocking set: hashes any non-Folded active/archived task still references.
+    local blocking; blocking="$(_attach_gc_blocking_hashes)"
+
+    local swept=0 retained=0
+    local -a del_paths=()
+    local h refs orphaned_at meta_file
+    while IFS= read -r h; do
+        [[ -n "$h" ]] || continue
+        # Re-confirm zero refs under the held lock (zero-refcount is advisory).
+        refs="$(attach_meta refs "$h")"
+        if [[ -n "$refs" ]]; then retained=$((retained + 1)); continue; fi
+        # Belt-and-suspenders: a live/archived task still lists it -> keep.
+        if printf '%s\n' "$blocking" | grep -qxF "$h"; then
+            retained=$((retained + 1)); continue
+        fi
+        # Grace window: skip orphans more recent than the grace period. A missing
+        # orphaned_at (pre-feature orphan) is treated as eligible (age = inf).
+        orphaned_at="$(attach_meta orphaned-at "$h")"
+        if [[ -n "$orphaned_at" ]] && (( now - orphaned_at < grace_sec )); then
+            retained=$((retained + 1)); continue
+        fi
+        # Reclaim: delete blob + meta (v1 is local-only; add rejects other
+        # backends, so every stored blob is local).
+        export ATTACHMENT_BACKEND="local"
+        attachment_backend_delete "$h"
+        meta_file="$(attach_meta_dir)/$(attachment_shard_path "$h").json"
+        rm -f "$meta_file"
+        del_paths+=( "$(attachment_local_blob_relpath "$h")" "$(attach_meta_relpath "$h")" )
+        swept=$((swept + 1))
+    done < <(attach_meta zero-refcount)
+
+    if (( swept > 0 )); then
+        if ! _attach_commit "ait: GC ${swept} orphaned attachment(s)" "${del_paths[@]}"; then
+            # Restore the just-deleted tracked files so a failed commit leaves no
+            # deleted-on-disk-but-uncommitted split-brain.
+            task_git reset -q -- "${del_paths[@]}" >/dev/null 2>&1 || true
+            task_git checkout -- "${del_paths[@]}" >/dev/null 2>&1 || true
+            die "ait attach gc: commit failed — restored ${swept} blob(s); no changes made"
+        fi
+    fi
+    success "gc: swept ${swept} orphaned attachment(s), retained ${retained} referenced/in-grace blob(s)"
 }
 
 cmd_stub() { die "ait attach $1: $NOT_YET"; }
@@ -370,7 +450,7 @@ main() {
         get)       shift; cmd_get "$@" ;;
         rm|remove) shift; cmd_remove "$@" ;;
         move)      cmd_stub move ;;
-        gc)        cmd_stub gc ;;
+        gc)        shift; cmd_gc "$@" ;;
         *)         die "Unknown verb: $verb (try 'ait attach help')" ;;
     esac
 }

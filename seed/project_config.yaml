@@ -169,6 +169,24 @@ test_command:
 lint_command:
 
 # ──────────────────────────────────────────────────────────────────────
+# attachments_gc_grace — Grace window before `ait attach gc` reclaims a
+# FULLY-orphaned attachment blob (one no active OR archived task references).
+#
+# Archiving a task never dereferences its attachments — an archived task is a
+# real referrer (browsable history), so its blobs are kept indefinitely. This
+# knob only governs blobs left unreferenced by `ait attach rm` or by deleting a
+# task; gc skips any orphan younger than the grace window.
+#
+# Accepts a duration: 30d / 24h / 90m / 120s, or a bare integer (seconds).
+# Default: 30d. `ait attach gc` is opt-in (never run automatically by archive).
+#
+# Example:
+#   attachments_gc_grace: 30d
+# ──────────────────────────────────────────────────────────────────────
+
+# attachments_gc_grace: 30d
+
+# ──────────────────────────────────────────────────────────────────────
 # default_profiles — Default execution profile for each skill.
 #
 # Maps skill names to profile names (without .yaml extension). When a

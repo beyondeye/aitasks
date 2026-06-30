@@ -68,7 +68,7 @@ assert_exit_nonzero "incref with mismatched mime dies" \
     "$PY" "$META" --meta-dir "$MD" incref "$H2" 6 mime=image/png
 
 # rebind replaces a task across all meta files (fold support, t1030_3).
-meta rebind 5 5_1
+meta rebind 5 5_1 >/dev/null    # prints changed hash(es); not asserted here
 assert_eq "rebind replaces task id in refs" "5_1" "$(meta refs "$H2")"
 
 # Atomic writes leave no temp files behind.
@@ -133,6 +133,32 @@ assert_exit_nonzero "remove of missing hash dies" \
 t="$TMP/nl.md"; mk_task "$t"
 assert_exit_nonzero "newline-in-name append dies" \
     "$PY" "$FM" append "$t" attachments hash="$H1" name="$(printf 'a\nb')"
+
+# ── orphaned_at + getter + no-restamp invariant + rebind reporting (t1030_3) ──
+H3="sha256:3333333333333333333333333333333333333333333333333333333333333333"
+
+meta incref "$H3" 70 mime=text/plain size=3 backend=local
+assert_eq "orphaned-at empty while referenced" "" "$(meta orphaned-at "$H3")"
+meta decref "$H3" 71                         # 71 absent -> refs still [70], non-empty
+assert_eq "decref of an absent ref leaves no orphan stamp" "" "$(meta orphaned-at "$H3")"
+meta decref "$H3" 70 now=1000                # empties refs -> stamp orphaned_at=1000
+assert_eq "decref-to-empty stamps orphaned_at" "1000" "$(meta orphaned-at "$H3")"
+# No-restamp: a later decref must NOT push the orphan time forward.
+meta decref "$H3" 70 now=9999
+assert_eq "re-decref with a later now keeps the original orphaned_at" "1000" "$(meta orphaned-at "$H3")"
+# incref clears the orphan stamp; a fresh orphaning re-stamps with the new time.
+meta incref "$H3" 72
+assert_eq "incref clears orphaned_at" "" "$(meta orphaned-at "$H3")"
+meta decref "$H3" 72 now=2000
+assert_eq "incref+decref cycle re-stamps with the fresh time" "2000" "$(meta orphaned-at "$H3")"
+
+# rebind prints each changed blob's hash (so the shell can stage exactly those
+# meta files); a rebind of an unreferenced id prints nothing.
+meta incref "$H3" 80
+out_rebind="$(meta rebind 80 81)"
+assert_eq "rebind reports the changed blob hash" "$H3" "$out_rebind"
+assert_eq "rebind actually moved the ref" "81" "$(meta refs "$H3")"
+assert_eq "rebind of an unreferenced id prints nothing" "" "$(meta rebind 999999 1)"
 
 echo ""
 echo "test_attach_meta.sh: $PASS passed, $FAIL failed, $TOTAL total"

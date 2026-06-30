@@ -227,22 +227,34 @@ Cache → backend `get` → verify hash → serve. Never fabricate; missing
 blobs are loud failures.
 
 ### Archival
-When `aitask_archive.sh` archives a task, every attachment hash in that
-task's frontmatter is **decref'd** in its per-blob meta file. Hashes whose
-`refs` set drops to empty are candidates for GC.
+**Resolved (t1030_3): archiving never decrefs.** Archiving a task is a status
+change, not a dereference — an archived task is still a real referrer of its
+attachments (browsable history), so `aitask_archive.sh` makes **no** change to
+the ledger. A blob keeps a non-empty `refs` for as long as any task that
+references it (active **or** archived) exists on disk, so it is never a GC
+candidate. A blob becomes reclaimable only when it is **fully orphaned** —
+every referrer dropped it via `ait attach rm`, or the referencing task file was
+deleted (e.g. a folded task at archival, or a bundled archive). `ait attach rm`
+stamps an `orphaned_at` epoch on the blob's meta when its `refs` empties; that
+committed field (not filesystem mtime, which git does not preserve across
+checkout) is the grace clock.
 
 ### Garbage collection
-`ait attach gc` scans `attachments/meta/**.json`, finds zero-refcount hashes,
-re-confirms under the global attach lock that no live task still references
-them, then calls
-`attachment_backend_delete` for each. GC is **opt-in** — archives never
-delete blobs synchronously, because folded / superseded tasks may
-temporarily appear archived and then resurrect.
+`ait attach gc` (opt-in) scans `attachments/meta/**.json`, finds zero-refcount
+hashes, then under the global attach lock re-confirms each is still empty and,
+as a belt-and-suspenders cross-check, that **no active or archived task**
+frontmatter still lists it (Folded tasks are excluded — they are pending
+deletion and their refs were rebound to the primary). Candidates older than
+`attachments_gc_grace` are removed via `attachment_backend_delete` + meta-file
+deletion. Archival never deletes blobs synchronously, because folded /
+superseded tasks may resurrect.
 
-### Open question — archive retention
-Should a freshly archived task keep its attachments by default, or sweep
-immediately? Leaning **keep** (archive is browsable history), with a
-configurable `attachments_gc_grace: 30d` knob in the profile.
+### Archive retention — resolved (t1030_3)
+A freshly archived task **keeps** its attachments indefinitely (archive is
+browsable history) — its references block GC. The
+`attachments_gc_grace` knob (project config `aitasks/metadata/project_config.yaml`,
+default `30d`) governs only **fully-orphaned** blobs (the `ait attach rm` /
+deleted-task case), not archived ones.
 
 ## 9. Cross-repo consumers
 
