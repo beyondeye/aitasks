@@ -25,11 +25,25 @@ supported coding agents").
   `.claude/skills/aitask-learn-skill/generate.md` (static, user-invocable; source
   resolution for tmux pane id / file / URL / repo, + shared generate core).
 
-## Port targets
-- **Codex:** `.agents/skills/aitask-learn-skill/SKILL.md` (+ `generate.md`).
-- **OpenCode:** `.opencode/skills/aitask-learn-skill/SKILL.md` (+ `generate.md`) and
-  the command stub `.opencode/commands/aitask-learn-skill.md` (note: `.opencode/commands/`
-  is PLURAL — confirmed on disk).
+## Port targets (SKILL.md wrappers only — `generate.md` NOT copied)
+- **Codex:** `.agents/skills/aitask-learn-skill/SKILL.md`.
+- **OpenCode:** `.opencode/skills/aitask-learn-skill/SKILL.md` and the command stub
+  `.opencode/commands/aitask-learn-skill.md` (note: `.opencode/commands/` is PLURAL —
+  confirmed on disk).
+
+## AC correction — do NOT copy `generate.md` (explicit deviation)
+The original AC said to also copy `generate.md` into each tree. That is the wrong
+shape for a wrapper port and was corrected before implementation:
+- Hand-authored wrapper skills are **SKILL.md-only** in the Codex/OpenCode trees
+  (confirmed on disk: `aitask-reviewguide-import` has no sub-procedure copies;
+  `aitask-shadow`'s five `plan-*.md` sub-procedures live only in the Claude tree).
+  The sub-procedure `.md` files that *do* appear under `.agents/skills/` /
+  `.opencode/skills/` belong solely to `.j2`-**rendered** skills (auto-generated),
+  not hand-authored static wrappers.
+- The wrapper redirect already covers `generate.md`: the Codex/OpenCode agent
+  follows the Claude `SKILL.md`, whose Step 3 reads `generate.md` (same-dir relative
+  reference → `.claude/skills/aitask-learn-skill/generate.md`). Copying it into the
+  other trees would create a divergent duplicate that drifts from the source.
 
 ## Notes
 - Model the port shape on the existing `aitask-reviewguide-import` copies in both trees.
@@ -39,8 +53,9 @@ supported coding agents").
 
 ## Verification
 - `./.aitask-scripts/aitask_skill_verify.sh` passes.
-- The Codex and OpenCode copies match the Claude source's flow; OpenCode command stub
-  present under `.opencode/commands/`.
+- The Codex and OpenCode wrappers redirect to the Claude source's `SKILL.md` and the
+  correct tool-mapping file; OpenCode command stub present under `.opencode/commands/`.
+- No `generate.md` copied into `.agents/skills/` or `.opencode/skills/` (by design).
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
