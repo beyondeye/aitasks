@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t1071_2]
 issue_type: feature
 status: Ready
 labels: [shadow, claudeskills]

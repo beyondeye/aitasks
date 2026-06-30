@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1071_2, t1071_5]
 issue_type: documentation
 status: Ready
 labels: [shadow, claudeskills]
