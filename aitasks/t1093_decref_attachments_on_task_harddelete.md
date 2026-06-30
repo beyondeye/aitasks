@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [task_attachments]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-30 17:39
-updated_at: 2026-06-30 17:39
+updated_at: 2026-06-30 17:52
 ---
 
 Explicit task **hard-delete** does not decref the deleted task's attachments,
