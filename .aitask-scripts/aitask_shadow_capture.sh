@@ -9,9 +9,14 @@
 #
 # Usage:
 #   ./.aitask-scripts/aitask_shadow_capture.sh <pane_id>
+#   ./.aitask-scripts/aitask_shadow_capture.sh --deep <pane_id>  # plan-review depth
 #   ./.aitask-scripts/aitask_shadow_capture.sh -      # clean raw capture from stdin
 #
 #   <pane_id>   tmux pane id (e.g. %5) or any target the gateway can address.
+#   --deep      Capture SHADOW_PLAN_CAPTURE_LINES (default 400) scrollback lines
+#               instead of the default SHADOW_CAPTURE_LINES (200). For the shadow's
+#               plan-review sub-procedures, whose long plans the 200-line window
+#               can truncate. No effect with - (stdin has no scrollback).
 #   -           Read a raw capture from stdin instead of tmux, clean it, emit it.
 #               (Useful for piping a pre-captured buffer; also the test seam.)
 #
@@ -39,15 +44,30 @@ source "$SCRIPT_DIR/lib/tmux_exec.sh"
 # Scrollback lines to capture (mirrors monitor_core.py capture_lines default).
 SHADOW_CAPTURE_LINES="${SHADOW_CAPTURE_LINES:-200}"
 
+# Deeper scrollback for plan-review flows. The shadow's plan-* sub-procedures
+# (plan-explain / plan-challenge / plan-socratic / plan-assumptions) analyze a
+# whole plan; when the plan is only on screen (e.g. awaiting approval, not yet
+# externalized) the 200-line default can truncate earlier constraints,
+# decisions, or risk notes. Those procedures opt in with --deep, which selects
+# this depth. Ordinary shadow reads (explain-output, help-answer-prompt,
+# diagnose-errors) stay at SHADOW_CAPTURE_LINES to stay cheap. Env-overridable,
+# mirroring SHADOW_CAPTURE_LINES.
+SHADOW_PLAN_CAPTURE_LINES="${SHADOW_PLAN_CAPTURE_LINES:-400}"
+
 show_help() {
     cat <<'EOF'
 Usage: aitask_shadow_capture.sh <pane_id>
-       aitask_shadow_capture.sh -      (clean a raw capture read from stdin)
+       aitask_shadow_capture.sh --deep <pane_id>   (deeper plan-review capture)
+       aitask_shadow_capture.sh -                  (clean a raw capture from stdin)
 
 Capture a followed agent's tmux pane as clean, escape-free text on stdout.
 
 Arguments:
   <pane_id>   tmux pane id (e.g. %5) of the agent being shadowed
+  --deep      capture SHADOW_PLAN_CAPTURE_LINES (default 400) scrollback lines
+              instead of the default SHADOW_CAPTURE_LINES (200); for the shadow's
+              plan-review sub-procedures, whose long plans the 200-line default
+              can truncate. Has no effect with - (stdin has no scrollback).
   -           read raw capture from stdin instead of tmux
 
 Read-only: never sends input to the pane.
@@ -74,16 +94,20 @@ shadow_clean() {
 }
 
 # shadow_capture_pane - capture a pane through the gateway -> stdout (raw).
+# Optional $2 overrides the scrollback depth (defaults to the normal global, so
+# existing call sites are unaffected); --deep passes SHADOW_PLAN_CAPTURE_LINES.
 shadow_capture_pane() {
     local pane="$1"
-    ait_tmux capture-pane -p -J -t "$pane" -S "-${SHADOW_CAPTURE_LINES}"
+    local lines="${2:-$SHADOW_CAPTURE_LINES}"
+    ait_tmux capture-pane -p -J -t "$pane" -S "-${lines}"
 }
 
 main() {
-    local pane=""
+    local pane="" deep=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -h|--help) show_help; exit 0 ;;
+            --deep)    deep=1; shift ;;
             -)         pane="-"; shift ;;
             -*)        die "Unknown option: $1" ;;
             *)
@@ -94,10 +118,15 @@ main() {
 
     [[ -n "$pane" ]] || { show_help >&2; die "pane id required"; }
 
+    # --deep selects the deeper plan-review scrollback; default stays cheap.
+    # (No effect on the stdin path — there is no scrollback to deepen.)
+    local capture_lines="$SHADOW_CAPTURE_LINES"
+    [[ "$deep" -eq 1 ]] && capture_lines="$SHADOW_PLAN_CAPTURE_LINES"
+
     if [[ "$pane" == "-" ]]; then
         shadow_clean
     else
-        shadow_capture_pane "$pane" | shadow_clean
+        shadow_capture_pane "$pane" "$capture_lines" | shadow_clean
     fi
 }
 

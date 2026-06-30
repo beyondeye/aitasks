@@ -73,6 +73,10 @@ followed agent keeps producing output after you launch, so a later capture may
 differ. If the user pasted output directly, you can also pipe it through
 `aitask_shadow_capture.sh -` to clean it.
 
+For **plan analysis**, the `plan-*.md` sub-procedures recapture with a deeper
+window — `aitask_shadow_capture.sh --deep <followed_pane_id>` — so a long plan on
+screen isn't truncated to its tail. Ordinary reads here stay at the default depth.
+
 **Proactively surface a relevant capability (after every capture).** Each time
 you read the followed agent's screen — the first capture *and every later
 refetch* — glance at the new state and, if it makes one of your capabilities

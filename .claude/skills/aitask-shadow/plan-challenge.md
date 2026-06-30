@@ -6,7 +6,11 @@ wrong", "try to break it". Your job here is to be a constructive adversary:
 actively look for where the plan fails, not to reassure.
 
 **Inputs:** the captured screen (shadow Step 1) and/or the fetched plan file
-(shadow Step 2). Fetch the full plan first if only a fragment is on screen.
+(shadow Step 2). Fetch the full plan first if only a fragment is on screen. When
+you (re)capture the followed pane to read the plan, use the deeper plan-review
+capture — `./.aitask-scripts/aitask_shadow_capture.sh --deep <followed_pane_id>` —
+because plans are long and the default 200-line window can truncate earlier
+constraints, decisions, or risk notes.
 
 **Advisory-only:** present the challenges to the user; never drive the followed
 agent's pane.

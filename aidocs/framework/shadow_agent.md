@@ -26,7 +26,12 @@ detection stage (that idea is deferred — see "Phase detection" below).
    the followed agent's *current* state rather than a frozen launch-time
    snapshot. A `-` argument cleans pre-captured text from stdin (also the test
    seam). All tmux access goes through `lib/tmux_exec.sh`
-   (`tests/test_no_raw_tmux.sh`).
+   (`tests/test_no_raw_tmux.sh`). The plan-review sub-procedures
+   (`plan-explain` / `plan-challenge` / `plan-socratic` / `plan-assumptions`)
+   recapture with `--deep` (the script's `SHADOW_PLAN_CAPTURE_LINES`, default
+   400) because a whole plan can exceed the 200-line default and be truncated to
+   its tail; ordinary reads (explain-output, help-answer-prompt,
+   diagnose-errors) stay at the default depth to stay cheap.
 2. **Context-fetch** — `.aitask-scripts/aitask_shadow_context.sh <task_id>`
    resolves the followed agent's task file and most-recent plan, emitting
    `TASK_FILE:` / `PLAN_FILE:` lines (`--siblings` adds `SIBLING:` lines). For

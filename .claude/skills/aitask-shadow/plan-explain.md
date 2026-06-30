@@ -11,7 +11,11 @@ the motivation for why the plan relies on it.
 
 **Inputs:** the captured screen (shadow Step 1) and/or the fetched plan file
 (shadow Step 2). If you only have a partial plan on screen, fetch the plan file
-first so the explanation is complete.
+first so the explanation is complete. When you (re)capture the followed pane to
+read a plan, use the deeper plan-review capture —
+`./.aitask-scripts/aitask_shadow_capture.sh --deep <followed_pane_id>` — because
+plans are long and the default 200-line window can truncate earlier constraints,
+decisions, or risk notes.
 
 **Advisory-only:** present everything to the user; never drive the followed
 agent's pane.
