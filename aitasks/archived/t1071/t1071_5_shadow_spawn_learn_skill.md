@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: high
 depends: [t1071_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [shadow, claudeskills]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-30 11:16
-updated_at: 2026-06-30 18:54
+updated_at: 2026-06-30 19:08
+completed_at: 2026-06-30 19:08
 ---
 
 Let the shadow agent, on user request while shadowing, **spawn a dedicated learner
@@ -50,3 +51,14 @@ learner pointed at the followed pane".
 > **✅ gate:plan_approved** run=2026-06-30T15:54:27Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-06-30T16:04:38Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-06-30T16:08:28Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:890106517ea8c770
+
+> **✅ gate:risk_evaluated** run=2026-06-30T16:08:28Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1071_5/risk_evaluated_2026-06-30T16:08:28Z-risk_evaluated-a1.log`
