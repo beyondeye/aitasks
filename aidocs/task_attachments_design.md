@@ -239,6 +239,14 @@ stamps an `orphaned_at` epoch on the blob's meta when its `refs` empties; that
 committed field (not filesystem mtime, which git does not preserve across
 checkout) is the grace clock.
 
+### Hard-delete
+
+An explicit task **hard-delete** (e.g. `ait board` delete) — distinct from archival
+— *should* decref each of the deleted task's attachments (the per-blob fix is an
+O(k) decref driven by the task's own `attachments:` frontmatter). The current board
+delete path does **not** yet do this, so a hard-deleted task's blobs stay pinned in
+`refs` until that lands (a known gap, tracked separately).
+
 ### Garbage collection
 `ait attach gc` (opt-in) scans `attachments/meta/**.json`, finds zero-refcount
 hashes, then under the global attach lock re-confirms each is still empty and,
@@ -297,7 +305,10 @@ into a shared helper (Python `attachment_resolve.py`?).
    files win on git-diffability *and* concurrency (no global write-hotspot; an
    `add`/`rm` rewrites only one small file). All mutations serialize on the global
    `.attach.lock`; the JSON ops are set-based and idempotent (rebase-safe). Any
-   future aggregate index would be a generated cache only.
+   future aggregate index would be a generated cache only. Bucketed (hash-prefix)
+   metadata was evaluated (t1030_5) and **deferred** — it reintroduces the
+   write-hotspot per-blob files removed and fights the t1076 per-artifact manifest
+   direction; see [`attachment_metadata_bucketing.md`](attachment_metadata_bucketing.md).
 5. **Hash algorithm migration.** The `sha256:` prefix is the escape
    hatch. Document the migration recipe before we ever need it.
 6. **`fold` semantics.** When task A is folded into task B, do A's
