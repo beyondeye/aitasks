@@ -324,3 +324,72 @@ home + the duration parser; the fold-rebind + frontmatter-merge collision rules
 and that rebind reports changed hashes; and flag for **t1076_1** that
 version-aware GC must replace the simple zero-refcount test when per-blob meta
 becomes the artifact manifest.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `lib/attachment_meta.py`: `decref` accepts `now=<epoch>` and stamps
+    `orphaned_at` **only** on a true non-empty→empty transition, never
+    re-stamping (preserved across retry/rebase); `incref` clears it; new
+    `orphaned-at <hash>` getter; `rebind` now **prints each changed blob hash**
+    so callers can stage exactly those meta files.
+  - `lib/attachment_meta.sh` (NEW, sourceable, D3): `attach_meta_dir`/
+    `attach_meta`/`attach_meta_relpath`/`attach_task_hashes`/
+    `parse_duration_to_seconds`. Extracted from `aitask_attach.sh` and consumed
+    by it + fold.
+  - `aitask_attach.sh`: refactored to the shared lib; `rm` passes `now=$(date
+    +%s)`; implemented `cmd_gc` (grace via `attachments_gc_grace`; active+archived
+    blocking scan excluding Folded; re-read-refs-under-lock; delete + commit +
+    rollback-on-failure); `gc` removed from the stub surface.
+  - `aitask_fold_mark.sh`: lazy-sources the attach libs; under one
+    `with_attach_lock`, rebinds folded+transitive refs to the primary and merges
+    their frontmatter entries (dup-hash skip; deterministic unique-rename
+    `<stem>~<hex>` lengthening 8→16→32→64→counter); stages rebound meta; replaced
+    the silent `|| true` commit with a whole-transaction HEAD-restore rollback.
+  - Docs/config: `attachments_gc_grace` row in `task-workflow` SKILL.md (+ remote
+    prerenders re-rendered) and a commented block in `seed/project_config.yaml`;
+    design §8 rewritten for the D4 model + retention resolved.
+  - Tests: `test_attach_meta.sh` (→42), `test_attachment_meta_lib.sh` (NEW, 11),
+    `test_attach_archive_gc.sh` (NEW, 15), `test_attach_fold_rebind.sh` (NEW, 20),
+    `test_attach_scaffold.sh` (gc de-stubbed). 21-test sweep green;
+    shellcheck/py_compile clean.
+
+- **Deviations from plan:** None in approach. The plan's **D4 (archiving never
+  decrefs)** replaces the task's original AC #1 ("decref on archival"), so
+  `aitask_archive.sh` is **unchanged** (no `handle_attachment_deref`). The task
+  file + design §8 were synced (no silent deviation).
+
+- **Issues encountered:** (1) `aitask_update.sh` silently dropped `attachments:`
+  on every rewrite, so `--status Folded` destroyed attachments before fold could
+  read/merge them — fixed structurally (see Upstream defects). (2) Fold test
+  fixtures copy only a minimal lib set, so an unconditional `source` of the
+  attach libs broke `test_fold_mark` et al. — resolved by **lazy-sourcing** the
+  attach libs only when a folded task actually carries an attachment (detection
+  via `read_yaml_mappings`, already present).
+
+- **Key decisions:** D1 fold = frontmatter-merge + rebind (accessibility +
+  leak-freedom); D2 epoch `orphaned_at` in committed meta (git drops mtimes);
+  D3 shared `lib/attachment_meta.sh`; D4 archiving ≠ dereference (archived refs
+  block GC indefinitely; grace governs only fully-orphaned blobs).
+
+- **Upstream defects identified:** `.aitask-scripts/aitask_update.sh:522
+  write_task_file — rebuilt frontmatter dropped the unmodeled `attachments:`
+  block, a latent data-loss bug for ANY attachment-bearing task edited via
+  aitask_update (board status changes, etc.), not only fold. **Fixed in-task**
+  via `extract_frontmatter_block` (captures the block before the truncating
+  redirect and re-emits it verbatim) — self-contained, no new params, covered by
+  the fold-rebind test's merge-after-update path.
+
+- **Notes for sibling tasks:**
+  - **t1030_4 (manual verification):** exercise the live lifecycle — `ait attach
+    add` → archive (blob kept, still referenced) → `ait attach gc` (kept:
+    archived-referenced + in-grace; swept: `rm`'d past grace) → fold a task
+    carrying an attachment, confirm `ait attach ls <primary>` shows it. Use
+    `attachments_gc_grace: 0` to force a sweep, a large value to prove retention.
+  - **t1076_1:** `orphaned_at` + the zero-refcount test are the simple-refcount
+    GC; version-aware GC must replace "refs empty" with "no artifact *version*
+    references the blob" once per-blob meta becomes the artifact manifest. The
+    fold frontmatter-merge + collision logic is per-attachment and needs an
+    artifact-handle equivalent.
+  - Archiving never mutates the ledger (D4) — any future archival-time attachment
+    logic must preserve that (an archived task is a real referrer).
