@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [gates, aitask_board, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-16 12:50
-updated_at: 2026-06-16 12:50
+updated_at: 2026-06-30 11:51
 ---
 
 Fix the board In-Flight view polish issues found during live tmux inspection
