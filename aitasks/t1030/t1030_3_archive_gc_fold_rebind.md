@@ -30,6 +30,22 @@ Wire attachments into the **task lifecycle**: decref attachment hashes on archiv
 > `attachment_index.py` / `index.json` mean this per-blob model. See the t1030_2
 > plan `aiplans/p1030/p1030_2_local_backend_cache_index.md`.
 
+> **Design update 2 — AC #1 superseded (t1030_3 planning, 2026-06-30).**
+> **Archiving NEVER decrefs.** Archiving a task is a status change, not a
+> dereference: an archived task is still a real referrer of its attachments
+> (browsable history), so `aitask_archive.sh` makes **no** ledger change and the
+> `handle_attachment_deref()` helper described below is **not** added. `refs` is
+> the full set of referrers (active + archived); a blob is GC-eligible only when
+> **fully orphaned** (every referrer did `ait attach rm`, or the task file was
+> deleted). `attachments_gc_grace` therefore governs only fully-orphaned blobs,
+> and `ait attach gc`'s blocking scan counts **archived** tasks too (Folded
+> excluded). `ait attach rm` stamps `orphaned_at` (epoch, in the per-blob meta —
+> git does not preserve mtimes) as the grace clock. Fold transfer also **merges
+> the folded task's frontmatter entries** into the primary (not just `rebind`),
+> so the attachments stay accessible on the primary. The "decref on archive" /
+> `handle_attachment_deref` wording below is kept for context but is **not
+> implemented** — see the plan (decisions D1/D4) for the implemented model.
+
 Design spec: `aidocs/task_attachments_design.md` §8 (Archival / Garbage collection), §10 Q6 (fold semantics — attachments re-bind to the primary task), and the §8 open question on archive retention (keep + configurable grace).
 
 ## Context
