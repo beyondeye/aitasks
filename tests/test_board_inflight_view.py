@@ -78,7 +78,9 @@ class InFlightModelTests(unittest.TestCase):
             items = mgr.get_inflight_items()
             self.assertEqual([i.task_id for i in items], ["t1"])
             self.assertEqual(items[0].group, "agent")
-            self.assertIn("no gate ledger", items[0].next_action)
+            self.assertIn("No gate information yet", items[0].next_action)
+            # No-ledger cards omit the duplicate gate-summary line.
+            self.assertEqual(items[0].gate_summary, "")
 
     def test_ready_with_ledger_is_excluded(self):
         with tempfile.TemporaryDirectory() as td:
@@ -181,6 +183,69 @@ class InFlightPilotTests(unittest.TestCase):
                 patch("aitask_board.subprocess.Popen") as popen:
             self.assertTrue(app._focus_existing_agent_window("42"))
             popen.assert_called_once()
+
+
+class InFlightCardRenderTests(unittest.TestCase):
+    """Render-level checks: mount a real InFlightTaskCard and read what the
+    Labels actually display (post-markup), exercising compose() + Label rather
+    than a helper string in isolation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._orig_cwd = os.getcwd()
+        os.chdir(REPO_ROOT)
+
+    @classmethod
+    def tearDownClass(cls):
+        os.chdir(cls._orig_cwd)
+
+    def _render_card(self, body: str):
+        """Build an InFlightItem from `body`, mount its card, and return
+        {ops, action} -> rendered plain text."""
+        from aitask_board import InFlightTaskCard
+        from textual.app import App
+        from textual.widgets import Label
+
+        async def go():
+            with tempfile.TemporaryDirectory() as td:
+                mgr = _manager()
+                task = _task(Path(td), "t1_card.md", body)
+                mgr.task_datas[task.filename] = task
+                item = mgr.get_inflight_items()[0]
+
+                class CardApp(App):
+                    def compose(self):
+                        yield InFlightTaskCard(item, mgr, column_id="inflight-agent")
+
+                app = CardApp()
+                async with app.run_test(size=(90, 24)) as pilot:
+                    await pilot.pause()
+                    card = app.query_one(InFlightTaskCard)
+                    ops = card.query_one(".inflight-ops", Label)
+                    action = card.query_one(".inflight-action", Label)
+                    return {
+                        "ops": ops.render().plain,
+                        "action": action.render().plain,
+                    }
+
+        return asyncio.run(go())
+
+    def test_inflight_card_renders_literal_ops_and_friendly_copy(self):
+        rendered = self._render_card(_body("Implementing"))
+        # Bug 1: literal shortcut hint survives markup parsing (negative control:
+        # on the old code this renders empty).
+        self.assertIn("[p pick]", rendered["ops"])
+        self.assertNotIn("[g resume]", rendered["ops"])
+        # Bug 2: friendly, non-technical copy; no "ledger" jargon.
+        self.assertIn("No gate information yet", rendered["action"])
+        self.assertNotIn("ledger", rendered["action"].lower())
+
+    def test_inflight_card_renders_all_ops_for_pending_human(self):
+        rendered = self._render_card(
+            _body("Implementing", "gates: [review_approved]\n", LEDGER_PENDING_HUMAN)
+        )
+        for hint in ("[p pick]", "[g resume]", "[s sign-off]", "[f fail]"):
+            self.assertIn(hint, rendered["ops"])
 
 
 if __name__ == "__main__":

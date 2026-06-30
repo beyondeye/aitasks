@@ -705,7 +705,9 @@ class TaskManager:
         if result.error:
             return "gate state unavailable"
         if not result.has_ledger:
-            return "no gate ledger"
+            # The next_action line already carries the friendly
+            # "No gate information yet" copy; omit a duplicate summary line.
+            return ""
         if not state or not state.current:
             return "no recorded gates"
         parts = []
@@ -758,7 +760,7 @@ class TaskManager:
             next_action = "gate state unavailable"
         elif not result.has_ledger:
             group = "agent"
-            next_action = "no gate ledger — pick/resume"
+            next_action = "No gate information yet — pick/resume"
         elif state and state.archive_decision == "ALL_PASS":
             group = "human"
             next_action = "all gates pass — archive/re-enter"
@@ -1290,13 +1292,21 @@ class InFlightTaskCard(TaskCard):
         if self.item.blockers:
             yield Label(f"blocked by: {', '.join(self.item.blockers)}", classes="task-info")
 
+        # markup=False: the bracketed shortcut hints are literal UI text, not
+        # Rich console markup — otherwise Rich parses "[p pick]" as a tag and
+        # swallows it, leaving the hint line blank.
+        yield Label(self._ops_hint(self.item), classes="task-info inflight-ops", markup=False)
+
+    @staticmethod
+    def _ops_hint(item: InFlightItem) -> str:
+        """Assemble the literal operation-hint text for an In-Flight card."""
         ops = ["p pick"]
-        if self.item.has_ledger:
+        if item.has_ledger:
             ops.append("g resume")
-        if self.item.human_gates:
+        if item.human_gates:
             ops.append("s sign-off")
             ops.append("f fail")
-        yield Label("  ".join(f"[{op}]" for op in ops), classes="task-info inflight-ops")
+        return "  ".join(f"[{op}]" for op in ops)
 
     def _priority_border_color(self):
         if self.item.group == "blocked":
