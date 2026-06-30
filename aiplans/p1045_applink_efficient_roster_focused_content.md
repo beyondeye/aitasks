@@ -249,3 +249,34 @@ paired mobile task; no standalone before/after mitigation tasks are warranted.
 Follow the shared workflow Step 8 (review) → Step 9 (no branch to merge — current-branch
 profile; run the `risk_evaluated` gate at archival). Commit code with
 `performance: ... (t1045)`; commit docs/tests appropriately.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented the server side of the roster-vs-content split exactly
+  as planned. `content.Subscription` gained `content_all` (legacy default True) +
+  `content_panes`, a `streams_content(pane_id)` predicate (single source of truth), and a
+  `set_focus` that force-seeds a keyframe for the newly-focused pane only in split mode.
+  `pusher._push_pane` gained a one-line gate after the `pane_status` heartbeat: status-only
+  panes discard their force seed and return before any per-pane cursor capture / parse /
+  encode. `router.subscribe` validates+bounds `content_panes` like `panes` and echoes the
+  accepted content set when the split is active; `request_keyframe` now rejects non-content
+  panes with `BAD_PAYLOAD reason=not_content_pane`. Docs updated in `content_transport.md`
+  (§subscribe, §focus, §recovery) and `protocol.md` (§Subscription). New tests added to all
+  three applink suites (content 115, pusher 126, router 182 checks — all green).
+- **Deviations from plan:** None. All three review concerns raised during planning
+  (content_panes length cap, request_keyframe silent-no-op, verification strength) were
+  addressed in the approved plan and implemented as specified.
+- **Issues encountered:** None. The change is surgical and backward-compatible by design
+  (content_all default preserves legacy all-content streaming).
+- **Key decisions:** (1) `request_keyframe` tightened from lenient (any pane) to
+  content-panes-only, mirroring the `history` verb's `not_subscribed` rejection — chosen
+  over a silent no-op. (2) Verification asserts the gate returns *before* per-pane work via
+  a `cursor_calls` spy + pristine `PaneState` assertions, not merely zero output frames.
+  (3) `history` left keyed on roster membership (out of scope, noted).
+- **Upstream defects identified:** None.
+
+### Notes for sibling tasks
+- The paired client work is **aitasks_mobile#19** (reverse cross-repo dependency). The wire
+  contract the mobile side must adopt: send `subscribe.content_panes` (absent ⇒ legacy
+  all-content; list ⇒ status-only for the rest), drive the content pane via `focus` (control
+  clients) or re-subscribe with the new `content_panes` (read-only clients, since `focus` is
+  `monitor_control`+), and only call `request_keyframe` for an effective content pane.
