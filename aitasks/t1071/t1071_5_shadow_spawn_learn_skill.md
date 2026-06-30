@@ -7,8 +7,9 @@ status: Implementing
 labels: [shadow, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-30 11:16
-updated_at: 2026-06-30 17:48
+updated_at: 2026-06-30 18:54
 ---
 
 Let the shadow agent, on user request while shadowing, **spawn a dedicated learner
@@ -39,3 +40,8 @@ learner pointed at the followed pane".
 - Spawning a learner from the shadow opens a new pane running `/aitask-learn-skill <pane>`;
   the original shadow remains responsive; the followed pane is never written to.
 - tmux access stays within the gateway (`tests/test_no_raw_tmux.sh` passes).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-30T15:54:27Z status=pass attempt=1 type=human
