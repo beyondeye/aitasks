@@ -10,6 +10,7 @@ labels: [shadow, claudeskills]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-30 11:16
 updated_at: 2026-06-30 16:51
 ---
