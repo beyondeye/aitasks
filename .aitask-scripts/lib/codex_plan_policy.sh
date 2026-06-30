@@ -16,10 +16,12 @@ _AIT_CODEX_PLAN_POLICY_LOADED=1
 # codex_skill_forces_plan_mode <skill>
 # Accepts either a bare operation name (pick/qa/explain/explore) or a full
 # skill name (aitask-pick, ...). Returns 0 (force plan mode) for every skill
-# except the relaxed analysis skills; returns 1 for qa/explain/shadow.
+# except the relaxed skills; returns 1 for qa/explain/shadow/learn. `learn`
+# (aitask-learn-skill) is interactive but not a task-planning skill — like
+# shadow it should launch in Codex's default mode, not the /plan PTY wrapper.
 codex_skill_forces_plan_mode() {
     case "${1#aitask-}" in
-        qa|explain|shadow) return 1 ;;
-        *)                 return 0 ;;
+        qa|explain|shadow|learn) return 1 ;;
+        *)                       return 0 ;;
     esac
 }

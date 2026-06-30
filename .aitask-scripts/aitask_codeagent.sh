@@ -25,7 +25,7 @@ source "$SCRIPT_DIR/lib/codex_plan_policy.sh"
 # come from lib/agent_string.sh.
 
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
-SUPPORTED_OPERATIONS=(pick explain batch-review qa explore raw shadow)
+SUPPORTED_OPERATIONS=(pick explain batch-review qa explore raw shadow learn)
 
 # --- Global flags (set by argument parser) ---
 
@@ -431,6 +431,10 @@ build_invoke_command() {
                     # claude --model <id> "/aitask-shadow <pane_id> [<task_id>]"
                     CMD+=("/aitask-shadow ${args[*]}")
                     ;;
+                learn)
+                    # claude --model <id> "/aitask-learn-skill <pane_id|source>"
+                    CMD+=("/aitask-learn-skill ${args[*]}")
+                    ;;
                 batch-review)
                     # Interactive by default (no billing surcharge); opt into
                     # headless `--print` only when --headless was passed.
@@ -463,6 +467,7 @@ build_invoke_command() {
                         qa)      prompt=$(build_skill_prompt "\$aitask-qa" "${args[@]}") ;;
                         explore) prompt=$(build_skill_prompt "\$aitask-explore") ;;
                         shadow)  prompt=$(build_skill_prompt "\$aitask-shadow" "${args[@]}") ;;
+                        learn)   prompt=$(build_skill_prompt "\$aitask-learn-skill" "${args[@]}") ;;
                     esac
                     if codex_skill_forces_plan_mode "$operation"; then
                         CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
@@ -488,6 +493,9 @@ build_invoke_command() {
                     ;;
                 shadow)
                     CMD+=("--prompt" "/aitask-shadow ${args[*]}")
+                    ;;
+                learn)
+                    CMD+=("--prompt" "/aitask-learn-skill ${args[*]}")
                     ;;
                 batch-review|raw)
                     CMD+=("${args[@]}")
@@ -553,7 +561,7 @@ Options:
                          surcharge).
   -h, --help             Show this help
 
-Operations: pick, explain, batch-review, qa, explore, raw
+Operations: pick, explain, batch-review, qa, explore, raw, shadow, learn
 Agent string format: <agent>/<model> (e.g., claudecode/opus4_6, codex/gpt5_4)
 
 Resolution chain (highest priority first):

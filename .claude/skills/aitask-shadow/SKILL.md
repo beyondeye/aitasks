@@ -162,6 +162,12 @@ to spell it out).
   `plan-diagnose-errors.md`. It diagnoses the errors, presents candidate concerns
   for the user to pick from, and offers to spin chosen ones into `/aitask-explore`
   fix-tasks. On-request only — never offered proactively.
+- **Learn a skill from what the followed agent just did** ("learn a skill from
+  this", "capture this workflow as a skill", "turn this into a reusable skill") →
+  read and follow `spawn-learn-skill.md`. You do NOT run the learn yourself — it
+  would occupy you; instead you spawn a dedicated learner agent
+  (`/aitask-learn-skill <followed_pane_id>`) in its own new window, which captures
+  the followed pane read-only and authors the skill. On-request only.
 
 When a broad ask like "review this plan" spans several of these, run the relevant
 sub-procedures in sequence and present a combined result. When the user's intent

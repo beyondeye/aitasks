@@ -1079,6 +1079,40 @@ def resolve_pane_id_by_pid(session: str, pid: int) -> str | None:
     return None
 
 
+def pane_session(pane_id: str) -> str | None:
+    """Resolve the tmux session name that owns ``pane_id`` (``%5`` → ``aitasks``).
+
+    Routed through the cached ``_TMUX`` gateway so the shadow learner-spawn glue
+    (t1071_5) can target a new window into the *followed* agent's session without
+    issuing a raw tmux call of its own. Returns the session name, or ``None`` if
+    the pane does not exist or tmux is unavailable.
+    """
+    if not pane_id:
+        return None
+    rc, out = _TMUX.run(["display-message", "-p", "-t", pane_id, "#{session_name}"])
+    if rc != 0:
+        return None
+    return out.strip() or None
+
+
+def unique_window_name(existing: set[str], base: str) -> str:
+    """Return ``base`` if free among ``existing`` window names, else ``base-2``, ….
+
+    Pure (no tmux): mirrors ``tui_switcher.action_shortcut_explore``'s
+    ``while f"agent-explore-{n}" in running: n += 1`` uniqueness loop so multiple
+    learners spawned from shadows (t1071_5) — including several with no source task
+    id, which would otherwise all collapse to ``base`` — get distinct,
+    monitor-legible window names. The first free name is ``base`` itself; the
+    numeric suffix starts at ``2``.
+    """
+    if base not in existing:
+        return base
+    n = 2
+    while f"{base}-{n}" in existing:
+        n += 1
+    return f"{base}-{n}"
+
+
 def attach_shadow_cleanup_hook(agent_pane: str, companion_pane: str) -> None:
     """Wire the ``pane-died`` companion-cleanup hook onto a primary agent pane.
 
