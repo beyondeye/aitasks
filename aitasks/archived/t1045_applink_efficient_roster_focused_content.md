@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: performance
-status: Implementing
+status: Done
 labels: [applink, applink_dataplane]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1044
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 18:17
-updated_at: 2026-06-30 18:53
+updated_at: 2026-06-30 19:07
+completed_at: 2026-06-30 19:07
 boardidx: 100
 ---
 
