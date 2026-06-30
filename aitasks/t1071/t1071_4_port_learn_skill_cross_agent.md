@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t1071_2]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [shadow, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-06-30 11:16
-updated_at: 2026-06-30 11:16
+updated_at: 2026-06-30 12:41
 ---
 
 Port the `aitask-learn-skill` skill (Claude version landed in t1071_2) to the other
