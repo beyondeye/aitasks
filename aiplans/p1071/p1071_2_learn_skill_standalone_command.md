@@ -4,7 +4,7 @@ Parent Task: aitasks/t1071_shadow_error_diagnosis_and_learn_skill_command.md
 Archived Sibling Plans: aiplans/archived/p1071/p1071_1_shadow_diagnose_errors_subprocedure.md
 Base branch: main
 plan_verified:
-  - claudecode/opus4_8 @ 2026-06-30 09:27
+  - claudecode/opus4_8 @ 2026-06-30 09:38
 ---
 
 # Plan — Capability B: standalone `aitask-learn-skill` (file / URL / repo / **tmux pane** sources)
@@ -53,11 +53,11 @@ pane." Removes the "thin routing entry" framing.
   (`repo_fetch_file`:151, `repo_list_md_files`:168), `aitask-contribute/SKILL.md`,
   `skill_authoring_conventions.md`.
 - **Pane capture:** `./.aitask-scripts/aitask_shadow_capture.sh <pane_id>` captures a
-  pane read-only; **depth = `SHADOW_CAPTURE_LINES` env (default 200, `-S -<N>`)** — the
-  pane-source path sets it higher (e.g. `SHADOW_CAPTURE_LINES=2000`) for a multi-step
-  workflow. `aitask_shadow_capture.sh -` cleans a piped buffer (the dry-run/test seam).
-  It is a shared framework helper (not agent-specific), so ported skill copies can call
-  it too.
+  pane read-only; **depth = `SHADOW_CAPTURE_LINES` env (default 200, `-S -<N>`)**. The
+  pane-source path drives this env in an **incremental deepening loop** (see Step 2) —
+  NOT a fixed cap. `aitask_shadow_capture.sh -` cleans a piped buffer (the dry-run/test
+  seam). It is a shared framework helper (not agent-specific), so ported skill copies can
+  call it too.
 - Sibling A (t1071_1) landed; greeting derives from shadow Step 3 at runtime (no parser).
 - **CORRECTION** carried into the port follow-up: OpenCode dir is `.opencode/commands/`
   (plural) — confirmed on disk; `.opencode/command/` does not exist.
@@ -107,9 +107,18 @@ Static, user-invocable. Source resolution + fetch, then hand to `generate.md`:
    - local file / repo single file / repo dir / generic URL — mirror reviewguide-import
      Step 1b classification.
 2. **Acquire content:**
-   - **pane id** → `SHADOW_CAPTURE_LINES=2000 ./.aitask-scripts/aitask_shadow_capture.sh <pane_id>`
-     (read-only deep capture). For a dry-run/test, accept piped content via
-     `aitask_shadow_capture.sh -`.
+   - **pane id → incremental deepening loop** (read-only; NOT a fixed cap):
+     1. Capture an initial chunk: `SHADOW_CAPTURE_LINES=1000 ./.aitask-scripts/aitask_shadow_capture.sh <pane_id>`.
+     2. Judge whether the **start** of the workflow-to-be-learned is present, or the
+        earliest captured lines begin mid-workflow (truncated at the top).
+     3. If truncated — confirm with the user ("the captured history may not include the
+        start of this workflow; pull more?") and re-capture with `SHADOW_CAPTURE_LINES`
+        increased by **+1000** each iteration (1000 → 2000 → 3000 …).
+     4. Stop when the workflow's beginning is captured, OR scrollback is **exhausted** (a
+        larger `SHADOW_CAPTURE_LINES` returns no additional lines — hit the top of
+        history), OR the user says it is enough. Then hand the full capture to `generate.md`.
+   - For a dry-run/test, accept piped content via `aitask_shadow_capture.sh -` (a fixture
+     can simulate a truncated first chunk to exercise the deepening loop).
    - external → `source .aitask-scripts/lib/repo_fetch.sh && repo_fetch_file "URL"` (or
      `repo_list_md_files "URL"` for a dir) with the documented `WebFetch` raw-URL fallback;
      local files read directly. github/gitlab/bitbucket only.
@@ -145,7 +154,9 @@ Static, user-invocable. Source resolution + fetch, then hand to `generate.md`:
 - **Pane-source dry-run (fixture):** pipe a fixture transcript of a multi-step command
   sequence through `aitask_shadow_capture.sh -`; confirm the flow analyzes it, offers the
   multi-part selection, asks the generalization question, and generates a well-formed
-  skill — read-only throughout (no write to any pane).
+  skill — read-only throughout (no write to any pane). Use a fixture whose first chunk
+  looks truncated to exercise the **incremental deepening loop** (deepen → re-capture →
+  detect exhaustion).
 - **Grep checks:** `grep -n '%\[0-9\]' .claude/skills/aitask-learn-skill/SKILL.md` (pane
   classifier present); `generate.md` referenced by `SKILL.md`.
 - Confirm all three follow-up tasks created + committed; the shadow follow-up has
@@ -168,9 +179,10 @@ Static, user-invocable. Source resolution + fetch, then hand to `generate.md`:
   deterministic; `aitask_skill_verify.sh` checks structure, not usefulness. · severity:
   medium · → mitigation: user confirms which part + the generalization Q&A + dry-run on
   both source kinds + the verify gate. Advisory/read-only — no destructive surface.
-- Pane capture is bounded by `SHADOW_CAPTURE_LINES` — a very long workflow may exceed the
-  window. · severity: low · → mitigation: deep default (2000) + the multi-part step makes
-  "only the visible history" explicit to the user.
+- A long workflow may exceed an initial capture window. · severity: low · → mitigation:
+  the **incremental deepening loop** (Step 2) grows `SHADOW_CAPTURE_LINES` by +1000 per
+  pass — with user confirmation — until the workflow start is captured or scrollback is
+  exhausted; no silent truncation.
 - Requirement coverage sound: four source types incl. pane id, multi-part + generalization,
   shared core, both follow-ups (port + deferred shadow spawn). · severity: low · → mitigation: TBD
 
