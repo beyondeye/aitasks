@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [gates, aitask_board, tui]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 12:50
-updated_at: 2026-06-30 17:33
+updated_at: 2026-06-30 17:48
+completed_at: 2026-06-30 17:48
 ---
 
 Fix the board In-Flight view polish issues found during live tmux inspection
@@ -46,3 +47,14 @@ correctly, including non-gated tasks, but two UI details need cleanup:
 > **✅ gate:plan_approved** run=2026-06-30T14:33:13Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-06-30T14:47:33Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-06-30T14:48:25Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:fcd240117481bd5e
+
+> **✅ gate:risk_evaluated** run=2026-06-30T14:48:25Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/635_22/risk_evaluated_2026-06-30T14:48:25Z-risk_evaluated-a1.log`
