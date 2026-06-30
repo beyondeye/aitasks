@@ -349,3 +349,51 @@ last-run-wins status.
 Commit code (`enhancement: …(t635_21)`) and plan separately, run gates/verify_build,
 then `aitask_archive.sh 635_21` (child archival; parent archives when
 `children_to_implement` empties — t635_21 is not the last child).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented Option B exactly as designed. In
+  `.aitask-scripts/board/aitask_merge.py`: added a `lib/` `sys.path` insert +
+  `import gate_ledger` (mirroring `board/aitask_board.py`); added helpers
+  `_conflict_markers`, `_split_gate_section`, `_block_text`, `_section_is_clean`,
+  `_union_gate_runs`, and the `_ISO_RUN_RE` constant; rewired `merge_body()` to try
+  the safe gate-runs union before the conflict-marker fallback. Added `TestGateRunsUnion`
+  (13 cases) to `tests/test_aitask_merge.py` and Test 15 (concurrent gate-runs union via
+  the real `ait sync` + `aitask_gate.sh append` path) to `tests/test_sync.sh`.
+  `aitask_sync.sh` and `lib/gate_ledger.py` were left unchanged, as planned.
+- **Deviations from plan:** One addition surfaced during implementation — heads are now
+  compared with trailing newlines stripped (`local_head.rstrip("\n") ==
+  remote_head.rstrip("\n")`) and the merged body is rebuilt with one canonical blank
+  line before the section. Without this, the side carrying the ledger includes the
+  blank lines that precede `## Gate Runs` while a side with no ledger does not, so
+  semantically-identical heads compared unequal and the `test_one_side_no_section`
+  case fell to a (wrong) conflict. Also added `test_attempt_sorted_numerically` to lock
+  in the numeric-attempt sort the reviewer requested.
+- **Issues encountered:** (1) Initial `test_one_side_no_section` failure → fixed by the
+  head-normalization above. (2) Test 15 initially aborted under `set -e` because
+  `git add -A` staged the copied (untracked) `.aitask-scripts/` into the seed commit,
+  making the other clone's `git pull` abort on "untracked working tree files would be
+  overwritten". Fixed by staging only `aitasks/t1_sample.md` (path-scoped), which is
+  also the correct discipline for these tests.
+- **Key decisions:** Safety-first union — six guards (valid-ISO run, full-text dedup,
+  no-ambiguous-winner on `(name,run,attempt)`, clean-section, canonical normalization,
+  real-append fixtures) each degrade to the existing conflict-marker path rather than
+  silently reorder or drop ledger data. Ordering is by valid-ISO `run` (lexicographic
+  == chronological, so `derive_gate_runs` last-in-file-order picks the genuinely newest
+  per gate), with numeric `attempt` and full-text as deterministic tiebreaks →
+  side-order-independent output. `aitask_sync.sh` needed no change (the union lives
+  inside `merge_body`, already on the `try_auto_merge` path).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** This unblocks **t635_15** (async human gates) and
+  **t635_16** (remote projection) — cross-PC concurrent appends to one task's
+  `## Gate Runs` now auto-merge on `ait sync`. The union deliberately bails to a manual
+  conflict on any anomalous/non-canonical ledger (non-ISO run, divergent same-identity
+  block, stray prose under the header), so those siblings can rely on clean machine
+  output auto-merging while corruption still surfaces for a human. The `lib/`→`board/`
+  import idiom (`sys.path.insert(... parent.parent / "lib")`) is the supported way to
+  reuse `gate_ledger` from a `board/` script.
+- **Verification:** `python3 tests/test_aitask_merge.py` (41 pass),
+  `bash tests/test_sync.sh` (42 pass), `python3 tests/test_gate_ledger_python_parser.py`
+  (38 pass), `bash tests/test_gate_ledger.sh` (27 pass),
+  `python3 -m py_compile .aitask-scripts/board/aitask_merge.py`,
+  `shellcheck --severity=error .aitask-scripts/aitask_sync.sh` (clean).
