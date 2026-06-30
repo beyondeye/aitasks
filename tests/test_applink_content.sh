@@ -282,6 +282,42 @@ sub.apply_subscribe({"panes": ["%2"]})
 check("re-subscribe drops unsubscribed pane state", "%1" not in sub._pane)
 check("re-subscribe clears focus when focused pane dropped", sub.focused_pane is None)
 
+# --- content split (t1045): status (panes) vs content (content_panes) -------
+sc = C.Subscription()
+sc.apply_subscribe({"panes": ["%1", "%2"]})
+check("content_all defaults True when content_panes absent (legacy)", sc.content_all is True)
+check("legacy: streams_content True for every roster pane",
+      sc.streams_content("%1") and sc.streams_content("%2"))
+check("legacy: streams_content False for a pane outside the roster",
+      sc.streams_content("%9") is False)
+
+sc2 = C.Subscription()
+sc2.apply_subscribe({"panes": ["%1", "%2", "%3"], "content_panes": ["%2", "%9"]})
+check("content_panes present -> content_all False", sc2.content_all is False)
+check("content_panes intersected with roster (drops out-of-roster %9)", sc2.content_panes == {"%2"})
+check("streams_content: content pane streams", sc2.streams_content("%2") is True)
+check("streams_content: status-only pane does NOT stream", sc2.streams_content("%1") is False)
+check("streams_content: pane outside roster does NOT stream", sc2.streams_content("%9") is False)
+
+# set_focus promotes the focused pane in split mode (forces a keyframe)...
+sc2.force.clear()
+sc2.set_focus("%1")
+check("split mode: set_focus forces a keyframe for the newly-focused pane", "%1" in sc2.force)
+check("split mode: focused pane now streams content", sc2.streams_content("%1") is True)
+# ...but in legacy content_all mode it adds no force (the pane already streams).
+sc3 = C.Subscription()
+sc3.apply_subscribe({"panes": ["%1", "%2"]})
+sc3.force.clear()
+sc3.set_focus("%1")
+check("legacy mode: set_focus adds no force (pane already content)", "%1" not in sc3.force)
+
+# an empty content_panes list -> no pane streams until focus picks one
+sc4 = C.Subscription()
+sc4.apply_subscribe({"panes": ["%1", "%2"], "content_panes": []})
+check("content_panes:[] -> content_all False, empty content set, nothing streams",
+      sc4.content_all is False and sc4.content_panes == set()
+      and not sc4.streams_content("%1") and not sc4.streams_content("%2"))
+
 # --- history_rows: scrollback with negative row_ids (t1057) -----------------
 # Each line's text == its absolute capture index, so the expected row is read
 # straight from the line list (independent ground truth, not the function).

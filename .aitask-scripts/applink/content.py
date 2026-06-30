@@ -563,6 +563,14 @@ class Subscription:
         self.cadence_focused_ms = DEFAULT_FOCUSED_MS
         self.keyframe_interval_ms = DEFAULT_KEYFRAME_INTERVAL_MS
         self.focused_pane: Optional[str] = None
+        # Roster-vs-content split (t1045). The roster (`self.panes`) drives the
+        # `pane_status` heartbeat for every discovered pane; the *content* set —
+        # the panes that get heavy binary frames — is narrower. ``content_all``
+        # True is the legacy default (every status pane also streams content), so
+        # a client that never sends ``content_panes`` is unchanged. When False,
+        # only ``content_panes`` (∪ the focused pane) stream binary frames.
+        self.content_all: bool = True
+        self.content_panes: set[str] = set()
         self.viewport_hint = None  # stored, ignored until Stage 4 clipping
         self.force: set[str] = set()
         self._pane: dict[str, PaneState] = {}
@@ -591,6 +599,21 @@ class Subscription:
         # `subscribe` reply.
         if len(self.panes) > MAX_SUBSCRIBED_PANES:
             self.panes = set(sorted(self.panes)[:MAX_SUBSCRIBED_PANES])
+        # Roster-vs-content split (t1045). An absent ``content_panes`` key keeps the
+        # legacy "all status panes also stream content" behavior; a present list
+        # (possibly empty) names exactly the content panes — the rest are
+        # status-only. Entries are intersected with the (already-capped, validated)
+        # roster, so ``content_panes`` can only ever shrink the streamed set.
+        cp = payload.get("content_panes")
+        if cp is None:
+            self.content_all = True
+            self.content_panes = set()
+        else:
+            self.content_all = False
+            self.content_panes = (
+                {p for p in cp if isinstance(p, str) and p} & self.panes
+                if isinstance(cp, list) else set()
+            )
         self.cadence_idle_ms, self.cadence_focused_ms, self.keyframe_interval_ms = (
             clamp_cadences(
                 payload.get("cadence_idle_ms", self.cadence_idle_ms),
@@ -645,7 +668,28 @@ class Subscription:
         self._pending_history = []
         return pending
 
+    def streams_content(self, pane_id: str) -> bool:
+        """Whether ``pane_id`` should receive binary content frames (t1045).
+
+        The roster (``self.panes``) always gets the ``pane_status`` heartbeat; only
+        an *effective content pane* gets keyframe/delta/append/dim. In legacy
+        ``content_all`` mode every roster pane is a content pane; otherwise the
+        content set is the explicit ``content_panes`` plus the focused pane (the
+        one the user is viewing always streams)."""
+        if pane_id not in self.panes:
+            return False
+        return (self.content_all
+                or pane_id in self.content_panes
+                or pane_id == self.focused_pane)
+
     def set_focus(self, pane_id: str) -> None:
+        # In the roster-vs-content split (t1045) the focused pane becomes a content
+        # pane; force an immediate keyframe so it starts streaming at once. In
+        # legacy ``content_all`` mode it already streams, so no force is needed
+        # (keeps the pre-t1045 focus behavior — cadence-only — unchanged).
+        if (pane_id in self.panes and not self.content_all
+                and pane_id not in self.content_panes):
+            self.force.add(pane_id)
         self.focused_pane = pane_id
 
     def cadence_for(self, pane_id: str) -> int:

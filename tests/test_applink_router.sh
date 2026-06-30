@@ -333,9 +333,46 @@ r = router.handle(req("subscribe", {"panes": []}, auth=bearer), zconn)
 check("empty subscribe with nothing discovered -> empty panes (no crash)",
       r["kind"] == "res" and zconn.subscription.panes == set())
 
+# --- content split (t1045): content_panes selects which panes stream binary ----
+spconn = ConnState()
+r = router.handle(req("subscribe", {"panes": ["%1", "%2"], "content_panes": ["%2"]}, auth=bearer), spconn)
+check("content_panes subscribe -> res ok", r["kind"] == "res" and r["payload"]["ok"] is True)
+check("content_panes splits roster (panes) vs content (content_panes)",
+      spconn.subscription.panes == {"%1", "%2"}
+      and spconn.subscription.content_all is False
+      and spconn.subscription.content_panes == {"%2"})
+check("content_panes echoed in res", r["payload"].get("content_panes") == ["%2"])
+# entries outside the roster are dropped (model intersects with panes)
+r = router.handle(req("subscribe", {"panes": ["%1"], "content_panes": ["%1", "%9"]}, auth=bearer), ConnState())
+check("content_panes entry outside roster dropped", r["payload"].get("content_panes") == ["%1"])
+# absent content_panes -> legacy all-content; res shape unchanged (no content_panes key)
+r = router.handle(req("subscribe", {"panes": ["%1", "%2"]}, auth=bearer), ConnState())
+check("absent content_panes -> legacy res (no content_panes key)", "content_panes" not in r["payload"])
+# non-list / over-long content_panes -> BAD_PAYLOAD (bounded like `panes`)
+r = router.handle(req("subscribe", {"panes": ["%1"], "content_panes": "%1"}, auth=bearer), ConnState())
+check("non-list content_panes -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+r = router.handle(req("subscribe", {"panes": ["%1"], "content_panes": ["%1"] * 300}, auth=bearer), ConnState())
+check("over-long content_panes -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
+
+# request_keyframe (t1045): valid only for an effective content pane. dconn is a
+# legacy (content_all) subscription over {%1,%2}, so %1 IS a content pane.
+r = router.handle(req("request_keyframe", {"pane_id": "%1"}, auth=bearer), dconn)
+check("request_keyframe content pane -> res ok", r["payload"]["ok"] is True)
+check("request_keyframe adds content pane to force set", "%1" in dconn.subscription.force)
+# A pane outside the content set (here unsubscribed %3) is rejected — the old
+# lenient any-pane behavior is tightened into one coherent rule.
 r = router.handle(req("request_keyframe", {"pane_id": "%3"}, auth=bearer), dconn)
-check("request_keyframe -> res ok", r["payload"]["ok"] is True)
-check("request_keyframe adds pane to force set", "%3" in dconn.subscription.force)
+check("request_keyframe non-content pane -> BAD_PAYLOAD reason=not_content_pane",
+      r["payload"]["code"] == "BAD_PAYLOAD"
+      and r["payload"].get("detail", {}).get("reason") == "not_content_pane")
+check("request_keyframe rejection seeds no force", "%3" not in dconn.subscription.force)
+# A subscribed-but-status-only pane is likewise rejected (split-mode case).
+skconn = ConnState()
+router.handle(req("subscribe", {"panes": ["%1", "%2"], "content_panes": ["%2"]}, auth=bearer), skconn)
+r = router.handle(req("request_keyframe", {"pane_id": "%1"}, auth=bearer), skconn)
+check("request_keyframe status-only pane -> not_content_pane",
+      r["payload"]["code"] == "BAD_PAYLOAD"
+      and r["payload"].get("detail", {}).get("reason") == "not_content_pane")
 r = router.handle(req("request_keyframe", {}, auth=bearer), dconn)
 check("request_keyframe missing pane_id -> BAD_PAYLOAD", r["payload"]["code"] == "BAD_PAYLOAD")
 

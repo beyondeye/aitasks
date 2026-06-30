@@ -158,6 +158,7 @@ Mobile drives subscription via control-plane verbs (JSON envelope, text frames):
  "auth":"<bearer>",
  "payload":{
    "panes": ["<pane_id_1>", "<pane_id_2>"],
+   "content_panes": ["<pane_id_1>"],
    "cadence_focused_ms": 250,
    "cadence_idle_ms": 3000,
    "keyframe_interval_ms": 30000,
@@ -167,11 +168,14 @@ Mobile drives subscription via control-plane verbs (JSON envelope, text frames):
 
 - `keyframe_interval_ms` upper-bounds the gap between forced keyframes (defends against accumulated delta drift). Server picks min of this and its own policy.
 - `viewport_hint` (Stage 4) — server clips spans/rows to the requested column window before encoding. Optional.
-- `panes` — the pane ids (`%N`) to follow. An **empty list `[]` (or an absent `panes` key) means "all currently-discovered panes"**: the server expands it to the full pane roster it enumerates at subscribe time. This lets a client subscribe to everything without a prior discovery handshake (the mobile app sends `panes: []`). The expansion is **point-in-time** — panes that appear later are not auto-added; the client re-subscribes (or `request_keyframe`s) to pick them up. A present-but-non-list `panes` value is a `BAD_PAYLOAD` error.
+- `panes` — the pane ids (`%N`) to follow. This is the **status (roster) set**: every pane in it gets the `pane_status` heartbeat (badges, idle / awaiting-input, window/task ids). An **empty list `[]` (or an absent `panes` key) means "all currently-discovered panes"**: the server expands it to the full pane roster it enumerates at subscribe time. This lets a client subscribe to everything without a prior discovery handshake (the mobile app sends `panes: []`). The expansion is **point-in-time** — panes that appear later are not auto-added; the client re-subscribes (or `request_keyframe`s) to pick them up. A present-but-non-list `panes` value is a `BAD_PAYLOAD` error.
+- `content_panes` — optional **content set**: the panes that get heavy binary frames (`keyframe`/`delta`/`append`/`dim`). It is intersected with `panes`, so it can only narrow the streamed set; a non-list value, or one longer than the subscribe pane cap, is a `BAD_PAYLOAD` error.
+  - **Absent** ⇒ legacy behavior: **every** status pane also streams content (a `panes: []` subscribe streams all panes). Older clients that never send the field are unchanged.
+  - **Present** (a list, possibly empty) ⇒ only the listed panes stream content; the rest are **status-only** (roster badges, zero binary bytes). `[]` means "no content panes yet" — pick one with `focus` (or re-subscribe with the pane listed). `focus` always promotes the focused pane into the content set (the pane the user is viewing streams). Read-only clients cannot reach `focus` (it is `monitor_control`+), so they drive the content set via `content_panes` and re-subscribe when the viewed pane changes.
 
-Server responds with the current state (a `keyframe` per subscribed pane) on the data plane. The `subscribe` `res` echoes the accepted pane set in `payload.panes` (the expanded roster, when an empty/absent list was sent).
+Server responds with the current state (a `keyframe` per **content** pane; `pane_status` for the whole roster) on the data plane. The `subscribe` `res` echoes the accepted roster in `payload.panes` (the expanded set, when an empty/absent list was sent), and — when the content split is active — the accepted content set in `payload.content_panes`.
 
-**Bandwidth note (all-panes subscribe).** Subscribing to the whole roster streams full content (keyframe + deltas) for every pane. The per-pane delta engine keeps idle panes near-zero-cost after their initial keyframe, and `focus` raises only one pane's cadence, so the steady-state cost is bounded; the main cost is the one-time keyframe burst on connect. A more bandwidth-frugal contract — `pane_status` (roster badges) for all panes but binary content only for the focused/explicitly-subscribed pane — is a planned follow-up that requires coordinated server **and** mobile-app changes.
+This split is the bandwidth-frugal contract for cellular: roster badges for every pane, full content only for the one pane the user is actually viewing. The wire change is **additive** — `content_panes` is a new optional field and `focus` gains a content-promotion side effect — so it composes per [protocol.md §Versioning](protocol.md#versioning) and older clients keep their all-content behavior.
 
 ### `focus`
 
@@ -181,7 +185,7 @@ Server responds with the current state (a `keyframe` per subscribed pane) on the
  "payload":{"pane_id":"<id>"}}
 ```
 
-Server raises that pane's cadence to `cadence_focused_ms`, lowers all others to `cadence_idle_ms`. Single focused pane at any time (matches `monitor_app.py`'s focus model). Acknowledged via `res` — no data-plane echo.
+Server raises that pane's cadence to `cadence_focused_ms`, lowers all others to `cadence_idle_ms`. Single focused pane at any time (matches `monitor_app.py`'s focus model). Acknowledged via `res` — no data-plane echo. When the [content split](#subscribe) is active, `focus` also **promotes** the focused pane into the content set (forcing an immediate keyframe), so the viewed pane streams even when it was not listed in `content_panes`.
 
 ### Back-pressure
 
@@ -236,7 +240,7 @@ The v1 server (`applink/router.py` + `pusher._drain_history`) pins down the part
  "payload":{"pane_id":"<id>"}}
 ```
 
-Server replies with a fresh `keyframe` on the data plane within one refresh tick. This is the **only** recovery path — there is no replay buffer of past deltas.
+Server replies with a fresh `keyframe` on the data plane within one refresh tick. This is the **only** recovery path — there is no replay buffer of past deltas. `request_keyframe` is valid only for an **effective content pane** (a pane in `content_panes`, the focused pane, or any pane in legacy all-content mode); requesting one for a status-only or unsubscribed pane is rejected with `BAD_PAYLOAD` `reason: not_content_pane` — the same shape as `history`'s `not_subscribed` rejection. A keyframe only means something for a pane the client is streaming.
 
 ## Compression
 

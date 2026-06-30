@@ -333,6 +333,15 @@ class FrameRouter:
             panes = payload.get("panes")
             if panes is not None and not isinstance(panes, list):
                 return self._bad_field(msg_id, verb, "panes")
+            # content_panes (t1045): the roster-vs-content split selector. Validate
+            # AND bound it exactly like `panes` (non-list rejected; over-_MAX_PANES
+            # rejected) so a malformed/hostile payload cannot force the model to
+            # iterate a huge array before the intersection shrinks it. Per-entry
+            # %N validation is unnecessary — the model intersects with the
+            # already-validated roster and content_panes reaches no shell sink.
+            cp = payload.get("content_panes")
+            if cp is not None and (not isinstance(cp, list) or len(cp) > _MAX_PANES):
+                return self._bad_field(msg_id, verb, "content_panes")
             # An *explicit* non-empty list is validated entry-by-entry; an
             # empty/absent list keeps its "all currently-discovered panes"
             # meaning. Distinguishing the two matters: an explicit list whose
@@ -361,14 +370,30 @@ class FrameRouter:
             if conn.subscription is None:
                 conn.subscription = Subscription()
             accepted = conn.subscription.apply_subscribe(payload)
-            return self._res(msg_id, verb, {"ok": True, "panes": sorted(accepted)})
+            reply = {"ok": True, "panes": sorted(accepted)}
+            # Echo the accepted content set so the client can confirm the split was
+            # applied — only when active, keeping the legacy res shape unchanged.
+            if not conn.subscription.content_all:
+                reply["content_panes"] = sorted(conn.subscription.content_panes)
+            return self._res(msg_id, verb, reply)
 
         if verb == "request_keyframe":
             pane_id = self._req_pane_id(payload)
             if pane_id is None:
                 return self._bad_field(msg_id, verb, "pane_id")
-            if conn.subscription is not None:
-                conn.subscription.request_keyframe(pane_id)
+            # A keyframe is a content-recovery frame, so it only means something for
+            # a pane the client is actually streaming (t1045). Reject panes that are
+            # not effective content panes — mirrors the `history` verb's
+            # not_subscribed rejection. Without this, requesting a keyframe for a
+            # status-only (or unsubscribed) pane would be a silent no-op: the seed
+            # would be discarded at the pusher's content gate and no frame sent.
+            if conn.subscription is None or not conn.subscription.streams_content(pane_id):
+                return self._err(
+                    msg_id, verb, ERR_BAD_PAYLOAD,
+                    f"pane '{pane_id}' is not a content pane",
+                    detail={"reason": "not_content_pane"},
+                )
+            conn.subscription.request_keyframe(pane_id)
             return self._res(msg_id, verb, {"ok": True})
 
         if verb == "history":

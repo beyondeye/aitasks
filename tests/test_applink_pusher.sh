@@ -74,9 +74,11 @@ class FakeMonitor:
         self.snaps = {}
         self.cursor = (2, 3, True, 0)
         self.last_capture_lines = {}   # t1092: records the depth each history pull asked for
+        self.cursor_calls = []         # t1045: pane_ids that triggered a per-pane cursor capture
     async def capture_all_async(self):
         return dict(self.snaps)
     async def capture_cursor_async(self, pane_id):
+        self.cursor_calls.append(pane_id)
         return self.cursor
     def get_pane(self, pane_id):       # t1092: _pane_cache accessor (no subprocess)
         snap = self.snaps.get(pane_id)
@@ -872,6 +874,73 @@ async def main():
           subh2.state_for("%1").frame_id == fid_before)
     check("history oversize: queue drained best-effort (no retry queued)",
           subh2.has_pending_history() is False)
+
+    # === t1045: roster status for all panes, binary content only for content panes
+    n45 = {"t": 9000.0}
+    sub45 = C.Subscription()
+    # roster subscribe over two panes with content_panes: [] -> status-only for both
+    sub45.apply_subscribe({"panes": ["%1", "%2"], "content_panes": [],
+                           "cadence_idle_ms": 1000, "cadence_focused_ms": 300})
+    ws45, mon45 = FakeWS(), FakeMonitor()
+    mon45.snaps["%1"] = FakeSnap(FakePane("%1"), "a1\nb1\n")
+    mon45.snaps["%2"] = FakeSnap(FakePane("%2"), "a2\nb2\n")
+    sched45 = PushScheduler(FakeConn(sub45), ws45, mon45, clock=lambda: n45["t"])
+
+    await sched45._run_once()
+    check("t1045 status-only: zero binary frames for any pane", len(binaries(ws45)) == 0)
+    ps45 = [json.loads(t) for t in texts(ws45)]
+    check("t1045 status-only: pane_status emitted for the whole roster",
+          {p["payload"]["pane_id"] for p in ps45 if p.get("verb") == "pane_status"} == {"%1", "%2"})
+    check("t1045 status-only: NO per-pane cursor capture (gate returns before encode)",
+          mon45.cursor_calls == [])
+    check("t1045 status-only: PaneState left pristine (no frame_id/row_sigs/hash advance)",
+          all(sub45.state_for(p).frame_id == 0
+              and sub45.state_for(p).row_sigs is None
+              and sub45.state_for(p).last_hash is None for p in ("%1", "%2")))
+
+    # focus promotes %1 into the content set -> it streams; %2 stays status-only
+    n45["t"] += 2.0; ws45.sent.clear(); mon45.cursor_calls.clear()
+    sub45.set_focus("%1")
+    await sched45._run_once()
+    bin45 = binaries(ws45)
+    check("t1045 focus: exactly one binary frame (the focused pane)", len(bin45) == 1)
+    dec45 = msgpack.unpackb(bin45[0][1:], raw=False, strict_map_key=False)
+    check("t1045 focus: keyframe is for the focused pane %1",
+          bin45[0][0] == C.FRAME_KEYFRAME and dec45[0] == "%1")
+    check("t1045 focus: only the focused pane triggered a cursor capture",
+          mon45.cursor_calls == ["%1"])
+    check("t1045 focus: unfocused %2 still status-only (pristine state)",
+          sub45.state_for("%2").frame_id == 0 and sub45.state_for("%2").row_sigs is None)
+
+    # explicit content_panes: ["%2"] -> %2 streams, %1 is status-only
+    sub45b = C.Subscription()
+    sub45b.apply_subscribe({"panes": ["%1", "%2"], "content_panes": ["%2"],
+                            "cadence_idle_ms": 1000})
+    ws45b, mon45b = FakeWS(), FakeMonitor()
+    mon45b.snaps["%1"] = FakeSnap(FakePane("%1"), "a1\nb1\n")
+    mon45b.snaps["%2"] = FakeSnap(FakePane("%2"), "a2\nb2\n")
+    sched45b = PushScheduler(FakeConn(sub45b), ws45b, mon45b, clock=lambda: 9100.0)
+    await sched45b._run_once()
+    bin45b = binaries(ws45b)
+    check("t1045 explicit content_panes: exactly one binary frame", len(bin45b) == 1)
+    d45b = msgpack.unpackb(bin45b[0][1:], raw=False, strict_map_key=False)
+    check("t1045 explicit content_panes: streams %2 only", d45b[0] == "%2")
+    check("t1045 explicit content_panes: %1 status-only (only %2 cursor-captured)",
+          mon45b.cursor_calls == ["%2"])
+
+    # regression: absent content_panes -> legacy all-content (both panes stream)
+    sub45c = C.Subscription()
+    sub45c.apply_subscribe({"panes": ["%1", "%2"], "cadence_idle_ms": 1000})
+    ws45c, mon45c = FakeWS(), FakeMonitor()
+    mon45c.snaps["%1"] = FakeSnap(FakePane("%1"), "a1\nb1\n")
+    mon45c.snaps["%2"] = FakeSnap(FakePane("%2"), "a2\nb2\n")
+    sched45c = PushScheduler(FakeConn(sub45c), ws45c, mon45c, clock=lambda: 9200.0)
+    check("t1045 regression: content_all True when content_panes absent", sub45c.content_all is True)
+    await sched45c._run_once()
+    kf_panes = {msgpack.unpackb(b[1:], raw=False, strict_map_key=False)[0]
+                for b in binaries(ws45c) if b[0] == C.FRAME_KEYFRAME}
+    check("t1045 regression: both panes stream content (legacy path intact)",
+          kf_panes == {"%1", "%2"})
 
     # Whole-suite assertion: no "Task exception was never retrieved" / unhandled
     # callback ever surfaced through the loop exception handler.

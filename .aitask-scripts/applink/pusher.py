@@ -238,6 +238,15 @@ class PushScheduler:
             await self._send_pane_status(snap)
             st.last_status_t = now
 
+        # Roster-vs-content split (t1045): a status-only pane gets the pane_status
+        # heartbeat above but NO binary frames. Clear its force seed and return
+        # before the per-pane cursor capture / parse / binary encode below — so a
+        # status-only pane costs zero per-pane capture_cursor_async calls and zero
+        # binary bytes (the shared roster snapshot in _run_once is taken anyway).
+        if not sub.streams_content(pane_id):
+            sub.force.discard(pane_id)
+            return
+
         # dim on resize (then force a fresh keyframe at the new size).
         dim_changed = st.last_dims is not None and st.last_dims != dims
         if dim_changed:
