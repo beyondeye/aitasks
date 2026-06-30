@@ -242,10 +242,17 @@ checkout) is the grace clock.
 ### Hard-delete
 
 An explicit task **hard-delete** (e.g. `ait board` delete) — distinct from archival
-— *should* decref each of the deleted task's attachments (the per-blob fix is an
-O(k) decref driven by the task's own `attachments:` frontmatter). The current board
-delete path does **not** yet do this, so a hard-deleted task's blobs stay pinned in
-`refs` until that lands (a known gap, tracked separately).
+— decrefs each of the deleted task's attachments (an O(k) decref driven by the task's
+own `attachments:` frontmatter; t1093). The board's `_do_delete` shells out to
+`ait attach decref-deleted [--protect-task <id>]... <doomed-id>...`, which under the
+global attach lock decrefs every doomed task's hashes (parent + cascade children) and
+self-commits the touched meta files; the board **fails closed** (aborts the delete)
+on any helper error. A primary that has `folded_tasks` revives (unfolds) them on
+delete; those revived ids are passed as `--protect-task` so any blob they still list
+is **skipped** rather than orphaned (a conservative no-data-loss guard). Properly
+rebinding those folded-origin refs back to the revived tasks is a tracked follow-up
+(t1096); until it lands the skipped blob keeps a benign stale ref to the deleted
+primary (it stays blocked from gc by the revived task's frontmatter).
 
 ### Garbage collection
 `ait attach gc` (opt-in) scans `attachments/meta/**.json`, finds zero-refcount

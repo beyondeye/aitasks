@@ -55,6 +55,9 @@ Manage content-addressed file attachments on a task (design §6).
   gc                                           Sweep fully-orphaned blobs (opt-in; honors grace).
   help                                         Show this help.
 
+Internal (used by the board on hard-delete; not for routine manual use):
+  decref-deleted [--protect-task <id>]... <task-id>...   Release a deleted task's attachment refs.
+
 <task> accepts a parent id (e.g. 16) or a child id (e.g. 16_2), with or without
 the leading `t`.
 EOF
@@ -351,6 +354,97 @@ _attach_rm_txn() {
     success "Removed attachment '${ref}' from t${task_id}"
 }
 
+# ── Verb: decref-deleted (internal — board hard-delete, t1093) ────────────────
+# Release attachment refs for one or more tasks being HARD-DELETED. Unlike `rm`
+# it does NOT patch task frontmatter (the whole file is being removed). It
+# self-commits its decref path-limited (so it is decoupled from the board's own
+# delete commit) and rolls back on commit failure, mirroring `_attach_rm_txn`.
+#
+# Usage: ait attach decref-deleted [--protect-task <id>]... <doomed-id> [<doomed-id>...]
+#
+# `--protect-task <id>` names a task that SURVIVES the delete but shares
+# attachments with a doomed task (the unfold-on-delete case: fold merged a
+# folded task's attachments into the primary and rebound their refs to it; the
+# board revives the folded task on delete). Any doomed-task hash that a protected
+# task still lists in its frontmatter is SKIPPED (not decref'd) so the blob is
+# never orphaned out from under the revived task. The proper rebind-on-unfold is
+# a separate follow-up; this is the conservative no-data-loss guard (t1093).
+cmd_decref_deleted() {
+    local protect_ids=() args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --protect-task) [[ -n "${2:-}" ]] || die "ait attach decref-deleted: --protect-task needs a value"
+                            protect_ids+=( "${2#t}" ); shift 2 ;;
+            --) shift ;;
+            *)  args+=( "$1" ); shift ;;
+        esac
+    done
+    [[ ${#args[@]} -ge 1 ]] \
+        || die "Usage: ait attach decref-deleted [--protect-task <id>]... <task-id> [<task-id>...]"
+    with_attach_lock _attach_decref_deleted_txn "${#protect_ids[@]}" \
+        ${protect_ids[@]+"${protect_ids[@]}"} "${args[@]}"
+}
+
+_attach_decref_deleted_txn() {
+    local n_protect="$1"; shift
+    # Build the protected (folded-origin) hash set from the surviving tasks'
+    # frontmatter. A protected task that no longer resolves is skipped (it cannot
+    # contribute a hash to guard) — only DOOMED ids are fatal-on-unresolved below.
+    local -A protect_hash=()
+    local i pf h
+    for (( i=0; i<n_protect; i++ )); do
+        if pf="$(resolve_task_file "$1" 2>/dev/null)"; then
+            while IFS= read -r h; do
+                [[ -n "$h" ]] && protect_hash["$h"]=1
+            done < <(attach_task_hashes "$pf")
+        fi
+        shift
+    done
+
+    local now; now="$(date +%s)"
+    local -A seen_relpath=()
+    local stage=() task_id task_file hash rel
+    for task_id in "$@"; do
+        task_id="${task_id#t}"
+        # Doomed ids are derived from files the caller is about to delete, so an
+        # unresolved id means we could not inspect attachments before deletion ->
+        # FATAL (fail-closed: the board aborts the delete rather than leak). t1093
+        task_file="$(resolve_task_file "$task_id" 2>/dev/null)" \
+            || die "ait attach decref-deleted: cannot resolve doomed task t${task_id}"
+        while IFS= read -r hash; do
+            [[ -n "$hash" ]] || continue
+            if [[ -n "${protect_hash[$hash]:-}" ]]; then
+                printf 'SKIPPED:%s:%s:folded\n' "$task_id" "$hash"
+                continue
+            fi
+            # decref PER (task_id, hash): a blob shared by two doomed tasks must
+            # lose BOTH refs. `now=` drives the orphaned_at stamp (cf _attach_rm_txn).
+            attach_meta decref "$hash" "$task_id" "now=$now"
+            printf 'DECREFED:%s:%s\n' "$task_id" "$hash"
+            rel="$(attach_meta_relpath "$hash")"
+            if [[ -z "${seen_relpath[$rel]:-}" ]]; then
+                seen_relpath["$rel"]=1
+                stage+=( "$rel" )            # dedup the STAGING list, not the decrefs
+            fi
+        done < <(attach_task_hashes "$task_file")
+    done
+
+    if (( ${#stage[@]} > 0 )); then
+        task_git add -- "${stage[@]}" >/dev/null 2>&1 \
+            || die "ait attach decref-deleted: failed to stage meta files"
+        # No-op guard: an idempotent re-run (after a partial failure) rewrites
+        # identical bytes -> an empty commit would fail; only commit if changed.
+        if ! task_git diff --cached --quiet -- "${stage[@]}" 2>/dev/null; then
+            if ! _attach_commit "ait: Decref attachments of deleted task(s): $*" "${stage[@]}"; then
+                task_git reset  -q -- "${stage[@]}" >/dev/null 2>&1 || true
+                task_git checkout  -- "${stage[@]}" >/dev/null 2>&1 || true
+                die "ait attach decref-deleted: commit failed — rolled back"
+            fi
+        fi
+    fi
+    printf 'STAGED:%s\n' "${#stage[@]}"
+}
+
 # ── Verb: gc ─────────────────────────────────────────────────────────────────
 
 # _attach_gc_grace -- grace duration string from project_config.yaml
@@ -451,6 +545,7 @@ main() {
         rm|remove) shift; cmd_remove "$@" ;;
         move)      cmd_stub move ;;
         gc)        shift; cmd_gc "$@" ;;
+        decref-deleted) shift; cmd_decref_deleted "$@" ;;
         *)         die "Unknown verb: $verb (try 'ait attach help')" ;;
     esac
 }

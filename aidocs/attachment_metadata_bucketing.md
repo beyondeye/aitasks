@@ -50,29 +50,36 @@ scripts that touch the ledger are `aitask_attach.sh` (incref/decref) and
 
 - **Add** → `incref <hash> <task>` (`aitask_attach.sh:255`).
 - **`ait attach rm`** → `decref <hash> <task>` (`aitask_attach.sh:342`) — the
-  **only** routine decref.
+  routine single-attachment decref.
+- **Hard-delete** → `ait attach decref-deleted <doomed-id>...` (t1093) decrefs every
+  hash on each deleted task (parent + cascade children) at once — an O(k) decref
+  driven by the task's own frontmatter, self-committed under the attach lock.
 - **Archive never decrefs** (decision D4) — an archived task is a real referrer
   (browsable history); `aitask_archive.sh` makes no ledger change.
 - **Fold rebinds, not decrefs** (`aitask_fold_mark.sh:442`) — folding A into B
   *transfers* A's ref to B; the count is preserved, just reassigned.
 
-### 2a. Known gap — hard-delete leaks refs (tracked separately)
+### 2a. Hard-delete decref (resolved — t1093)
 
 A task can be **explicitly hard-deleted** (e.g. from `ait board`), which fully
-removes its files. That path — `_do_delete` (`aitask_board.py:6508`) — `git rm`s
-the task + plan files and commits **without decref'ing the task's attachments**. So
-a deleted task's id stays **stale in the blob's `refs` forever** → the blob is
-never zero-refcount → `ait attach gc` never reclaims it (a permanent orphaned-blob
-leak). The same applies to a parent delete that cascade-deletes children.
+removes its files. That path — `_do_delete` (`aitask_board.py`) — now decrefs the
+deleted task's attachments **before** `git rm`, so a deleted id no longer lingers in
+the blob's `refs` (which previously kept the blob non-zero-refcount forever → a
+permanent orphaned-blob leak). The same covers a parent delete that cascade-deletes
+children.
 
-**Intended behavior:** an explicit hard-delete should decref each of the deleted
-task's attachments. Under the per-blob layout this fix is **clean and targeted**:
-read the doomed task's `attachments:` frontmatter (the authoritative list of hashes
-it references) and, under `with_attach_lock`, `decref <hash> <task_id>` each one —
-an O(k) operation (k = attachments on that task), **no tree scan**. It is literally
-`ait attach rm` applied to all of the task's attachments at once, reusing the
-already-shipped `lib/attachment_meta.sh` + `lib/attachment_lock.sh`. This is filed
-as a separate follow-up bug (see §7); it is not a bucketing concern.
+**Implementation:** the board shells out to `ait attach decref-deleted
+[--protect-task <id>]... <doomed-id>...`, which under the per-blob layout is **clean
+and targeted**: read each doomed task's `attachments:` frontmatter (the authoritative
+hash list) and, under `with_attach_lock`, `decref <hash> <task_id>` each one — an O(k)
+operation (k = attachments on that task), **no tree scan** — then self-commit the
+touched meta files. It is literally `ait attach rm` applied to all of a task's
+attachments at once, reusing `lib/attachment_meta.sh` + `lib/attachment_lock.sh`. The
+board derives doomed ids via the canonical `TaskCard._parse_filename` and **fails
+closed** (aborts the delete) on any helper error. A primary's `folded_tasks` are
+revived (unfolded) on delete; their ids are passed as `--protect-task` so any blob
+they still list is **skipped**, not orphaned (conservative no-data-loss guard).
+Proper rebind-on-unfold of those folded-origin refs is a tracked follow-up (t1096).
 
 ## 3. The layouts compared
 
@@ -208,7 +215,8 @@ Summary of why:
   lifecycle ledger must not key on them. Hash-prefix is the only stable, blob-
   intrinsic, evenly-distributed key.
 
-Tracked follow-ups: a **bug** for the hard-delete decref leak (§2a), and a
+Tracked follow-ups: the hard-delete decref leak (§2a) is **resolved** (t1093), with a
+follow-up (t1096) for proper rebind-on-unfold of folded-origin refs; plus a
 **Postponed** enhancement to track the hash-prefix migration referencing this note.
 
 ## 8. Cross-references

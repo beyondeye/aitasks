@@ -6503,6 +6503,51 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.app.call_from_thread(self.manager.load_tasks)
         self.app.call_from_thread(self.refresh_board)
 
+    @staticmethod
+    def _doomed_attachment_ids(paths) -> list[str]:
+        """Bare task ids (parent + cascade children) whose attachments must be
+        decref'd when their files are hard-deleted. Plan files and non-task
+        paths are excluded by ROOT (not a substring check), and the canonical
+        TaskCard._parse_filename derives the id so parent-vs-child is never
+        mis-read. t1093"""
+        ids = []
+        for p in paths:
+            parts = Path(p).parts
+            name = Path(p).name
+            if TASKS_DIR.name not in parts:        # plan files live under aiplans/
+                continue
+            if not (name.startswith("t") and name.endswith(".md")):
+                continue
+            tid, _ = TaskCard._parse_filename(name)
+            ids.append(tid.lstrip("t"))
+        return ids
+
+    def _decref_doomed_attachments(self, paths, folded_ids):
+        """Decref the attachments of every doomed task via the bash helper, so a
+        hard-deleted task's id leaves each blob's refs set (else the blob never
+        reaches zero-refcount and `ait attach gc` can never reclaim it). t1093
+
+        `folded_ids` are tasks the delete REVIVES (unfolds); they are passed as
+        --protect-task so the helper skips decref'ing any blob a revived task
+        still references (conservative no-data-loss guard).
+
+        Returns (ok: bool, msg: str). On a non-zero helper exit the caller MUST
+        fail closed (abort the delete) — the leak is recreated otherwise."""
+        ids = self._doomed_attachment_ids(paths)
+        if not ids:
+            return True, ""
+        cmd = ["./.aitask-scripts/aitask_attach.sh", "decref-deleted"]
+        for fid in folded_ids or []:
+            cmd += ["--protect-task", str(fid)]
+        cmd += ids
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        except subprocess.TimeoutExpired:
+            return False, "attachment decref timed out"
+        if r.returncode != 0:
+            return False, (r.stderr.strip() or r.stdout.strip() or "unknown error")
+        return True, ""
+
     def _execute_delete(self, task_num: str, paths: list, task: Task = None):
         """Delete task files (shows loading overlay)."""
         paths_str = [str(p) for p in paths]
@@ -6526,6 +6571,20 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         the parent is checked for orphan status to prompt archival.
         """
         try:
+            # Decref the doomed tasks' attachments BEFORE any mutation, so a
+            # helper error aborts the delete cleanly (fail-closed) rather than
+            # leaving an orphaned-blob leak. Files must still exist to read their
+            # frontmatter. folded_ids are revived by the unfold below, so they
+            # are protected from decref. t1093
+            ok, err = self._decref_doomed_attachments(paths, folded_ids)
+            if not ok:
+                self.app.call_from_thread(
+                    self.notify,
+                    f"Attachment decref failed — task NOT deleted (retry): {err}",
+                    severity="error",
+                )
+                return  # the `finally` pops the LoadingOverlay; nothing deleted
+
             # Unfold folded tasks before deleting
             for fid_str in folded_ids:
                 subprocess.run(
