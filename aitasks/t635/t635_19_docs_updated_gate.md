@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: [t635_11]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [gates, task_workflow, web_site]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 19:03
-updated_at: 2026-06-10 19:03
+updated_at: 2026-06-30 18:07
 ---
 
 ## Context
