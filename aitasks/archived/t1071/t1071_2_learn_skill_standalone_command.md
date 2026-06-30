@@ -5,14 +5,15 @@ risk_goal_achievement: medium
 effort: high
 depends: [t1071_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [shadow, claudeskills]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-29 12:06
-updated_at: 2026-06-30 09:39
+updated_at: 2026-06-30 11:19
+completed_at: 2026-06-30 11:19
 ---
 
 Capability B of t1071: a `/learn`-style "learn a skill from sources" command as a
@@ -118,3 +119,14 @@ Do the Claude version first.
 > **✅ gate:plan_approved** run=2026-06-30T06:40:03Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-06-30T08:15:31Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-06-30T08:19:06Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:eca51e408e957128
+
+> **✅ gate:risk_evaluated** run=2026-06-30T08:19:06Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1071_2/risk_evaluated_2026-06-30T08:19:06Z-risk_evaluated-a1.log`
