@@ -16,12 +16,29 @@ updated_at: 2026-06-30 09:39
 ---
 
 Capability B of t1071: a `/learn`-style "learn a skill from sources" command as a
-**standalone** skill (NOT a shadow sub-procedure). Gather sources (local files,
-URLs, repo files/dirs), apply house authoring standards, and generate a complete
-static skill. The shadow gets only a thin routing entry that can launch it while
-shadowing. Analogous to the Hermes agent `/learn` command
+**standalone** skill (NOT a shadow sub-procedure). Gather sources and generate a
+complete static skill, applying house authoring standards. Analogous to the Hermes
+agent `/learn` command
 (https://hermes-agent.nousresearch.com/docs/user-guide/features/skills) — a
 standards-guided prompt (no custom tool) that emits a `SKILL.md`.
+
+**Sources (four types):** local file, URL, repo file/dir, **and a tmux pane id**.
+The pane-id source is the key capability: given `%<N>`, the skill captures that
+pane **read-only** (via `aitask_shadow_capture.sh`, dynamic incremental deepening —
++1000 scrollback lines per pass, user-confirmed, until the workflow start is
+captured or scrollback is exhausted), analyzes the workflow, asks **which part** to
+learn if multi-part, and asks **generalization** clarifying questions, then
+generates the skill. Source-acquisition (per type) and a shared **`generate.md`**
+core (`content → static SKILL.md`) are split per authoring standards.
+
+**AC revised during planning (was: "the shadow gets only a thin routing entry"):**
+The shadow must NOT run the learn itself — its mandate is advisory/read-only and a
+learn run would occupy it. Shadow integration is therefore **deferred to a separate
+follow-up child** of t1071 that has the shadow **spawn a dedicated learner agent**
+(`/aitask-learn-skill <followed_pane_id>`) in a new pane (reusing `launch_in_tmux`
++ `aitask_codeagent.sh invoke`). Because the skill itself accepts a pane id and does
+the capture/analysis, that follow-up is reduced to "spawn the learner." See
+`aiplans/p1071/p1071_2_learn_skill_standalone_command.md` for the full design.
 
 Auto-depends on t1071_1 (sequential sibling) because both add a routing line to
 `aitask-shadow/SKILL.md` Step 3; running after A means this picks up A's edit
@@ -43,14 +60,18 @@ Do the Claude version first.
 
 - **NEW** `.claude/skills/aitask-learn-skill/SKILL.md` — static
   (`name`, `description`, `user-invocable: true`; no `.j2`/profile/goldens
-  machinery). Optionally NEW sibling `.md` sub-procedures if the flow is long
-  enough to warrant splitting (authoring standards: procedures in their own
-  `.md`, no inlining).
-- `.claude/skills/aitask-shadow/SKILL.md` — add ONE Step 3 routing entry that
-  invokes `/aitask-learn-skill` when the user asks to learn a skill from sources
-  while shadowing. (Greeting derives from Step 3 — do not hardcode.)
-- Follow-up tasks (created at the end, NOT implemented here): port
-  `aitask-learn-skill` to `.agents/skills/` and `.opencode/`.
+  machinery). Source resolution (file/URL/repo/pane-id) + acquisition, then hands
+  off to `generate.md`.
+- **NEW** `.claude/skills/aitask-learn-skill/generate.md` — shared core:
+  analyze → multi-part selection → generalization Q&A → name/description →
+  generate static SKILL.md → verify → commit → report.
+- **No `aitask-shadow/SKILL.md` change in this task** — shadow integration is the
+  deferred follow-up child (see AC note above).
+- Follow-up tasks (created at the end, NOT implemented here): (1) cross-agent port
+  of `aitask-learn-skill` to `.agents/skills/` and `.opencode/skills/` +
+  `.opencode/commands/`; (2) shadow spawn-learner integration (depends on this
+  task); (3) website docs covering the learn skill, the shadow→learner spawn, and
+  the shadow's diagnose-errors capability (t1071_1).
 
 ## Reference files for patterns
 
@@ -67,37 +88,29 @@ Do the Claude version first.
 
 ## Implementation plan
 
-1. Author `.claude/skills/aitask-learn-skill/SKILL.md`. Workflow:
-   (a) Resolve source(s) from argv or AskUserQuestion (file path / URL / repo
-       file / repo dir) — mirror reviewguide-import Step 1/1b/1c.
-   (b) Fetch via `repo_fetch.sh` / `WebFetch` fallback.
-   (c) Analyze & extract the procedure/concepts the skill should encode.
-   (d) Ask for the new skill's name + description (AskUserQuestion).
-   (e) Generate `.claude/skills/<name>/SKILL.md` (minimal frontmatter; optional
-       sibling `.md` sub-procedures per authoring standards).
-   (f) Run `./.aitask-scripts/aitask_skill_verify.sh` before committing (a static
-       skill passes trivially) and stage+commit the generated skill.
-   (g) Report the invocation path (`/<name>`).
-   Default to STATIC output skills — a profile-aware `.j2` skill drags in goldens
-   + `aitask_skill_verify.sh` template complexity and is out of scope (or an
-   explicit opt-in handled in the flow).
-2. Add the Step 3 routing entry to `aitask-shadow/SKILL.md` (+ update
-   `aidocs/framework/shadow_agent.md` if it enumerates shadow's external
-   invocations).
-3. File follow-up port tasks (use the Batch Task Creation Procedure) for Codex
-   (`.agents/skills/aitask-learn-skill/`) and OpenCode
-   (`.opencode/skills/aitask-learn-skill/` + `.opencode/command/`). These are
-   the ONLY cross-agent ports for t1071 — capability A is Claude-only.
+**Authoritative record: `aiplans/p1071/p1071_2_learn_skill_standalone_command.md`**
+(revised during planning). Summary:
+
+1. Author `.claude/skills/aitask-learn-skill/generate.md` (shared core) and
+   `SKILL.md` (source resolution for file/URL/repo/**pane-id** + acquisition →
+   hand off to `generate.md`). Default STATIC output skills.
+2. **No `aitask-shadow/SKILL.md` change here** — shadow integration is a deferred
+   follow-up child.
+3. File three follow-ups (Batch Task Creation Procedure): cross-agent port of
+   `aitask-learn-skill` (Codex `.agents/skills/`, OpenCode `.opencode/skills/` +
+   `.opencode/commands/`); shadow spawn-learner integration (depends on this
+   task); website docs. Capability A (t1071_1) is Claude-only.
 
 ## Verification steps
 
 - `./.aitask-scripts/aitask_skill_verify.sh` passes after adding the new skill.
-- Dry-run the flow against a known source (e.g. a public markdown URL or a local
-  file) and confirm it generates a well-formed static `SKILL.md` that itself
-  passes `aitask_skill_verify.sh`, then reports the invocation path.
-- Confirm the shadow Step 3 routing line invokes `/aitask-learn-skill` and the
-  greeting still derives from Step 3 (no hardcoded copy).
-- Confirm the Codex/OpenCode port follow-up task(s) were created and committed.
+- External-source dry-run (public md URL or local file) → well-formed static
+  `SKILL.md` that itself passes verify; reports the invocation path.
+- Pane-source dry-run via `aitask_shadow_capture.sh -` fixture → analyze →
+  multi-part selection → generalization Q&A → generate; incremental deepening
+  exercised; read-only throughout.
+- Confirm the three follow-up tasks were created and committed (shadow follow-up
+  `depends: [t1071_2]`; OpenCode port names `.opencode/commands/`).
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
