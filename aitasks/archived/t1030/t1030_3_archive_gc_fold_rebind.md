@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1030_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [task_attachments]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1030
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-28 12:08
-updated_at: 2026-06-30 09:24
+updated_at: 2026-06-30 10:07
+completed_at: 2026-06-30 10:07
 ---
 
 Wire attachments into the **task lifecycle**: decref attachment hashes on archival, add an opt-in **`ait attach gc`** orphan sweep with a grace knob, and **re-bind attachments on fold**. Depends on the per-blob metadata ledger + local backend from t1030_2.
@@ -87,3 +88,14 @@ Third and final child of t1030 (local-only v1). Closes the lifecycle so attachme
 > **✅ gate:plan_approved** run=2026-06-30T06:24:36Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-06-30T07:05:43Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-06-30T07:06:41Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:9629a817ba4d5197
+
+> **✅ gate:risk_evaluated** run=2026-06-30T07:06:41Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1030_3/risk_evaluated_2026-06-30T07:06:41Z-risk_evaluated-a1.log`
