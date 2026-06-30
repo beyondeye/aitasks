@@ -68,3 +68,8 @@ encapsulate-workflow-bash-in-a-helper convention.
 - Tests precedent: `tests/test_attach_archive_gc.sh`, `tests/test_attach_local_backend.sh`.
 
 Discovered during t1030_5 (bucketed-metadata evaluation).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-30T15:59:13Z status=pass attempt=1 type=human
