@@ -7,8 +7,9 @@ status: Implementing
 labels: [shadow, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-30 09:40
-updated_at: 2026-06-30 11:30
+updated_at: 2026-06-30 11:48
 ---
 
 Increase capture depth for shadow plan-review workflows.
@@ -28,3 +29,8 @@ Acceptance criteria:
 - Regular non-plan shadow capture remains at the existing default, or any global default change is explicitly justified in the plan.
 - Verification demonstrates that the plan-review path can capture more than the old 200-line scrollback window.
 - Documentation or comments make clear why plan review uses a deeper capture than ordinary shadow reads.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-30T08:48:46Z status=pass attempt=1 type=human
