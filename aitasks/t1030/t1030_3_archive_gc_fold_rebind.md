@@ -7,8 +7,9 @@ status: Implementing
 labels: [task_attachments]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1030
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-28 12:08
-updated_at: 2026-06-29 15:30
+updated_at: 2026-06-30 09:24
 ---
 
 Wire attachments into the **task lifecycle**: decref attachment hashes on archival, add an opt-in **`ait attach gc`** orphan sweep with a grace knob, and **re-bind attachments on fold**. Depends on the per-blob metadata ledger + local backend from t1030_2.
@@ -60,3 +61,8 @@ Third and final child of t1030 (local-only v1). Closes the lifecycle so attachme
 ## Notes for sibling tasks
 - This completes t1030's local v1. The decref/gc/rebind operations on the **per-blob meta files** are the lifecycle hooks t1076_1 must preserve when generalizing the per-blob ledger → the artifact manifest (version-aware GC: a blob is GC-able only when no artifact *version* references it). Per-blob meta files are already close to the per-artifact manifest shape.
 - Record in Final Implementation Notes: final home of `attachments_gc_grace`, the duration-parsing helper, and how fold-rebind vs archive-deletion ordering was resolved.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-30T06:24:36Z status=pass attempt=1 type=human
