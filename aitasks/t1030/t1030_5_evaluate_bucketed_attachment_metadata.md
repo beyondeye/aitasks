@@ -84,3 +84,8 @@ Acceptance criteria:
 - The design accounts for Git behavior with many small files versus bucket-file contention.
 - The design defines how GC/rebind scans avoid stale destructive decisions.
 - The design is synchronized with `aidocs/task_attachments_design.md` if it changes the recommended architecture.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-30T14:36:19Z status=pass attempt=1 type=human
