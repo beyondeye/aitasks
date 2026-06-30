@@ -1,12 +1,12 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [1093]
 issue_type: bug
 status: Ready
 labels: [task_attachments]
 created_at: 2026-06-30 19:07
-updated_at: 2026-06-30 19:07
+updated_at: 2026-06-30 19:08
 ---
 
 Rebind folded-origin attachment refs to the revived tasks when a primary task
