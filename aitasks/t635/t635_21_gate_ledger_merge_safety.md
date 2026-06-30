@@ -1,13 +1,17 @@
 ---
 priority: low
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t635_1]
 issue_type: enhancement
 status: Implementing
 labels: [gates, task_workflow]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-14 13:33
-updated_at: 2026-06-30 09:45
+updated_at: 2026-06-30 11:36
 ---
 
 ## Context
