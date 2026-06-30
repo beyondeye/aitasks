@@ -57,3 +57,5 @@ format additive/versioned per protocol.md §Versioning so older clients still wo
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-06-30T15:54:05Z status=pass attempt=1 type=human
+
+> **✅ gate:risk_evaluated** run=2026-06-30T15:54:06Z status=pass attempt=1 type=machine
