@@ -5,6 +5,7 @@ depends: [t1071_2]
 issue_type: feature
 status: Implementing
 labels: [shadow, claudeskills]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 implemented_with: claudecode/opus4_8
