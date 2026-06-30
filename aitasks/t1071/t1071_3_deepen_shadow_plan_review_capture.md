@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: [t1071_2]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [shadow, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-06-30 09:40
-updated_at: 2026-06-30 09:40
+updated_at: 2026-06-30 11:30
 ---
 
 Increase capture depth for shadow plan-review workflows.
