@@ -1,14 +1,18 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: performance
 status: Implementing
 labels: [applink, applink_dataplane]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1044
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-21 18:17
-updated_at: 2026-06-30 18:07
+updated_at: 2026-06-30 18:53
 boardidx: 100
 ---
 
