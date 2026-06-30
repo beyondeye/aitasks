@@ -3,12 +3,12 @@ priority: low
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [task_attachments]
 file_references: [aidocs/task_attachments_design.md]
-children_to_implement: [t1030_5]
 created_at: 2026-06-18 15:26
-updated_at: 2026-06-30 11:35
+updated_at: 2026-06-30 17:48
+completed_at: 2026-06-30 17:48
 boardidx: 10
 ---
 

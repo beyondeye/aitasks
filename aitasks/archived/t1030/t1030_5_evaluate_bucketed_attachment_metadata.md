@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1030_2]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [task_attachments, brainstorming, design]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1030
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-29 10:14
-updated_at: 2026-06-30 17:36
+updated_at: 2026-06-30 17:48
+completed_at: 2026-06-30 17:48
 ---
 
 ## Heads-up — shipped storage model (verified t1030_4, 2026-06-30)
@@ -95,3 +96,14 @@ Acceptance criteria:
 > **✅ gate:plan_approved** run=2026-06-30T14:36:19Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-06-30T14:48:21Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-06-30T14:48:46Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:fcd240117481bd5e
+
+> **✅ gate:risk_evaluated** run=2026-06-30T14:48:46Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1030_5/risk_evaluated_2026-06-30T14:48:46Z-risk_evaluated-a1.log`
