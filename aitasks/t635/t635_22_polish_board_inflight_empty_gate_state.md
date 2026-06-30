@@ -5,6 +5,7 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [gates, aitask_board, tui]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 12:50
