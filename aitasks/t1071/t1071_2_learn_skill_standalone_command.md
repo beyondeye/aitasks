@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: high
 depends: [t1071_1]
 issue_type: feature
@@ -8,8 +10,9 @@ labels: [shadow, claudeskills]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-29 12:06
-updated_at: 2026-06-29 16:21
+updated_at: 2026-06-30 09:39
 ---
 
 Capability B of t1071: a `/learn`-style "learn a skill from sources" command as a
@@ -95,3 +98,8 @@ Do the Claude version first.
 - Confirm the shadow Step 3 routing line invokes `/aitask-learn-skill` and the
   greeting still derives from Step 3 (no hardcoded copy).
 - Confirm the Codex/OpenCode port follow-up task(s) were created and committed.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-30T06:40:03Z status=pass attempt=1 type=human
