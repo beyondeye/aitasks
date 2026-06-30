@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [task_attachments]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-30 17:39
-updated_at: 2026-06-30 18:59
+updated_at: 2026-06-30 19:15
+completed_at: 2026-06-30 19:15
 ---
 
 Explicit task **hard-delete** does not decref the deleted task's attachments,
@@ -75,3 +76,14 @@ Discovered during t1030_5 (bucketed-metadata evaluation).
 > **✅ gate:plan_approved** run=2026-06-30T15:59:13Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-06-30T16:13:17Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-06-30T16:15:53Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:95e5a4e1e77d7f70
+
+> **✅ gate:risk_evaluated** run=2026-06-30T16:15:53Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1093/risk_evaluated_2026-06-30T16:15:53Z-risk_evaluated-a1.log`
