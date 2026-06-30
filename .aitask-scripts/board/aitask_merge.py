@@ -29,6 +29,12 @@ from pathlib import Path
 
 from task_yaml import parse_frontmatter, serialize_frontmatter, BOARD_KEYS
 
+# The canonical gate-ledger parser lives under lib/ (t635_8 owns it — do not fork).
+# Mirror the lib/ import idiom used by board/aitask_board.py so this works both
+# under PYTHONPATH=board (sync) and when a test imports this module directly.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+import gate_ledger  # noqa: E402  -- stdlib-only; sys.path set up just above
+
 # ---------------------------------------------------------------------------
 # Conflict marker parser
 # ---------------------------------------------------------------------------
@@ -223,23 +229,139 @@ def merge_frontmatter(
 # Body merge
 # ---------------------------------------------------------------------------
 
+# Gate-run "run=" stamps are ISO-8601-Z (the exact shape gate_ledger.iso_now()
+# emits). Valid ISO strings sort lexicographically == chronologically, which is
+# what derive_gate_runs() (last-in-file-order wins) needs for last-run-wins.
+_ISO_RUN_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+
+def _conflict_markers(local: str, remote: str) -> str:
+    """Wrap two divergent texts in the standard 2-way conflict markers."""
+    return (
+        "<<<<<<< LOCAL\n"
+        f"{local}"
+        "=======\n"
+        f"{remote}"
+        ">>>>>>> REMOTE\n"
+    )
+
+
+def _split_gate_section(body: str) -> tuple[str, str]:
+    """Return (head, section); section starts at the first '## Gate Runs' or ''."""
+    m = re.search(r"(?m)^##\s+Gate Runs\s*$", body)
+    if not m:
+        return body, ""
+    return body[:m.start()], body[m.start():]
+
+
+def _block_text(run) -> str:
+    """Reconstruct a gate-run block's exact source text from a parsed GateRun."""
+    txt = run.raw_marker
+    if run.raw_body_lines:
+        txt += "\n" + "\n".join(run.raw_body_lines)
+    return txt
+
+
+def _section_is_clean(section: str) -> bool:
+    """True if every non-blank line under the header is a comment or blockquote.
+
+    Guards against silently dropping stray prose/notes/headings a user or later
+    tool placed under the ledger header — parse_gate_run_blocks would not
+    reconstruct them, so such a section must NOT be union-rebuilt.
+    """
+    for ln in section.splitlines()[1:]:  # skip the '## Gate Runs' header line
+        s = ln.strip()
+        if not s or s.startswith("<!--") or ln.startswith(">"):
+            continue
+        return False
+    return True
+
+
+def _union_gate_runs(local_body: str, remote_body: str):
+    """Union the append-only '## Gate Runs' ledger of two bodies.
+
+    Returns (merged_body, head_resolved) when a *provably safe* union is possible,
+    else None (the caller then falls back to whole-body conflict markers). The
+    safety guards below all degrade to the conflict path rather than guess, so no
+    ledger data is ever silently reordered or dropped.
+    """
+    local_head, local_sec = _split_gate_section(local_body)
+    remote_head, remote_sec = _split_gate_section(remote_body)
+    if not local_sec and not remote_sec:
+        return None  # no ledger anywhere → not our case
+
+    # Guard 3: only union purely machine-owned ledger sections.
+    if not _section_is_clean(local_sec) or not _section_is_clean(remote_sec):
+        return None
+
+    runs = (gate_ledger.parse_gate_run_blocks(local_sec)
+            + gate_ledger.parse_gate_run_blocks(remote_sec))
+
+    # Guard 1: trustworthy ordering requires a valid ISO run on every block.
+    if any(not _ISO_RUN_RE.match(r.fields.get("run", "")) for r in runs):
+        return None
+
+    # Guard 2: dedup by FULL TEXT only — shared history collapses, divergent kept.
+    by_text: dict[str, object] = {}
+    for r in runs:
+        by_text.setdefault(_block_text(r), r)
+
+    # Guard 2b: ambiguous winner — >1 distinct block for one (name, run, attempt)
+    # is an append-only contract violation; let a human pick rather than tiebreak.
+    ident: dict[tuple, set] = {}
+    for text, r in by_text.items():
+        key = (r.name, r.fields.get("run", ""), r.fields.get("attempt", ""))
+        ident.setdefault(key, set()).add(text)
+    if any(len(texts) > 1 for texts in ident.values()):
+        return None
+
+    # Total, side-order-independent ordering. run is valid ISO ⇒ chronological;
+    # attempt sorts NUMERICALLY (10 after 2), 0 fallback for missing/non-numeric.
+    def _attempt_int(r) -> int:
+        a = r.fields.get("attempt", "")
+        return int(a) if a.isdigit() else 0
+
+    ordered = sorted(
+        by_text.items(),
+        key=lambda kv: (kv[1].fields.get("run", ""), kv[1].name,
+                        _attempt_int(kv[1]), kv[0]),
+    )
+    blocks = "\n\n".join(text for text, _r in ordered)
+    merged_section = (
+        f"{gate_ledger.SECTION_HEADER}\n{gate_ledger.SECTION_COMMENT}\n\n{blocks}\n"
+    )
+
+    # Compare heads ignoring trailing blank lines — the side carrying the ledger
+    # includes the blank lines that preceded '## Gate Runs' while a side without a
+    # ledger does not, yet the prose is identical. Rebuild with one canonical
+    # blank line before the section.
+    if local_head.rstrip("\n") == remote_head.rstrip("\n"):
+        head_norm = local_head.rstrip("\n")
+        merged = (head_norm + "\n\n" + merged_section) if head_norm else merged_section
+        return merged, True
+    # Prose head genuinely conflicts; still union the machine-owned ledger and
+    # leave the head on the conflict-marker path for manual resolution.
+    return _conflict_markers(local_head, remote_head) + merged_section, False
+
+
 def merge_body(local_body: str, remote_body: str) -> tuple[str, bool]:
     """Try to merge body content.
 
     Returns (merged_body, is_resolved).
-    If bodies differ, wraps them in conflict markers and returns is_resolved=False.
+
+    Concurrent appends to the append-only ``## Gate Runs`` ledger (a gate passed
+    from a different PC than the lock-holder) are union-merged automatically when
+    safe. Any other body divergence — or an unsafe ledger — wraps both sides in
+    conflict markers and returns is_resolved=False.
     """
     if local_body == remote_body:
         return local_body, True
 
-    conflict_body = (
-        "<<<<<<< LOCAL\n"
-        f"{local_body}"
-        "=======\n"
-        f"{remote_body}"
-        ">>>>>>> REMOTE\n"
-    )
-    return conflict_body, False
+    union = _union_gate_runs(local_body, remote_body)
+    if union is not None:
+        return union
+
+    return _conflict_markers(local_body, remote_body), False
 
 
 # ---------------------------------------------------------------------------

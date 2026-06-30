@@ -529,6 +529,71 @@ assert_contains_re "Body conflict returns CONFLICT" "CONFLICT:" "$output"
 
 rm -rf "$TMPDIR_14"
 
+# --- Test 15: AUTOMERGED — concurrent '## Gate Runs' appends union (t635_21) ---
+# Two PCs each append a different gate-run block to the same task's append-only
+# ledger (the cross-PC gate-pass scenario). The rebase must auto-merge via the
+# merge_body() gate-runs union — no manual conflict — with both blocks surviving.
+echo "--- Test 15: AUTOMERGED - concurrent gate-runs appends union ---"
+
+TMPDIR_15="$(setup_sync_repos)"
+# pc2 needs the scripts too so it can run the REAL append path.
+cp -r "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_15/pc2/.aitask-scripts"
+
+# Stage only the task file path — the copied .aitask-scripts/ dirs are untracked
+# in both clones; committing them would make the other clone's pull abort on
+# "untracked working tree files would be overwritten".
+# local: seed a shared gate-run block via the real append path, push.
+(
+    cd "$TMPDIR_15/local"
+    ./.aitask-scripts/aitask_gate.sh append 1 tests_pass pass >/dev/null 2>&1
+    git add aitasks/t1_sample.md
+    git commit -m "gate: seed tests_pass on t1" --quiet
+    git push --quiet 2>/dev/null
+)
+
+# pc2: pull the shared block, then append a DIFFERENT gate, push.
+(
+    cd "$TMPDIR_15/pc2"
+    git pull --quiet 2>/dev/null
+    ./.aitask-scripts/aitask_gate.sh append 1 lint pass >/dev/null 2>&1
+    git add aitasks/t1_sample.md
+    git commit -m "gate: append lint on t1 (pc2)" --quiet
+    git push --quiet 2>/dev/null
+)
+
+# local: append yet another gate concurrently (not yet pulled pc2's commit).
+(
+    cd "$TMPDIR_15/local"
+    ./.aitask-scripts/aitask_gate.sh append 1 docs_updated pass >/dev/null 2>&1
+    git add aitasks/t1_sample.md
+    git commit -m "gate: append docs_updated on t1 (local)" --quiet
+)
+
+output=$(cd "$TMPDIR_15/local" && ./ait sync --batch 2>/dev/null)
+assert_eq_trim "Concurrent gate appends return AUTOMERGED" "AUTOMERGED" "$output"
+
+merged=$(cat "$TMPDIR_15/local/aitasks/t1_sample.md")
+assert_contains_re "Merged ledger keeps tests_pass" "gate:tests_pass" "$merged"
+assert_contains_re "Merged ledger keeps lint (from pc2)" "gate:lint" "$merged"
+assert_contains_re "Merged ledger keeps docs_updated (local)" "gate:docs_updated" "$merged"
+
+# No manual conflict markers should remain.
+TOTAL=$((TOTAL + 1))
+if ! grep -q '<<<<<<<' "$TMPDIR_15/local/aitasks/t1_sample.md"; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: merged ledger still contains conflict markers"
+fi
+
+# Derivation must still work over the merged file (all three gates current).
+status_out=$(cd "$TMPDIR_15/local" && ./.aitask-scripts/aitask_gate.sh status 1 2>/dev/null)
+assert_contains_re "Derived status lists tests_pass" "tests_pass" "$status_out"
+assert_contains_re "Derived status lists lint" "lint" "$status_out"
+assert_contains_re "Derived status lists docs_updated" "docs_updated" "$status_out"
+
+rm -rf "$TMPDIR_15"
+
 # --- Summary ---
 echo ""
 echo "==============================="
