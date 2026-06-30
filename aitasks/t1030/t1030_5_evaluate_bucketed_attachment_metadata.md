@@ -7,8 +7,25 @@ status: Ready
 labels: [task_attachments, brainstorming, design]
 anchor: 1030
 created_at: 2026-06-29 10:14
-updated_at: 2026-06-29 10:14
+updated_at: 2026-06-30 11:43
 ---
+
+## Heads-up — shipped storage model (verified t1030_4, 2026-06-30)
+
+The per-attachment metadata model this task evaluates is **landed**, not "moving":
+t1030_2/t1030_3 shipped it and t1030_4 verified it end-to-end. Confirmed facts to
+write any bucketing design against:
+
+- **Canonical refcount ledger = per-blob meta files** at
+  `attachments/meta/<2>/<62>.json`. There is **no `index.json`** (a test asserts
+  its absence). Blobs live at `attachments/blobs/<2>/<62>` (local backend).
+- **Archiving never decrefs** — an archived task is a real referrer (browsable
+  history), so its blobs are retained indefinitely. The `attachments_gc_grace`
+  knob governs only blobs orphaned by `ait attach rm` or task *deletion*. Design
+  question 4 (bucket locking) and 5 (GC/rebind under buckets) must preserve this:
+  the GC blocking-set already scans active **and** archived (non-Folded) task
+  frontmatter as a belt-and-suspenders cross-check against ledger drift
+  (`_attach_gc_blocking_hashes` in `aitask_attach.sh`).
 
 Evaluate and design a possible refactor from one metadata file per attachment to deterministic metadata "buckets" for task attachments.
 
