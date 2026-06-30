@@ -1,13 +1,17 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
 status: Implementing
 labels: [task_attachments]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-30 17:39
-updated_at: 2026-06-30 17:52
+updated_at: 2026-06-30 18:59
 ---
 
 Explicit task **hard-delete** does not decref the deleted task's attachments,

@@ -7,6 +7,7 @@
     "raw": "claudecode/sonnet4_6",
     "explore": "claudecode/opus4_8",
     "shadow": "codex/gpt5_5",
+    "learn": "claudecode/opus4_8",
     "brainstorm-explorer": "claudecode/opus4_8",
     "brainstorm-comparator": "claudecode/sonnet4_6",
     "brainstorm-synthesizer": "claudecode/opus4_8",
