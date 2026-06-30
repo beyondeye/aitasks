@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t1030_2]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [task_attachments, brainstorming, design]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1030
 created_at: 2026-06-29 10:14
-updated_at: 2026-06-30 11:43
+updated_at: 2026-06-30 11:49
 ---
 
 ## Heads-up — shipped storage model (verified t1030_4, 2026-06-30)
