@@ -5,6 +5,7 @@ depends: [t1030_2]
 issue_type: feature
 status: Implementing
 labels: [task_attachments]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1030
 implemented_with: claudecode/opus4_8
