@@ -3,10 +3,11 @@ priority: low
 effort: medium
 depends: [t635_1]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [gates, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-14 13:33
-updated_at: 2026-06-14 13:33
+updated_at: 2026-06-30 09:45
 ---
 
 ## Context
