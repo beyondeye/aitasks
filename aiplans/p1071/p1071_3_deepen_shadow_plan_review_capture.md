@@ -225,3 +225,43 @@ thin wrappers). No goldens regeneration and **no cross-agent port** are needed.
 Follow shared workflow **Step 9 (Post-Implementation)**: this is risk-gated
 (`risk_evaluated`) under profile 'fast' — gate recording fires; archival via
 `aitask_archive.sh 1071_3` (archives the parent too once it is the last child).
+
+## Final Implementation Notes
+
+- **Actual work done:** Added an opt-in `--deep` flag + env-overridable
+  `SHADOW_PLAN_CAPTURE_LINES` (default 400) to `aitask_shadow_capture.sh`
+  (`shadow_capture_pane` now takes the depth as an optional 2nd arg, defaulting to
+  the normal global so existing call sites are unchanged); documented `--deep` in
+  the header comment and `show_help()` incl. the "no effect with `-`" note. Wired
+  `--deep` into the four plan-review sub-procedures' **Inputs** lines, added a
+  canonical pointer in `SKILL.md` Step 1, and documented the why in
+  `aidocs/framework/shadow_agent.md`. Added a height-controlled, env-pinned
+  live-tmux behavioral test in `tests/test_shadow_capture.sh`.
+- **Deviations from plan:** None. Implemented exactly as the approved (twice
+  plan-reviewed) plan, including all four addressed review concerns.
+- **Issues encountered:** None.
+- **Key decisions (all from plan review):** (1) Single source of truth — `400`
+  lives only in the script + the sourced doc mention; the operative markdown
+  carries only `--deep` (guarded by a scoped no-bare-`400` grep over the 4
+  sub-procedures + SKILL.md). (2) The behavioral test fixes pane height (VIS=10)
+  and sizes the line count (T=320) so the first-line sentinel sits outside the
+  `200+VIS` default window but inside the `400+VIS` deep window, polls until the
+  last line renders, and **pins both depth env vars per invocation** so an ambient
+  `SHADOW_CAPTURE_LINES`/`SHADOW_PLAN_CAPTURE_LINES` can't skew the math; it
+  doubles as a negative control for the default depth. (3) `--deep` is a no-op on
+  the stdin (`-`) path, documented in `--help`. (4) A `--deep` coupling guard
+  greps all four sub-procedures so a future edit dropping it is caught.
+- **Out of scope (explicit):** `plan-diagnose-errors.md` stays at the default 200
+  — it scans visible error/retry signals, not long plans (AC names plan-review
+  procedures only).
+- **Upstream defects identified:** None.
+- **Verification status:** `shellcheck` clean (only pre-existing SC1091 source
+  info, no new findings); `tests/test_shadow_capture.sh` 15/15 pass (3 new
+  `--deep` assertions, SKIP-guarded when tmux absent);
+  `aitask_skill_verify.sh: OK (12 templates, 3 agents)`; both grep guards pass.
+- **Notes for sibling tasks:** Shadow is a static, Claude-only skill (no
+  `.j2`/closure/profile machinery) — these `plan-*.md` + `SKILL.md` edits need
+  **no** Codex/OpenCode port and **no** goldens regeneration. The deep-capture
+  knob is `SHADOW_PLAN_CAPTURE_LINES` (default 400), selected via the `--deep`
+  flag; reuse it rather than re-introducing a magic number if a sibling needs a
+  deeper read.
