@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [gates, aitask_board, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-16 12:50
-updated_at: 2026-06-30 11:51
+updated_at: 2026-06-30 17:33
 ---
 
 Fix the board In-Flight view polish issues found during live tmux inspection
@@ -35,3 +36,8 @@ correctly, including non-gated tasks, but two UI details need cleanup:
   similarly clear non-technical wording.
 - Tests cover both the rendered operation hint text and the no-gate copy.
 - Existing board view/filter tests remain green.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-30T14:33:13Z status=pass attempt=1 type=human
