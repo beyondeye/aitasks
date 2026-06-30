@@ -144,6 +144,13 @@ Static, user-invocable. Source resolution + fetch, then hand to `generate.md`:
   follow `aidocs/framework/documentation_conventions.md`, and if a new
   `website/content/docs/workflows/*.md` page is added, also add its bullet to the
   hand-curated `_index.md` grouping.
+- **Configurable skill-authoring-conventions source** (added per Change Request 1) —
+  new child of t1071, **`depends: [t1071_2]`**. Scope: make the standards file
+  `generate.md` applies configurable. Default to the installed generic guide
+  (`aireviewguides/aiagents/skill_authoring_best_practices.md`), never the
+  framework-internal `skill_authoring_conventions.md`; add a control in the `ait settings`
+  TUI (`aitask_settings.sh` / `.aitask-scripts/settings/`) to set the path and persist it;
+  `generate.md` reads the configured value (falling back to the default).
 
 ## Verification
 
@@ -192,6 +199,51 @@ Static, user-invocable. Source resolution + fetch, then hand to `generate.md`:
   (cross-agent port; shadow spawn-learner `depends: [t1071_2]`; website docs `depends` on
   both), so the parent will **not** auto-archive when t1071_2 lands. Adjust any "final child
   / parent auto-archives" expectation.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-06-30)
+- **Requested by user:** `generate.md` must not point a *user's own* generated skill at
+  the aitasks-framework-internal `skill_authoring_conventions.md` (stubs/profile/goldens);
+  it should follow **generic** skill-authoring best practices, defaulting to the guide
+  installed by `ait setup`, and made **configurable** later.
+- **Changes made:** Repointed `generate.md` to
+  `aireviewguides/aiagents/skill_authoring_best_practices.md` (installed from `seed/`) as
+  the default standard, with a fallback to general knowledge and a note that the source
+  becomes configurable. Added a 4th follow-up child (configurable conventions source +
+  `ait settings` control), `depends: [t1071_2]`.
+- **Files affected:** `.claude/skills/aitask-learn-skill/generate.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `.claude/skills/aitask-learn-skill/SKILL.md` (static,
+  user-invocable; source resolution for tmux pane id `%N` / local file / repo file+dir /
+  generic URL, with the incremental deepening capture loop on the pane path) and
+  `.claude/skills/aitask-learn-skill/generate.md` (shared `content → static SKILL.md`
+  core: analyze → multi-part selection → generalization Q&A → name/description →
+  generate → verify → commit → report; MAINTAINER note records its single consumer +
+  future shadow reuse). Rewrote the task AC to drop "thin routing entry" and reflect the
+  pane-id source + deferred shadow integration.
+- **Deviations from plan:** generate.md authoring-standards reference changed per
+  Change Request 1 (generic `skill_authoring_best_practices.md` reviewguide instead of
+  the framework-internal `skill_authoring_conventions.md`); spawned a 4th follow-up
+  (configurable conventions source). No `aitask-shadow/SKILL.md` change (shadow
+  integration deferred to a follow-up, as planned).
+- **Issues encountered:** None. The plan file was concurrently touched by the data-branch
+  syncer mid-edit (expected per repo conventions); re-read and re-applied.
+- **Key decisions:** Pane capture reuses the existing read-only `aitask_shadow_capture.sh`
+  with a dynamic `SHADOW_CAPTURE_LINES` deepening loop (no new code, no fixed cap). The
+  learn flow is a standards-guided prompt with no custom tool (Hermes `/learn` model).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The skill itself accepts a pane id and does
+  capture/analysis, so the deferred **shadow spawn-learner** follow-up is reduced to
+  spawning `/aitask-learn-skill <followed_pane_id>` (reuse `launch_in_tmux` +
+  `aitask_codeagent.sh invoke`, per minimonitor `action_launch_shadow` precedent). The
+  **configurable conventions** follow-up should make `generate.md`'s standards path a
+  persisted `ait settings` value defaulting to the generic reviewguide. The pane-source
+  end-to-end generate flow is runtime-behavioral (interactive + creates a real skill) —
+  it was NOT executed here; queued as a manual-verification follow-up. Static checks
+  (`aitask_skill_verify.sh` OK, capture-seam smoke test, grep) passed.
 
 ## Post-implementation
 
