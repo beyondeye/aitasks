@@ -37,3 +37,8 @@ supported coding agents").
 - `./.aitask-scripts/aitask_skill_verify.sh` passes.
 - The Codex and OpenCode copies match the Claude source's flow; OpenCode command stub
   present under `.opencode/commands/`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-06-30T13:51:21Z status=pass attempt=1 type=human
