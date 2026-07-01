@@ -267,3 +267,37 @@ Review/approval (NON-SKIPPABLE), commit `bug: Rebind folded-origin attachment re
 tasks on hard-delete unfold (t1096)`, plan commit via `./ait git`, `risk_evaluated` gate,
 merge approval, archive. `depends: [1093]` — t1093 already landed. Step 8b upstream-defect
 follow-up: offer to file the board unfold-return-code gap noted above.
+
+## Final Implementation Notes
+
+- **Actual work done:** In `.aitask-scripts/aitask_attach.sh`, rewrote
+  `_attach_decref_deleted_txn`: `--protect-task` ids now build a `hash → survivor id(s)` map
+  (was a guard *set*); a doomed hash listed by a survivor is **rebound** — `incref` each
+  survivor first (so `refs` never empties → no spurious `orphaned_at`), then `decref` the
+  doomed id — emitting `REBOUND:<doomed>:<hash>:<survivors_csv>`. The rebind fires **only when
+  the doomed id is a current ledger referent** (Rule A: `attach_meta refs "$hash" | grep -qxF`)
+  — otherwise `REBIND_NOOP` with no staging, so a drifted/retry state can't resurrect an orphan
+  or duplicate ownership. An unresolvable `--protect-task` id is now **fatal** (Rule B,
+  fail-closed) since it is the intended new owner. Commit message generalized to
+  "Release/rebind…"; header + `show_help` reworded. Board (`aitask_board.py`): docstring +
+  inline `_do_delete` comment updated (no code change — the wiring already passed `folded_ids`
+  as `--protect-task` and calls the helper first, fail-closed). Two docs marked t1096 resolved.
+- **Deviations from plan:** None. Plan executed as approved (including the two review-driven
+  rules A/B and cases G/H/I/J).
+- **Issues encountered:** Two test-only fixes during the first run: (1) the existing case-C
+  assertion pinned the old commit-message text ("Decref attachments…") — updated to the new
+  "Release/rebind…"; (2) case J's `git rm` needed `-f` (matching the board's `rm -f`) because
+  the replayed `aitask_update.sh` unfold leaves the task file modified-uncommitted. No
+  production-code change resulted. All 45 bash cases + 5 board unittest cases pass; the shared
+  attachment/gc/fold/meta regression suites (15+20+11+28+42) still pass; shellcheck clean
+  (only pre-existing SC1091 source-not-followed info).
+- **Key decisions:** Extended `decref-deleted` in place rather than adding a second verb (board
+  already wired; one lock/commit); kept the `--protect-task` flag name (still accurate); could
+  not reuse the wholesale `rebind <old> <new>` verb (it would hand the survivor the primary's
+  own non-folded blobs — the move must be per-hash). Rule A (ledger-ownership gate) + Rule B
+  (fatal unresolved) were added from the plan-review concerns before implementation.
+- **Upstream defects identified:** `.aitask-scripts/board/aitask_board.py:6589-6594` — the
+  `_do_delete` unfold loop ignores the `aitask_update.sh` subprocess return codes; a failed
+  unfold would leave a folded task un-revived with no signal. Not a t1096 data-loss risk (after
+  rebind the revived task owns the ledger ref, so the blob is retained via that ref even if the
+  task stays `Folded`), but worth a standalone hardening task.
