@@ -1,14 +1,17 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
 status: Implementing
 labels: [claudeskills, codexcli, opencode]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-07-01 10:36
-updated_at: 2026-07-01 10:37
+updated_at: 2026-07-01 11:22
 ---
 
 ## Context
