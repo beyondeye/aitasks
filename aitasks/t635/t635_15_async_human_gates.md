@@ -8,10 +8,11 @@ issue_type: feature
 status: Implementing
 labels: [gates, task_workflow]
 gates: [risk_evaluated]
+risk_mitigation_tasks: [1109]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:56
-updated_at: 2026-07-01 14:34
+updated_at: 2026-07-01 14:54
 ---
 
 ## Context
