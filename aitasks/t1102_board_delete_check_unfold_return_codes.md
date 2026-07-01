@@ -46,3 +46,8 @@ Check each unfold subprocess `returncode`; on any non-zero, surface a `notify(..
 "error")` and treat the delete as failed (mirror the attachment fail-closed early `return`
 before `git rm`), OR collect and report the failed ids. Add a board/unit test for the failed-
 unfold path.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-01T13:43:03Z status=pass attempt=1 type=human
