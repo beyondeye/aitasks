@@ -35,4 +35,4 @@ manual-verification drives the whole flow against a real task.
 
 ## Notes
 Coordinate: runs after t635_19 landed the gate. The **docs_updated_activation**
-follow-up depends on THIS task passing.
+follow-up (**t635_28**) depends on THIS task passing.

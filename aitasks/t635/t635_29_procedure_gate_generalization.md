@@ -28,6 +28,9 @@ original gate design's "gates as user-customizable skills").
   t635_23 (which ports the wrapper FILES for Codex/OpenCode).
 - **Per-gate code-agent + model selection** — configure which agent/model runs a
   procedure gate's skill, with a **settings-TUI** surface. General to all proper gates.
+  Coordinate the settings-TUI gate area with **t635_24** (which builds the
+  profile/registry gate-config surface there) and **t635_30** (per-task `gates:`
+  editing) so the surfaces compose rather than duplicate.
 - **Interactive task-gate configuration surface** — MOVED to **t635_30**
   (task_gate_editing_surface): per-task `gates:` editing via the board + a
   user-facing `ait gate` CLI, general to all gates. Not in scope here; keep this

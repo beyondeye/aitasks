@@ -39,7 +39,7 @@ Port all three skills to:
 Adapt agent-specific tool/command wording as needed. Verify with
 `./.aitask-scripts/aitask_skill_verify.sh` and any cross-agent parity checks.
 
-**Out of scope (belongs to the procedure_gate_generalization follow-up, NOT here):**
+**Out of scope (belongs to the procedure_gate_generalization follow-up — t635_29, NOT here):**
 making the task-workflow Step-8/Step-9 dispatch *resolution* formally agent-aware,
 and per-gate code-agent/model selection + its settings-TUI surface. This task only
 ports the skill FILES so the wrappers exist in each agent tree; once they do,

@@ -51,12 +51,13 @@ have not opted into gates — which is every task until t635_14 lands.
      `aidocs/framework/tui_conventions.md` for TUI patterns.)
    - Redesign that surface as gate config (the registry is
      `aitasks/metadata/gates.yaml`; profile gate declaration lands in t635_14).
-   - **Scope boundary (t635_30):** this task's settings-TUI gate config is at the
-     **profile / registry** level (which gates a *profile* declares via
+   - **Scope boundary (t635_30 / t635_29):** this task's settings-TUI gate config
+     is at the **profile / registry** level (which gates a *profile* declares via
      `default_gates`, and per-gate registry settings). Editing an individual
      **task's** `gates:` interactively (board + `ait gate` CLI) is **t635_30**
-     (task_gate_editing_surface). Coordinate so the two surfaces compose rather
-     than duplicate if a per-task editor also lands in the settings TUI.
+     (task_gate_editing_surface); **per-gate code-agent/model selection** in the
+     settings TUI is **t635_29** (procedure_gate_generalization). Coordinate so the
+     three settings-TUI gate surfaces compose rather than duplicate.
 
 3. **Update documentation** to the post-removal current state:
    - The Project Configuration table in `.claude/skills/task-workflow/SKILL.md`
