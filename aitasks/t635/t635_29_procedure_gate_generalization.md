@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: [t635_19]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [gates]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-01 10:46
-updated_at: 2026-07-01 10:46
+updated_at: 2026-07-01 15:04
 ---
 
 ## Context
