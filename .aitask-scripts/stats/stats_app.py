@@ -57,6 +57,21 @@ from stats.stats_data import (  # noqa: E402
 ALL_SESSIONS_KEY = "__all__"
 
 
+def discover_stats_sessions() -> list[AitasksSession]:
+    """Sessions for the stats TUI: live sessions plus every registered repo.
+
+    Opts into ``include_registered=True`` so registered projects with no live
+    tmux session (e.g. a repo you haven't opened this session) still appear and
+    have their archived stats scanned. STALE registry rows are dropped — the
+    stats TUI is a read-only viewer with no repair UI, and a stale row's archive
+    may be absent.
+    """
+    return [
+        s for s in discover_aitasks_sessions(include_registered=True)
+        if not s.is_stale
+    ]
+
+
 class _SidebarItem(ListItem):
     """Sidebar row carrying its pane id as an attribute (no widget id needed)."""
 
@@ -174,7 +189,7 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.stats_data: StatsData | None = None
         self.config: dict = stats_config.load()
         self.active_layout: list[str] = self._resolve_layout()
-        self.sessions: list[AitasksSession] = discover_aitasks_sessions()
+        self.sessions: list[AitasksSession] = discover_stats_sessions()
         self.multi_session: bool = len(self.sessions) >= 2
         self._session_cache: dict[str, StatsData] = {}
         self.selected_session: str = self._default_session_selection()
