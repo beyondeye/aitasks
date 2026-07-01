@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [task_attachments]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-30 19:07
-updated_at: 2026-07-01 09:51
+updated_at: 2026-07-01 11:38
 ---
 
 Rebind folded-origin attachment refs to the revived tasks when a primary task
@@ -61,3 +62,8 @@ guard's stale-ref behavior once the rebind lands.
 - Ledger primitives: `.aitask-scripts/lib/attachment_meta.py` (`incref`/`decref`/`rebind`).
 
 Spawned from t1093 (decref attachments on task hard-delete).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-01T08:38:49Z status=pass attempt=1 type=human
