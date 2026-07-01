@@ -289,3 +289,64 @@ run `./.aitask-scripts/aitask_skill_verify.sh`.
    run` → re-pends with a stale-signature note; `ait gate pass <id>
    build_verified` refuses; a headless run with the gate pending stops clean.
 5. Reference **Step 9 (Post-Implementation)** for cleanup / archival / merge.
+
+## Final Implementation Notes
+
+- **Actual work done:** Built both deliverables exactly as planned.
+  - *A — `ait gate pass`:* new `.aitask-scripts/aitask_gate_pass.sh` (refuses
+    machine gates + attended-only human gates; writes a code-bound witness with
+    `signer`/`signed_at`/`hostname`/`code_digest`; delegates ledger recording to
+    `aitask_run_gates.sh run <id> --gate <gate>`). `lib/gate_orchestrator.py`:
+    added the `code-digest` CLI verb, `_read_witness_digest()`, and a `_signal_state()`
+    classifier (`absent`/`fresh`/`stale`/`unstamped`) driving a rewritten
+    `_handle_human()` — a fresh witness passes with `note=signed_digest:<hash>`,
+    a stale one (digest mismatch) re-pends with a `stale signature` note, an
+    unstamped one is accepted (back-compat). `ait` dispatcher `gate pass` case +
+    help. `gates.yaml`: `signal: file-touch` + `signal_target` on `review_approved`
+    / `merge_approved` (dual transport) + rewritten header comment. Whitelisted
+    `aitask_gate_pass.sh` in the 4 framework touchpoints.
+  - *B — hybrid switch:* `aitask-pickrem/SKILL.md.j2` new **Step 9.5** (after the
+    Step 9 auto-commit, before Step 10 archive) that runs `ait gates run`,
+    mirrors the attended machine-fail fix-and-retry loop (Abort only as a last
+    resort), and stops cleanly at pending-human (never self-signals); `GATE_PENDING`
+    archive-guard backstop added to Step 10. Regenerated all 3 committed remote
+    prerenders + the golden.
+  - *Docs:* framework worked-example (code-binding/freshness), gate-template
+    scope boundary (signal creation shipped), gate-recording dual-transport note.
+- **Deviations from plan:** None material. `plan_approved` was left attended-only
+  (no signal_target) as planned. The witness-perturbs-digest edge case (the
+  witness must be gitignored so creating it does not flip the code digest between
+  stamping and observing) is real and handled by `.aitask-gates/` being gitignored
+  in production; the freshness tests replicate it with a `sig/` gitignore in the
+  fixture.
+- **Issues encountered:** (1) `aitask_gate_pass.sh` initially tripped shellcheck
+  SC2034 (`file` unused, since recording is delegated) — changed to
+  `resolve_task_file … >/dev/null` (validate-and-discard). Remaining SC1091 infos
+  are the source-not-followed baseline shared by every helper (e.g.
+  `aitask_gate_fail.sh`). (2) `gates.yaml` and the task/plan files live on the
+  `aitask-data` branch (symlinked); the concurrent syncer swept my `gates.yaml`
+  edit into an unrelated data-branch commit — expected concurrent-writer behavior,
+  content is on-branch and correct. (3) The pickrem render test's 3 "freshness"
+  failures pre-commit are the `git show HEAD:` commit-reminder; they pass once the
+  regenerated remote variants are committed.
+- **Key decisions:** `ait gate pass` is pure signal-creation that *delegates*
+  recording to `ait gates run --gate` (user's refinement) — the orchestrator stays
+  the single writer of observed pass blocks, no duplicated append path. Signatures
+  are code-bound (raised in plan review) so a witness cannot be silently consumed
+  as a pass for a different code state; this governs witness *consumption* only and
+  never invalidates an already-recorded pass (a satisfied gate is never
+  re-observed — Test 9c). The hybrid switch adds a real `ait gates run` step to the
+  headless lane (not mere archive-blocking) and is dormant by default (remote.yaml
+  declares no `default_gates`).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The async human-gate write side is complete —
+  `ait gate pass <id> <gate>` creates the code-bound witness and records the ledger
+  pass via the orchestrator; the ledger pass (not the gitignored witness) is the
+  cross-PC artifact (union-merge-safe via t635_21). **t635_16** (remote projection
+  / Appendix A) owns `signal: comment` and remote comment polling — the natural next
+  transport. **t635_17** (autonomous-lane rigor) owns the auto-completion policy:
+  t635_15 only makes the headless lane STOP cleanly at pending-human; whether the
+  autonomous lane may auto-resume/auto-complete past it is t635_17's call. The
+  headless run-gates + stop-clean path is validated against a fixture; the proposed
+  after-mitigation MV (`t635_async_human_gate_live_verify`) drives it live —
+  coordinate with t635_17 to avoid overlap.
