@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -9,7 +11,7 @@ gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-06-30 19:07
-updated_at: 2026-07-01 09:52
+updated_at: 2026-07-01 10:39
 ---
 
 ## Origin
