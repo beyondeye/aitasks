@@ -125,3 +125,33 @@ per repo test conventions (self-contained bash, no runner).
 Standard archival via `./.aitask-scripts/aitask_archive.sh 1083`. Folded tasks: none.
 The task is risk-gated (`risk_evaluated` in the profile's effective gates); Step 7
 writes `risk_code_health: low` / `risk_goal_achievement: low` and the gate is recorded.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `ait` — expanded the `stats)` dispatcher case (was a one-line `exec
+    aitask_stats.sh`) to check for a leading `tui` arg and, if present, `shift`
+    it and `exec "$SCRIPTS_DIR/aitask_stats_tui.sh" "$@"`. Plain `stats` and the
+    hyphenated `stats-tui` route are unchanged.
+  - `tests/test_stats_tui_dispatch.sh` (new) — behavioral test of the real
+    dispatcher. Copies `ait` + `lib/aitask_path.sh` into a `mktemp -d` tree with
+    STUB `aitask_stats.sh` / `aitask_stats_tui.sh` (each echoes a marker), then
+    asserts: `stats tui` → TUI (not CLI); `stats tui --foo bar` forwards trailing
+    args; `stats -d 7` → CLI (negative control, NOT the TUI); `stats-tui` → TUI.
+    6/6 assertions pass.
+- **Deviations from plan:** None. Implemented exactly as planned. One refinement
+  vs. the plan's test sketch: the stub tree deliberately omits the `VERSION`
+  file, so the dispatcher's daily update check (`check_for_updates`) bails at its
+  `[[ -f "$version_file" ]] || return 0` guard — no background `curl`, fully
+  deterministic/offline. `HOME` is also pointed at the temp tree.
+- **Issues encountered:** None. Root cause (dispatcher routing gap, per the
+  archived `p717_5_manual_verification_auto.md` Item 17 output) was reproduced
+  immediately (`./ait stats tui` → `unrecognized arguments: tui`) and the fix
+  confirmed live (`timeout 3 ./ait stats tui` launches the TUI, no argparse error).
+- **Key decisions:** Fixed at the dispatcher (the routing seam that already owns
+  the stats/stats-tui split) rather than adding a phantom `tui` positional to
+  `aitask_stats.py`'s argparse, which would conflate the two entrypoints. `stats`
+  takes no positional args, so a leading `tui` token is unambiguous. Kept
+  `stats-tui` as the documented canonical command — `stats tui` is an additive
+  convenience alias; help text was intentionally not expanded (revisitable).
+- **Upstream defects identified:** None.
