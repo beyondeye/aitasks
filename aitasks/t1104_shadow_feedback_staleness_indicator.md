@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
@@ -8,7 +10,7 @@ labels: [shadow, aitask_monitormini, tmux]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-01 14:23
-updated_at: 2026-07-01 14:24
+updated_at: 2026-07-01 14:57
 ---
 
 ## Problem
@@ -62,3 +64,8 @@ Shadow stamps a wall-clock capture time; minimonitor compares against the follow
 ## Cross-agent note
 
 Per repo convention, skill/command source-of-truth is the Claude Code tree; this task is mostly shell + Python (minimonitor/capture), so no per-agent skill port is expected. If any change touches the `/aitask-shadow` SKILL surface, suggest follow-ups for Codex/OpenCode wrappers.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-01T11:57:14Z status=pass attempt=1 type=human
