@@ -1,13 +1,13 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t635_19]
 issue_type: manual_verification
 status: Ready
 labels: [gates]
 anchor: 635
 created_at: 2026-07-01 10:45
-updated_at: 2026-07-01 10:45
+updated_at: 2026-07-01 10:46
 ---
 
 ## Context

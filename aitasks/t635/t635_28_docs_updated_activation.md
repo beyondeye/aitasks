@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t635_27]
 issue_type: chore
 status: Ready
 labels: [gates]
