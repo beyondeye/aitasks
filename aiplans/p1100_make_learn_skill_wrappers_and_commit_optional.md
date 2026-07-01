@@ -227,3 +227,31 @@ Follow task-workflow Step 8 (review) → Step 9 (merge approval, run declared
 `risk_evaluated` gate via `./ait gates run 1100`, archive via
 `aitask_archive.sh 1100`). Fast profile works on the current branch (no worktree
 to clean up).
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `.aitask-scripts/aitask_learn_wrappers.sh` (generic
+  cross-agent wrapper emitter: `render <tree> <name>` + `emit <name> [--force]`,
+  self-gating on `.agents/skills` / `.opencode` presence, fail-fast
+  `ERROR:source-unreadable` on a missing/description-less source skill, and
+  `SKIP:`/`EXISTS:`/`WROTE:` per-tree lines). Added `tests/test_learn_wrappers.sh`
+  (28 assertions, all passing, run in throwaway temp git repos). Restructured
+  `generate.md`'s tail into step 7 (optional wrappers), step 8 (optional
+  Commit/leave-uncommitted), step 9 (report) and updated its Output line. Updated
+  both provenance lines in `aitask-learn-skill/SKILL.md`. Whitelisted the new
+  helper across all 5 touchpoints via `aitask_audit_wrappers.sh apply-helper-whitelist`.
+- **Deviations from plan:** None. Implemented exactly as the approved plan,
+  including all three reviewer-requested refinements (emit fail-fast semantics,
+  negative-control tree-gating test, third stale-wording spot).
+- **Issues encountered:** `shellcheck` returns exit 1 on the two SC1091 (info)
+  "not following sourced lib" lines — this is the universal repo baseline (the
+  existing `aitask_audit_wrappers.sh` produces the identical findings), not a
+  real warning.
+- **Key decisions:** Deliberately did NOT reuse `aitask_audit_wrappers.sh`'s stub
+  renderer: its stubs speak in the framework's voice and reference
+  framework-internal `codex_tool_mapping.md` / `opencode_tool_mapping.md` (not in
+  `seed/`), which must not leak into a user-generated skill. A dedicated helper
+  emitting minimal generic pointer stubs keeps the user artifact self-contained,
+  consistent with `generate.md`'s own "generic best-practices, not framework
+  conventions" rule.
+- **Upstream defects identified:** None.
