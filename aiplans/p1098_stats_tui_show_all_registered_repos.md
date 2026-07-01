@@ -144,3 +144,20 @@ declared gates via the orchestrator, then archive with
   will render. The one honest gap — the `"aitasks"` session-name collision for
   repos lacking `default_session` — is explicitly out of scope, doesn't affect
   this user, and is recorded as a follow-up. · severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** Added a module-level `discover_stats_sessions()` helper
+  to `.aitask-scripts/stats/stats_app.py` that calls
+  `discover_aitasks_sessions(include_registered=True)` and filters out
+  `is_stale` rows; pointed `StatsApp.__init__` at it (was the bare
+  `discover_aitasks_sessions()`). Added `tests/test_stats_include_registered.py`.
+- **Deviations from plan:** None — implemented exactly as designed.
+- **Issues encountered:** None. All tests pass (new 5/5; regressions
+  test_stats_multistage 22/22, test_stats_data 6/6, test_discover_include_registered
+  10/10, test_discover_default_unchanged 4/4).
+- **Key decisions:** Filter stale entries rather than surface a repair modal —
+  the stats TUI is a read-only viewer with no bootstrap/repair UI (unlike
+  `tui_switcher`), and a stale row's archive may be absent. Extracted a pure,
+  importable helper so the behavior is unit-testable without mounting Textual.
+- **Upstream defects identified:** .aitask-scripts/lib/agent_launch_utils.py:555 — `_read_default_session` falls back to the literal session name `"aitasks"` for any repo without a `tmux.default_session`, so multiple such registered repos collide on one key; the stats TUI and the shared ring/group helpers (`cross_group_ring`/`cross_group_step`/`advance_group_selection`, also used by `tui_switcher`) key session identity on `sess.session`, so the collision would show duplicate rows / bleed stats. Pre-existing latent issue in the shared discovery/selection layer (already applies to `tui_switcher`), not introduced by this task; scoped out per user decision and worth a separate follow-up.
