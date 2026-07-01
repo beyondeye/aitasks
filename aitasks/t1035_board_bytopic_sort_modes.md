@@ -1,10 +1,13 @@
 ---
 priority: low
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
 status: Implementing
 labels: [aitask_board]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1016
 implemented_with: claudecode/opus4_8
