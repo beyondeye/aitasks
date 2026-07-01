@@ -5,14 +5,15 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t635_11, t635_21]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [gates, task_workflow]
 gates: [risk_evaluated]
 risk_mitigation_tasks: [1109]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:56
-updated_at: 2026-07-01 14:54
+updated_at: 2026-07-01 14:55
+completed_at: 2026-07-01 14:55
 ---
 
 ## Context
@@ -78,3 +79,14 @@ detection above; do not fork the gate semantics.
 > **✅ gate:plan_approved** run=2026-07-01T11:33:50Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-01T11:53:25Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-01T11:55:40Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:91d567905cacb75e
+
+> **✅ gate:risk_evaluated** run=2026-07-01T11:55:40Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/635_15/risk_evaluated_2026-07-01T11:55:40Z-risk_evaluated-a1.log`
