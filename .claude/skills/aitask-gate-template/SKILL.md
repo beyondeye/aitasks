@@ -12,7 +12,16 @@ honor and gives you a copy-me script. Use it when adding a project- or
 framework-specific gate (e.g. `build_verified`, `tests_pass`, `docs_updated`,
 `license_check`).
 
-Authoring a new gate is two steps:
+A gate is one of two kinds:
+- a **command verifier** (default) — a shell command the headless orchestrator
+  runs (exit codes); use for programmatic checks (build, tests, lint, state
+  inspection). Documented next.
+- a **procedure-backed** gate (`kind: procedure`) — an agent **skill** that does
+  work and confirms with the user, run by the attended task-workflow / aitask-resume
+  (the headless engine defers it). Use when the gate verifies *work an agent must
+  do* (e.g. `docs_updated`). See "Procedure-backed (agent) verifier" below.
+
+Authoring a **command** gate is two steps:
 1. Write a verifier command that honors the contract below.
 2. Point a gate at it in `aitasks/metadata/gates.yaml`: set the gate's
    `verifier:` to the command (and `max_retries:` / `timeout_seconds:` /
@@ -110,6 +119,54 @@ gates:
 - a value containing `/` or naming an existing file runs directly;
 - a bare `aitask-gate-<x>` resolves to `.aitask-scripts/aitask_gate_<x>.sh`;
 - anything else is treated as a command on `PATH`.
+
+## Procedure-backed (agent) verifier — `kind: procedure`
+
+Some gates verify **work an agent must do**, not a check a shell command can run —
+e.g. `docs_updated` (update the docs for this change), or a project's
+`changelog_updated`. These are **procedure-backed** gates: the `verifier` names an
+**`aitask-gate-<name>` skill** (a `.claude/skills/aitask-gate-<name>/`), and the
+gate is marked `kind: procedure` in the registry:
+
+```yaml
+gates:
+  <name>:
+    type: machine
+    kind: procedure                 # headless engine defers this (needs-agent)
+    description: "..."
+    verifier: aitask-gate-<name>    # resolves to the SKILL for attended dispatch
+    max_retries: 0
+```
+
+**How they run (differs from a command verifier):**
+- The **headless** engine (`ait gates run`) does **not** execute a procedure gate.
+  It reports it `needs agent (procedure-backed gate …)` and defers.
+- The **attended** path (task-workflow Step 8 / `aitask-resume`) drives it:
+  1. allocate the run — `aitask_gate.sh begin-procedure <task-id> <name>` opens the
+     `running` block and prints `RUN_ID:<id>` / `ATTEMPT:<n>`;
+  2. Read-and-follow `.claude/skills/aitask-gate-<name>/SKILL.md` with
+     `<task-id> <attempt> <run-id>`;
+  3. the skill does the work, **confirms with the user**, and closes the run.
+
+**The skill records the terminal block** (reusing `<run-id>`), the same
+`--only-if-running` reconcile a command verifier uses:
+
+```bash
+./.aitask-scripts/aitask_gate.sh append --only-if-running <run-id> \
+    <task-id> <name> <pass|skip|fail> \
+    run=<run-id> attempt=<attempt> type=machine \
+    verifier=aitask-gate-<name> result="<summary>" log="$log"
+```
+
+**Status semantics** (procedure gates use the same three terminal states):
+- `pass` — the required work was performed, OR inspected and already correct.
+- `skip` — evaluated and **not applicable** to this change (terminal-satisfied).
+- `fail` — the work is needed but the user rejects/blocks it.
+
+Do **not** pass a `kind=` field to `append` — `kind` lives in the registry; the
+marker line carries `type=machine`. See `aitask-gate-docs-updated` for a worked
+example. (Full custom/external/remote procedure-gate support is a follow-up; today
+procedure gates are dispatched by the attended task-workflow / aitask-resume path.)
 
 ## Human-gate verifier — special case
 

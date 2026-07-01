@@ -412,6 +412,28 @@ I guess", a comment that mentions any further change — is NOT acceptance;
 keep iterating. There is no upper bound on iterations.
 
 
+{%- if profile.record_gates is defined and profile.record_gates %}
+
+**Procedure-backed gates — run before review (their changes must be reviewed and committed with the code):**
+
+Some gates verify *work an agent must do* (`kind: procedure` in `aitasks/metadata/gates.yaml` — e.g. `docs_updated`). The headless engine defers these; the workflow runs them **here, before the change summary**, so any files they produce are part of the reviewed diff and land in the Step-8 `(t<task_id>)` commit.
+
+- List the task's declared procedure-backed gates that are **not** terminal-satisfied (their current ledger status is neither `pass` nor `skip`):
+  ```bash
+  ./.aitask-scripts/aitask_gate.sh procedure-gates <task_id>
+  ```
+- If the output is empty, skip this step. Otherwise, for **each** gate `<gate>` printed:
+  1. Allocate the run and open its `running` block:
+     ```bash
+     ./.aitask-scripts/aitask_gate.sh begin-procedure <task_id> <gate>
+     ```
+     Parse `RUN_ID:<run-id>` and `ATTEMPT:<attempt>` from the output.
+  2. Resolve the gate's registry `verifier` (an `aitask-gate-<name>` value) to its `SKILL.md` **in your agent's skill tree** and **Read-and-follow that skill** with arguments `<task_id> <attempt> <run-id>`. The skill inspects the change, updates the docs **confirming with the user**, and appends the terminal result (`pass` / `skip` / `fail`) via `append --only-if-running <run-id>`. (Gate skills currently ship in the Claude tree; per-agent Codex/OpenCode wrappers are tracked in **t635_23**. Selecting a specific code-agent/model per gate is a planned generalization — see t635_19's follow-up.)
+  3. If the skill records `fail` (the user rejected needed doc work), surface it — the gate is unsatisfied and Step-9 archival will be blocked until it is resolved.
+
+  This dispatch is generic over `kind: procedure` gates (`docs_updated` is the first); a gate already `pass`/`skip` is done and is not re-dispatched.
+{%- endif %}
+
 After implementation is complete, the user MUST be given the opportunity to review and test changes before any commits are made.
 
 - **Show change summary:**
@@ -663,6 +685,11 @@ today.) Instead use `AskUserQuestion`:
   ```bash
   ./.aitask-scripts/aitask_gate.sh append <task_id> <gate> pass [k=v ...]
   ```
+  For a **procedure-backed** gate (`kind: procedure` — e.g. `docs_updated`; check
+  `./.aitask-scripts/aitask_gate.sh procedure-gates <task_id>`), do **not** hand-append
+  a pass — dispatch its skill instead (as in Step 8): `begin-procedure <task_id>
+  <gate>` → Read-and-follow the gate's `aitask-gate-<name>` skill in your agent's
+  skill tree, which records the terminal `pass`/`skip`/`fail` itself.
   After each, re-check `./.aitask-scripts/aitask_gate.sh archive-ready <task_id>`.
   **The moment it prints `ALL_PASS`, re-run the archive script** (same command as
   above) and continue with the normal success-path parsing below — no re-pick

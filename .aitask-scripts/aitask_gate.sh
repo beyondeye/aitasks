@@ -401,6 +401,19 @@ cmd_archive_ready() {
     delegate_python archive-ready "$file" || echo "NO_GATES"
 }
 
+# procedure-gates: list the task's declared PROCEDURE-BACKED gates (kind:
+# procedure) that are NOT terminal-satisfied (t635_19) — one per line, empty if
+# none. The attended dispatch seam (task-workflow Step 8 / aitask-resume) runs
+# each such gate's skill. Python-only; degrades to empty (no dispatch) if python
+# is unavailable.
+cmd_procedure_gates() {
+    local task_id="${1:-}"
+    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh procedure-gates <task-id>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+    delegate_python procedure-gates "$file" "$REGISTRY" || true
+}
+
 # resume-point: derive the task-workflow re-entry stage from the recorded
 # checkpoint ledger (t635_5). Python-only (parallels archive-ready). Keys off the
 # recorded plan_approved / review_approved runs, NOT the declared `gates:` field.
@@ -461,6 +474,44 @@ cmd_should_self_record() {
     local file
     file="$(resolve_task_file "$task_id")"
     delegate_python should-self-record "$file" "$gate"
+}
+
+# --- begin-procedure (procedure-backed gates, t635_19) ---------------------
+
+# Allocate a run for a PROCEDURE-BACKED gate (kind: procedure) and open its
+# `running` block. The headless orchestrator defers such gates (it never writes
+# their running block / attempt / run-id), so the attended dispatch path
+# (task-workflow / aitask-resume) calls this to start a run before Read-and-
+# following the gate's skill. Prints RUN_ID:<id> and ATTEMPT:<n> for the caller,
+# which passes them to the skill as `<task-id> <attempt> <run-id>`; the skill
+# closes the run with `append --only-if-running <run-id> ... <pass|skip|fail>`.
+cmd_begin_procedure() {
+    local task_id="${1:-}" gate="${2:-}"
+    [[ -z "$task_id" || -z "$gate" ]] && \
+        die "Usage: aitask_gate.sh begin-procedure <task-id> <gate>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+
+    # attempt = existing gate-run marker count for this gate + 1. (Attended,
+    # single-writer path; run-id is a unique timestamp regardless.)
+    local existing
+    existing="$(awk -v g="$gate" '
+        /^>[[:space:]]*\*\*/ && /gate:/ {
+            if (match($0, /gate:[A-Za-z0-9_]+/)) {
+                name = substr($0, RSTART + 5, RLENGTH - 5)
+                if (name == g) c++
+            }
+        }
+        END { print c + 0 }
+    ' "$file" 2>/dev/null)"
+    local attempt=$((existing + 1))
+    local run_id
+    run_id="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    # Open the running block (reuses cmd_append's lock + section handling).
+    cmd_append "$task_id" "$gate" running run="$run_id" attempt="$attempt" type=machine >/dev/null
+
+    printf 'RUN_ID:%s\nATTEMPT:%s\n' "$run_id" "$attempt"
 }
 
 # --- usage / dispatch ------------------------------------------------------
@@ -527,6 +578,17 @@ Commands:
         exit 0 = record (gate not literally declared), exit 1 = skip (declared →
         the orchestrator records it; avoids a double-record).
 
+  procedure-gates <task-id>
+        List the task's declared PROCEDURE-BACKED gates (kind: procedure) not yet
+        terminal-satisfied (t635_19) — one per line. The attended dispatch seam
+        runs each such gate's skill.
+
+  begin-procedure <task-id> <gate>
+        Start a run for a PROCEDURE-BACKED gate (kind: procedure, t635_19): open
+        its `running` block and print RUN_ID:<id> / ATTEMPT:<n>. The attended
+        dispatch (task-workflow / aitask-resume) calls this before running the
+        gate's skill, which closes the run via `append --only-if-running`.
+
 Backend:
   Primary path is bash + awk. Set AIT_GATES_BACKEND=python to force the
   lib/gate_ledger.py fallback (identical output).
@@ -545,6 +607,8 @@ main() {
         effective-gates) shift; cmd_effective_gates "$@" ;;
         has-gates-field) shift; cmd_has_gates_field "$@" ;;
         should-self-record) shift; cmd_should_self_record "$@" ;;
+        procedure-gates) shift; cmd_procedure_gates "$@" ;;
+        begin-procedure) shift; cmd_begin_procedure "$@" ;;
         --help|-h|help|"") show_help ;;
         *) die "Unknown command: $cmd (try --help)" ;;
     esac

@@ -499,17 +499,21 @@ def _default_gate_meta() -> dict:
         "type": "", "description": "", "blocks_dependents": False,
         "verifier": "", "max_retries": 0, "unlocks": None,
         "timeout_seconds": None, "signal": "", "signal_target": "",
+        "kind": "",
     }
 
 
 def read_registry(registry_file: str) -> dict[str, dict]:
     """Parse gates.yaml with ``re`` only (stdlib, no PyYAML).
 
-    Returns ``name -> {type, description, blocks_dependents, verifier,
+    Returns ``name -> {type, kind, description, blocks_dependents, verifier,
     max_retries, unlocks, timeout_seconds, signal, signal_target}``.
 
     - ``blocks_dependents`` (t635_3) marks a gate required-to-pass before the
       owning task's dependents unblock; defaults to ``False``.
+    - ``kind`` (t635_19) — ``"procedure"`` marks a procedure-backed (agent-skill)
+      gate the headless engine defers (`needs-agent`); ``""``/absent or
+      ``"command"`` = a normal command verifier.
     - ``verifier`` (t635_11) — command the orchestrator runs; ``""`` = no
       auto-run.
     - ``max_retries`` (t635_11) — int, default ``0`` (single shot).
@@ -566,6 +570,10 @@ def read_registry(registry_file: str) -> dict[str, dict]:
         # A field of the current gate.
         if key == "type":
             gates[cur]["type"] = val.strip("'\"")
+        elif key == "kind":
+            # t635_19 — "procedure" marks a procedure-backed (agent-skill) gate
+            # the headless engine defers; absent/"command" = normal command verifier.
+            gates[cur]["kind"] = val.strip("'\"")
         elif key == "description":
             gates[cur]["description"] = val.strip("'\"")
         elif key == "blocks_dependents":
@@ -682,6 +690,28 @@ def _archive_status_from_state(declared: list[str],
     nonpass = [g for g in declared
                if (state.get(g).status if state.get(g) else None) not in SATISFIED_STATUSES]
     return ("BLOCKED", nonpass) if nonpass else ("ALL_PASS", [])
+
+
+def unmet_procedure_gates(task_file: str, registry_file: str | None) -> list[str]:
+    """Declared gates that are ``kind: procedure`` AND not terminal-satisfied
+    (t635_19). The attended dispatch seam (task-workflow Step 8 / aitask-resume)
+    runs each such gate's skill. A gate already ``pass``/``skip`` is done and is
+    excluded (it must NOT be re-dispatched)."""
+    with open(task_file, encoding="utf-8") as fh:
+        text = fh.read()
+    declared = read_declared_gates_from_text(text)
+    if not declared:
+        return []
+    registry = read_registry(registry_file) if registry_file else {}
+    state = derive_gate_runs(text)
+    out = []
+    for g in declared:
+        if registry.get(g, {}).get("kind") != "procedure":
+            continue
+        st = state.get(g).status if state.get(g) else None
+        if st not in SATISFIED_STATUSES:
+            out.append(g)
+    return out
 
 
 def archive_status(task_file: str) -> tuple[str, list[str]]:
@@ -863,6 +893,15 @@ def main(argv: list[str]) -> int:
             sys.stdout.write("BLOCKED:" + ",".join(nonpass) + "\n")
         else:
             sys.stdout.write(decision + "\n")
+        return 0
+
+    if cmd == "procedure-gates":
+        if len(argv) < 2:
+            sys.stderr.write("Usage: gate_ledger.py procedure-gates <file> [registry]\n")
+            return 2
+        registry = argv[2] if len(argv) > 2 else None
+        for g in unmet_procedure_gates(argv[1], registry):
+            sys.stdout.write(g + "\n")
         return 0
 
     if cmd == "resume-point":

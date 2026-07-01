@@ -187,6 +187,20 @@ lint_command:
 # attachments_gc_grace: 30d
 
 # ──────────────────────────────────────────────────────────────────────
+# doc_update — Spec for the `docs_updated` procedure gate (a gate a task can
+# declare in its `gates:` to require its docs be updated).
+#
+# `guide` points at the project's doc-update guide — how docs are updated for a
+# change (where docs live, format/styling, which code-change kind maps to which
+# docs). `ait setup` installs the generic default guide to the path below; edit
+# that file to describe your project's own doc layout and conventions.
+# `extra_guides` (optional) layers additional reference guides on top.
+# ──────────────────────────────────────────────────────────────────────
+doc_update:
+  guide: aitasks/metadata/doc_update_guide.md
+  # extra_guides: []
+
+# ──────────────────────────────────────────────────────────────────────
 # default_profiles — Default execution profile for each skill.
 #
 # Maps skill names to profile names (without .yaml extension). When a

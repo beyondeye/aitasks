@@ -1285,6 +1285,7 @@ setup_data_branch() {
             cp "$project_dir/seed/task_types.txt" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/project_config.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/gates.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
+            cp "$project_dir/seed/doc_update_guide.md" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/code_areas.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/codeagent_config.json" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed"/models_*.json "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true

@@ -233,6 +233,9 @@ def blocked_reason(g: str, declared: list[str], registry: dict, state: dict,
         return "blocked: exhausted (retry budget spent)"
     if registry.get(g, {}).get("type") == "human":
         return "blocked: pending human signal"
+    if registry.get(g, {}).get("kind") == "procedure":
+        return ("needs agent (procedure-backed gate — run via task-workflow / "
+                "aitask-resume)")
     if not registry.get(g, {}).get("verifier"):
         return "blocked: no verifier configured (deferred)"
     return "blocked"
@@ -418,6 +421,7 @@ class Engine:
                 return 0
             machine = [g for g in unlocked
                        if self.registry.get(g, {}).get("type") == "machine"
+                       and self.registry.get(g, {}).get("kind") != "procedure"
                        and self.registry.get(g, {}).get("verifier")
                        and not is_stuck(runs_by_gate.get(g, []), self.digest)]
             human = [g for g in unlocked if self.registry.get(g, {}).get("type") == "human"]

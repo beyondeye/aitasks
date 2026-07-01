@@ -381,7 +381,6 @@ or open concerns. Tacit consent — silence, lack of objection, "looks fine
 I guess", a comment that mentions any further change — is NOT acceptance;
 keep iterating. There is no upper bound on iterations.
 
-
 After implementation is complete, the user MUST be given the opportunity to review and test changes before any commits are made.
 
 - **Show change summary:**
@@ -623,6 +622,11 @@ today.) Instead use `AskUserQuestion`:
   ```bash
   ./.aitask-scripts/aitask_gate.sh append <task_id> <gate> pass [k=v ...]
   ```
+  For a **procedure-backed** gate (`kind: procedure` — e.g. `docs_updated`; check
+  `./.aitask-scripts/aitask_gate.sh procedure-gates <task_id>`), do **not** hand-append
+  a pass — dispatch its skill instead (as in Step 8): `begin-procedure <task_id>
+  <gate>` → Read-and-follow the gate's `aitask-gate-<name>` skill in your agent's
+  skill tree, which records the terminal `pass`/`skip`/`fail` itself.
   After each, re-check `./.aitask-scripts/aitask_gate.sh archive-ready <task_id>`.
   **The moment it prints `ALL_PASS`, re-run the archive script** (same command as
   above) and continue with the normal success-path parsing below — no re-pick
@@ -756,6 +760,7 @@ Project-level settings are stored in `aitasks/metadata/project_config.yaml` (git
 | `verify_build` | string or list | (none — skip) | Shell command(s) to verify the build after implementation | Step 9; `build_verified` gate |
 | `test_command` | string or list | (none — auto-detect) | Shell command(s) for running project tests | aitask-qa Step 4; `tests_pass` gate |
 | `lint_command` | string or list | (none — skip) | Shell command(s) for linting project code | aitask-qa Step 4; `lint` gate |
+| `attachments_gc_grace` | duration (`30d`/`24h`/`90m`/`120s`/int seconds) | `30d` | Grace window before a **fully-orphaned** attachment (no active *or archived* task references it) is reclaimed by `ait attach gc`. Archiving never decrefs, so an archived task's attachments are kept indefinitely; this knob only governs blobs left unreferenced by `ait attach rm` or task deletion. | `ait attach gc` |
 
 If the file does not exist or a field is absent, the corresponding feature is skipped.
 
