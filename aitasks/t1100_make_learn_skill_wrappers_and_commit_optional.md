@@ -90,3 +90,8 @@ or stage it themselves.
   port-aitask is needed for the generated skill itself. (The edits to
   `aitask-learn-skill` itself, however, may need porting to the Codex/OpenCode
   copies of that skill — evaluate.)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-01T08:30:19Z status=pass attempt=1 type=human
