@@ -46,12 +46,15 @@ class QuickJumpRegistrationTests(unittest.TestCase):
 class AgentLaunchActionTests(unittest.TestCase):
     def _make_overlay(self):
         ov = ts.TuiSwitcherOverlay(session="s1")
-        ov._session = "s1"
+        # _session is a derived read-only property (t1099); identity lives in
+        # _selected_key. With no discovered sessions it returns the provisional
+        # "s1", matching the pre-t1099 behavior this test asserts.
+        ov._selected_key = "s1"
         ov._running_names = set()
         ov.dismiss = MagicMock()
         ov._handle_stale_selection = MagicMock(return_value=False)
         ov._ensure_session_live = MagicMock(return_value=True)
-        ov._project_root_for_session = MagicMock(return_value=Path("/p1"))
+        ov._selected_project_root = MagicMock(return_value=Path("/p1"))
         return ov
 
     def test_action_pushes_no_task_dialog_and_routes_result(self):

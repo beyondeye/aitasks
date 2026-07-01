@@ -63,7 +63,9 @@ class SwitcherBootstrapTests(unittest.TestCase):
         ov = ts.TuiSwitcherOverlay(session="sA", selected_session="sB")
         grouped = _sess("sB", "g1", is_live=False)
         ov._all_sessions = [_sess("sA", "g0"), grouped]
-        ov._session = "sB"
+        # Identity is the unique key (t1099); _session is now a derived
+        # read-only property, so select via _selected_key.
+        ov._selected_key = grouped.key
 
         def fake_run(cmd, *a, **k):
             r = MagicMock()
@@ -190,21 +192,29 @@ class StatsRingTests(unittest.TestCase):
             app = sa.StatsApp()
         app.sessions = sessions
         app.multi_session = True
-        app.selected_session = selected
+        # Identity is the unique project_root key (t1099); resolve the selected
+        # session name -> key (aggregate sentinel passes through).
+        app.selected_key = self._key_for(sessions, selected)
         app._selected_group = group
+        app._labels = app._build_labels()
         return sa, app
 
+    @staticmethod
+    def _key_for(sessions, name):
+        return next((s.key for s in sessions if s.session == name), name)
+
     def test_aggregate_is_fixed_final_ring_member(self):
-        sa, app = self._app(
-            [_sess("sA", "g1"), _sess("sC", "g1"), _sess("sB", "g2")],
-            "sB", "g2",
-        )
+        sA, sC, sB = _sess("sA", "g1"), _sess("sC", "g1"), _sess("sB", "g2")
+        sa, app = self._app([sA, sC, sB], "sB", "g2")
         ring = app._session_ring()
         self.assertEqual(ring[-1], sa.ALL_SESSIONS_KEY)
         self.assertEqual(ring.count(sa.ALL_SESSIONS_KEY), 1)
         # Cross-group walk [sA, sC, sB] (group order, not selected-group first),
-        # then the aggregate as the fixed final member (t1036).
-        self.assertEqual(ring, ["sA", "sC", "sB", sa.ALL_SESSIONS_KEY])
+        # then the aggregate as the fixed final member (t1036). The ring is keyed
+        # on the unique identity (t1099), not the tmux session name.
+        self.assertEqual(
+            ring, [sA.key, sC.key, sB.key, sa.ALL_SESSIONS_KEY]
+        )
 
     def test_bracket_pane_guard_routes_window_vs_group(self):
         _sa, app = self._app([_sess("sA", "g1"), _sess("sB", "g2")], "sA", "g1")
@@ -233,7 +243,9 @@ class StatsRingTests(unittest.TestCase):
         app.notify = MagicMock()
         app._cycle_group(+1)  # g2 -> g1; sB not a g1 member -> re-point to sA
         self.assertEqual(app._selected_group, "g1")
-        app._apply_session_selection.assert_called_once_with("sA")
+        app._apply_session_selection.assert_called_once_with(
+            self._key_for(app.sessions, "sA")
+        )
         app._update_title.assert_not_called()
 
     def test_cycle_session_crosses_boundary_and_syncs_group(self):
@@ -245,7 +257,9 @@ class StatsRingTests(unittest.TestCase):
         # → on sC (last g1 member) crosses into g2's sB; group axis follows.
         app._cycle_session(+1)
         self.assertEqual(app._selected_group, "g2")
-        app._apply_session_selection.assert_called_once_with("sB")
+        app._apply_session_selection.assert_called_once_with(
+            self._key_for(app.sessions, "sB")
+        )
 
     def test_cycle_session_onto_aggregate_keeps_group(self):
         sa, app = self._app(

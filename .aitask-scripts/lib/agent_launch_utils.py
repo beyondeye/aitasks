@@ -123,6 +123,23 @@ class AitasksSession:
     # *valid* slug ever populates this — invalid config values resolve to None.
     project_group: str | None = None
 
+    @property
+    def key(self) -> str:
+        """Stable unique identity, independent of the tmux session name (t1099).
+
+        The tmux ``session`` name is NOT unique across discovered repos:
+        unconfigured repos all fall back to the literal ``"aitasks"`` (see
+        :func:`_read_default_session`), and two live repos can share a
+        basename. ``project_root`` is truly unique, so it is the identity used
+        for caching / selection / cycling by the registry-inclusive consumers
+        (stats TUI, TUI switcher) and the shared ring/group helpers; ``session``
+        stays purely the tmux label / target.
+        """
+        try:
+            return os.path.realpath(self.project_root)
+        except OSError:
+            return str(self.project_root)
+
 
 class RegistryRecord(NamedTuple):
     """Raw per-user project registry entry."""
@@ -759,19 +776,20 @@ def group_sessions(
 
 def default_selected_group(
     sessions: list[AitasksSession],
-    selected_session_name: str | None,
+    selected_key: str | None,
 ) -> str | None:
     """Resolve the project-group a two-axis TUI should select on open (t1025_2).
 
     Contract — "the selected session's group, else the first groups entry":
 
-    - If a session in ``sessions`` has ``.session == selected_session_name``,
+    - If a session in ``sessions`` has ``.key == selected_key`` (identity is the
+      unique ``project_root`` key, t1099 — NOT the ambiguous tmux session name),
       return **its** ``project_group``. That value may legitimately be ``None``
       (the session is ungrouped) — ``None`` here means *the ungrouped bucket*,
       NOT "fall back to the first real group". :func:`group_sessions` treats a
       ``None`` selected group as the ungrouped bucket, so an ungrouped
       preselected session correctly stays in its own ring.
-    - Otherwise (no such session — e.g. the stats aggregate key, or a name that
+    - Otherwise (no such session — e.g. the stats aggregate key, or a key that
       did not survive discovery), return the first entry of
       ``group_sessions(sessions, None).groups`` (sorted real groups, then the
       synthetic ``PROJECT_GROUP_UNGROUPED_LABEL``), or ``None`` when there are no
@@ -781,7 +799,7 @@ def default_selected_group(
     rule lives in exactly one tested place.
     """
     for s in sessions:
-        if s.session == selected_session_name:
+        if s.key == selected_key:
             return s.project_group
     groups = group_sessions(sessions, None).groups
     return groups[0] if groups else None
@@ -812,10 +830,15 @@ def advance_selected_group(
 
 @dataclass(frozen=True)
 class GroupCycleSelection:
-    """Decision result for a ``[`` / ``]`` project-group cycle."""
+    """Decision result for a ``[`` / ``]`` project-group cycle.
+
+    ``repoint_key`` is the unique identity key (t1099) of the session to
+    re-point onto, or ``None`` when the current selection stays valid in the new
+    group. Callers resolve the tmux label/target from the entry themselves.
+    """
 
     selected_group: str | None
-    repoint_session: str | None = None
+    repoint_key: str | None = None
 
 
 def group_members(
@@ -839,31 +862,32 @@ def group_members(
 def advance_group_selection(
     sessions: list[AitasksSession],
     selected_group: str | None,
-    selected_session: str,
+    selected_key: str,
     step: int,
     *,
-    fallback_session: str | None = None,
+    fallback_key: str | None = None,
 ) -> GroupCycleSelection | None:
     """Advance a TUI's project-group axis and decide whether to re-point.
 
     Shared by the switcher and stats TUI: both advance through the same group
     order and re-point the selected session only when it is not a member of the
-    newly selected group. UI refresh, notifications, and caller-specific
-    fallback behavior stay at the call site.
+    newly selected group. Membership is tested on the unique identity key
+    (t1099), not the ambiguous tmux session name. UI refresh, notifications, and
+    caller-specific fallback behavior stay at the call site.
     """
     groups = group_sessions(sessions, selected_group).groups
     if len(groups) < 2:
         return None
 
     next_group = advance_selected_group(groups, selected_group, step)
-    members = [s.session for s in group_members(sessions, next_group)]
-    repoint_session = None
-    if selected_session not in members:
-        repoint_session = members[0] if members else fallback_session
+    members = [s.key for s in group_members(sessions, next_group)]
+    repoint_key = None
+    if selected_key not in members:
+        repoint_key = members[0] if members else fallback_key
 
     return GroupCycleSelection(
         selected_group=next_group,
-        repoint_session=repoint_session,
+        repoint_key=repoint_key,
     )
 
 
@@ -871,14 +895,19 @@ def advance_group_selection(
 class CrossGroupRingEntry:
     """One stop in the cross-group left/right traversal (t1036).
 
-    ``session`` is the session name (or a caller-supplied sentinel such as the
-    stats aggregate key). ``group`` is the project-group the entry belongs to
-    (``None`` = the ungrouped bucket), so a caller can keep its selected-group
-    axis in sync as ``left`` / ``right`` crosses a group boundary.
+    ``session`` is the tmux session name / label (or a caller-supplied sentinel
+    such as the stats aggregate key), used for display and tmux targeting.
+    ``key`` is the unique identity (t1099 — the ``project_root`` key, or the same
+    sentinel for a caller-appended aggregate stop); stepping matches on ``key``
+    so two repos that share ``session="aitasks"`` remain individually reachable.
+    ``group`` is the project-group the entry belongs to (``None`` = the ungrouped
+    bucket), so a caller can keep its selected-group axis in sync as ``left`` /
+    ``right`` crosses a group boundary.
     """
 
     session: str
     group: str | None
+    key: str
 
 
 def cross_group_ring(
@@ -902,31 +931,116 @@ def cross_group_ring(
         tag = None if g == PROJECT_GROUP_UNGROUPED_LABEL else g
         for s in sessions:
             if _session_in_group(s, g):
-                entries.append(CrossGroupRingEntry(session=s.session, group=tag))
+                entries.append(
+                    CrossGroupRingEntry(session=s.session, group=tag, key=s.key)
+                )
     return entries
 
 
 def cross_group_step(
     entries: list[CrossGroupRingEntry],
-    current_session: str | None,
+    current_key: str | None,
     step: int,
 ) -> CrossGroupRingEntry | None:
     """Index-wrap a ``±1`` step over a cross-group ring (t1036).
 
     ``entries`` is :func:`cross_group_ring` output, optionally with extra
     caller-appended stops (e.g. the stats ``__all__`` aggregate). Returns the
-    entry ``step`` positions from the one whose ``.session == current_session``
-    (starting at index 0 when ``current_session`` is absent), wrapping globally,
-    or ``None`` when ``entries`` is empty. Shared so the switcher and stats wrap
-    identically.
+    entry ``step`` positions from the one whose ``.key == current_key`` (the
+    unique identity, t1099 — starting at index 0 when ``current_key`` is absent),
+    wrapping globally, or ``None`` when ``entries`` is empty. Shared so the
+    switcher and stats wrap identically.
     """
     if not entries:
         return None
     idx = next(
-        (i for i, e in enumerate(entries) if e.session == current_session),
+        (i for i, e in enumerate(entries) if e.key == current_key),
         0,
     )
     return entries[(idx + step) % len(entries)]
+
+
+def disambiguate_labels(
+    primaries: list[str],
+    secondaries: list[str],
+    fallbacks: list[str],
+) -> list[str]:
+    """Index-aligned, guaranteed-unique display labels (t1099).
+
+    Identity is always the unique ``key``; *labels* are chosen per surface. A
+    primary that is unique among ``primaries`` renders as-is (so unique tmux
+    session names / project names look exactly as before). A repeated primary
+    escalates to ``"primary (secondary)"``; if that STILL collides, to
+    ``"primary (fallback)"``. ``fallbacks`` MUST be globally unique (e.g. a
+    compact ``project_root``), so the returned labels are always distinct — no
+    two rows can render identically even when both primary and secondary clash.
+
+    All three lists are index-aligned and must be the same length.
+    """
+    from collections import Counter
+
+    primary_counts = Counter(primaries)
+    level1 = [
+        p if primary_counts[p] == 1 else f"{p} ({s})"
+        for p, s in zip(primaries, secondaries)
+    ]
+    level1_counts = Counter(level1)
+    return [
+        lbl if level1_counts[lbl] == 1 else f"{p} ({f})"
+        for lbl, p, f in zip(level1, primaries, fallbacks)
+    ]
+
+
+def resolve_selected_key(
+    sessions: list[AitasksSession],
+    *,
+    provisional_session: str | None = None,
+    cwd: Path | None = None,
+) -> str | None:
+    """Identity key of the session a TUI should select on open (t1099).
+
+    Resolves "which repo did we open on?" by UNIQUE context so it survives the
+    default-session collision (several repos sharing ``session="aitasks"``).
+    Shared by the TUI switcher and the stats TUI so both resolve identically:
+
+    1. If ``cwd`` is given, walk it up to an aitasks root and return the entry
+       whose ``realpath(project_root)`` matches it — the repo the TUI was
+       actually launched from (unambiguous even under a session-name collision).
+    2. Else match ``.session == provisional_session``, preferring a live entry
+       (an attached / focused tmux session is real and unique among live ones).
+    3. Else the first session-name match.
+    4. Else ``None`` — let the caller pick its own safe default.
+
+    ``cwd=None`` skips step 1 (used for an explicit cross-repo preselection,
+    where the launch cwd is irrelevant).
+    """
+    if cwd is not None:
+        root = _walk_up_to_aitasks(cwd)
+        if root is not None:
+            try:
+                target = os.path.realpath(root)
+            except OSError:
+                target = str(root)
+            for s in sessions:
+                if s.key == target:
+                    return s.key
+
+    if provisional_session is not None:
+        live_match = next(
+            (s for s in sessions
+             if s.session == provisional_session and s.is_live),
+            None,
+        )
+        if live_match is not None:
+            return live_match.key
+        any_match = next(
+            (s for s in sessions if s.session == provisional_session),
+            None,
+        )
+        if any_match is not None:
+            return any_match.key
+
+    return None
 
 
 def switch_to_pane_anywhere(pane_id: str) -> bool:

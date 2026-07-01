@@ -52,11 +52,13 @@ from agent_launch_utils import (  # noqa: E402
     cross_group_ring,
     cross_group_step,
     default_selected_group,
+    disambiguate_labels,
     discover_aitasks_sessions,
     get_tmux_windows,
     group_members,
     group_sessions,
     load_tmux_defaults,
+    resolve_selected_key,
     tmux_session_target,
     tmux_window_target,
 )
@@ -461,13 +463,20 @@ class TuiSwitcherOverlay(ModalScreen):
         selected_session: str | None = None,
     ) -> None:
         super().__init__()
-        # _session is the OPERATING / SELECTED session — what the overlay
-        # currently points at. Mutated by Left/Right. All shortcuts,
-        # _switch_to, and _launch_git_with_companion read this. Callers can
-        # pre-select a non-attached session via ``selected_session`` (e.g.
-        # monitor / minimonitor opening the switcher with the focused
-        # agent's session already selected — t836).
-        self._session = selected_session or session
+        # Identity is the unique project_root key (t1099), NOT the tmux session
+        # name — several registered repos can share `session="aitasks"` via the
+        # default-session fallback, so a name is not a reliable identity. The
+        # OPERATING session name is derived from the selected entry via the
+        # `_session` property below (single source of truth; it can never
+        # disagree with the selected entry). Callers pre-select a non-attached
+        # session via ``selected_session`` (e.g. monitor / minimonitor opening
+        # the switcher with the focused agent's session already selected — t836).
+        self._provisional_session = selected_session or session
+        self._has_preselection = selected_session is not None
+        # Provisional identity until discovery resolves it to a real key in
+        # _init_multi_state; pre-discovery the `_session` property returns it
+        # verbatim, preserving legacy single-session behavior.
+        self._selected_key: str = self._provisional_session
         # _attached_session is the tmux client's current session — used only
         # by _render_session_row (to mark the attached session with ▶) and
         # _teleport_if_cross (to decide whether switch-client is needed).
@@ -484,6 +493,49 @@ class TuiSwitcherOverlay(ModalScreen):
         # Resolved in on_mount once _all_sessions is populated.
         self._selected_group: str | None = None
 
+    # ─── Selected-entry resolution (t1099) ──────────────────────────────────
+    #
+    # `_selected_key` is the single source of truth for the selection; the tmux
+    # session name and project root are always derived from the matching entry,
+    # so a session-name collision (two `aitasks` repos) can never route an
+    # action to the wrong project.
+
+    def _selected_entry(self) -> AitasksSession | None:
+        for s in self._all_sessions:
+            if s.key == self._selected_key:
+                return s
+        return None
+
+    @property
+    def _session(self) -> str:
+        """The OPERATING session name — the tmux label/target of the selected
+        entry, derived from `_selected_key`. Falls back to the provisional key
+        when no entry matches (legacy single-session / pre-discovery)."""
+        entry = self._selected_entry()
+        return entry.session if entry is not None else self._selected_key
+
+    def _selected_project_root(self) -> Path:
+        """Project root of the selected entry (t1099). Falls back to the cwd,
+        preserving the legacy single-session behavior when no entry matches."""
+        entry = self._selected_entry()
+        return entry.project_root if entry is not None else Path.cwd()
+
+    def _resolve_initial_key(self) -> str:
+        """Resolve `_selected_key` from the provisional session name via unique
+        context (t1099), shared by _init_multi_state and on_registry_refresh.
+
+        An explicit cross-repo preselection is resolved by session name (the
+        focused live session is unique); otherwise the attached case uses the
+        launch cwd to disambiguate two entries that share `session="aitasks"`.
+        Keeps the provisional string when nothing resolves.
+        """
+        key = resolve_selected_key(
+            self._all_sessions,
+            provisional_session=self._provisional_session,
+            cwd=None if self._has_preselection else Path.cwd(),
+        )
+        return key if key is not None else self._provisional_session
+
     def compose(self):
         with Container(id="switcher_dialog"):
             yield Label("TUI Switcher", id="switcher_title")
@@ -499,32 +551,16 @@ class TuiSwitcherOverlay(ModalScreen):
         # session on-demand (see _ensure_session_live below).
         self._init_multi_state(discover_aitasks_sessions(include_registered=True))
         # Default the group axis to the SELECTED (operating) session's group —
-        # self._session, NOT self._attached_session — so a switcher opened with a
-        # cross-group preselected session (monitor / minimonitor, t836) lands on
-        # that session's group, keeping the preselected repo inside the ring.
+        # the selected key, NOT self._attached_session — so a switcher opened
+        # with a cross-group preselected session (monitor / minimonitor, t836)
+        # lands on that session's group, keeping the preselected repo in the ring.
         self._selected_group = default_selected_group(
-            self._all_sessions, self._session
+            self._all_sessions, self._selected_key
         )
         self._render_hint()
         self._render_session_row()
-        self._render_desync_line(self._project_root_for_session(self._session))
+        self._render_desync_line(self._selected_project_root())
         self._populate_list_for(self._session)
-
-    def _project_root_for_session(self, session: str) -> Path:
-        """Return the absolute project root associated with ``session``.
-
-        Looks up the session in ``self._all_sessions`` (populated by
-        ``discover_aitasks_sessions()``). Falls back to ``Path.cwd()`` when
-        the session is unknown (e.g. single-session mode where
-        ``_all_sessions`` may be empty, or an exotic session that did not
-        match either discovery heuristic). The fallback preserves the
-        legacy single-session behavior — calling pane's cwd already equals
-        the project root in that case.
-        """
-        for s in self._all_sessions:
-            if s.session == session:
-                return s.project_root
-        return Path.cwd()
 
     def _handle_stale_selection(self) -> bool:
         """If the SELECTED session is a STALE registry entry, push the
@@ -533,14 +569,9 @@ class TuiSwitcherOverlay(ModalScreen):
         the entry is not stale (or not tracked) so the caller proceeds
         normally.
         """
-        idx = next(
-            (i for i, s in enumerate(self._all_sessions)
-             if s.session == self._session),
-            None,
-        )
-        if idx is None:
+        entry = self._selected_entry()
+        if entry is None:
             return False
-        entry = self._all_sessions[idx]
         if not entry.is_stale:
             return False
         self._push_stale_modal(entry.project_name, entry.project_root)
@@ -555,12 +586,18 @@ class TuiSwitcherOverlay(ModalScreen):
         """
         event.stop()
         self._all_sessions = discover_aitasks_sessions(include_registered=True)
-        # Selected session may have been removed (prune); fall back to
-        # the attached session so subsequent actions are well-defined.
-        if not any(s.session == self._session for s in self._all_sessions):
-            self._session = self._attached_session
+        # Selected entry may have been removed (prune); fall back to the attached
+        # session (by unique context) so subsequent actions are well-defined.
+        if self._selected_entry() is None:
+            fallback = resolve_selected_key(
+                self._all_sessions,
+                provisional_session=self._attached_session,
+                cwd=Path.cwd(),
+            )
+            if fallback is not None:
+                self._selected_key = fallback
         self._render_session_row()
-        self._render_desync_line(self._project_root_for_session(self._session))
+        self._render_desync_line(self._selected_project_root())
         self._populate_list_for(self._session)
 
     def _ensure_session_live(self) -> bool:
@@ -576,14 +613,9 @@ class TuiSwitcherOverlay(ModalScreen):
         Returns True on success or no-op; False if the bootstrap helper
         failed (a user-facing notification is emitted in that case).
         """
-        idx = next(
-            (i for i, s in enumerate(self._all_sessions)
-             if s.session == self._session),
-            None,
-        )
-        if idx is None or self._all_sessions[idx].is_live:
+        entry = self._selected_entry()
+        if entry is None or entry.is_live:
             return True
-        entry = self._all_sessions[idx]
         script = str(Path(__file__).resolve().parent / "tmux_bootstrap.sh")
         try:
             result = subprocess.run(
@@ -618,7 +650,12 @@ class TuiSwitcherOverlay(ModalScreen):
         # dataclasses.replace — a hand-rebuilt AitasksSession(...) would reset
         # project_group (and is_stale) to their defaults and silently drop a
         # registered grouped project out of its group after bootstrap (t1025_2).
-        self._all_sessions[idx] = dataclasses.replace(entry, is_live=True)
+        # Locate by unique identity key (t1099) — the tmux session name may be
+        # shared by another repo.
+        for i, s in enumerate(self._all_sessions):
+            if s.key == entry.key:
+                self._all_sessions[i] = dataclasses.replace(entry, is_live=True)
+                break
         return True
 
     def _spawn_in_session(
@@ -637,7 +674,7 @@ class TuiSwitcherOverlay(ModalScreen):
         callers can read the pane id; otherwise returns the async ``Popen``
         for fire-and-forget use.
         """
-        project_root = self._project_root_for_session(self._session)
+        project_root = self._selected_project_root()
         argv = ["new-window", "-t",
                 tmux_window_target(self._session, ""),
                 "-c", str(project_root),
@@ -665,12 +702,20 @@ class TuiSwitcherOverlay(ModalScreen):
             len(sessions) >= 2
             and any(s.session == self._attached_session for s in sessions)
         )
-        # If the caller pre-selected a session that does not appear in the
-        # discovered list (e.g. the agent's session died between focus and
-        # overlay push), fall back to the attached session so the
-        # session-row markers and _cycle_session indexing stay consistent.
-        if sessions and not any(s.session == self._session for s in sessions):
-            self._session = self._attached_session
+        # Resolve the provisional session name to a unique identity key via
+        # unique context (cwd walk-up / is_live preference), so a default-session
+        # collision cannot select the wrong repo (t1099).
+        self._selected_key = self._resolve_initial_key()
+        # If the resolution did not land on a discovered entry (e.g. the agent's
+        # session died between focus and overlay push), fall back to the attached
+        # session so the session-row markers and _cycle_session indexing stay
+        # consistent.
+        if sessions and self._selected_entry() is None:
+            fallback = resolve_selected_key(
+                sessions, provisional_session=self._attached_session, cwd=None
+            )
+            if fallback is not None:
+                self._selected_key = fallback
 
     def _render_hint(self) -> None:
         hint = self.query_one("#switcher_hint", Label)
@@ -712,10 +757,19 @@ class TuiSwitcherOverlay(ModalScreen):
         # Show ONLY the selected group's projects (t1036). left/right crosses
         # group boundaries and re-renders this row to the next group's members,
         # so a per-group view stays exhaustive without listing every session.
-        for s in group_members(self._all_sessions, self._selected_group):
-            name = s.session
-            attached = name == self._attached_session
-            selected = name == self._session
+        members = group_members(self._all_sessions, self._selected_group)
+        # Session-name-primary labels (t1099): a unique session renders as the
+        # bare name (narrow-panel-friendly, unchanged from before); colliding
+        # `aitasks` rows disambiguate compactly by project name, escalating to a
+        # unique compact root if the project names also clash.
+        names = disambiguate_labels(
+            [s.session for s in members],
+            [s.project_name for s in members],
+            [str(s.project_root) for s in members],
+        )
+        for s, name in zip(members, names):
+            attached = s.is_live and s.session == self._attached_session
+            selected = s.key == self._selected_key
             prefix = "▶ " if attached else "  "
             suffix = " (stale)" if s.is_stale else ""
             label = f"{prefix}{name}{suffix}"
@@ -810,7 +864,10 @@ class TuiSwitcherOverlay(ModalScreen):
         list_view.append(_GroupHeader("TUIs"))
         item_idx += 1
 
-        session_project_root = self._project_root_for_session(session)
+        # Resolve by the selected entry's unique key (t1099), not by session
+        # name — two repos can share `session="aitasks"`. _populate_list_for is
+        # always invoked with the selected session (`self._session`).
+        session_project_root = self._selected_project_root()
         for name, label, _cmd in _build_tui_list(session_project_root):
             is_current = is_attached_session and name == self._current_tui
             running = name in self._running_names
@@ -909,7 +966,7 @@ class TuiSwitcherOverlay(ModalScreen):
     def _refresh_after_cycle(self) -> None:
         """Shared refresh trio after left/right or `[`/`]` changes the selection."""
         self._render_session_row()
-        self._render_desync_line(self._project_root_for_session(self._session))
+        self._render_desync_line(self._selected_project_root())
         self._populate_list_for(self._session)
 
     def _switcher_list_or_skip(self):
@@ -932,10 +989,10 @@ class TuiSwitcherOverlay(ModalScreen):
         entries = cross_group_ring(self._all_sessions)
         if not self._multi_mode or len(entries) < 2:
             raise SkipAction()
-        target = cross_group_step(entries, self._session, step)
+        target = cross_group_step(entries, self._selected_key, step)
         if target is None:
             raise SkipAction()
-        self._session = target.session
+        self._selected_key = target.key
         self._selected_group = target.group
         self._refresh_after_cycle()
 
@@ -947,14 +1004,14 @@ class TuiSwitcherOverlay(ModalScreen):
         target = advance_group_selection(
             self._all_sessions,
             self._selected_group,
-            self._session,
+            self._selected_key,
             step,
         )
         if target is None:
             raise SkipAction()
         self._selected_group = target.selected_group
-        if target.repoint_session is not None:
-            self._session = target.repoint_session
+        if target.repoint_key is not None:
+            self._selected_key = target.repoint_key
         self._refresh_after_cycle()
 
     def action_select_tui(self) -> None:
@@ -1042,7 +1099,7 @@ class TuiSwitcherOverlay(ModalScreen):
         while f"agent-explore-{n}" in self._running_names:
             n += 1
         window_name = f"agent-explore-{n}"
-        project_root = self._project_root_for_session(self._session)
+        project_root = self._selected_project_root()
         try:
             self._spawn_in_session(window_name, "ait codeagent invoke explore")
             from agent_launch_utils import maybe_spawn_minimonitor
@@ -1061,7 +1118,7 @@ class TuiSwitcherOverlay(ModalScreen):
             return
         if not self._ensure_session_live():
             return
-        project_root = self._project_root_for_session(self._session)
+        project_root = self._selected_project_root()
         try:
             proc = self._spawn_in_session("create-task", "ait create")
             proc.wait()
@@ -1088,7 +1145,7 @@ class TuiSwitcherOverlay(ModalScreen):
             return
         if not self._ensure_session_live():
             return
-        project_root = self._project_root_for_session(self._session)
+        project_root = self._selected_project_root()
         from agent_command_screen import AgentCommandScreen
         from agent_launch_utils import (
             TmuxLaunchConfig,
@@ -1170,7 +1227,7 @@ class TuiSwitcherOverlay(ModalScreen):
             elif name == "git":
                 self._launch_git_with_companion()
             else:
-                project_root = self._project_root_for_session(self._session)
+                project_root = self._selected_project_root()
                 cmd = self._get_launch_command(name, project_root)
                 self._spawn_in_session(name, cmd)
             # Cross-session: teleport the attached client to the selected
@@ -1207,7 +1264,7 @@ class TuiSwitcherOverlay(ModalScreen):
         pane (user-added shell, codeagent sharing the companion, etc.) is
         still using the window.
         """
-        project_root = self._project_root_for_session(self._session)
+        project_root = self._selected_project_root()
         cmd = self._get_launch_command("git", project_root)
         rc, stdout = self._spawn_in_session("git", cmd, capture_pane_id=True)
         if rc != 0:

@@ -56,10 +56,12 @@ def _write_config(root: Path, *, group: str | None) -> Path:
     return root
 
 
-def _sess(name, group, *, is_live=True, is_stale=False, root="/tmp/x"):
+def _sess(name, group, *, is_live=True, is_stale=False, root=None):
+    # Distinct root per name so each session has a unique identity `.key`
+    # (t1099) — identity no longer keys on the tmux session name.
     return AitasksSession(
         session=name,
-        project_root=Path(root),
+        project_root=Path(root if root is not None else f"/tmp/{name}"),
         project_name=name,
         is_live=is_live,
         is_stale=is_stale,
@@ -219,14 +221,14 @@ class GroupSessionsTests(unittest.TestCase):
 
 class DefaultSelectedGroupTests(unittest.TestCase):
     def test_named_session_grouped_returns_its_group(self):
-        sessions = [_sess("a", "g1"), _sess("b", "g2")]
-        self.assertEqual(default_selected_group(sessions, "b"), "g2")
+        a, b = _sess("a", "g1"), _sess("b", "g2")
+        self.assertEqual(default_selected_group([a, b], b.key), "g2")
 
     def test_named_session_ungrouped_returns_none_not_first_group(self):
         # The selected session is ungrouped -> None (the ungrouped bucket),
         # NOT a fall-through to the first real group.
-        sessions = [_sess("a", "g1"), _sess("b", None)]
-        self.assertIsNone(default_selected_group(sessions, "b"))
+        a, b = _sess("a", "g1"), _sess("b", None)
+        self.assertIsNone(default_selected_group([a, b], b.key))
 
     def test_absent_session_falls_back_to_first_group(self):
         sessions = [_sess("a", "zeta"), _sess("b", "alpha")]
@@ -275,32 +277,32 @@ class AdvanceGroupSelectionTests(unittest.TestCase):
     """`advance_group_selection` centralizes group-cycle re-point decisions."""
 
     def test_repoints_to_first_member_when_selection_outside_new_group(self):
-        sessions = [_sess("a", "g1"), _sess("b", "g2")]
-        result = advance_group_selection(sessions, "g2", "b", +1)
+        a, b = _sess("a", "g1"), _sess("b", "g2")
+        result = advance_group_selection([a, b], "g2", b.key, +1)
         self.assertIsNotNone(result)
         self.assertEqual(result.selected_group, "g1")
-        self.assertEqual(result.repoint_session, "a")
+        self.assertEqual(result.repoint_key, a.key)
 
     def test_keeps_selection_when_it_belongs_to_new_group(self):
-        sessions = [_sess("a", "g1"), _sess("b", "g1"), _sess("c", "g2")]
-        result = advance_group_selection(sessions, "g2", "b", +1)
+        a, b, c = _sess("a", "g1"), _sess("b", "g1"), _sess("c", "g2")
+        result = advance_group_selection([a, b, c], "g2", b.key, +1)
         self.assertIsNotNone(result)
         self.assertEqual(result.selected_group, "g1")
-        self.assertIsNone(result.repoint_session)
+        self.assertIsNone(result.repoint_key)
 
     def test_single_group_returns_none(self):
-        sessions = [_sess("a", "g1"), _sess("b", "g1")]
-        self.assertIsNone(advance_group_selection(sessions, "g1", "a", +1))
+        a, b = _sess("a", "g1"), _sess("b", "g1")
+        self.assertIsNone(advance_group_selection([a, b], "g1", a.key, +1))
 
     def test_fallback_used_when_target_group_has_no_members(self):
-        sessions = [_sess("a", "g1"), _sess("b", "g2")]
+        a, b = _sess("a", "g1"), _sess("b", "g2")
         with patch.object(agent_launch_utils, "group_members", return_value=[]):
             result = advance_group_selection(
-                sessions, "g2", "b", +1, fallback_session="__all__"
+                [a, b], "g2", b.key, +1, fallback_key="__all__"
             )
         self.assertIsNotNone(result)
         self.assertEqual(result.selected_group, "g1")
-        self.assertEqual(result.repoint_session, "__all__")
+        self.assertEqual(result.repoint_key, "__all__")
 
 
 class GroupMembersTests(unittest.TestCase):
@@ -368,23 +370,32 @@ class CrossGroupStepTests(unittest.TestCase):
         return cross_group_ring([_sess("a", "g1"), _sess("c", "g1"),
                                  _sess("b", "g2")])
 
+    def _keys(self, ring):
+        # Stepping matches on the unique identity key (t1099), not the session
+        # name; map name -> key for readable per-session assertions.
+        return {e.session: e.key for e in ring}
+
     def test_forward_within_group(self):
-        t = cross_group_step(self._ring(), "a", +1)
+        ring = self._ring()
+        t = cross_group_step(ring, self._keys(ring)["a"], +1)
         self.assertEqual((t.session, t.group), ("c", "g1"))
 
     def test_forward_crosses_boundary(self):
         # Last member of g1 (c) -> first member of g2 (b), group switches.
-        t = cross_group_step(self._ring(), "c", +1)
+        ring = self._ring()
+        t = cross_group_step(ring, self._keys(ring)["c"], +1)
         self.assertEqual((t.session, t.group), ("b", "g2"))
 
     def test_forward_wraps_globally(self):
         # Last member of last group (b) -> first member of first group (a).
-        t = cross_group_step(self._ring(), "b", +1)
+        ring = self._ring()
+        t = cross_group_step(ring, self._keys(ring)["b"], +1)
         self.assertEqual((t.session, t.group), ("a", "g1"))
 
     def test_backward_crosses_boundary_and_wraps(self):
         # First member of g1 (a) wraps back to last member of last group (b).
-        t = cross_group_step(self._ring(), "a", -1)
+        ring = self._ring()
+        t = cross_group_step(ring, self._keys(ring)["a"], -1)
         self.assertEqual((t.session, t.group), ("b", "g2"))
 
     def test_absent_current_starts_from_first(self):

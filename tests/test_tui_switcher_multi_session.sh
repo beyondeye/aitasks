@@ -187,7 +187,11 @@ print("SAME_POPEN_0:" + " ".join(calls[0]))
 # --- _switch_to cross-session running=True ---
 
 ov = make_overlay(session="s1")
-ov._session = "s2"                  # browsed to s2
+ov._all_sessions = [
+    AitasksSession("s1", Path("/p1"), "p1"),
+    AitasksSession("s2", Path("/p2"), "p2"),
+]
+ov._selected_key = "/p2"            # browsed to s2 (identity is the root key)
 ov._running_names = {"board"}
 ov.dismiss = MagicMock()
 with patch("tui_switcher.subprocess.Popen") as mock_popen:
@@ -201,11 +205,11 @@ print("CROSS_RUN_POPEN_1:" + " ".join(calls[1]))
 # --- _switch_to cross-session running=False (new window) ---
 
 ov = make_overlay(session="s1")
-ov._session = "s2"
 ov._all_sessions = [
     AitasksSession("s1", Path("/p1"), "p1"),
     AitasksSession("s2", Path("/p2"), "p2"),
 ]
+ov._selected_key = "/p2"            # browsed to s2 (identity is the root key)
 ov._running_names = set()
 ov.dismiss = MagicMock()
 with patch("tui_switcher.subprocess.Popen") as mock_popen:
@@ -231,11 +235,11 @@ print("SAME_NEW_POPEN_0:" + " ".join(calls[0]))
 # --- action_shortcut_explore cross-session ---
 
 ov = make_overlay(session="s1")
-ov._session = "s2"
 ov._all_sessions = [
     AitasksSession("s1", Path("/p1"), "p1"),
     AitasksSession("s2", Path("/p2"), "p2"),
 ]
+ov._selected_key = "/p2"            # browsed to s2 (identity is the root key)
 ov._running_names = set()
 ov.dismiss = MagicMock()
 with patch("tui_switcher.subprocess.Popen") as mock_popen, \
@@ -254,7 +258,11 @@ with patch("tui_switcher.subprocess.Popen") as mock_popen:
     ov._teleport_if_cross()
 print("TELEPORT_SAME_COUNT:" + str(mock_popen.call_count))
 
-ov._session = "s2"
+ov._all_sessions = [
+    AitasksSession("s1", Path("/p1"), "p1"),
+    AitasksSession("s2", Path("/p2"), "p2"),
+]
+ov._selected_key = "/p2"            # browsed to s2 (identity is the root key)
 with patch("tui_switcher.subprocess.Popen") as mock_popen:
     ov._teleport_if_cross()
     teleport_args = mock_popen.call_args_list[0].args[0]
@@ -265,7 +273,11 @@ print("TELEPORT_CROSS_ARGS:" + " ".join(teleport_args))
 # --- Shortcut acts on SELECTED session (user-clarified) ---
 
 ov = make_overlay(session="s1", current_tui="monitor")
-ov._session = "s2"                  # browsed to s2
+ov._all_sessions = [
+    AitasksSession("s1", Path("/p1"), "p1"),
+    AitasksSession("s2", Path("/p2"), "p2"),
+]
+ov._selected_key = "/p2"            # browsed to s2 (identity is the root key)
 ov._running_names = {"board"}       # board running in s2
 ov.dismiss = MagicMock()
 with patch("tui_switcher.subprocess.Popen") as mock_popen:
@@ -279,11 +291,11 @@ print("SHORTCUT_B_POPEN_1:" + " ".join(calls[1]))
 # --- Shortcut `n` (new task) acts on SELECTED session ---
 
 ov = make_overlay(session="s1", current_tui="monitor")
-ov._session = "s2"
 ov._all_sessions = [
     AitasksSession("s1", Path("/p1"), "p1"),
     AitasksSession("s2", Path("/p2"), "p2"),
 ]
+ov._selected_key = "/p2"            # browsed to s2 (identity is the root key)
 ov._running_names = set()
 ov.dismiss = MagicMock()
 with patch("tui_switcher.subprocess.Popen") as mock_popen, \
@@ -312,7 +324,11 @@ print("NOOP_DISMISSED:" + str(ov.dismiss.called))
 # --- Same-target shortcut in BROWSED session: NOT a no-op (must teleport) ---
 
 ov = make_overlay(session="s1", current_tui="board")
-ov._session = "s2"                  # browsed to s2
+ov._all_sessions = [
+    AitasksSession("s1", Path("/p1"), "p1"),
+    AitasksSession("s2", Path("/p2"), "p2"),
+]
+ov._selected_key = "/p2"            # browsed to s2 (identity is the root key)
 ov._running_names = {"board"}       # board also running in s2
 ov.dismiss = MagicMock()
 with patch("tui_switcher.subprocess.Popen") as mock_popen:
