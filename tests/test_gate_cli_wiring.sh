@@ -33,6 +33,7 @@ out="$("$AIT" gate --help 2>&1)"
 assert_contains "ait gate --help lists subcommands" "append" "$out"
 assert_contains "ait gate --help lists fail" "fail" "$out"
 assert_contains "ait gate --help lists log" "log" "$out"
+assert_contains "ait gate --help lists pass" "pass" "$out"
 
 echo "=== Test 2: unknown subcommands error ==="
 "$AIT" gates bogus >/dev/null 2>&1; rc=$?
@@ -71,6 +72,21 @@ assert_contains "ait gate fail records a fail" "g: fail" "$out"
 out="$( cd "$d2" && ./ait gate log 2 g 2>&1 )"; rc=$?
 assert_eq "ait gate log exits 0 with no sidecar" "0" "$rc"
 assert_contains "ait gate log reports missing sidecar gracefully" "no sidecar log" "$out"
+
+echo "=== Test 6: ait gate pass dispatches to the pass helper (t635_15) ==="
+d3="$(new_fixture)"
+cat > "$d3/aitasks/metadata/gates.yaml" <<EOF
+gates:
+  mg:
+    type: machine
+    verifier: ""
+EOF
+printf -- '---\nstatus: Implementing\ngates: [mg]\n---\nB\n' > "$d3/aitasks/t3_x.md"
+# Refusing a machine gate proves the dispatch reached aitask_gate_pass.sh
+# (no live signing needed).
+out="$( cd "$d3" && ./ait gate pass 3 mg 2>&1 )"; rc=$?
+assert_eq "ait gate pass reaches the helper (machine gate -> nonzero)" "1" "$rc"
+assert_contains "ait gate pass refuses a machine gate" "refuses machine gate" "$out"
 
 for dir in "${CLEANUP_DIRS[@]}"; do rm -rf "$dir"; done
 

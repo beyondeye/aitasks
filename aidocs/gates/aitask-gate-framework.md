@@ -418,11 +418,10 @@ Declared gates: `[lint, tests_pass, docs_updated, review]`. Registry says `lint`
 ### Human review gate
 
 21. Reviewer inspects the branch + task file. Runs `ait gate pass t42 review`.
-22. `ait gate pass` refuses to touch machine gates, confirms `review` is `type: human`, creates `.aitask-gates/t42/review.signed` containing the reviewer's shell username and timestamp.
-23. Human (or profile autorun) runs `ait gates run t42`.
-24. Orchestrator re-parses. Current state: `lint=pass, tests_pass=pass, docs_updated=pass, review=pending (pending block is the current one)`.
-25. Re-runs the `review` verifier. Signal file now exists. Appends `> **✅ gate:review** run=... status=pass attempt=1`.
-26. All gates pass. Reports: "All gates passed. Suggest `status: Done`."
+22. `ait gate pass` refuses to touch machine gates, confirms `review` is `type: human`, creates `.aitask-gates/t42/review.signed` containing the reviewer's shell username, timestamp, hostname, **and the code digest of the reviewed state** (`code_digest=…`). It then delegates the ledger recording to `ait gates run t42 --gate review` (the orchestrator is the single writer of observed pass blocks — `ait gate pass` never appends the pass itself).
+23. Orchestrator re-parses. Current state: `lint=pass, tests_pass=pass, docs_updated=pass, review=pending (pending block is the current one)`.
+24. Observes the signal file. **Freshness check:** its `code_digest` still matches the current code, so the signature is valid — appends `> **✅ gate:review** run=... status=pass type=human` with `note=signed_digest:<hash>`. (Had the code changed since signing, the digest would mismatch and the orchestrator would **re-pend** with a `stale signature` note instead of passing — the reviewer must re-sign the new state. The witness under gitignored `.aitask-gates/` is local; the durable, cross-PC record is the ledger `pass`, union-merge-safe.)
+25. All gates pass. Reports: "All gates passed. Suggest `status: Done`."
 
 ### What the Gate Runs section looks like at end-of-task
 

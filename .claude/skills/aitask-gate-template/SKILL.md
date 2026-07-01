@@ -180,10 +180,14 @@ exists it appends `pass`; otherwise it appends `pending`. Exit-code analogue:
 > creation, impersonate a reviewer, or bypass its absence. This is a
 > non-negotiable autonomy control.**
 
-**Scope boundary (t635_11):** the orchestrator ships **read-side** `file-touch`
-detection (observe pass/pending). Signal **creation** (`ait gate pass`),
-`signal: comment`, and remote comment polling arrive in **t635_15** — do not
-add signal-creation tooling here.
+**Scope boundary:** the orchestrator ships **read-side** `file-touch` detection
+(observe pass/pending). Signal **creation** is `ait gate pass <task-id> <gate>`
+(t635_15) — the HUMAN's tool: it writes a **code-bound** witness at
+`signal_target` (stamped with the code digest) then lets the orchestrator record
+the ledger `pass`. A witness signed against a **different** code state (its
+`code_digest` mismatches the current code) is re-pended, not passed. `signal:
+comment` and remote comment polling remain **t635_16** — do not add remote-signal
+tooling here. **Never** create or auto-create a signal from a verifier or agent.
 
 ---
 

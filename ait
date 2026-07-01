@@ -306,10 +306,11 @@ case "${1:-help}" in
         subcmd="${1:-}"; shift || true
         case "$subcmd" in
             append) exec "$SCRIPTS_DIR/aitask_gate.sh" append "$@" ;;
+            pass)   exec "$SCRIPTS_DIR/aitask_gate_pass.sh" "$@" ;;
             fail)   exec "$SCRIPTS_DIR/aitask_gate_fail.sh" "$@" ;;
             log)    exec "$SCRIPTS_DIR/aitask_gate_log.sh" "$@" ;;
-            --help|-h|"") echo "ait gate: append <task-id> <gate> <status> [k=v...] | fail <task-id> <gate> [--reason ...] | log <task-id> <gate>" ;;
-            *)      echo "ait gate: unknown subcommand '$subcmd'" >&2; echo "Available: append, fail, log" >&2; exit 1 ;;
+            --help|-h|"") echo "ait gate: append <task-id> <gate> <status> [k=v...] | pass <task-id> <gate> | fail <task-id> <gate> [--reason ...] | log <task-id> <gate>" ;;
+            *)      echo "ait gate: unknown subcommand '$subcmd'" >&2; echo "Available: append, pass, fail, log" >&2; exit 1 ;;
         esac
         ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"

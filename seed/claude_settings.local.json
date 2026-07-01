@@ -78,6 +78,7 @@
       "Bash(./.aitask-scripts/aitask_gate_fail.sh:*)",
       "Bash(./.aitask-scripts/aitask_gate_lint.sh:*)",
       "Bash(./.aitask-scripts/aitask_gate_log.sh:*)",
+      "Bash(./.aitask-scripts/aitask_gate_pass.sh:*)",
       "Bash(./.aitask-scripts/aitask_gate_risk.sh:*)",
       "Bash(./.aitask-scripts/aitask_gate_tests_pass.sh:*)",
       "Bash(./.aitask-scripts/aitask_run_gates.sh:*)",

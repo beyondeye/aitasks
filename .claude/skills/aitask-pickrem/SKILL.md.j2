@@ -354,7 +354,58 @@ Update the external plan file as you progress:
    - **Never mix** code files and `aitasks/`/`aiplans/` files in the same `git add` or commit.
    - Display: "Changes committed: \<commit_hash\>"
 
-5. Proceed to Step 10.
+5. Proceed to Step 9.5.
+
+### Step 9.5: Run Declared Gates (hybrid switch)
+
+The code + plan are now committed — a durable, reviewable artifact. Run the task's
+declared gates through the orchestrator **before** archiving. Do **not** re-derive
+which gates the task declares — the orchestrator owns that. This is the headless
+side of the hybrid switch (D2): declared machine gates run here, and declared
+**human** gates (e.g. `review_approved` / `merge_approved`) resolve as **async**
+gates that stop cleanly at pending-human instead of being auto-approved.
+
+```bash
+gates_out="$(./ait gates run <task_id> 2>&1)"; gates_rc=$?
+```
+
+- **`gates_rc` nonzero** → an *infrastructure* failure (`ait`/wrapper error, task
+  resolution, python unavailable, bad registry). `ait gates run` exits 0 for every
+  normal gate outcome, so nonzero is never an ordinary gate result. Trigger the
+  **Abort Procedure**.
+- **`gates_out` contains `No gates declared; nothing to do.`** → the task has not
+  opted into gates (the common case today). No-op — the legacy `verify_build` in
+  Step 8 already covered the build. Proceed to Step 10.
+- **Otherwise** → the orchestrator ran the declared gates and recorded each run
+  itself. Read its per-gate report lines (`  <gate>: <status> …`) and act per
+  status (mirror the attended workflow — do **not** abort on the first `fail`):
+  - `pass` / `skip` → satisfied; continue.
+  - machine **`fail`** → inspect `./ait gate log <task_id> <gate>` and diff against
+    the base. **If caused by this task's changes** → fix and re-run `./ait gates
+    run <task_id>`; repeat within the gate's retry budget (the same fix-and-retry
+    loop Step 8 uses for `verify_build`). **If pre-existing/unrelated, or unfixable
+    after reasonable attempts** → `./ait gate fail <task_id> <gate> --reason "…"`
+    and log it in the plan's Final Implementation Notes; trigger the **Abort
+    Procedure** only if a *blocking* gate cannot be made to pass.
+  - machine **`error`** (`  <gate>: error …`) or a malformed-correction line
+    (`  ⚠ <gate>: malformed …`) → a verifier **infrastructure** failure, NOT an
+    ordinary result. Diagnose the verifier/config; do **not** "fix the code" or
+    record a manual pass. Trigger the **Abort Procedure** if unresolvable.
+  - **`pending` (human)** → **stop cleanly**. The code + plan are already committed
+    (reviewable and resumable), so leave the task in-flight and **do not** archive
+    or push. Display: "Awaiting human sign-off on gate(s) `<csv>` — a reviewer
+    inspects the committed branch, runs `ait gate pass <task-id> <gate>`, then
+    `ait gates run <task-id>` (or re-runs `/aitask-pickrem <task-id>`) to record
+    the pass and complete archival." **Never self-signal** a human gate. End the
+    workflow here.
+  - `blocked: …` → an unlocked gate could not run / none remain runnable. Surface
+    and diagnose (`blocked: pending human signal` → route to the sign-off action
+    above; never self-signal). Do not treat as satisfied.
+
+  Do **not** also run the legacy `verify_build` again here — the orchestrator ran
+  the declared machine gates. (A task that opts into BOTH a legacy `verify_build`
+  and a `build_verified` gate runs the build twice — harmless, and only possible
+  once a policy child opts remote tasks into machine gates.)
 
 ### Step 10: Archive and Push
 
@@ -374,6 +425,14 @@ For child tasks:
 ```bash
 ./.aitask-scripts/aitask_archive.sh <parent>_<child>
 ```
+
+**Gate-guard backstop (handle BEFORE parsing success output):** if the archive
+script exits non-zero and prints `GATE_PENDING:<csv>` (a declared gate is not yet
+`pass`), the archival did **not** happen — do NOT treat it as success. This is a
+backstop for the pending-human stop in Step 9.5; leave the task in-flight and
+display: "Archival blocked — pending gate(s) `<csv>`. A reviewer runs `ait gate
+pass <task-id> <gate>`, then re-run `/aitask-pickrem <task-id>` to complete." End
+the workflow (skip the push below). **Never self-signal** a human gate.
 
 **Parse structured output and handle without prompts:**
 

@@ -381,6 +381,69 @@ EOF
 }
 
 # ============================================================
+# Test 9b: human-gate signal FRESHNESS (code-bound witness) — t635_15
+#   A witness carries the code_digest it was signed against. A witness whose
+#   digest no longer matches the current code (stale) is re-pended, NOT passed;
+#   a fresh witness passes and records a signed_digest note. Needs a git fixture
+#   (real digest); the witness dir is gitignored (mirrors .aitask-gates/) so the
+#   witness file itself does not perturb the digest.
+# ============================================================
+test_human_gate_freshness() {
+    echo "=== Test 9b: human-gate signal freshness (code-bound) ==="
+    local d; d="$(new_fixture)"
+    ( cd "$d" && git init -q && git config user.email t@t && git config user.name t \
+        && echo seed > code.txt && echo 'sig/' > .gitignore \
+        && git add -A && git commit -qm init )
+    mkdir -p "$d/sig"
+    cat > "$d/aitasks/metadata/gates.yaml" <<EOF
+gates:
+  review:
+    type: human
+    signal_target: "$d/sig/<task-id>-review.signed"
+EOF
+    write_task "$d" 91 "review"
+    local sig="$d/sig/t91-review.signed"
+    local cur; cur="$( cd "$d" && "$PY" "$ORCH" code-digest )"
+
+    # STALE witness (recorded digest != current) -> re-pend, NOT pass.
+    printf 'signer=tester\ncode_digest=deadbeefdeadbeef\n' > "$sig"
+    local out; out="$(orch "$d" 91)"
+    assert_contains "stale witness -> pending" "review: pending" "$out"
+    assert_contains "stale witness -> stale-signature note" "stale signature" "$out"
+    assert_eq "stale witness -> no pass block" "0" "$(count_status "$d" 91 pass)"
+
+    # FRESH witness (recorded digest == current) -> pass with signed_digest note.
+    printf 'signer=tester\ncode_digest=%s\n' "$cur" > "$sig"
+    orch "$d" 91 >/dev/null
+    assert_contains "fresh witness -> pass" "review: pass" "$(status_of "$d" 91)"
+    assert_contains "fresh pass records signed_digest note" "signed_digest:$cur" \
+        "$(cat "$d/aitasks/t91_x.md")"
+}
+
+# ============================================================
+# Test 9c: an already-recorded human pass is NOT re-pended (concern 3) — t635_15
+#   A task with a direct ledger `pass` for a human gate and NO signal file must
+#   not gain a spurious `pending` block on a subsequent `ait gates run` (a
+#   satisfied gate is never re-observed).
+# ============================================================
+test_human_gate_no_repend() {
+    echo "=== Test 9c: already-passed human gate is not re-pended ==="
+    local d; d="$(new_fixture)"
+    cat > "$d/aitasks/metadata/gates.yaml" <<EOF
+gates:
+  review:
+    type: human
+    signal_target: "$d/sig/<task-id>-review.signed"
+EOF
+    write_task "$d" 92 "review"
+    # Simulate the attended direct-record: a human `pass` with no signal file.
+    TASK_DIR="$d/aitasks" "$GATE" append 92 review pass type=human >/dev/null
+    orch "$d" 92 >/dev/null
+    assert_contains "already passed -> stays pass" "review: pass" "$(status_of "$d" 92)"
+    assert_eq "no spurious pending appended" "0" "$(count_status "$d" 92 pending)"
+}
+
+# ============================================================
 # Test 10: --gate force-run + predecessor guard
 # ============================================================
 test_gate_force() {
@@ -445,6 +508,8 @@ test_parallel_and_reconcile
 test_dry_run
 test_idempotent
 test_human_gate
+test_human_gate_freshness
+test_human_gate_no_repend
 test_gate_force
 test_unlocked_cli
 

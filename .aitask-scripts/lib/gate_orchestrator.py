@@ -101,6 +101,21 @@ def code_digest(cwd: str | None = None) -> str | None:
     return h.hexdigest()[:16]
 
 
+def _read_witness_digest(path: str) -> str | None:
+    """Read the ``code_digest=`` field from a human-gate signal witness file
+    (t635_15), or ``None`` if absent/unreadable. The witness is a small
+    ``key=value`` text file written by ``ait gate pass``."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith("code_digest="):
+                    return line.split("=", 1)[1].strip() or None
+    except OSError:
+        return None
+    return None
+
+
 # --- pure decision logic (unit-testable, no subprocess) -------------------
 
 def _runs_by_gate(runs: list) -> dict[str, list]:
@@ -372,21 +387,56 @@ class Engine:
         reconcile_terminal(self.task_id, self.file, gate, run_id, status, attempt, self.reports)
         self.reports.append(f"  {gate}: {status} (attempt {attempt})")
 
-    def _signal_present(self, gate: str) -> bool:
+    def _signal_state(self, gate: str) -> tuple[str, str | None]:
+        """Classify a human-gate signal witness (t635_15). Returns ``(kind,
+        recorded_digest)`` where ``kind`` is one of:
+
+          * ``absent``    — no ``signal_target`` configured, or the file is missing.
+          * ``fresh``     — witness present and its ``code_digest`` matches the
+                            current code state (the human signed THIS code).
+          * ``stale``     — witness present but its ``code_digest`` differs from
+                            the current code (signed against a different state).
+          * ``unstamped`` — witness present with no ``code_digest`` (hand-created,
+                            or the current digest is unavailable → cannot validate);
+                            accepted as a pass for backward compatibility.
+        """
         meta = self.registry.get(gate, {})
         target = meta.get("signal_target", "")
         if not target:
-            return False
+            return ("absent", None)
         target = target.replace("<task-id>", f"t{self.task_id}").replace("<gate>", gate)
-        return os.path.exists(target)
+        if not os.path.exists(target):
+            return ("absent", None)
+        recorded = _read_witness_digest(target)
+        if recorded is None:
+            return ("unstamped", None)          # hand-created / no digest → accept
+        if self.digest is None:
+            return ("unstamped", recorded)      # git unavailable → cannot validate → accept
+        if recorded == self.digest:
+            return ("fresh", recorded)
+        return ("stale", recorded)
 
     def _handle_human(self, gate: str, state: dict) -> bool:
-        """Read-side only: pass if signal present, else pending. NEVER self-signal."""
-        if self._signal_present(gate):
-            _gate_append(self.task_id, gate, "pass", type="human")
+        """Read-side only: pass if a CURRENT signal is present, else pending.
+        NEVER self-signals. A witness code-bound to a different state (``stale``)
+        is not honored — it re-pends with a note so the human re-signs (t635_15)."""
+        kind, recorded = self._signal_state(gate)
+        if kind in ("fresh", "unstamped"):
+            note = f"signed_digest:{recorded}" if recorded else None
+            _gate_append(self.task_id, gate, "pass", type="human", note=note)
             self.reports.append(f"  {gate}: pass (human signal observed)")
             return True
         cur = state.get(gate)
+        if kind == "stale":
+            note = (f"stale signature: signed against {recorded}, code now "
+                    f"{self.digest} — re-sign with 'ait gate pass'")
+            if cur is None or cur.status != "pending":
+                _gate_append(self.task_id, gate, "pending", type="human", note=note)
+                self.reports.append(f"  {gate}: pending — {note}")
+                return True
+            self.reports.append(f"  {gate}: pending — {note}")
+            return False
+        # absent
         if cur is None or cur.status != "pending":
             _gate_append(self.task_id, gate, "pending", type="human")
             self.reports.append(f"  {gate}: pending — awaiting human signal")
@@ -537,6 +587,15 @@ def main(argv: list[str]) -> int:
         for line in reports:
             sys.stdout.write(line + "\n")
         return rc
+
+    if cmd == "code-digest":
+        # Emit the current code-state digest (t635_15) — used by `ait gate pass`
+        # to code-bind a human-gate signal witness. Exit 1 when unavailable.
+        d = code_digest()
+        if d is None:
+            return 1
+        sys.stdout.write(d + "\n")
+        return 0
 
     if cmd == "unlocked":
         registry = _pop_opt(rest, "--registry", DEFAULT_REGISTRY)

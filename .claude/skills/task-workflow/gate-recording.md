@@ -18,6 +18,14 @@ never runs for profiles that have not opted in.
 > double-record. The other checkpoints (`plan_approved`, `review_approved`,
 > `merge_approved`) are human gates the orchestrator never records, so they have
 > no such guard.
+>
+> **Dual transport (t635_15).** `review_approved` / `merge_approved` carry an
+> async `signal: file-touch` transport in `gates.yaml`. In an **attended**
+> session this procedure records the pass directly from the interactive approval
+> (the transport is unused). In the **headless/remote** lane the same gate pends
+> until a human signs via `ait gate pass <task-id> <gate>` and the orchestrator
+> observes it. One gate definition, two transports — attended recording here is
+> unchanged.
 
 ## Inputs (from the calling context)
 
