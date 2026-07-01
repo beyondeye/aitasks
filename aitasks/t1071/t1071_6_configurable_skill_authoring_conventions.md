@@ -7,8 +7,9 @@ status: Implementing
 labels: [shadow, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-30 11:16
-updated_at: 2026-07-01 11:41
+updated_at: 2026-07-01 15:03
 ---
 
 Make the skill-authoring-conventions source that `aitask-learn-skill/generate.md` applies
@@ -40,3 +41,8 @@ framework conventions. t1071_2 set the default to the installed generic reviewgu
 - Setting the path in `ait settings` persists and is read back by `generate.md`.
 - Unset/missing → falls back to the generic reviewguide default.
 - In a fresh repo (`ait setup`), the default reviewguide is present and used.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-01T12:03:09Z status=pass attempt=1 type=human
