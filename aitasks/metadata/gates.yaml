@@ -25,13 +25,28 @@
 #                     a human, not executed). The build/tests/lint verifiers are
 #                     populated (t635_12, below); the risk verifier (t635_13) is
 #                     populated below and is STATE-inspection (no command); the docs
-#                     (t635_19) verifier lands later and stays empty until then. The
+#                     gate (t635_19) is PROCEDURE-BACKED (see `kind` below) — its
+#                     verifier names a SKILL, not a shell command, and the headless
+#                     engine never executes it. The
 #                     command-driven verifiers (build/tests/lint) read their command
 #                     from project_config.yaml and SKIP (exit 2, terminal-satisfied)
 #                     when that command is unset, so a gate that does not apply to a
 #                     project never blocks it. The risk verifier has NO skip path: a
 #                     task that declares it has opted into risk evaluation, so the
 #                     `## Risk` section + the two levels must exist (else fail).
+#   kind            - dispatch model (t635_19). ABSENT or `command` = a normal
+#                     COMMAND VERIFIER: `verifier` names a shell command the
+#                     headless orchestrator runs (exit codes 0/1/2/3). `procedure`
+#                     = a PROCEDURE-BACKED gate: `verifier` names an
+#                     `aitask-gate-<name>` SKILL run by the ATTENDED agent
+#                     (task-workflow / aitask-resume), which inspects the change,
+#                     does the work, confirms with the user, and appends the
+#                     terminal block. The headless engine NEVER shell-executes a
+#                     procedure gate — `ait gates run` reports it `needs agent`
+#                     and defers; the attended path allocates the run via
+#                     `aitask_gate.sh begin-procedure` and Read-and-follows the
+#                     skill. Full custom/external/remote procedure-gate support is
+#                     a follow-up; docs_updated is the first concrete instance.
 #   max_retries     - re-attempts after a failure (int, default 0 = single shot).
 #   timeout_seconds - max wall-clock for one machine-gate run (optional).
 #   unlocks         - gates this gate unlocks on pass. ABSENT (key omitted) =
@@ -116,6 +131,21 @@ gates:
     blocks_dependents: false
     # Runs project_config.yaml `lint_command`; skips (exit 2) when unset (t635_12).
     verifier: aitask-gate-lint
+    max_retries: 0
+  docs_updated:
+    type: machine            # agent-run work (not a human sign-off)
+    kind: procedure          # PROCEDURE-BACKED: headless engine defers (needs-agent)
+    description: "Update the docs for this change per the project doc-update spec"
+    # Post-integration sign-off — like review/manual-verify it must not block
+    # dependents (would otherwise hold them up for a docs pass).
+    blocks_dependents: false
+    # The verifier names a SKILL (.claude/skills/aitask-gate-docs-updated/), not a
+    # shell command. The ATTENDED agent runs it (task-workflow Step 8 / aitask-resume):
+    # it reads the doc-update spec (seed/doc_update_guide.md default, layered with
+    # project_config.yaml doc_update.guide), inspects the change, updates docs with
+    # user confirmation, and appends pass/skip/fail. The headless engine never runs
+    # it (kind: procedure => needs-agent). unlocks ABSENT (linear-default).
+    verifier: aitask-gate-docs-updated
     max_retries: 0
   review_approved:
     type: human
