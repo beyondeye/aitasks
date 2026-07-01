@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -8,8 +10,9 @@ labels: [task_attachments]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1096
+implemented_with: codex/gpt5_5
 created_at: 2026-07-01 11:51
-updated_at: 2026-07-01 15:16
+updated_at: 2026-07-01 16:43
 boardidx: 30
 ---
 
