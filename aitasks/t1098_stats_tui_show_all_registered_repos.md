@@ -70,3 +70,8 @@ existing `collect_stats(project_root=...)` path (`stats_app.py:309-314`).
 - Selecting a registered-only repo shows its archived stats correctly.
 - Stale registry entries do not crash the TUI.
 - Existing single-repo and live-session behavior is unchanged.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-01T06:17:48Z status=pass attempt=1 type=human
