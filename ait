@@ -203,7 +203,14 @@ case "${1:-help}" in
     projects)     shift; exec "$SCRIPTS_DIR/aitask_projects.sh" "$@" ;;
     settings)     shift; exec "$SCRIPTS_DIR/aitask_settings.sh" "$@" ;;
     syncer)       shift; exec "$SCRIPTS_DIR/aitask_syncer.sh" "$@" ;;
-    stats)        shift; exec "$SCRIPTS_DIR/aitask_stats.sh" "$@" ;;
+    stats)
+        shift
+        # `ait stats tui` is a natural alias for the hyphenated `ait stats-tui`
+        # route; forward it there. All other args go to the text CLI.
+        if [ "${1:-}" = "tui" ]; then
+            shift; exec "$SCRIPTS_DIR/aitask_stats_tui.sh" "$@"
+        fi
+        exec "$SCRIPTS_DIR/aitask_stats.sh" "$@" ;;
     stats-tui)    shift; exec "$SCRIPTS_DIR/aitask_stats_tui.sh" "$@" ;;
     zip-old)      shift; exec "$SCRIPTS_DIR/aitask_zip_old.sh" "$@" ;;
     issue-update) shift; exec "$SCRIPTS_DIR/aitask_issue_update.sh" "$@" ;;
