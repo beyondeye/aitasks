@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t635_11]
 issue_type: feature
 status: Implementing
 labels: [gates, task_workflow, web_site]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 19:03
-updated_at: 2026-06-30 18:07
+updated_at: 2026-07-01 09:47
 ---
 
 ## Context
