@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [claudeskills, codexcli, opencode]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-07-01 10:36
-updated_at: 2026-07-01 10:36
+updated_at: 2026-07-01 10:37
 ---
 
 ## Context
