@@ -5,6 +5,7 @@ depends: [t635_11, t635_21]
 issue_type: feature
 status: Implementing
 labels: [gates, task_workflow]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:56
