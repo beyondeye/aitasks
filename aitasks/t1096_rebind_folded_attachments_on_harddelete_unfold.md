@@ -5,10 +5,11 @@ depends: [1093]
 issue_type: bug
 status: Implementing
 labels: [task_attachments]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-30 19:07
-updated_at: 2026-07-01 11:38
+updated_at: 2026-07-01 11:39
 ---
 
 Rebind folded-origin attachment refs to the revived tasks when a primary task
