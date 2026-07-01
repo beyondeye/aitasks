@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [statistics, tui]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-01 08:36
-updated_at: 2026-07-01 09:18
+updated_at: 2026-07-01 09:31
+completed_at: 2026-07-01 09:31
 ---
 
 ## Problem
@@ -80,3 +81,14 @@ existing `collect_stats(project_root=...)` path (`stats_app.py:309-314`).
 > **✅ gate:plan_approved** run=2026-07-01T06:17:48Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-01T06:23:34Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-01T06:31:02Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:5a30dd9958b10036
+
+> **✅ gate:risk_evaluated** run=2026-07-01T06:31:02Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1098/risk_evaluated_2026-07-01T06:31:02Z-risk_evaluated-a1.log`
