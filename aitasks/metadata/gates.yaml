@@ -133,8 +133,10 @@ gates:
     verifier: aitask-gate-lint
     max_retries: 0
   docs_updated:
-    type: machine            # agent-run work (not a human sign-off)
-    kind: procedure          # PROCEDURE-BACKED: headless engine defers (needs-agent)
+    # agent-run work (not a human sign-off), but PROCEDURE-BACKED: the headless
+    # engine defers it (needs-agent) — see `kind` in the header schema.
+    type: machine
+    kind: procedure
     description: "Update the docs for this change per the project doc-update spec"
     # Post-integration sign-off — like review/manual-verify it must not block
     # dependents (would otherwise hold them up for a docs pass).

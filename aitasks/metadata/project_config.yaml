@@ -5,6 +5,14 @@ project:
 codeagent_coauthor_domain: aitasks.io
 test_command: null
 lint_command: null
+
+# Doc-update spec for the `docs_updated` procedure gate (t635_19). `guide` points
+# at this repo's CONFIGURED guide (derived from aidocs/framework/); the gate skill
+# reads it, falling back to the generic seeded default when absent. `extra_guides`
+# (optional) layers additional references on top.
+doc_update:
+  guide: aitasks/metadata/doc_update_guide.md
+  # extra_guides: []
 default_profiles:
   explore: fast
   pick: fast
