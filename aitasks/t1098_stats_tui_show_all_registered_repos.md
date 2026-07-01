@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -7,8 +9,9 @@ status: Implementing
 labels: [statistics, tui]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-01 08:36
-updated_at: 2026-07-01 08:38
+updated_at: 2026-07-01 09:18
 ---
 
 ## Problem
