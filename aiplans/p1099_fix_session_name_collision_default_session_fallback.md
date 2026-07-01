@@ -331,3 +331,43 @@ Standard: user review (Step 8) → commit `bug: … (t1099)` → merge approval 
 - Approach (unique `project_root` key at the shared sink) is the task's own
   recommendation and directly satisfies every acceptance criterion; the regression
   test reproduces the exact collision · severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  - `agent_launch_utils.py`: added `AitasksSession.key` (`realpath(project_root)`),
+    a `key` field on `CrossGroupRingEntry`, and made the shared helpers key-based
+    (`cross_group_ring` emits `key`; `cross_group_step` matches `current_key`;
+    `default_selected_group` matches `selected_key`; `advance_group_selection` takes
+    `selected_key`/`fallback_key` and returns `GroupCycleSelection.repoint_key`).
+    Added two pure helpers: `disambiguate_labels(primaries, secondaries, fallbacks)`
+    (guaranteed-unique labels via primary → `p (secondary)` → `p (fallback)`
+    escalation) and `resolve_selected_key(sessions, provisional_session, cwd)`
+    (cwd `_walk_up_to_aitasks` match → live-preferring name match → None).
+  - `stats/stats_app.py`: identity keyed on `.key` (`selected_key`, `_session_cache`,
+    `_SessionItem.identity_key`, cycling); project-oriented labels via `_build_labels`
+    + `_compact_root`; aggregate label `"All projects (aggregate)"`; panel/notify
+    reworded to "Project"; `_default_key_selection` uses `resolve_selected_key` and
+    falls back to `ALL_SESSIONS_KEY` when ambiguous.
+  - `lib/tui_switcher.py`: `_selected_key` single source of truth; `_session` now a
+    derived read-only property; `_selected_entry`/`_selected_project_root`/
+    `_resolve_initial_key` added; `_init_multi_state`/`on_registry_refresh` resolve via
+    shared context; session-name-primary disambiguated row labels; attached marker
+    now `is_live and session == attached`. Removed the now-dead
+    `_project_root_for_session`.
+- **Deviations from plan:** None. The dead `_project_root_for_session` removal was an
+  implied cleanup (its only remaining caller/test moved to `_selected_project_root`).
+- **Issues encountered:** Several existing tests asserted the old session-name-as-
+  identity contract (`test_project_groups`, `test_tui_group_nav`,
+  `test_tui_switcher_multi_session.sh`, `test_tui_switcher_agent_launch`); updated them
+  to pass/assert keys and to use `_selected_key` (since `_session` is now read-only).
+- **Key decisions:** Identity is `project_root` (only truly-unique choice); labels are
+  per-surface (session-primary for the switcher, project-oriented for stats) driven by
+  one shared uniqueness-guaranteeing helper; initial selection resolved by unique cwd
+  context via one shared resolver used by both TUIs.
+- **Upstream defects identified:** None.
+- **Verification:** Full Python suite green — 1564 tests (baseline 1545 + 19 new
+  collision tests, all passing); the single pre-existing unittest-discovery
+  failure/error (an `agent_command_screen` module-identity artifact + a `SystemExit`
+  at import) is unrelated, confirmed identical on a pristine-tree baseline run. Shell
+  test `test_tui_switcher_multi_session.sh` 52/52.
