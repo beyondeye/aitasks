@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -7,8 +9,9 @@ status: Implementing
 labels: [statistics, tui]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-01 09:24
-updated_at: 2026-07-01 09:49
+updated_at: 2026-07-01 11:18
 ---
 
 ## Origin
@@ -61,3 +64,8 @@ entries, distinct list rows, unambiguous cycling).
 - `tui_switcher` behavior for the same collision is verified unchanged or
   fixed in step (whichever the chosen keying implies).
 - A regression test reproduces the collision and asserts distinguishability.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-01T08:18:42Z status=pass attempt=1 type=human
