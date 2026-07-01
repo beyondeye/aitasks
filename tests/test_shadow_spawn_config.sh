@@ -27,14 +27,14 @@ CODEAGENT="$PROJECT_DIR/.aitask-scripts/aitask_codeagent.sh"
 # ============================================================
 echo "--- codeagent dry-run resolution ---"
 
-# Default agent (codeagent_config.json defaults.shadow → claudecode/opus4_8).
-out=$("$CODEAGENT" --dry-run invoke shadow %5 986_5 2>&1)
-assert_contains "default shadow resolves to claude" "claude" "$out"
-assert_contains "default shadow emits /aitask-shadow with args" "/aitask-shadow" "$out"
-assert_contains "default shadow passes pane id" "%5" "$out"
-assert_contains "default shadow passes task id" "986_5" "$out"
+# Explicit claudecode with pane and task id.
+out=$("$CODEAGENT" --agent-string claudecode/opus4_8 --dry-run invoke shadow %5 986_5 2>&1)
+assert_contains "claudecode shadow resolves to claude" "claude" "$out"
+assert_contains "claudecode shadow emits /aitask-shadow with args" "/aitask-shadow" "$out"
+assert_contains "claudecode shadow passes pane id" "%5" "$out"
+assert_contains "claudecode shadow passes task id" "986_5" "$out"
 
-# Explicit claudecode.
+# Explicit claudecode with pane only.
 out=$("$CODEAGENT" --agent-string claudecode/opus4_8 --dry-run invoke shadow %7 2>&1)
 assert_contains "claudecode shadow (pane only)" "/aitask-shadow" "$out"
 assert_contains "claudecode shadow pane id" "%7" "$out"
