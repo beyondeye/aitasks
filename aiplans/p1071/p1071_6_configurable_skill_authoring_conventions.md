@@ -316,6 +316,43 @@ scalar helper as covering it.
   asserting nested-key resolution explicitly, so the future migration inherits a proven
   contract. · severity: low · → mitigation: TBD
 
+## Final Implementation Notes
+
+- **Actual work done (as planned, no deviations):**
+  - `config_utils.resolve_config_path(config_key, default_rel=None, root=None, check_readable=True)`
+    — dotted-key walk over `project_config.yaml` (reuses `load_yaml_config`/PyYAML), seeded-default
+    + readability fallback, returns a repo-root-relative path or `None`.
+  - `.aitask-scripts/aitask_resolve_config_path.sh` — CLI over the fn; **always exits 0, prints one
+    line** (heredoc in a helper function, error handling on the call; `command -v python3` guard).
+    shellcheck-clean.
+  - `learn_skill_authoring_guide` added to `PROJECT_CONFIG_SCHEMA` (settings_app.py) — renders +
+    saves via the generic schema-driven Project Config machinery, no special-casing.
+  - `seed/project_config.yaml` — documented commented block (absence → default).
+  - `generate.md` — now calls the resolver (from repo root) with the seeded default as arg; "prints
+    nothing OR fails → own knowledge" fallback. Old hard-coded sole-source prose removed.
+- **Tests (all pass):** `test_resolve_config_path.py` (10 — flat/nested keys, quoted/commented
+  values, all fallback tiers, check_readable=False), `test_resolve_config_path_cli.sh` (10 —
+  documented `./…`-from-root positive resolution for set-key AND default, foreign-cwd
+  absolute-path resolution, always-exit-0 with python3 hidden, generate.md consumption guard),
+  `test_settings_learn_skill_guide.py` (2 — real app-mount row save/clear + schema guard).
+  `aitask_skill_verify.sh` OK; `test_config_utils.py` (67) still green.
+- **Review-driven design (4 rounds):** grep-in-markdown → tested resolver script → generalized
+  `config_utils` seam serving the `doc_update.guide` pattern too → hardened CLI (exit-0 contract,
+  repo-root invocation, clean heredoc syntax). Scope decision (user): build the shared helper +
+  wire generate.md now; migrate the docs_updated gate via follow-up **t1110**.
+- **Follow-up created:** `t1110` — migrate the `docs_updated` gate onto `resolve_config_path`
+  (`depends: [1071_6]`, `followup_of 1071_6`). Scope-honest limit recorded there: the scalar
+  resolver covers `doc_update.guide` but NOT the list-valued `doc_update.extra_guides`.
+- **Issues encountered:** CLI test's "no python3" case initially failed because the stub `PATH`
+  also hid `bash`; fixed by invoking `bash` via its absolute path with only `dirname` symlinked
+  into the stub bin.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The general seam is `config_utils.resolve_config_path` (Python) +
+  `aitask_resolve_config_path.sh` (bash/skill CLI). Any future "settings-defined file path with a
+  seeded default" should reuse it (dotted keys supported) rather than a bespoke grep. The working
+  tree during this task also carried unrelated concurrent shadow/monitor edits from another
+  session — only the t1071_6 code paths were committed.
+
 ## Post-Implementation
 
 Follow shared workflow **Step 9 (Post-Implementation)** for cleanup, gate verification
