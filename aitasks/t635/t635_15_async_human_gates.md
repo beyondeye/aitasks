@@ -6,8 +6,9 @@ issue_type: feature
 status: Implementing
 labels: [gates, task_workflow]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:56
-updated_at: 2026-07-01 11:32
+updated_at: 2026-07-01 14:33
 ---
 
 ## Context
@@ -66,3 +67,8 @@ detection above; do not fork the gate semantics.
 - `aidocs/gates/aitask-gate-framework.md` ("Human-gate verifier", signal
   kinds)
 - `aidocs/gates/integration-roadmap.md` (Phase 5, D2)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-01T11:33:50Z status=pass attempt=1 type=human
