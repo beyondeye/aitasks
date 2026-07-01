@@ -24,7 +24,7 @@ and return before `git rm` or the delete commit.
 
 ## Implementation Steps
 
-1. Add a small unfold helper in `.aitask-scripts/board/aitask_board.py`.
+1. [x] Add a small unfold helper in `.aitask-scripts/board/aitask_board.py`.
    - Place it near `_decref_doomed_attachments()` so both pre-delete guards are
      easy to audit together.
    - Suggested signature:
@@ -51,7 +51,7 @@ and return before `git rm` or the delete commit.
    - Do not introduce a new abstraction outside `KanbanApp`; the behavior is
      private to the board delete flow.
 
-2. Replace the fire-and-forget unfold loop in `KanbanApp._do_delete()`.
+2. [x] Replace the fire-and-forget unfold loop in `KanbanApp._do_delete()`.
    - Immediately after the attachment decref block, call the new helper:
 
      ```python
@@ -76,7 +76,7 @@ and return before `git rm` or the delete commit.
    - Use ASCII punctuation in the new notification to match this file's mixed
      but mostly ASCII operational messages.
 
-3. Add regression coverage to `tests/test_board_decref_doomed_attachments.py`.
+3. [x] Add regression coverage to `tests/test_board_decref_doomed_attachments.py`.
    - Reuse the existing `_load_board_module()` and `_FakeProc` helpers.
    - Add an `UnfoldStepContractTests` class next to `DecrefStepContractTests`.
    - Test successful command construction:
@@ -97,7 +97,7 @@ and return before `git rm` or the delete commit.
    - Optional if the helper is simple enough: test empty `folded_ids` returns
      `(True, "")` and does not call subprocess.
 
-4. Add a focused `_do_delete()` early-return test only if the helper-level test
+4. [x] Add a focused `_do_delete()` early-return test only if the helper-level test
    leaves the delete gate unproven.
    - A lightweight option is to instantiate a minimal `SimpleNamespace` with:
      `_decref_doomed_attachments` returning `(True, "")`,
@@ -112,14 +112,18 @@ and return before `git rm` or the delete commit.
    - Assert no `git rm` / commit commands are attempted. Do not fight Textual's
      worker decorator if this becomes brittle; the helper test plus the direct
      `_do_delete()` call site change is enough for this low-effort task.
+   - Result: skipped the optional `_do_delete()` worker-level test. The helper
+     contract tests cover success, non-zero exit, timeout, and no-op behavior;
+     the `_do_delete()` call site now has a direct early return on helper
+     failure.
 
-5. Run the targeted test.
+5. [x] Run the targeted test.
 
    ```bash
    python3 -m pytest tests/test_board_decref_doomed_attachments.py -v
    ```
 
-6. Run a broader board smoke subset if the targeted test passes.
+6. [x] Run a broader board smoke subset if the targeted test passes.
 
    ```bash
    python3 -m pytest \
@@ -129,12 +133,12 @@ and return before `git rm` or the delete commit.
      -v
    ```
 
-7. Update this plan after implementation.
+7. [x] Update this plan after implementation.
    - Mark completed steps.
    - Record any deviation from the helper approach.
    - Note the exact test commands and results.
 
-8. Step 9 post-implementation handling.
+8. [ ] Step 9 post-implementation handling.
    - After code and tests pass, follow the workflow's Step 8 review and Step 9
      post-implementation flow.
    - Ensure the task gate state includes `risk_evaluated`.
@@ -148,6 +152,15 @@ and return before `git rm` or the delete commit.
 Expected result: the new unfold tests fail before the code change because the
 return-code contract does not exist, then pass after the helper is introduced and
 `_do_delete()` aborts on a failed unfold update.
+
+Actual results:
+
+- `python3 -m pytest tests/test_board_decref_doomed_attachments.py -v`
+  could not run because this environment has no `pytest` module installed.
+- `python3 -m unittest tests.test_board_decref_doomed_attachments -v` passed:
+  9 tests.
+- `python3 -m unittest tests.test_board_decref_doomed_attachments tests.test_board_archived_relation_lookup tests.test_task_dir_module_constants -v`
+  passed: 31 tests.
 
 ## Risk
 
