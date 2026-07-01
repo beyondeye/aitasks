@@ -60,14 +60,21 @@
 #   skip (exit 2)   - "evaluated, not applicable": TERMINAL-SATISFIED — unlocks
 #                     successors and never blocks archive/dependents, but stays
 #                     distinct from `pass` in the ledger history.
-#   signal / signal_target (HUMAN gates) - t635_11 ships READ-SIDE `file-touch`
-#                     detection only: the orchestrator appends `pass` when
-#                     `signal_target` exists (`<task-id>`→`t<id>`, `<gate>`
-#                     substituted), else `pending`; it NEVER creates the signal.
-#                     Signal CREATION (`ait gate pass`), `signal: comment`, and
-#                     polling arrive in t635_15. The interactive checkpoint gates
-#                     below are signalled by the workflow's approval, not
-#                     file-touch, so they declare no signal_target.
+#   signal / signal_target (HUMAN gates) - the orchestrator's read-side
+#                     `file-touch` detection appends `pass` when `signal_target`
+#                     exists (`<task-id>`→`t<id>`, `<gate>` substituted), else
+#                     `pending`; it NEVER creates the signal. Signal CREATION is
+#                     `ait gate pass <task-id> <gate>` (t635_15) — the HUMAN's
+#                     tool; it writes a code-bound witness at `signal_target` then
+#                     lets the orchestrator record the ledger `pass`. A witness
+#                     signed against a DIFFERENT code state (its `code_digest`
+#                     mismatches) is re-pended, not passed (t635_15). `plan_approved`
+#                     stays attended-only (no signal_target). `review_approved` /
+#                     `merge_approved` carry a DUAL transport: attended sessions
+#                     record the pass from the interactive approval, while the
+#                     headless/remote lane pends until `ait gate pass` signs — one
+#                     gate definition, two transports. (`signal: comment` and
+#                     remote polling remain t635_16.)
 #
 #   Parallel fan-out example (illustrative — not enabled here):
 #     lint:
@@ -153,7 +160,20 @@ gates:
     type: human
     description: "Implemented changes reviewed and approved before commit"
     blocks_dependents: true
+    # Dual transport (t635_15): attended sessions record the pass directly from
+    # the interactive review approval (Gate Recording Procedure); the
+    # headless/remote lane treats this as an ASYNC human gate — it pends until a
+    # reviewer signs via `ait gate pass <task-id> review_approved`. The signal is
+    # code-bound (`ait gate pass` stamps the witness with the code digest; a
+    # signature against a different code state re-pends).
+    signal: file-touch
+    signal_target: ".aitask-gates/<task-id>/<gate>.signed"
   merge_approved:
     type: human
     description: "Merge of the task branch into the base branch approved"
     blocks_dependents: true
+    # Dual transport (t635_15) — see review_approved. Attended records the pass
+    # from the interactive merge approval; the headless lane pends until a human
+    # signs via `ait gate pass <task-id> merge_approved`.
+    signal: file-touch
+    signal_target: ".aitask-gates/<task-id>/<gate>.signed"
