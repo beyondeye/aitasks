@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [claudeskills]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-06-30 19:07
-updated_at: 2026-07-01 10:39
+updated_at: 2026-07-01 10:40
+completed_at: 2026-07-01 10:40
 ---
 
 ## Origin
@@ -44,3 +45,17 @@ update the expected default to match the current config and refresh the stale li
 comment. Pinning to an explicit agent string is preferred — it keeps the test stable
 across future per-project default changes (mirrors how the other per-agent assertions
 already pass an explicit `--agent-string`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **🔄 gate:risk_evaluated** run=2026-07-01T07:40:14Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:69a6dee0d843f7aa
+
+> **✅ gate:risk_evaluated** run=2026-07-01T07:40:14Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1095/risk_evaluated_2026-07-01T07:40:14Z-risk_evaluated-a1.log`
