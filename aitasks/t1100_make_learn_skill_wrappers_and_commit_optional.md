@@ -10,6 +10,7 @@ labels: [claudeskills, codexcli, opencode]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-01 10:36
 updated_at: 2026-07-01 11:22
 ---
