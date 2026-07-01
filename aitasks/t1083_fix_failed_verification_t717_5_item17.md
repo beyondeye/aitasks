@@ -7,8 +7,9 @@ status: Implementing
 labels: [verification, bug]
 assigned_to: dario-e@beyond-eye.com
 anchor: 717
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-27 23:19
-updated_at: 2026-07-01 15:06
+updated_at: 2026-07-01 16:27
 boardidx: 240
 ---
 
@@ -37,3 +38,8 @@ boardidx: 240
 ### Next steps
 
 Reproduce the failure locally (see the commits and files above, and the origin archived plan for implementation context), identify the offending change, and fix. This task was auto-generated from a manual-verification failure in t717_5 item #17.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-01T13:27:37Z status=pass attempt=1 type=human
