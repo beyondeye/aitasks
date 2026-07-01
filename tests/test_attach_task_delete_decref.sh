@@ -45,7 +45,12 @@ mk_task t20/t20_1_childA
 mk_task t20/t20_2_childB
 mk_task t20/t20_3_sibling      # NOT deleted — its blob must survive
 mk_task t30_primary
-mk_task t31_folded             # revived (unfolded) on delete — protected
+mk_task t31_folded             # revived (unfolded) on delete — rebind target (D/I/J)
+mk_task t50_gprimary           # multi-folded case (G): primary
+mk_task t51_gfolded1           # multi-folded case (G): revived folded #1
+mk_task t52_gfolded2           # multi-folded case (G): revived folded #2
+mk_task t60_hprimary           # defensive no-op case (H): primary
+mk_task t61_hfolded            # defensive no-op case (H): revived folded
 mk_task t40_rollback
 git add -A; git commit -q -m init
 
@@ -58,6 +63,8 @@ printf 'parent+childB bytes\n' > a_pc.bin;      HPC="$(attachment_sha256 a_pc.bi
 printf 'sibling bytes\n'       > a_sib.bin;     HSB="$(attachment_sha256 a_sib.bin)"
 printf 'primary own bytes\n'   > a_eown.bin;    HEO="$(attachment_sha256 a_eown.bin)"
 printf 'folded origin bytes\n' > a_fold.bin;    HFO="$(attachment_sha256 a_fold.bin)"
+printf 'multi folded bytes\n'  > a_multi.bin;   HMU="$(attachment_sha256 a_multi.bin)"
+printf 'not-in-primary bytes\n'> a_nd.bin;      HND="$(attachment_sha256 a_nd.bin)"
 printf 'rollback bytes\n'      > a_rb.bin;      HRB="$(attachment_sha256 a_rb.bin)"
 
 "$ATT" add 10 a_single.bin --name single.bin >/dev/null 2>&1
@@ -100,25 +107,95 @@ assert_eq "parent own blob ref removed"  "" "$(meta_refs "$HPO")"
 assert_eq "childA blob ref removed"      "" "$(meta_refs "$HCA")"
 assert_eq "parent+childB shared blob fully released" "" "$(meta_refs "$HPC")"
 assert_eq "non-doomed sibling blob untouched" "20_3" "$(meta_refs "$HSB")"
-assert_contains "cascade made a single decref commit" "Decref attachments of deleted task(s)" "$(git log -1 --pretty=%s)"
+assert_contains "cascade made a single decref commit" "Release/rebind attachments of deleted task(s)" "$(git log -1 --pretty=%s)"
 # Idempotent re-run: nothing to change -> clean no-op (no empty-commit failure).
 before="$(git rev-parse HEAD)"
 "$ATT" decref-deleted 20 20_1 20_2 >/dev/null 2>&1; rerun_rc=$?
 assert_eq "re-run exits 0 (idempotent no-op)" "0" "$rerun_rc"
 assert_eq "re-run creates no empty commit" "$before" "$(git rev-parse HEAD)"
 
-# ── D. Folded guard: --protect-task skips a revived task's shared blob ─────────
-# Simulate post-fold state: HFO was rebound to the primary (30), but the folded
-# task's (31) frontmatter still lists it (fold does not strip folded frontmatter).
+# ── D. Rebind: --protect-task MOVES a revived task's shared blob to it (t1096) ─
+# Simulate post-fold state: HFO was rebound to the primary (30) at fold time, but
+# the folded task's (31) frontmatter still lists it (fold does not strip folded
+# frontmatter). This is the "primary-owned duplicate hash" case: the primary
+# lists HFO (merged) AND the revived folded task lists it too.
 "$ATT" add 31 a_fold.bin --name fold.bin >/dev/null 2>&1   # 31 frontmatter lists HFO
 "$ATT" add 30 a_fold.bin --name fold.bin >/dev/null 2>&1   # HFO refs now 30,31
 "$PY" "$META" --meta-dir attachments/meta decref "$HFO" 31 >/dev/null 2>&1  # rebind 31->30
 git add -A; git commit -q -m "simulate fold rebind 31->30"
 assert_eq "folded-origin blob ref is the primary only" "30" "$(meta_refs "$HFO")"
 out="$("$ATT" decref-deleted --protect-task 31 30 2>&1)"
-assert_contains "folded-origin hash is SKIPPED" "SKIPPED:30:${HFO}:folded" "$out"
-assert_eq "folded-origin blob ref retained (NOT orphaned)" "30" "$(meta_refs "$HFO")"
-assert_eq "primary's OWN blob still decref'd" "" "$(meta_refs "$HEO")"
+assert_contains "folded-origin hash is REBOUND to the revived task" "REBOUND:30:${HFO}:31" "$out"
+assert_eq "folded-origin ref MOVED to the revived task (not the deleted primary)" "31" "$(meta_refs "$HFO")"
+assert_eq "rebound blob NOT orphaned (incref-before-decref)" "" "$(orphaned "$HFO")"
+assert_eq "primary's OWN (non-folded) blob still decref'd" "" "$(meta_refs "$HEO")"
+
+# ── I. Retry idempotency: a re-run does NOT re-incref / resurrect (Rule A) ─────
+# Immediately after D, HFO refs={31}; re-running the same delete must find 30 is
+# no longer a referent -> REBIND_NOOP, no ledger change, no empty commit.
+before_i="$(git rev-parse HEAD)"
+out_i="$("$ATT" decref-deleted --protect-task 31 30 2>&1)"; i_rc=$?
+assert_eq "re-run exits 0" "0" "$i_rc"
+assert_contains "already-rebound hash is a REBIND_NOOP on retry" "REBIND_NOOP:30:${HFO}" "$out_i"
+assert_eq "retry leaves the rebound ref untouched (no duplicate/resurrected owner)" "31" "$(meta_refs "$HFO")"
+assert_eq "retry creates no empty commit" "$before_i" "$(git rev-parse HEAD)"
+
+# ── G. Multiple folded tasks sharing one hash -> ALL survivors become referrers ─
+"$ATT" add 51 a_multi.bin --name m.bin >/dev/null 2>&1   # gfolded1 lists HMU
+"$ATT" add 52 a_multi.bin --name m.bin >/dev/null 2>&1   # gfolded2 lists HMU
+"$ATT" add 50 a_multi.bin --name m.bin >/dev/null 2>&1   # primary lists HMU (refs 50,51,52)
+"$PY" "$META" --meta-dir attachments/meta decref "$HMU" 51 >/dev/null 2>&1  # fold rebind 51->50
+"$PY" "$META" --meta-dir attachments/meta decref "$HMU" 52 >/dev/null 2>&1  # fold rebind 52->50
+git add -A; git commit -q -m "simulate multi-fold rebind 51,52->50"
+assert_eq "multi-folded blob ref is the primary only pre-delete" "50" "$(meta_refs "$HMU")"
+out_g="$("$ATT" decref-deleted --protect-task 51 --protect-task 52 50 2>&1)"
+# Output CSV follows --protect-task arg order (not part of the contract) -> assert
+# by MEMBERSHIP, not exact order.
+gline="$(printf '%s\n' "$out_g" | grep "^REBOUND:50:${HMU}:")"
+assert_contains "multi-folded REBOUND names survivor 51" "51" "$gline"
+assert_contains "multi-folded REBOUND names survivor 52" "52" "$gline"
+# meta_refs is sorted (cmd_refs sorts) -> exact "51,52" is stable.
+assert_eq "ref restored to BOTH surviving referrers" "51,52" "$(meta_refs "$HMU")"
+set_grace 0
+"$ATT" gc >/dev/null 2>&1
+assert_file_exists "multi-referenced blob survives gc" "$(blob_of "$HMU")"
+
+# ── H. Revived hash NOT referenced by the primary -> defensive no-op ───────────
+# The revived folded task lists HND, but the doomed primary never did. HND must be
+# left entirely untouched (no REBOUND, no DECREFED, no error).
+"$ATT" add 61 a_nd.bin --name nd.bin >/dev/null 2>&1   # only the folded task lists HND
+git add -A; git commit -q -m "hfolded lists HND (primary does not)"
+assert_eq "defensive-case blob ref is the folded task pre-delete" "61" "$(meta_refs "$HND")"
+out_h="$("$ATT" decref-deleted --protect-task 61 60 2>&1)"; h_rc=$?
+assert_eq "defensive no-op exits 0" "0" "$h_rc"
+TOTAL=$((TOTAL+1))
+if printf '%s\n' "$out_h" | grep -q ":${HND}"; then FAIL=$((FAIL+1)); echo "FAIL: HND should not appear in decref-deleted output"; else PASS=$((PASS+1)); fi
+assert_eq "unrelated revived-task blob ref untouched" "61" "$(meta_refs "$HND")"
+
+# ── B'. Unresolved --protect-task id is FATAL (fail-closed, Rule B) ────────────
+out_p="$("$ATT" decref-deleted --protect-task 99999 40 2>&1)"; p_rc=$?
+assert_exit_nonzero_rc "unresolved protected (revived) id aborts the delete" "$p_rc"
+assert_contains "fatal message names the unresolved protected task" "protected (revived) task t99999" "$out_p"
+
+# ── J. End-to-end board unfold sequence: revived task owns the ref; later ──────
+#       deletion of that task lets gc finally reclaim the blob (the deferred leak).
+# Replays _do_delete's real subprocess sequence for t30/t31 (D already ran the
+# decref-deleted step first, while both files existed -> HFO refs={31}).
+# The board runs the unfold as an uncommitted subprocess, so t31 is left modified;
+# match the board's `git rm -f` (line: [*_task_git_cmd(), "rm", "-f", path]).
+"$PROJECT_DIR/.aitask-scripts/aitask_update.sh" --batch 31 --status Ready --folded-into "" >/dev/null 2>&1
+assert_eq "board unfold revives the folded task to Ready" "Ready" "$(grep '^status:' aitasks/t31_folded.md | awk '{print $2}')"
+git rm -qf aitasks/t30_primary.md >/dev/null 2>&1; git commit -q -m "board: delete primary t30" >/dev/null 2>&1
+assert_eq "revived task OWNS the rebound blob after the primary is gone" "31" "$(meta_refs "$HFO")"
+# Now the revived task is itself hard-deleted later: its ref is finally released.
+"$ATT" decref-deleted 31 >/dev/null 2>&1
+assert_eq "deleting the revived task releases the last ref" "" "$(meta_refs "$HFO")"
+TOTAL=$((TOTAL+1))
+if [[ -n "$(orphaned "$HFO")" ]]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); echo "FAIL: revived-task delete stamps orphaned_at"; fi
+git rm -qf aitasks/t31_folded.md >/dev/null 2>&1; git commit -q -m "board: delete revived t31" >/dev/null 2>&1
+set_grace 0
+"$ATT" gc >/dev/null 2>&1
+assert_file_not_exists "gc finally reclaims the once-folded blob (deferred leak closed)" "$(blob_of "$HFO")"
 
 # ── E. Commit-failure rollback: a failed commit restores the ledger cleanly ────
 assert_eq "rollback blob ref present pre-delete" "40" "$(meta_refs "$HRB")"

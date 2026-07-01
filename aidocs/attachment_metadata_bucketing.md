@@ -59,7 +59,7 @@ scripts that touch the ledger are `aitask_attach.sh` (incref/decref) and
 - **Fold rebinds, not decrefs** (`aitask_fold_mark.sh:442`) — folding A into B
   *transfers* A's ref to B; the count is preserved, just reassigned.
 
-### 2a. Hard-delete decref (resolved — t1093)
+### 2a. Hard-delete decref (resolved — t1093; folded-origin rebind — t1096)
 
 A task can be **explicitly hard-deleted** (e.g. from `ait board`), which fully
 removes its files. That path — `_do_delete` (`aitask_board.py`) — now decrefs the
@@ -77,9 +77,12 @@ touched meta files. It is literally `ait attach rm` applied to all of a task's
 attachments at once, reusing `lib/attachment_meta.sh` + `lib/attachment_lock.sh`. The
 board derives doomed ids via the canonical `TaskCard._parse_filename` and **fails
 closed** (aborts the delete) on any helper error. A primary's `folded_tasks` are
-revived (unfolded) on delete; their ids are passed as `--protect-task` so any blob
-they still list is **skipped**, not orphaned (conservative no-data-loss guard).
-Proper rebind-on-unfold of those folded-origin refs is a tracked follow-up (t1096).
+revived (unfolded) on delete; their ids are passed as `--protect-task` so each blob
+they still list — and that the doomed primary currently references — is **rebound** to
+the revived task(s) (incref survivor + decref primary), not orphaned onto the deleted
+primary (rebind-on-unfold, t1096). An unresolvable `--protect-task` id is fatal
+(fail-closed); the rebind moves only a ref the primary actually holds, so a drifted /
+retry state is a safe no-op.
 
 ## 3. The layouts compared
 
@@ -215,8 +218,8 @@ Summary of why:
   lifecycle ledger must not key on them. Hash-prefix is the only stable, blob-
   intrinsic, evenly-distributed key.
 
-Tracked follow-ups: the hard-delete decref leak (§2a) is **resolved** (t1093), with a
-follow-up (t1096) for proper rebind-on-unfold of folded-origin refs; plus a
+Tracked follow-ups: the hard-delete decref leak (§2a) is **resolved** (t1093), and its
+rebind-on-unfold of folded-origin refs is also **resolved** (t1096); plus a
 **Postponed** enhancement to track the hash-prefix migration referencing this note.
 
 ## 8. Cross-references

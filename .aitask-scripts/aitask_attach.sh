@@ -56,7 +56,7 @@ Manage content-addressed file attachments on a task (design §6).
   help                                         Show this help.
 
 Internal (used by the board on hard-delete; not for routine manual use):
-  decref-deleted [--protect-task <id>]... <task-id>...   Release a deleted task's attachment refs.
+  decref-deleted [--protect-task <id>]... <task-id>...   Release (or rebind to survivors) a deleted task's attachment refs.
 
 <task> accepts a parent id (e.g. 16) or a child id (e.g. 16_2), with or without
 the leading `t`.
@@ -366,9 +366,12 @@ _attach_rm_txn() {
 # attachments with a doomed task (the unfold-on-delete case: fold merged a
 # folded task's attachments into the primary and rebound their refs to it; the
 # board revives the folded task on delete). Any doomed-task hash that a protected
-# task still lists in its frontmatter is SKIPPED (not decref'd) so the blob is
-# never orphaned out from under the revived task. The proper rebind-on-unfold is
-# a separate follow-up; this is the conservative no-data-loss guard (t1093).
+# task still lists in its frontmatter — AND that the doomed task currently
+# references in the ledger — is REBOUND to the protected task(s): incref each
+# survivor, then decref the doomed id, so the ref moves to the revived owner
+# instead of being orphaned onto the deleted primary (t1096, the proper
+# rebind-on-unfold that replaced t1093's conservative skip guard). A protected id
+# that cannot be resolved is FATAL (it is the intended new owner — fail-closed).
 cmd_decref_deleted() {
     local protect_ids=() args=()
     while [[ $# -gt 0 ]]; do
@@ -387,23 +390,32 @@ cmd_decref_deleted() {
 
 _attach_decref_deleted_txn() {
     local n_protect="$1"; shift
-    # Build the protected (folded-origin) hash set from the surviving tasks'
-    # frontmatter. A protected task that no longer resolves is skipped (it cannot
-    # contribute a hash to guard) — only DOOMED ids are fatal-on-unresolved below.
-    local -A protect_hash=()
-    local i pf h
+    # Map each folded-origin hash -> the revived (surviving) task id(s) that still
+    # list it, so a doomed ref can be REBOUND to the survivor(s) instead of merely
+    # released (t1096). A hash listed by >1 revived folded task -> ALL become
+    # referrers. Unlike the old guard-set, an unresolvable protected id is FATAL:
+    # under rebind semantics it is the intended NEW OWNER, so silently dropping it
+    # would decref/orphan a primary-owned blob as if no survivor existed
+    # (fail-closed, mirroring the doomed-id treatment below).
+    local -A protect_ids_for_hash=()
+    local i pid pf h
     for (( i=0; i<n_protect; i++ )); do
-        if pf="$(resolve_task_file "$1" 2>/dev/null)"; then
-            while IFS= read -r h; do
-                [[ -n "$h" ]] && protect_hash["$h"]=1
-            done < <(attach_task_hashes "$pf")
-        fi
+        pid="${1#t}"
+        pf="$(resolve_task_file "$pid" 2>/dev/null)" \
+            || die "ait attach decref-deleted: cannot resolve protected (revived) task t${pid}"
+        while IFS= read -r h; do
+            [[ -n "$h" ]] || continue
+            case " ${protect_ids_for_hash[$h]:-} " in
+                *" $pid "*) : ;;                                   # de-dup pid per hash
+                *) protect_ids_for_hash["$h"]="${protect_ids_for_hash[$h]:+${protect_ids_for_hash[$h]} }$pid" ;;
+            esac
+        done < <(attach_task_hashes "$pf")
         shift
     done
 
     local now; now="$(date +%s)"
     local -A seen_relpath=()
-    local stage=() task_id task_file hash rel
+    local stage=() task_id task_file hash rel survivors sid
     for task_id in "$@"; do
         task_id="${task_id#t}"
         # Doomed ids are derived from files the caller is about to delete, so an
@@ -413,18 +425,35 @@ _attach_decref_deleted_txn() {
             || die "ait attach decref-deleted: cannot resolve doomed task t${task_id}"
         while IFS= read -r hash; do
             [[ -n "$hash" ]] || continue
-            if [[ -n "${protect_hash[$hash]:-}" ]]; then
-                printf 'SKIPPED:%s:%s:folded\n' "$task_id" "$hash"
+            survivors="${protect_ids_for_hash[$hash]:-}"
+            # REBIND only a ledger ref the doomed task ACTUALLY holds (t1096): a
+            # blind incref on a drifted / already-rebound state would resurrect an
+            # orphan (incref clears orphaned_at) or grant unearned ownership. Confirm
+            # the doomed id is a current referent before moving it to the survivor(s).
+            if [[ -n "$survivors" ]] && attach_meta refs "$hash" | grep -qxF "$task_id"; then
+                # incref survivors FIRST so refs never transiently empties -> decref
+                # cannot stamp a spurious orphaned_at.
+                for sid in $survivors; do
+                    attach_meta incref "$hash" "$sid"
+                done
+                attach_meta decref "$hash" "$task_id" "now=$now"
+                printf 'REBOUND:%s:%s:%s\n' "$task_id" "$hash" "${survivors// /,}"
+            elif [[ -n "$survivors" ]]; then
+                # Survivor lists it, but the doomed id no longer references it in the
+                # ledger -> nothing to move (already rebound / never owned). No incref,
+                # no staging (bytes unchanged).
+                printf 'REBIND_NOOP:%s:%s\n' "$task_id" "$hash"
                 continue
+            else
+                # decref PER (task_id, hash): a blob shared by two doomed tasks must
+                # lose BOTH refs. `now=` drives the orphaned_at stamp (cf _attach_rm_txn).
+                attach_meta decref "$hash" "$task_id" "now=$now"
+                printf 'DECREFED:%s:%s\n' "$task_id" "$hash"
             fi
-            # decref PER (task_id, hash): a blob shared by two doomed tasks must
-            # lose BOTH refs. `now=` drives the orphaned_at stamp (cf _attach_rm_txn).
-            attach_meta decref "$hash" "$task_id" "now=$now"
-            printf 'DECREFED:%s:%s\n' "$task_id" "$hash"
             rel="$(attach_meta_relpath "$hash")"
             if [[ -z "${seen_relpath[$rel]:-}" ]]; then
                 seen_relpath["$rel"]=1
-                stage+=( "$rel" )            # dedup the STAGING list, not the decrefs
+                stage+=( "$rel" )            # dedup the STAGING list, not the ops
             fi
         done < <(attach_task_hashes "$task_file")
     done
@@ -435,7 +464,7 @@ _attach_decref_deleted_txn() {
         # No-op guard: an idempotent re-run (after a partial failure) rewrites
         # identical bytes -> an empty commit would fail; only commit if changed.
         if ! task_git diff --cached --quiet -- "${stage[@]}" 2>/dev/null; then
-            if ! _attach_commit "ait: Decref attachments of deleted task(s): $*" "${stage[@]}"; then
+            if ! _attach_commit "ait: Release/rebind attachments of deleted task(s): $*" "${stage[@]}"; then
                 task_git reset  -q -- "${stage[@]}" >/dev/null 2>&1 || true
                 task_git checkout  -- "${stage[@]}" >/dev/null 2>&1 || true
                 die "ait attach decref-deleted: commit failed — rolled back"

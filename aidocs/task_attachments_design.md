@@ -248,11 +248,14 @@ own `attachments:` frontmatter; t1093). The board's `_do_delete` shells out to
 global attach lock decrefs every doomed task's hashes (parent + cascade children) and
 self-commits the touched meta files; the board **fails closed** (aborts the delete)
 on any helper error. A primary that has `folded_tasks` revives (unfolds) them on
-delete; those revived ids are passed as `--protect-task` so any blob they still list
-is **skipped** rather than orphaned (a conservative no-data-loss guard). Properly
-rebinding those folded-origin refs back to the revived tasks is a tracked follow-up
-(t1096); until it lands the skipped blob keeps a benign stale ref to the deleted
-primary (it stays blocked from gc by the revived task's frontmatter).
+delete; those revived ids are passed as `--protect-task` so each blob they still list —
+and that the doomed primary currently references in the ledger — is **rebound** to the
+revived task(s) (incref survivor + decref primary) rather than orphaned onto the deleted
+primary (t1096). A blob listed by multiple revived folded tasks is rebound to all of
+them; a `--protect-task` id that cannot be resolved is **fatal** (it is the intended new
+owner — fail-closed). The rebind moves only a ref the primary actually holds, so a
+drifted or already-rebound (retry) ledger state is a safe no-op, never resurrecting an
+orphan.
 
 ### Garbage collection
 `ait attach gc` (opt-in) scans `attachments/meta/**.json`, finds zero-refcount

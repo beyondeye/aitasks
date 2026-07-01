@@ -5,8 +5,9 @@ Covers the board-side contract that the bash helper test cannot:
     (parent + cascade children) from a mixed delete-path list, excluding plan
     files / non-task paths by ROOT (not a substring of the name).
   * KanbanApp._decref_doomed_attachments — assembles the helper command
-    (including --protect-task for revived folded tasks) and FAILS CLOSED
-    (ok=False) on a non-zero helper exit, the signal that gates `git rm`.
+    (including --protect-task for revived folded tasks, which the helper now
+    REBINDS the shared blobs to rather than merely skipping — t1096) and FAILS
+    CLOSED (ok=False) on a non-zero helper exit, the signal that gates `git rm`.
 
 Run: python3 -m pytest tests/test_board_decref_doomed_attachments.py -v
 """

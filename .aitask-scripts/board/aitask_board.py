@@ -6528,8 +6528,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         reaches zero-refcount and `ait attach gc` can never reclaim it). t1093
 
         `folded_ids` are tasks the delete REVIVES (unfolds); they are passed as
-        --protect-task so the helper skips decref'ing any blob a revived task
-        still references (conservative no-data-loss guard).
+        --protect-task so the helper REBINDS each blob a revived task still lists
+        from the deleted primary to that revived task (incref survivor + decref
+        primary), instead of orphaning the ref onto the deleted primary. t1096
 
         Returns (ok: bool, msg: str). On a non-zero helper exit the caller MUST
         fail closed (abort the delete) — the leak is recreated otherwise."""
@@ -6574,8 +6575,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # Decref the doomed tasks' attachments BEFORE any mutation, so a
             # helper error aborts the delete cleanly (fail-closed) rather than
             # leaving an orphaned-blob leak. Files must still exist to read their
-            # frontmatter. folded_ids are revived by the unfold below, so they
-            # are protected from decref. t1093
+            # frontmatter. folded_ids are revived by the unfold below; they are
+            # passed as --protect-task so the helper REBINDS each blob they still
+            # list from the primary to them (t1096), not merely skips decref. t1093
             ok, err = self._decref_doomed_attachments(paths, folded_ids)
             if not ok:
                 self.app.call_from_thread(
