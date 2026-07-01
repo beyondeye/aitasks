@@ -276,7 +276,7 @@ run `./.aitask-scripts/aitask_skill_verify.sh`.
   (the propagating artifact) is recorded, not just a local file.
 
 ### Planned mitigations
-- timing: after | name: t635_async_human_gate_live_verify | type: manual_verification | priority: low | effort: low | addresses: goal-achievement "headless run-gates + stop-clean validated only against a fixture" | desc: autonomous manual-verification of the end-to-end async human-gate flow — construct a task declaring `review_approved`, drive the headless lane to a clean pending-human stop, `ait gate pass`, re-run, confirm the ledger `pass` (+ stale-signature re-pend after a code change) and archival; coordinate with t635_17 to avoid overlap. (Proposed; confirm at planning.)
+- timing: after | task: **t1109** (async_human_gate_live_verify) | type: manual_verification | priority: low | effort: low | addresses: goal-achievement "headless run-gates + stop-clean validated only against a fixture" | desc: autonomous manual-verification of the end-to-end async human-gate flow — construct a task declaring `review_approved`, drive the headless lane to a clean pending-human stop, `ait gate pass`, re-run, confirm the ledger `pass` (+ stale-signature re-pend after a code change) and archival; coordinate with t635_17 to avoid overlap. **Created as t1109.**
 
 ## Verification (end-to-end)
 1. `bash tests/test_gate_pass.sh`, `bash tests/test_gate_orchestrator.sh`,
