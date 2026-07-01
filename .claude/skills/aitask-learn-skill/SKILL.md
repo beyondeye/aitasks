@@ -11,7 +11,8 @@ and author a complete **static** skill from it. Modeled on the Hermes agent
 This skill is two halves: **source acquisition** (this file — different per source
 type) and **generation** (the shared `generate.md` core — the same for every
 source). Source acquisition is read-only; the only writes happen in `generate.md`
-when the new skill is created and committed.
+when the new skill is created (and, if the user chooses, generic cross-agent
+wrappers are written and the result committed).
 
 ## Workflow
 
@@ -110,8 +111,8 @@ without summarizing."). Set `source_label` to the URL.
 
 **Read and follow `generate.md`** with `content` and `source_label`. It analyzes the
 material, handles multi-part selection and generalization, asks for the new skill's
-name + description, writes and commits `.claude/skills/<name>/SKILL.md`, and reports
-the invocation path.
+name + description, writes `.claude/skills/<name>/SKILL.md`, then optionally emits
+generic cross-agent wrappers and optionally commits, and reports the invocation path.
 
 ## Notes
 

@@ -11,8 +11,9 @@
 Shared core of `aitask-learn-skill`. **Input:** `content` — the already-gathered
 source text (a document, a fetched page, or a captured terminal session), plus a
 short `source_label` describing where it came from (e.g. `pane %5`, a URL, a path).
-**Output:** a new static skill at `.claude/skills/<name>/SKILL.md`, committed, with
-its invocation path reported back.
+**Output:** a new static skill at `.claude/skills/<name>/SKILL.md` — then,
+optionally, generic cross-agent wrappers, and an optional commit — with its
+invocation path reported back.
 
 Apply **generic** skill-authoring best practices throughout. These are NOT the
 aitasks-framework-internal conventions (`aidocs/framework/skill_authoring_conventions.md`
@@ -80,12 +81,50 @@ own house standards; until then this default applies.
    `.j2` templates, so it passes trivially; this confirms nothing else broke. Fix any
    reported issue before committing.
 
-7. **Commit** the generated skill (source code → plain `git`, never `./ait git`):
-   ```bash
-   git add .claude/skills/<name>/
-   git commit -m "feature: Add /<name> skill learned from <source_label>"
-   ```
+7. **Offer cross-agent wrappers (optional).** The generated skill is a plain
+   Claude skill. If this project also uses other agents, offer to make `/<name>`
+   invokable from them too, via **generic** self-contained pointer wrappers — they
+   reference only `.claude/skills/<name>/SKILL.md` and carry no aitasks-framework
+   internals (a user's own skill must not adopt framework conventions).
 
-8. **Report** to the user: the new skill's path and its invocation path `/<name>`,
-   a one-line summary of what it does, and (if generalized) which inputs it now
-   takes as parameters.
+   - Detect which agent trees the project has: **Codex** when `.agents/skills/`
+     exists, **OpenCode** when `.opencode/` exists. **If neither exists, skip this
+     step entirely** (no prompt) — leave `wrapper_paths` empty.
+   - Otherwise ask (`AskUserQuestion`, header "Wrappers"): "Also make `/<name>`
+     invokable from the other agent(s) in this project?", naming only the present
+     trees in the option descriptions. Options: "Yes, create wrappers" /
+     "No — Claude only".
+   - On **Yes**, run the emitter and check its exit status:
+     ```bash
+     ./.aitask-scripts/aitask_learn_wrappers.sh emit <name>
+     ```
+     - On success (exit 0): collect the `WROTE:<path>` lines into `wrapper_paths`
+       (surface any `SKIP:<tree>:tree-absent` / `EXISTS:<path>` lines to the user
+       as-is). The emitter self-gates on tree presence, so absent trees are
+       skipped even if the coarse check above matched.
+     - On a **nonzero exit** (`ERROR:source-unreadable:<name>`): do **not**
+       silently continue — tell the user the wrappers could not be generated
+       because the just-written source skill is unreadable or missing metadata
+       (worth fixing), and leave `wrapper_paths` empty.
+   - On **No**: leave `wrapper_paths` empty.
+
+8. **Stage & commit (optional).** Show the user what was generated — the new
+   `.claude/skills/<name>/SKILL.md` plus any `wrapper_paths` — then ask
+   (`AskUserQuestion`, header "Commit"): "Commit the generated skill now?".
+   Options: "Yes, commit" / "No, leave it for me".
+
+   - **Yes, commit** (source code → plain `git`, never `./ait git`):
+     ```bash
+     git add .claude/skills/<name>/ <wrapper_paths...>
+     git commit -m "feature: Add /<name> skill learned from <source_label>"
+     ```
+     Include every `wrapper_paths` entry in the `git add`. When wrappers were
+     created, append " (+ cross-agent wrappers)" to the commit subject.
+   - **No, leave it for me**: do **no** git at all. Tell the user the files are
+     written but uncommitted, and list every path (the `SKILL.md` and any
+     `wrapper_paths`) so they can stage and commit them themselves.
+
+9. **Report** to the user: the new skill's path and its invocation path `/<name>`,
+   a one-line summary of what it does, (if generalized) which inputs it now takes
+   as parameters, whether cross-agent wrappers were created (and for which agents),
+   and whether the result was committed or left uncommitted.

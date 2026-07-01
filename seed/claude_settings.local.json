@@ -34,6 +34,7 @@
       "Bash(./.aitask-scripts/aitask_changelog.sh:*)",
       "Bash(./.aitask-scripts/aitask_claim_id.sh:*)",
       "Bash(./.aitask-scripts/aitask_explain_context.sh:*)",
+      "Bash(./.aitask-scripts/aitask_learn_wrappers.sh:*)",
       "Bash(./.aitask-scripts/aitask_project_resolve.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_capture.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_context.sh:*)",

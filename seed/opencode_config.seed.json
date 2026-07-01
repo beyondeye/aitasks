@@ -23,6 +23,7 @@
       "./.aitask-scripts/aitask_changelog.sh *": "allow",
       "./.aitask-scripts/aitask_claim_id.sh *": "allow",
       "./.aitask-scripts/aitask_explain_context.sh *": "allow",
+      "./.aitask-scripts/aitask_learn_wrappers.sh *": "allow",
       "./.aitask-scripts/aitask_project_resolve.sh *": "allow",
       "./.aitask-scripts/aitask_shadow_capture.sh *": "allow",
       "./.aitask-scripts/aitask_shadow_context.sh *": "allow",
