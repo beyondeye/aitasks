@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t717_4]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 anchor: 717
 created_at: 2026-06-27 23:19
-updated_at: 2026-06-27 23:19
+updated_at: 2026-07-01 15:06
 boardidx: 240
 ---
 
