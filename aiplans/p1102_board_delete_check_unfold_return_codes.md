@@ -169,3 +169,23 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `KanbanApp._unfold_deleted_primary_children()` in
+  `.aitask-scripts/board/aitask_board.py` and routed `_do_delete()` through it
+  before any child-parent metadata update, `git rm`, directory cleanup, or delete
+  commit. The helper checks every `aitask_update.sh` return code and reports
+  timeout / non-zero failures as `(False, message)`.
+- **Deviations from plan:** The optional worker-level `_do_delete()` test was not
+  added. The Textual worker decorator makes that path less direct to exercise,
+  and the helper-level contract tests plus the explicit `_do_delete()` early
+  return cover the regression without brittle worker plumbing.
+- **Issues encountered:** `pytest` is not installed in this environment, so the
+  planned pytest invocations could not run. Equivalent targeted and smoke
+  coverage was executed with `unittest` instead.
+- **Key decisions:** Kept the unfold failure handling local to `KanbanApp`,
+  matching `_decref_doomed_attachments()` rather than introducing a shared
+  subprocess wrapper. The user notification uses an ASCII hyphen and mirrors the
+  existing "task NOT deleted (retry)" attachment failure wording.
+- **Upstream defects identified:** None
