@@ -5,13 +5,14 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t635_11]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [gates, task_workflow, web_site]
 gates: [risk_evaluated]
 risk_mitigation_tasks: [t635_27, t635_28, t635_29]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 19:03
 updated_at: 2026-07-01 10:47
+completed_at: 2026-07-01 10:47
 ---
 
 ## Context
@@ -64,3 +65,14 @@ docs from drifting afterward — including for the remaining t635 children
 > **✅ gate:plan_approved** run=2026-07-01T06:47:14Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-01T07:43:55Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-01T07:47:28Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:5bd94acca8be83da
+
+> **✅ gate:risk_evaluated** run=2026-07-01T07:47:28Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/635_19/risk_evaluated_2026-07-01T07:47:28Z-risk_evaluated-a1.log`
