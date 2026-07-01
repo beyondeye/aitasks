@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: low
-depends: [1071_6]
+depends: [t1071_6]
 issue_type: refactor
 status: Ready
 labels: [claudeskills]
 anchor: 1071
 created_at: 2026-07-01 15:10
 updated_at: 2026-07-01 15:10
+boardidx: 10
 ---
 
 Migrate the `docs_updated` gate skill to read its guide path via the shared

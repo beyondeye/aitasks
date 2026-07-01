@@ -7,7 +7,7 @@ status: Ready
 labels: [aitask_monitormini, tmux, tui]
 created_at: 2026-06-25 11:33
 updated_at: 2026-06-25 11:33
-boardidx: 220
+boardidx: 210
 ---
 
 Detect a **wedged tmux mouse/focus state** from inside the minimonitor and offer

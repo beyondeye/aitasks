@@ -13,7 +13,7 @@ anchor: 1016
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-19 13:57
 updated_at: 2026-07-01 22:41
-boardidx: 270
+boardidx: 250
 ---
 
 ## Goal

@@ -8,7 +8,7 @@ labels: [task_attachments, html_plans]
 anchor: 1065
 created_at: 2026-06-28 12:10
 updated_at: 2026-06-28 12:10
-boardidx: 100
+boardidx: 90
 ---
 
 Implement the **S3-compatible artifact backend** — one adapter covering Cloudflare R2 / AWS S3 / Backblaze B2 / MinIO / GCS-via-HMAC — against the **generalized `artifact_backend`** contract (so it serves both attachments and artifacts, not attachments alone).

@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t822_2]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug, applink]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-15 18:01
-updated_at: 2026-06-25 09:55
-boardidx: 280
+updated_at: 2026-07-01 22:55
+boardidx: 260
 ---
 
 ## Failed verification item from t822_2

@@ -8,7 +8,7 @@ labels: [shadow, claudeskills]
 children_to_implement: [t1071_7]
 created_at: 2026-06-25 00:37
 updated_at: 2026-07-01 21:56
-boardidx: 70
+boardidx: 60
 ---
 
 Add two new capabilities to the shadow-agent surface. Both originate from the
