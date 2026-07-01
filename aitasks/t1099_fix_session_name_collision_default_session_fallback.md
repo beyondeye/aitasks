@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [statistics, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-01 09:24
-updated_at: 2026-07-01 09:24
+updated_at: 2026-07-01 09:49
 ---
 
 ## Origin
