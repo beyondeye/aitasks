@@ -23,14 +23,15 @@ file on disk, with a seeded-default fallback":
   keys, so `doc_update.guide` is covered.
 
 The `docs_updated` gate skill (`.claude/skills/aitask-gate-docs-updated/SKILL.md`,
-owned by t635_19) currently reads `doc_update.guide` with an inline
-`grep -A3 '^doc_update:' aitasks/metadata/project_config.yaml` — which mishandles
-quoted values, inline comments, and is cwd-dependent.
+delivered by t635_19 — now Done/archived) currently reads `doc_update.guide` with
+an inline `grep -A3 '^doc_update:' aitasks/metadata/project_config.yaml` — which
+mishandles quoted values, inline comments, and is cwd-dependent.
 
 ## Coordination
 - **Depends on t1071_6** (the resolver must exist).
-- **Coordinates with t635_19** (owns the docs_updated gate skill). t635_19 carries
-  a reverse pointer to this task. Re-verify the gate after the migration.
+- **Relates to t635_19** (delivered the docs_updated gate skill). t635_19 is already
+  Done/archived, so this forward reference is the coordination record (no reverse
+  pointer is added to an archived task). Re-verify the gate after the migration.
 
 ## Scope
 - Rewrite the `doc_update.guide` read in `aitask-gate-docs-updated/SKILL.md` to call
