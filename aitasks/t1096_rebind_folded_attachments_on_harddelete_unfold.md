@@ -70,3 +70,5 @@ Spawned from t1093 (decref attachments on task hard-delete).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-01T08:38:49Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-01T08:49:08Z status=pass attempt=1 type=human
