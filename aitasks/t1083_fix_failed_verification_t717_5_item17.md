@@ -8,7 +8,7 @@ labels: [verification, bug]
 anchor: 717
 created_at: 2026-06-27 23:19
 updated_at: 2026-06-27 23:19
-boardidx: 230
+boardidx: 240
 ---
 
 ## Failed verification item from t717_4

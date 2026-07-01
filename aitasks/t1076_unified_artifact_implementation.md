@@ -9,7 +9,7 @@ children_to_implement: [t1076_1, t1076_2, t1076_3, t1076_4]
 anchor: 1065
 created_at: 2026-06-25 11:01
 updated_at: 2026-06-25 11:04
-boardidx: 20
+boardidx: 60
 ---
 
 Implement the **unified native artifact storage/share model** designed in

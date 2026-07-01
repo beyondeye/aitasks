@@ -5,10 +5,11 @@ depends: []
 issue_type: manual_verification
 status: Ready
 labels: [gates, task_workflow]
-verifies: [635_15]
+verifies: ['635_15']
 anchor: 635
 created_at: 2026-07-01 14:54
 updated_at: 2026-07-01 14:54
+boardidx: 40
 ---
 
 ## Origin

@@ -3,12 +3,13 @@ priority: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [aitask_board]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1016
 created_at: 2026-06-19 13:57
-updated_at: 2026-06-19 13:57
-boardidx: 260
+updated_at: 2026-07-01 15:06
+boardidx: 270
 ---
 
 ## Goal

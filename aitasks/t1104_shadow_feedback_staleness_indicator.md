@@ -11,6 +11,7 @@ gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-01 14:23
 updated_at: 2026-07-01 14:57
+boardidx: 50
 ---
 
 ## Problem
