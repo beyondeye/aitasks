@@ -556,19 +556,19 @@
         },
         "explore": {
           "all_time": {
-            "runs": 42
+            "runs": 43
           },
           "prev_month": {
-            "period": "2026-05",
-            "runs": 4
-          },
-          "month": {
             "period": "2026-06",
             "runs": 38
           },
+          "month": {
+            "period": "2026-07",
+            "runs": 1
+          },
           "week": {
             "period": "2026-W27",
-            "runs": 1
+            "runs": 2
           }
         },
         "changelog": {
