@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t1071_2]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [shadow, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-06-30 11:16
-updated_at: 2026-06-30 11:16
+updated_at: 2026-07-01 11:41
 ---
 
 Make the skill-authoring-conventions source that `aitask-learn-skill/generate.md` applies
