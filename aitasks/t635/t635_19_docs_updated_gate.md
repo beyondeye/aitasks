@@ -8,9 +8,10 @@ issue_type: feature
 status: Implementing
 labels: [gates, task_workflow, web_site]
 gates: [risk_evaluated]
+risk_mitigation_tasks: [t635_27, t635_28, t635_29]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-10 19:03
-updated_at: 2026-07-01 09:47
+updated_at: 2026-07-01 10:47
 ---
 
 ## Context
