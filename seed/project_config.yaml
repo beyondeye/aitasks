@@ -201,6 +201,25 @@ doc_update:
   # extra_guides: []
 
 # ──────────────────────────────────────────────────────────────────────
+# learn_skill_authoring_guide — Skill-authoring guide applied by
+# /aitask-learn-skill when it generates a new skill (generate.md).
+#
+# Points at the skill-authoring best-practices guide the generated skill should
+# follow. `ait setup` installs the generic default below (from seed/reviewguides/);
+# leave this UNSET to use that default. Set it to your project's own house guide
+# to override.
+#
+# Do NOT point this at aidocs/framework/skill_authoring_conventions.md — those are
+# framework-internal (stubs/profiles/goldens) and must not be adopted by a user's
+# own generated skill.
+#
+# Example:
+#   learn_skill_authoring_guide: aireviewguides/aiagents/skill_authoring_best_practices.md
+# ──────────────────────────────────────────────────────────────────────
+
+# learn_skill_authoring_guide:
+
+# ──────────────────────────────────────────────────────────────────────
 # default_profiles — Default execution profile for each skill.
 #
 # Maps skill names to profile names (without .yaml extension). When a

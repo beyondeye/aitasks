@@ -18,18 +18,22 @@ invocation path reported back.
 Apply **generic** skill-authoring best practices throughout. These are NOT the
 aitasks-framework-internal conventions (`aidocs/framework/skill_authoring_conventions.md`
 governs framework skills — stubs, profile variants, goldens — which a user's own skill
-must not adopt). By default, read the best-practices guide installed with the framework:
+must not adopt).
 
-```
-aireviewguides/aiagents/skill_authoring_best_practices.md
+Resolve which guide to apply by running, **from the repository root**:
+
+```bash
+./.aitask-scripts/aitask_resolve_config_path.sh learn_skill_authoring_guide \
+  aireviewguides/aiagents/skill_authoring_best_practices.md
 ```
 
-(installed by `ait setup` from `seed/reviewguides/`, so it is present in any repo where
-aitasks is set up). If that file is absent, fall back to your own knowledge of good
+It prints the effective guide path — the project's configured
+`learn_skill_authoring_guide` (set via `ait settings` → Project Config) if it names a
+readable file, otherwise the generic guide `ait setup` installs from `seed/reviewguides/`.
+**Read that file and apply it.** **If the command prints nothing OR fails for any reason**
+(no guide on disk, or the helper cannot run), fall back to your own knowledge of good
 Claude skill authoring (clear `name`/`description`, a focused single responsibility, a
-scannable procedure, no inlined long sub-procedures). **The conventions source is meant
-to be configurable** — a follow-up task adds a setting so a project can point this at its
-own house standards; until then this default applies.
+scannable procedure, no inlined long sub-procedures).
 
 ## Procedure
 

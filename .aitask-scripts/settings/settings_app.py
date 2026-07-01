@@ -210,6 +210,17 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
             "Accepts a single string or YAML list. Leave blank to skip."
         ),
     },
+    "learn_skill_authoring_guide": {
+        "summary": "Skill-authoring guide applied by /aitask-learn-skill",
+        "detail": (
+            "Path to the skill-authoring best-practices guide that "
+            "/aitask-learn-skill (generate.md) applies when writing a generated "
+            "skill. Leave blank to use the generic guide installed by ait setup "
+            "(aireviewguides/aiagents/skill_authoring_best_practices.md). Never "
+            "point this at aidocs/framework/skill_authoring_conventions.md — those "
+            "framework-internal conventions must not be adopted by a user's own skill."
+        ),
+    },
     "default_profiles": {
         "summary": "Default execution profile for each skill",
         "detail": (

@@ -172,6 +172,51 @@ def save_yaml_config(path: str | Path, data: dict) -> None:
         yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
+def resolve_config_path(
+    config_key: str,
+    default_rel: str | None = None,
+    root: str | Path | None = None,
+    check_readable: bool = True,
+) -> str | None:
+    """Resolve a settings-defined file path with a seeded-default fallback.
+
+    This is the canonical seam for "a `project_config.yaml` value that names a
+    file on disk, with a fallback to the guide/template `ait setup` installed"
+    (e.g. ``learn_skill_authoring_guide`` for /aitask-learn-skill, or the nested
+    ``doc_update.guide`` read by the docs_updated gate). Reading via PyYAML — the
+    same parser the settings TUI writes with — means quoted values, inline
+    ``# comments``, whitespace, and dotted/nested keys are all handled uniformly,
+    unlike a hand-rolled ``grep`` in a skill.
+
+    Args:
+        config_key: Dotted key into ``aitasks/metadata/project_config.yaml``
+            (e.g. ``"doc_update.guide"`` or a flat ``"learn_skill_authoring_guide"``).
+        default_rel: Repo-root-relative fallback path, used when the key is unset
+            or its file is not readable.
+        root: Directory the config and returned paths are resolved against
+            (default: current working directory).
+        check_readable: When True (default), a candidate is only returned if it
+            names an existing file; when False, the configured/default value is
+            returned as-is without a filesystem check.
+
+    Returns:
+        A repo-root-relative path string (the configured value, else
+        ``default_rel``), or ``None`` when neither resolves to a usable path.
+    """
+    base = Path(root) if root is not None else Path.cwd()
+    cfg = load_yaml_config(base / "aitasks" / "metadata" / "project_config.yaml")
+
+    val: Any = cfg
+    for part in config_key.split("."):
+        val = val.get(part) if isinstance(val, dict) else None
+    configured = val.strip() if isinstance(val, str) and val.strip() else None
+
+    for candidate in (configured, default_rel):
+        if candidate and (not check_readable or (base / candidate).is_file()):
+            return candidate
+    return None
+
+
 def split_config(
     merged: dict,
     project_keys: set[str] | None = None,
