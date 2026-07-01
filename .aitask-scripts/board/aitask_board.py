@@ -6549,6 +6549,26 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return False, (r.stderr.strip() or r.stdout.strip() or "unknown error")
         return True, ""
 
+    def _unfold_deleted_primary_children(self, folded_ids):
+        """Revive folded tasks before deleting their primary.
+
+        A failed unfold must abort the hard-delete; otherwise a folded task can
+        remain pointed at a primary that is about to be removed. t1102
+        """
+        for fid_str in folded_ids or []:
+            try:
+                result = subprocess.run(
+                    ["./.aitask-scripts/aitask_update.sh", "--batch", fid_str,
+                     "--status", "Ready", "--folded-into", ""],
+                    capture_output=True, text=True, timeout=10
+                )
+            except subprocess.TimeoutExpired:
+                return False, f"unfold t{fid_str} timed out"
+            if result.returncode != 0:
+                err = result.stderr.strip() or result.stdout.strip() or "unknown error"
+                return False, f"unfold t{fid_str} failed: {err}"
+        return True, ""
+
     def _execute_delete(self, task_num: str, paths: list, task: Task = None):
         """Delete task files (shows loading overlay)."""
         paths_str = [str(p) for p in paths]
@@ -6588,12 +6608,14 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 return  # the `finally` pops the LoadingOverlay; nothing deleted
 
             # Unfold folded tasks before deleting
-            for fid_str in folded_ids:
-                subprocess.run(
-                    ["./.aitask-scripts/aitask_update.sh", "--batch", fid_str,
-                     "--status", "Ready", "--folded-into", ""],
-                    capture_output=True, text=True, timeout=10
+            ok, err = self._unfold_deleted_primary_children(folded_ids)
+            if not ok:
+                self.app.call_from_thread(
+                    self.notify,
+                    f"Folded-task unfold failed - task NOT deleted (retry): {err}",
+                    severity="error",
                 )
+                return  # the `finally` pops the LoadingOverlay; nothing deleted
 
             # If deleting a child task, remove its reference from the parent's
             # children_to_implement list before the file disappears.

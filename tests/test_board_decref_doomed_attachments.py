@@ -151,5 +151,76 @@ class DecrefStepContractTests(unittest.TestCase):
         self.assertEqual(calls, [])     # no task files -> helper never invoked
 
 
+class UnfoldStepContractTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.task_dir = Path(self.tmp.name) / "aitasks"
+        (self.task_dir / "metadata").mkdir(parents=True)
+        self.board = _load_board_module(self.task_dir)
+        self.app = types.SimpleNamespace()
+        self._orig_run = self.board.subprocess.run
+
+    def tearDown(self):
+        self.board.subprocess.run = self._orig_run
+        self.tmp.cleanup()
+
+    def _patch_run(self, proc_or_exc):
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if isinstance(proc_or_exc, BaseException):
+                raise proc_or_exc
+            return proc_or_exc
+
+        self.board.subprocess.run = fake_run
+        return calls
+
+    def test_success_builds_update_commands_for_each_folded_task(self):
+        calls = self._patch_run(_FakeProc(returncode=0))
+        ok, msg = self.board.KanbanApp._unfold_deleted_primary_children(
+            self.app, ["31", "32"]
+        )
+        self.assertTrue(ok)
+        self.assertEqual(msg, "")
+        self.assertEqual(len(calls), 2)
+        for fid, cmd in zip(["31", "32"], calls):
+            self.assertIn("./.aitask-scripts/aitask_update.sh", cmd)
+            self.assertIn("--batch", cmd)
+            self.assertIn(fid, cmd)
+            self.assertIn("--status", cmd)
+            self.assertIn("Ready", cmd)
+            self.assertIn("--folded-into", cmd)
+            self.assertIn("", cmd)
+
+    def test_nonzero_exit_fails_closed(self):
+        self._patch_run(_FakeProc(returncode=1, stderr="write failed"))
+        ok, msg = self.board.KanbanApp._unfold_deleted_primary_children(
+            self.app, ["31"]
+        )
+        self.assertFalse(ok)
+        self.assertEqual(msg, "unfold t31 failed: write failed")
+
+    def test_timeout_fails_closed(self):
+        exc = self.board.subprocess.TimeoutExpired(
+            ["./.aitask-scripts/aitask_update.sh"], 10
+        )
+        self._patch_run(exc)
+        ok, msg = self.board.KanbanApp._unfold_deleted_primary_children(
+            self.app, ["31"]
+        )
+        self.assertFalse(ok)
+        self.assertEqual(msg, "unfold t31 timed out")
+
+    def test_no_folded_ids_skips_subprocess(self):
+        calls = self._patch_run(_FakeProc(returncode=99))
+        ok, msg = self.board.KanbanApp._unfold_deleted_primary_children(
+            self.app, []
+        )
+        self.assertTrue(ok)
+        self.assertEqual(msg, "")
+        self.assertEqual(calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()
