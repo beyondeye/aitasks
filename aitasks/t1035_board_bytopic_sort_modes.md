@@ -7,8 +7,9 @@ status: Implementing
 labels: [aitask_board]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1016
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-19 13:57
-updated_at: 2026-07-01 15:06
+updated_at: 2026-07-01 22:41
 boardidx: 270
 ---
 
@@ -46,3 +47,8 @@ Created as a `--followup-of 1016_4` enhancement (anchor: 1016) while
 implementing the by-topic view; the user asked for richer sorting beyond the
 recency default. Board reference doc (`website/content/docs/tuis/board/reference.md`)
 should gain a note on the sort modes when this lands.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-01T19:41:45Z status=pass attempt=1 type=human
