@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t635_11, t635_21]
 issue_type: feature
@@ -9,7 +11,7 @@ gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-10 18:56
-updated_at: 2026-07-01 14:33
+updated_at: 2026-07-01 14:34
 ---
 
 ## Context
