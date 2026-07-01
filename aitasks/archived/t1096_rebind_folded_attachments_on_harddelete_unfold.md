@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: medium
 depends: [1093]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [task_attachments]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-30 19:07
-updated_at: 2026-07-01 11:39
+updated_at: 2026-07-01 11:55
+completed_at: 2026-07-01 11:55
 ---
 
 Rebind folded-origin attachment refs to the revived tasks when a primary task
@@ -72,3 +73,14 @@ Spawned from t1093 (decref attachments on task hard-delete).
 > **✅ gate:plan_approved** run=2026-07-01T08:38:49Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-01T08:49:08Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-01T08:55:10Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:b4b418f78514e74e
+
+> **✅ gate:risk_evaluated** run=2026-07-01T08:55:10Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1096/risk_evaluated_2026-07-01T08:55:10Z-risk_evaluated-a1.log`
