@@ -59,6 +59,10 @@ from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 
 _NEW_SESSION_SENTINEL = "__new_session__"
 _NEW_WINDOW_SENTINEL = "__new_window__"
+_FRESH_WINDOW_PREFIXES = ("agent-", "create-")
+_FRESH_WINDOW_OPERATIONS = frozenset(
+    {"pick", "raw", "explain", "qa", "resume", "syncfix"}
+)
 
 _PROFILES_DIR = Path("aitasks/metadata/profiles")
 _LOCAL_PROFILES_DIR = _PROFILES_DIR / "local"
@@ -127,6 +131,25 @@ def pick_initial_session(
     if sessions:
         return sessions[0]
     return _NEW_SESSION_SENTINEL
+
+
+def should_default_to_new_window(
+    default_window_name: str,
+    operation: str | None,
+    explicit_tmux_window: str | None,
+) -> bool:
+    """Return whether the dialog should initially select ``+ New window``.
+
+    Code-agent launches carry task/classification context in their tmux window
+    name. A remembered existing window such as ``monitor`` must not override
+    the caller's ``agent-*`` default, but explicit caller intent still wins.
+    """
+    if explicit_tmux_window:
+        return False
+    name = default_window_name or ""
+    if name.startswith(_FRESH_WINDOW_PREFIXES):
+        return True
+    return bool(operation and operation in _FRESH_WINDOW_OPERATIONS)
 
 
 class AgentCommandScreen(ShortcutsMixin, ModalScreen):
@@ -568,6 +591,12 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
         live_indices = {idx for idx, _name in windows}
         if self._default_tmux_window and self._default_tmux_window in live_indices:
             value = self._default_tmux_window
+        elif should_default_to_new_window(
+            self.default_window_name,
+            self.operation,
+            self._default_tmux_window,
+        ):
+            value = _NEW_WINDOW_SENTINEL
         elif last_window_for_project and last_window_for_project in live_indices:
             value = last_window_for_project
         else:
