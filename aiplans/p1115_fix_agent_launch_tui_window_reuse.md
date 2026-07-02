@@ -130,3 +130,25 @@ names; `monitor` is a TUI name.
 
 No separate risk-mitigation tasks are planned; the mitigation is included in this
 task's required regression tests.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `should_default_to_new_window()` in
+  `.aitask-scripts/lib/agent_command_screen.py` and wired it into
+  `_compute_window_options()`. Agent/create-style launches now initially select
+  `+ New window`, so a remembered existing window such as `monitor` cannot
+  override the caller's `agent-pick-*` default. Explicit `default_tmux_window`
+  still takes precedence, and non-agent launches still preserve remembered-window
+  behavior.
+- **Deviations from plan:** None.
+- **Issues encountered:** The original live symptom was already captured during
+  exploration. Implementation itself was straightforward and did not require
+  changing `_build_tmux_config()`.
+- **Key decisions:** Kept the policy as a pure module-level helper so it can be
+  unit-tested without Textual runtime setup. Used both window-name prefixes
+  (`agent-`, `create-`) and known operation names as signals, while keeping
+  explicit caller intent authoritative.
+- **Upstream defects identified:** None.
+- **Verification:** Passed:
+  - `python3 -m unittest tests.test_agent_command_dialog_default_session -v`
+  - `python3 -m unittest tests.test_agent_command_dialog_empty_prompt tests.test_agent_command_dialog_narrow -v`
