@@ -358,30 +358,31 @@ monkeypatches the module's `_build_topic_lanes` (restore in `tearDown`):
 
 ## Risk
 
-Assessed separately on the two required dimensions:
+Assessed separately on the two required dimensions.
 
-- **Code-health risk: low–moderate.** The sort split and modal are additive and
-  copy established in-file patterns; the public `group_tasks_by_topic` keeps its
-  behavior (recency default). The **caching layer is the only stateful/
-  invalidation-bearing part** and carries the real risk: a wrong invalidation
-  could render stale lanes. It is contained by design — a self-invalidating
-  *ordered* content signature (filename+anchor in input order, matching the
-  build's first-seen ordering) for regroup/reorder-affecting changes, explicit
-  clears at the three (and only three) object-replacement seams, and negative
-  control tests that reproduce staleness if a seam-clear is removed or the
-  signature is order-independent. The cache
-  is board-local (one `TaskManager` field), touches no shared/cross-module
-  surface, and degrades safely (a cold/None cache just rebuilds).
-- **Goal-achievement risk: low.** Requirements are concrete and fully covered
-  (4 modes, Ungrouped pinned last, switch affordance, persistence, build
-  caching, tests, docs); the affordance was confirmed with the user (modal
-  picker on `o`). The subtle correctness points — numeric `topic_id` ordering,
-  Ungrouped-last invariant, and cache hit/invalidate/clear behavior — are each
-  pinned by unit tests, including a negative control.
+### Code-health risk: medium
+- Caching layer is the only stateful/invalidation-bearing part; a wrong
+  invalidation could render stale lanes · severity: medium · → mitigation:
+  contained in-task (ordered filename+anchor signature + clears at the three
+  object-replacement seams + negative-control tests that reproduce staleness if
+  a seam-clear is removed or the signature is order-independent)
+- Sort split + modal are additive, copy established in-file patterns, and keep
+  `group_tasks_by_topic`'s recency-default behavior; cache is board-local (one
+  `TaskManager` field), touches no shared surface, and degrades safely (a
+  cold/None cache just rebuilds) · severity: low · → mitigation: TBD (none
+  needed)
 
-No before/after mitigation tasks required: risk is low on goal achievement and
-low–moderate on code health, and every invariant (including the cache's) is
-test-guarded within this task.
+### Goal-achievement risk: low
+- Subtle correctness points — numeric `topic_id` ordering, Ungrouped-last
+  invariant, cache hit/invalidate/clear — could regress · severity: low · →
+  mitigation: each pinned by unit tests, including negative controls
+- Requirements are concrete and fully covered (4 modes, Ungrouped pinned last,
+  switch affordance, persistence, build caching, tests, docs); affordance
+  confirmed with the user (modal picker on `o`) · severity: low · → mitigation:
+  TBD (none needed)
+
+No before/after mitigation tasks required: goal-achievement risk is low and the
+medium code-health risk is fully contained by the in-task test guards above.
 
 ## Verification
 
