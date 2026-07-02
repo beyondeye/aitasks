@@ -435,3 +435,9 @@ back-references** against this table before ending the session:
    Confirm the Tier-0-satisfied note is reflected in t1061's plan (this file).
 6. Functional verification happens per-child (each child's brief includes its
    own tests/verification).
+
+## Created tasks (label → real ID, resolved 2026-07-02)
+
+- Cross-repo parent: **aitasks_mobile#31** (`t31_applink_outside_network_connectivity_mobile.md`)
+- A1 → `t1061_1` · A2 → `t1061_2` (deps A1) · A3 → `t1061_3` (deps A1; xdeps `aitasks_mobile#31_3`) · A4 → `t1061_4` · A5 → `t1061_5`
+- M1 → `aitasks_mobile#31_1` · M2 → `aitasks_mobile#31_2` (xdeps `aitasks#1061_1`) · M3 → `aitasks_mobile#31_3` (deps M2; xdeps `aitasks#1061_1`)
