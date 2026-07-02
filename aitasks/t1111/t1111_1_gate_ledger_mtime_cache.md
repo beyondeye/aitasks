@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [monitor, tui, performance]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-02 14:43
+updated_at: 2026-07-02 14:50
 ---
 
 Gate-ledger **mtime cache** for the monitor — stop re-reading every visible
