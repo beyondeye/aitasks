@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [aitask_board]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1016
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-19 13:57
-updated_at: 2026-07-01 22:41
+updated_at: 2026-07-02 13:40
+completed_at: 2026-07-02 13:40
 boardidx: 250
 ---
 
