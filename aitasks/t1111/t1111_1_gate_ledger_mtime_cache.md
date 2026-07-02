@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: performance
@@ -10,7 +12,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-02 15:00
+updated_at: 2026-07-02 15:01
 ---
 
 Gate-ledger **mtime cache** for the monitor — stop re-reading every visible
