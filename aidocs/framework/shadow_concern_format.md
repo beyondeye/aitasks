@@ -88,4 +88,12 @@ closing fence cannot stand in for a newer, still-streaming block):
 - **Consumer:** the minimonitor concern-picker modal + trigger wiring
   (`monitor_shared.py`, `minimonitor_app.py`).
 
+## Staleness
+
+The concern-forward surfaces also carry a **staleness** signal (t1104): when the
+followed agent has moved on since the shadow produced these concerns, the auto-offer
+notify appends a STALE marker and the picker modal shows a red banner, so a stale
+block is not forwarded unaware. See the "Feedback freshness" section of
+`shadow_agent.md` for the content-signature mechanism.
+
 See `shadow_agent.md` for the shadow companion's overall pipeline.

@@ -185,6 +185,13 @@ def _is_companion_process(pid: int) -> bool:
 # `aitask_companion_cleanup.sh` kills the bound shadow.
 SHADOW_TARGET_OPTION = "@aitask_shadow_target"
 
+# Pane-scoped user-option a shadow stamps with the wall-clock epoch at which it
+# last read its followed agent (t1104). minimonitor compares it against when the
+# followed pane last changed to tell whether the shadow's feedback is still
+# current. A timestamp (not a content hash) is used because an exact snapshot
+# hash of a live terminal is too brittle. Set by aitask_shadow_capture.sh.
+SHADOW_ANALYZED_AT_OPTION = "@aitask_shadow_analyzed_at"
+
 
 def is_shadow_target(shadow_target: str) -> bool:
     """True when a pane's ``@aitask_shadow_target`` value marks it a shadow.
@@ -892,6 +899,39 @@ class TmuxMonitor:
         the internal :meth:`_tmux_async`.
         """
         return await self._tmux_async(args, timeout=timeout)
+
+    async def get_pane_option(
+        self, pane_id: str, option: str, timeout: float = 2.0
+    ) -> str:
+        """Read a pane-scoped tmux user-option's value, or "" on any failure.
+
+        Gateway-routed (``show-options -pqv``) so all tmux access stays inside
+        the monitor per ``tmux_gateway.md``. ``-q`` keeps an unset option quiet
+        and ``-v`` prints just the value; a missing option yields "". Used by
+        minimonitor's shadow-freshness check (t1104).
+        """
+        rc, out = await self.tmux_run_async(
+            ["show-options", "-pqv", "-t", pane_id, option], timeout=timeout
+        )
+        if rc != 0:
+            return ""
+        return out.strip()
+
+    def get_last_change_wall(self, pane_id: str) -> float | None:
+        """Wall-clock epoch (approx) when ``pane_id``'s content last changed.
+
+        Converts the monotonic ``_last_change_time`` (set in ``_finalize_capture``
+        when the captured content differs) into wall-clock so it can be compared
+        against another process's epoch stamp (the shadow's ``@aitask_shadow_
+        analyzed_at``). Returns ``None`` if the pane has not been observed yet.
+        The recorded instant is the *detection* tick, so it lags the real change
+        by up to one refresh interval — callers absorb that with an epsilon
+        (t1104).
+        """
+        mono = self._last_change_time.get(pane_id)
+        if mono is None:
+            return None
+        return time.time() - (time.monotonic() - mono)
 
     def resize_pane(
         self, pane: str, *, x: int | None = None, y: int | None = None,

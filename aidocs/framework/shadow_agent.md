@@ -119,6 +119,42 @@ agent lists, the `kill_agent_pane_smart` real-agent count, and the
 `tui_conventions.md` (companion-pane section) and `tmux_gateway.md` (multi-agent
 per window).
 
+## Feedback freshness (staleness detection)
+
+When many agents are followed in parallel, the followed agent can race ahead —
+often *while the shadow is still thinking* — so the shadow's advice silently
+becomes stale. This is surfaced by comparing **times** (t1104): *when* the shadow
+last read the followed pane vs *when* the followed pane last changed. A
+timestamp is used rather than a content signature deliberately — an exact
+snapshot hash of a live terminal is too brittle (a render settling by a single
+character reads as "stale" even when the agent is idle).
+
+- **Stamp (in `aitask_shadow_capture.sh`).** On every capture, when the helper detects
+  it is running *inside a shadow pane* (its own `$TMUX_PANE` carries
+  `@aitask_shadow_target`) and is capturing that bound followed agent, it stamps the
+  current wall-clock epoch onto its own pane:
+  `@aitask_shadow_analyzed_at = <epoch>` (`SHADOW_ANALYZED_AT_OPTION` in
+  `monitor/monitor_core.py`). Automatic (no flag, no skill-markdown change) and
+  self-guarding: minimonitor's own captures run from a non-shadow pane and never stamp;
+  the `-`/no-`TMUX_PANE` paths never stamp. Best-effort — a stamp failure never breaks
+  the capture.
+- **Compare (in minimonitor).** On every *other* refresh tick (~6 s at the 3 s default —
+  the concern auto-offer still runs every tick), once a shadow pane is bound, minimonitor
+  reads the cheap `@aitask_shadow_analyzed_at`, then compares it to when the followed pane
+  last changed (`TmuxMonitor.get_last_change_wall`, derived from monitor_core's existing
+  change detection). If the followed pane changed **after** the stamp (beyond a
+  one-refresh-tick epsilon that absorbs detection lag) ⇒ **stale**. It shows a live
+  `#mini-shadow-stale` warning line — including how old the shadow's read is
+  ("analyzed Ns ago") — appends a STALE marker to the concern auto-offer, and passes
+  `stale=` to `ConcernPickerModal` (a red banner) so stale concerns are not forwarded
+  unaware. Failure-safe: an unreadable/malformed stamp or a not-yet-observed followed
+  pane *preserves* the previous state and never clears a standing warning; an absent
+  stamp (shadow has not analyzed yet) shows nothing.
+
+An idle agent (e.g. sitting at a plan-approval prompt the shadow just read) has not
+changed since the stamp, so it correctly reads **current**; an agent that emits new
+output after the shadow read it reads **stale**.
+
 ## Configuration
 
 - `defaults.shadow` in `codeagent_config.json` — the agent+model used for the

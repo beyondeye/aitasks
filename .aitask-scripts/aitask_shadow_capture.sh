@@ -70,7 +70,12 @@ Arguments:
               can truncate. Has no effect with - (stdin has no scrollback).
   -           read raw capture from stdin instead of tmux
 
-Read-only: never sends input to the pane.
+When run inside a shadow pane capturing its bound followed agent, this also
+stamps the current epoch onto the shadow's own pane (@aitask_shadow_analyzed_at)
+so minimonitor can detect stale feedback — i.e. the followed agent having changed
+since the shadow last read it (t1104).
+
+Read-only with respect to the followed pane: never sends input to it.
 EOF
 }
 
@@ -102,6 +107,40 @@ shadow_capture_pane() {
     ait_tmux capture-pane -p -J -t "$pane" -S "-${lines}"
 }
 
+# Pane-scoped tmux user-options (t1104). The shadow marker option is set by the
+# spawn glue (monitor_core SHADOW_TARGET_OPTION); the analyzed-at option records
+# *when* the shadow last read its followed agent, so minimonitor can tell whether
+# the followed agent has produced new output since — i.e. whether the shadow's
+# feedback is still current. A wall-clock epoch is used (not a content signature):
+# an exact snapshot hash of a live terminal is too brittle — a render settling by
+# a single character reads as "stale" even when the agent is idle. Comparing
+# *times* (did the followed pane change after the shadow read it?) is robust to
+# that jitter.
+SHADOW_TARGET_OPTION="@aitask_shadow_target"
+SHADOW_ANALYZED_AT_OPTION="@aitask_shadow_analyzed_at"
+
+# shadow_stamp_analyzed_at - when this process is running *inside a shadow pane*
+# and is capturing its bound followed agent, stamp the current wall-clock epoch
+# onto the shadow's own pane. Best-effort: any failure is swallowed so the
+# capture (the primary job) never breaks. Self-guarding: minimonitor's own
+# captures run from the minimonitor pane (no @aitask_shadow_target) and the stdin
+# path never reaches here, so they cannot mis-stamp.
+#   $1 = captured pane id
+shadow_stamp_analyzed_at() {
+    local pane="$1"
+    local own_pane="${TMUX_PANE:-}"
+    # Guard TMUX_PANE under `set -u`: outside a live pane (tests, non-tmux
+    # helper flows) there is nothing to stamp.
+    [[ -n "$own_pane" ]] || return 0
+    local self_target
+    self_target="$(ait_tmux show-options -pqv -t "$own_pane" \
+        "$SHADOW_TARGET_OPTION" 2>/dev/null || true)"
+    # Only a shadow pane reading its own bound followed agent stamps.
+    [[ -n "$self_target" && "$self_target" == "$pane" ]] || return 0
+    ait_tmux set-option -p -t "$own_pane" \
+        "$SHADOW_ANALYZED_AT_OPTION" "$(date +%s)" 2>/dev/null || true
+}
+
 main() {
     local pane="" deep=0
     while [[ $# -gt 0 ]]; do
@@ -125,9 +164,12 @@ main() {
 
     if [[ "$pane" == "-" ]]; then
         shadow_clean
-    else
-        shadow_capture_pane "$pane" "$capture_lines" | shadow_clean
+        return 0
     fi
+
+    shadow_capture_pane "$pane" "$capture_lines" | shadow_clean
+    # Record when this analysis read the followed pane (freshness anchor, t1104).
+    shadow_stamp_analyzed_at "$pane"
 }
 
 # Run main only when executed directly (sourcing exposes the functions for

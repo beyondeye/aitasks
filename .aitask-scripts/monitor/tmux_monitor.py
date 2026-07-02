@@ -34,4 +34,5 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     count_other_real_agents,
     is_shadow_target,
     SHADOW_TARGET_OPTION,
+    SHADOW_ANALYZED_AT_OPTION,
 )

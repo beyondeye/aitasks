@@ -236,6 +236,108 @@ class AutoOfferTests(unittest.TestCase):
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(app.spy_notify, [])
 
+    def test_no_shadow_clears_stale_banner(self):
+        app = self._app(_CLOSED_BLOCK, async_list="%1\t\n%6\t%2")  # no shadow
+        app._shadow_feedback_stale = True  # a prior standing warning
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIsNone(app._shadow_feedback_stale)
+        self.assertEqual(app._shadow_stale_banner_text, "")
+
+
+class ShadowFreshnessTests(unittest.TestCase):
+    """Shadow-feedback staleness compare + display (t1104, timestamp model)."""
+
+    # eps = max(2, refresh_seconds=3) = 3 for these apps.
+    def _fresh_app(self, analyzed_at, last_change, capture="",
+                   async_list="%5\t%1"):
+        app = _mk_app(_FakeMon(async_list=async_list))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        app._capture_shadow_text = _async_return(capture)
+        app._refresh_seconds = 3
+        stamp = "" if analyzed_at is None else str(analyzed_at)
+        app._monitor.get_pane_option = _async_return(stamp)
+        # Spy the (sync) followed-pane last-change lookup so the cost gate and
+        # the preserve-on-unobserved path are assertable.
+        calls: list = []
+
+        def _lcw(pane):
+            calls.append(pane)
+            return last_change
+
+        app._monitor.get_last_change_wall = _lcw
+        app._lcw_calls = calls
+        return app
+
+    def test_change_after_analysis_marks_stale(self):
+        # Followed changed 10s after the shadow read it (> eps) ⇒ stale.
+        app = self._fresh_app(1000.0, 1010.0)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_feedback_stale, True)
+        self.assertIn("stale", app._shadow_stale_banner_text.lower())
+        self.assertIn("analyzed", app._shadow_stale_banner_text.lower())
+        self.assertEqual(app._lcw_calls, ["%1"])
+
+    def test_no_change_since_analysis_is_current(self):
+        # Followed last changed before the shadow read it ⇒ current.
+        app = self._fresh_app(1000.0, 995.0)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_feedback_stale, False)
+        self.assertEqual(app._shadow_stale_banner_text, "")
+
+    def test_within_epsilon_not_stale(self):
+        # A change 2s after the read is inside eps (3s) — detection-lag jitter,
+        # NOT a genuine move-on (this is the idle-render-settle false positive).
+        app = self._fresh_app(1000.0, 1002.0)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_feedback_stale, False)
+
+    def test_no_stamp_skips_last_change_lookup(self):
+        # Shadow never analyzed — no warning, and the followed lookup is skipped.
+        app = self._fresh_app(None, 1010.0)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_feedback_stale, False)
+        self.assertEqual(app._shadow_stale_banner_text, "")
+        self.assertEqual(app._lcw_calls, [])  # cost gate: never looked up
+
+    def test_unobserved_followed_preserves_prior_stale(self):
+        # Followed pane not observed yet (last-change None) must NOT clear a
+        # standing 'stale' warning.
+        app = self._fresh_app(1000.0, None)
+        app._shadow_feedback_stale = True
+        app._shadow_stale_banner_text = "PRIOR-WARNING"
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_feedback_stale, True)
+        self.assertEqual(app._shadow_stale_banner_text, "PRIOR-WARNING")
+
+    def test_malformed_stamp_preserves_prior_stale(self):
+        app = self._fresh_app("not-a-number", 1010.0)
+        app._shadow_feedback_stale = True
+        app._shadow_stale_banner_text = "PRIOR-WARNING"
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_feedback_stale, True)
+        self.assertEqual(app._shadow_stale_banner_text, "PRIOR-WARNING")
+
+    def test_auto_offer_notify_carries_stale_marker(self):
+        app = self._fresh_app(1000.0, 1010.0, capture=_CLOSED_BLOCK)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(len(app.spy_notify), 1)
+        self.assertIn("STALE", app.spy_notify[0][0])
+
+    def test_format_stale_duration(self):
+        f = mm.MiniMonitorApp._format_stale_duration
+        self.assertEqual(f(5), "5s")
+        self.assertEqual(f(65), "1m05s")
+        self.assertEqual(f(3720), "1h02m")
+
+    def test_freshness_throttled_to_every_other_tick(self):
+        # Two ticks ⇒ the compare (and its pane lookups) runs only once.
+        app = self._fresh_app(1000.0, 1010.0)
+        asyncio.run(app._maybe_offer_concerns())  # tick 1 — runs
+        asyncio.run(app._maybe_offer_concerns())  # tick 2 — skipped
+        self.assertEqual(len(app._lcw_calls), 1)
+        asyncio.run(app._maybe_offer_concerns())  # tick 3 — runs
+        self.assertEqual(len(app._lcw_calls), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

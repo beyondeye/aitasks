@@ -44,10 +44,14 @@ class _Host(App):
 
     _UNSET = object()
 
-    def __init__(self, concerns: list[Concern], narrow: bool = False) -> None:
+    def __init__(
+        self, concerns: list[Concern], narrow: bool = False,
+        stale: bool = False,
+    ) -> None:
         super().__init__()
         self._concerns = concerns
         self._narrow = narrow
+        self._stale = stale
         self.result = self._UNSET
 
     def compose(self) -> ComposeResult:
@@ -58,7 +62,10 @@ class _Host(App):
             self.result = value
 
         self.push_screen(
-            ConcernPickerModal(self._concerns, narrow=self._narrow), _capture
+            ConcernPickerModal(
+                self._concerns, narrow=self._narrow, stale=self._stale
+            ),
+            _capture,
         )
 
 
@@ -155,6 +162,26 @@ class ConcernPickerModalTests(unittest.TestCase):
                 await pilot.press("escape")
                 await pilot.pause()
                 self.assertIsNone(app.result)
+
+        self._run(runner())
+
+    def test_stale_banner_shown_when_stale(self):
+        async def runner():
+            app = _Host(_sample_concerns(), stale=True)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                banners = list(app.screen.query("#concern-stale"))
+                self.assertEqual(len(banners), 1)
+                self.assertIn("stale", banners[0].render().plain.lower())
+
+        self._run(runner())
+
+    def test_no_stale_banner_by_default(self):
+        async def runner():
+            app = _Host(_sample_concerns())  # stale defaults to False
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                self.assertEqual(len(list(app.screen.query("#concern-stale"))), 0)
 
         self._run(runner())
 

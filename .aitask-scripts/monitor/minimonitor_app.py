@@ -29,6 +29,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     PaneCategory,
     PaneSnapshot,
     SHADOW_TARGET_OPTION,
+    SHADOW_ANALYZED_AT_OPTION,
     TmuxMonitor,
     is_shadow_target,
     load_monitor_config,
@@ -143,6 +144,15 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         text-style: bold;
     }
 
+    #mini-shadow-stale {
+        dock: top;
+        height: auto;
+        background: $error;
+        color: $text;
+        padding: 0 1;
+        text-style: bold;
+    }
+
     #mini-own-agent {
         dock: top;
         height: auto;
@@ -251,9 +261,20 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Auto-offer de-dup (t1037_4): last forwarded concern payload per shadow
         # pane id, so a re-detected *unchanged* block does not re-fire the hint.
         self._last_concern_block_payload: dict[str, str] = {}
+        # Shadow-feedback freshness (t1104). Tri-state: None = unknown (never
+        # resolved, or a transient capture/hash failure — do NOT clear a prior
+        # warning on such a failure), False = current, True = stale.
+        self._shadow_feedback_stale: bool | None = None
+        # Throttle the staleness compare to every OTHER refresh tick (~6s at the
+        # 3s default) to halve the extra pane reads; the concern auto-offer still
+        # runs every tick. Odd counter ⇒ checks on the first tick a shadow is
+        # present (responsive) then every second one.
+        self._shadow_freshness_tick: int = 0
 
     def compose(self) -> ComposeResult:
         yield Static(id="mini-session-bar")
+        # Live staleness warning for shadow feedback (t1104); empty ⇒ 0 rows.
+        yield Static("", id="mini-shadow-stale")
         yield VerticalScroll(id="mini-own-agent")
         yield VerticalScroll(id="mini-pane-list")
         yield Static(
@@ -1192,6 +1213,82 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return None
         return stdout_bytes.decode("utf-8", errors="replace")
 
+    def _set_shadow_stale_banner(self, text: str) -> None:
+        """Update the live staleness warning line; no-op if unmounted (t1104).
+
+        Records the last-set text on ``_shadow_stale_banner_text`` (a test seam so
+        the warning is assertable without a mounted DOM) and best-effort updates
+        the ``#mini-shadow-stale`` Static — suppressed if the widget is not
+        mounted (e.g. unit tests), matching the panel's best-effort UX.
+        """
+        self._shadow_stale_banner_text = text
+        with contextlib.suppress(Exception):
+            self.query_one("#mini-shadow-stale", Static).update(text)
+
+    async def _update_shadow_freshness(
+        self, shadow_pane: str, followed_pane: str
+    ) -> None:
+        """Mark the shadow's feedback stale if the followed agent moved on (t1104).
+
+        Compares *times*, not content: the shadow stamps when it last read the
+        followed pane (``@aitask_shadow_analyzed_at``, epoch); if the followed
+        pane changed after that (per monitor_core's change detection), the shadow
+        has not seen the newer output ⇒ stale. Robust to a live TUI settling by a
+        character (which an exact snapshot hash mis-reads as stale). Failure-safe:
+        an unreadable stamp / not-yet-observed pane PRESERVES the previous state
+        and never clears a standing warning; an absent stamp (shadow never
+        analyzed) clears it.
+        """
+        mon = self._monitor
+        if mon is None or not hasattr(mon, "get_pane_option"):
+            return
+        try:
+            stamp = await mon.get_pane_option(
+                shadow_pane, SHADOW_ANALYZED_AT_OPTION
+            )
+        except Exception:
+            return  # option read failed — preserve prior state
+        if not stamp:
+            # Shadow has not analyzed anything yet: nothing to warn about.
+            self._shadow_feedback_stale = False
+            self._set_shadow_stale_banner("")
+            return
+        try:
+            analyzed_at = float(stamp)
+        except ValueError:
+            return  # malformed stamp — preserve prior state
+        last_change = None
+        if hasattr(mon, "get_last_change_wall"):
+            last_change = mon.get_last_change_wall(followed_pane)
+        if last_change is None:
+            return  # followed pane not observed yet — preserve prior state
+        # Epsilon absorbs monitor's up-to-one-tick detection lag so a change the
+        # shadow already saw (just noticed a beat later) is not mis-read as new.
+        eps = max(2.0, float(getattr(self, "_refresh_seconds", 3)))
+        stale = last_change > analyzed_at + eps
+        if stale:
+            age = self._format_stale_duration(time.time() - analyzed_at)
+            self._shadow_feedback_stale = True
+            self._set_shadow_stale_banner(
+                f"[bold]⚠ shadow feedback is stale — agent moved on "
+                f"(analyzed {age} ago)[/]"
+            )
+        else:
+            self._shadow_feedback_stale = False
+            self._set_shadow_stale_banner("")
+
+    @staticmethod
+    def _format_stale_duration(seconds: float) -> str:
+        """Compact human duration for the staleness banner (t1104)."""
+        s = int(max(0.0, seconds))
+        if s < 60:
+            return f"{s}s"
+        m, s = divmod(s, 60)
+        if m < 60:
+            return f"{m}m{s:02d}s"
+        h, m = divmod(m, 60)
+        return f"{h}h{m:02d}m"
+
     async def action_pick_concerns(self) -> None:
         """Forward the shadow agent's concerns to the followed agent (via clipboard).
 
@@ -1220,8 +1317,11 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if not concerns:
             self.notify("No concerns detected on the shadow pane")
             return
+        # Warn on the actionable surface if the shadow's feedback is known-stale
+        # (computed on the refresh tick — reuse it, no second live-sig spend).
+        stale = bool(getattr(self, "_shadow_feedback_stale", None))
         self.push_screen(
-            ConcernPickerModal(concerns, narrow=True),
+            ConcernPickerModal(concerns, narrow=True, stale=stale),
             callback=self._on_concerns_picked,
         )
 
@@ -1257,7 +1357,20 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         shadow_pane = await self._find_shadow_pane_for(snap.pane.pane_id)
         if not shadow_pane:
+            # No shadow: nothing can be stale — clear any standing warning.
+            self._shadow_feedback_stale = None
+            self._set_shadow_stale_banner("")
             return
+        # Freshness (t1104) — independent of whether a concern block is present,
+        # so the warning tracks staleness even when the block is unchanged.
+        # Throttled to every other tick (halves the extra pane reads); a skipped
+        # tick simply leaves the last computed state on screen. Cost-gated +
+        # failure-safe inside.
+        self._shadow_freshness_tick = getattr(
+            self, "_shadow_freshness_tick", 0
+        ) + 1
+        if self._shadow_freshness_tick % 2 == 1:
+            await self._update_shadow_freshness(shadow_pane, snap.pane.pane_id)
         text = await self._capture_shadow_text(shadow_pane)
         if text is None or not has_concern_block(text):
             return
@@ -1268,8 +1381,13 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self._last_concern_block_payload.get(shadow_pane) == payload:
             return
         self._last_concern_block_payload[shadow_pane] = payload
+        stale_suffix = (
+            " (⚠ STALE — agent moved on)"
+            if getattr(self, "_shadow_feedback_stale", None) else ""
+        )
         self.notify(
-            "Shadow raised concerns — press 'c' to pick", severity="information"
+            "Shadow raised concerns — press 'c' to pick" + stale_suffix,
+            severity="information",
         )
 
     def action_switch_to(self) -> None:

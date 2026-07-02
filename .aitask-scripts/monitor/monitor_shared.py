@@ -592,6 +592,7 @@ class ConcernPickerModal(ModalScreen):
         padding: 1 2;
     }
     #concern-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
+    #concern-stale { color: $error; text-style: bold; margin: 0 0 1 0; }
     #concern-context { color: $text-muted; margin: 0 0 1 0; }
     #concern-list { height: 1fr; min-height: 3; margin: 0 0 1 0; }
     #concern-help { color: $text-muted; margin: 0 0 1 0; }
@@ -603,16 +604,27 @@ class ConcernPickerModal(ModalScreen):
     ConcernPickerModal.narrow #concern-dialog { width: 90%; min-width: 30; }
     """
 
-    def __init__(self, concerns: list["Concern"], narrow: bool = False) -> None:
+    def __init__(
+        self, concerns: list["Concern"], narrow: bool = False,
+        stale: bool = False,
+    ) -> None:
         super().__init__()
         self._concerns = list(concerns)
         self._narrow = narrow
+        self._stale = stale
 
     def compose(self) -> ComposeResult:
         if self._narrow:
             self.add_class("narrow")
         with Container(id="concern-dialog"):
             yield Static("[bold]Concerns[/]", id="concern-header")
+            # Staleness warning (t1104): the followed agent has moved on since
+            # the shadow produced these concerns.
+            if self._stale:
+                yield Static(
+                    "⚠ These concerns may be stale — the agent has moved on",
+                    id="concern-stale",
+                )
             yield Static(
                 f"{len(self._concerns)} concern(s)  ·  select to forward",
                 id="concern-context",

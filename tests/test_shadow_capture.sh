@@ -170,6 +170,62 @@ else
 fi
 
 # ============================================================
+# Tests: freshness stamping is inert on the stdin/no-tmux paths (t1104)
+# ============================================================
+echo "--- freshness stamping (stdin seam) ---"
+
+# TMUX_PANE unset: the stamp helper must not stamp and must not abort under
+# `set -u` with TMUX_PANE unbound — the stdin path emits clean text unchanged.
+unset TMUX_PANE
+out=$(printf 'plain line\n' | "$CAPTURE" -)
+assert_eq "stdin path emits cleaned text (no stamp side effect)" "plain line" "$out"
+
+rc=0
+printf 'x\n' | "$CAPTURE" - >/dev/null 2>&1 || rc=$?
+assert_eq "stdin path exits 0 with TMUX_PANE unset (no set -u abort)" "0" "$rc"
+
+# ============================================================
+# Tests: analyzed-at stamping over a live tmux pane (t1104)
+# ============================================================
+# A capture running *inside a shadow pane* (its @aitask_shadow_target == the
+# captured pane) stamps @aitask_shadow_analyzed_at on its own pane; a capture
+# from a non-shadow pane does not. Isolated socket; skipped without tmux.
+echo "--- analyzed-at stamping live tmux ---"
+if ! command -v tmux >/dev/null 2>&1; then
+    echo "SKIP: tmux not available — stamping test skipped"
+else
+    STSOCK="ait_ststest_$$"
+    tmux -L "$STSOCK" new-session -d -x 80 -y 10 "sleep 30" 2>/dev/null || true
+    followed=""
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        followed=$(tmux -L "$STSOCK" list-panes -F '#{pane_id}' 2>/dev/null | head -1 || true)
+        [[ -n "$followed" ]] && break
+        sleep 0.1
+    done
+    shadow=""
+    if [[ -n "$followed" ]]; then
+        tmux -L "$STSOCK" split-window -d "sleep 30" 2>/dev/null || true
+        shadow=$(tmux -L "$STSOCK" list-panes -F '#{pane_id}' 2>/dev/null | grep -v "^${followed}$" | head -1 || true)
+    fi
+    if [[ -z "$followed" || -z "$shadow" ]]; then
+        tmux -L "$STSOCK" kill-server 2>/dev/null || true
+        echo "SKIP: could not start test tmux panes — stamping test skipped"
+    else
+        # Bind the shadow to the followed pane, then capture from *inside* it.
+        tmux -L "$STSOCK" set-option -p -t "$shadow" @aitask_shadow_target "$followed" 2>/dev/null || true
+        TMUX_PANE="$shadow" AITASKS_TMUX_SOCKET="$STSOCK" "$CAPTURE" "$followed" >/dev/null 2>&1 || true
+        stamped=$(tmux -L "$STSOCK" show-options -pqv -t "$shadow" @aitask_shadow_analyzed_at 2>/dev/null || true)
+        # A non-shadow pane (own pane has no @aitask_shadow_target) must NOT stamp.
+        TMUX_PANE="$followed" AITASKS_TMUX_SOCKET="$STSOCK" "$CAPTURE" "$followed" >/dev/null 2>&1 || true
+        unstamped=$(tmux -L "$STSOCK" show-options -pqv -t "$followed" @aitask_shadow_analyzed_at 2>/dev/null || true)
+        tmux -L "$STSOCK" kill-server 2>/dev/null || true
+        assert_contains "shadow-pane capture stamps a numeric analyzed-at" \
+            "$(printf '%s' "$stamped" | grep -qE '^[0-9]+$' && echo NUMERIC)" "NUMERIC"
+        assert_eq "non-shadow-pane capture leaves analyzed-at unset" "" "$unstamped"
+    fi
+fi
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""
