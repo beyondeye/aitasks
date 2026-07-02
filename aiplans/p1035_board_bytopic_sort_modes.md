@@ -404,3 +404,58 @@ Follows the shared task-workflow Step 8 (review) → Step 9 (merge + archive).
 This task is risk-gated (`risk_evaluated`), so the `## Risk` section above is
 required; the workflow writes the two risk levels to the task frontmatter
 post-approval and records the `risk_evaluated` gate at Step 9.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-02)
+- **Requested by user:** `o` shortcut sat at the end of the footer; task/column
+  movement actions and the `x` toggle-children action stayed *visible but
+  greyed* in the By-Topic (and In-Flight) views instead of being hidden; the
+  sort picker did not respond to ↑/↓ and applied immediately on click with no
+  confirmation.
+- **Changes made:**
+  - Moved the `o` (Sort Order) binding to just after `View/Edit` so it reads
+    near the front of the footer.
+  - Rebuilt the picker (`TopicSortModeScreen`) as a custom row-based modal: the
+    screen owns ↑/↓ (`cursor_up`/`cursor_down`) with a `check_action`
+    fall-through (mirroring `SectionViewerScreen`); a click only *selects* a
+    row; Enter / Confirm applies; Esc / Cancel dismisses with no change. (A
+    `RadioSet` was rejected — its cursor-vs-pressed split and toggle-on-Enter
+    would need fragile private-attr overrides.)
+  - **Root cause of the "greyed not hidden" issue:** in Textual 8.2.7
+    `Screen.active_bindings`, `check_action` returning `False` *excludes* a
+    binding (hidden) while `None` yields `enabled=False` (shown, greyed). The
+    board's `check_action` used `return None` with `# Hide from footer`
+    comments, so those actions were only greyed. Changed the movement actions
+    (`move_task_*`, `move_col_*`, `toggle_column_collapsed`) and
+    `toggle_children` to `return False` in the derived In-Flight / By-Topic
+    views, and made the `sort_topic` gate return `False` outside By-Topic.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `tests/test_board_topic_group.py`.
+
+## Final Implementation Notes
+- **Actual work done:** Added 4 selectable By-Topic lane sort modes
+  (`recency` default, `topic_id`, `size`, `alphabetical`) by splitting the pure
+  build (`_build_topic_lanes`) from the sort/assemble (`_assemble_topic_lanes`)
+  and threading `sort_mode` through `group_tasks_by_topic`. Added a cached
+  accessor `TaskManager.grouped_topic_lanes` (ordered `(filename, anchor)`
+  signature; cleared at the `load_tasks`/`load_child_tasks`/`reload_task`
+  seams). Added a context-scoped `o` key + `TopicSortModeScreen` picker
+  (persisted to board settings). "Ungrouped" stays pinned last in every mode.
+  Documented in the board reference. 34 unit tests (sort modes, cache
+  behaviour incl. negative controls, picker logic) all pass.
+- **Deviations from plan:** The picker was implemented as a custom row modal
+  rather than the originally-sketched focusable-Static list, after review
+  feedback surfaced that arrow-nav and confirm-before-apply were required.
+- **Issues encountered:** Textual 8.2.7's `check_action` footer semantics are
+  the inverse of the board's long-standing assumption (`None` greys, `False`
+  hides) — see Post-Review Changes.
+- **Upstream defects identified:** `.aitask-scripts/board/aitask_board.py` —
+  multiple `check_action` branches (`commit_selected`, `commit_all`,
+  `pick_task`, `brainstorm_task`, `open_cross_repo`) `return None` with a
+  `# Hide from footer` intent, but under Textual 8.2.7 `None` only greys the
+  key rather than hiding it (only `False` hides). These footer actions are
+  therefore shown greyed instead of hidden when inapplicable. Out of scope for
+  t1035 (user chose to scope this task to the movement/sort/toggle-children
+  actions); worth a separate bug task to normalize the remaining sites to
+  `return False`.
