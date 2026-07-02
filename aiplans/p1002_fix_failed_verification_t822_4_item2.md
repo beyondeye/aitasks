@@ -90,3 +90,29 @@ worktree to clean up (current-branch profile).
 - None identified. The directive directly and demonstrably satisfies the
   verification item ("reports no warnings"); verification is objective
   (`shellcheck` exit 0 / empty output).
+
+## Final Implementation Notes
+
+- **Actual work done:** Appended `disable=SC1091` to the three existing
+  `# shellcheck source=` directives (lines 5/7/9) in
+  `.aitask-scripts/aitask_applink.sh`, matching the combined-directive pattern
+  in `lib/tmux_exec.sh:36`. Comment-only; no executable code changed.
+- **Deviations from plan:** None. Applied exactly as planned.
+- **Issues encountered:** The task narrative pointed at "an offending change
+  from t822_2", but diagnosis showed no such regression — the file only ever
+  produced the benign, universal `SC1091` info diagnostics (verified identical
+  at commits 68d803caf, e12e508bc, fcd270363). The scope decision (fix the
+  file's directives rather than hunt a non-existent code bug) was made explicit
+  in the approved plan's Context section.
+- **Key decisions:** Used the in-repo `# shellcheck source=… disable=SC1091`
+  convention over a repo-wide `.shellcheckrc` (which would suppress SC1091
+  globally / surface lib-file warnings) to keep blast radius to one file.
+  Broader observation (not a defect): the same benign SC1091 fires on many
+  sibling scripts (`aitask_setup.sh`, `aitask_diffviewer.sh`,
+  `aitask_brainstorm_init.sh`, `aitask_gate_lint.sh`, …), so the aggregate
+  lint preset `shellcheck .aitask-scripts/aitask_*.sh` is still noisy — a
+  possible lint-hygiene follow-up, out of scope for this task.
+- **Verification results:** `shellcheck .aitask-scripts/aitask_applink.sh` →
+  no output, exit 0 (was 3× SC1091, exit 1); `bash -n` → valid;
+  `bash tests/test_applink_smoke.sh` → 2/2 passed.
+- **Upstream defects identified:** None
