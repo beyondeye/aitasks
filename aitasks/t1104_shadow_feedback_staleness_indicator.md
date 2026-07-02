@@ -70,3 +70,5 @@ Per repo convention, skill/command source-of-truth is the Claude Code tree; this
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-01T11:57:14Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-02T10:27:41Z status=pass attempt=1 type=human
