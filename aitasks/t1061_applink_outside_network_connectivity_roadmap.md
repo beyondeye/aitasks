@@ -19,6 +19,23 @@ the workspace server **from outside the local Wi-Fi network**. This is a
 cross-repo effort (server in this repo, client in `aitasks_mobile`) and is meant
 to be **decomposed into children later**, not implemented as one unit.
 
+## Cross-repo decomposition (created 2026-07-02)
+
+Paired decomposition designed in `aiplans/p1061_applink_outside_network_connectivity_roadmap.md`
+(endpoint & trust model is normative). **Cross-repo counterpart parent:
+`aitasks_mobile#31`** (`t31_applink_outside_network_connectivity_mobile.md`).
+
+| Label | Task | Title |
+|-------|------|-------|
+| A1 | `t1061_1` | Advertised-endpoint override + endpoint/trust pairing spec |
+| A2 | `t1061_2` | Phase-2 tunnel how-to (mesh-VPN lead) + roadmap status (deps: A1) |
+| A3 | `t1061_3` | Auto-spawned Cloudflare Quick Tunnel (deps: A1; xdeps: `aitasks_mobile#31_3`) |
+| A4 | `t1061_4` | Phase-3 relay-broker design (design-only) |
+| A5 | `t1061_5` | Hosted-box deployment guide (low priority) |
+| M1 | `aitasks_mobile#31_1` | Reconnect, backoff & network-change detection |
+| M2 | `aitasks_mobile#31_2` | Multi-endpoint model + racing (xdeps: `aitasks#1061_1`) |
+| M3 | `aitasks_mobile#31_3` | Per-endpoint CA-trust path (deps: M2; xdeps: `aitasks#1061_1`) |
+
 ## Why it's LAN-only today (root cause)
 
 The connection is a **direct inbound socket to a private IP**, end to end:

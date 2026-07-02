@@ -2,13 +2,15 @@
 priority: medium
 effort: high
 depends: [t1061_1]
+xdeps: [t31_3]
+xdeprepo: aitasks_mobile
 issue_type: feature
 status: Ready
 labels: [applink, applink_connectivity]
 gates: [risk_evaluated]
 anchor: 1061
 created_at: 2026-07-02 23:46
-updated_at: 2026-07-02 23:46
+updated_at: 2026-07-02 23:48
 ---
 
 **A3 of the t1061 paired decomposition** (see
