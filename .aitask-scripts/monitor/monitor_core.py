@@ -1597,19 +1597,25 @@ class TaskInfo:
 
 
 class GateSummaryCache:
-    """Per-refresh compact gate-summary cache for the monitor TUIs.
+    """Compact gate-summary cache for the monitor TUIs.
 
-    Mirrors the board's gate cache (``aitask_board.TaskManager.gate_state_for``):
-    cleared each refresh cycle so a live-growing ledger updates, while a re-read
-    is avoided when the same card is formatted twice within one frame. Fails
-    closed to ``""`` (no column) on any parse/IO error — a malformed ledger must
-    never break the monitor. Keyed by the resolved **absolute** task-file path
-    (``TaskInfo.task_file_abs``), so it is correct under cross-session /
-    multi-project monitoring regardless of the process's working directory.
+    Invalidated by file identity (``(st_mtime_ns, st_size)`` of the task file)
+    rather than a per-tick ``clear()``: a live-growing ledger re-derives only on
+    the tick its file actually changes, so an unchanged ledger is never re-read
+    from disk. (The board's ``aitask_board.TaskManager.gate_state_for`` clears
+    each cycle; keying on mtime here removes that per-tick disk I/O.) Fails
+    closed to ``""`` (no column) on any parse/IO error — a malformed or missing
+    ledger must never break the monitor. Keyed by the resolved **absolute**
+    task-file path (``TaskInfo.task_file_abs``), so it is correct under
+    cross-session / multi-project monitoring regardless of the process's working
+    directory.
+
+    ``clear()`` is retained for minimonitor, which still clears each refresh.
     """
 
     def __init__(self) -> None:
-        self._cache: dict[str, str] = {}
+        # abs task-file path -> ((st_mtime_ns, st_size), summary).
+        self._cache: dict[str, tuple[tuple[int, int], str]] = {}
 
     def clear(self) -> None:
         self._cache.clear()
@@ -1621,8 +1627,19 @@ class GateSummaryCache:
         if info is None or not info.task_file_abs:
             return ""
         key = info.task_file_abs
-        if key in self._cache:
-            return self._cache[key]
+        # File-identity key: ns mtime + size. ns granularity (not float
+        # ``st_mtime``) catches two ledger edits within the same wall-clock
+        # second; size closes the same-mtime-different-length case cheaply.
+        # A missing/unreadable file is a miss that fails closed to ``""``.
+        try:
+            st = os.stat(key)
+        except OSError:
+            self._cache.pop(key, None)
+            return ""
+        identity = (st.st_mtime_ns, st.st_size)
+        cached = self._cache.get(key)
+        if cached is not None and cached[0] == identity:
+            return cached[1]
         summary = ""
         try:
             # Cheap prefilter on the already-loaded body before the full parse;
@@ -1633,7 +1650,7 @@ class GateSummaryCache:
                 summary = gate_ledger.compact_gate_summary(state)
         except Exception:
             summary = ""
-        self._cache[key] = summary
+        self._cache[key] = (identity, summary)
         return summary
 
 

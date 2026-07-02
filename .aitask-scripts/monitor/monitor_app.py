@@ -697,9 +697,10 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._task_cache.update_session_mapping(
             self._monitor.get_session_to_project_mapping()
         )
-        # Drop last cycle's gate summaries so a live-growing ledger re-derives
-        # this refresh (mirrors the board's per-refresh gate cache).
-        self._gate_cache.clear()
+        # NOTE: no per-tick gate-cache clear here — GateSummaryCache now
+        # invalidates by task-file mtime/size, so a live-growing ledger
+        # re-derives on the tick its file changes without re-reading unchanged
+        # ledgers from disk every 3s.
 
         # Drop saved scroll state for panes that no longer exist.
         stale = [
