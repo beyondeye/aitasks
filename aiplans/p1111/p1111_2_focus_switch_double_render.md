@@ -59,3 +59,11 @@ the sibling **t1111_5** (preview-render offload), which depends on this task.
 
 ## Risk
 code-health low, goal low. No threading.
+
+## Final Implementation Notes
+
+- **Actual work done:** Removed the redundant direct preview render on `PaneCard` focus so focus switching renders the preview once through `_update_zone_indicators()`. Added a pane-id-to-card mapping and tracked selected pane id so normal selected-card updates touch only the old and new cards, while structural rebuilds still use a full reconciliation pass. Tightened awaiting-input prompt detection to scan only the live bottom of the pane capture, preventing old prompt text in scrollback from marking an active `agent-raw-*` pane as waiting.
+- **Deviations from plan:** Included `tests/test_monitor_focus_switch.py` as planned by the verification section, even though the key-file section named only `monitor_app.py`. Also updated `monitor_core.py` and `tests/test_prompt_detection.py` for the false-positive waiting-status regression found during workflow completion.
+- **Issues encountered:** A transient false positive for awaiting-input status was reported in `agent-raw-1` during workflow completion. The exact live pane state was not captured before it returned to idle, so prompt matching was hardened against the plausible stale-scrollback cause by using only the bottom prompt window.
+- **Key decisions:** `_rebuild_pane_list()` now returns whether it performed a structural rebuild so callers can skip full selected-card reconciliation on the fast update path.
+- **Verification:** `python3 -m unittest tests.test_monitor_focus_switch -v` passed 3 tests. `python3 tests/test_prompt_detection.py` passed 7 tests.
