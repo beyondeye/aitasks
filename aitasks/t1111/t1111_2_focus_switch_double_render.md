@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: [t1111_1]
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [monitor, tui, performance]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-02 14:43
+updated_at: 2026-07-02 16:44
 ---
 
 Focus-switch **double-render** + **O(N) card-indicator** fix for the monitor.
