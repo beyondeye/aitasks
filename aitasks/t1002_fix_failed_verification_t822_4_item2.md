@@ -7,6 +7,7 @@ depends: [t822_2]
 issue_type: bug
 status: Implementing
 labels: [verification, bug, applink]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-15 18:01
