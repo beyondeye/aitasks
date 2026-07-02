@@ -2,11 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/aitask_path.sh
+# shellcheck source=lib/aitask_path.sh disable=SC1091
 source "$SCRIPT_DIR/lib/aitask_path.sh"
-# shellcheck source=lib/python_resolve.sh
+# shellcheck source=lib/python_resolve.sh disable=SC1091
 source "$SCRIPT_DIR/lib/python_resolve.sh"
-# shellcheck source=lib/terminal_compat.sh
+# shellcheck source=lib/terminal_compat.sh disable=SC1091
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
 PYTHON="$(require_ait_python)"
