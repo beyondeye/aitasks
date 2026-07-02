@@ -57,3 +57,20 @@ should gain a note on the sort modes when this lands.
 > **✅ gate:plan_approved** run=2026-07-01T19:41:45Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-02T05:54:05Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-02T10:37:33Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f660d4f5bdc3e233
+
+> **❌ gate:risk_evaluated** run=2026-07-02T10:37:33Z-risk_evaluated-a1 status=fail attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluation incomplete: plan '## Risk' missing '### Code-health risk' subsection
+> Log: `.aitask-gates/1035/risk_evaluated_2026-07-02T10:37:33Z-risk_evaluated-a1.log`
+
+> **✅ gate:risk_evaluated** run=manual-verify-1035 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1035/risk_evaluated_manual-verify-1035.log`
