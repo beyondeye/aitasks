@@ -1,13 +1,16 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t822_2]
 issue_type: bug
 status: Implementing
 labels: [verification, bug, applink]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-06-15 18:01
-updated_at: 2026-07-01 22:55
+updated_at: 2026-07-02 08:48
 boardidx: 260
 ---
 
@@ -44,3 +47,8 @@ boardidx: 260
 ### Next steps
 
 Reproduce the failure locally (see the commits and files above, and the origin archived plan for implementation context), identify the offending change, and fix. This task was auto-generated from a manual-verification failure in t822_4 item #2.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-02T05:48:18Z status=pass attempt=1 type=human
