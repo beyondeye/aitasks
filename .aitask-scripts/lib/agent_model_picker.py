@@ -360,6 +360,7 @@ class AgentModelPickerScreen(ModalScreen):
                         candidates.append({
                             "agent": agent, "name": name,
                             "score": score,
+                            "has_recent": False,
                             "detail": f"score: {score} (no recent data)",
                         })
                     continue
@@ -367,9 +368,16 @@ class AgentModelPickerScreen(ModalScreen):
                 detail = f"{avg} ({recent_runs} runs recent)"
                 candidates.append({
                     "agent": agent, "name": name,
-                    "score": avg, "detail": detail,
+                    "score": avg, "has_recent": True, "detail": detail,
                 })
-        candidates.sort(key=lambda c: (-c["score"], c["agent"], c["name"]))
+        candidates.sort(
+            key=lambda c: (
+                not c["has_recent"],
+                -c["score"],
+                c["agent"],
+                c["name"],
+            )
+        )
         return candidates[:5]
 
     def _build_top_usage(self) -> list[dict]:
