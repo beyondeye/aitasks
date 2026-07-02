@@ -7,8 +7,9 @@ status: Implementing
 labels: [monitor, tui, performance]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: codex/gpt5_5
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-02 16:44
+updated_at: 2026-07-02 16:56
 ---
 
 Focus-switch **double-render** + **O(N) card-indicator** fix for the monitor.
