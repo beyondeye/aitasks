@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
@@ -40,7 +42,8 @@ New self-contained package `.aitask-scripts/chat/` (parallels `applink/`, `monit
 - `mock.py` — `MockChatAdapter` (in-memory, deterministic; implements the whole ABC).
 
 New tests (bash wrappers sourcing `.aitask-scripts/lib/python_resolve.sh`):
-- `tests/test_chat_model.sh`, `tests/test_chat_mock.sh`, `tests/test_chat_no_aitasks_import.sh`.
+- `tests/test_chat_model.sh`, `tests/test_chat_mock.sh`, `tests/test_chat_contract.sh`,
+  `tests/test_chat_no_aitasks_import.sh`.
 
 ## Reference Files for Patterns
 
@@ -114,16 +117,21 @@ reactions/files/ephemeral/dm/voice/editing/thread_creation/standalone_threads/me
 3. Implement `adapter.py` `ChatAdapter` ABC with the methods + docstringed contract above.
 4. Implement `MockChatAdapter` covering the **entire** ABC + the four contract
    semantics, deterministically (synthetic event stream, in-memory stores).
-5. Write the three bash test wrappers.
+5. Write the four bash test wrappers.
 
 ## Verification
 
 ```bash
 bash tests/test_chat_model.sh && \
 bash tests/test_chat_mock.sh && \
+bash tests/test_chat_contract.sh && \
 bash tests/test_chat_no_aitasks_import.sh
 ```
 All PASS on the stock framework venv with **no new dependencies installed**.
+`test_chat_contract.sh` is the contract-introspection guard added at plan
+review (exact `__all__` + `__abstractmethods__`, pinned signatures,
+coroutine/asyncgen kinds, docstrings on all public classes/ABC methods,
+dataclass field schemas, default_factory guard).
 Tests cover: entity construction + `ConversationRef`/THREAD round-trip + enum coverage;
 full Mock lifecycle (send/edit/delete/fetch/history pagination/react/subscribe);
 thread lifecycle + recovery; interactions + auto-defer + `InteractionExpired`;
