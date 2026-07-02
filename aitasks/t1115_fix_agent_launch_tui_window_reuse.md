@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -7,8 +9,9 @@ status: Implementing
 labels: [tmux, monitor, tui, codeagent]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_5
 created_at: 2026-07-02 17:06
-updated_at: 2026-07-02 17:07
+updated_at: 2026-07-02 17:18
 ---
 
 Fix code-agent launches from the shared `AgentCommandScreen` so pick/raw/explain/etc. launches do not accidentally reuse an existing TUI window such as `monitor` when the caller passed a new `agent-*` default window name.
@@ -45,8 +48,3 @@ Fix code-agent launches from the shared `AgentCommandScreen` so pick/raw/explain
   - `python3 -m unittest tests.test_agent_command_dialog_default_session tests.test_agent_command_dialog_empty_prompt tests.test_agent_command_dialog_narrow -v`
   - any new targeted test module added for the window-selection regression.
 - Manual smoke: from `ait monitor` or `ait board`, launch `/aitask-pick 1111_2` with Codex and confirm tmux creates/selects an `agent-pick-1111_2` window, not `monitor`; confirm the pane appears as an AGENT in `ait monitor` with task context.
-
-## Gate Runs
-<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
-
-> **✅ gate:plan_approved** run=2026-07-02T14:18:48Z status=pass attempt=1 type=human
