@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1111_3]
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [monitor, tui, performance]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-02 14:43
+updated_at: 2026-07-03 00:32
 ---
 
 **Thread-offload** the refresh CPU work (strip/prompt-regex) off the UI thread —
