@@ -55,3 +55,5 @@ should gain a note on the sort modes when this lands.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-01T19:41:45Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-02T05:54:05Z status=pass attempt=1 type=human
