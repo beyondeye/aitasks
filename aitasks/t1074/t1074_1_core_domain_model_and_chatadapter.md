@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [chat_surface, python]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1074
 created_at: 2026-06-25 11:52
-updated_at: 2026-06-25 11:52
+updated_at: 2026-07-02 14:36
 ---
 
 ## Context
