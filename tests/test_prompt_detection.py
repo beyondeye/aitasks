@@ -8,7 +8,9 @@ Exercises _finalize_capture directly — no tmux required. Covers:
   4. Passing prompt_patterns=[] disables detection entirely.
   5. Dot ↔ space toggle alone (no prompt text) is NOT awaiting (regression
      guard against re-introducing dot-stripping).
-  6. all_patterns() flattens the per-agent groups deterministically.
+  6. Prompt text higher in scrollback does not create awaiting-input false
+     positives after the active pane content has moved on.
+  7. all_patterns() flattens the per-agent groups deterministically.
 
 Run:
   python3 tests/test_prompt_detection.py
@@ -132,6 +134,30 @@ def test_dot_toggle_alone_still_marks_active() -> None:
     assert snap.awaiting_input_kind == ""
 
 
+def test_old_prompt_text_in_scrollback_is_not_awaiting() -> None:
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    pane = make_pane(window_name="agent-raw-1")
+    content = "\n".join([
+        "Allow this command to run?",
+        "  Yes, proceed (y)",
+        "  No (n)",
+        "",
+        "command output line 1",
+        "command output line 2",
+        "command output line 3",
+        "command output line 4",
+        "command output line 5",
+        "command output line 6",
+        "command output line 7",
+        "working normally now",
+    ])
+    snap = mon._finalize_capture(pane, content)
+    assert not snap.awaiting_input, (
+        "old prompt text outside the live bottom of the pane must not mark awaiting_input"
+    )
+    assert snap.awaiting_input_kind == ""
+
+
 def test_all_patterns_flattens_per_agent_groups() -> None:
     expected = sum(len(v) for v in PROMPT_PATTERNS_BY_AGENT.values())
     flat = all_patterns()
@@ -156,6 +182,8 @@ if __name__ == "__main__":
          test_empty_patterns_means_no_awaiting_input),
         ("test_dot_toggle_alone_still_marks_active",
          test_dot_toggle_alone_still_marks_active),
+        ("test_old_prompt_text_in_scrollback_is_not_awaiting",
+         test_old_prompt_text_in_scrollback_is_not_awaiting),
         ("test_all_patterns_flattens_per_agent_groups",
          test_all_patterns_flattens_per_agent_groups),
     ]

@@ -446,6 +446,8 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # _record_preview_scroll to resolve int(scroll_y) to anchor_text without
         # mixing rendered-view coordinates with live-snapshot coordinates.
         self._preview_rendered_lines: list[str] = []
+        self._pane_cards: dict[str, PaneCard] = {}
+        self._selected_card_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
         self._active_zone: Zone = Zone.PANE_LIST
         self._preview_timer: Timer | None = None
@@ -739,13 +741,15 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 saved_pane_id = self._focused_pane_id
 
         self._rebuild_session_bar()
-        self._rebuild_pane_list()
+        pane_list_rebuilt = self._rebuild_pane_list()
         self._update_content_preview()
 
         # Defer focus restoration until after Textual processes the DOM changes
         # from remove()/mount(). Immediate restore fails because removed widgets
         # haven't been fully detached yet.
-        self.call_after_refresh(self._restore_focus, saved_pane_id, saved_zone)
+        self.call_after_refresh(
+            self._restore_focus, saved_pane_id, saved_zone, pane_list_rebuilt
+        )
 
     async def _fast_preview_refresh(self) -> None:
         """Lightweight refresh — only re-capture the focused pane for preview."""
@@ -844,7 +848,9 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._focused_pane_id = idle_agents[0].pane.pane_id
         return True
 
-    def _restore_focus(self, pane_id: str | None, zone: Zone) -> None:
+    def _restore_focus(
+        self, pane_id: str | None, zone: Zone, pane_list_rebuilt: bool = True
+    ) -> None:
         """Re-focus the previously focused widget after a rebuild."""
         if zone == Zone.PREVIEW:
             try:
@@ -852,6 +858,8 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             except Exception:
                 pass
             self._update_content_preview()
+            if pane_list_rebuilt:
+                self._update_selected_card_indicator(full=True)
             return
         # If the user already navigated to a valid PaneCard during this
         # refresh cycle, respect their selection instead of reverting to the
@@ -863,15 +871,14 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         ):
             self._focused_pane_id = focused.pane_id
         elif pane_id is not None:
-            for card in self.query("#pane-list PaneCard"):
-                if hasattr(card, "pane_id") and card.pane_id == pane_id:
-                    card.focus()
-                    # Widget.focus() is deferred; on_descendant_focus may not
-                    # fire before the next refresh tick, leaving saved_pane_id
-                    # stale. Set _focused_pane_id directly so the next tick sees
-                    # the real state.
-                    self._focused_pane_id = card.pane_id
-                    break
+            card = self._pane_cards.get(pane_id)
+            if card is not None:
+                card.focus()
+                # Widget.focus() is deferred; on_descendant_focus may not
+                # fire before the next refresh tick, leaving saved_pane_id
+                # stale. Set _focused_pane_id directly so the next tick sees
+                # the real state.
+                self._focused_pane_id = card.pane_id
         # Sync preview with the final focus state. The _update_content_preview
         # call in _refresh_data (line 683) may have rendered with a stale
         # _focused_pane_id if DOM events during _rebuild_pane_list shifted
@@ -881,7 +888,8 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Re-apply the .selected class to the freshly-mounted card whose
         # pane_id matches _focused_pane_id (cards were destroyed by the
         # rebuild). Required so the preview-zone indicator survives ticks.
-        self._update_selected_card_indicator()
+        if pane_list_rebuilt:
+            self._update_selected_card_indicator(full=True)
 
     def _switcher_selected_session(self) -> str | None:
         """Pre-select the focused agent pane's session in the TUI switcher.
@@ -1004,7 +1012,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             f"({snap.pane.pane_index})  [dim]{snap.pane.current_command}[/]"
         )
 
-    def _rebuild_pane_list(self) -> None:
+    def _rebuild_pane_list(self) -> bool:
         container = self.query_one("#pane-list", VerticalScroll)
         multi_mode = bool(self._monitor and self._monitor.multi_session)
 
@@ -1056,6 +1064,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     f"[bold]CODE AGENTS ({len(agents)})[/]{auto_label}"
                 )
             by_id = {c.pane_id: c for c in current_cards}
+            self._pane_cards = by_id
             for snap in agents:
                 by_id[snap.pane.pane_id].update(
                     self._format_agent_card_text(snap)
@@ -1064,10 +1073,12 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 by_id[snap.pane.pane_id].update(
                     self._format_other_card_text(snap)
                 )
-            return
+            return False
 
         # Slow path (structural change): full rebuild. Arrow loss in this
         # window is tolerable because the pane set actually changed.
+        self._pane_cards = {}
+        self._selected_card_pane_id = None
         for widget in list(container.children):
             widget.remove()
 
@@ -1089,7 +1100,9 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         f"  [dim]── {label} ──[/]",
                         classes="session-divider",
                     ))
-                container.mount(PaneCard(snap.pane.pane_id, card_fn(snap)))
+                card = PaneCard(snap.pane.pane_id, card_fn(snap))
+                container.mount(card)
+                self._pane_cards[card.pane_id] = card
 
         if agents:
             auto_label = "  [bold yellow]⟳ AUTO[/]" if self._auto_switch else ""
@@ -1105,6 +1118,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 classes="section-header",
             ))
             mount_with_session_dividers(others, self._format_other_card_text)
+        return True
 
     def _update_content_preview(self) -> None:
         try:
@@ -1243,14 +1257,33 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # the preview pane.
         self._update_selected_card_indicator()
 
-    def _update_selected_card_indicator(self) -> None:
+    def _update_selected_card_indicator(self, full: bool = False) -> None:
         """Mark the PaneCard matching _focused_pane_id with the 'selected' class.
 
         Provides a persistent visual hint of which agent's preview is shown,
         even when keyboard focus has moved to the PreviewPanel.
         """
-        for card in self.query("#pane-list PaneCard"):
-            card.set_class(card.pane_id == self._focused_pane_id, "selected")
+        focused_id = self._focused_pane_id
+        if full:
+            for card in self._pane_cards.values():
+                card.set_class(card.pane_id == focused_id, "selected")
+            self._selected_card_pane_id = (
+                focused_id if focused_id in self._pane_cards else None
+            )
+            return
+
+        old_id = self._selected_card_pane_id
+        if old_id != focused_id:
+            old_card = self._pane_cards.get(old_id) if old_id is not None else None
+            if old_card is not None:
+                old_card.set_class(False, "selected")
+
+        new_card = self._pane_cards.get(focused_id) if focused_id is not None else None
+        if new_card is not None:
+            new_card.set_class(True, "selected")
+            self._selected_card_pane_id = focused_id
+        else:
+            self._selected_card_pane_id = None
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Show/hide footer bindings based on active zone."""
@@ -1357,7 +1390,6 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if isinstance(widget, PaneCard):
             self._active_zone = Zone.PANE_LIST
             self._focused_pane_id = widget.pane_id
-            self._update_content_preview()
             self._manage_preview_timer()
             self._update_zone_indicators()
         elif isinstance(widget, PreviewPanel):
@@ -1456,7 +1488,8 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         else:
             self.notify("Auto-switch OFF: manual selection only")
         self._rebuild_session_bar()
-        self._rebuild_pane_list()
+        if self._rebuild_pane_list():
+            self._update_selected_card_indicator(full=True)
 
     def action_toggle_multi_session(self) -> None:
         """Flip the multi-session view ON/OFF in memory.

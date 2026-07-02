@@ -142,10 +142,19 @@ DEFAULT_COMPARE_MODE = COMPARE_MODE_STRIPPED
 
 # CSI escape sequence (covers SGR colors plus any other animated CSI tokens).
 _ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_PROMPT_DETECTION_TAIL_LINES = 6
 
 
 def _strip_ansi(s: str) -> str:
     return _ANSI_CSI_RE.sub("", s)
+
+
+def _prompt_detection_text(s: str) -> str:
+    """Return the live bottom slice used for awaiting-input prompt matching."""
+    lines = s.splitlines()
+    if len(lines) <= _PROMPT_DETECTION_TAIL_LINES:
+        return s
+    return "\n".join(lines[-_PROMPT_DETECTION_TAIL_LINES:])
 
 
 _COMPANION_KEYWORDS = ("minimonitor", "monitor_app")
@@ -1199,8 +1208,9 @@ class TmuxMonitor:
         awaiting_input_kind = ""
         if pane.category == PaneCategory.AGENT and self.prompt_patterns:
             stripped_text = compare_value if mode == COMPARE_MODE_STRIPPED else _strip_ansi(content)
+            prompt_text = _prompt_detection_text(stripped_text)
             for p in self.prompt_patterns:
-                if p.regex.search(stripped_text):
+                if p.regex.search(prompt_text):
                     awaiting_input = True
                     awaiting_input_kind = p.name
                     break
