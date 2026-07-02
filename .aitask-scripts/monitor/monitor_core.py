@@ -42,6 +42,7 @@ from tmux_exec import TmuxClient, tmux_socket_args  # noqa: E402  (gateway: exec
 from agent_launch_utils import (  # noqa: E402
     AitasksSession,
     discover_aitasks_sessions,
+    discover_aitasks_sessions_async,
     switch_to_pane_anywhere,
     tmux_session_target,
     tmux_window_target,
@@ -967,6 +968,17 @@ class TmuxMonitor:
         self._sessions_cache = (now, sessions)
         return sessions
 
+    async def _discover_sessions_cached_async(self) -> list[AitasksSession]:
+        """Async sibling of `_discover_sessions_cached` for refresh-loop use."""
+        now = time.monotonic()
+        if self._sessions_cache is not None:
+            cached_at, sessions = self._sessions_cache
+            if now - cached_at < self._SESSIONS_CACHE_TTL:
+                return sessions
+        sessions = await discover_aitasks_sessions_async()
+        self._sessions_cache = (now, sessions)
+        return sessions
+
     def invalidate_sessions_cache(self) -> None:
         """Force the next `_discover_sessions_cached` call to re-query tmux."""
         self._sessions_cache = None
@@ -979,6 +991,11 @@ class TmuxMonitor:
         owns each codeagent's tmux session.
         """
         return {s.session: s.project_root for s in self._discover_sessions_cached()}
+
+    async def get_session_to_project_mapping_async(self) -> dict[str, Path]:
+        """Async sibling of `get_session_to_project_mapping` for refresh-loop use."""
+        sessions = await self._discover_sessions_cached_async()
+        return {s.session: s.project_root for s in sessions}
 
     def classify_pane(self, window_name: str) -> PaneCategory:
         for prefix in self.agent_prefixes:
@@ -1045,6 +1062,11 @@ class TmuxMonitor:
         """Session names to enumerate in multi mode (sorted for stable display)."""
         return sorted(s.session for s in self._discover_sessions_cached())
 
+    async def _target_sessions_async(self) -> list[str]:
+        """Async session names to enumerate in multi mode."""
+        sessions = await self._discover_sessions_cached_async()
+        return sorted(s.session for s in sessions)
+
     def _discover_panes_multi(self) -> list[TmuxPaneInfo]:
         panes: list[TmuxPaneInfo] = []
         for sess in self._target_sessions():
@@ -1059,7 +1081,7 @@ class TmuxMonitor:
         return panes
 
     async def _discover_panes_multi_async(self) -> list[TmuxPaneInfo]:
-        sessions = self._target_sessions()
+        sessions = await self._target_sessions_async()
         if not sessions:
             return []
         results = await asyncio.gather(*[

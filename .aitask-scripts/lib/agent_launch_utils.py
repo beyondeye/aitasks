@@ -311,6 +311,20 @@ def _read_registry_entry(session: str) -> Path | None:
     rc, out = _TMUX.run(["show-environment", "-g", var])
     if rc != 0:
         return None
+    return _registry_entry_from_output(out)
+
+
+async def _read_registry_entry_async(session: str) -> Path | None:
+    """Async sibling of :func:`_read_registry_entry` for refresh-loop callers."""
+    var = f"AITASKS_PROJECT_{session}"
+    rc, out = await _TMUX.run_async(["show-environment", "-g", var])
+    if rc != 0:
+        return None
+    return _registry_entry_from_output(out)
+
+
+def _registry_entry_from_output(out: str) -> Path | None:
+    """Parse a tmux ``show-environment`` registry value into a project root."""
     line = out.strip()
     if not line or line.startswith("-") or "=" not in line:
         return None
@@ -612,6 +626,73 @@ def _read_default_session(project_root: Path) -> str:
     return "aitasks"
 
 
+def _project_root_from_pane_paths(pane_paths: list[str]) -> Path | None:
+    """Resolve the first aitasks project root visible in tmux pane cwd output."""
+    for raw_path in pane_paths:
+        if not raw_path:
+            continue
+        candidate = _walk_up_to_aitasks(Path(raw_path))
+        if candidate is not None:
+            return candidate
+    return None
+
+
+def _assemble_aitasks_sessions(
+    live_roots: list[tuple[str, Path]],
+    *,
+    include_registered: bool,
+) -> list[AitasksSession]:
+    """Build final session records from already-resolved live roots.
+
+    All non-I/O discovery behavior lives here so sync and async discovery stay
+    identical: registry/config project-group resolution, registered-project
+    synthesis, live dedupe, stale marking, and stable sorting.
+    """
+    # Group resolution support (t1025_1): a path-keyed registry-group lookup so
+    # live sessions match their registry row even when basename != project.name
+    # (D3), plus a per-call config cache so a repo's config is read at most once.
+    group_lookup = _build_registry_group_lookup()
+    group_config_cache: dict[str, str | None] = {}
+
+    def _group_for(project_root: Path, registry_group: str | None) -> str | None:
+        if registry_group is None:
+            try:
+                key = os.path.realpath(project_root)
+            except OSError:
+                key = str(project_root)
+            registry_group = group_lookup.get(key)
+        return _resolve_session_group(
+            project_root, registry_group, group_config_cache
+        )
+
+    found = [
+        AitasksSession(
+            session=session,
+            project_root=project_root,
+            project_name=project_root.name,
+            project_group=_group_for(project_root, None),
+        )
+        for session, project_root in live_roots
+    ]
+
+    if include_registered:
+        live_names = {s.project_name for s in found}
+        for name, root, status, group in _read_registry_index():
+            if name in live_names:
+                continue
+            found.append(AitasksSession(
+                session=_read_default_session(root),
+                project_root=root,
+                project_name=name,
+                is_live=False,
+                is_stale=(status == "STALE"),
+                project_group=_group_for(root, group),
+            ))
+
+    found.sort(key=lambda s: s.session)
+    return found
+
+
 def discover_aitasks_sessions(
     *, include_registered: bool = False
 ) -> list[AitasksSession]:
@@ -645,38 +726,14 @@ def discover_aitasks_sessions(
     rc, out = _TMUX.run(["list-sessions", "-F", "#{session_name}"])
     sessions = [s for s in out.strip().splitlines() if s] if rc == 0 else []
 
-    # Group resolution support (t1025_1): a path-keyed registry-group lookup so
-    # live sessions match their registry row even when basename != project.name
-    # (D3), plus a per-call config cache so a repo's config is read at most once.
-    group_lookup = _build_registry_group_lookup()
-    group_config_cache: dict[str, str | None] = {}
-
-    def _group_for(project_root: Path, registry_group: str | None) -> str | None:
-        if registry_group is None:
-            try:
-                key = os.path.realpath(project_root)
-            except OSError:
-                key = str(project_root)
-            registry_group = group_lookup.get(key)
-        return _resolve_session_group(
-            project_root, registry_group, group_config_cache
-        )
-
-    found: list[AitasksSession] = []
+    live_roots: list[tuple[str, Path]] = []
     for session in sessions:
-        project_root: Path | None = None
         prc, pout = _TMUX.run(
             ["list-panes", "-s", "-t", tmux_session_target(session),
              "-F", "#{pane_current_path}"]
         )
-        if prc == 0:
-            for raw_path in pout.strip().splitlines():
-                if not raw_path:
-                    continue
-                candidate = _walk_up_to_aitasks(Path(raw_path))
-                if candidate is not None:
-                    project_root = candidate
-                    break
+        pane_paths = pout.strip().splitlines() if prc == 0 else []
+        project_root = _project_root_from_pane_paths(pane_paths)
 
         if project_root is None:
             project_root = _read_registry_entry(session)
@@ -684,29 +741,45 @@ def discover_aitasks_sessions(
         if project_root is None:
             continue
 
-        found.append(AitasksSession(
-            session=session,
-            project_root=project_root,
-            project_name=project_root.name,
-            project_group=_group_for(project_root, None),
-        ))
+        live_roots.append((session, project_root))
 
-    if include_registered:
-        live_names = {s.project_name for s in found}
-        for name, root, status, group in _read_registry_index():
-            if name in live_names:
-                continue
-            found.append(AitasksSession(
-                session=_read_default_session(root),
-                project_root=root,
-                project_name=name,
-                is_live=False,
-                is_stale=(status == "STALE"),
-                project_group=_group_for(root, group),
-            ))
+    return _assemble_aitasks_sessions(
+        live_roots, include_registered=include_registered
+    )
 
-    found.sort(key=lambda s: s.session)
-    return found
+
+async def discover_aitasks_sessions_async(
+    *, include_registered: bool = False
+) -> list[AitasksSession]:
+    """Async sibling of :func:`discover_aitasks_sessions`.
+
+    The tmux round-trips use :meth:`TmuxClient.run_async`; all non-I/O assembly
+    is shared with the sync path to preserve discovery parity.
+    """
+    rc, out = await _TMUX.run_async(["list-sessions", "-F", "#{session_name}"])
+    sessions = [s for s in out.strip().splitlines() if s] if rc == 0 else []
+
+    live_roots: list[tuple[str, Path]] = []
+    for session in sessions:
+        prc, pout = await _TMUX.run_async(
+            ["list-panes", "-s", "-t", tmux_session_target(session),
+             "-F", "#{pane_current_path}"]
+        )
+        pane_paths = pout.strip().splitlines() if prc == 0 else []
+        project_root = _project_root_from_pane_paths(pane_paths)
+
+        if project_root is None:
+            project_root = await _read_registry_entry_async(session)
+
+        if project_root is None:
+            continue
+
+        live_roots.append((session, project_root))
+
+    return _assemble_aitasks_sessions(
+        live_roots, include_registered=include_registered
+    )
+
 
 
 # Synthetic project-group bucket for repos with no resolved group (t1025_1).

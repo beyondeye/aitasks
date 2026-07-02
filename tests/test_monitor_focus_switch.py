@@ -37,6 +37,9 @@ class _FakeMonitor:
     def get_session_to_project_mapping(self) -> dict[str, Path]:
         return {}
 
+    async def get_session_to_project_mapping_async(self) -> dict[str, Path]:
+        return self.get_session_to_project_mapping()
+
     def control_state(self) -> TmuxControlState:
         return TmuxControlState.CONNECTED
 
@@ -103,7 +106,10 @@ class MonitorFocusSwitchTests(unittest.TestCase):
         app._monitor = _FakeMonitor(snapshots)
         app._snapshots = snapshots
         app._focused_pane_id = pane_ids[0]
-        app._consume_focus_request = lambda: None
+        async def no_focus_request():
+            return None
+
+        app._consume_focus_request = no_focus_request
         rebuilt = app._rebuild_pane_list()
         self.assertTrue(rebuilt)
         await pilot.pause()

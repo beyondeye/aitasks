@@ -697,7 +697,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # data resolves from the right project. Cheap — piggybacks on the
         # TmuxMonitor sessions cache TTL.
         self._task_cache.update_session_mapping(
-            self._monitor.get_session_to_project_mapping()
+            await self._monitor.get_session_to_project_mapping_async()
         )
         # NOTE: no per-tick gate-cache clear here — GateSummaryCache now
         # invalidates by task-file mtime/size, so a live-growing ledger
@@ -721,7 +721,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # requests take priority over auto-switch heuristics. If the target
         # pane isn't yet in the snapshot (startup race), leave the env var
         # in place so the next refresh can retry.
-        target_name = self._consume_focus_request()
+        target_name = await self._consume_focus_request()
         if target_name:
             for pid, snap in self._snapshots.items():
                 if (
@@ -732,7 +732,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     saved_pane_id = pid
                     saved_zone = Zone.PANE_LIST
                     self._active_zone = Zone.PANE_LIST
-                    self._clear_focus_request()
+                    await self._clear_focus_request()
                     break
 
         # Auto-switch: if enabled and in pane list, move to most-idle agent
@@ -740,7 +740,10 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if self._maybe_auto_switch():
                 saved_pane_id = self._focused_pane_id
 
-        self._rebuild_session_bar()
+        attached_session = None
+        if self._monitor.multi_session:
+            attached_session = await self._read_attached_session()
+        self._rebuild_session_bar(attached_session)
         pane_list_rebuilt = self._rebuild_pane_list()
         self._update_content_preview()
 
@@ -776,7 +779,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._delayed_refresh_timer = None
         await self._fast_preview_refresh()
 
-    def _consume_focus_request(self) -> str | None:
+    async def _consume_focus_request(self) -> str | None:
         """Read the `AITASK_MONITOR_FOCUS_WINDOW` tmux session env var.
 
         Returns the target window name if set, or None. Does NOT clear the
@@ -786,7 +789,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """
         if self._monitor is None:
             return None
-        rc, stdout = self._monitor.tmux_run([
+        rc, stdout = await self._monitor.tmux_run_async([
             "show-environment", "-t", tmux_session_target(self._session),
             "AITASK_MONITOR_FOCUS_WINDOW",
         ])
@@ -800,11 +803,11 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         value = value.strip()
         return value or None
 
-    def _clear_focus_request(self) -> None:
+    async def _clear_focus_request(self) -> None:
         """Unset the tmux session focus-request env var."""
         if self._monitor is None:
             return
-        self._monitor.tmux_run([
+        await self._monitor.tmux_run_async([
             "set-environment", "-t", tmux_session_target(self._session),
             "-u", "AITASK_MONITOR_FOCUS_WINDOW",
         ])
@@ -907,7 +910,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return None
         return snap.pane.session_name or None
 
-    def _rebuild_session_bar(self) -> None:
+    def _rebuild_session_bar(self, attached_session: str | None = None) -> None:
         total = len(self._snapshots)
         agents = [
             s for s in self._snapshots.values()
@@ -938,7 +941,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 s.pane.session_name for s in self._snapshots.values()
                 if s.pane.session_name
             }
-            attached = self._read_attached_session() or self._session
+            attached = attached_session or self._session
             session_word = "session" if len(sessions) == 1 else "sessions"
             pane_word = "pane" if total == 1 else "panes"
             bar.update(
@@ -964,11 +967,11 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 f"  [dim]Tab: switch panel[/]"
             )
 
-    def _read_attached_session(self) -> str | None:
+    async def _read_attached_session(self) -> str | None:
         """Return the currently-attached tmux session name, or None on failure."""
         if self._monitor is None:
             return None
-        rc, stdout = self._monitor.tmux_run(["display-message", "-p", "#S"])
+        rc, stdout = await self._monitor.tmux_run_async(["display-message", "-p", "#S"])
         if rc != 0:
             return None
         return stdout.strip() or None
