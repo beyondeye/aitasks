@@ -63,3 +63,8 @@ Convert the *uncached* sync round-trips to async via the existing `tmux_run_asyn
 ## Risk
 code-health low, goal low–medium (session-bar value must be threaded through
 `_rebuild_session_bar` correctly). No new threading (async only).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:review_approved** run=2026-07-02T21:28:13Z status=pass attempt=1 type=human
