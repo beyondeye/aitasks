@@ -70,10 +70,14 @@ class PushScheduler:
     def __init__(
         self, conn, ws, monitor, *, clock=None, audit=None,
         history_capture_lines=DEFAULT_HISTORY_CAPTURE_LINES,
+        task_resolver=None,
     ) -> None:
         self._conn = conn
         self._ws = ws
         self._monitor = monitor
+        # Optional TaskInfoCache-like resolver. Kept optional so focused pusher
+        # tests and non-server callers preserve the pre-title pane_status payload.
+        self._tasks = task_resolver
         # Ceiling on a single history-pull capture depth (t1092); server-overridden
         # from tmux.applink.history_capture_lines (clamped at load).
         self._history_capture_lines = history_capture_lines
@@ -147,6 +151,14 @@ class PushScheduler:
         if self._over_high_water():
             return  # coalesce: skip this tick's sends, keep force set intact
         snaps = await self._monitor.capture_all_async()
+        if self._tasks is not None:
+            update_mapping = getattr(self._tasks, "update_session_mapping", None)
+            get_mapping = getattr(self._monitor, "get_session_to_project_mapping", None)
+            if callable(update_mapping) and callable(get_mapping):
+                try:
+                    update_mapping(get_mapping())
+                except Exception:
+                    pass
         now = self._clock()
         for pane_id in list(sub.panes):
             if self._stopped:
@@ -376,6 +388,16 @@ class PushScheduler:
     async def _send_pane_status(self, snap) -> None:
         pane = snap.pane
         category = getattr(pane.category, "value", str(pane.category))
+        task_id = task_id_from_window_name(pane.window_name)
+        title = None
+        if task_id and self._tasks is not None:
+            try:
+                info = self._tasks.get_task_info(task_id, pane.session_name)
+                raw_title = getattr(info, "title", None) if info is not None else None
+                if isinstance(raw_title, str) and raw_title:
+                    title = raw_title
+            except Exception:
+                title = None
         frame = {
             "v": 1, "kind": "push", "verb": "pane_status",
             "payload": {
@@ -387,9 +409,11 @@ class PushScheduler:
                 "window_name": pane.window_name,
                 "category": category,
                 "session_name": pane.session_name,
-                "task_id": task_id_from_window_name(pane.window_name),
+                "task_id": task_id,
             },
         }
+        if title is not None:
+            frame["payload"]["title"] = title
         await self._send(json.dumps(frame))
 
     async def _send(self, data) -> bool:

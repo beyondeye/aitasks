@@ -127,10 +127,10 @@ class AppLinkServer:
             tui_names=config["tui_names"],
             compare_mode_default=config["compare_mode_default"],
         )
-        task_cache = TaskInfoCache(project_root)
+        self._task_cache = TaskInfoCache(project_root)
         self._router = FrameRouter(
             session_table, profile_gate, self._monitor,
-            pair_profile=pair_profile, task_resolver=task_cache,
+            pair_profile=pair_profile, task_resolver=self._task_cache,
             audit=self._audit,
         )
 
@@ -281,7 +281,9 @@ class AppLinkServer:
             pusher = PushScheduler(
                 conn, ws, self._monitor, audit=self._audit,
                 history_capture_lines=getattr(
-                    self, "_history_capture_lines", DEFAULT_HISTORY_CAPTURE_LINES))
+                    self, "_history_capture_lines", DEFAULT_HISTORY_CAPTURE_LINES),
+                task_resolver=getattr(self, "_task_cache", None),
+            )
             self._pushers[conn] = pusher
             pusher.start()
         return pusher

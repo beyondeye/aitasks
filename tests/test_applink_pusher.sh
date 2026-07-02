@@ -27,6 +27,7 @@ import json
 import logging
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 root = Path(sys.argv[1])
 sys.path.insert(0, str(root / ".aitask-scripts"))
@@ -75,8 +76,11 @@ class FakeMonitor:
         self.cursor = (2, 3, True, 0)
         self.last_capture_lines = {}   # t1092: records the depth each history pull asked for
         self.cursor_calls = []         # t1045: pane_ids that triggered a per-pane cursor capture
+        self.session_mapping = {}
     async def capture_all_async(self):
         return dict(self.snaps)
+    def get_session_to_project_mapping(self):
+        return dict(self.session_mapping)
     async def capture_cursor_async(self, pane_id):
         self.cursor_calls.append(pane_id)
         return self.cursor
@@ -112,6 +116,24 @@ class FakeConn:
     def __init__(self, sub, paused=False):
         self.subscription = sub
         self.paused = paused   # t1055: when True, PushScheduler halts all pushes
+
+
+class FakeTaskResolver:
+    def __init__(self, titles=None, raises=False):
+        self.titles = titles or {}
+        self.raises = raises
+        self.mapping_updates = []
+
+    def update_session_mapping(self, mapping):
+        self.mapping_updates.append(mapping)
+
+    def get_task_info(self, task_id, session_name=None):
+        if self.raises:
+            raise RuntimeError("task lookup failed")
+        title = self.titles.get(task_id)
+        if title is None:
+            return None
+        return SimpleNamespace(title=title)
 
 
 def binaries(ws):
@@ -210,7 +232,43 @@ async def main():
     check("pane_status push emitted", any(p.get("verb") == "pane_status" for p in ps))
     check("pane_status carries derived task_id + kind",
           ps[0]["kind"] == "push" and ps[0]["payload"]["task_id"] == "100")
+    check("pane_status omits title when no task resolver is injected",
+          "title" not in ps[0]["payload"])
     check("force set cleared after keyframe", "%1" not in sub.force)
+
+    # Optional task resolver: successful lookup adds a best-effort title.
+    subt = C.Subscription()
+    subt.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000, "cadence_focused_ms": 300})
+    wst = FakeWS()
+    mont = FakeMonitor()
+    mont.session_mapping = {"aitasks": Path("/tmp/aitasks")}
+    mont.snaps["%1"] = FakeSnap(FakePane("%1"), "line1\nline2\n")
+    resolvert = FakeTaskResolver({"100": "Show task title"})
+    schedt = PushScheduler(
+        FakeConn(subt), wst, mont, clock=clock,
+        task_resolver=resolvert,
+    )
+    await schedt._run_once()
+    pst = [json.loads(t) for t in texts(wst)]
+    check("pane_status carries title when resolver returns task info",
+          pst[0]["payload"]["title"] == "Show task title")
+    check("pane_status refreshes session-to-project mapping before title lookup",
+          resolvert.mapping_updates[-1] == {"aitasks": Path("/tmp/aitasks")})
+
+    # Cosmetic title lookup is best-effort: misses/errors must not abort status.
+    sube = C.Subscription()
+    sube.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000, "cadence_focused_ms": 300})
+    wse = FakeWS()
+    mone = FakeMonitor()
+    mone.snaps["%1"] = FakeSnap(FakePane("%1"), "line1\nline2\n")
+    schede = PushScheduler(
+        FakeConn(sube), wse, mone, clock=clock,
+        task_resolver=FakeTaskResolver(raises=True),
+    )
+    await schede._run_once()
+    pse = [json.loads(t) for t in texts(wse)]
+    check("pane_status still emits when title resolver raises",
+          pse[0]["payload"]["task_id"] == "100" and "title" not in pse[0]["payload"])
 
     # --- idle: unchanged content within keyframe interval -> zero binary ----
     now["t"] += 2.0          # past the 1s cadence, but content is unchanged
