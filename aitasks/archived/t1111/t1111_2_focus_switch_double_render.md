@@ -3,13 +3,14 @@ priority: high
 effort: low
 depends: [t1111_1]
 issue_type: performance
-status: Implementing
+status: Done
 labels: [monitor, tui, performance]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 implemented_with: codex/gpt5_5
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-02 16:56
+updated_at: 2026-07-02 17:24
+completed_at: 2026-07-02 17:24
 ---
 
 Focus-switch **double-render** + **O(N) card-indicator** fix for the monitor.
