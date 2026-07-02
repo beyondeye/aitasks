@@ -5,6 +5,7 @@ depends: []
 issue_type: performance
 status: Implementing
 labels: [monitor, tui, performance]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 implemented_with: claudecode/opus4_8
