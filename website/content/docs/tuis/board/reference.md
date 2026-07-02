@@ -28,6 +28,8 @@ depth: [advanced]
 | `l` | Switch base filter to Locked (busy tasks + context) | Board |
 | `f` | Switch base filter to Free (tasks ready to pick) | Board |
 | `i` | Switch base filter to In-Flight (action-grouped active work) | Board |
+| `y` | Switch base filter to By-Topic (per-anchor swimlanes) | Board |
+| `o` | Choose the By-Topic lane sort order (opens a picker) | By-Topic view |
 | `g` | Toggle Git add-on (intersect with git-linked tasks) | Board |
 | `t` | Toggle Type add-on (intersect with selected issue types — opens picker dialog) | Board |
 
@@ -150,6 +152,21 @@ otherwise a child falls back to its parent topic and a standalone task falls
 back to its own id. If the root task is archived or not currently loaded, the
 anchor id still remains the stable lane key. Topics with only one visible task
 are collected in the trailing **Ungrouped** lane. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}) for creation flags, inheritance rules, and when to use anchors instead of parent-child tasks or dependencies.
+
+**By-Topic lane sort order:** Lanes are ordered most-recently-touched first by
+default. In the By-Topic view, press `o` to open a picker and choose the lane
+sort mode:
+
+| Mode | Orders lanes by |
+|------|-----------------|
+| Recency (default) | newest member's `updated_at` / `created_at`, newest first |
+| Topic id | root topic id, newest (highest) id first |
+| Size | number of tasks in the lane, largest first |
+| Alphabetical | lane label, case-insensitive |
+
+The **Ungrouped** lane stays pinned last in every mode. The choice persists
+per-user (in your local board settings), so it survives restarts without
+affecting teammates.
 
 #### Add-on filters (toggle)
 

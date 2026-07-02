@@ -288,6 +288,16 @@ class Task:
 # dependencies — operates on Task objects via their filename + metadata, so it
 # is unit-tested in isolation (tests/test_board_topic_group.py).
 
+TOPIC_SORT_MODES = ("recency", "topic_id", "size", "alphabetical")
+# (mode, human label) — drives the picker rows and the placeholder hint.
+TOPIC_SORT_MODE_LABELS = [
+    ("recency", "Recency (newest first)"),
+    ("topic_id", "Topic id (newest first)"),
+    ("size", "Size (largest first)"),
+    ("alphabetical", "Alphabetical"),
+]
+
+
 def _bare_topic_id(value):
     """Canonicalize a task-id / anchor value to bare string form (leading 't'
     stripped). Returns None for empty/None so 'no anchor' reads uniformly."""
@@ -356,13 +366,47 @@ def _lane_recency(members):
     return max((_task_recency(m) for m in members), default="")
 
 
-def group_tasks_by_topic(tasks):
-    """Bucket tasks into per-anchor topic lanes.
+def _topic_id_sortkey(key):
+    """Sortable key for a topic id ('1016', '130_2'): numeric segments compared
+    as ints (so 't9' sorts before 't10') and negated for descending order.
+    Non-numeric keys sort last, stringwise. Used by the 'topic_id' sort mode."""
+    parts = str(key).split("_")
+    try:
+        return (0, tuple(-int(p) for p in parts))
+    except ValueError:
+        return (1, str(key))
 
-    Returns an ordered list of ``(label, [tasks])`` lanes. A bucket with >= 2
-    members becomes its own lane; singleton buckets collapse into a trailing
-    ``("Ungrouped", [...])`` lane. First-seen order is preserved.
-    """
+
+def _sort_topic_lanes(lanes, sort_mode):
+    """Sort (key, label, members) lane triples in place per mode. 'Ungrouped' is
+    appended by the caller and is never in `lanes`, so it stays pinned last in
+    every mode. Python's sort is stable → ties keep first-seen order."""
+    if sort_mode == "topic_id":
+        lanes.sort(key=lambda lane: _topic_id_sortkey(lane[0]))
+    elif sort_mode == "size":
+        lanes.sort(key=lambda lane: len(lane[2]), reverse=True)
+    elif sort_mode == "alphabetical":
+        lanes.sort(key=lambda lane: lane[1].casefold())
+    else:  # "recency" (default)
+        lanes.sort(key=lambda lane: _lane_recency(lane[2]), reverse=True)
+
+
+def _topic_membership_signature(tasks):
+    """Ordered signature of the inputs that affect topic *bucketing* (not sort
+    ordering): each task's filename + anchor, in input order. NOT sorted —
+    _build_topic_lanes preserves first-seen order for lane ties and Ungrouped
+    members, so the signature must change when the input order changes.
+    Sort-mode inputs (updated_at, size, label) are re-read live at sort time and
+    are intentionally absent here."""
+    return tuple(
+        (t.filename, str(t.metadata.get("anchor") or "")) for t in tasks)
+
+
+def _build_topic_lanes(tasks):
+    """Bucket tasks into topic lanes. Returns ``(topic_lanes, ungrouped)`` where
+    ``topic_lanes`` is an unsorted list of ``(key, label, members)`` triples in
+    first-seen order and ``ungrouped`` is the collapsed singleton members. This
+    is the sort-independent, cacheable heart of the by-topic view."""
     tasks_by_id = {}
     for task in tasks:
         own = task_own_id(task)
@@ -378,25 +422,44 @@ def group_tasks_by_topic(tasks):
             order.append(key)
         buckets[key].append(task)
 
-    topic_lanes = []
+    topic_lanes = []   # (key, label, members)
     ungrouped = []
     for key in order:
         members = buckets[key]
         if len(members) >= 2:
             topic_lanes.append(
-                (_topic_lane_label(key, members, tasks_by_id), members))
+                (key, _topic_lane_label(key, members, tasks_by_id), members))
         else:
             ungrouped.extend(members)
+    return topic_lanes, ungrouped
 
-    # Default ordering: most-recently-touched topic first (the newest member's
-    # updated_at/created_at). Stable, so topics with equal/absent timestamps keep
-    # their first-seen order. Selectable sort modes are a planned follow-up.
-    topic_lanes.sort(key=lambda lane: _lane_recency(lane[1]), reverse=True)
 
-    lanes = topic_lanes
+def _assemble_topic_lanes(topic_lanes, ungrouped, sort_mode):
+    """Order the (possibly cached) lane triples per ``sort_mode`` and flatten to
+    ``(label, members)`` pairs, pinning 'Ungrouped' last. Copies the triple list
+    so a cached build is never reordered in place."""
+    if sort_mode not in TOPIC_SORT_MODES:
+        sort_mode = "recency"
+    ordered = list(topic_lanes)
+    _sort_topic_lanes(ordered, sort_mode)
+    lanes = [(label, members) for _key, label, members in ordered]
     if ungrouped:
         lanes.append(("Ungrouped", ungrouped))
     return lanes
+
+
+def group_tasks_by_topic(tasks, sort_mode="recency"):
+    """Bucket tasks into per-anchor topic lanes, ordered by ``sort_mode`` (one of
+    ``TOPIC_SORT_MODES``; unknown → 'recency').
+
+    Returns an ordered list of ``(label, [tasks])`` lanes. A bucket with >= 2
+    members becomes its own lane; singleton buckets collapse into a trailing
+    ``("Ungrouped", [...])`` lane, which is always last regardless of mode.
+    Uncached pure entry point — the board renders via
+    ``TaskManager.grouped_topic_lanes()``, which caches the build.
+    """
+    topic_lanes, ungrouped = _build_topic_lanes(tasks)
+    return _assemble_topic_lanes(topic_lanes, ungrouped, sort_mode)
 
 
 class TaskManager:
@@ -415,6 +478,11 @@ class TaskManager:
         self.gate_state_cache: dict[str, GateStateResult] = {}
         self.gate_registry_cache: dict[str, dict] | None = None
         self.gate_registry_error = ""
+        # (signature, topic_lanes, ungrouped) for the by-topic build; None = cold.
+        # Sort-mode switches and refocus refreshes re-sort this cached build
+        # instead of re-bucketing every task. Invalidated by content signature
+        # (see grouped_topic_lanes) and explicitly at the reload seams below.
+        self.topic_lane_cache = None
         self.settings: dict = {}
         self._ensure_paths()
         self.load_metadata()
@@ -456,11 +524,26 @@ class TaskManager:
     def auto_refresh_minutes(self, value: int):
         self.settings["auto_refresh_minutes"] = value
 
+    def grouped_topic_lanes(self, tasks, sort_mode):
+        """Cached by-topic lanes: rebuild buckets only when the membership/anchor
+        signature changes; otherwise re-sort the cached build (cheap). This makes
+        sort-mode switches and refocus refreshes re-sort the existing lanes
+        instead of re-bucketing every task."""
+        sig = _topic_membership_signature(tasks)
+        if self.topic_lane_cache is None or self.topic_lane_cache[0] != sig:
+            topic_lanes, ungrouped = _build_topic_lanes(tasks)
+            self.topic_lane_cache = (sig, topic_lanes, ungrouped)
+        _sig, topic_lanes, ungrouped = self.topic_lane_cache
+        return _assemble_topic_lanes(topic_lanes, ungrouped, sort_mode)
+
     def _is_phantom_stub(self, task):
         """Check if a task file is a phantom stub (only board layout keys)."""
         return not task.metadata or set(task.metadata.keys()) <= set(BOARD_KEYS)
 
     def load_tasks(self):
+        # Task objects are rebuilt here; drop the by-topic build cache so it
+        # cannot serve stale (replaced) Task references (see topic_lane_cache).
+        self.topic_lane_cache = None
         self.task_datas.clear()
         self.archived_task_cache.clear()
         self.clear_gate_cache()
@@ -473,6 +556,7 @@ class TaskManager:
         self.load_child_tasks()
 
     def load_child_tasks(self):
+        self.topic_lane_cache = None
         self.child_task_datas.clear()
         for f in glob.glob(str(TASKS_DIR / "t*" / "t*_*.md")):
             path = Path(f)
@@ -483,6 +567,8 @@ class TaskManager:
 
     def reload_task(self, filename: str) -> bool:
         """Reload a single task from disk. Returns True if present after reload."""
+        # A reloaded task is a fresh object; drop the by-topic build cache.
+        self.topic_lane_cache = None
         if filename in self.task_datas:
             task = self.task_datas[filename]
             if not task.filepath.exists() or not task.load() or self._is_phantom_stub(task):
@@ -1389,6 +1475,98 @@ class TopicColumn(VerticalScroll):
         self.styles.min_width = 34
         self.styles.border = ("round", "#6272A4")
         self.styles.margin = (0, 1)
+
+
+class TopicSortModeItem(Static):
+    """One selectable row in the by-topic sort picker. A click moves the
+    selection but does NOT apply it — the screen owns arrow keys and the Confirm
+    button applies. Not individually focusable; selection state lives on the
+    screen so ↑/↓ and clicks stay in sync."""
+
+    can_focus = False
+
+    def __init__(self, index: int, mode: str, label: str):
+        super().__init__()
+        self.index = index
+        self.mode = mode
+        self._label = label
+        self.selected = False
+
+    def render(self):
+        glyph = "◉" if self.selected else "○"   # ◉ selected, ○ others
+        text = f"{glyph} {self._label}"
+        return f"[reverse]{text}[/]" if self.selected else text
+
+    def on_click(self, event):
+        self.screen.select_index(self.index)
+
+
+class TopicSortModeScreen(ModalScreen):
+    """Single-select picker for the by-topic lane sort order.
+
+    ↑/↓ move the selection (the board's priority arrow bindings fall through for
+    this screen — see ``check_action``); a click moves the selection without
+    applying it; Enter or the Confirm button applies; Esc / Cancel dismisses
+    with no change."""
+
+    BINDINGS = [
+        Binding("up", "cursor_up", "Up", show=False),
+        Binding("down", "cursor_down", "Down", show=False),
+        Binding("enter", "confirm", "Confirm", show=False),
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, current: str):
+        super().__init__()
+        self._modes = [mode for mode, _label in TOPIC_SORT_MODE_LABELS]
+        self.selected = self._modes.index(current) if current in self._modes else 0
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label(
+                "Topic sort order — [dim]↑/↓ to move, Enter to apply, "
+                "Esc to cancel[/]",
+                id="dep_picker_title",
+            )
+            for i, (mode, label) in enumerate(TOPIC_SORT_MODE_LABELS):
+                yield TopicSortModeItem(i, mode, label)
+            with Horizontal(id="detail_buttons"):
+                yield Button("Confirm", variant="primary", id="btn_sort_confirm")
+                yield Button("Cancel", variant="default", id="btn_sort_cancel")
+
+    def on_mount(self):
+        self._sync_selection()
+
+    def _sync_selection(self):
+        for item in self.query(TopicSortModeItem):
+            item.selected = (item.index == self.selected)
+            item.refresh()
+
+    def select_index(self, idx: int):
+        self.selected = idx
+        self._sync_selection()
+
+    def action_cursor_up(self):
+        self.selected = (self.selected - 1) % len(self._modes)
+        self._sync_selection()
+
+    def action_cursor_down(self):
+        self.selected = (self.selected + 1) % len(self._modes)
+        self._sync_selection()
+
+    def action_confirm(self):
+        self.dismiss(self._modes[self.selected])
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+    @on(Button.Pressed, "#btn_sort_confirm")
+    def _btn_confirm(self):
+        self.action_confirm()
+
+    @on(Button.Pressed, "#btn_sort_cancel")
+    def _btn_cancel(self):
+        self.dismiss(None)
 
 
 class GateChoiceItem(Static):
@@ -4420,6 +4598,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("ctrl+up", "move_task_top", "Task Top", show=False),
         Binding("ctrl+down", "move_task_bottom", "Task Btm", show=False),
         Binding("enter", "view_details", "View/Edit"),
+        # Topic lane sort order — footer-visible only in the By-Topic view
+        # (gated in check_action), placed here so it reads near the front.
+        Binding("o", "sort_topic", "Sort Order"),
         Binding("r", "refresh_board", "Refresh"),
         Binding("s", "sync_remote", "Sync"),
         # Git Commit (shown conditionally via check_action)
@@ -4516,6 +4697,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if type(self.screen).__name__ == "SectionViewerScreen":
             if action in ("focus_search", "nav_up", "nav_down", "nav_left", "nav_right"):
                 return False
+        # TopicSortModeScreen owns ↑/↓ (its own cursor bindings move the
+        # selection); let them fall through instead of navigating the board.
+        if type(self.screen).__name__ == "TopicSortModeScreen":
+            if action in ("nav_up", "nav_down"):
+                return False
         if action == "commit_selected":
             focused = self._focused_card()
             if not focused or not self.manager.is_modified(focused.task_data):
@@ -4524,6 +4710,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if not self.manager.get_modified_tasks():
                 return None  # Hide from footer
         elif action == "toggle_children":
+            # The In-Flight and By-Topic views render every relevant card
+            # (including children) directly — there is nothing to expand/collapse
+            # — so hide the action there.
+            if self.base_filter in ("inflight", "bytopic"):
+                return False
             focused = self._focused_card()
             if not focused:
                 return None
@@ -4546,14 +4737,23 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 return None  # Hide unless the focused task has cross-repo refs
         elif action in ("move_task_right", "move_task_left", "move_task_up", "move_task_down",
                         "move_task_top", "move_task_bottom"):
-            if self.base_filter == "inflight":
-                return None
+            # NOTE: Textual's Footer hides a binding only when check_action returns
+            # False; None leaves it *shown but greyed*. Task movement only applies
+            # to the persistent kanban columns — the In-Flight and By-Topic views
+            # render derived, non-reorderable lanes — so return False to hide it.
+            if self.base_filter in ("inflight", "bytopic"):
+                return False
             focused = self._focused_card()
             if focused and focused.is_child:
-                return None  # Hide movement actions for child cards
+                return False  # Hide movement actions for child cards
         elif action in ("move_col_right", "move_col_left", "toggle_column_collapsed"):
-            if self.base_filter == "inflight":
-                return None
+            if self.base_filter in ("inflight", "bytopic"):
+                return False
+        elif action == "sort_topic":
+            # Lane sort order only applies to the by-topic swimlane view. Return
+            # False (not None) so the key is hidden — not greyed — elsewhere.
+            if self.base_filter != "bytopic":
+                return False
         return True
 
     def compose(self):
@@ -4649,7 +4849,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self.base_filter == "bytopic":
             all_tasks = (list(self.manager.task_datas.values())
                          + list(self.manager.child_task_datas.values()))
-            for label, members in group_tasks_by_topic(all_tasks):
+            for label, members in self.manager.grouped_topic_lanes(
+                    all_tasks, self._topic_sort_mode()):
                 container.mount(TopicColumn(label, members, self.manager))
             self.call_after_refresh(self.apply_filter)
             if refocus_filename:
@@ -4904,6 +5105,29 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def action_view_bytopic(self):
         self._set_base_filter("bytopic")
 
+    def _topic_sort_mode(self) -> str:
+        """The persisted by-topic lane sort mode, validated against the known
+        set (unknown/missing → 'recency')."""
+        mode = self.manager.settings.get("topic_sort_mode", "recency")
+        return mode if mode in TOPIC_SORT_MODES else "recency"
+
+    def action_sort_topic(self):
+        """Open the by-topic sort-order picker (By-Topic view only). Persists the
+        choice and re-renders (a cache hit → re-sort, no rebuild)."""
+        if self.base_filter != "bytopic":
+            return
+
+        def on_dismiss(mode):
+            if mode is None or mode == self._topic_sort_mode():
+                return
+            self.manager.settings["topic_sort_mode"] = mode
+            self.manager.save_metadata()
+            focused = self._focused_card()
+            refocus = focused.task_data.filename if focused else ""
+            self.refresh_board(refocus_filename=refocus)
+
+        self.push_screen(TopicSortModeScreen(self._topic_sort_mode()), on_dismiss)
+
     def action_view_git(self):
         if self.base_filter == "inflight" and isinstance(self._focused_card(), InFlightTaskCard):
             self.action_gate_resume()
@@ -5021,7 +5245,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         elif self.base_filter == "free":
             base = "Search free tasks"
         elif self.base_filter == "bytopic":
-            base = "Search topics"
+            base = f"Search topics · sort: {self._topic_sort_mode()}"
         else:
             base = "Search tasks..."
         addons = []
