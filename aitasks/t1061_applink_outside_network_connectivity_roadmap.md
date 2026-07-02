@@ -4,13 +4,12 @@ effort: high
 depends: [985]
 xdeprepo: aitasks_mobile
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [applink, applink_connectivity]
 children_to_implement: [t1061_1, t1061_2, t1061_3, t1061_4, t1061_5]
-assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-06-24 14:38
-updated_at: 2026-07-02 23:46
+updated_at: 2026-07-02 23:51
 boardidx: 190
 ---
 
