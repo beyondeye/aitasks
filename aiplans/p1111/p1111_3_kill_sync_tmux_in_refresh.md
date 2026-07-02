@@ -59,3 +59,34 @@ Convert the *uncached* sync round-trips to async via the existing `tmux_run_asyn
 ## Risk
 code-health low, goal low–medium (session-bar value must be threaded through
 `_rebuild_session_bar` correctly). No new threading (async only).
+
+## Final Implementation Notes
+- **Actual work done:** Removed the uncached synchronous tmux round-trips from
+  `MonitorApp._refresh_data`. Focus-request consume/clear and attached-session
+  reads now use `tmux_run_async`; `_refresh_data` awaits the session-to-project
+  mapping through a new async `TmuxMonitor` cache path; and multi-session pane
+  discovery now uses async session discovery on cold cache / cache invalidation.
+  Added `discover_aitasks_sessions_async()` in `agent_launch_utils.py` and
+  factored shared non-I/O assembly so sync and async discovery preserve pane-cwd
+  detection, registry fallback, project-group resolution, registered/stale row
+  synthesis, dedupe, and sorting. Added regression coverage in
+  `tests/test_discover_async_parity.py` and
+  `tests/test_monitor_refresh_no_sync_tmux.py`.
+- **Deviations from plan:** Expanded beyond the three direct `monitor_app.py`
+  `tmux_run` calls after review found hidden refresh-path sync tmux through
+  multi-session session discovery. Kept `_rebuild_session_bar()` callable from
+  synchronous actions by making the attached-session argument optional and using
+  `self._session` as the deliberate fallback until the next refresh.
+- **Issues encountered:** Textual's `Static` test object exposes updated content
+  via `.content`, not `.renderable`; the session-bar fallback test was adjusted
+  accordingly. No production issue found during implementation.
+- **Key decisions:** Shared discovery assembly rather than duplicating the sync
+  helper's business rules in the async helper. The async discovery path remains
+  sequential per session, matching sync ordering and behavior while yielding the
+  event loop during each tmux round-trip.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The refresh path still performs local registry /
+  config file reads and the TTL-cached `_get_desync_summary(Path.cwd())` call on
+  the UI thread; those are intentionally left for the broader t1111 refresh
+  offload work. Minimonitor still has its own sync tmux calls and is out of
+  scope for this child.
