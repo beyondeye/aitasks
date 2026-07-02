@@ -341,3 +341,51 @@ parent planning for this exact decomposition — not re-prompted per child.)
 
 ## Reference: Step 9 (Post-Implementation)
 Standard archival/merge per `task-workflow` Step 9 when this child completes.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned — new dependency-free
+  package `.aitask-scripts/chat/` (`__init__.py` with exact 41-name `__all__`,
+  `model.py` 16 dataclasses + 4 enums, `errors.py` `ChatError` + 7 subclasses,
+  `interactions.py` 11 types incl. pre-acked `Interaction`, `capabilities.py`,
+  `adapter.py` `ChatAdapter` ABC with 26 abstract methods at the pinned
+  signatures, `mock.py` full `MockChatAdapter`), plus the four bash test
+  wrappers (`test_chat_model.sh` 17 checks, `test_chat_mock.sh` 57,
+  `test_chat_contract.sh` 146, `test_chat_no_aitasks_import.sh` 4 — 224 total,
+  all PASS on the stock venv, zero new deps). The task file's Verification AC
+  was explicitly updated (committed pre-implementation) to include the fourth
+  test.
+- **Deviations from plan:** None material. Two small additions beyond the
+  pinned seams, both documented in-code: mock helpers `register_user` /
+  `set_identity_claims` / `add_participant` (needed to populate the simulated
+  platform directory; allowlisted in the contract test's
+  `ALLOWED_MOCK_EXTRAS`), and `inject_message(..., mention_bot=True)` to
+  exercise APP_MENTION. `Capabilities` carries a `metadata` field like the
+  model entities (pinned in the contract test).
+- **Issues encountered:** None significant. `subscribe` as an abstract async
+  generator needs the `if False: yield` idiom in the ABC body so
+  `inspect.isasyncgenfunction` holds on both ABC and Mock (asserted by the
+  contract test). Shellcheck reports info-level SC1091 on the test wrappers'
+  `source` line — identical to the pre-existing `test_applink_router.sh`
+  pattern (project lint target is `.aitask-scripts/aitask_*.sh`).
+- **Key decisions:** deterministic logical clock (ticks of 1.0) + id counter
+  instead of wall clock for reproducible event order; per-subscriber broadcast
+  queues with `_DISCONNECT` sentinel; per-interaction expiry keyed by
+  `Interaction.id`; ephemeral fallback records native ephemerals in a
+  test-inspectable list (never the public store); mock `fetch_message` of a
+  missing message raises base `ChatError` (taxonomy has no MessageNotFound —
+  documented in the ABC docstring); missing required args (THREAD without
+  parent, DIRECT without participants) raise `ValueError` (caller bug, not
+  platform failure); the mock's public surface is itself contract-tested
+  (ABC methods + allowlisted seams only).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** see the "Notes for sibling tasks" section above
+  (frozen-ABC amendment path — amend ABC + Mock + `test_chat_contract.sh`
+  pinned tables together; pure-normalization pattern via Mock injectors). For
+  the adapter children specifically: implement the exact pinned signatures
+  (the contract test will catch drift); yield interactions only after
+  auto-defer/ack (`_acked=True`); honor the `Event.payload` conventions
+  documented on `Event`; map platform errors onto the 7-subclass taxonomy
+  (no MessageNotFound — use `ChatError`); return `EphemeralReceipt` naming
+  the private path; `respond`/`follow_up` return `None` when the platform
+  yields no re-addressable handle.
