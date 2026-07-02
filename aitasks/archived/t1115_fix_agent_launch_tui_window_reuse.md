@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tmux, monitor, tui, codeagent]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: codex/gpt5_5
 created_at: 2026-07-02 17:06
-updated_at: 2026-07-02 17:18
+updated_at: 2026-07-02 17:57
+completed_at: 2026-07-02 17:57
 ---
 
 Fix code-agent launches from the shared `AgentCommandScreen` so pick/raw/explain/etc. launches do not accidentally reuse an existing TUI window such as `monitor` when the caller passed a new `agent-*` default window name.
@@ -53,3 +54,14 @@ Fix code-agent launches from the shared `AgentCommandScreen` so pick/raw/explain
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:review_approved** run=2026-07-02T14:38:31Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-02T14:57:17Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:7c2c06ca802a3e9d
+
+> **✅ gate:risk_evaluated** run=2026-07-02T14:57:17Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1115/risk_evaluated_2026-07-02T14:57:17Z-risk_evaluated-a1.log`
