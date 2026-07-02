@@ -4,10 +4,11 @@ effort: high
 depends: [985]
 xdeprepo: aitasks_mobile
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [applink, applink_connectivity]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-24 14:38
-updated_at: 2026-06-25 09:55
+updated_at: 2026-07-02 14:54
 boardidx: 190
 ---
 
