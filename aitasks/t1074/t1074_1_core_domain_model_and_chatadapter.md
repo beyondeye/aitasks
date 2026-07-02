@@ -7,8 +7,9 @@ status: Implementing
 labels: [chat_surface, python]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1074
+implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:52
-updated_at: 2026-07-02 14:36
+updated_at: 2026-07-02 15:13
 ---
 
 ## Context
@@ -129,3 +130,8 @@ identity + `IdentityClaims`; discovery (`ConversationNotFound`/permalink/list);
 ephemeral private-only fallback (native→DM→`DeliveryFailed`, never public);
 subscription scoping + `fetch_reactions` diff-reconciliation + non-replayable interactions;
 `Capabilities` values; and the no-aitasks-import guard.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-02T12:13:36Z status=pass attempt=1 type=human
