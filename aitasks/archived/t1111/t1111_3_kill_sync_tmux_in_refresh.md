@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1111_2]
 issue_type: performance
-status: Implementing
+status: Done
 labels: [monitor, tui, performance]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-02 23:42
+updated_at: 2026-07-03 00:28
+completed_at: 2026-07-03 00:28
 ---
 
 Kill **synchronous tmux calls** on the UI thread inside `_refresh_data`.
