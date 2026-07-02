@@ -3,11 +3,10 @@ priority: high
 effort: medium
 depends: []
 issue_type: performance
-status: Implementing
+status: Ready
 labels: [monitor, tui, performance]
 gates: [risk_evaluated]
 children_to_implement: [t1111_1, t1111_2, t1111_3, t1111_4, t1111_5, t1111_6]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-02 08:32
 updated_at: 2026-07-02 14:44
 ---
