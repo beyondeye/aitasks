@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: medium
 depends: [t822_2]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug, applink]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-15 18:01
-updated_at: 2026-07-02 08:48
+updated_at: 2026-07-02 13:52
+completed_at: 2026-07-02 13:52
 boardidx: 260
 ---
 
@@ -55,3 +56,14 @@ Reproduce the failure locally (see the commits and files above, and the origin a
 > **✅ gate:plan_approved** run=2026-07-02T05:48:18Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-02T05:56:12Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-02T10:52:15Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f660d4f5bdc3e233
+
+> **✅ gate:risk_evaluated** run=2026-07-02T10:52:15Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1002/risk_evaluated_2026-07-02T10:52:15Z-risk_evaluated-a1.log`
