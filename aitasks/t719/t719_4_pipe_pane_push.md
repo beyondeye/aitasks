@@ -168,3 +168,7 @@ deliverables (reconnect + transition tests) have landed and been
 validated on a real workload. The investigation phase (4a) can proceed
 independently — the gate's ≥2× decision criterion is the right place
 to weigh the latency win against this risk surface.
+
+## Coordination — t1111 (monitor UI-thread offload)
+
+t1111 (`ait monitor` UI-thread offload, decomposed into t1111_1..t1111_6) deliberately **deferred tiered polling** (full 200-line capture + ANSI render only for the focused pane; a minimal status probe for non-focused agents) to coordinate here rather than duplicate. When implementing this task, fold in that per-focus / tiered-capture idea (see `aiplans/p1111_monitor_ui_thread_offload_perf.md` "Deferred follow-ups"). t1111 lands the thread-offload + gate mtime-cache + sync-tmux removal on the existing full-capture loop; the capture-volume reduction is this task's lane.\n

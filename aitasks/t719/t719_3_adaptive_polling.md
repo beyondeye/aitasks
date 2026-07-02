@@ -128,3 +128,7 @@ Skip if `tmux` is unavailable only if the test path also invokes capture (it doe
 - Deeper manual verification deferred to `t719_5`.
 - `git diff --stat` confined to: tmux_monitor.py, monitor_app.py, minimonitor_app.py, project_config.yaml, seed/project_config.yaml, plus one new test.
 - **No new whitelisting needed** (no new `.aitask-scripts/aitask_*.sh` helper). Confirm by `grep -rn "test_adaptive_polling" .claude/ seed/` returning nothing.
+
+## Coordination — t1111 (monitor UI-thread offload)
+
+t1111 (`ait monitor` UI-thread offload, decomposed into t1111_1..t1111_6) deliberately **deferred tiered polling** (full 200-line capture + ANSI render only for the focused pane; a minimal status probe for non-focused agents) to coordinate here rather than duplicate. When implementing this task, fold in that per-focus / tiered-capture idea (see `aiplans/p1111_monitor_ui_thread_offload_perf.md` "Deferred follow-ups"). t1111 lands the thread-offload + gate mtime-cache + sync-tmux removal on the existing full-capture loop; the capture-volume reduction is this task's lane.\n
