@@ -7,8 +7,9 @@ status: Implementing
 labels: [monitor, tui, performance]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-02 14:50
+updated_at: 2026-07-02 15:00
 ---
 
 Gate-ledger **mtime cache** for the monitor — stop re-reading every visible
@@ -65,3 +66,8 @@ blanket per-tick clear with mtime-based invalidation. Lowest-risk child; land fi
 
 ## Risk
 code-health low, goal low. No threading. No AC deviation expected.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-02T12:00:55Z status=pass attempt=1 type=human
