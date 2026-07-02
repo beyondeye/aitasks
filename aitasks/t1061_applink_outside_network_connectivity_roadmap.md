@@ -6,7 +6,7 @@ xdeprepo: aitasks_mobile
 issue_type: feature
 status: Implementing
 labels: [applink, applink_connectivity]
-children_to_implement: [t1061_1]
+children_to_implement: [t1061_1, t1061_2]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-06-24 14:38
