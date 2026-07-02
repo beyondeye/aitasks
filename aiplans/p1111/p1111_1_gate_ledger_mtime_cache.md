@@ -73,3 +73,39 @@ blanket per-tick clear with mtime-based invalidation. Lowest-risk child; land fi
 - None identified. Approach is sound — `(st_mtime_ns, st_size)` identity correctly
   avoids the float-second aliasing trap and fully covers the requirement (removes
   the per-tick blanket clear, keeps live-ledger freshness via mtime invalidation).
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned. `GateSummaryCache._cache`
+  in `monitor_core.py` changed from `dict[str, str]` to
+  `dict[str, tuple[tuple[int, int], str]]`; `summary_for` now does a fail-closed
+  `os.stat(key)` (missing/unreadable → `pop` any stale entry and return `""` with
+  no raise), computes `identity = (st.st_mtime_ns, st.st_size)`, and returns the
+  cached summary when the stored identity matches — otherwise re-reads via the
+  existing `has_gate_markers` → `read_task_gate_state` → `compact_gate_summary`
+  path and stores `(identity, summary)`. Removed the per-tick
+  `self._gate_cache.clear()` from `_refresh_data` (`monitor_app.py`), replacing it
+  with a comment explaining the mtime-invalidation contract. Class docstring
+  rewritten to describe identity-based invalidation and to note `clear()` is
+  retained for minimonitor. Added `tests/test_monitor_gate_cache.py`.
+- **Deviations from plan:** None. Also refreshed the `GateSummaryCache` docstring
+  (the plan didn't call it out, but it described the old per-tick-clear behavior
+  and would have been stale/misleading otherwise).
+- **Issues encountered:** None. The pre-existing `test_monitor_gate_summary.py`
+  (`test_caches_and_clears`, `test_fail_closed_on_missing_file`) still passes
+  unchanged — `clear()` semantics and fail-closed-to-`""` are preserved; the spy
+  counts only `read_task_gate_state`, so the extra `os.stat` is invisible to it.
+- **Key decisions:** Used `st_mtime_ns` + `st_size` (not float `st_mtime`) per the
+  plan — the new `test_same_mtime_different_size_rereads` forces mtime_ns back to
+  the original value after a different-length rewrite to prove the size component
+  is load-bearing. On an `os.stat` miss the entry is `pop`ed (not just returned
+  empty) so a transiently-missing file cannot serve a stale summary later.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** `GateSummaryCache` is defined in
+  `monitor_core.py` and re-exported via `monitor_shared.py` (tests import it from
+  `monitor.monitor_shared`). `minimonitor_app.py` still calls `_gate_cache.clear()`
+  every refresh (line ~440) and does **not** yet benefit from mtime invalidation
+  within a tick — that minimonitor follow-up is deliberately deferred (see parent
+  t1111 fix #3/#5 and the plan's step 4). The remaining t1111 children
+  (t1111_2..t1111_6) target the focus-switch double-render, sync-tmux offload,
+  thread-offload of `_refresh_data`, preview-render offload, and manual
+  verification respectively.
