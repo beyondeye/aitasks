@@ -220,3 +220,32 @@ _No risks warrant a separate before/after mitigation task; all are handled inlin
 
 Follow task-workflow Step 8 (review) → 8b/8c (offer the manual-verification follow-up above)
 → Step 9 (gates run incl. `risk_evaluated`, archive t1104).
+
+## Final Implementation Notes
+
+- **Actual work done:** Live staleness indicator for shadow feedback. The shadow
+  stamps `@aitask_shadow_analyzed_at` (epoch) on its own pane on every capture
+  (`aitask_shadow_capture.sh`); minimonitor (`monitor_core.get_last_change_wall` +
+  `minimonitor_app._update_shadow_freshness`) flags stale when the followed pane
+  changed after that stamp, shows a live `#mini-shadow-stale` line ("analyzed Ns
+  ago"), marks the concern auto-offer, and passes `stale=` to `ConcernPickerModal`
+  (red banner). Throttled to every other refresh tick (~6s).
+- **Deviations from plan (major):** The approved plan used a **content-signature**
+  anchor (hash the followed capture, compare live). Live testing showed it was too
+  brittle: an exact snapshot hash of a live TUI almost never byte-matches a later
+  snapshot (a render settling by ONE character on an idle agent reads as "stale" —
+  reproduced in `agent-pick-1083`/`1071_7`, stored vs live differed by 1 byte even
+  after a digit/whitespace normalization pass that was tried and then removed).
+  **Pivoted to a timestamp model** (approved mid-review): compare *when the shadow
+  read* vs *when the followed pane last changed* — robust to snapshot jitter, and
+  cheaper (no per-tick `--sig` recapture; just an option read + an in-memory time
+  compare). The `shadow_signature`/`--sig`/`--lines` surface and
+  `@aitask_shadow_analyzed_sig` were removed in favor of `@aitask_shadow_analyzed_at`.
+- **Key decisions:** one-refresh-tick epsilon absorbs monitor's up-to-one-tick
+  detection lag (avoids re-flagging a change the shadow already saw); staleness
+  compare throttled to every other tick per user request; the built-once
+  `#mini-own-agent` panel left untouched — the warning is a separate live line.
+- **Issues encountered:** the `agent-pick-1083`/`1071_7` false positives drove the
+  pivot; also added `${TMUX_PANE:-}` `set -u` guard on the stamp path so the shared
+  capture helper never aborts off a live pane.
+- **Upstream defects identified:** None.
