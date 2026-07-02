@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [monitor, tui, performance]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-02 08:32
-updated_at: 2026-07-02 08:32
+updated_at: 2026-07-02 08:38
 ---
 
 `ait monitor` becomes sluggish as the number of monitored agents grows: a ~0.5s
