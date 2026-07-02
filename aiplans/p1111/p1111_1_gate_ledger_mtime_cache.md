@@ -5,6 +5,8 @@ Sibling Tasks: aitasks/t1111/t1111_*.md
 Worktree: aiwork/t1111_1_gate_ledger_mtime_cache
 Branch: aitask/t1111_1_gate_ledger_mtime_cache
 Base branch: main
+plan_verified:
+  - claudecode/opus4_8 @ 2026-07-02 14:56
 ---
 
 Gate-ledger **mtime cache** for the monitor — stop re-reading every visible
@@ -60,4 +62,14 @@ blanket per-tick clear with mtime-based invalidation. Lowest-risk child; land fi
   grows (mtime changes on each ledger append).
 
 ## Risk
-code-health low, goal low. No threading. No AC deviation expected.
+
+### Code-health risk: low
+- None identified. Narrow blast radius (one class in `monitor_core.py` + one line
+  removed in `monitor_app.py`; `minimonitor` keeps its own `clear()` and is
+  untouched). Mirrors the established board gate-cache pattern; the cache still
+  fails closed to `""` on any IO/parse error. No threading. No AC deviation expected.
+
+### Goal-achievement risk: low
+- None identified. Approach is sound — `(st_mtime_ns, st_size)` identity correctly
+  avoids the float-second aliasing trap and fully covers the requirement (removes
+  the per-tick blanket clear, keeps live-ledger freshness via mtime invalidation).
