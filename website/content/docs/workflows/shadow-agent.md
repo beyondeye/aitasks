@@ -2,7 +2,7 @@
 title: "Shadow Agent"
 linkTitle: "Shadow Agent"
 weight: 83
-description: "Launch an advisory companion agent that reads a running agent's output and helps you explain it, answer its prompts, or interrogate its plans"
+description: "Launch an advisory companion agent that reads a running agent's output, explains it, helps with prompts and plans, diagnoses failures, and spawns skill-learning sessions"
 depth: [intermediate]
 ---
 
@@ -26,6 +26,7 @@ Two things are worth knowing:
 
 - **It reads the followed agent's current screen, and can re-read it any time.** The agent keeps working after you launch the shadow, so its state changes. Ask the shadow to refetch whenever you want it to look at the latest output.
 - **It offers help proactively.** Each time it reads the screen, the shadow glances at what is visibly there and, if something obviously useful applies, it offers it without being asked — for example, if the agent is paused on a question, it offers to help you decide; if a plan is on screen awaiting approval, it offers to explain or pressure-test it. These are suggestions you can take or ignore; they never restrict what you can ask for.
+- **Some actions are on request only.** The shadow does not proactively diagnose errors or spawn learner agents. Ask for those actions explicitly when you want them.
 
 ## What the shadow can do
 
@@ -50,9 +51,25 @@ Before you approve a plan an agent has produced, the shadow can examine it for y
 
 Ask for one of these specifically, or ask broadly ("review this plan") and the shadow runs several and presents a combined result.
 
+### Diagnose skill or helper errors
+
+When the followed agent appears stuck on tool-call errors, tracebacks, shell errors, or repeated retries, ask the shadow to diagnose what is going wrong. It reads the captured screen, decides whether the visible signals are genuine failures rather than benign error-shaped text, and attributes each error cluster to the likely workflow skill or `aitask_*.sh` helper.
+
+For real issues, the shadow presents candidate concerns and emits the same structured concern block used by plan review. You choose which concerns are worth acting on. For selected concerns, the shadow can offer to launch [`/aitask-explore`](../../skills/aitask-explore/) with a seed prompt that names the likely file and includes the captured error excerpt, so the bug becomes its own scoped fix-task. It never auto-launches that follow-up and never types into the followed pane.
+
+### Learn a skill from the followed workflow
+
+When the followed agent has just performed a workflow you want to reuse, ask the shadow to learn a skill from it. The shadow does not run the learning flow itself, because that would occupy the companion you are using for advice. Instead, it confirms the action and opens a dedicated learner agent in a new tmux window running [`/aitask-learn-skill`](../../skills/aitask-learn-skill/):
+
+```text
+/aitask-learn-skill <followed_pane_id>
+```
+
+The learner captures the followed pane read-only, walks you through selecting which part of the workflow to learn, asks how to generalize concrete details, and writes a static skill. The learner appears as a normal `agent-learn*` window in `ait monitor`; you close it when the learning session is done. The shadow remains available in its own pane.
+
 ### Forward concerns to the followed agent
 
-When the shadow interrogates a plan, alongside its human-readable findings it also emits a structured, machine-parseable **concern block** — a fenced list (`===AITASK-CONCERNS===` … `===END-CONCERNS===`) of `- [priority | region] body` items, where `priority` is `high`, `medium`, or `low` and `region` names the part of the plan the concern targets. The block is additive: the shadow still prints its normal prose; the block is an extra copy meant for pick-and-forward.
+When the shadow interrogates a plan or diagnoses genuine skill/helper errors, alongside its human-readable findings it can emit a structured, machine-parseable **concern block** — a fenced list (`===AITASK-CONCERNS===` … `===END-CONCERNS===`) of `- [priority | region] body` items, where `priority` is `high`, `medium`, or `low` and `region` names the plan area, skill, or helper the concern targets. The block is additive: the shadow still prints its normal prose; the block is an extra copy meant for pick-and-forward.
 
 From [minimonitor](../../tuis/minimonitor/) you can then **selectively forward** these concerns to the followed agent without retyping them. Press **c** to open a checklist of the shadow's concerns, tick the ones you want, and minimonitor copies them — with a short preamble — to your clipboard for you to paste into the agent. When a fresh concern block appears, minimonitor also proactively hints that the shadow raised concerns. This keeps the advisory-only contract intact: the concerns land on *your* clipboard, and you decide what to paste. See [How to pick shadow concerns](../../tuis/minimonitor/how-to/#how-to-pick-shadow-concerns).
 

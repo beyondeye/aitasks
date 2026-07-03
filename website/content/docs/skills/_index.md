@@ -64,6 +64,14 @@ Review code and manage review guides.
 | [`/aitask-reviewguide-merge`](aitask-reviewguide-merge/) | Compare two similar review guides and merge, split, or keep separate |
 | [`/aitask-reviewguide-import`](aitask-reviewguide-import/) | Import external content as a review guide with proper metadata |
 
+### Skill Authoring
+
+Create reusable skills from source material.
+
+| Skill | Description |
+|-------|-------------|
+| [`/aitask-learn-skill`](aitask-learn-skill/) | Learn a new static skill from a pane, file, URL, or repository source |
+
 ### Configuration & Reporting
 
 Settings, statistics, and model management.
