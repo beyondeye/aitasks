@@ -44,8 +44,9 @@ an `--xdeprepo`/`--parent` target. Write the parent description (heredoc per
 ```
 
 `--silent` prints **only** the created filepath on stdout (the commit message
-goes to stderr). Capture that line and derive `<B_parent_id>` from the
-basename: strip the leading `t`, the `.md` suffix, and the trailing `_<slug>`
+goes to stderr). For project-routed create calls, that filepath is absolute so
+it remains usable from the caller repo. Capture that line and derive
+`<B_parent_id>` from the basename: strip the leading `t`, the `.md` suffix, and the trailing `_<slug>`
 (keep the numeric ID prefix; e.g. `t77_mirror_login.md` → `77`). Base
 `<mirrored_title>` on the local task — typically `"<local title> (cross-repo
 counterpart)"` unless the user supplied an override during the design's
@@ -82,8 +83,8 @@ child's description (heredoc), then:
   ```
   Same both-or-neither rule for `--xdeps`/`--xdeprepo`.
 
-Capture each created child's filepath, derive its ID from the basename, and
-record the `label → id` mapping so later children resolve their deps. Also
+Capture each created child's filepath (absolute for project-routed cross-repo
+children), derive its ID from the basename, and record the `label → id` mapping so later children resolve their deps. Also
 write each child's **plan file**: `aiplans/p<parent>/p<parent>_<N>_<name>.md`
 for local children (committed via `./ait git add aiplans/p<parent>/`);
 `aiplans/p<B_parent_id>/...` for cross-repo children (written and committed via

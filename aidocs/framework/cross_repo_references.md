@@ -126,9 +126,11 @@ the root, then `exec`s `<cmd>`. Errors on `NOT_FOUND` / `STALE`.
 
 **`ait create --batch --project <name> ...`** (`aitask_create.sh
 --project`) — re-execs the sibling project's own `aitask_create.sh`
-with `--project <name>` stripped from argv. Requires `--batch`. Cannot
-be combined with `--parent` (cross-project parent linkage is out of
-scope for v1).
+with `--project <name>` stripped from argv. Requires `--batch`. May be
+combined with `--parent <id>` to create a child under an existing parent
+inside the sibling project. In `--silent` mode, project-routed create calls
+print exactly one stdout line: the absolute path to the created task file in
+the sibling project.
 
 ```bash
 # From inside aitasks_mobile, spawn a coordination task in aitasks:

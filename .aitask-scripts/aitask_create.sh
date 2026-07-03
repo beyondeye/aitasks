@@ -2061,10 +2061,12 @@ main() {
     # the name to a sibling aitasks project root, then re-exec that
     # project's own aitask_create.sh with `--project <name>` stripped. The
     # forwarded invocation keeps all other flags intact (`--batch`,
-    # `--name`, etc.). Requires `--batch`; rejects mixed `--parent`.
+    # `--parent`, `--name`, etc.). Requires `--batch`. In `--silent` mode,
+    # rewrite the target-relative created path to an absolute path so callers
+    # invoking from another repo can use the result directly.
     local project_name=""
     local has_batch=false
-    local has_parent=false
+    local project_silent=false
     local forwarded=()
     local _i=0
     local _argv=("$@")
@@ -2081,9 +2083,13 @@ main() {
                 _i=$((_i + 1))
                 ;;
             --parent|-P)
-                has_parent=true
                 forwarded+=("${_argv[$_i]}" "${_argv[$_i+1]:-}")
                 _i=$((_i + 2))
+                ;;
+            --silent)
+                project_silent=true
+                forwarded+=("${_argv[$_i]}")
+                _i=$((_i + 1))
                 ;;
             *)
                 forwarded+=("${_argv[$_i]}")
@@ -2094,7 +2100,6 @@ main() {
 
     if [[ -n "$project_name" ]]; then
         [[ "$has_batch" == true ]]  || die "--project requires --batch"
-        [[ "$has_parent" == false ]] || die "--project cannot be combined with --parent"
 
         local resolved
         resolved=$("$SCRIPT_DIR/aitask_project_resolve.sh" "$project_name")
@@ -2103,8 +2108,26 @@ main() {
                 local root="${resolved#RESOLVED:}"
                 local target_script="$root/.aitask-scripts/aitask_create.sh"
                 [[ -x "$target_script" ]] || die "Resolved $project_name → $root, but $target_script is missing or not executable"
-                cd "$root"
-                exec "$target_script" "${forwarded[@]}"
+                if [[ "$project_silent" == true ]]; then
+                    local target_out target_rc
+                    set +e
+                    target_out=$(cd "$root" && "$target_script" "${forwarded[@]}")
+                    target_rc=$?
+                    set -e
+                    if [[ "$target_rc" -ne 0 ]]; then
+                        [[ -n "$target_out" ]] && printf '%s\n' "$target_out"
+                        exit "$target_rc"
+                    fi
+                    if [[ "$target_out" == /* ]]; then
+                        printf '%s\n' "$target_out"
+                    else
+                        printf '%s/%s\n' "$root" "$target_out"
+                    fi
+                    exit 0
+                else
+                    cd "$root"
+                    exec "$target_script" "${forwarded[@]}"
+                fi
                 ;;
             STALE:*)
                 die "Project '$project_name' is registered but its path is stale: ${resolved#STALE:}"
