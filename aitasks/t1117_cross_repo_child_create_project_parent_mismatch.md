@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask-create, task_workflow, upstream_defect_followup]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1061
 created_at: 2026-07-03 00:26
-updated_at: 2026-07-03 00:26
+updated_at: 2026-07-03 12:48
 ---
 
 Upstream defect surfaced during the t1061 cross-repo decomposition (2026-07-02):
