@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1071_2, t1071_5]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [shadow, claudeskills]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-06-30 11:16
-updated_at: 2026-07-03 11:48
+updated_at: 2026-07-03 12:02
+completed_at: 2026-07-03 12:02
 ---
 
 Add website documentation covering the t1071 capabilities. Depends on t1071_2 (learn
