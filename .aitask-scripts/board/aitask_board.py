@@ -4647,6 +4647,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def check_action(self, action: str, parameters) -> bool | None:
         """Control visibility of conditional actions in the footer bar."""
+        # Textual hides footer bindings only when this returns False; None
+        # leaves the binding visible but disabled.
         # A modal/overlay screen on top may own its own arrow-key navigation.
         # The board binds arrows with priority=True, which Textual checks before
         # the focused widget, so we selectively disable board nav while a screen
@@ -4705,10 +4707,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if action == "commit_selected":
             focused = self._focused_card()
             if not focused or not self.manager.is_modified(focused.task_data):
-                return None  # Hide from footer
+                return False
         elif action == "commit_all":
             if not self.manager.get_modified_tasks():
-                return None  # Hide from footer
+                return False
         elif action == "toggle_children":
             # The In-Flight and By-Topic views render every relevant card
             # (including children) directly — there is nothing to expand/collapse
@@ -4717,24 +4719,24 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 return False
             focused = self._focused_card()
             if not focused:
-                return None
+                return False
             if focused.is_child:
                 return True  # Always show for child cards (they have a parent)
             task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
             if not self.manager.get_child_tasks_for_parent(task_num):
-                return None
+                return False
         elif action == "pick_task":
             focused = self._focused_card()
             if not focused:
-                return None
+                return False
         elif action == "brainstorm_task":
             focused = self._focused_card()
             if not focused:
-                return None
+                return False
         elif action == "open_cross_repo":
             focused = self._focused_card()
             if not focused or not self._gather_cross_repo_refs(focused.task_data):
-                return None  # Hide unless the focused task has cross-repo refs
+                return False  # Hide unless the focused task has cross-repo refs
         elif action in ("move_task_right", "move_task_left", "move_task_up", "move_task_down",
                         "move_task_top", "move_task_bottom"):
             # NOTE: Textual's Footer hides a binding only when check_action returns
