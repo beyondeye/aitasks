@@ -1,14 +1,16 @@
 ---
 priority: medium
 effort: medium
-depends: [t1118_4]
+depends: [t1118_3, t1118_4]
+xdeps: [t32_2]
+xdeprepo: aitasks_mobile
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1118_2, 1118_3, 1118_4]
+verifies: [t1118_2, t1118_3, t1118_4]
 anchor: 1118
 created_at: 2026-07-03 11:31
-updated_at: 2026-07-03 11:31
+updated_at: 2026-07-03 11:32
 ---
 
 ## Manual Verification Task
