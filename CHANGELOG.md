@@ -1,5 +1,74 @@
 # Changelog
 
+## v0.27.0
+
+### Features
+
+- **Machine-verified quality gates** (t635_12): Build, test, and lint gates now run automatically before a task can complete; each gate is skipped when its command isn't configured for the project.
+- **Async human gates** (t635_15): Sign off on review/merge approval gates out-of-band with `ait gate pass`, using code-bound signatures so an approval can't be silently reused against different code.
+- **Documentation gate** (t635_19): New `docs_updated` gate walks you through updating project docs as part of finishing a task.
+- **Multi-stage completion stats** (t635_20): Stats now track in-flight (done-but-awaiting-gates) tasks and per-phase pipeline timings.
+- **Task attachments** (t1030_1, t1030_2, t1030_3): New `ait attach` command attaches files to tasks — content-addressed storage, reference counting, garbage collection, and correct handling across archive and fold.
+- **Learn a skill from anywhere** (t1071_2): New `/aitask-learn-skill` command generates a complete skill from a local file, URL, repo path, or a live terminal pane.
+- **Shadow error diagnosis & learner spawning** (t1071_1, t1071_5): The shadow companion can diagnose a followed agent's errors on request and spawn a learner agent to capture a skill from what it's doing.
+- **Applink scrollback history** (t1057): The mobile companion can request older terminal scrollback beyond the live viewport.
+- **Platform-agnostic chat abstraction** (t1074_1): Added a ChatAdapter core (with a full mock) as the foundation for chat-platform integrations.
+- **Unified artifact storage design** (t1065): Landed the design for native artifact storage/sharing built on a stable-handle / mutable-manifest model.
+
+### Bug Fixes
+
+- **Reliable installs & upgrades** (t1075): Downloads release tarballs from the CDN instead of the rate-limited API, and honors an explicitly requested version.
+- **Clearer ID-counter errors** (t1077, t1087): A counter fetch failure is now distinguished from a genuinely uninitialized setup on both the claim and peek paths.
+- **ID counter drift hardening** (t1079): Task ID assignment self-heals against counter drift.
+- **Attachment reference cleanup** (t1093, t1096): Hard-deleting a task now releases (or rebinds, for folded tasks) attachment references so blobs aren't orphaned.
+- **TUI session identity collisions** (t1099): Session identity is keyed on project path, fixing collisions between repos that share a default session name.
+- **Applink viewport-only rows** (t1054): Live terminal frames stream only the visible viewport, fixing row misalignment.
+- **Applink pause verb** (t1055): The mobile client can pause the content stream.
+- **Project registry race** (t1073): Concurrent registry writes no longer lose group assignments.
+- **`ait stats tui`** (t1083): Now routes to the stats TUI instead of erroring.
+- **Stats TUI registered repos** (t1098): Shows all registered repos.
+- **Model picker ranking** (t1082): Recently-verified models rank ahead of legacy fallbacks.
+- **Board in-flight card polish** (t635_22): Fixed op-hint brackets being swallowed and clarified empty-gate copy.
+- **Fail-closed folded-task delete** (t1102): The board fails closed if unfolding children during a delete errors.
+- **Agent launch window default** (t1115): Agent/create launches default to a new tmux window instead of reusing a remembered one.
+- **Minor fixes** (t1002, t1095): Silenced a benign shellcheck info; fixed a stale shadow-spawn test assertion.
+
+### Improvements
+
+- **Unified gate declaration** (t635_14): Profiles declare their gates via a single `default_gates` list.
+- **Risk evaluation gate** (t635_13): Verifies a task's plan documents code-health and goal-achievement risk.
+- **Concurrent gate-ledger merges** (t635_21): Gate records made on different machines auto-merge on sync instead of conflicting.
+- **Board by-topic sort modes** (t1035): By-Topic view offers recency, topic-id, size, and alphabetical sorting (press `o`).
+- **Shadow feedback staleness indicator** (t1104): Shows when the shadow's analysis is stale relative to the followed agent's current screen.
+- **Deeper shadow plan review** (t1071_3): A `--deep` flag captures more scrollback during plan review.
+- **Configurable skill-authoring guide** (t1071_6): The learn-skill flow uses a configurable authoring-standards guide.
+- **Optional learn-skill wrappers/commit** (t1100): Cross-agent wrappers and committing are now optional when generating a skill.
+- **Applink history depth limit** (t1092): History capture depth is configurable and bounded independently of live monitoring.
+- **Applink pane titles** (t1114): Mobile pane status includes task titles.
+- **Attachment metadata layout** (t1030_5): Evaluated and settled on per-blob attachment metadata.
+
+### Documentation
+
+- **Topic anchoring concepts** (t1034): Documented anchor/topic grouping.
+- **Learn & shadow docs** (t1071_7): Added website docs for the learn-skill command and shadow agent.
+
+### Performance
+
+- **Focused-pane content streaming** (t1045): Applink streams binary terminal content only for the focused/subscribed pane.
+- **Monitor gate-summary cache** (t1111_1): Caches gate summaries by file mtime instead of re-reading every tick.
+- **Faster focus switching** (t1111_2): Reduced redundant re-rendering when switching focus in the monitor.
+- **Non-blocking monitor refresh** (t1111_3): Removed synchronous tmux calls from the monitor refresh path.
+
+### Tests
+
+- **Git-tag resolver drift guard** (t1084): Guards parity between the installer and library git-tag resolvers.
+- **Remove geminicli from fixtures** (t1086): Fixtures updated to only expect supported agents.
+
+### Maintenance
+
+- **Applink data-plane limits** (t1007): Hardened applink with resource limits (frame size, pane counts, keyframe cadence).
+- **Port learn-skill cross-agent** (t1071_4): Ported the learn-skill command to Codex and OpenCode.
+
 ## v0.26.1
 
 ### Features
