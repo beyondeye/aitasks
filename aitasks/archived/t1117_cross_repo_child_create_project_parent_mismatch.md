@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask-create, task_workflow, upstream_defect_followup]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1061
 implemented_with: codex/gpt5_5
 created_at: 2026-07-03 00:26
-updated_at: 2026-07-03 17:15
+updated_at: 2026-07-03 17:29
+completed_at: 2026-07-03 17:29
 ---
 
 Upstream defect surfaced during the t1061 cross-repo decomposition (2026-07-02):
@@ -80,3 +81,17 @@ aitask_create coverage to extend).
 
 - Discovered while executing `aiplans/p1061_applink_outside_network_connectivity_roadmap.md`
   (cross-repo child assignment for t1061 / aitasks_mobile#31).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **🔄 gate:risk_evaluated** run=2026-07-03T14:29:34Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:dbe29a1e15ea3434
+
+> **✅ gate:risk_evaluated** run=2026-07-03T14:29:34Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1117/risk_evaluated_2026-07-03T14:29:34Z-risk_evaluated-a1.log`
