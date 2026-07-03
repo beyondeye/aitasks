@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -8,8 +10,9 @@ labels: [aitask-create, task_workflow, upstream_defect_followup]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1061
+implemented_with: codex/gpt5_5
 created_at: 2026-07-03 00:26
-updated_at: 2026-07-03 12:48
+updated_at: 2026-07-03 17:15
 ---
 
 Upstream defect surfaced during the t1061 cross-repo decomposition (2026-07-02):
