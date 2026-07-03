@@ -7,9 +7,11 @@ issue_type: feature
 status: Implementing
 labels: [applink, applink_control, shadow]
 gates: [risk_evaluated]
+children_to_implement: [t1118_1]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/fable5
 created_at: 2026-07-03 07:54
-updated_at: 2026-07-03 10:21
+updated_at: 2026-07-03 11:28
 ---
 
 ## Goal
