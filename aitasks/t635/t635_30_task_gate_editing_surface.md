@@ -47,8 +47,11 @@ General to ALL gates (command, human, and procedure-backed like `docs_updated`).
   settings TUI, coordinate with t635_24 so the two surfaces compose rather than
   collide. (Reverse pointer added to t635_24.)
 - Extracted from **t635_29** (procedure_gate_generalization) — the "interactive
-  task-gate configuration surface" bullet moves here; t635_29 keeps procedure-gate-
-  specific concerns (agent/model selection, agent-aware dispatch, external gates).
+  task-gate configuration surface" bullet moves here. t635_29 was later narrowed to
+  its ripe core (async/headless dispatch + agent-aware resolution); **per-gate
+  agent/model selection** (which composes with this task's settings-TUI surface) is
+  now **t635_31** (`depends: [t635_24, t635_30]`), and external-gate resolution is a
+  deferred doc-only extension point.
 - Builds on **t635_9** (board In-Flight gate view) and the **t635_11** substrate.
 
 ## Depends

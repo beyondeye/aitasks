@@ -37,6 +37,12 @@ Per `aidocs/gates/aitask-gate-framework.md` Appendix A:
 Consider splitting at planning time (label mirror needs no new backends
 and can ship first; comment mirror + comment signal follow).
 
+## Downstream
+
+- **t635_32** (procedure_gate_remote_signal, split out of t635_29) `depends:` on
+  this task — it integrates procedure-backed gates with this remote projection +
+  comment-signal surface (status projection + comment-triggered dispatch).
+
 ## References
 
 - `aidocs/gates/aitask-gate-framework.md` Appendix A (complete spec)

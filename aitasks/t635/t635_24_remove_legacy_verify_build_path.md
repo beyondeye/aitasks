@@ -56,8 +56,9 @@ have not opted into gates — which is every task until t635_14 lands.
      `default_gates`, and per-gate registry settings). Editing an individual
      **task's** `gates:` interactively (board + `ait gate` CLI) is **t635_30**
      (task_gate_editing_surface); **per-gate code-agent/model selection** in the
-     settings TUI is **t635_29** (procedure_gate_generalization). Coordinate so the
-     three settings-TUI gate surfaces compose rather than duplicate.
+     settings TUI is **t635_31** (per_gate_agent_model_selection, split out of
+     t635_29). Coordinate so the three settings-TUI gate surfaces compose rather
+     than duplicate.
 
 3. **Update documentation** to the post-removal current state:
    - The Project Configuration table in `.claude/skills/task-workflow/SKILL.md`
