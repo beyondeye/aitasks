@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t1111_3]
 issue_type: performance
@@ -8,8 +10,9 @@ labels: [monitor, tui, performance]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-03 00:32
+updated_at: 2026-07-03 12:39
 ---
 
 **Thread-offload** the refresh CPU work (strip/prompt-regex) off the UI thread —
@@ -106,3 +109,8 @@ Follow `aidocs/framework/testing_conventions.md` for asyncio/thread test shape.
 code-health medium (first threading pattern; shared-state discipline),
 goal medium (must actually remove the freeze — confirmed via py-spy + t1111_6).
 Risk-gated: declares `risk_evaluated`; re-run risk evaluation at pick time.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-03T09:39:32Z status=pass attempt=1 type=human
