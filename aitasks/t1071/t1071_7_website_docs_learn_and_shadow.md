@@ -35,3 +35,8 @@ skill) and t1071_5 (shadow spawn-learner integration).
 ## Verification
 - `cd website && hugo build --gc --minify` succeeds.
 - New/updated pages render and are linked from the relevant `_index.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:review_approved** run=2026-07-03T09:02:25Z status=pass attempt=1 type=human
