@@ -4,11 +4,12 @@ effort: high
 depends: []
 xdeprepo: aitasks_mobile
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [applink, applink_control, shadow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-03 07:54
-updated_at: 2026-07-03 07:54
+updated_at: 2026-07-03 10:21
 ---
 
 ## Goal

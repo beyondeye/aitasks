@@ -3,11 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Postponed
 labels: [aitask_monitormini, tmux, tui, monitor]
 gates: [risk_evaluated]
 created_at: 2026-07-02 17:49
-updated_at: 2026-07-02 17:49
+updated_at: 2026-07-03 10:19
 ---
 
 Several already-running `ait minimonitor` instances can report an agent pane as `PROMPT` after the checked-in prompt-detection fix says it is `IDLE`. The live diagnosis on 2026-07-02 found stale minimonitors in the `aitasks` tmux session still reporting `agent-pick-1114 PROMPT`, while the current monitor code and the full `ait monitor` reported `agent-pick-1114 IDLE`.
