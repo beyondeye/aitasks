@@ -46,3 +46,28 @@ Normalize the remaining `check_action` "Hide from footer" branches
 "hide"-intent sites in `check_action`. Consider a short comment at the top of
 `check_action` documenting the Textual 8.2.7 semantics (False = hidden,
 None = shown+disabled) to prevent regressions.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **🔄 gate:risk_evaluated** run=2026-07-03T09:46:11Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:411197d686be7a05
+
+> **❌ gate:risk_evaluated** run=2026-07-03T09:46:11Z-risk_evaluated-a1 status=fail attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluation incomplete: plan '## Risk' missing '### Code-health risk' subsection
+> Log: `.aitask-gates/1112/risk_evaluated_2026-07-03T09:46:11Z-risk_evaluated-a1.log`
+
+> **🔄 gate:risk_evaluated** run=2026-07-03T09:46:51Z-risk_evaluated-a2 status=running attempt=2 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a4eb9633eaf356f6
+
+> **✅ gate:risk_evaluated** run=2026-07-03T09:46:51Z-risk_evaluated-a2 status=pass attempt=2 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1112/risk_evaluated_2026-07-03T09:46:51Z-risk_evaluated-a2.log`

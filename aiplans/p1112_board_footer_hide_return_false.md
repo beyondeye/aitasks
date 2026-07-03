@@ -43,11 +43,15 @@ renders as disabled/greyed instead of absent.
 
 ## Risk
 
-- **Code-health risk:** low. The change is confined to conditional footer
-  visibility decisions in one method and does not alter action handlers.
-- **Goal-achievement risk:** low. The regression test checks Textual's footer
-  surface directly via `active_bindings`, covering the exact `None` versus
-  `False` behavior.
+### Code-health risk
+
+Low. The change is confined to conditional footer visibility decisions in one
+method and does not alter action handlers.
+
+### Goal-achievement risk
+
+Low. The regression test checks Textual's footer surface directly via
+`active_bindings`, covering the exact `None` versus `False` behavior.
 
 ### Planned mitigations
 
