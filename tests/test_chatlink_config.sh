@@ -221,6 +221,23 @@ intake_channel:
 """)
     check("config: list metadata => {}", conf.intake_channel["metadata"] == {})
 
+    # mixed-type unknown keys (int + str) must degrade, never raise
+    # (regression: sorted() on mixed raw keys raised TypeError)
+    conf, w = load_yaml_text(tmp, """
+intake_channel:
+  provider: discord
+  workspace_id: "g1"
+  conversation_id: "c1"
+  1: numeric-key
+  bogus: extra
+""")
+    check("config: mixed-type unknown intake keys degrade (no raise)",
+          conf is not None and conf.intake_channel is not None
+          and "1" not in conf.intake_channel
+          and 1 not in conf.intake_channel
+          and "bogus" not in conf.intake_channel)
+    check("config: mixed-type unknown keys warn", "dropping unknown key(s)" in w)
+
     # --- allowlist shape degradation ----------------------------------------
     conf, w = load_yaml_text(tmp, """
 allowed_user_ids: not-a-list

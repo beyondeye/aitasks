@@ -144,7 +144,10 @@ def _normalize_intake_channel(raw: object) -> dict | None:
     ref["metadata"] = metadata
     dropped = set(raw) - set(ref)
     if dropped:
-        _warn(f"intake_channel: dropping unknown key(s) {sorted(dropped)}")
+        # repr-map before sorting: YAML mapping keys may mix types (int vs
+        # str), and sorting raw mixed keys raises TypeError — which would
+        # break the never-raises degradation contract.
+        _warn(f"intake_channel: dropping unknown key(s) {sorted(map(repr, dropped))}")
     return ref
 
 
