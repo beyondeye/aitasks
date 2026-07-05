@@ -272,3 +272,49 @@ Post-implementation: gates run (`risk_evaluated` declared), archive via
 None identified. — Detection semantics are reused verbatim (`classify_content`
 with forced AGENT category), render sites are pinned to exact lines, and the
 glyph/color mapping is shared with the existing dot convention.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-05 23:55)
+- **Requested by user:** The cache-boundary invariant was not enforced when a
+  shadow pane id was ALREADY in `_pane_cache` — a pane discovered before its
+  `@aitask_shadow_target` option is stamped (the spawner sets it after the
+  pane exists) gets cached as a normal agent, and `_clean_stale` keeps that
+  entry because the shadow id is in the classified keep-set. Reproduced:
+  `%9 in cache: True` after classifying `%9` as a shadow.
+- **Changes made:** `commit_snapshots` now explicitly evicts every classified
+  shadow pane id from `_pane_cache` and `_compare_mode_overrides` (loop-side),
+  while `_last_content`/`_last_change_time` deliberately keep shadow ids (idle
+  bookkeeping). New regression test
+  `test_pre_marker_race_evicts_stale_cache_entry` pre-seeds the raced cache
+  entry + a compare-mode override and asserts eviction of the cache-backed
+  maps and retention of the bookkeeping.
+- **Files affected:** `.aitask-scripts/monitor/monitor_core.py`,
+  `tests/test_monitor_shadow_status.py`
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `monitor_core.py`: `TmuxPaneInfo.shadow_target`
+  field; `_parse_list_panes` → `(agents, shadows)` split (shadows AGENT-forced,
+  never entering `_pane_cache`); `discover_panes_with_shadows_async`; shadows in
+  the same capture gather + single classify batch (invariants A/B/E/F, no
+  generation-protocol changes); `commit_snapshots` splits shadow entries into a
+  wholesale-rebuilt `_shadow_snapshots` map (newest-`%N` wins) and evicts raced
+  cache entries; sync `capture_all` clears the map; `get_shadow_snapshot`
+  accessor. `monitor_shared.py`: `_state_color` single mapping, `format_state_dot`,
+  `SHADOW_GLYPH ◆`, `format_shadow_glyph`. Both TUIs render `● ◆` before the
+  name; duplicated dot blocks replaced by the shared formatter; stale minimonitor
+  docstring fixed. 19 tests in `tests/test_monitor_shadow_status.py`; fakes in 3
+  existing test files extended with the new API surface.
+- **Deviations from plan:** One addition beyond the plan (from post-review
+  Change Request 1): commit-side eviction of pre-marker-race cache entries —
+  the plan's "never registered" invariant alone did not cover a pane cached
+  before its shadow marker was stamped.
+- **Issues encountered:** Existing offload/focus/refresh tests' fake monitors
+  lacked the new `get_shadow_snapshot` / `pane=` surfaces — extended the fakes
+  (mirroring the real API) rather than weakening app code with getattr guards.
+- **Key decisions:** Shadow discovery derived from the existing per-tick
+  list-panes output (zero extra tmux calls; AC updated accordingly, approved);
+  transient shadow-capture failure hides the glyph for one tick (mirrors
+  failed-agent-pane semantics, no frozen idle clock); minimonitor docked panel
+  stays fully static; sync path clears (never preserves) shadow state.
+- **Upstream defects identified:** None
