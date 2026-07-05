@@ -19,3 +19,9 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1122
+
+## Verification Checklist
+
+- [ ] In a minimonitor pane, press `j` then `e` → the "Launch Code Agent (no task)" dialog appears with rows STACKED VERTICALLY (narrow layout), fitting the small pane
+- [ ] In a wide TUI (ait board or full ait monitor), press `j` then `e` → the dialog stays in its FULL-WIDTH layout (no regression)
+- [ ] Confirm the launched raw agent itself is unchanged (agent/model/tmux-target selectable, empty prompt) in both layouts
