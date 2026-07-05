@@ -6,10 +6,10 @@ issue_type: feature
 status: Implementing
 labels: [chat_surface, python, sanboxing]
 gates: [risk_evaluated]
-children_to_implement: [t1120_1, t1120_2]
+children_to_implement: [t1120_1, t1120_2, t1120_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-05 08:27
-updated_at: 2026-07-05 11:58
+updated_at: 2026-07-05 11:59
 ---
 
 ## Goal
