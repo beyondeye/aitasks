@@ -260,3 +260,61 @@ pattern: `tests/test_chatlink_relay.sh`), pure — no chat adapter, no network:
 ## Step 9 reference
 
 Post-implementation follows task-workflow Step 9 (merge/verify/archive push).
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned deliverables: gateway-side
+  modules `.aitask-scripts/chatlink/paths.py` (secure dirs 0700, token
+  read/write 0600, `relay_root()`, absolute `config_file()` via
+  `resolve_config_path` with guarded `lib/` import bootstrap), `config.py`
+  (`ChatlinkConfig`, fail-closed `load_config`, per-key clamped ceilings,
+  `intake_channel` normalized to the exact `ConversationRef.to_dict()`
+  shape), `policy.py` (`Decision`, deny-by-default `decide()` with the
+  complete 9-reason enum, named `may_answer()` primitive); `__init__.py`
+  docstring updated; `seed/chatlink_config.yaml` commented template;
+  `install.sh` `install_seed_chatlink_config()` + call; `aitask_setup.sh`
+  data-branch seed copy + `ensure_chatlink_config()` populate-missing +
+  `chatlink_sessions/` data-branch gitignore append block; this repo's
+  `.aitask-data/.gitignore` rule + seeded config committed via `./ait git`;
+  `tests/test_chatlink_config.sh` (58 Python checks + cwd-independence,
+  import-bootstrap, and git check-ignore hygiene parts — all pass).
+- **Deviations from plan:** (1) This repo's `aitasks/metadata/
+  chatlink_config.yaml` was seeded directly (with the gitignore commit)
+  rather than waiting for a future `ait setup` run — `ait setup` is unsafe
+  to run on a dirty tree here (t1128) and t1120_3 needs the file present;
+  `ensure_chatlink_config` now no-ops (target exists). (2) The fresh-install
+  verification drove the real `install_seed_chatlink_config` /
+  `ensure_chatlink_config` function bodies (sed-extracted from the live
+  scripts) in scratch layouts instead of a full network `install.sh` run
+  (release tarballs are git-tag archives — uncommitted work can't ship into
+  one); copy, keep-existing, idempotence, and missing-seed-warn paths all
+  verified.
+- **Issues encountered:** none blocking. Foreign concurrent-session hunks
+  were present on both the main worktree and the data branch throughout —
+  all commits were path-scoped and staged-content-verified.
+- **Key decisions:** `config_file()` returns an **absolute** Path
+  (resolve_config_path returns repo-root-relative — plan-review finding);
+  `intake_channel` stored as a normalized dict (chat-import-free config
+  layer; metadata-scalar guard against `from_dict` crash); bool ceilings
+  rejected as typos (bool is an int subclass); v1 defines **no env vars**
+  (token file is the only token source); `chatlink.*` import contract =
+  only `.aitask-scripts` on `sys.path` (guarded `config_utils` bootstrap in
+  `paths.py`).
+- **Upstream defects identified:** `aitask_setup.sh:1348-1382 — no
+  data-branch gitignore append block seeds
+  aitasks/metadata/applink_sessions/ for fresh installs (the applink rule
+  exists only as a manual commit on this repo's data branch, 9df76f759; a
+  fresh downstream project pairing applink could commit its TLS key +
+  session table). The equivalent chatlink block added by this task shows
+  the fix shape.`
+- **Notes for sibling tasks:** t1120_3 daemon: `paths.config_file()` →
+  `config.load_config()` — `None` from either ⇒ refuse to start (distinct
+  messages); reconstruct the intake ref via `ConversationRef.from_dict(
+  config.intake_channel)` (normalization guarantees it cannot raise);
+  `policy.decide(claims, config)` / `policy.may_answer(initiator, actor)`
+  are the only authorization call sites (never re-derive); branch on the
+  REASON_* constants, not string literals; `paths.read_token()` for
+  `connect(token)`; `paths.relay_root()` is the `create_session_dir` arg;
+  ceilings come clamped — enforce, don't re-validate. Token provisioning
+  UX (how the user first writes `bot_token`) is t1120_6/t1120_7 territory:
+  `paths.write_token()` is ready for it.
