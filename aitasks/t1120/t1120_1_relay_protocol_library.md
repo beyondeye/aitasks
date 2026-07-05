@@ -8,8 +8,9 @@ labels: [chat_surface, python]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1120
+implemented_with: claudecode/fable5
 created_at: 2026-07-05 11:58
-updated_at: 2026-07-05 12:18
+updated_at: 2026-07-05 12:50
 ---
 
 ## Context
@@ -88,3 +89,8 @@ One question in flight at a time (sequential v1).
   ignored), timeout fail-safe (helper exits with timeout status, never hangs),
   renderer degradation (>25 options, >2000 chars).
 - No chat/discord imports in `relay.py` or the helper (agent side is pure).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-05T09:50:46Z status=pass attempt=1 type=human
