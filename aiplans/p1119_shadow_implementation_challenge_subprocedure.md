@@ -371,3 +371,34 @@ commits via `./ait git`) → gate run (`risk_evaluated`) → archive.
   whether the block was actually emitted on the failing run.
 - **Files affected:** `.claude/skills/aitask-shadow/impl-challenge.md`,
   `aiplans/p1119_shadow_implementation_challenge_subprocedure.md` (verification).
+
+### Change Request 3 (2026-07-05 10:05) — picker mis-parse root cause + shared fix
+- **User confirmed the fenced block WAS emitted, yet `c` forwarded a different
+  (older/template) block.** Reproduced deterministically against `concern_parser`:
+  the shadow sub-procedure docs embed a **literal, parser-live** example concern
+  block. Because the shadow reads/quotes these docs at runtime, the example lands
+  in the shadow pane, and minimonitor (which parses the *whole* pane, last block
+  wins via `rfind`) can select the doc's placeholder items — exactly the
+  "concerns written before" symptom.
+- **Latent shared bug (t1037), not impl-challenge-specific.** Enumerated the full
+  surface: 4 runtime-read docs were parser-live — `impl-challenge.md`,
+  `plan-challenge.md`, `plan-assumptions.md`, `plan-diagnose-errors.md`.
+  (`concern-format.md` was only *accidentally* safe.)
+- **Structural fix (all 4):** present the format WITHOUT a contiguous
+  `open→items→close` block — name the exact sentinels inline (`===AITASK-CONCERNS===`
+  / `===END-CONCERNS===`) and show the `- [priority | region] body` item lines
+  separately. No parser/minimonitor logic changed; the agent still learns the
+  exact literals. Also hardened `impl-challenge.md` to emit the real block as the
+  final output.
+- **Guard test (enforces the convention):** `TestShadowDocsNotParserLive` in
+  `tests/test_concern_parser.py` scans every `.claude/skills/aitask-shadow/*.md`
+  and asserts none is `has_concern_block`-live, so a future edit cannot silently
+  reintroduce the hazard. Suite now 13/13.
+- **Scope note (explicit):** this fix touches three t1037-owned sibling docs
+  beyond t1119's original "add impl-challenge + relocate doc" charter, because a
+  correct fix must cover the whole shared surface (half-fixing impl-challenge
+  alone would leave the other three hazardous). No cross-agent port needed
+  (Claude-only sub-procedures).
+- **Files affected:** `.claude/skills/aitask-shadow/impl-challenge.md`,
+  `plan-challenge.md`, `plan-assumptions.md`, `plan-diagnose-errors.md`,
+  `tests/test_concern_parser.py`.
