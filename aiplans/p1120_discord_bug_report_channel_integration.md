@@ -145,11 +145,17 @@ consumes verbatim.
    `payload.json` (final output), `status.json`. **Atomic writes everywhere**:
    write `*.tmp`, rename; readers ignore `*.tmp` (applink `sessions.json`
    pattern).
-3. **Question schema** (generic, skill-agnostic):
-   `{id, seq, session_id, text, header, options: [{label, description}],
-   multi_select: bool, allow_free_text: bool, timeout_s}`.
+3. **Question schema** (generic, skill-agnostic) *(amended by t1120_1 —
+   stable option values)*:
+   `{id, seq, session_id, text, header, options: [{value, label,
+   description}], multi_select: bool, allow_free_text: bool, timeout_s}`.
+   Option `value` is a stable id **auto-assigned by the relay lib at
+   question-write time** as `o<idx>` (zero-based, `[a-z0-9]`) — callers never
+   pass values; labels are display-only (non-empty, ≤ 100 chars; values are
+   unique by construction).
    **Answer schema:** `{id, seq, status: answered|timeout|cancelled,
-   values: [..], free_text: str|null, answered_by}`.
+   values: [..], free_text: str|null, answered_by}` — `values` carries option
+   **values** (not labels).
    One question in flight at a time (sequential v1); batch is a documented
    extension point, not implemented.
 4. **`custom_id` encoding** — statelessly parseable
@@ -164,11 +170,20 @@ consumes verbatim.
    button; on that interaction the gateway calls `open_modal` immediately
    (must beat the ~2 s scheduled defer, `discord_adapter.py:822`). Late/expired
    clicks get an ephemeral "question expired".
-6. **Timeout/cancel ownership**: the agent-side blocking helper owns the
-   timeout (bounded default, fail-safe — on timeout the agent proceeds with
-   `status: timeout`, never hangs). The gateway disables components (message
-   edit) on timeout/cancel/agent-death and writes `cancelled` answers for spool
-   hygiene on agent death. Stale answers (seq already passed) are ignored.
+6. **Timeout/cancel ownership** *(amended by t1120_1 — durable timeout)*: the
+   agent-side blocking helper owns the timeout (bounded default, fail-safe —
+   on timeout the agent proceeds with `status: timeout`, never hangs). **The
+   timeout is a durable spool state**: at the deadline the helper does a final
+   poll — if an answer appeared it is consumed as answered; otherwise the
+   helper atomically writes `answer-<seq>.json` `{status: timeout, values: [],
+   free_text: null, answered_by: null}` before proceeding (never overwriting
+   an existing answer file). A timed-out question is therefore terminal, not
+   forever-"pending" — restart-derivability (contract 4) and gateway
+   reconciliation read it from the spool. The gateway disables components
+   (message edit) on timeout/cancel/agent-death and writes `cancelled` answers
+   for spool hygiene on agent death. Stale answers (seq already passed) are
+   ignored; an interaction for a seq whose answer file already exists is stale
+   ⇒ ephemeral "question expired".
 7. **Agent output contract** (4 ↔ 5 ↔ 6): agent writes `payload.json`
    (task-creation payload: name/title, priority, effort, issue_type, labels,
    description markdown) and exits; exit code + `payload.json` presence =

@@ -41,6 +41,30 @@ here. Parent contracts: `aiplans/p1120_discord_bug_report_channel_integration.md
    parent plan §PINNED AND every sibling task/plan file embedding the changed
    text, commit all via `./ait git` in one pass.
 
+## Step 0 spike findings (2026-07-05 — PASS)
+
+Run: `claude --model claude-fable-5 -p "<explicit step-list prompt>"
+--allowedTools "Bash,Read,Write"` via `ait codeagent invoke raw`.
+- **Round trip verified**: agent read fixture → ran blocking `spike_ask.sh` →
+  question-1.json appeared **6 s** after launch → agent stayed blocked
+  (payload absent 8 s later, negative control) → hand-written answer-1.json
+  consumed within the 1 s poll → payload.json written with the correct value
+  (`{"status": "answered", "chosen_value": "o1", "chosen_label": "B"}`) →
+  clean exit 0.
+- **Prompt-shape requirements**: the prompt must say explicitly that the
+  command BLOCKS and must not be killed/backgrounded; headless `-p` mode
+  needs `--allowedTools` (no permission prompts available).
+- **Agent-side tool-timeout interaction (finding for t1120_4)**: the blocking
+  helper runs inside the agent's Bash tool, whose default timeout is ~120 s.
+  The helper's default `--timeout` must stay comfortably under the agent's
+  tool timeout, or the calling skill must raise the tool timeout explicitly.
+  Not a pinned-contract change (no default value was pinned) — recorded here
+  for the t1120_4 skill design.
+- **No spike-forced contract changes**: 1 s polling cadence, pinned schemas
+  (with Step 0b amendments), and env-var + argv helper invocation all worked
+  as designed. The Step 0b sweep therefore carries only the two pre-known
+  amendments.
+
 ## Step 0b — pre-known contract amendments (single back-propagation sweep)
 
 Two amendments are already known to be required (plan-review findings, verified

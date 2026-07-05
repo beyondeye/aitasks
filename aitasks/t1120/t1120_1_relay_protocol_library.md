@@ -63,12 +63,19 @@ Spike artifacts are throwaway (not committed as product code).
    with bounded default timeout; **timeout ⇒ proceed with `status: timeout`,
    never hang**.
 
-## Normative schemas (contract 3)
+## Normative schemas (contract 3, amended by t1120_1)
 
-Question: `{id, seq, session_id, text, header, options: [{label, description}],
-multi_select: bool, allow_free_text: bool, timeout_s}`.
+Question: `{id, seq, session_id, text, header, options: [{value, label,
+description}], multi_select: bool, allow_free_text: bool, timeout_s}`.
+Option `value` is a stable id auto-assigned by the relay lib at
+question-write time (`o<idx>`, zero-based, `[a-z0-9]`); labels are
+display-only (non-empty, ≤ 100 chars).
 Answer: `{id, seq, status: answered|timeout|cancelled, values: [..],
-free_text: str|null, answered_by}`.
+free_text: str|null, answered_by}` — `values` carries option **values**.
+Durable timeout (contract 6 amendment): on timeout the ask helper atomically
+writes `answer-<seq>.json {status: timeout, ...}` (final-poll-then-write,
+never overwriting an existing answer) so a timed-out question is terminal,
+never forever-"pending".
 Spool layout (contract 2): `<relay_root>/<session_id>/question-<seq>.json`,
 `answer-<seq>.json`, `payload.json`, `status.json`.
 One question in flight at a time (sequential v1).
