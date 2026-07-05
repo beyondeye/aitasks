@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitormini, agent_chooser]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-05 10:34
-updated_at: 2026-07-05 10:58
+updated_at: 2026-07-05 11:46
+completed_at: 2026-07-05 11:46
 ---
 
 ## Problem
@@ -86,3 +87,14 @@ the dialog's layout should differ.
 > **✅ gate:plan_approved** run=2026-07-05T07:55:16Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-05T08:23:36Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-05T08:46:32Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d58fa20b2e0ae336
+
+> **✅ gate:risk_evaluated** run=2026-07-05T08:46:32Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1122/risk_evaluated_2026-07-05T08:46:32Z-risk_evaluated-a1.log`
