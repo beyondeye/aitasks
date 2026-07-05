@@ -9,8 +9,9 @@ status: Implementing
 labels: [aitask_monitormini, agent_chooser]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-05 10:34
-updated_at: 2026-07-05 10:55
+updated_at: 2026-07-05 10:58
 ---
 
 ## Problem
