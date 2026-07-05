@@ -76,3 +76,8 @@ the dialog's layout should differ.
 
 - Cross-agent: this is a Python TUI change (no skill-markdown surface), so no
   Codex/OpenCode port is needed.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-05T07:55:16Z status=pass attempt=1 type=human
