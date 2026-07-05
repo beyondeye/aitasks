@@ -860,6 +860,12 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return None
         return snap.pane.session_name or None
 
+    def _switcher_narrow(self) -> bool:
+        """Minimonitor lives in a narrow tmux pane — its switcher dialogs use
+        the small-pane layout, matching the pick / sibling / concern dialogs
+        that already pass ``narrow=True``."""
+        return True
+
     # -- Actions ---------------------------------------------------------------
 
     def action_focus_sibling_pane(self) -> None:

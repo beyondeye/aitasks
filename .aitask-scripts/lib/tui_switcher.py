@@ -461,6 +461,7 @@ class TuiSwitcherOverlay(ModalScreen):
         session: str,
         current_tui: str = "",
         selected_session: str | None = None,
+        narrow: bool = False,
     ) -> None:
         super().__init__()
         # Identity is the unique project_root key (t1099), NOT the tmux session
@@ -482,6 +483,11 @@ class TuiSwitcherOverlay(ModalScreen):
         # _teleport_if_cross (to decide whether switch-client is needed).
         self._attached_session = session
         self._current_tui = current_tui
+        # Whether the switcher's dialogs (currently the raw-agent
+        # AgentCommandScreen) render in the narrow small-pane layout. Set by the
+        # host App via _switcher_narrow() — True for minimonitor, False for the
+        # wide TUIs (board, full monitor). See action_shortcut_agent.
+        self._narrow = narrow
         self._running_names: set[str] = set()
         # Multi-session state. Populated in on_mount via
         # discover_aitasks_sessions(); remains empty / False when only one
@@ -1177,6 +1183,7 @@ class TuiSwitcherOverlay(ModalScreen):
             operation="raw",
             operation_args=[],
             default_agent_string=agent_string,
+            narrow=self._narrow,
         )
 
         def on_result(result) -> None:
@@ -1341,6 +1348,16 @@ class TuiSwitcherMixin:
         """
         return None
 
+    def _switcher_narrow(self) -> bool:
+        """Whether the switcher's dialogs should use the narrow (small-pane)
+        layout.
+
+        Override in subclasses hosted in a narrow tmux pane (minimonitor) so the
+        raw-agent AgentCommandScreen stacks its rows vertically to fit. Default
+        ``False`` — the wide TUIs (board, full monitor) keep the full layout.
+        """
+        return False
+
     def action_tui_switcher(self) -> None:
         if not os.environ.get("TMUX"):
             self.notify("TUI switcher requires tmux", severity="warning")
@@ -1352,8 +1369,10 @@ class TuiSwitcherMixin:
             session = defaults.get("default_session", "aitasks")
         current = getattr(self, "current_tui_name", "")
         selected = self._switcher_selected_session()
+        narrow = self._switcher_narrow()
         self.push_screen(TuiSwitcherOverlay(
             session=session, current_tui=current, selected_session=selected,
+            narrow=narrow,
         ))
 
 

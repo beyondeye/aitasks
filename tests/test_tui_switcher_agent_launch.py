@@ -57,6 +57,16 @@ class AgentLaunchActionTests(unittest.TestCase):
         ov._selected_project_root = MagicMock(return_value=Path("/p1"))
         return ov
 
+    def _make_overlay_narrow(self):
+        ov = ts.TuiSwitcherOverlay(session="s1", narrow=True)
+        ov._selected_key = "s1"
+        ov._running_names = set()
+        ov.dismiss = MagicMock()
+        ov._handle_stale_selection = MagicMock(return_value=False)
+        ov._ensure_session_live = MagicMock(return_value=True)
+        ov._selected_project_root = MagicMock(return_value=Path("/p1"))
+        return ov
+
     def test_action_pushes_no_task_dialog_and_routes_result(self):
         ov = self._make_overlay()
         mock_app = MagicMock()
@@ -84,6 +94,9 @@ class AgentLaunchActionTests(unittest.TestCase):
             self.assertIsInstance(screen, AgentCommandScreen)
             self.assertEqual(screen.prompt_str, "", "no-task launch = empty prompt")
             self.assertEqual(screen.operation, "raw")
+            # Negative control: a wide host (default overlay, narrow=False) must
+            # NOT stack the dialog — this is the board / full-monitor path.
+            self.assertFalse(screen._narrow, "wide host keeps the full layout")
 
             # tmux result → launch_in_tmux + minimonitor (new window) + dismiss.
             cfg = TmuxLaunchConfig("s1", "agent-raw-1",
@@ -105,6 +118,23 @@ class AgentLaunchActionTests(unittest.TestCase):
             callback(None)
             self.assertFalse(ov.dismiss.called)
 
+    def test_narrow_host_opens_narrow_dialog(self):
+        """Regression (t1122): a narrow host (minimonitor) opens the raw-agent
+        dialog in the narrow small-pane layout."""
+        ov = self._make_overlay_narrow()
+        mock_app = MagicMock()
+        with patch.object(ts.TuiSwitcherOverlay, "app",
+                          new_callable=PropertyMock, return_value=mock_app), \
+             patch.object(alu, "resolve_dry_run_command",
+                          return_value="claude --model claude-opus-4-8"), \
+             patch.object(alu, "resolve_agent_string",
+                          return_value="claudecode/opus4_8"):
+            ov.action_shortcut_agent()
+            self.assertEqual(mock_app.push_screen.call_count, 1)
+            screen, _callback = mock_app.push_screen.call_args.args
+            self.assertIsInstance(screen, AgentCommandScreen)
+            self.assertTrue(screen._narrow, "narrow host stacks the dialog")
+
     def test_action_aborts_when_command_unresolved(self):
         ov = self._make_overlay()
         mock_app = MagicMock()
@@ -114,6 +144,43 @@ class AgentLaunchActionTests(unittest.TestCase):
             ov.action_shortcut_agent()
             self.assertFalse(mock_app.push_screen.called)
             self.assertTrue(mock_app.notify.called)
+
+
+class SwitcherNarrowSeamTests(unittest.TestCase):
+    """The narrow decision seam (t1122): the mixin default, the minimonitor
+    override, and the threading through the real entry point action_tui_switcher.
+    """
+
+    def test_base_mixin_defaults_wide(self):
+        # A bare host using only the mixin declares itself wide.
+        self.assertIs(ts.TuiSwitcherMixin._switcher_narrow(object()), False)
+
+    def test_minimonitor_declares_narrow(self):
+        # The narrow host overrides the hook to True.
+        sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
+        from monitor import minimonitor_app as mm  # noqa: E402
+        self.assertIs(mm.MiniMonitorApp._switcher_narrow(object()), True)
+
+    def test_entry_point_threads_narrow_into_overlay(self):
+        """action_tui_switcher must pass whatever _switcher_narrow() returns
+        into the overlay it pushes — pin the decision at the real entry point,
+        not just the leaf construction."""
+        for declared in (True, False):
+            with self.subTest(declared=declared):
+                host = ts.TuiSwitcherMixin()
+                host.current_tui_name = "minimonitor"
+                host.notify = MagicMock()
+                host.push_screen = MagicMock()
+                host._switcher_selected_session = MagicMock(return_value=None)
+                host._switcher_narrow = MagicMock(return_value=declared)
+                with patch.dict(ts.os.environ, {"TMUX": "/tmp/x"}), \
+                     patch.object(ts, "_detect_current_session",
+                                  return_value="s1"):
+                    host.action_tui_switcher()
+                self.assertEqual(host.push_screen.call_count, 1)
+                overlay = host.push_screen.call_args.args[0]
+                self.assertIsInstance(overlay, ts.TuiSwitcherOverlay)
+                self.assertEqual(overlay._narrow, declared)
 
 
 if __name__ == "__main__":
