@@ -37,7 +37,7 @@ An SSH-based alternative ([charmbracelet/wish](https://github.com/charmbracelet/
 - **Lowest battery cost.** Direct socket; no ICE candidate gathering, no relay heartbeats.
 - **Sufficient for the v1 use case** (phone and PC on the same Wi-Fi network during a working session).
 
-**Cross-network fallback (deferred):** When the PC and phone are on different networks, the user runs `ait applink` from a machine reachable on the LAN side and uses an external tunnel (e.g., `ssh -L`, `cloudflared`). A first-class relay-server transport may be added later — see "Versioning" for how to introduce it without breaking v1 clients.
+**Cross-network fallback (Phase 2, available):** When the PC and phone are on different networks, the user reaches the PC through a mesh VPN or user-run tunnel and advertises that endpoint in the pairing QR via the advertised-endpoint override — recipes in [tunnel_howto.md](tunnel_howto.md). A first-class relay-server transport may be added later — see "Versioning" for how to introduce it without breaking v1 clients.
 
 **Security baseline:** all WebSocket traffic uses TLS (`wss://`). The server presents a self-signed certificate generated at first run; the cert fingerprint is embedded in the QR (see Pairing flow). The mobile client pins this fingerprint for the lifetime of the pairing.
 
@@ -224,7 +224,7 @@ v1 is LAN-only, but the design is deliberately staged so each subsequent phase r
 | Phase | Connectivity | Who hosts | New protocol work |
 |-------|--------------|-----------|-------------------|
 | **1. LAN WebSocket** (v1, this document) | Same Wi-Fi only | Nobody (PC is server) | Full envelope, pairing, state machine, permissions |
-| **2. Tunnel escape hatch** | Anywhere reachable by user-owned tunnel (`ssh -L`, `cloudflared`, Tailscale, ZeroTier) | User | **None.** The phone connects to a tunnel endpoint exactly as if it were a LAN host. Documented as a `how-to`, not a protocol change. |
+| **2. Tunnel escape hatch** | Anywhere reachable by user-owned tunnel (`ssh -L`, `cloudflared`, Tailscale, ZeroTier) | User | **None.** The phone connects to a tunnel endpoint exactly as if it were a LAN host. Server side is live: the advertised-endpoint override (see [Endpoint & trust model](#endpoint--trust-model)) puts a mesh/tunnel endpoint in the pairing QR; recipes in [tunnel_howto.md](tunnel_howto.md). CA-trust (TLS-terminating) tunnels additionally await the mobile per-endpoint CA-trust path (`aitasks_mobile#31_3`). |
 | **3. First-party relay** | Anywhere with internet | Hosted broker (we ship a self-hostable reference impl) | QR scheme + outbound-socket model; relay-broker pinning replaces direct cert pinning |
 | **4. P2P via signaling** (optional) | Anywhere NAT allows | Relay used as signaling only; frames flow P2P over WebRTC datagrams | Same envelope wrapped in WebRTC data channels; ICE/STUN/TURN config |
 
@@ -244,15 +244,15 @@ These are designed to be transport-independent in v1 and remain identical across
 |---------|---------------|------------------|-----------------|------------------|
 | QR URI scheme | `applink://<lan-ip>:<port>/pair?t=...&fp=...` | Same scheme; `<lan-ip>:<port>` is a tunnel endpoint | `applink://<broker-host>/r/<session-id>?t=...` | Phase 3 URI + an `ice=` parameter listing STUN/TURN endpoints |
 | Server-side socket | Inbound (PC listens) | Inbound via tunnel | **Outbound** (PC dials broker) | Outbound to broker for signaling; P2P thereafter |
-| TLS trust | Self-signed cert + fingerprint pinning | Inherits tunnel's trust model (often user's CA / Tailscale identity) | Broker uses a real CA cert; **end-to-end key exchange** added on top (broker is not trusted with frame contents) | Same as Phase 3 for signaling; DTLS-SRTP for the data channel |
-| Discovery | LAN IP detected by server | User-typed or copy-pasted from tunnel UI | Broker assigns session ID at QR-generation time | Phase 3 mechanism |
+| TLS trust | Self-signed cert + fingerprint pinning | Depends on what cert the phone sees ([tunnel_howto.md](tunnel_howto.md)): mesh and raw-TCP forwards (`ssh -L`/`-R`, `ngrok tcp`) keep TLS end-to-end → self-signed cert + pin unchanged; TLS-terminating tunnels (cloudflared / `ngrok http`) show the provider's CA cert → `trust=ca`, gated on the mobile per-endpoint CA-trust path (`aitasks_mobile#31_3`) | Broker uses a real CA cert; **end-to-end key exchange** added on top (broker is not trusted with frame contents) | Same as Phase 3 for signaling; DTLS-SRTP for the data channel |
+| Discovery | LAN IP detected by server | User sets the advertised-endpoint override (`tmux.applink.advertised_*` config keys or `--advertise-*` CLI flags), pasting the host from the tunnel/mesh UI | Broker assigns session ID at QR-generation time | Phase 3 mechanism |
 | Failure modes | Wi-Fi drops | Tunnel daemon down | Broker unreachable / banned IP | ICE failure (fall back to relayed mode through TURN) |
 
 ### Why ship Phase 1 first
 
 - **Zero infra to validate the design.** Envelope, pairing, verb gating, permission profiles, and state-machine transitions can all be exercised end-to-end before we commit to operating a broker.
 - **Permanent offline fallback.** Even after Phase 3 ships, Phase 1 remains useful when the broker is down, the user is on an air-gapped network, or corporate firewalls block egress to our broker host.
-- **Tunnel users get cross-network for free** in Phase 2 — many devs already run Tailscale / `cloudflared` and need no further work from us.
+- **Tunnel users get cross-network for free** in Phase 2 — many devs already run a mesh VPN (Tailscale/ZeroTier) or can raw-TCP forward (`ssh -L`/`-R`, `ngrok tcp`), which work today with the unchanged self-signed cert + pin. TLS-terminating tunnels (`cloudflared` / `ngrok http`) additionally await the mobile per-endpoint CA-trust path (`aitasks_mobile#31_3`). Recipes: [tunnel_howto.md](tunnel_howto.md).
 - **Phase 3 design is unblocked but not started.** The relay is the larger investment (hosting, abuse mitigation, ToS, end-to-end key exchange spec) and can begin once Phase 1 has shaken out the verb/gating decisions.
 
 The relay design itself (broker dial protocol, session-ID issuance, end-to-end key exchange replacing direct fingerprint pinning, broker pricing/hosting) is **deferred to a future design task** — to be created after the Phase 1 implementation has landed and we have real usage to inform the broker contract.

@@ -103,7 +103,8 @@ security, host-key verification (≈ the cert pinning `applink` does by hand),
 public-key identity with `authorized_keys`-based revocation, channel
 multiplexing, and compression — with no custom protocol to design or version.
 This is a better-engineered version of the roadmap's "Phase 2 tunnel escape
-hatch" ([protocol.md §Roadmap to cross-network](protocol.md#roadmap-to-cross-network)).
+hatch" ([protocol.md §Roadmap to cross-network](protocol.md#roadmap-to-cross-network);
+recipes for the applink-native variant in [tunnel_howto.md](tunnel_howto.md)).
 
 ### Use case 3 — Hosted aitasks (framework on a remote box)
 
