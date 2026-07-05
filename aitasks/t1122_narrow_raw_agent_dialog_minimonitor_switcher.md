@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -8,7 +10,7 @@ labels: [aitask_monitormini, agent_chooser]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-05 10:34
-updated_at: 2026-07-05 10:48
+updated_at: 2026-07-05 10:55
 ---
 
 ## Problem
