@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [1119]
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [verification, manual]
 verifies: [1119]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-05 10:19
-updated_at: 2026-07-05 10:43
+updated_at: 2026-07-05 10:44
+completed_at: 2026-07-05 10:44
 ---
 
 ## Manual Verification Task
