@@ -8,8 +8,9 @@ labels: [applink, applink_connectivity]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1061
+implemented_with: claudecode/fable5
 created_at: 2026-07-02 23:45
-updated_at: 2026-07-05 17:31
+updated_at: 2026-07-05 17:49
 ---
 
 **A2 of the t1061 paired decomposition** (see
@@ -49,3 +50,8 @@ recipe collection and updates the protocol roadmap status.
   each command/config key exists and is spelled correctly against the A1
   implementation).
 - `hugo build` not required (aidocs only); check internal doc links resolve.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-05T14:49:38Z status=pass attempt=1 type=human
