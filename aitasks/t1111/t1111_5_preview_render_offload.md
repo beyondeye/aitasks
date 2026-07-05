@@ -83,3 +83,5 @@ Risk-gated: declares `risk_evaluated`; re-run risk evaluation at pick time.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-05T13:44:03Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-05T19:59:44Z status=pass attempt=1 type=human
