@@ -279,9 +279,15 @@ a separate task).
 
 ## Verification
 
-1. **No dangling references anywhere:**
+1. **No dangling references in shipped/source files** — scope the grep to the
+   source and shipped locations, *not* a bare `.` (which also matches legitimate
+   historical/data records that mention the old name: task/plan descriptions under
+   `.aitask-data/`, the `.aitask-explain/` codebrowser cache, `.aitask-history/`,
+   and archived plans about *other* shadow tasks — none of which are dangling refs
+   to fix):
    ```bash
-   grep -rn "shadow_concern_format" . | grep -vE "/(aiplans|aitasks)/archived" | grep -v "\.git/"
+   grep -rn "shadow_concern_format" \
+     .claude/skills/ .aitask-scripts/ aidocs/framework/ tests/ website/
    ```
    Must print **nothing**.
 2. **New doc resolves from every citation:**
@@ -320,3 +326,48 @@ a separate task).
 Follow **Step 9** of the shared task-workflow: user review → commit (code files
 via `git`; this task touches no `aitasks/`/`aiplans/` files except the plan, which
 commits via `./ait git`) → gate run (`risk_evaluated`) → archive.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-05 09:25)
+- **Requested by user:** Also update the website documentation for the shadow
+  agent skill and associated workflow docs to cover the new implementation-review
+  capability.
+- **Changes made:** Added a new "Review the implementation" section to the shadow
+  agent workflow page (its own capability, distinct from plan review — reviews the
+  real diff / working-tree state + Final Implementation Notes, with the too-early
+  gate); threaded implementation review into the concern-forwarding section and
+  the page's frontmatter description; updated the workflows `_index.md` shadow
+  bullet; and broadened the two minimonitor how-to enumerations (shadow summary +
+  concern-picker trigger) to include implementation review.
+- **Files affected:** `website/content/docs/workflows/shadow-agent.md`,
+  `website/content/docs/workflows/_index.md`,
+  `website/content/docs/tuis/minimonitor/how-to.md`.
+
+### Change Request 2 (2026-07-05 09:40)
+- **Requested by user (live test of the shadow impl-challenge):** two concerns +
+  a picker symptom.
+- **Concern 1 (archived-plan fallback) — valid, fixed:** `impl-challenge.md`
+  resolved the plan only via `aitask_shadow_context.sh`, which returns only the
+  *active* plan and never scans the archive, so a committed/archived task tripped
+  the "too early" gate and missed the archived plan's Final Implementation Notes.
+  Added an archived-plan fallback (`aiplans/archived/p<N>_*.md` /
+  `aiplans/archived/p<parent>/p<parent>_<child>_*.md`) to input 1 and gated the
+  too-early warning behind it.
+- **Concern 2 (over-broad verification grep) — valid, fixed:** the `grep -rn
+  shadow_concern_format .` verification also matched legitimate historical/data
+  records (`.aitask-data/` task+plan descriptions, `.aitask-explain/` cache,
+  `.aitask-history/`), so "must print nothing" was false even with source refs
+  correctly repointed. Scoped the grep to `.claude/skills/ .aitask-scripts/
+  aidocs/framework/ tests/ website/`.
+- **Picker symptom (minimonitor `c` showed an earlier block, not the new impl
+  concerns):** analysis — capture *depth* is not the cause (the tail capture always
+  includes the freshly-emitted block; a deeper window only adds older lines).
+  For an older block to win, the new block's `===AITASK-CONCERNS===` fence must be
+  absent from the pane — i.e. the shadow did not emit the fenced block (or emitted
+  trailing content after it) on that run. Hardened `impl-challenge.md` to emit the
+  concern block as the **final** output with nothing after it. Did **not**
+  guess-patch minimonitor/parser; a definitive fix there is gated on confirming
+  whether the block was actually emitted on the failing run.
+- **Files affected:** `.claude/skills/aitask-shadow/impl-challenge.md`,
+  `aiplans/p1119_shadow_implementation_challenge_subprocedure.md` (verification).
