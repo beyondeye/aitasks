@@ -402,3 +402,36 @@ commits via `./ait git`) → gate run (`risk_evaluated`) → archive.
 - **Files affected:** `.claude/skills/aitask-shadow/impl-challenge.md`,
   `plan-challenge.md`, `plan-assumptions.md`, `plan-diagnose-errors.md`,
   `tests/test_concern_parser.py`.
+
+## Final Implementation Notes
+- **Actual work done:** Added `.claude/skills/aitask-shadow/impl-challenge.md`
+  (adversarial implementation review: task+plan+real-diff/working-tree +
+  Final Implementation Notes, too-early gate with archived-plan fallback, same
+  `===AITASK-CONCERNS===` output). Relocated the concern-format SoT doc to
+  `.claude/skills/aitask-shadow/concern-format.md` (ships to installs), deleted
+  `aidocs/framework/shadow_concern_format.md`, and repointed all 8 references +
+  the new file. Registered impl-challenge in `SKILL.md` Step 3. Added website
+  docs for the new capability. Root-caused and fixed a live picker mis-parse.
+- **Deviations from plan:** (1) Website docs (shadow-agent workflow page,
+  workflows `_index.md`, minimonitor how-to) added at user request (CR1).
+  (2) Scope expanded to fix a **pre-existing t1037 latent bug**: the shadow
+  sub-procedure docs embedded parser-live example concern blocks that minimonitor
+  could forward as real concerns. Fixed across all 4 runtime-read docs
+  (`impl-challenge`, `plan-challenge`, `plan-assumptions`, `plan-diagnose-errors`)
+  by presenting the format with inline sentinels + separate item lines, plus a
+  guard test (`TestShadowDocsNotParserLive`). (3) Added an archived-plan fallback
+  and scoped the verification grep (CR2).
+- **Issues encountered:** The picker forwarded template placeholders ("concerns
+  written before") because `concern_parser` scans the whole shadow pane
+  (last-block-wins) and the docs' literal examples were themselves parseable
+  blocks. Reproduced deterministically, then removed the hazard at the source.
+  Capture *depth* was ruled out (the freshly-emitted block always sits at the
+  pane tail). No `concern_parser.py`/minimonitor logic was changed.
+- **Key decisions:** Delete-and-redirect the concern doc (single SoT) over a
+  thin-pointer stub. Fix the parser-live hazard structurally (doc presentation +
+  enforcing guard test) rather than a fragile ordering trick or a minimonitor
+  patch that cannot distinguish a real emission from a quoted example.
+- **Upstream defects identified:** The parser-live-example hazard was a
+  pre-existing defect in the t1037 shadow concern infrastructure (present since
+  `plan-challenge.md` shipped), not seeded by this task — it was fixed here in
+  full rather than deferred. None other.
