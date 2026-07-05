@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.27.1
+
+### Bug Fixes
+
+- **Cross-repo child creation** (t1117): You can now create a child task in a linked project by combining `--project` and `--parent`, and project-routed creation returns an absolute path to the new task.
+- **Inapplicable board footer actions hidden** (t1112): The board no longer offers footer actions (Commit, Pick, Brainstorm, Cross-repo, Toggle Children, etc.) that don't apply to the current selection or focus.
+
+### Improvements
+
+- **Shadow implementation review** (t1119): The shadow companion can now critically interrogate a finished implementation — reviewing the task, plan, and real diff against the final notes — as a new adversarial review mode alongside its planning-stage checks.
+
 ## v0.27.0
 
 ### Features
