@@ -41,6 +41,11 @@ class _FakeMonitor:
         # preview render (t1111_5) routes through. Run inline for determinism.
         return fn()
 
+    def get_shadow_snapshot(self, followed_pane_id):
+        # Mirrors TmuxMonitor.get_shadow_snapshot (t1133): no shadow panes in
+        # these fixtures (shadow coverage lives in test_monitor_shadow_status.py).
+        return None
+
     async def capture_all_classified_async(self):
         # Two-phase produce (t1111_4); opaque classified payload — commit returns
         # the pre-built snapshots.

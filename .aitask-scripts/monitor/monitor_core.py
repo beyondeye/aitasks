@@ -291,6 +291,20 @@ def is_shadow_target(shadow_target: str) -> bool:
     return bool(shadow_target.strip())
 
 
+def _pane_id_num(pane_id: str) -> int:
+    """Numeric sort key for a tmux pane id (``%7`` → 7); malformed → -1.
+
+    tmux assigns pane ids monotonically, so the largest number is the most
+    recently created pane. Used to pick the newest shadow deterministically
+    when more than one targets the same followed pane (an orphan that escaped
+    cleanup) — mirrors ``match_shadow_pane``'s defense in minimonitor (t1133).
+    """
+    try:
+        return int(pane_id.lstrip("%"))
+    except (ValueError, AttributeError):
+        return -1
+
+
 def count_other_real_agents(
     pane_records: Iterable[tuple[str, bool]], exclude_pane_id: str
 ) -> int:
@@ -321,6 +335,11 @@ class TmuxPaneInfo:
     height: int
     category: PaneCategory
     session_name: str = ""   # populated by discovery; "" only when constructed outside a list-panes path
+    # Non-empty ⇒ this pane is a shadow companion (t986/t1133): the value is the
+    # FOLLOWED agent's pane id (from `@aitask_shadow_target`). Shadow panes are
+    # excluded from agent-facing discovery and from `_pane_cache`; they exist
+    # only in the shadow-status capture path (see `_parse_list_panes`).
+    shadow_target: str = ""
 
 
 @dataclass
@@ -922,6 +941,13 @@ class TmuxMonitor:
         # pusher, applink router) is protected uniformly.
         self._capture_generation: int = 0
         self._pane_cache: dict[str, TmuxPaneInfo] = {}
+        # Shadow-status map (t1133): followed pane id → the bound shadow pane's
+        # latest PaneSnapshot. Rebuilt wholesale by every `commit_snapshots`
+        # (loop-side, generation-guarded — invariant B) and cleared by the sync
+        # `capture_all` path, so it can never go stale: absent, never frozen.
+        # Shadow panes themselves are NEVER in `_pane_cache` (cache-boundary
+        # invariant — applink `get_pane`/`capture_pane` stay shadow-blind).
+        self._shadow_snapshots: dict[str, PaneSnapshot] = {}
         self._sessions_cache: tuple[float, list[AitasksSession]] | None = None
         self._compare_mode_overrides: dict[str, str] = {}
         self._backend: TmuxControlBackend | None = None
@@ -1123,8 +1149,24 @@ class TmuxMonitor:
         "#{@aitask_shadow_target}",   # shadow helper marker (t986); "" when unset
     ])
 
-    def _parse_list_panes(self, stdout: str, session_name: str) -> list[TmuxPaneInfo]:
+    def _parse_list_panes(
+        self, stdout: str, session_name: str
+    ) -> tuple[list[TmuxPaneInfo], list[TmuxPaneInfo]]:
+        """Parse ``list-panes`` output into ``(agent_facing_panes, shadow_panes)``.
+
+        Shadow companion panes (t986) are helpers — kept OUT of the first list
+        so they never appear in agent lists, snapshots, or kill/sibling logic,
+        exactly like the minimonitor/monitor panes filtered below. The marker is
+        authoritative even for a same-window shadow, which shares the agent's
+        window name. Since t1133 they are returned separately (second list) so
+        the live capture pipeline can classify their state for the shadow-status
+        glyph. **Cache-boundary invariant:** only agent-facing panes enter
+        ``_pane_cache`` — shadows never do, so every cache-backed consumer
+        (``get_pane``, ``capture_pane``, compare-mode state, applink) stays
+        shadow-blind by construction.
+        """
         panes: list[TmuxPaneInfo] = []
+        shadows: list[TmuxPaneInfo] = []
         # Preserve an empty final @aitask_shadow_target field on non-shadow panes.
         for line in stdout.splitlines():
             parts = line.split("\t")
@@ -1133,13 +1175,6 @@ class TmuxMonitor:
             pane_id = parts[3]
             if self.exclude_pane and pane_id == self.exclude_pane:
                 continue
-            # Shadow companion panes (t986) are helpers — drop them from
-            # discovery entirely so they never appear in agent lists, snapshots,
-            # or kill/sibling logic, exactly like the minimonitor/monitor panes
-            # filtered below. The marker is authoritative even for a same-window
-            # shadow, which shares the agent's window name.
-            if is_shadow_target(parts[8]):
-                continue
             try:
                 pane_pid = int(parts[4])
                 width = int(parts[6])
@@ -1147,6 +1182,24 @@ class TmuxMonitor:
             except ValueError:
                 continue
             window_name = parts[1]
+            if is_shadow_target(parts[8]):
+                # Category forced to AGENT: a shadow IS a coding-agent CLI, so
+                # the prompt scan + idle bookkeeping must apply regardless of
+                # its window name (a same-window shadow shares the agent's).
+                shadows.append(TmuxPaneInfo(
+                    window_index=parts[0],
+                    window_name=window_name,
+                    pane_index=parts[2],
+                    pane_id=pane_id,
+                    pane_pid=pane_pid,
+                    current_command=parts[5],
+                    width=width,
+                    height=height,
+                    category=PaneCategory.AGENT,
+                    session_name=session_name,
+                    shadow_target=parts[8].strip(),
+                ))
+                continue
             category = self.classify_pane(window_name)
             # Filter companion panes (minimonitor/monitor) in agent windows
             if category == PaneCategory.AGENT and _is_companion_process(pane_pid):
@@ -1165,7 +1218,7 @@ class TmuxMonitor:
             )
             panes.append(pane)
             self._pane_cache[pane_id] = pane
-        return panes
+        return panes, shadows
 
     def _target_sessions(self) -> list[str]:
         """Session names to enumerate in multi mode (sorted for stable display)."""
@@ -1176,8 +1229,13 @@ class TmuxMonitor:
         sessions = await self._discover_sessions_cached_async()
         return sorted(s.session for s in sessions)
 
-    def _discover_panes_multi(self) -> list[TmuxPaneInfo]:
+    _PANE_SORT_KEY = staticmethod(
+        lambda p: (p.session_name, p.window_index, p.pane_index)
+    )
+
+    def _discover_panes_multi(self) -> tuple[list[TmuxPaneInfo], list[TmuxPaneInfo]]:
         panes: list[TmuxPaneInfo] = []
+        shadows: list[TmuxPaneInfo] = []
         for sess in self._target_sessions():
             rc, stdout = self.tmux_run([
                 "list-panes", "-s", "-t", tmux_session_target(sess),
@@ -1185,14 +1243,19 @@ class TmuxMonitor:
             ])
             if rc != 0:
                 continue
-            panes.extend(self._parse_list_panes(stdout, sess))
-        panes.sort(key=lambda p: (p.session_name, p.window_index, p.pane_index))
-        return panes
+            sess_panes, sess_shadows = self._parse_list_panes(stdout, sess)
+            panes.extend(sess_panes)
+            shadows.extend(sess_shadows)
+        panes.sort(key=self._PANE_SORT_KEY)
+        shadows.sort(key=self._PANE_SORT_KEY)
+        return panes, shadows
 
-    async def _discover_panes_multi_async(self) -> list[TmuxPaneInfo]:
+    async def _discover_panes_multi_async(
+        self,
+    ) -> tuple[list[TmuxPaneInfo], list[TmuxPaneInfo]]:
         sessions = await self._target_sessions_async()
         if not sessions:
-            return []
+            return [], []
         results = await asyncio.gather(*[
             self._tmux_async([
                 "list-panes", "-s", "-t", tmux_session_target(sess),
@@ -1201,25 +1264,40 @@ class TmuxMonitor:
             for sess in sessions
         ])
         panes: list[TmuxPaneInfo] = []
+        shadows: list[TmuxPaneInfo] = []
         for sess, (rc, stdout) in zip(sessions, results):
             if rc != 0:
                 continue
-            panes.extend(self._parse_list_panes(stdout, sess))
-        panes.sort(key=lambda p: (p.session_name, p.window_index, p.pane_index))
-        return panes
+            sess_panes, sess_shadows = self._parse_list_panes(stdout, sess)
+            panes.extend(sess_panes)
+            shadows.extend(sess_shadows)
+        panes.sort(key=self._PANE_SORT_KEY)
+        shadows.sort(key=self._PANE_SORT_KEY)
+        return panes, shadows
 
     def discover_panes(self) -> list[TmuxPaneInfo]:
+        """Agent-facing panes only (shadow companions excluded) — the public
+        discovery contract every non-shadow consumer relies on."""
         if self.multi_session:
-            return self._discover_panes_multi()
+            return self._discover_panes_multi()[0]
         rc, stdout = self.tmux_run([
             "list-panes", "-s", "-t", tmux_session_target(self.session),
             "-F", self._LIST_PANES_FORMAT,
         ])
         if rc != 0:
             return []
-        return self._parse_list_panes(stdout, self.session)
+        return self._parse_list_panes(stdout, self.session)[0]
 
     async def discover_panes_async(self) -> list[TmuxPaneInfo]:
+        """Async sibling of :meth:`discover_panes` (agent-facing panes only)."""
+        return (await self.discover_panes_with_shadows_async())[0]
+
+    async def discover_panes_with_shadows_async(
+        self,
+    ) -> tuple[list[TmuxPaneInfo], list[TmuxPaneInfo]]:
+        """Discovery for the live capture pipeline (t1133): returns
+        ``(agent_facing_panes, shadow_panes)`` from the SAME ``list-panes``
+        output — shadow discovery costs zero extra tmux round-trips."""
         if self.multi_session:
             return await self._discover_panes_multi_async()
         rc, stdout = await self._tmux_async(
@@ -1227,7 +1305,7 @@ class TmuxMonitor:
              "-F", self._LIST_PANES_FORMAT],
         )
         if rc != 0:
-            return []
+            return [], []
         return self._parse_list_panes(stdout, self.session)
 
     def discover_window_panes(self, window_id: str) -> list[TmuxPaneInfo]:
@@ -1402,6 +1480,16 @@ class TmuxMonitor:
         """
         return self._pane_cache.get(pane_id)
 
+    def get_shadow_snapshot(self, followed_pane_id: str) -> "PaneSnapshot | None":
+        """Latest snapshot of the shadow bound to ``followed_pane_id`` (t1133).
+
+        ``None`` when the agent has no live shadow (or the shadow's capture
+        failed this tick). Populated only by the async live path
+        (:meth:`commit_snapshots`); the sync :meth:`capture_all` clears the map,
+        so a stale value is never returned.
+        """
+        return self._shadow_snapshots.get(followed_pane_id)
+
     def commit_snapshot(
         self,
         gen: int,
@@ -1443,7 +1531,8 @@ class TmuxMonitor:
         return self.commit_snapshot(gen, pane, content, result)
 
     async def capture_pane_content_async(
-        self, pane_id: str, capture_lines: int | None = None
+        self, pane_id: str, capture_lines: int | None = None,
+        pane: "TmuxPaneInfo | None" = None,
     ) -> tuple["TmuxPaneInfo", str] | None:
         """Raw one-shot capture for consumers (the applink history RPC) that must
         NOT perturb idle/awaiting-input state.
@@ -1454,8 +1543,14 @@ class TmuxMonitor:
         driven solely by the live ``capture_all_async`` path. A deeper-than-live
         capture (history pulls ~2000 lines vs the 200-line live capture) would
         otherwise reset the pane's idle clock on every scrollback request.
+
+        ``pane`` (t1133): when the caller already holds the ``TmuxPaneInfo``
+        (the shadow-status path — shadow panes are deliberately NOT in
+        ``_pane_cache``), pass it to skip the cache lookup. Cache-backed
+        callers keep the id-only form.
         """
-        pane = self._pane_cache.get(pane_id)
+        if pane is None:
+            pane = self._pane_cache.get(pane_id)
         if pane is None:
             return None
         rc, content = await self._tmux_async(self._capture_args(pane_id, capture_lines))
@@ -1522,8 +1617,17 @@ class TmuxMonitor:
                 self._compare_mode_overrides.pop(pid, None)
 
     def capture_all(self) -> dict[str, PaneSnapshot]:
+        """Synchronous all-pane capture (debug CLI `tmux_monitor.py` only).
+
+        Agent-facing panes only — shadow-status state (t1133) is produced
+        solely by the async live path (`capture_all_classified_async` →
+        `commit_snapshots`). This path CLEARS `_shadow_snapshots` so a sync
+        cycle can never leave stale shadow state visible behind
+        `get_shadow_snapshot`: the glyph goes absent, never frozen.
+        """
         panes = self.discover_panes()
         self._clean_stale({p.pane_id for p in panes})
+        self._shadow_snapshots = {}
 
         snapshots: dict[str, PaneSnapshot] = {}
         for pane in panes:
@@ -1547,18 +1651,22 @@ class TmuxMonitor:
         Mutates **no** ``_last_content`` state; that is the commit's job.
         """
         gen = self._next_generation()
-        panes = await self.discover_panes_async()
+        panes, shadows = await self.discover_panes_with_shadows_async()
 
         # Raw captures concurrently (non-finalizing); tolerate per-pane faults.
+        # Shadow panes (t1133) join the SAME gather (invariant E — one cycle,
+        # no separate fan-out); they pass their pane object explicitly because
+        # they are never in `_pane_cache` (cache-boundary invariant).
+        all_panes = panes + shadows
         raw_results = await asyncio.gather(
-            *(self.capture_pane_content_async(p.pane_id) for p in panes),
+            *(self.capture_pane_content_async(p.pane_id, pane=p) for p in all_panes),
             return_exceptions=True,
         )
 
         # Read per-pane mode on the loop (invariant B) and assemble the batch.
         to_classify: list[tuple[TmuxPaneInfo, str, str]] = []
         failed: list[TmuxPaneInfo] = []
-        for pane, res in zip(panes, raw_results):
+        for pane, res in zip(all_panes, raw_results):
             if isinstance(res, tuple):
                 _, content = res
                 to_classify.append((pane, content, self.get_compare_mode(pane.pane_id)))
@@ -1589,16 +1697,50 @@ class TmuxMonitor:
         the assembled snapshots. Panes whose raw fetch failed (``result is None``)
         are kept in the clean-stale set but produce no snapshot this tick, so their
         prior ``_last_content`` survives — matching the pre-split behaviour.
+
+        Shadow split (t1133): entries whose ``pane.shadow_target`` is non-empty
+        are committed into a **fresh** ``_shadow_snapshots`` map (keyed by the
+        FOLLOWED pane's id) instead of the returned dict, so shadow panes never
+        surface in agent-facing snapshots. Rebuilt-wholesale semantics: a dead
+        shadow disappears next tick, and a shadow whose raw fetch transiently
+        failed produces no entry this tick (glyph hidden for the tick — the
+        same one-tick dropout a failed agent pane's row has; deliberately no
+        stale-state preservation, which would freeze the idle clock on screen).
+        Duplicate shadows targeting one followed pane: the newest (largest
+        ``%N``) wins, mirroring ``match_shadow_pane``.
         """
         if gen != self._capture_generation:
             return None
         self._clean_stale({pane.pane_id for pane, _, _ in classified})
+        # Cache-boundary enforcement (t1133): a shadow pane discovered BEFORE
+        # its `@aitask_shadow_target` option was stamped (the spawner sets it
+        # after the pane exists) may have been cached as a normal agent on that
+        # earlier tick — and `_clean_stale` keeps it because the shadow id is
+        # in the classified keep-set. Evict such entries from every
+        # cache-backed map here (loop-side), so `get_pane`/`capture_pane`/
+        # compare-mode state stay shadow-blind even across that race.
+        # (`_last_content`/`_last_change_time` deliberately keep shadow ids —
+        # that is the shadow's idle bookkeeping.)
+        for pane, _, _ in classified:
+            if pane.shadow_target:
+                self._pane_cache.pop(pane.pane_id, None)
+                self._compare_mode_overrides.pop(pane.pane_id, None)
         now = time.monotonic()
         snapshots: dict[str, PaneSnapshot] = {}
+        shadow_snaps: dict[str, PaneSnapshot] = {}
         for pane, content, result in classified:
             if result is None:
                 continue
-            snapshots[pane.pane_id] = self._apply_bookkeeping(pane, content, result, now)
+            snap = self._apply_bookkeeping(pane, content, result, now)
+            if pane.shadow_target:
+                prev = shadow_snaps.get(pane.shadow_target)
+                if prev is None or (
+                    _pane_id_num(pane.pane_id) > _pane_id_num(prev.pane.pane_id)
+                ):
+                    shadow_snaps[pane.shadow_target] = snap
+            else:
+                snapshots[pane.pane_id] = snap
+        self._shadow_snapshots = shadow_snaps
         return snapshots
 
     async def capture_all_async(self) -> dict[str, PaneSnapshot] | None:

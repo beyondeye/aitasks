@@ -34,7 +34,8 @@ from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
     TaskDetailDialog, KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
-    format_compare_mode_glyph, format_pane_status,
+    format_compare_mode_glyph, format_pane_status, format_shadow_glyph,
+    format_state_dot,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from rich.text import Text  # noqa: E402
@@ -1010,22 +1011,24 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return stdout.strip() or None
 
     def _format_agent_card_text(self, snap: PaneSnapshot) -> str:
-        if getattr(snap, "awaiting_input", False):
-            dot = "[bold magenta]\u25cf[/]"
-        elif snap.is_idle:
-            dot = "[yellow]\u25cf[/]"
-        else:
-            dot = "[green]\u25cf[/]"
+        dot = format_state_dot(snap)
         status = format_pane_status(snap)
         if self._monitor is not None:
             mode = self._monitor.get_compare_mode(snap.pane.pane_id)
             is_override = self._monitor.is_compare_mode_overridden(snap.pane.pane_id)
+            shadow_snap = self._monitor.get_shadow_snapshot(snap.pane.pane_id)
         else:
             mode = "stripped"
             is_override = False
+            shadow_snap = None
         glyph = format_compare_mode_glyph(mode, is_override)
+        # Shadow-status glyph (t1133): second colored glyph right after the
+        # agent's own dot when a shadow agent is bound to this pane; empty
+        # string (no placeholder) keeps non-shadowed rows unchanged.
+        shadow = format_shadow_glyph(shadow_snap)
+        shadow_part = f" {shadow}" if shadow else ""
         text = (
-            f" {dot} {glyph} {snap.pane.window_index}:{snap.pane.window_name} "
+            f" {dot}{shadow_part} {glyph} {snap.pane.window_index}:{snap.pane.window_name} "
             f"({snap.pane.pane_index})  {status}"
         )
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)

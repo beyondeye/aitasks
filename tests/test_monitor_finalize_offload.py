@@ -68,12 +68,20 @@ def _make_monitor(panes, content, *, patterns=None):
     async def discover(*, include_registered: bool = False):
         return list(panes)
 
-    async def cap_content(pane_id, capture_lines=None):
+    async def discover_with_shadows():
+        # No shadow panes in these fixtures (shadow coverage lives in
+        # test_monitor_shadow_status.py, t1133).
+        return list(panes), []
+
+    async def cap_content(pane_id, capture_lines=None, pane=None):
         if pane_id not in content:
             return None
-        return mon._pane_cache[pane_id], content[pane_id]
+        if pane is None:
+            pane = mon._pane_cache[pane_id]
+        return pane, content[pane_id]
 
     mon.discover_panes_async = discover
+    mon.discover_panes_with_shadows_async = discover_with_shadows
     mon.capture_pane_content_async = cap_content
     return mon
 

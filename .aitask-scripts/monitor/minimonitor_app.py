@@ -39,7 +39,8 @@ from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     ConcernPickerModal,
-    format_compare_mode_glyph, format_pane_status,
+    format_compare_mode_glyph, format_pane_status, format_shadow_glyph,
+    format_state_dot,
 )
 from monitor.concern_parser import (  # noqa: E402
     build_clipboard_payload, has_concern_block, parse_concerns,
@@ -606,24 +607,27 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _agent_card_text(self, snap: PaneSnapshot) -> str:
         """Build the compact card text (status line + optional task title) for
-        an agent snapshot.
+        a general-list agent row (``_rebuild_pane_list`` is the only caller).
 
-        Shared by the docked followed-agent panel (``_rebuild_own_agent_panel``)
-        and the general pane list (``_rebuild_pane_list``).
+        NOT used by the docked followed-agent panel — that renders via
+        ``_own_agent_identity_text`` and is static by design: no live status
+        dot, no compare-mode glyph, and no shadow-status glyph (t1133).
         """
-        if getattr(snap, "awaiting_input", False):
-            dot = "[bold magenta]●[/]"
-        elif snap.is_idle:
-            dot = "[yellow]●[/]"
-        else:
-            dot = "[green]●[/]"
+        dot = format_state_dot(snap)
         status = format_pane_status(snap)
 
         glyph = "?"
+        shadow = ""
         if self._monitor is not None:
             mode = self._monitor.get_compare_mode(snap.pane.pane_id)
             is_override = self._monitor.is_compare_mode_overridden(snap.pane.pane_id)
             glyph = format_compare_mode_glyph(mode, is_override)
+            # Shadow-status glyph (t1133): second colored glyph right after
+            # the agent's own dot when a shadow is bound; "" keeps
+            # non-shadowed rows unchanged.
+            shadow = format_shadow_glyph(
+                self._monitor.get_shadow_snapshot(snap.pane.pane_id)
+            )
 
         # Truncate long window names for narrow display
         name = snap.pane.window_name
@@ -631,7 +635,8 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if len(name) > max_name:
             name = name[:max_name - 1] + "…"
 
-        line1 = f"{dot} {glyph} {name}  {status}"
+        shadow_part = f" {shadow}" if shadow else ""
+        line1 = f"{dot}{shadow_part} {glyph} {name}  {status}"
 
         # Optional task title line
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
