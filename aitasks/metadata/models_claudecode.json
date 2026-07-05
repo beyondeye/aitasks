@@ -803,23 +803,23 @@
       "verifiedstats": {
         "pick": {
           "all_time": {
-            "runs": 2,
-            "score_sum": 200
+            "runs": 3,
+            "score_sum": 300
           },
           "prev_month": {
-            "period": "",
-            "runs": 0,
-            "score_sum": 0
-          },
-          "month": {
             "period": "2026-06",
             "runs": 2,
             "score_sum": 200
           },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
           "week": {
-            "period": "2026-W24",
-            "runs": 2,
-            "score_sum": 200
+            "period": "2026-W27",
+            "runs": 1,
+            "score_sum": 100
           }
         },
         "explore": {
