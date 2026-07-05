@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: [1030]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_attachments, html_plans]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 created_at: 2026-06-25 11:04
-updated_at: 2026-06-30 11:43
+updated_at: 2026-07-05 17:28
 ---
 
 ## Heads-up — what t1030 actually shipped (verified t1030_4, 2026-06-30)
