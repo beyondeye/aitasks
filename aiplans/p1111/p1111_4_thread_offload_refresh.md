@@ -359,3 +359,46 @@ generation-token-before-commit discipline for **t1111_5** to reuse.
 
 _Risk-gated: declares `risk_evaluated`. No separate before/after mitigation
 tasks — all mitigations are in-scope inline work (invariants, tests, py-spy)._
+
+## Final Implementation Notes
+- **Actual work done:** Implemented the full two-phase offload as planned.
+  `monitor_core.py`: module-level pure `classify_content` + `ClassifyResult`
+  (with per-pane fail-closed `_classify_one`/`_classify_batch`); the injectable
+  `_run_offloaded` seam; TmuxMonitor-owned `_capture_generation` +
+  `_next_generation()` + read-only `capture_generation` property; two-phase
+  `capture_all_classified_async` (produce/offload) + generation-guarded
+  `commit_snapshots` (loop-side commit, `None` when superseded); single-pane
+  `capture_pane_classified_async` + `commit_snapshot`; `capture_pane_async`
+  moved to reserve-before-await + guarded commit; `capture_all_async` return
+  type now `dict | None`. `monitor_app.py`: `_refresh_data` stays a loop
+  coroutine using the two-phase form with a pre-commit generation check;
+  `_fast_preview_refresh` bumps the shared token, pins the focused pane id, and
+  applies the focus-identity guard. `minimonitor_app.py` and `applink/pusher.py`
+  each take the one-line `snaps is None → return` supersession guard.
+- **Deviations from plan:** None material. The `capture_all_async` contract
+  change (`dict | None`) landed exactly as designed; external call sites updated.
+- **Issues encountered:** This task was finalized in a **resumed session** after
+  the original implementing agent crashed (same-host reclaim of a dead PID). The
+  reclaim was accepted with prior uncommitted work intact; the implementation
+  was already complete on the working tree. No code changes were needed on
+  resume — only verification, attribution, and commit.
+- **Key decisions:** The generation token lives on `TmuxMonitor` (not
+  MonitorApp) so `_last_content`/`_last_change_time` are protected at their
+  source across all three app instances (monitor, minimonitor, pusher). Writes
+  are ordered by **reservation time**, not write time — async paths reserve
+  before their tmux await; sync `_finalize_capture` bumps-and-writes atomically.
+- **py-spy verification:** NOT captured in this resumed session — the py-spy
+  before/after recipe requires a live interactive `ait monitor` + tmux
+  `agent-*` session, and no pre-fix baseline survived the crash. Per the plan's
+  explicit fallback, the behavioral confirmation that the freeze is removed
+  defers to sibling **t1111_6** (manual verification of the monitor offload).
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (t1111_5):** Reuse the established seam unchanged:
+  (1) `_run_offloaded(fn)` on TmuxMonitor is the single offload point — route the
+  preview-render offload through it; (2) the two-phase
+  `capture_*_classified_async` (reserve gen + offload produce) → `commit_*`
+  (generation-guarded loop-side commit, returns `None` when superseded) split is
+  the pattern to follow; (3) the generation-token-**before-commit** discipline
+  (reserve before await, guard at commit, order by reservation time) is REQUIRED
+  for any new finalizing path — do not bump at write time. `_capture_generation`
+  is monitor-owned; bump it at the START of every new capture path.
