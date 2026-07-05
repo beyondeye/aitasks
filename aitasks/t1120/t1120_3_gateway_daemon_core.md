@@ -8,8 +8,9 @@ labels: [chat_surface, python]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1120
+implemented_with: claudecode/fable5
 created_at: 2026-07-05 11:59
-updated_at: 2026-07-05 23:10
+updated_at: 2026-07-05 23:55
 ---
 
 ## Context
@@ -90,3 +91,8 @@ All tests against `MockChatAdapter` (no live-platform calls):
   state persisted.
 - Rate-limit ceiling enforced (t985-style bound test).
 - No-Textual import contract test (mirror `test_applink_headless.sh`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-05T20:55:23Z status=pass attempt=1 type=human
