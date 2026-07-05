@@ -151,6 +151,8 @@ class PushScheduler:
         if self._over_high_water():
             return  # coalesce: skip this tick's sends, keep force set intact
         snaps = await self._monitor.capture_all_async()
+        if snaps is None:
+            return  # superseded by a newer overlapping capture (t1111_4); skip tick
         if self._tasks is not None:
             update_mapping = getattr(self._tasks, "update_session_mapping", None)
             get_mapping = getattr(self._monitor, "get_session_to_project_mapping", None)

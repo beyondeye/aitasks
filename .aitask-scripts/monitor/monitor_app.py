@@ -692,7 +692,18 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         saved_pane_id = self._focused_pane_id
         saved_zone = self._active_zone
 
-        self._snapshots = await self._monitor.capture_all_async()
+        # Two-phase capture (t1111_4): offload the strip/prompt-regex CPU work,
+        # then commit under the monitor-owned generation guard. If a newer refresh
+        # reserved a later generation while we were off-loop, discard this cycle —
+        # skip the DOM rebuild entirely (the newer cycle owns it) and never write
+        # stale content into _last_content / _snapshots.
+        gen, classified = await self._monitor.capture_all_classified_async()
+        if self._monitor.capture_generation != gen:
+            return
+        snaps = self._monitor.commit_snapshots(gen, classified)
+        if snaps is None:
+            return
+        self._snapshots = snaps
         # Refresh the per-session project-root mapping so cross-session task
         # data resolves from the right project. Cheap — piggybacks on the
         # TmuxMonitor sessions cache TTL.
@@ -755,12 +766,29 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         )
 
     async def _fast_preview_refresh(self) -> None:
-        """Lightweight refresh — only re-capture the focused pane for preview."""
-        if self._monitor is None or self._focused_pane_id is None:
+        """Lightweight refresh — only re-capture the focused pane for preview.
+
+        Uses the same two-phase/generation discipline as the full refresh
+        (t1111_4): the classify work is offloaded, and the focused pane id is
+        **pinned before the await** so a focus change during the offload can't
+        commit pane A's snapshot while the preview UI is updated for pane B.
+        """
+        if self._monitor is None:
             return
-        snap = await self._monitor.capture_pane_async(self._focused_pane_id)
-        if snap is not None:
-            self._snapshots[self._focused_pane_id] = snap
+        pane_id = self._focused_pane_id
+        if pane_id is None:
+            return
+        gen, pane, content, result = \
+            await self._monitor.capture_pane_classified_async(pane_id)
+        if pane is None:
+            return
+        if self._monitor.capture_generation != gen:
+            return  # superseded by a newer capture → discard
+        snap = self._monitor.commit_snapshot(gen, pane, content, result)
+        if snap is None:
+            return
+        self._snapshots[pane_id] = snap  # write under the PINNED id
+        if pane_id == self._focused_pane_id:  # focus-identity guard
             self._update_content_preview()
 
     def _schedule_delayed_refresh(self, delay: float = 0.3) -> None:

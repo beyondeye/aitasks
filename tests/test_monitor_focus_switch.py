@@ -30,9 +30,39 @@ class _FakeMonitor:
 
     def __init__(self, snapshots: dict[str, PaneSnapshot]) -> None:
         self.snapshots = snapshots
+        self._gen = 0
 
-    async def capture_all_async(self) -> dict[str, PaneSnapshot]:
+    @property
+    def capture_generation(self) -> int:
+        return self._gen
+
+    async def capture_all_classified_async(self):
+        # Two-phase produce (t1111_4); opaque classified payload — commit returns
+        # the pre-built snapshots.
+        self._gen += 1
+        classified = [(s.pane, s.content, None) for s in self.snapshots.values()]
+        return self._gen, classified
+
+    def commit_snapshots(self, gen, classified):
+        if gen != self._gen:
+            return None
         return dict(self.snapshots)
+
+    async def capture_all_async(self) -> dict[str, PaneSnapshot] | None:
+        gen, classified = await self.capture_all_classified_async()
+        return self.commit_snapshots(gen, classified)
+
+    async def capture_pane_classified_async(self, pane_id, capture_lines=None):
+        self._gen += 1
+        snap = self.snapshots.get(pane_id)
+        if snap is None:
+            return self._gen, None, None, None
+        return self._gen, snap.pane, snap.content, None
+
+    def commit_snapshot(self, gen, pane, content, result):
+        if gen != self._gen:
+            return None
+        return self.snapshots.get(pane.pane_id)
 
     def get_session_to_project_mapping(self) -> dict[str, Path]:
         return {}

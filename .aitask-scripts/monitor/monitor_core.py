@@ -158,6 +158,84 @@ def _prompt_detection_text(s: str) -> str:
     return "\n".join(lines[-_PROMPT_DETECTION_TAIL_LINES:])
 
 
+@dataclass
+class ClassifyResult:
+    """Pure result of off-loop content classification for one pane (t1111_4).
+
+    Carries only plain data so it can cross the ``asyncio.to_thread`` boundary.
+    Holds no ``TmuxMonitor`` state; the loop-side commit
+    (:meth:`TmuxMonitor.commit_snapshots`) turns it into the durable
+    ``_last_content`` / ``_last_change_time`` bookkeeping and a ``PaneSnapshot``.
+    """
+    compare_value: str
+    awaiting_input: bool = False
+    awaiting_input_kind: str = ""
+
+
+def classify_content(
+    content: str,
+    mode: str,
+    prompt_patterns: list[PromptPattern],
+    category: PaneCategory,
+) -> ClassifyResult:
+    """Pure, module-level CPU work extracted from ``_finalize_capture`` (t1111_4).
+
+    Runs the ANSI strip (for the compare value) and the awaiting-input prompt
+    scan — the per-agent, per-tick regex work that used to run on the Textual
+    event loop. No ``self``, no shared-dict mutation, no widget access, so it is
+    safe to batch off-loop via ``asyncio.to_thread``. ``prompt_patterns`` is read
+    only. All ``_last_content`` / ``_last_change_time`` mutation stays loop-side.
+    """
+    compare_value = _strip_ansi(content) if mode == COMPARE_MODE_STRIPPED else content
+    awaiting_input = False
+    awaiting_input_kind = ""
+    if category == PaneCategory.AGENT and prompt_patterns:
+        stripped_text = compare_value if mode == COMPARE_MODE_STRIPPED else _strip_ansi(content)
+        prompt_text = _prompt_detection_text(stripped_text)
+        for p in prompt_patterns:
+            if p.regex.search(prompt_text):
+                awaiting_input = True
+                awaiting_input_kind = p.name
+                break
+    return ClassifyResult(
+        compare_value=compare_value,
+        awaiting_input=awaiting_input,
+        awaiting_input_kind=awaiting_input_kind,
+    )
+
+
+def _classify_one(
+    content: str,
+    mode: str,
+    prompt_patterns: list[PromptPattern],
+    category: PaneCategory,
+) -> ClassifyResult:
+    """Fail-closed single-pane classify (invariant D): a raising regex/strip
+    degrades to raw content (never awaiting) so one bad pane never propagates."""
+    try:
+        return classify_content(content, mode, prompt_patterns, category)
+    except Exception:
+        return ClassifyResult(compare_value=content)
+
+
+def _classify_batch(
+    items: list[tuple["TmuxPaneInfo", str, str]],
+    prompt_patterns: list[PromptPattern],
+) -> list[tuple["TmuxPaneInfo", str, ClassifyResult]]:
+    """Off-loop batch of :func:`classify_content`, fail-closed per pane (t1111_4).
+
+    ``items`` are ``(pane, content, mode)`` tuples read on the loop before the
+    hop. Runs inside a single ``asyncio.to_thread`` call; wrapping each pane
+    individually (via :func:`_classify_one`) means one malformed pane degrades to
+    raw content instead of dropping the whole refresh (invariant E: one batch per
+    cycle, not per-pane fan-out).
+    """
+    return [
+        (pane, content, _classify_one(content, mode, prompt_patterns, pane.category))
+        for pane, content, mode in items
+    ]
+
+
 _COMPANION_KEYWORDS = ("minimonitor", "monitor_app")
 
 
@@ -835,6 +913,14 @@ class TmuxMonitor:
 
         self._last_content: dict[str, str] = {}
         self._last_change_time: dict[str, float] = {}
+        # Monotonic capture generation (t1111_4). Reserved at the START of every
+        # async capture path and bumped by the sync `_finalize_capture` write.
+        # A guarded commit writes `_last_content` only if its reserved gen still
+        # equals this — so the capture with the latest reservation wins and no
+        # superseded (out-of-order) cycle corrupts the idle clock. Lives here,
+        # beside the state it guards, so every caller (monitor, minimonitor,
+        # pusher, applink router) is protected uniformly.
+        self._capture_generation: int = 0
         self._pane_cache: dict[str, TmuxPaneInfo] = {}
         self._sessions_cache: tuple[float, list[AitasksSession]] | None = None
         self._compare_mode_overrides: dict[str, str] = {}
@@ -880,6 +966,29 @@ class TmuxMonitor:
         return await self._tmux.run_async_via_control(
             self._backend, args, timeout=timeout
         )
+
+    # -- Capture generation + offload seam (t1111_4) ---------------------------
+
+    def _next_generation(self) -> int:
+        """Reserve and return the next capture generation (see `__init__`)."""
+        self._capture_generation += 1
+        return self._capture_generation
+
+    @property
+    def capture_generation(self) -> int:
+        """Current capture generation; callers compare their reserved gen to this
+        to detect supersession without touching a private attr."""
+        return self._capture_generation
+
+    async def _run_offloaded(self, fn):
+        """Run pure CPU work `fn` off the event loop (t1111_4).
+
+        The single injectable offload seam: production hops to a worker thread via
+        `asyncio.to_thread`; tests override this to run `fn` synchronously and to
+        control resolution order deterministically (invariant F — no sleep-based
+        timing). `fn` MUST be pure compute over plain data (invariant A).
+        """
+        return await asyncio.to_thread(fn)
 
     def tmux_run(
         self, args: list[str], timeout: float = 5.0
@@ -1204,18 +1313,26 @@ class TmuxMonitor:
         effective = self.set_compare_mode(pane_id, new_override)
         return effective, (new_override is None)
 
-    def _finalize_capture(
-        self, pane: TmuxPaneInfo, content: str
+    def _apply_bookkeeping(
+        self,
+        pane: TmuxPaneInfo,
+        content: str,
+        result: ClassifyResult,
+        now: float,
     ) -> PaneSnapshot:
-        now = time.monotonic()
+        """Loop/sync-side commit of a pre-computed :class:`ClassifyResult` into the
+        durable idle bookkeeping, returning the ``PaneSnapshot`` (t1111_4).
+
+        This is the ONLY writer of ``_last_content`` / ``_last_change_time`` and
+        must run on the event loop (or synchronously). Generation ownership is the
+        caller's job: the sync ``_finalize_capture`` reserved-at-write, the async
+        commits (:meth:`commit_snapshot` / :meth:`commit_snapshots`) checked their
+        reserved gen before calling here.
+        """
         pane_id = pane.pane_id
-
-        mode = self.get_compare_mode(pane_id)
-        compare_value = _strip_ansi(content) if mode == COMPARE_MODE_STRIPPED else content
-
         prev = self._last_content.get(pane_id)
-        if prev is None or compare_value != prev:
-            self._last_content[pane_id] = compare_value
+        if prev is None or result.compare_value != prev:
+            self._last_content[pane_id] = result.compare_value
             self._last_change_time[pane_id] = now
 
         last_change = self._last_change_time.get(pane_id, now)
@@ -1225,27 +1342,34 @@ class TmuxMonitor:
             if pane.category == PaneCategory.AGENT
             else False
         )
-
-        awaiting_input = False
-        awaiting_input_kind = ""
-        if pane.category == PaneCategory.AGENT and self.prompt_patterns:
-            stripped_text = compare_value if mode == COMPARE_MODE_STRIPPED else _strip_ansi(content)
-            prompt_text = _prompt_detection_text(stripped_text)
-            for p in self.prompt_patterns:
-                if p.regex.search(prompt_text):
-                    awaiting_input = True
-                    awaiting_input_kind = p.name
-                    break
-
         return PaneSnapshot(
             pane=pane,
             content=content,
             timestamp=now,
             idle_seconds=idle_seconds,
             is_idle=is_idle,
-            awaiting_input=awaiting_input,
-            awaiting_input_kind=awaiting_input_kind,
+            awaiting_input=result.awaiting_input,
+            awaiting_input_kind=result.awaiting_input_kind,
         )
+
+    def _finalize_capture(
+        self, pane: TmuxPaneInfo, content: str
+    ) -> PaneSnapshot:
+        """Synchronous capture finalize (behind :meth:`capture_pane`, the applink
+        router, and sync :meth:`capture_all`).
+
+        Fetch and write are atomic on the loop (no await between), so reservation
+        == write instant: it **bumps the generation as it writes**, both marking
+        itself the newest capture at that instant and refusing any older in-flight
+        async commit (t1111_4). The pure classification is delegated to
+        :func:`classify_content`; behaviour (return value + ``_last_content``
+        semantics) is unchanged for the direct callers/tests.
+        """
+        now = time.monotonic()
+        mode = self.get_compare_mode(pane.pane_id)
+        result = classify_content(content, mode, self.prompt_patterns, pane.category)
+        self._next_generation()
+        return self._apply_bookkeeping(pane, content, result, now)
 
     def _capture_args(
         self, pane_id: str, capture_lines: int | None = None
@@ -1278,16 +1402,45 @@ class TmuxMonitor:
         """
         return self._pane_cache.get(pane_id)
 
+    def commit_snapshot(
+        self,
+        gen: int,
+        pane: TmuxPaneInfo,
+        content: str,
+        result: ClassifyResult,
+    ) -> PaneSnapshot | None:
+        """Loop-side, generation-guarded single-pane commit (t1111_4).
+
+        Returns ``None`` (writing nothing) when ``gen`` has been superseded by a
+        newer reservation — protecting both the idle bookkeeping and the returned
+        snapshot. Symmetric with :meth:`commit_snapshots`.
+        """
+        if gen != self._capture_generation:
+            return None
+        return self._apply_bookkeeping(pane, content, result, time.monotonic())
+
     async def capture_pane_async(
         self, pane_id: str, capture_lines: int | None = None
     ) -> PaneSnapshot | None:
+        """Finalizing single-pane async capture.
+
+        Reserves its generation **before** the tmux await (its content is "as of"
+        fetch-start) and commits guarded, so a stale-but-late return can't clobber
+        a newer-reserved refresh (t1111_4). Under no overlap the reserved gen is
+        still current at commit → it writes exactly as before (the applink pusher
+        test relies on this finalize). Kept for that test / future callers; the
+        live refresh paths now use the classified/raw paths instead.
+        """
         pane = self._pane_cache.get(pane_id)
         if pane is None:
             return None
+        gen = self._next_generation()
         rc, content = await self._tmux_async(self._capture_args(pane_id, capture_lines))
         if rc != 0:
             return None
-        return self._finalize_capture(pane, content)
+        mode = self.get_compare_mode(pane_id)
+        result = classify_content(content, mode, self.prompt_patterns, pane.category)
+        return self.commit_snapshot(gen, pane, content, result)
 
     async def capture_pane_content_async(
         self, pane_id: str, capture_lines: int | None = None
@@ -1309,6 +1462,29 @@ class TmuxMonitor:
         if rc != 0:
             return None
         return pane, content
+
+    async def capture_pane_classified_async(
+        self, pane_id: str, capture_lines: int | None = None
+    ) -> tuple[int, "TmuxPaneInfo | None", "str | None", "ClassifyResult | None"]:
+        """Two-phase single-pane capture for the fast-preview path (t1111_4).
+
+        Reserves the generation **before** the raw tmux await, offloads the pure
+        `classify_content` work, and returns ``(gen, pane, content, result)``
+        WITHOUT committing bookkeeping — the caller checks ``gen`` and calls
+        :meth:`commit_snapshot` on the loop. On a fetch miss returns
+        ``(gen, None, None, None)``. The classify is fail-closed (invariant D).
+        """
+        gen = self._next_generation()
+        raw = await self.capture_pane_content_async(pane_id, capture_lines)
+        if raw is None:
+            return gen, None, None, None
+        pane, content = raw
+        mode = self.get_compare_mode(pane_id)
+        patterns = self.prompt_patterns
+        result = await self._run_offloaded(
+            lambda: _classify_one(content, mode, patterns, pane.category)
+        )
+        return gen, pane, content, result
 
     async def capture_cursor_async(
         self, pane_id: str
@@ -1356,20 +1532,87 @@ class TmuxMonitor:
                 snapshots[pane.pane_id] = snap
         return snapshots
 
-    async def capture_all_async(self) -> dict[str, PaneSnapshot]:
-        panes = await self.discover_panes_async()
-        self._clean_stale({p.pane_id for p in panes})
+    async def capture_all_classified_async(
+        self,
+    ) -> tuple[int, list[tuple[TmuxPaneInfo, "str | None", "ClassifyResult | None"]]]:
+        """Offloadable produce phase of the live refresh (t1111_4).
 
-        # Capture all panes concurrently; skip any that error out.
-        results = await asyncio.gather(
-            *(self.capture_pane_async(p.pane_id) for p in panes),
+        Reserves the generation, discovers panes, does the raw (non-finalizing)
+        captures concurrently, then runs ONE off-loop batch of `classify_content`
+        (the strip/prompt-regex CPU work). Returns ``(gen, classified)`` where each
+        entry is ``(pane, content, result)`` for a successful capture and
+        ``(pane, None, None)`` for a pane whose raw fetch failed — the failed
+        pane's id is still present so the loop-side :meth:`commit_snapshots` can
+        clean stale ids without dropping a pane over a transient capture error.
+        Mutates **no** ``_last_content`` state; that is the commit's job.
+        """
+        gen = self._next_generation()
+        panes = await self.discover_panes_async()
+
+        # Raw captures concurrently (non-finalizing); tolerate per-pane faults.
+        raw_results = await asyncio.gather(
+            *(self.capture_pane_content_async(p.pane_id) for p in panes),
             return_exceptions=True,
         )
+
+        # Read per-pane mode on the loop (invariant B) and assemble the batch.
+        to_classify: list[tuple[TmuxPaneInfo, str, str]] = []
+        failed: list[TmuxPaneInfo] = []
+        for pane, res in zip(panes, raw_results):
+            if isinstance(res, tuple):
+                _, content = res
+                to_classify.append((pane, content, self.get_compare_mode(pane.pane_id)))
+            else:
+                # None (fetch miss) or an Exception (fault): keep prior content.
+                failed.append(pane)
+
+        patterns = self.prompt_patterns  # read on loop, passed by value
+        classified_ok = await self._run_offloaded(
+            lambda: _classify_batch(to_classify, patterns)
+        )
+        classified: list[tuple[TmuxPaneInfo, str | None, ClassifyResult | None]] = list(
+            classified_ok
+        )
+        classified.extend((pane, None, None) for pane in failed)
+        return gen, classified
+
+    def commit_snapshots(
+        self,
+        gen: int,
+        classified: list[tuple[TmuxPaneInfo, "str | None", "ClassifyResult | None"]],
+    ) -> dict[str, PaneSnapshot] | None:
+        """Loop-side, generation-guarded commit of a produced batch (t1111_4).
+
+        Returns ``None`` (touching nothing — idle clock AND returned set both
+        protected) when ``gen`` has been superseded by a newer reservation.
+        Otherwise cleans stale panes and applies the idle bookkeeping, returning
+        the assembled snapshots. Panes whose raw fetch failed (``result is None``)
+        are kept in the clean-stale set but produce no snapshot this tick, so their
+        prior ``_last_content`` survives — matching the pre-split behaviour.
+        """
+        if gen != self._capture_generation:
+            return None
+        self._clean_stale({pane.pane_id for pane, _, _ in classified})
+        now = time.monotonic()
         snapshots: dict[str, PaneSnapshot] = {}
-        for pane, snap in zip(panes, results):
-            if isinstance(snap, PaneSnapshot):
-                snapshots[pane.pane_id] = snap
+        for pane, content, result in classified:
+            if result is None:
+                continue
+            snapshots[pane.pane_id] = self._apply_bookkeeping(pane, content, result, now)
         return snapshots
+
+    async def capture_all_async(self) -> dict[str, PaneSnapshot] | None:
+        """Live all-pane capture with the classify CPU work off the event loop.
+
+        Returns the snapshot dict, or ``None`` when a newer overlapping
+        `capture_all_async` (or other capture) reserved a later generation before
+        this one committed — the caller MUST skip applying a ``None`` so a stale
+        cycle can neither corrupt ``_last_content`` nor overwrite the caller's
+        visible snapshots (t1111_4). For a serial caller ``gen`` is always current
+        → a dict, behaviourally identical to the pre-split path.
+        """
+        gen, classified = await self.capture_all_classified_async()
+        return self.commit_snapshots(gen, classified)
 
     def send_enter(self, pane_id: str) -> bool:
         # `--` ends option parsing so a hostile pane_id/key can't be read as a

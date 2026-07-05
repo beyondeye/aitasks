@@ -61,9 +61,28 @@ class _FakeRefreshMonitor:
         }
         self.async_calls: list[tuple[str, ...]] = []
         self.mapping_async_called = False
+        self._gen = 0
 
-    async def capture_all_async(self) -> dict[str, PaneSnapshot]:
+    @property
+    def capture_generation(self) -> int:
+        return self._gen
+
+    async def capture_all_classified_async(self):
+        # Two-phase produce (t1111_4): reserve a generation and return opaque
+        # classified entries; this fake's commit_snapshots returns the pre-built
+        # snapshots, so the payload content is irrelevant.
+        self._gen += 1
+        classified = [(s.pane, s.content, None) for s in self.snapshots.values()]
+        return self._gen, classified
+
+    def commit_snapshots(self, gen, classified):
+        if gen != self._gen:
+            return None
         return dict(self.snapshots)
+
+    async def capture_all_async(self) -> dict[str, PaneSnapshot] | None:
+        gen, classified = await self.capture_all_classified_async()
+        return self.commit_snapshots(gen, classified)
 
     def get_session_to_project_mapping(self) -> dict[str, Path]:
         raise AssertionError("sync session mapping called during refresh")

@@ -428,7 +428,14 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Save focus state before rebuild
         saved_pane_id = self._focused_pane_id
 
-        self._snapshots = await self._monitor.capture_all_async()
+        # capture_all_async returns None when a newer overlapping refresh
+        # superseded this one (t1111_4). Skip the stale cycle — a newer refresh
+        # owns the rebuild — rather than overwriting visible snapshots with stale
+        # pane content.
+        snaps = await self._monitor.capture_all_async()
+        if snaps is None:
+            return
+        self._snapshots = snaps
         # Refresh per-session project-root mapping so cross-session task data
         # resolves from the right project (free — uses TmuxMonitor's cached
         # session list).
