@@ -5,6 +5,7 @@ depends: [1030]
 issue_type: feature
 status: Implementing
 labels: [task_attachments, html_plans]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 implemented_with: claudecode/fable5
