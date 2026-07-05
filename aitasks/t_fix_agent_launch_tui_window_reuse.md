@@ -8,7 +8,7 @@ labels: [tmux, monitor, tui, codeagent]
 gates: [risk_evaluated]
 created_at: 2026-07-02 17:05
 updated_at: 2026-07-02 17:05
-boardidx: 30
+boardidx: 80
 ---
 
 Fix code-agent launches from the shared `AgentCommandScreen` so pick/raw/explain/etc. launches do not accidentally reuse an existing TUI window such as `monitor` when the caller passed a new `agent-*` default window name.

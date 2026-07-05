@@ -12,7 +12,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-05 12:51
+updated_at: 2026-07-05 12:57
 ---
 
 **Thread-offload** the refresh CPU work (strip/prompt-regex) off the UI thread —

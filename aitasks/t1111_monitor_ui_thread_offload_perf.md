@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 children_to_implement: [t1111_4, t1111_5, t1111_6]
 created_at: 2026-07-02 08:32
 updated_at: 2026-07-03 00:28
-boardidx: 10
+boardidx: 60
 ---
 
 `ait monitor` becomes sluggish as the number of monitored agents grows: a ~0.5s
