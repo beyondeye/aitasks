@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: feature
@@ -108,20 +110,27 @@ sibling of this task rather than regressing minimonitor responsiveness.
   colored glyph (before the name, after the agent's own glyph) reflecting the
   shadow's idle/active/prompt state, in BOTH `ait monitor` and `ait minimonitor`.
 - Windows without a linked shadow are visually unchanged.
-- Shadow pane discovery reuses the promoted `match_shadow_pane` /
-  `_find_shadow_pane_for` seam (single implementation shared by both TUIs), not a
-  duplicate.
+- Shadow pane discovery is derived from the monitor's existing per-tick
+  discovery output (the `@aitask_shadow_target` field already present in
+  `_LIST_PANES_FORMAT`), adding zero extra tmux round-trips per tick;
+  `match_shadow_pane` / `_find_shadow_pane_for` remain minimonitor's
+  event-driven lookup (launch guard, freshness, concerns). Shadow panes are
+  never registered in `_pane_cache` (cache-backed consumers stay shadow-blind).
+  [AC updated at planning: approved deviation from the original "promote
+  `match_shadow_pane`" wording — discovery-derived is strictly cheaper.]
 - Shadow-state detection reuses `classify_content` and runs through the t1111
   offload batch/`_run_offloaded` seam with generation-guarding; it adds no new
   synchronous per-tick tmux capture or regex work on the event loop, and no
   widget access inside offloaded workers (invariants A/B/E/F).
 - The shadow-glyph color mapping matches the agent-dot mapping (magenta/yellow/
   green) and is defined once (shared formatter in `monitor_shared.py`).
-- Tests: a pure test for `match_shadow_pane` promotion + the shadow-state batch
-  (golden/equivalence that the offloaded shadow classification matches a direct
-  synchronous `classify_content`), and a render-level assertion of the two-glyph
-  row (assert `widget.render().plain`) for shadowed vs non-shadowed rows in both
-  TUIs.
+- Tests: a parse-split test with a negative control (agent list unchanged,
+  shadow excluded), a cache-boundary test (`get_pane`/`capture_pane`/
+  `_pane_cache` shadow-blind), the shadow-state batch (golden/equivalence that
+  the offloaded shadow classification matches a direct synchronous
+  `classify_content`), lifecycle/staleness + duplicate-shadow + supersession
+  tests, and a render-level assertion of the two-glyph row (plain-text order +
+  markup color proof) for shadowed vs non-shadowed rows in both TUIs.
 
 ## Out of scope
 
