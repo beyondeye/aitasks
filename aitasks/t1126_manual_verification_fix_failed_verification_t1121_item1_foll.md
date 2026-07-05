@@ -19,3 +19,9 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1123
+
+## Verification Checklist
+
+- [ ] Launch a completed task's agent + shadow; ask "review the implementation" and confirm minimonitor's 'c' picker forwards the REAL emitted concerns (not concern-format.md's placeholder example). This is the live re-run of the t1121 item #1 that failed and drove t1123.
+- [ ] Confirm that if the shadow reads/quotes concern-format.md during the review, its format example is NOT isolated by the picker (no contiguous open→items→close block remains in the doc).
+- [ ] Confirm the shadow stays advisory-only during the impl-challenge review (no keystrokes sent to the followed pane).
