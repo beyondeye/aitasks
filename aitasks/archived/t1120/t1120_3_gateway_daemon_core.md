@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: high
 depends: [t1120_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [chat_surface, python]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1120
 implemented_with: claudecode/fable5
 created_at: 2026-07-05 11:59
-updated_at: 2026-07-05 23:55
+updated_at: 2026-07-06 00:41
+completed_at: 2026-07-06 00:41
 ---
 
 ## Context
@@ -100,3 +101,14 @@ All tests against `MockChatAdapter` (no live-platform calls):
 > **✅ gate:plan_approved** run=2026-07-05T20:55:23Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-05T21:41:00Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-05T21:41:43Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:7ef80759673a3c49
+
+> **✅ gate:risk_evaluated** run=2026-07-05T21:41:43Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1120_3/risk_evaluated_2026-07-05T21:41:43Z-risk_evaluated-a1.log`
