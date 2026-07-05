@@ -1,13 +1,17 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
 status: Implementing
 labels: [shadow]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-05 08:25
-updated_at: 2026-07-05 08:31
+updated_at: 2026-07-05 09:18
 ---
 
 Add a new sub-procedure to the `aitask-shadow` skill that performs an
