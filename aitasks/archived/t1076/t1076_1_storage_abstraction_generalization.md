@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: high
 depends: [1030]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [task_attachments, html_plans]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:04
-updated_at: 2026-07-05 18:00
+updated_at: 2026-07-05 23:10
+completed_at: 2026-07-05 23:10
 ---
 
 ## Heads-up — what t1030 actually shipped (verified t1030_4, 2026-06-30)
@@ -73,3 +74,14 @@ Depends on t1030 (external) — wired in frontmatter.
 > **✅ gate:plan_approved** run=2026-07-05T14:59:41Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-05T20:09:55Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-05T20:10:22Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:52e42814ad8dd90d
+
+> **✅ gate:risk_evaluated** run=2026-07-05T20:10:22Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1076_1/risk_evaluated_2026-07-05T20:10:22Z-risk_evaluated-a1.log`
