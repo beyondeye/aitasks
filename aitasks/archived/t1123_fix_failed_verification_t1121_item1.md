@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: medium
 depends: [1119]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1119
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-05 10:43
-updated_at: 2026-07-05 11:23
+updated_at: 2026-07-05 11:52
+completed_at: 2026-07-05 11:52
 ---
 
 ## Failed verification item from t1119
@@ -55,3 +56,14 @@ Reproduce the failure locally (see the commits and files above, and the origin a
 > **✅ gate:plan_approved** run=2026-07-05T08:23:07Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-05T08:48:28Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-05T08:52:37Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c732d059cd9d84b9
+
+> **✅ gate:risk_evaluated** run=2026-07-05T08:52:37Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1123/risk_evaluated_2026-07-05T08:52:37Z-risk_evaluated-a1.log`
