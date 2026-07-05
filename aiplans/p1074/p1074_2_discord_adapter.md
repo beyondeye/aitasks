@@ -418,4 +418,74 @@ verification cannot silently degrade into checking an already-polluted venv.
 Standard archival/merge per `task-workflow` Step 9 when this child completes.
 
 ## Final Implementation Notes
-_(to be filled at implementation time — actual work, deviations, issues, upstream defects, notes for sibling t1074_3)._
+
+- **Actual work done:** Implemented per the approved plan, all 7 milestones:
+  (1) `aitask_setup.sh` chat tier — `AIT_PIP_SPECS_CHAT=('discord.py>=2,<3')` +
+  `AIT_IMPORTS_CHAT=(discord)` beside the existing dep arrays, `--with-chat`
+  arg-parse, `setup_chat_deps()` installing into the CPython venv with
+  verify/retry/warn-never-die, `chat_deps_present()` revalidation probe;
+  (2) the `_acked` contract amendment (docstrings in `interactions.py`,
+  `adapter.py` `ack`/`open_modal`/`subscribe`, `mock.py` instant-ack parity)
+  + 2 contract-test pins on the amended language (146→148 checks);
+  (3–5) `chat/discord_adapter.py` — module-level pure normalization
+  functions, `map_discord_error(exc, target=…)` single sink,
+  `_SubscriptionHub` (per-subscriber bounded queues, sentinel disconnect on
+  overflow/gateway drop), `DiscordAdapter` implementing all 26 ABC methods
+  with the delayed-defer (2.0 s) owned-ack scheme, DM-safe `@me`
+  refs/permalinks, files with oversize pre-check + CDN download via the
+  client session, guild-vs-global declarative command sync via HTTP bulk
+  upsert, `connect()` as the only SDK/Gateway entry point;
+  (6) `aidocs/chat/discord_bot_setup.md` + `slack_app_setup.md` (t1074_3
+  reference) documenting the bot-install connection model and platform-side
+  configuration; (7) full ordered verification. Tests:
+  `tests/test_chat_discord.sh` (Tier 1 pure + Tier 2 adapter-level, 140
+  checks, SDK-free with `sys.modules` guards at both ends), decoupling
+  guard extended to import `chat.discord_adapter`.
+- **Deviations from plan:**
+  - Plain `ait setup` *after* a `--with-chat` opt-in revalidates/repairs the
+    chat deps (`chat_deps_present()` clause) — pypy-parity behavior beyond
+    the strict "only when the flag is set" wording; never-opted-in users are
+    untouched. Surfaced at review; accepted.
+  - `_build_view`/`_build_modal` take the SDK namespace as a parameter
+    (stub-testable) instead of a constructor-injected `file_factory`; the
+    `sdk=` constructor seam covers files too.
+  - `register_commands` uses `http.bulk_upsert_{guild,global}_commands` (raw
+    declarative payloads from `commands_to_payload`) rather than an
+    `app_commands.CommandTree` — truer to bulk-overwrite convergence and
+    fake-able without the SDK.
+- **Issues encountered:** One review-caught bug (see Post-Review Changes):
+  the INTERACTION_RECEIVED event initially re-normalized the native object,
+  handing subscribers an `_acked=False` copy — fixed by publishing the
+  identical ack-owned Interaction, with an object-identity regression check.
+  Scratch-install verification required overlaying the working-tree
+  `aitask_setup.sh` (install.sh downloads the released tarball, which
+  predates `--with-chat`).
+- **Key decisions:** explicit `_acked` semantic amendment (ack-ownership:
+  performed-or-irrevocably-scheduled) instead of a silently-untrue flag or
+  dropping modal support; defer at 2.0 s inside Discord's 3 s window;
+  per-subscriber overflow = sentinel disconnect of that subscriber only
+  (never silent drop); `workspace_id="@me"` pinned for guildless refs;
+  `NotFound` disambiguated by call-site `target`, with `fetch_message`
+  resolving channel first so the two targets never guess; base 8 MiB
+  attachment cap (boost variance in `capabilities().metadata`).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** For t1074_3 (Slack): append
+  `'slack-bolt>=1,<2' 'slack-sdk>=3,<4'` to `AIT_PIP_SPECS_CHAT` and
+  `slack_bolt slack_sdk` to `AIT_IMPORTS_CHAT` (arrays + install fn already
+  in place — no new setup.sh structure needed). Write the adapter against
+  the **amended** `_acked` contract: Slack's HTTP-200 ack is the instant-ack
+  special case (no delayed defer; modals open via `views.open` within the
+  `trigger_id` window). Reuse the patterns: pure normalization functions on
+  duck-typed objects, `map_slack_error(exc, target=…)` with call-site
+  targets, a `_SubscriptionHub` clone (or extract it to a shared module if
+  identical), `sdk=`-style constructor seam, two-tier SDK-free test layout
+  from `tests/test_chat_discord.sh`. `aidocs/chat/slack_app_setup.md` holds
+  the scope/event/token checklist. `register_commands` on Slack is
+  app-config-level: validate + no-op per the ABC contract.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-05 09:10)
+- **Requested by user:** Bug — `_on_interaction()` returned an ack-owned Interaction (`_acked=True`) but published an INTERACTION_RECEIVED event carrying a separately re-normalized Interaction with `_acked=False`, violating the ack-ownership contract for subscribers.
+- **Changes made:** `_on_interaction` now constructs the Event directly around the same ack-owned `domain` object (no re-normalization); added a regression check asserting `event.payload["interaction"] is` the returned object with `_acked=True` (suite now 140 checks).
+- **Files affected:** `.aitask-scripts/chat/discord_adapter.py`, `tests/test_chat_discord.sh`
