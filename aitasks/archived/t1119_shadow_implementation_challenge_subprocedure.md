@@ -5,13 +5,14 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [shadow]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-05 08:25
-updated_at: 2026-07-05 09:18
+updated_at: 2026-07-05 10:19
+completed_at: 2026-07-05 10:19
 ---
 
 Add a new sub-procedure to the `aitask-shadow` skill that performs an
@@ -142,3 +143,14 @@ in-repo references dangle in every install. As part of this task:
 > **✅ gate:plan_approved** run=2026-07-05T06:18:33Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-05T07:13:53Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-05T07:19:50Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f505e793e1c5d55c
+
+> **✅ gate:risk_evaluated** run=2026-07-05T07:19:50Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1119/risk_evaluated_2026-07-05T07:19:50Z-risk_evaluated-a1.log`
