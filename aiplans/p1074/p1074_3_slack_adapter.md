@@ -440,10 +440,10 @@ ait setup --with-chat
 - `aitask_setup.sh` array append on a load-bearing install script · severity: low · → mitigation: TBD (contained: append-only to arrays purpose-built for it in t1074_2; shellcheck + opt-in install verification in-task)
 
 ### Goal-achievement risk: medium
-- Live Socket Mode / Web API paths (instant ack over the real envelope, trigger_id windows, response_url posts, files_upload_v2, bearer downloads) cannot be exercised in-session — stub tests cover normalization and call shapes only · severity: medium · → mitigation: slack_live_smoke_verification
+- Live Socket Mode / Web API paths (instant ack over the real envelope, trigger_id windows, response_url posts, files_upload_v2, bearer downloads) cannot be exercised in-session — stub tests cover normalization and call shapes only · severity: medium · → mitigation: t1129
 
 ### Planned mitigations
-- timing: after | name: slack_live_smoke_verification | type: manual_verification | priority: medium | effort: medium | addresses: goal-achievement (live Socket Mode / Web API paths untested in-session) | desc: With a real Slack app (xoxb-/xapp- per aidocs/chat/slack_app_setup.md) — connect Socket Mode, send/edit/delete message, thread reply, button interaction (instant ack → response_url follow-up), open modal within trigger window, ephemeral + DM fallback, file upload/download, reactions, permalink
+- timing: after | name: slack_live_smoke_verification | created: t1129 | type: manual_verification | priority: medium | effort: medium | addresses: goal-achievement (live Socket Mode / Web API paths untested in-session) | desc: With a real Slack app (xoxb-/xapp- per aidocs/chat/slack_app_setup.md) — connect Socket Mode, send/edit/delete message, thread reply, button interaction (instant ack → response_url follow-up), open modal within trigger window, ephemeral + DM fallback, file upload/download, reactions, permalink
 
 ## Reference: Step 9 (Post-Implementation)
 

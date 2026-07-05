@@ -8,11 +8,12 @@ issue_type: feature
 status: Implementing
 labels: [chat_surface, python]
 gates: [risk_evaluated]
+risk_mitigation_tasks: [1129]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1074
 implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:53
-updated_at: 2026-07-05 11:56
+updated_at: 2026-07-05 12:39
 ---
 
 ## Context
