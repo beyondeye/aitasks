@@ -8,8 +8,9 @@ labels: [applink, applink_connectivity]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1061
+implemented_with: claudecode/fable5
 created_at: 2026-07-02 23:45
-updated_at: 2026-07-05 15:45
+updated_at: 2026-07-05 16:43
 ---
 
 **A1 of the t1061 paired decomposition** (see
@@ -96,3 +97,8 @@ trust    := pin | ca                   (pin = QR fp is the trust anchor;
   firewall-doctor override messaging.
 - Manual: set `advertised_host` to a Tailscale IP, scan QR, confirm pairing
   works over the mesh with the unchanged pin.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-05T13:44:06Z status=pass attempt=1 type=human
