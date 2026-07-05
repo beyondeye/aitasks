@@ -261,6 +261,22 @@ pattern: `tests/test_chatlink_relay.sh`), pure — no chat adapter, no network:
 
 Post-implementation follows task-workflow Step 9 (merge/verify/archive push).
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-05 17:45, post-archival)
+- **Requested by user:** MEDIUM — `_normalize_intake_channel()` warned about
+  unknown keys via `sorted(dropped)`; YAML mapping keys can mix types
+  (`1` and `"bogus"`), and sorting raw mixed keys raises
+  `TypeError: '<' not supported between instances of 'str' and 'int'` —
+  `load_config()` crashed instead of degrading (never-raises contract).
+- **Changes made:** repr-map before sorting
+  (`sorted(map(repr, dropped))`) with an explanatory comment; regression
+  test added (mixed int+str unknown intake keys ⇒ loads, both keys dropped,
+  warning emitted; reproduced the TypeError against the pre-fix code first).
+  Suite now 60 Python + 4 shell checks, all pass.
+- **Files affected:** `.aitask-scripts/chatlink/config.py`,
+  `tests/test_chatlink_config.sh`.
+
 ## Final Implementation Notes
 
 - **Actual work done:** Exactly the planned deliverables: gateway-side
