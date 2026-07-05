@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tmux, monitor, tui, codeagent]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 941
 created_at: 2026-07-05 16:03
-updated_at: 2026-07-05 16:03
+updated_at: 2026-07-05 16:16
 ---
 
 Eliminate agent panes ending up in a tmux window named `monitor`. Two distinct root causes produce this same visible symptom; both are fixed here.
