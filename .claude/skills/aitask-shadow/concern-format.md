@@ -80,9 +80,11 @@ closing fence cannot stand in for a newer, still-streaming block):
 
 ## Where it lives
 
-- **Producer:** `.claude/skills/aitask-shadow/plan-challenge.md` (and peers that
-  emit concern lists), mirrored across the `.agents/` and `.opencode/` shadow
-  trees.
+- **Producer:** the `.claude/skills/aitask-shadow/` plan-review sub-procedures
+  that emit concern lists — `plan-challenge.md`, `impl-challenge.md`,
+  `plan-assumptions.md`, `plan-diagnose-errors.md`. These live **only** in the
+  Claude tree; the `.agents/` and `.opencode/` shadow trees carry a `SKILL.md`
+  wrapper only (no mirrored sub-procedure files).
 - **Parser:** `.aitask-scripts/monitor/concern_parser.py` — pure
   (`Concern`, `parse_concerns`, `has_concern_block`, `build_clipboard_payload`).
 - **Consumer:** the minimonitor concern-picker modal + trigger wiring
@@ -94,6 +96,6 @@ The concern-forward surfaces also carry a **staleness** signal (t1104): when the
 followed agent has moved on since the shadow produced these concerns, the auto-offer
 notify appends a STALE marker and the picker modal shows a red banner, so a stale
 block is not forwarded unaware. See the "Feedback freshness" section of
-`shadow_agent.md` for the content-signature mechanism.
+`aidocs/framework/shadow_agent.md` for the content-signature mechanism.
 
-See `shadow_agent.md` for the shadow companion's overall pipeline.
+See `aidocs/framework/shadow_agent.md` for the shadow companion's overall pipeline.

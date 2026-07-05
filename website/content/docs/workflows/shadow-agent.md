@@ -2,7 +2,7 @@
 title: "Shadow Agent"
 linkTitle: "Shadow Agent"
 weight: 83
-description: "Launch an advisory companion agent that reads a running agent's output, explains it, helps with prompts and plans, diagnoses failures, and spawns skill-learning sessions"
+description: "Launch an advisory companion agent that reads a running agent's output, explains it, helps with prompts and plans, reviews the implementation, diagnoses failures, and spawns skill-learning sessions"
 depth: [intermediate]
 ---
 
@@ -51,6 +51,18 @@ Before you approve a plan an agent has produced, the shadow can examine it for y
 
 Ask for one of these specifically, or ask broadly ("review this plan") and the shadow runs several and presents a combined result.
 
+### Review the implementation
+
+Once an agent has *implemented* a task — not just planned it — the shadow can adversarially review the **code that was actually written**. This is the implementation-side companion to challenging a plan. It reads the task and plan (what was supposed to be built), discovers the real change — the task's commits, or the uncommitted working-tree diff when the agent has not committed yet — and the plan's own *Final Implementation Notes*, then looks for:
+
+- **Implementation flaws** — bugs, missed cases, incorrect logic, or regressions in the code as actually written.
+- **Risks left unmitigated** — risks the plan flagged that the landed code does not address (it does not re-flag risks the implementation already handled).
+- **Unjustified deviations from the plan** — where the code diverged from the plan without the Final Implementation Notes explaining why.
+
+You get a prioritized list, separating problems that should block acceptance from follow-ups. If the plan shows the implementation phase has not finished yet (no *Final Implementation Notes*), the shadow warns you it is probably too early to review and lets you stop or proceed against the partial state.
+
+Ask for it with "review the implementation", "did it actually do what the plan said", or "check the code that was written".
+
 ### Diagnose skill or helper errors
 
 When the followed agent appears stuck on tool-call errors, tracebacks, shell errors, or repeated retries, ask the shadow to diagnose what is going wrong. It reads the captured screen, decides whether the visible signals are genuine failures rather than benign error-shaped text, and attributes each error cluster to the likely workflow skill or `aitask_*.sh` helper.
@@ -69,7 +81,7 @@ The learner captures the followed pane read-only, walks you through selecting wh
 
 ### Forward concerns to the followed agent
 
-When the shadow interrogates a plan or diagnoses genuine skill/helper errors, alongside its human-readable findings it can emit a structured, machine-parseable **concern block** — a fenced list (`===AITASK-CONCERNS===` … `===END-CONCERNS===`) of `- [priority | region] body` items, where `priority` is `high`, `medium`, or `low` and `region` names the plan area, skill, or helper the concern targets. The block is additive: the shadow still prints its normal prose; the block is an extra copy meant for pick-and-forward.
+When the shadow interrogates a plan, reviews an implementation, or diagnoses genuine skill/helper errors, alongside its human-readable findings it can emit a structured, machine-parseable **concern block** — a fenced list (`===AITASK-CONCERNS===` … `===END-CONCERNS===`) of `- [priority | region] body` items, where `priority` is `high`, `medium`, or `low` and `region` names the plan area, skill, or helper the concern targets. The block is additive: the shadow still prints its normal prose; the block is an extra copy meant for pick-and-forward.
 
 From [minimonitor](../../tuis/minimonitor/) you can then **selectively forward** these concerns to the followed agent without retyping them. Press **c** to open a checklist of the shadow's concerns, tick the ones you want, and minimonitor copies them — with a short preamble — to your clipboard for you to paste into the agent. When a fresh concern block appears, minimonitor also proactively hints that the shadow raised concerns. This keeps the advisory-only contract intact: the concerns land on *your* clipboard, and you decide what to paste. See [How to pick shadow concerns](../../tuis/minimonitor/how-to/#how-to-pick-shadow-concerns).
 

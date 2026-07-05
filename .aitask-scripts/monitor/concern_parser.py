@@ -12,9 +12,9 @@ The capture handed in **must be wrap-joined** (``tmux capture-pane -J`` or
 equivalent): the parser space-joins continuation lines onto a concern body,
 which is correct only for agent-emitted word-boundary breaks — raw soft-wrap
 would split a long line mid-word. The capture path (minimonitor, t1037_4) owns
-the join; see ``aidocs/framework/shadow_concern_format.md``.
+the join; see ``.claude/skills/aitask-shadow/concern-format.md``.
 
-Format (single source of truth: ``aidocs/framework/shadow_concern_format.md``)::
+Format (single source of truth: ``.claude/skills/aitask-shadow/concern-format.md``)::
 
     ===AITASK-CONCERNS===
     - [high | Step 7 ownership guard] The guard re-runs aitask_pick_own.sh which

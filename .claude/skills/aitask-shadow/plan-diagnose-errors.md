@@ -51,14 +51,14 @@ pane — never the followed pane.
    at). Then append a machine-parseable copy of the *same* concerns so the user
    can forward a subset via minimonitor's concern picker instead of retyping.
 
-   Emit exactly this fenced format (single source of truth:
-   `aidocs/framework/shadow_concern_format.md`):
+   Emit a block delimited by an opening `===AITASK-CONCERNS===` line and a
+   closing `===END-CONCERNS===` line (those two exact literals; single source of
+   truth: `.claude/skills/aitask-shadow/concern-format.md`), with one concern per
+   line between them. The concern lines themselves look like:
 
    ```
-   ===AITASK-CONCERNS===
    - [high | aitask_pick_own.sh] The followed agent's claim call exits non-zero with `aitask_pick_own.sh: line 88: LOCK_DIR: unbound variable`, then retries the identical command three times — the helper dereferences LOCK_DIR before it is set, so every claim on this path crashes. Look at the variable's init in aitask_pick_own.sh; likely a missing default or an ordering bug rather than a bad caller argument.
    - [medium | task-workflow Step 4] The agent passes `--email ""` and the script emits `InputValidationError: email must be non-empty`, looping twice. The workflow's email-resolution branch is handing an empty string to the claim call instead of omitting the flag; the fix likely belongs in the Step 4 email branch, not the helper.
-   ===END-CONCERNS===
    ```
 
    Format rules — all load-bearing for minimonitor's parser; match them exactly:

@@ -110,7 +110,7 @@ The task cache is refreshed and the task detail dialog appears with the task's m
 
 Press **e** to launch a *shadow agent* next to the code agent you are following — an advisory companion that reads that agent's terminal output and helps you make sense of it. By default the shadow opens as a new pane in the **same tmux window** as the followed agent, so it sits right beside the work it is watching.
 
-The shadow is read-only and advisory: it can explain what the agent is doing, help you answer a prompt the agent is stuck on, or critically interrogate a plan before you approve it — but it never types into the followed agent's pane. You stay the driver.
+The shadow is read-only and advisory: it can explain what the agent is doing, help you answer a prompt the agent is stuck on, critically interrogate a plan before you approve it, or review the code the agent actually wrote — but it never types into the followed agent's pane. You stay the driver.
 
 Like minimonitor itself, the shadow pane is a companion: it never appears in the agent list, and it closes automatically when the agent it shadows exits. Only one shadow runs per followed agent — if a shadow is already running for the agent you are following, a second **e** is refused with a notification.
 
@@ -118,7 +118,7 @@ For what the shadow can do and how to drive it once it is running, see the [Shad
 
 ### How to Pick Shadow Concerns
 
-When the shadow agent interrogates a plan, it emits a structured **concern block** alongside its prose. You can forward a subset of those concerns to the followed agent without retyping them:
+When the shadow agent interrogates a plan, reviews an implementation, or diagnoses errors, it emits a structured **concern block** alongside its prose. You can forward a subset of those concerns to the followed agent without retyping them:
 
 1. Make sure a shadow is running for the agent (press **e** if not)
 2. Press **c**

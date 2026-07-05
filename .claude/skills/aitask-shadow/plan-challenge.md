@@ -57,14 +57,14 @@ agent's pane.
    advisory-only guardrail (it is text for the *user* to copy; you still never
    drive the followed pane).
 
-   Emit exactly this fenced format (single source of truth:
-   `aidocs/framework/shadow_concern_format.md`):
+   Emit a block delimited by an opening `===AITASK-CONCERNS===` line and a
+   closing `===END-CONCERNS===` line (those two exact literals; single source of
+   truth: `.claude/skills/aitask-shadow/concern-format.md`), with one concern per
+   line between them. The concern lines themselves look like:
 
    ```
-   ===AITASK-CONCERNS===
    - [high | Step 7 ownership guard] The guard re-runs aitask_pick_own.sh even when Step 4 already acquired the lock on this host, so every resumed task writes a second, redundant ownership commit to the data branch. It bites on the common reclaim path — crash recovery, multi-day tasks — quietly doubling the commit history each time. Gating the re-run on whether the lock is already held by this host would fix it, but I'd leave the exact guard condition to you.
    - [medium | verification] The only test asserts the script exits 0; it never reads back the file the script was supposed to write. A regression that turns the write into a silent no-op would still pass, so the test proves the script ran, not that it worked. Asserting on the written content (or a round-trip read) would close the gap — however you prefer to structure it.
-   ===END-CONCERNS===
    ```
 
    Rules — all load-bearing for minimonitor's parser; match them exactly:

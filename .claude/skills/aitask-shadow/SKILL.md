@@ -151,6 +151,9 @@ to spell it out).
   rests on and offers per-subject introductions + motivations.)
 - **Adversarially challenge a plan** ("poke holes", "what could go wrong",
   "stress-test this") → read and follow `plan-challenge.md`.
+- **Adversarially challenge the implementation** ("review the implementation",
+  "did it actually do what the plan said", "check the code that was written") →
+  read and follow `impl-challenge.md`.
 - **Socratic questioning of a plan** ("ask me questions about this", "make me
   think it through") → read and follow `plan-socratic.md`.
 - **Surface a plan's assumptions** ("what is this assuming?", "what has to be

@@ -12,7 +12,7 @@ It explains and suggests; the user acts.
 
 When the shadow reviews a plan it also emits a structured, machine-parseable
 **concern block** the user can selectively forward to the followed agent via
-minimonitor's concern picker — see `shadow_concern_format.md` for the format
+minimonitor's concern picker — see `.claude/skills/aitask-shadow/concern-format.md` for the format
 and parser contract.
 
 ## Pipeline: capture → context-fetch → skill

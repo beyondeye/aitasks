@@ -61,14 +61,14 @@ agent's pane.
    - load-bearing **and** verified, or peripheral **and** unverified → `medium`,
    - peripheral → `low`.
 
-   Emit exactly this fenced format (single source of truth:
-   `aidocs/framework/shadow_concern_format.md`):
+   Emit a block delimited by an opening `===AITASK-CONCERNS===` line and a
+   closing `===END-CONCERNS===` line (those two exact literals; single source of
+   truth: `.claude/skills/aitask-shadow/concern-format.md`), with one concern per
+   line between them. The concern lines themselves look like:
 
    ```
-   ===AITASK-CONCERNS===
    - [high | sequencing] The plan assumes sibling t1037_1's parser has already landed, but nothing in it verifies that. If the parser isn't there yet, the emitted block has no consumer and the whole feature silently does nothing — no error, just a no-op that looks like success in a demo. Worth confirming the parser module exists (or wiring it as an explicit dependency) before relying on it; how to sequence that is your call.
    - [medium | behavior of other code] The plan assumes aitask_shadow_capture.sh hands the parser wrap-joined lines, but the capture call omits tmux's -J flag. Long concern bodies will then split mid-word at the pane edge and the parser's space-join will stitch the fragments with a stray space inside a word. It only surfaces on bodies long enough to wrap, so it passes short-example tests and breaks in real use. Adding -J (or otherwise rejoining) at the capture site would fix it — exact spot left to you.
-   ===END-CONCERNS===
    ```
 
    Rules — all load-bearing for minimonitor's parser; match them exactly:

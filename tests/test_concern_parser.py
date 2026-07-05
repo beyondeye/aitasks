@@ -1,7 +1,7 @@
 """Tests for the shadow concern-block parser (t1037_1).
 
 Covers the format/parser contract in
-``aidocs/framework/shadow_concern_format.md``:
+``.claude/skills/aitask-shadow/concern-format.md``:
 - canonical parse, wrap-join round-trip, marker-collision hardening,
 - strict (auto-offer) vs forgiving (explicit) trigger paths,
 - multi-block "last wins" and the old-complete + new-streaming regression,
@@ -188,6 +188,45 @@ class TestParseConcerns(unittest.TestCase):
             [Concern("low", "r", "b")], preamble="Custom:"
         )
         self.assertTrue(payload.startswith("Custom:\n\n- [low | r] b"))
+
+
+class TestShadowDocsNotParserLive(unittest.TestCase):
+    """Guard: no shadow sub-procedure doc may embed a *parser-live* example block.
+
+    The shadow agent reads these ``.md`` files at runtime, so their content can
+    land in the shadow pane (a file read, or the agent quoting the format).
+    Minimonitor parses the *whole* pane and forwards the last concern block it
+    finds — so an embedded example that is itself a complete
+    ``===AITASK-CONCERNS===`` … ``- [..]`` … ``===END-CONCERNS===`` block can be
+    mis-forwarded as if it were real concerns (the picker then hands the reader
+    the doc's placeholder items instead of the agent's actual review — the t1119
+    live-repro bug). The docs must therefore present the format WITHOUT a
+    contiguous open→items→close block: name the sentinels inline and show the
+    ``- [priority | region]`` item lines separately. This test enforces that so a
+    future edit cannot silently reintroduce the hazard.
+    """
+
+    SHADOW_DIR = os.path.join(
+        os.path.dirname(__file__), "..", ".claude", "skills", "aitask-shadow"
+    )
+
+    def test_no_doc_is_parser_live(self):
+        import glob
+
+        docs = sorted(glob.glob(os.path.join(self.SHADOW_DIR, "*.md")))
+        self.assertTrue(docs, "no shadow docs found — path wrong?")
+        offenders = []
+        for path in docs:
+            with open(path, encoding="utf-8") as fh:
+                if has_concern_block(fh.read()):
+                    offenders.append(os.path.basename(path))
+        self.assertEqual(
+            offenders,
+            [],
+            "shadow doc(s) embed a parser-live concern block — minimonitor could "
+            "forward the doc's example as real concerns. Present the format with "
+            "inline sentinels + separate item lines instead: " + ", ".join(offenders),
+        )
 
 
 if __name__ == "__main__":
