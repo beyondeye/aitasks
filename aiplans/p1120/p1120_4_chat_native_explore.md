@@ -33,9 +33,19 @@ every AskUserQuestion decision point with:
   --timeout <s>
 ```
 
-parsing `STATUS:`/`VALUE:` lines; `STATUS:timeout` ⇒ proceed with the
-documented default for that decision (fail-safe, contract 6 — never abort on
-timeout, never hang). Flow: read bug-report context (passed as file path env
+parsing `STATUS:`/`VALUE:` lines (and `FREE_TEXT:` for modal answers);
+`STATUS:timeout` ⇒ proceed with the documented default for that decision
+(fail-safe, contract 6 — never abort on timeout, never hang).
+
+**Whitelist deliverable (t1120_1 handoff):** `aitask_relay_ask.sh` shipped in
+t1120_1 deliberately WITHOUT permission-whitelist entries (no SKILL.md
+referenced it yet — the extension-points doc forbids dead entries). The
+moment this skill's SKILL.md cites the helper, complete the 7-touchpoint
+allowlist checklist from `aidocs/framework/aitasks_extension_points.md`
+("Adding a new helper script"). Also note (t1120_1 spike finding): the
+helper's default `--timeout` is 90 s to stay under a headless agent's ~120 s
+Bash-tool timeout — if this skill asks longer questions it must raise the
+tool timeout explicitly. Flow: read bug-report context (passed as file path env
 `CHATLINK_BUG_REPORT_FILE`) → explore sources for probable causes → ≤ N
 clarifying questions → synthesize task fields → write `payload.json`
 (contract 7 fields) to `$CHATLINK_SESSION_DIR` → exit. The skill NEVER runs
