@@ -66,6 +66,7 @@ Reporting:
   changelog      Generate changelog from commits and plans
 
 Tools:
+  chatlink       Run the chat bug-intake gateway daemon (--headless)
   codeagent      Manage code agent and model configuration
   skillrun       Launch a code agent with a profile-aware aitask skill
   explain-runs     Manage aitask-explain run directories
@@ -195,6 +196,7 @@ case "${1:-help}" in
     applink)      shift; exec "$SCRIPTS_DIR/aitask_applink.sh" "$@" ;;
     attach)       shift; exec "$SCRIPTS_DIR/aitask_attach.sh" "$@" ;;
     board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;
+    chatlink)     shift; exec "$SCRIPTS_DIR/aitask_chatlink.sh" "$@" ;;
     codebrowser)  shift; exec "$SCRIPTS_DIR/aitask_codebrowser.sh" "$@" ;;
     diffviewer)   shift; exec "$SCRIPTS_DIR/aitask_diffviewer.sh" "$@" ;;
     minimonitor)  shift; exec "$SCRIPTS_DIR/aitask_minimonitor.sh" "$@" ;;

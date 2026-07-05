@@ -11,7 +11,12 @@ gateway side only), ``relay_ask`` (the agent-side blocking ask CLI),
 ``paths`` (secure runtime dirs + config resolution; gateway side),
 ``config`` (gateway config schema + fault-tolerant loader; gateway side),
 ``policy`` (deny-by-default authorization above ``IdentityClaims``;
-gateway side).
+gateway side), ``sessions_store`` (persistent gateway session records;
+gateway side), ``reconcile`` (pure startup/reconnect planners; gateway
+side), ``intake`` (intake + minimal interaction pipeline; gateway side),
+``spawn_seam`` (sandbox-launcher protocol stub — real backend in t1120_5),
+``audit`` (gateway audit log), ``daemon`` (the Textual-free headless
+gateway daemon behind ``ait chatlink --headless``).
 
 Contract: ``relay`` and ``relay_ask`` import ONLY from within ``chatlink/``
 and the stdlib — no ``chat/`` module, no aitasks framework module
