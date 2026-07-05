@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: low
 depends: [t1061_1]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [applink, applink_connectivity]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1061
 implemented_with: claudecode/fable5
 created_at: 2026-07-02 23:45
-updated_at: 2026-07-05 17:49
+updated_at: 2026-07-05 18:05
+completed_at: 2026-07-05 18:05
 ---
 
 **A2 of the t1061 paired decomposition** (see
@@ -59,3 +60,14 @@ recipe collection and updates the protocol roadmap status.
 > **✅ gate:plan_approved** run=2026-07-05T14:49:38Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-05T15:04:37Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-05T15:05:09Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:3d817b8423b04821
+
+> **✅ gate:risk_evaluated** run=2026-07-05T15:05:09Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1061_2/risk_evaluated_2026-07-05T15:05:09Z-risk_evaluated-a1.log`
