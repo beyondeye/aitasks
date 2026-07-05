@@ -7,8 +7,9 @@ status: Implementing
 labels: [chat_surface, python]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1074
+implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:53
-updated_at: 2026-07-05 10:57
+updated_at: 2026-07-05 11:56
 ---
 
 ## Context
@@ -78,3 +79,8 @@ ait setup --with-chat && ~/.aitask/venv/bin/python -c "import slack_bolt, slack_
 ```
 Stub-based normalization tests pass on the stock venv; `--with-chat` installs both
 Slack SDKs into `~/.aitask/venv` alongside `discord.py`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-05T08:56:41Z status=pass attempt=1 type=human
