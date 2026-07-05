@@ -6,9 +6,9 @@ issue_type: performance
 status: Ready
 labels: [monitor, tui, performance]
 gates: [risk_evaluated]
-children_to_implement: [t1111_4, t1111_5, t1111_6]
+children_to_implement: [t1111_5, t1111_6]
 created_at: 2026-07-02 08:32
-updated_at: 2026-07-03 00:28
+updated_at: 2026-07-05 15:50
 boardidx: 60
 ---
 
