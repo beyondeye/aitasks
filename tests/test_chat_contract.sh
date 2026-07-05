@@ -208,6 +208,19 @@ check("MessageRef.metadata excluded from equality",
 check("Interaction._acked excluded from equality",
       compare_of(chat.Interaction, "_acked") is False)
 
+# _acked ack-ownership semantics pin (amended in t1074_2): the contract text
+# must say the ack deadline is OWNED by the adapter (already performed or
+# irrevocably scheduled), not that the platform ack already happened. Guards
+# against a silent drift back to the pre-amendment "already acknowledged"
+# reading, which Discord's delayed defer cannot honor.
+_i_doc = chat.Interaction.__doc__ or ""
+check("Interaction docstring pins ack-ownership semantics",
+      "owned and guaranteed by the adapter" in _i_doc,
+      "amended _acked semantics text missing from Interaction docstring")
+check("Interaction docstring pins scheduled-ack modal consequence",
+      "irrevocably scheduled" in _i_doc,
+      "scheduled-ack language missing from Interaction docstring")
+
 # --- mutable-default guard: default-constructed instances share nothing --------------
 def fresh(cls):
     """Construct with minimal positional args (defaults for the rest)."""

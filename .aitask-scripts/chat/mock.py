@@ -719,9 +719,13 @@ class MockChatAdapter(ChatAdapter):
     def inject_interaction(self, interaction: Interaction) -> Interaction:
         """Simulate a user gesture arriving from the platform.
 
-        Faithful to the auto-defer contract: the interaction is marked
-        acked BEFORE it is emitted/yielded (consumers never see an unacked
-        interaction). Emits INTERACTION_RECEIVED.
+        Faithful to the ack-ownership contract (amended in t1074_2): the
+        mock is an instant-ack adapter — the special case where the
+        adapter-owned, "already performed or irrevocably scheduled" ack is
+        already performed at yield time — so the interaction is marked
+        acked BEFORE it is emitted/yielded (consumers never see an
+        interaction whose ack deadline is unowned). Emits
+        INTERACTION_RECEIVED.
         """
         interaction._acked = True
         self._emit(

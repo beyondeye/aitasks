@@ -215,22 +215,27 @@ class Interaction:
     """An inbound user gesture (click, selection, form submit, command).
 
     What it abstracts: a Discord ``INTERACTION_CREATE`` payload / a Slack
-    interactivity payload, normalized and **already acknowledged** by the
-    adapter.
+    interactivity payload, normalized, with the platform ack deadline
+    **owned by the adapter**.
 
     Purpose: the single inbound type for all component/command input,
     carrying who acted (``actor``), where (``conversation`` +
     ``message``), which component (``custom_id``) and what was submitted
     (``values``).
 
-    Contract: adapters auto-defer/ack on receipt — an ``Interaction`` is
-    yielded pre-acked (``_acked=True``; ``ChatAdapter.ack`` is an
-    idempotent no-op), keeping the platforms' ~3 s ack deadline off the
-    consumer's path. Consumers reply at their own pace via ``respond`` /
-    ``follow_up`` / ``open_modal``; past the follow-up window those raise
-    ``InteractionExpired``. Interactions are NOT replayable after a
-    disconnect — higher layers must persist outcomes on receipt and
-    re-prompt if a window was missed.
+    Contract (amended in t1074_2): ``_acked=True`` means the ack deadline
+    is **owned and guaranteed by the adapter** — the platform ack is either
+    already performed or irrevocably scheduled within the platform's ~3 s
+    window; the consumer must never ack (``ChatAdapter.ack`` is an
+    idempotent no-op) and may respond at its own pace. Instant-ack
+    adapters (Mock; Slack's HTTP 200) are the special case where scheduled
+    = already-performed. Consequence of a *scheduled* ack (Discord's
+    delayed defer): the modal window may close when the scheduled defer
+    fires — consumers should call ``open_modal`` promptly after receipt.
+    Consumers reply via ``respond`` / ``follow_up`` / ``open_modal``; past
+    the follow-up window those raise ``InteractionExpired``. Interactions
+    are NOT replayable after a disconnect — higher layers must persist
+    outcomes on receipt and re-prompt if a window was missed.
     """
 
     id: str

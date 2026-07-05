@@ -356,10 +356,12 @@ class ChatAdapter(abc.ABC):
         """Acknowledge an interaction — idempotent, normally a no-op.
 
         Abstracts Discord defer / Slack 200-ack. Purpose: the ~3 s platform
-        ack deadline is handled by the ADAPTER, which auto-defers/acks every
-        interaction before yielding it; consumers call this at most for
-        explicitness. Contract: idempotent; never raises for an
-        already-acked interaction.
+        ack deadline is OWNED by the ADAPTER — every yielded interaction's
+        ack is either already performed or irrevocably scheduled within the
+        platform window (``Interaction._acked=True``, amended semantics —
+        see :class:`~.interactions.Interaction`); consumers call this at
+        most for explicitness. Contract: idempotent; never raises for an
+        already-acked interaction; never cancels a scheduled ack.
         """
 
     @abc.abstractmethod
@@ -405,7 +407,11 @@ class ChatAdapter(abc.ABC):
         the only rich-form entry point both platforms share — and both
         REQUIRE a live interaction as the trigger. Contract: the eventual
         submission arrives as a MODAL_SUBMIT ``Interaction``; raises
-        ``InteractionExpired`` past the window.
+        ``InteractionExpired`` past the window. The modal window can be
+        NARROWER than the follow-up window: on adapters whose ack is
+        scheduled rather than instant (Discord's delayed defer), the modal
+        window closes when the scheduled defer fires — open modals
+        promptly after receiving the interaction.
         """
 
     # ------------------------------------------------------------------ #
@@ -435,8 +441,11 @@ class ChatAdapter(abc.ABC):
         state (``fetch_reactions`` diff), existence (``fetch_conversation``).
         NOT replayable: INTERACTION_RECEIVED — higher layers must persist
         interaction outcomes on receipt and re-prompt if a window was
-        missed. Adapters auto-reconnect their transport; ``since`` filters
-        out events older than the given epoch timestamp.
+        missed. Interactions are yielded with their ack deadline owned by
+        the adapter (already performed or irrevocably scheduled —
+        ``_acked=True`` amended semantics). Adapters auto-reconnect their
+        transport; ``since`` filters out events older than the given epoch
+        timestamp.
         """
         # The unreachable yield marks this as an async-generator function so
         # implementations and the contract test agree on the method kind.

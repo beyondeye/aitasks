@@ -32,6 +32,10 @@ for extra in (scripts_dir, scripts_dir / "lib", scripts_dir / "board"):
 before = set(sys.modules)
 
 import chat  # noqa: F401
+# Adapters are not exported from the package surface but must obey the same
+# decoupling rule — and their SDK imports must be lazy (import-time clean
+# even when the SDK is installed).
+import chat.discord_adapter  # noqa: F401
 
 new_modules = set(sys.modules) - before
 

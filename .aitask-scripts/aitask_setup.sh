@@ -31,6 +31,13 @@ AIT_PIP_SPECS_CPYTHON_EXTRA=('minijinja>=2.0,<3' 'segno>=1.5,<2' 'plotext==5.3.2
 AIT_IMPORTS_COMMON=(textual yaml linkify_it tomli pexpect)
 AIT_IMPORTS_CPYTHON_EXTRA=(minijinja segno plotext websockets msgpack)
 
+# Chat dependency tier (opt-in via `ait setup --with-chat`): SDKs for the
+# chat adapter layer (.aitask-scripts/chat/). Installed into the CPython venv
+# only when the user opts in; the default install never pulls these.
+# t1074_3 appends the Slack SDKs here (slack-bolt / slack-sdk).
+AIT_PIP_SPECS_CHAT=('discord.py>=2,<3')
+AIT_IMPORTS_CHAT=(discord)
+
 # verify_venv_imports <python> <module>... — populate global `missing_imports`
 # with the modules that fail to import under the given interpreter. Catches the
 # "package directory present but not importable" failure mode directly.
@@ -661,6 +668,47 @@ prompt_install_pypy_if_tty() {
         [Yy]*) return 0 ;;
         *)     return 1 ;;
     esac
+}
+
+# --- Chat dependency tier (opt-in via `ait setup --with-chat`) ---
+
+# True when the chat tier was previously installed into the CPython venv
+# (used to revalidate/repair on later plain `ait setup` runs, mirroring the
+# PyPy `-d "$PYPY_VENV_DIR"` revalidation clause). Users who never opted in
+# have no `discord` in the venv, so plain setup remains chat-free for them.
+chat_deps_present() {
+    [[ -x "$VENV_DIR/bin/python" ]] || return 1
+    "$VENV_DIR/bin/python" -c 'import discord' >/dev/null 2>&1
+}
+
+# Install/repair the chat SDK tier into the CPython venv ($VENV_DIR). Never
+# fails the overall setup: on persistent failure it warns and returns 0 so a
+# transient network problem cannot brick an otherwise-working install.
+setup_chat_deps() {
+    if [[ ! -x "$VENV_DIR/bin/pip" ]]; then
+        warn "CPython venv missing at $VENV_DIR — cannot install chat deps. Re-run 'ait setup --with-chat' after the venv exists."
+        return 0
+    fi
+
+    info "Installing/upgrading chat SDK deps into CPython venv..."
+    "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_CHAT[@]}"
+
+    # Validate importability + version ranges; retry once, then warn and
+    # continue (chat is an optional tier — never block the core setup).
+    verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_CHAT[@]}"
+    verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_CHAT[@]}"
+    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
+        warn "Chat deps need repair (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Retrying..."
+        "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_CHAT[@]}"
+        verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_CHAT[@]}"
+        verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_CHAT[@]}"
+    fi
+    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
+        warn "Chat deps could not be installed (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Re-run 'ait setup --with-chat' to retry."
+        return 0
+    fi
+
+    success "Chat SDK deps ready in $VENV_DIR."
 }
 
 # --- Python venv setup ---
@@ -3104,10 +3152,12 @@ setup_userconfig() {
 # --- Main ---
 main() {
     INSTALL_PYPY=0
+    INSTALL_CHAT=0
     local args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --with-pypy) INSTALL_PYPY=1; shift ;;
+            --with-chat) INSTALL_CHAT=1; shift ;;
             --) shift; args+=("$@"); break ;;
             *)  args+=("$1"); shift ;;
         esac
@@ -3173,6 +3223,13 @@ main() {
     # it is not reached when the dir clause is already true (no double prompt).
     if [[ "$INSTALL_PYPY" == "1" ]] || [[ -d "$PYPY_VENV_DIR" ]] || prompt_install_pypy_if_tty; then
         setup_pypy_venv
+        echo ""
+    fi
+
+    # Opt-in chat SDK tier: install on --with-chat; revalidate/repair on every
+    # setup once previously installed (mirrors the PyPy revalidation clause).
+    if [[ "$INSTALL_CHAT" == "1" ]] || chat_deps_present; then
+        setup_chat_deps
         echo ""
     fi
 
