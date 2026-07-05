@@ -449,3 +449,81 @@ ait setup --with-chat
 
 This is the last child. When it completes and `children_to_implement` is
 empty, parent t1074 auto-archives per `task-workflow` Step 9.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-05 12:35)
+- **Requested by user:** Three review findings: (1) `_webhook_send` resolved `AsyncWebhookClient` via `self._sdk().webhook.async_client` attribute traversal, but the real `slack_sdk` does not bind that submodule on bare import — every live `respond`/`follow_up` would die as `InteractionExpired` while nested-shape fakes passed; (2) `send_message` accepted the ABC's `attachments` param but silently dropped it (partial send masquerading as success); (3) the shared hub's `disconnect_all()` used a bare `put_nowait` — a subscriber with an exactly-full bounded queue would raise `QueueFull` out of the transport's disconnect listener, leaving later streams never ended.
+- **Changes made:** (1) new `_webhook_client(url)` seam: a fake override with the nested shape is used directly; anything else (no override, or the bare real module passed by `connect`) resolves via a genuine `from slack_sdk.webhook.async_client import AsyncWebhookClient`; dead `_sdk()` helper removed; added a separate live-seam test block (SKIPs without the SDK; runs on the opt-in venv) that exercises the bare-module override BEFORE any submodule import — the exact regression shape. (2) `send_message` now raises base `ChatError` on non-empty `attachments` (loud platform gap; construction-spy test proves no post happened). (3) `disconnect_all()` drains-then-pushes on `QueueFull` like the overflow path; full-queue disconnect test added (sentinel terminal on the full queue AND on later subscribers, no raise).
+- **Files affected:** `.aitask-scripts/chat/slack_adapter.py`, `.aitask-scripts/chat/_subscription.py`, `tests/test_chat_slack.sh`
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented per the approved plan, all 7 milestones:
+  (1) `aitask_setup.sh` chat-tier append — `slack-bolt>=1,<2` + `slack-sdk>=3,<4`
+  in `AIT_PIP_SPECS_CHAT`, `slack_bolt slack_sdk` in `AIT_IMPORTS_CHAT`
+  (comment reworded to current state); no new shellcheck findings (diffed
+  against the pre-edit baseline — identical). (2) `_SubscriptionHub` extracted
+  verbatim to new shared `chat/_subscription.py` (module-private, not in the
+  pinned `__all__`); `discord_adapter.py` imports + re-exports the names;
+  the one monkeypatch site in `tests/test_chat_discord.sh` retargeted at
+  `chat._subscription`. (3–5) new `chat/slack_adapter.py` (~1470 lines) —
+  module-level pure normalization on plain dicts (Slack is JSON-native),
+  `map_slack_error(exc, target=…)` single sink with the string×target table,
+  `_paginate` cursor loop driving conversations.list/members/history/replies,
+  `SlackAdapter` implementing all 26 ABC methods: instant-ack interactions
+  (ack-before-publish, identical ack-owned object in INTERACTION_RECEIVED),
+  `response_url` respond/follow_up via a webhook-client seam, `views.open`
+  modals (MODAL_SUBMIT guard), exact-ts guard on `fetch_message` point
+  lookups, ephemeral chain postEphemeral → DM → DeliveryFailed (blanket
+  native-failure fallthrough), synthetic THREAD_CREATED on implicit thread
+  creation (standalone → PermissionDenied), `thread_ts` propagation on
+  `files_upload_v2`, bearer-authed `http_get` download seam, usergroup-scan
+  degradation to empty roles + metadata note, `register_commands`
+  validate+no-op (app-config-level), `connect(bot_token, app_token)` as the
+  only SDK/Socket-Mode entry. (6) `aidocs/chat/slack_app_setup.md`
+  current-state pass incl. the `search:read` user-token correction.
+  (7) full verification: `tests/test_chat_slack.sh` 187 SDK-free checks +
+  3 live-seam checks (separate process, SKIPs without the SDK), discord 140,
+  contract 148, decoupling 4 (+ `chat.slack_adapter` import), model 17,
+  mock 57; `ait setup --with-chat` installed both Slack SDKs into the live
+  venv (`import slack_bolt, slack_sdk` ok) alongside discord.py.
+- **Deviations from plan:**
+  - `supports_message_search=False` (plan-review amendment, recorded in the
+    task AC pre-implementation): `search.messages` is a user-token
+    (`xoxp-`/`search:read`) API the adapter's bot+app credentials cannot
+    call; metadata documents the user-token-seam path.
+  - `respond`/`follow_up` are response_url-only (no chat.postMessage
+    fallback for payloads without one) — plan-faithful, noted here for the
+    runtime layer: modal `view_submission` responses may need a
+    conversation-addressed post pattern later.
+- **Issues encountered:** Three review-caught defects (see Post-Review
+  Changes): the real SDK's lazily-bound `webhook.async_client` submodule
+  (attribute traversal worked only on nested-shape fakes — fixed with a
+  resolution seam + live-seam test ordered before any submodule import);
+  silent `attachments` drop on `send_message` (now a loud `ChatError`);
+  `QueueFull` escaping `disconnect_all` on an exactly-full subscriber queue
+  (now sentinel-safe drain). Also: running `ait setup --with-chat` for
+  verification auto-committed the entire uncommitted working tree
+  (including a concurrent session's files) as `ait: Add aitask framework`;
+  reset away cleanly with `git reset --mixed HEAD~1` and recomposed.
+- **Key decisions:** dict-shaped pure normalization (vs Discord's
+  attribute-shaped) — Slack payloads are JSON-native so stubs are literal
+  dicts; hub extraction over cloning (sibling-sanctioned; re-exports keep
+  the Discord test surface); APP_MENTION single-sourced from the `message`
+  event with the `app_mention` envelope registered ack-only (no
+  double-publish, no dedupe state); `trigger_id` as the Interaction id
+  (unique + present on all three payload shapes); exact-ts guard returns
+  `ChatError` rather than a nearest-neighbor message; 1 GiB platform
+  attachment cap with the 3000-char blocks-section limit in metadata.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:2655-2678 — non-interactive setup auto-accepts the "commit framework files" prompt and sweeps ALL uncommitted framework-path changes (including other sessions' in-progress work) into an "ait: Add aitask framework" commit; running any ait-setup invocation mid-implementation on a dirty tree silently commits foreign work`
+  - `.aitask-scripts/chat/discord_adapter.py:880 — send_message accepts the ABC's attachments parameter and silently drops it (same partial-send-as-success gap fixed for Slack in this task; Discord should also reject loudly or implement the file path)`
+- **Notes for sibling tasks:** This is the last child of t1074. For the
+  runtime layer (t1120+): both adapters now share `chat/_subscription.py`;
+  Slack's `respond`/`follow_up` return `None` always (response_url yields
+  no handle) — persist interaction outcomes on receipt; Slack search
+  needs a user-token seam + an ABC verb (amendment path) before
+  `supports_message_search` can flip; `send_message(attachments=…)` is a
+  loud platform gap on Slack (use `upload_attachment`) and a silent one on
+  Discord until the upstream defect above is fixed.
