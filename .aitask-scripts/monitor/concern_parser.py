@@ -119,6 +119,40 @@ def _parse_items(region: str) -> list[Concern]:
     return out
 
 
+def _iter_block_regions(text: str):
+    """Yield the region after EACH opening fence up to its next close (or EOF).
+
+    Unlike :func:`_last_block_region`, which scopes to the *last* opening fence
+    (the runtime "last block wins" semantics), this walks **every** block in
+    order — so an embedded example block that is not the newest one is still
+    visible. Used only by the authoring-safety check :func:`contains_any_concern_block`.
+    """
+    idx = 0
+    while True:
+        open_idx = text.find(_OPEN, idx)
+        if open_idx == -1:
+            return
+        body_start = open_idx + len(_OPEN)
+        close_idx = text.find(_CLOSE, body_start)
+        yield text[body_start:close_idx] if close_idx != -1 else text[body_start:]
+        idx = body_start
+
+
+def contains_any_concern_block(text: str) -> bool:
+    """True if ANY opening fence (not just the newest) encloses >=1 concern.
+
+    The runtime parser (:func:`parse_concerns` / :func:`has_concern_block`)
+    deliberately looks only at the *last* fence. This is the stricter **authoring**
+    check for the shadow sub-procedure docs, which must embed NO contiguous
+    ``open -> item -> close`` example *anywhere*: a live shadow-pane capture is a
+    bounded window, so a partial capture can isolate an earlier embedded block
+    even when a later inline sentinel mention would "mask" it under the
+    last-block-wins rule. Minimonitor's picker would then forward the doc's
+    placeholder items instead of the agent's real concerns (t1123).
+    """
+    return any(_parse_items(region) for region in _iter_block_regions(text))
+
+
 def parse_concerns(capture_text: str) -> list[Concern]:
     """Parse the newest concern block (forgiving — EOF-tolerant).
 

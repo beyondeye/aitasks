@@ -22,6 +22,7 @@ from concern_parser import (  # noqa: E402
     Concern,
     DEFAULT_PREAMBLE,
     build_clipboard_payload,
+    contains_any_concern_block,
     has_concern_block,
     parse_concerns,
 )
@@ -195,28 +196,46 @@ class TestShadowDocsNotParserLive(unittest.TestCase):
 
     The shadow agent reads these ``.md`` files at runtime, so their content can
     land in the shadow pane (a file read, or the agent quoting the format).
-    Minimonitor parses the *whole* pane and forwards the last concern block it
-    finds — so an embedded example that is itself a complete
-    ``===AITASK-CONCERNS===`` … ``- [..]`` … ``===END-CONCERNS===`` block can be
-    mis-forwarded as if it were real concerns (the picker then hands the reader
-    the doc's placeholder items instead of the agent's actual review — the t1119
-    live-repro bug). The docs must therefore present the format WITHOUT a
-    contiguous open→items→close block: name the sentinels inline and show the
-    ``- [priority | region]`` item lines separately. This test enforces that so a
-    future edit cannot silently reintroduce the hazard.
+    Minimonitor parses the shadow pane and forwards a concern block it finds — so
+    an embedded example that is itself a complete ``===AITASK-CONCERNS===`` …
+    ``- [..]`` … ``===END-CONCERNS===`` block can be mis-forwarded as if it were
+    real concerns (the picker then hands the reader the doc's placeholder items
+    instead of the agent's actual review — the t1119 live-repro bug). The docs
+    must therefore present the format WITHOUT a contiguous open→items→close
+    block: name the sentinels inline and show the ``- [priority | region]`` item
+    lines separately.
+
+    Two layers of enforcement, because the runtime parser and a live capture see
+    the pane differently:
+
+    - :meth:`test_no_doc_is_parser_live` uses ``has_concern_block`` — the runtime
+      predicate, which scopes to the **last** fence only (``rfind``). It models
+      what the picker parses from the *whole* pane.
+    - :meth:`test_no_doc_embeds_any_contiguous_block` uses
+      ``contains_any_concern_block`` — the stricter check that inspects **every**
+      block, not just the last. A live shadow-pane capture is a bounded *window*,
+      so a partial capture can isolate an *earlier* embedded block even when a
+      later inline sentinel mention would "mask" it under last-block-wins. This
+      is the layer that catches the t1123 regression (``concern-format.md`` was
+      "only accidentally safe" — its contiguous block was masked by a trailing
+      inline mention, so the last-fence check passed while a partial capture
+      could still forward the placeholder).
     """
 
     SHADOW_DIR = os.path.join(
         os.path.dirname(__file__), "..", ".claude", "skills", "aitask-shadow"
     )
 
-    def test_no_doc_is_parser_live(self):
+    def _shadow_docs(self):
         import glob
 
         docs = sorted(glob.glob(os.path.join(self.SHADOW_DIR, "*.md")))
         self.assertTrue(docs, "no shadow docs found — path wrong?")
+        return docs
+
+    def test_no_doc_is_parser_live(self):
         offenders = []
-        for path in docs:
+        for path in self._shadow_docs():
             with open(path, encoding="utf-8") as fh:
                 if has_concern_block(fh.read()):
                     offenders.append(os.path.basename(path))
@@ -227,6 +246,52 @@ class TestShadowDocsNotParserLive(unittest.TestCase):
             "forward the doc's example as real concerns. Present the format with "
             "inline sentinels + separate item lines instead: " + ", ".join(offenders),
         )
+
+    def test_no_doc_embeds_any_contiguous_block(self):
+        """Stronger than the last-fence check: no doc may embed a contiguous
+        ``open → items → close`` block *anywhere* (a partial pane capture can
+        isolate any one of them, not just the newest). Catches the t1123 hazard.
+        """
+        offenders = []
+        for path in self._shadow_docs():
+            with open(path, encoding="utf-8") as fh:
+                if contains_any_concern_block(fh.read()):
+                    offenders.append(os.path.basename(path))
+        self.assertEqual(
+            offenders,
+            [],
+            "shadow doc(s) embed a contiguous concern block somewhere — a partial "
+            "shadow-pane capture could isolate it and the picker would forward the "
+            "doc's placeholder items. Name the sentinels inline and show the item "
+            "lines separately (no open→items→close): " + ", ".join(offenders),
+        )
+
+    def test_guard_catches_masked_embedded_block(self):
+        """Negative control: reproduce the ``concern-format.md`` masking shape and
+        prove the two guards disagree exactly where the live bug lived.
+
+        A real embedded block followed by a *later* inline sentinel mention (the
+        mention becomes the last fence) is invisible to the last-fence
+        ``has_concern_block`` but visible to ``contains_any_concern_block``. If
+        this ever stops holding, the strengthened guard is no longer catching
+        what the old one missed.
+        """
+        masked = (
+            "some doc prose\n"
+            + block(
+                "- [high | region] A real-looking example concern in a doc.",
+                "- [low | other] A second example concern.",
+            )
+            + "\nmore prose describing the format\n"
+            # Trailing inline mention: opens AND closes on one line, so it becomes
+            # the last fence and masks the block above from the rfind-based check.
+            "- Opening: `" + OPEN + "` — Closing: `" + CLOSE + "`.\n"
+        )
+        # Runtime last-fence predicate is fooled (the t1123 blind spot)…
+        self.assertFalse(has_concern_block(masked))
+        self.assertEqual(parse_concerns(masked), [])
+        # …but the authoring guard sees the embedded block.
+        self.assertTrue(contains_any_concern_block(masked))
 
 
 if __name__ == "__main__":

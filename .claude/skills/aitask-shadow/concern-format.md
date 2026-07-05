@@ -13,14 +13,22 @@ block is an extra machine-parseable copy for pick-and-forward.
 
 ## The format
 
+The block is bracketed by two sentinel lines — an opening `===AITASK-CONCERNS===`
+line and a closing `===END-CONCERNS===` line (those two exact literals) — with one
+concern per line between them. The concern lines themselves look like:
+
 ```
-===AITASK-CONCERNS===
 - [high | Step 7 ownership guard] The guard re-runs aitask_pick_own.sh which
   double-commits when the lock was already held.
 - [medium | parser module] Multi-block accumulation is undefined when the
   shadow re-issues concerns.
-===END-CONCERNS===
 ```
+
+The sentinels are named inline (not shown wrapping the items above) on purpose:
+the shadow reads this doc at runtime, so a contiguous `open → items → close`
+example here could be captured into the shadow pane and mis-forwarded by
+minimonitor's picker as if it were real concerns (t1123). See **Staleness** and
+the parser-safety guard in `tests/test_concern_parser.py`.
 
 ### Fences
 
