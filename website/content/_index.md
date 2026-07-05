@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.27.1: Better cross-repo task creation, A tidier board, and The shadow reviews your finished work](blog/v0271-better-cross-repo-task-creation-a-tidier-board-the-shadow-reviews-your-fin/)** -- Jul 5, 2026
 - **[v0.27.0: Attach files to your tasks, Quality gates that actually run, and Teach it a new skill](blog/v0270-attach-files-to-your-tasks-quality-gates-that-actually-run-teach-it-a-new/)** -- Jul 3, 2026
 - **[v0.26.1: Spin Up an Agent,  No Task Required, and Upgrades That Survive GitHub Rate Limits](blog/v0261-spin-up-an-agent-no-task-required-upgrades-that-survive-github-rate-limits/)** -- Jun 25, 2026
-- **[v0.26.0: Gate orchestration,  end to end, Your terminals,  on your phone, and Project groups](blog/v0260-gate-orchestration-end-to-end-your-terminals-on-your-phone-project-groups/)** -- Jun 24, 2026
 
 [All releases &rarr;](blog/)
 
