@@ -11,6 +11,7 @@ children_to_implement: [t1118_1, t1118_2, t1118_3, t1118_4, t1118_5]
 implemented_with: claudecode/fable5
 created_at: 2026-07-03 07:54
 updated_at: 2026-07-03 11:38
+boardidx: 50
 ---
 
 ## Goal

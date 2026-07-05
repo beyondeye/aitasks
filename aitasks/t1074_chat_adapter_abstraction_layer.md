@@ -8,7 +8,8 @@ labels: [chat_surface, python]
 children_to_implement: [t1074_2, t1074_3]
 created_at: 2026-06-25 10:14
 updated_at: 2026-07-02 15:33
-boardidx: 200
+boardidx: 10
+boardcol: now
 ---
 
 ## Goal
