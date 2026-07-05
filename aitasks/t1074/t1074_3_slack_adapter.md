@@ -5,6 +5,7 @@ depends: [t1074_2]
 issue_type: feature
 status: Implementing
 labels: [chat_surface, python]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1074
 implemented_with: claudecode/fable5
