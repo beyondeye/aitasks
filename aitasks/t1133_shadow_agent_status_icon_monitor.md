@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [monitor, tui, shadow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-05 22:48
-updated_at: 2026-07-05 22:48
+updated_at: 2026-07-05 23:01
 ---
 
 ## Goal
