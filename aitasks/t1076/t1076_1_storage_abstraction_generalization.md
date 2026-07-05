@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [1030]
 issue_type: feature
@@ -10,7 +12,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:04
-updated_at: 2026-07-05 17:59
+updated_at: 2026-07-05 18:00
 ---
 
 ## Heads-up — what t1030 actually shipped (verified t1030_4, 2026-06-30)
