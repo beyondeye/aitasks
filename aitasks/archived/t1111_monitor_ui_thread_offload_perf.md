@@ -3,12 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: performance
-status: Ready
+status: Done
 labels: [monitor, tui, performance]
 gates: [risk_evaluated]
-children_to_implement: [t1111_6]
 created_at: 2026-07-02 08:32
-updated_at: 2026-07-05 23:00
+updated_at: 2026-07-05 23:51
+completed_at: 2026-07-05 23:51
 boardidx: 60
 ---
 
