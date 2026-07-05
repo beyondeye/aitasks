@@ -197,9 +197,94 @@ line and exits 0. A second invocation in the same session dir must select
 seq 2. This proves wrapper wiring, argv parsing, seq selection, and answer
 parsing together.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-05 13:20)
+- **Requested by user:** four review findings — (1) HIGH: `write_answer`
+  never-overwrite was check-then-act (`exists()` + `os.replace`), losing the
+  gateway-vs-timeout race contract 6 protects against; (2) MED: pagination
+  emits nav Buttons but only `supports_selects` was gated; (3) MED: paginated
+  multi-select cannot accumulate selections across page-local selects;
+  (4) LOW: `assemble_answer` accepted multiple values for single-select.
+- **Changes made:** (1) no-overwrite answer publication is now an atomic
+  create-no-replace (tmp write + `os.link`; `FileExistsError` ⇒ False, tmp
+  always unlinked) — first publisher wins in both race directions; (2)
+  `pages > 1` now requires `supports_buttons` (fail-closed); (3) paginated
+  multi-select raises `RenderRejected` in v1 (cross-page accumulation is a
+  documented extension point in the protocol doc); (4) single-select
+  submissions with ≠ 1 value raise `AnswerMismatch` (multi_select still
+  accepts several). Protocol doc updated (§Timeout — indivisible
+  check-and-write; §Rendering — pagination button requirement,
+  multi-select-pagination rejection, single-select value count). Tests: +8
+  checks incl. an os.replace-spy TOCTOU negative control, selects-only
+  adapter positive control, paginated-multi-select rejection, forged
+  multi-value rejection (now 60 Python + 15 shell checks, all pass).
+- **Files affected:** `.aitask-scripts/chatlink/relay.py`,
+  `.aitask-scripts/chatlink/render.py`, `aidocs/chat/qa_relay_protocol.md`,
+  `tests/test_chatlink_relay.sh`.
+
+### Change Request 2 (2026-07-05 13:30)
+- **Requested by user:** HIGH — the create-no-replace fix still staged under
+  the fixed shared name `answer-<seq>.json.tmp`; a competing writer could
+  overwrite the staged payload before the link published it (final path
+  protected, staged payload not).
+- **Changes made:** staging name is now unique per writer
+  (`answer-<seq>.json.<pid>.<8-hex>.tmp` — still `*.tmp` so readers skip
+  it), then `os.link(unique_tmp, final)`. Protocol doc updated. Test added:
+  squatted shared-tmp negative control (poisoned `answer-8.json.tmp` is
+  ignored, writer's payload publishes intact, squatted file untouched).
+  Suite now 63 Python + 15 shell checks, all pass.
+- **Files affected:** `.aitask-scripts/chatlink/relay.py`,
+  `aidocs/chat/qa_relay_protocol.md`, `tests/test_chatlink_relay.sh`.
+
 ## Step 9 reference
 
 Post-implementation follows task-workflow Step 9 (merge/verify/archive push).
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned deliverables, in plan order:
+  Step-0 headless spike (PASS — see "Step 0 spike findings"); Step-0b
+  contract sweep (contracts 3 + 6 amended in parent §PINNED + both t1120_1
+  snapshots, single `./ait git` commit); `aidocs/chat/qa_relay_protocol.md`
+  (normative spec); new package `.aitask-scripts/chatlink/` (`__init__.py`,
+  `relay.py`, `render.py`, `relay_ask.py`); `aitask_relay_ask.sh` wrapper;
+  `tests/test_chatlink_relay.sh` (63 Python checks + 15 shell-level groups,
+  incl. E2E through the real wrapper; all pass, shellcheck clean).
+- **Deviations from plan:** (1) `render_question` returns a
+  `RenderedQuestion` dataclass (`text_chunks`, `rows`, `page`, `page_count`)
+  instead of the loosely-pinned `(text, [ActionRow])` tuple — richer return
+  for the daemon (chunking + pagination state); the protocol doc documents
+  it. (2) Two review iterations hardened the design beyond the plan: answer
+  publication is an atomic create-no-replace (`os.link`) with unique
+  per-writer staging names (TOCTOU + staging races); pagination requires
+  `supports_buttons`; paginated multi-select is `RenderRejected` in v1;
+  single-select answers must carry exactly one value (see Post-Review
+  Changes 1–2).
+- **Issues encountered:** none blocking. The initial import-purity test
+  used a `"chat"` prefix that matched `chatlink` itself (fixed to exact
+  top-level match).
+- **Key decisions:** option identity = relay-lib-assigned `o<idx>` values
+  (labels display-only); timeout is durable spool state (helper writes the
+  timeout answer, final-poll-then-write); helper default timeout 90 s to
+  stay under a headless agent's ~120 s Bash-tool timeout (spike finding —
+  t1120_4 must raise the tool timeout for longer asks); capability gating
+  fail-closed (`RenderRejected`) with fallbacks as documented extension
+  points; `aitask_relay_ask.sh` deliberately ships with NO permission
+  whitelist entries — the 7-touchpoint checklist fires in t1120_4 when a
+  SKILL.md first cites it (handoff note committed into p1120_4).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** `chatlink/relay.py` and `relay_ask.py` are
+  stdlib-only and must stay that way (guard test part 2); the daemon
+  (t1120_3) should use `SessionDir.pending_questions()` for restart
+  reconciliation and `write_answer(..., overwrite=False)` for cancelled
+  answers (same never-clobber guarantee); `render.is_page_nav` /
+  `is_free_text_trigger` are the daemon's interaction-routing helpers;
+  `assemble_answer` raises `AnswerMismatch` for anything stale/foreign —
+  map that to the ephemeral "question expired" reply.
+- **Contract freeze:** parent plan §PINNED contracts **FROZEN as of
+  t1120_1** (recorded here per contract 0; parent plan contract-0 line
+  edited in the same commit). Sibling snapshots are now authoritative.
 
 ## Verification notes (2026-07-05, pre-implementation verify pass)
 

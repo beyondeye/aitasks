@@ -123,8 +123,11 @@ die with it. Therefore:
 These are normative for every child plan; each child plan restates the parts it
 consumes verbatim.
 
-0. **Contract freeze rule** — contracts 1–13 are provisional until t1120_1's
-   Step-0 spike passes. **Back-propagation is not just the parent plan**: if
+0. **Contract freeze rule** — **status: FROZEN as of t1120_1 (2026-07-05;
+   spike PASS, contracts 3+6 amended and swept — see
+   `aiplans/p1120/p1120_1_relay_protocol_library.md` Final Implementation
+   Notes). Child-plan snapshots are now authoritative.** Original rule:
+   contracts 1–13 are provisional until t1120_1's Step-0 spike passes. **Back-propagation is not just the parent plan**: if
    the spike forces a contract change, t1120_1 MUST update (a) this parent
    plan's pinned contracts, (b) **every already-created sibling task file and
    child plan file that embeds the changed contract text** (they are created
