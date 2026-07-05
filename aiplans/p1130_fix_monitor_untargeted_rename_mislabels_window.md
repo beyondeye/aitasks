@@ -122,3 +122,32 @@ Flip the regression guard from blessing the bug to guarding the fix:
 Standard cleanup/archival per task-workflow Step 9: fast profile works on the current
 branch (no worktree/merge). Run declared gates (`risk_evaluated`) via `ait gates run
 1130`, then archive with `./.aitask-scripts/aitask_archive.sh 1130`.
+
+## Final Implementation Notes
+- **Actual work done:** Exactly as planned. `_rename_window_argv(pane)` in
+  `.aitask-scripts/monitor/monitor_app.py` now returns `[]` when `pane` is falsy
+  (instead of the untargeted `tmux rename-window monitor`); `on_mount` guards on the
+  returned argv (`if rename_argv:`) so a skip issues no subprocess. The regression
+  test `tests/test_monitor_rename_window_target.sh` was flipped so the `None`/`''`
+  cases assert an empty argv (no rename) and its header comment updated. 3/3 pass;
+  module compiles; oracle behavior confirmed (fail-safe on falsy, `-t <pane>` pinned
+  on truthy).
+- **Deviations from plan:** None.
+- **Issues encountered:** (1) The internal plan externalizer hit
+  `MULTIPLE_CANDIDATES` (several stale internal plan files); resolved with
+  `--internal <path>`. (2) During Step 8, `monitor_app.py` initially appeared to
+  carry pre-existing uncommitted t1111_4 work — but that work was committed to HEAD
+  as `c8f9ce642` mid-session (main advanced), so the working-tree diff isolated to
+  this fix. Committed only the two task files explicitly.
+- **Key decisions:** (a) Kept the decision inside the pure `_rename_window_argv`
+  oracle rather than inlining in `on_mount`, so it stays unit-testable without a live
+  tmux server. (b) Chose fail-safe *skip* over any attempt to re-derive the own pane
+  when `$TMUX_PANE` is absent — there is no reliable alternative source for "my own
+  window", so renaming an arbitrary active window is always wrong. (c) Left the
+  `aitask_monitor.sh` single-instance guard (mirroring `aitask_minimonitor.sh`) out
+  of scope: orthogonal to this bug and would not address the actual trigger.
+- **Scope narrowing (recorded):** Folded `t_fix_agent_launch_tui_window_reuse`
+  (root cause B, AgentCommandScreen window-reuse) was found already fixed by t1115
+  (`should_default_to_new_window`, tested), so t1130 was narrowed to root cause A.
+- **Upstream defects identified:** None.
+
