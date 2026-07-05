@@ -8,8 +8,9 @@ labels: [monitor, tui, performance]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-05 16:01
+updated_at: 2026-07-05 16:44
 ---
 
 Offload the **preview render** (`_ansi_to_rich_text`) off the UI thread —
@@ -75,3 +76,8 @@ t1111_2 removes the *redundant* second render (~2× win); this task removes the
 code-health medium (extends threading to the render path),
 goal medium (directly targets the user-reported active-agent lag).
 Risk-gated: declares `risk_evaluated`; re-run risk evaluation at pick time.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-05T13:44:03Z status=pass attempt=1 type=human
