@@ -36,6 +36,7 @@ import chat  # noqa: F401
 # decoupling rule — and their SDK imports must be lazy (import-time clean
 # even when the SDK is installed).
 import chat.discord_adapter  # noqa: F401
+import chat.slack_adapter  # noqa: F401
 
 new_modules = set(sys.modules) - before
 

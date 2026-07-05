@@ -32,11 +32,11 @@ AIT_IMPORTS_COMMON=(textual yaml linkify_it tomli pexpect)
 AIT_IMPORTS_CPYTHON_EXTRA=(minijinja segno plotext websockets msgpack)
 
 # Chat dependency tier (opt-in via `ait setup --with-chat`): SDKs for the
-# chat adapter layer (.aitask-scripts/chat/). Installed into the CPython venv
-# only when the user opts in; the default install never pulls these.
-# t1074_3 appends the Slack SDKs here (slack-bolt / slack-sdk).
-AIT_PIP_SPECS_CHAT=('discord.py>=2,<3')
-AIT_IMPORTS_CHAT=(discord)
+# chat adapter layer (.aitask-scripts/chat/) — Discord (discord.py) and
+# Slack (slack-bolt / slack-sdk). Installed into the CPython venv only when
+# the user opts in; the default install never pulls these.
+AIT_PIP_SPECS_CHAT=('discord.py>=2,<3' 'slack-bolt>=1,<2' 'slack-sdk>=3,<4')
+AIT_IMPORTS_CHAT=(discord slack_bolt slack_sdk)
 
 # verify_venv_imports <python> <module>... — populate global `missing_imports`
 # with the modules that fail to import under the given interpreter. Catches the

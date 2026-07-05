@@ -35,6 +35,13 @@ import uuid
 from collections.abc import AsyncIterator
 from io import BytesIO
 
+from ._subscription import (  # shared hub (t1074_3); re-exported for tests
+    _DISCONNECT,
+    _ref_key,
+    _Subscriber,
+    _SubscriptionHub,
+    SUBSCRIBER_QUEUE_MAXSIZE,
+)
 from .adapter import ChatAdapter
 from .capabilities import Capabilities
 from .errors import (
@@ -90,15 +97,6 @@ DM_WORKSPACE = "@me"
 # while leaving consumers a real window to make open_modal / respond the
 # initial response (see the amended _acked contract).
 DEFER_DELAY_SECONDS = 2.0
-
-# Per-subscriber queue bound. On overflow the hub disconnects THAT subscriber
-# (sentinel push) instead of dropping events silently — "at-least-once while
-# connected" stays honest.
-SUBSCRIBER_QUEUE_MAXSIZE = 1024
-
-# Sentinel pushed into subscriber queues to end a subscribe() stream
-# (gateway drop or per-subscriber overflow). Mirrors mock.py's design.
-_DISCONNECT = object()
 
 # Discord component/command wire constants (raw API payloads).
 _BUTTON_STYLES = {"primary": 1, "secondary": 2, "success": 3, "danger": 4, "link": 5}
@@ -573,72 +571,6 @@ def map_discord_error(exc: BaseException, *, target: str) -> ChatError:
     if status == 413 or code == 40005:
         return AttachmentTooLarge(text)
     return ChatError(text)
-
-
-# ---------------------------------------------------------------------- #
-# Subscription hub — independent per-subscriber broadcast streams
-# ---------------------------------------------------------------------- #
-
-def _ref_key(ref: ConversationRef) -> str:
-    """Filter key for a ref: the most specific id (thread over channel)."""
-    return ref.thread_id or ref.conversation_id
-
-
-class _Subscriber:
-    """One active subscribe() stream: bounded queue + optional filters."""
-
-    def __init__(self, keys: set[str] | None, since: float | None) -> None:
-        self.keys = keys                      # None = all conversations
-        self.since = since
-        self.queue: asyncio.Queue = asyncio.Queue(maxsize=SUBSCRIBER_QUEUE_MAXSIZE)
-
-
-class _SubscriptionHub:
-    """Broadcast fan-out from the single Gateway callback to N subscribers.
-
-    Contract fidelity (mirrors ``MockChatAdapter``): each subscriber owns
-    its queue (independent streams, no competition); filtering happens at
-    enqueue time; a full queue disconnects only that subscriber (sentinel
-    push after draining — never a silent drop); a transport disconnect ends
-    every stream with no replay.
-    """
-
-    def __init__(self) -> None:
-        self._subscribers: list[_Subscriber] = []
-
-    def add(self, sub: _Subscriber) -> None:
-        self._subscribers.append(sub)
-
-    def remove(self, sub: _Subscriber) -> None:
-        if sub in self._subscribers:
-            self._subscribers.remove(sub)
-
-    def publish(self, event: Event) -> None:
-        for sub in list(self._subscribers):
-            if sub.since is not None and event.timestamp < sub.since:
-                continue
-            if sub.keys is not None and event.conversation is not None:
-                if _ref_key(event.conversation) not in sub.keys:
-                    continue
-            # Events without a conversation are delivered to all (contract).
-            try:
-                sub.queue.put_nowait(event)
-            except asyncio.QueueFull:
-                # Overflow = this subscriber is too slow: disconnect IT (and
-                # only it). Drain so the sentinel always lands.
-                while not sub.queue.empty():
-                    try:
-                        sub.queue.get_nowait()
-                    except asyncio.QueueEmpty:  # pragma: no cover - race-safe
-                        break
-                sub.queue.put_nowait(_DISCONNECT)
-                self.remove(sub)
-
-    def disconnect_all(self) -> None:
-        """Gateway drop: end every active stream (no replay)."""
-        for sub in list(self._subscribers):
-            sub.queue.put_nowait(_DISCONNECT)
-        self._subscribers.clear()
 
 
 class _LiveInteraction:

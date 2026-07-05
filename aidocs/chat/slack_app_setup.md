@@ -1,8 +1,8 @@
 # Slack app setup for the aitasks chat layer
 
-Maintainer-facing groundwork gathered during t1074_2; the **reference input
-for t1074_3** (the Slack adapter). User-facing website docs come later with
-the chat-consuming feature tasks.
+Maintainer-facing platform-side configuration for the Slack adapter
+(`.aitask-scripts/chat/slack_adapter.py`). User-facing website docs come
+later with the chat-consuming feature tasks.
 
 ## Connection model
 
@@ -15,9 +15,8 @@ involved:
 - **App-level token** (`xapp-…`, scope `connections:write`) — opens the
   Socket Mode connection that delivers events and interactivity payloads.
 
-`ait setup --with-chat` will install both Slack SDKs once t1074_3 appends
-`slack-bolt`/`slack-sdk` to `AIT_PIP_SPECS_CHAT` (scaffold landed in
-t1074_2).
+`ait setup --with-chat` installs both Slack SDKs (`slack-bolt` /
+`slack-sdk`) alongside `discord.py`.
 
 ## Platform-side setup (api.slack.com)
 
@@ -43,7 +42,13 @@ t1074_2).
    - `usergroups:read` — `IdentityClaims.roles` (`kind=slack_usergroup`)
    - `files:read`, `files:write` — attachments
    - `reactions:read`, `reactions:write` — reactions + `fetch_reactions`
-   - `search:read` — only if `supports_message_search=True` is exercised
+
+   Note on search: `search.messages` requires a **user token** (`xoxp-`)
+   with the `search:read` scope — it is not a bot-token scope, and the
+   adapter holds only the bot + app tokens, so
+   `capabilities().supports_message_search` is `False`. Flipping it
+   requires a user-token seam plus an ABC search verb via the contract
+   amendment path.
 
    Commonly missed: the four `*:history` scopes and `files:read` — without
    them events arrive but backfill/attachments fail.
@@ -67,18 +72,21 @@ t1074_2).
 
 ## Framework-side configuration
 
-Same split as Discord: tokens are adapter-construction arguments
-(`SlackAdapter.connect(bot_token, app_token)` shape — t1074_3 decides the
-exact signature); storage/env-var schema and channel/user policy belong to
-the runtime layer (e.g. t1120). Do not invent env var names here.
+Same split as Discord: tokens are adapter-construction arguments —
+`SlackAdapter.connect(bot_token, app_token, *, team_id=None)` is the only
+SDK/Socket-Mode entry point; storage/env-var schema and channel/user policy
+belong to the runtime layer (e.g. t1120). Do not invent env var names here.
 
-## Platform notes for t1074_3 (from the parent plan)
+## Adapter platform notes
 
-- 3 s ack + `response_url` follow-up contract for interactivity; instant ack
-  = the amended `_acked` contract's "already performed" special case (no
-  delayed-defer needed, modals via `views.open` trigger_id within its window).
+- Interactivity ack: the Socket Mode envelope is acked **on receipt, before
+  the interaction is published** — the amended `_acked` contract's
+  "already performed" (instant-ack) special case. No delayed-defer; modals
+  open via `views.open` within the `trigger_id` window (~3 s); responses
+  and follow-ups post to `response_url` (~30 min window).
 - `chat.postEphemeral` is a true per-user ephemeral in-channel
   (`supports_ephemeral=True` without interaction context — richer than
-  Discord).
+  Discord); on failure the adapter falls back to a DM, never a public post.
 - `supports_standalone_threads=False` (threads only anchor on messages);
-  `search.messages` → `supports_message_search=True`.
+  `supports_message_search=False` (user-token-only API — see the scopes
+  note above).

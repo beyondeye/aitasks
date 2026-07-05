@@ -635,9 +635,13 @@ async def main():
     # publishes are synchronous, so a stalled consumer is just an undrained
     # bounded queue.
     hub = sub_adapter._hub
-    da.SUBSCRIBER_QUEUE_MAXSIZE = 2
+    # The hub lives in the shared chat._subscription module (t1074_3):
+    # _Subscriber reads the bound from ITS module globals, so the
+    # monkeypatch must target that module, not the da re-export.
+    import chat._subscription as subs
+    subs.SUBSCRIBER_QUEUE_MAXSIZE = 2
     slow_sub = da._Subscriber(None, None)     # bounded at 2
-    da.SUBSCRIBER_QUEUE_MAXSIZE = 1024
+    subs.SUBSCRIBER_QUEUE_MAXSIZE = 1024
     fast_sub = da._Subscriber(None, None)
     hub.add(slow_sub)
     hub.add(fast_sub)
