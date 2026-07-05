@@ -5,14 +5,15 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [applink, applink_connectivity]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1061
 implemented_with: claudecode/fable5
 created_at: 2026-07-02 23:45
-updated_at: 2026-07-05 16:44
+updated_at: 2026-07-05 17:08
+completed_at: 2026-07-05 17:08
 ---
 
 **A1 of the t1061 paired decomposition** (see
@@ -113,3 +114,14 @@ trust    := pin | ca                   (pin = QR fp is the trust anchor;
 > **✅ gate:plan_approved** run=2026-07-05T13:44:06Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-05T14:07:33Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-05T14:08:02Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:9facc8298366ac20
+
+> **✅ gate:risk_evaluated** run=2026-07-05T14:08:02Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1061_1/risk_evaluated_2026-07-05T14:08:02Z-risk_evaluated-a1.log`
