@@ -435,3 +435,4 @@ commits via `./ait git`) → gate run (`risk_evaluated`) → archive.
   pre-existing defect in the t1037 shadow concern infrastructure (present since
   `plan-challenge.md` shipped), not seeded by this task — it was fixed here in
   full rather than deferred. None other.
+- **Manual-verification failure:** item "Launch a completed task's agent + shadow; ask "review the implementation" and confirm the emitted ===AITASK-CONCERNS=== block forwards via minimonitor's 'c' picker showing the REAL concerns (not the doc's placeholder example" failed; follow-up task t1123.
