@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -51,3 +53,5 @@ Fix code-agent launches from the shared `AgentCommandScreen` so pick/raw/explain
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-05T13:31:18Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-05T13:47:32Z status=pass attempt=1 type=human
