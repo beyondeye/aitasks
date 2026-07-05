@@ -60,18 +60,18 @@ from textual.widgets import Button, Footer, Header, Label, Static  # noqa: E402
 
 
 def _rename_window_argv(pane: str | None) -> list[str]:
-    """Build the ``tmux rename-window monitor`` argv, pinned to *pane* when known.
+    """Build the ``tmux rename-window monitor`` argv, pinned to *pane*.
 
-    Targeting the monitor's own pane (via $TMUX_PANE) prevents tmux from
-    resolving the untargeted default to the attached client's *active* window —
+    Returns an EMPTY list when *pane* is falsy. Without $TMUX_PANE there is no
+    reliable way to identify the monitor's own window, and an untargeted
+    ``tmux rename-window`` resolves to the attached client's *active* window —
     which, with automatic-rename off, would permanently mislabel an unrelated
-    window (e.g. a board) as ``monitor``. See t941.
+    window (e.g. an agent-explore window or a board) as ``monitor``. Fail safe:
+    issue no rename rather than renaming an arbitrary window. See t941 / t1130.
     """
-    argv = ["tmux", "rename-window"]
-    if pane:
-        argv += ["-t", pane]
-    argv.append("monitor")
-    return argv
+    if not pane:
+        return []
+    return ["tmux", "rename-window", "-t", pane, "monitor"]
 
 
 # -- Zone model ---------------------------------------------------------------
@@ -484,10 +484,9 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # before `_start_monitoring()` constructs `self._monitor`, so it must
         # use raw subprocess rather than `self._monitor.tmux_run`.
         try:
-            subprocess.run(
-                _rename_window_argv(os.environ.get("TMUX_PANE")),
-                capture_output=True, timeout=5,
-            )
+            rename_argv = _rename_window_argv(os.environ.get("TMUX_PANE"))
+            if rename_argv:
+                subprocess.run(rename_argv, capture_output=True, timeout=5)
         except Exception:
             pass
 
