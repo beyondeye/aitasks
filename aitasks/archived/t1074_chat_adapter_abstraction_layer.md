@@ -3,11 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [chat_surface, python]
-children_to_implement: [t1074_3]
 created_at: 2026-06-25 10:14
-updated_at: 2026-07-05 10:44
+updated_at: 2026-07-05 12:40
+completed_at: 2026-07-05 12:40
 boardcol: now
 boardidx: 10
 ---
