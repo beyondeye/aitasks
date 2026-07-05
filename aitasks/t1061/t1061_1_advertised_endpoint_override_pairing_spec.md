@@ -111,3 +111,5 @@ trust    := pin | ca                   (pin = QR fp is the trust anchor;
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-05T13:44:06Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-05T14:07:33Z status=pass attempt=1 type=human
