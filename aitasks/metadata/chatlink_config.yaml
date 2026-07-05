@@ -1,0 +1,53 @@
+# chatlink gateway configuration (t1120 chat bridge)
+#
+# Shared, checked-in config for the chatlink gateway daemon: which chat
+# channel is the bug-report intake, who may initiate, and the resource
+# ceilings applied to gateway-spawned sandboxed agents.
+#
+# The daemon refuses to start while this file is missing; with the file
+# present, invalid values degrade per-key to safe clamped defaults (a
+# warning is printed). The bot token is NOT stored here — it lives in the
+# gitignored per-PC file aitasks/metadata/chatlink_sessions/bot_token
+# (created with 0600 permissions).
+#
+# To point the daemon at a different config path, set `chatlink.config`
+# in aitasks/metadata/project_config.yaml (repo-root-relative).
+
+# --- Intake channel -------------------------------------------------------
+# The serialized ConversationRef of the bug-report intake channel
+# (provider / workspace_id / conversation_id as reported by the chat layer;
+# for Discord: workspace_id = guild id, conversation_id = channel id).
+# Intake stays disabled until this is set.
+#intake_channel:
+#  provider: discord
+#  workspace_id: "123456789012345678"
+#  conversation_id: "987654321098765432"
+#  thread_id: null
+#  metadata: {}
+
+# --- Authorization (deny-by-default) --------------------------------------
+# Users/roles allowed to initiate a bug-report intake. Both lists empty
+# (or unset) means nobody is allowed. Role ids are platform role ids
+# (Discord guild role id / Slack usergroup id).
+#allowed_user_ids:
+#  - "111111111111111111"
+#allowed_role_ids:
+#  - "222222222222222222"
+
+# How to respond to a denied user's message in the intake channel:
+#   ignore    - no reaction (default)
+#   ephemeral - reply visible only to that user
+#deny_message_mode: ignore
+
+# Optional logical project name for audit/display output.
+#repo_name: my_project
+
+# --- Ceilings (DoS posture) -----------------------------------------------
+# Resource ceilings for gateway-spawned sandboxes. Out-of-range values are
+# clamped at load; invalid values fall back to the defaults shown.
+#max_concurrent_sandboxes: 2        # clamp range 1-16
+#intake_rate_per_user_per_hour: 4   # clamp range 1-60
+#sandbox_memory: 2g                 # container --memory (e.g. 512m, 2g)
+#sandbox_cpus: 2                    # container --cpus, clamp range 1-16
+#sandbox_pids: 512                  # container --pids-limit, clamp range 16-4096
+#sandbox_wall_clock_s: 1800         # wall-clock cap, clamp range 60-14400

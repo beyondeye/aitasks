@@ -12,3 +12,6 @@ aitasks/metadata/profiles/local/
 
 # applink runtime state (per-PC: TLS cert/key + active bearer sessions)
 aitasks/metadata/applink_sessions/
+
+# chatlink runtime state (per-PC: bot token + relay spools)
+aitasks/metadata/chatlink_sessions/
