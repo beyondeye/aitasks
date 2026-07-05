@@ -5,11 +5,11 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [chat_surface, python]
-children_to_implement: [t1074_2, t1074_3]
+children_to_implement: [t1074_3]
 created_at: 2026-06-25 10:14
-updated_at: 2026-07-02 15:33
-boardidx: 10
+updated_at: 2026-07-05 10:44
 boardcol: now
+boardidx: 10
 ---
 
 ## Goal
