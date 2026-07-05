@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1061_1]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [applink, applink_connectivity]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1061
 created_at: 2026-07-02 23:45
-updated_at: 2026-07-02 23:45
+updated_at: 2026-07-05 17:31
 ---
 
 **A2 of the t1061 paired decomposition** (see
