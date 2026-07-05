@@ -24,7 +24,7 @@ git init -q; git config user.email t@t.t; git config user.name tester
 # shellcheck source=/dev/null
 source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
 # shellcheck source=/dev/null
-source "$PROJECT_DIR/.aitask-scripts/lib/attachment_utils.sh"
+source "$PROJECT_DIR/.aitask-scripts/lib/artifact_utils.sh"
 
 mk_task() {
     printf -- '---\npriority: medium\nstatus: Implementing\nupdated_at: 2026-01-01 00:00\n---\n\nTask %s body.\n' "$1" > "aitasks/$1.md"
@@ -38,7 +38,7 @@ mk_child() {               # <parent_num> <child_stem>
 }
 
 meta_refs() { "$PY" "$META" --meta-dir attachments/meta refs "$1" | paste -sd, -; }
-blob_of()   { printf 'attachments/blobs/%s' "$(attachment_shard_path "$1")"; }
+blob_of()   { printf 'attachments/blobs/%s' "$(artifact_shard_path "$1")"; }
 status_of() { sed -n 's/^status: //p' "$1" | head -1; }
 
 # Scenario tasks.
@@ -51,13 +51,13 @@ mk_parent_with_child t32_parent "t32_2"; mk_child 32 t32_2_child
 git add -A; git commit -q -m init
 
 # Distinct content -> distinct hashes.
-printf 'basic transfer\n'  > c_basic.bin; HB="$(attachment_sha256 c_basic.bin)"
-printf 'dup shared\n'      > c_dup.bin;   HD="$(attachment_sha256 c_dup.bin)"
-printf 'collide Y\n'       > c_y.bin;     HY="$(attachment_sha256 c_y.bin)"
+printf 'basic transfer\n'  > c_basic.bin; HB="$(artifact_sha256 c_basic.bin)"
+printf 'dup shared\n'      > c_dup.bin;   HD="$(artifact_sha256 c_dup.bin)"
+printf 'collide Y\n'       > c_y.bin;     HY="$(artifact_sha256 c_y.bin)"
 printf 'collide D1\n'      > c_d1.bin
 printf 'collide D2\n'      > c_d2.bin
-printf 'transitive\n'      > c_trans.bin; HT="$(attachment_sha256 c_trans.bin)"
-printf 'rollback blob\n'   > c_rb.bin;    HR="$(attachment_sha256 c_rb.bin)"
+printf 'transitive\n'      > c_trans.bin; HT="$(artifact_sha256 c_trans.bin)"
+printf 'rollback blob\n'   > c_rb.bin;    HR="$(artifact_sha256 c_rb.bin)"
 
 # ── A. Basic: fold t21 -> t20 transfers the attachment + survives archival ───
 "$ATT" add 21 c_basic.bin --name basic.bin >/dev/null 2>&1

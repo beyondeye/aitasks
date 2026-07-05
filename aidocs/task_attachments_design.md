@@ -147,31 +147,44 @@ Same content-addressed naming scheme, mapped to backend-native paths:
 
 ## 5. Backend adapter interface
 
-A new `.aitask-scripts/lib/attachment_backend.sh` defines the contract,
-implemented by per-backend modules in `.aitask-scripts/lib/attachment_backends/`:
+> **Renamed in t1076_1:** the adapter seam is now the shared artifact substrate
+> — `.aitask-scripts/lib/artifact_backend.sh`, modules in
+> `lib/artifact_backends/`, functions `artifact_backend_*`, env var
+> `$ARTIFACT_BACKEND` (see `unified_artifact_design.md` §5). Attachments are one
+> consumer of it. The contract below is unchanged apart from the names.
+
+`.aitask-scripts/lib/artifact_backend.sh` defines the contract,
+implemented by per-backend modules in `.aitask-scripts/lib/artifact_backends/`:
 
 ```sh
-attachment_backend_put    <hash> <file>          # upload, idempotent
-attachment_backend_get    <hash> <dest>          # download to dest
-attachment_backend_head   <hash>                 # exit 0 if present
-attachment_backend_delete <hash>                 # remove from backend
-attachment_backend_list                          # enumerate hashes
+artifact_backend_put    <hash> <file>          # upload, idempotent
+artifact_backend_get    <hash> <dest>          # download to dest
+artifact_backend_head   <hash>                 # exit 0 if present
+artifact_backend_delete <hash>                 # remove from backend
+artifact_backend_list                          # enumerate hashes
 ```
 
 Dispatch follows the same **platform-extensible dispatcher pattern** as
-`gitremoteproviderintegration.md` — a `case` on `$ATTACHMENT_BACKEND`
+`gitremoteproviderintegration.md` — a `case` on `$ARTIFACT_BACKEND`
 routes to the per-backend implementation. Backends register themselves by
-dropping a file in `attachment_backends/` and adding a `case` arm to the
+dropping a file in `artifact_backends/` and adding a `case` arm to the
 dispatcher.
 
 ### Universal local cache
 
 Independently of the chosen backend, every machine maintains a local cache
-at `~/.cache/ait/attachments/<hash>`. Resolution order:
+at `~/.cache/ait/artifacts/<hash>` (t1076_1 moved it from
+`~/.cache/ait/attachments/`; entries under the old dir simply go stale — the
+cache is a pure perf layer, blobs re-resolve on first access). Resolution order:
 
-1. Local cache hit → return path.
-2. Backend `head` + `get` → populate cache → return path.
+1. Local cache hit → verify content → return path.
+2. Backend `head` + `get` → populate cache → verify content → return path.
 3. Miss in both → loud error, never silent placeholder.
+
+The resolver (`lib/artifact_cache.sh::artifact_resolve`) hash-verifies the
+resolved bytes itself (t1076_1): a corrupted cached copy self-heals with a
+single re-fetch; a corrupted canonical blob dies loudly and is never
+auto-repaired.
 
 The cache is purely a performance layer; the **canonical copy lives in the
 backend**. A `local` backend short-circuits the cache by symlinking from
@@ -262,8 +275,12 @@ orphan.
 hashes, then under the global attach lock re-confirms each is still empty and,
 as a belt-and-suspenders cross-check, that **no active or archived task**
 frontmatter still lists it (Folded tasks are excluded — they are pending
-deletion and their refs were rebound to the primary). Candidates older than
-`attachments_gc_grace` are removed via `attachment_backend_delete` + meta-file
+deletion and their refs were rebound to the primary). Since t1076_1 the
+blocking set also unions **every artifact-manifest version**
+(`artifact_manifest referenced-hashes`) — a blob referenced by any artifact
+version is never reclaimed, and a malformed manifest aborts the sweep
+fail-closed (see `unified_artifact_design.md` §9). Candidates older than
+`attachments_gc_grace` are removed via `artifact_backend_delete` + meta-file
 deletion. Archival never deletes blobs synchronously, because folded /
 superseded tasks may resurrect.
 
@@ -295,8 +312,9 @@ spawn the paired mobile work.
 ### Other consumers
 
 The website renderer and `ait codebrowser` TUI should follow the same
-"hash → cache → backend" resolution, factored out of the bash script
-into a shared helper (Python `attachment_resolve.py`?).
+"hash → cache → backend" resolution — the bash resolver is
+`lib/artifact_cache.sh::artifact_resolve` (renamed in t1076_1); a Python port
+would be a shared helper alongside it.
 
 ## 10. Open questions
 

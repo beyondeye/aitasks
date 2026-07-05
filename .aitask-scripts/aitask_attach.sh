@@ -16,6 +16,12 @@
 # global index.json. Blobs live at attachments/blobs/<2>/<62> (local backend). The
 # whole add/rm body runs under one global attach-transaction lock (with_attach_lock).
 # See aiplans/p1030/p1030_2_local_backend_cache_index.md.
+#
+# ARTIFACT SUBSTRATE (t1076_1): the blob store/backend/cache seam is the shared
+# artifact substrate (lib/artifact_{utils,backend,cache}.sh) — attachments are
+# one consumer. Artifacts add per-artifact manifests (artifacts/manifests/
+# <id>.json via lib/artifact_manifest.py); any hash referenced by any manifest
+# version blocks gc reclamation (see _attach_gc_blocking_hashes).
 
 set -euo pipefail
 
@@ -28,16 +34,18 @@ source "$SCRIPT_DIR/lib/yaml_utils.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck source=lib/python_resolve.sh
 source "$SCRIPT_DIR/lib/python_resolve.sh"
-# shellcheck source=lib/attachment_utils.sh
-source "$SCRIPT_DIR/lib/attachment_utils.sh"
-# shellcheck source=lib/attachment_backend.sh
-source "$SCRIPT_DIR/lib/attachment_backend.sh"
-# shellcheck source=lib/attachment_cache.sh
-source "$SCRIPT_DIR/lib/attachment_cache.sh"
+# shellcheck source=lib/artifact_utils.sh
+source "$SCRIPT_DIR/lib/artifact_utils.sh"
+# shellcheck source=lib/artifact_backend.sh
+source "$SCRIPT_DIR/lib/artifact_backend.sh"
+# shellcheck source=lib/artifact_cache.sh
+source "$SCRIPT_DIR/lib/artifact_cache.sh"
 # shellcheck source=lib/attachment_lock.sh
 source "$SCRIPT_DIR/lib/attachment_lock.sh"
 # shellcheck source=lib/attachment_meta.sh
 source "$SCRIPT_DIR/lib/attachment_meta.sh"
+# shellcheck source=lib/artifact_manifest.sh
+source "$SCRIPT_DIR/lib/artifact_manifest.sh"
 
 NOT_YET="not yet available — backend move arrives with a remote-backend task"
 
@@ -68,7 +76,7 @@ EOF
 # dynamically-scoped locals (private helper; only called from cmd_list).
 _attach_print_row() {
     idx=$((idx + 1))
-    if ! attachment_validate_hash "$rhash"; then
+    if ! artifact_validate_hash "$rhash"; then
         die "ait attach ls: attachment #$idx (${rname:-<unnamed>}) has an invalid or missing hash: '${rhash}'"
     fi
     local short="${rhash#sha256:}"
@@ -221,7 +229,7 @@ cmd_add() {
 # _attach_add_txn -- the full add transaction (runs under the global attach lock).
 _attach_add_txn() {
     local task_id="$1" task_file="$2" file="$3" backend="$4" name="$5"
-    export ATTACHMENT_BACKEND="$backend"
+    export ARTIFACT_BACKEND="$backend"
 
     # Size cap.
     local size cap
@@ -233,7 +241,7 @@ _attach_add_txn() {
 
     local mime hash
     mime="$(file --mime-type -b "$file" 2>/dev/null || echo application/octet-stream)"
-    hash="$(attachment_sha256 "$file")"
+    hash="$(artifact_sha256 "$file")"
 
     # Duplicate rejection — hash AND name, both per task (keeps (hash,task) 1:1).
     local pairs h n b
@@ -246,13 +254,13 @@ _attach_add_txn() {
 
     # Pre-existence (for deterministic rollback).
     local blob_pre=false meta_pre=false
-    attachment_backend_head "$hash" && blob_pre=true
-    local meta_file; meta_file="$(attach_meta_dir)/$(attachment_shard_path "$hash").json"
+    artifact_backend_head "$hash" && blob_pre=true
+    local meta_file; meta_file="$(attach_meta_dir)/$(artifact_shard_path "$hash").json"
     [[ -f "$meta_file" ]] && meta_pre=true
 
     # Store blob (idempotent atomic copy) + populate cache.
-    attachment_backend_put "$hash" "$file"
-    attachment_resolve "$hash" >/dev/null
+    artifact_backend_put "$hash" "$file"
+    artifact_resolve "$hash" >/dev/null
 
     local added_at; added_at="$(date '+%Y-%m-%d %H:%M')"
     attach_meta incref "$hash" "$task_id" "mime=$mime" "size=$size" "backend=$backend"
@@ -262,7 +270,7 @@ _attach_add_txn() {
 
     # Commit the trio (blob + meta + task) as one commit.
     local blob_rel meta_rel
-    blob_rel="$(attachment_local_blob_relpath "$hash")"
+    blob_rel="$(artifact_local_blob_relpath "$hash")"
     meta_rel="$(attach_meta_relpath "$hash")"
     if ! _attach_commit "ait: Attach ${name} to t${task_id}" "$blob_rel" "$meta_rel" "$task_file"; then
         _attach_rollback_add "$task_file" "$meta_rel" "$meta_file" "$meta_pre" "$blob_rel" "$hash" "$blob_pre"
@@ -289,7 +297,7 @@ _attach_rollback_add() {
     # anyway, but remove eagerly for a clean rollback).
     if [[ "$blob_pre" == false ]]; then
         task_git reset -q -- "$blob_rel" >/dev/null 2>&1 || true
-        attachment_backend_delete "$hash"
+        artifact_backend_delete "$hash"
     fi
 }
 
@@ -313,10 +321,10 @@ cmd_get() {
     local hash; hash="$(_attach_resolve_ref "$task_file" "$ref")" \
         || die "ait attach get: no attachment matching '$ref' on t${task_id}"
     local backend; backend="$(_attach_record_backend "$task_file" "$hash")"
-    export ATTACHMENT_BACKEND="${backend:-local}"
-    local cache; cache="$(attachment_resolve "$hash")"
+    export ARTIFACT_BACKEND="${backend:-local}"
+    local cache; cache="$(artifact_resolve "$hash")"
     # Verify the resolved bytes hash back to the expected hash (design §8).
-    local got; got="$(attachment_sha256 "$cache")"
+    local got; got="$(artifact_sha256 "$cache")"
     [[ "$got" == "$hash" ]] || die "ait attach get: hash mismatch for '$ref' (expected $hash, got $got)"
     if [[ -n "$out" ]]; then
         cp "$cache" "$out"
@@ -489,11 +497,20 @@ _attach_gc_grace() {
     printf '%s' "$v"
 }
 
-# _attach_gc_blocking_hashes -- print every attachment hash referenced by a task
-# that must KEEP its blobs: all active tasks AND all archived tasks (archived
-# references are real — browsable history, D4), EXCLUDING Folded tasks (pending-
-# deletion; their refs were rebound to the primary). This is the belt-and-
-# suspenders cross-check against ledger drift before any delete.
+# _attach_gc_blocking_hashes -- print every hash referenced by a task OR by any
+# artifact-manifest version, i.e. the blobs that must be KEPT: all active tasks
+# AND all archived tasks (archived references are real — browsable history, D4),
+# EXCLUDING Folded tasks (pending-deletion; their refs were rebound to the
+# primary), PLUS every version hash in every artifact manifest (t1076_1, design
+# §9 — version-aware: an old version's blob must survive until that version is
+# itself pruned). This is the belt-and-suspenders cross-check against ledger
+# drift before any delete.
+#
+# A manifest-blocked orphan keeps its zero-ref meta file indefinitely — the
+# block lifts when t1076_2's version pruning removes the manifest reference
+# (intentional, not a leak). If any manifest is malformed, referenced-hashes
+# dies naming the bad file and gc aborts BEFORE sweeping anything (fail-closed:
+# never sweep with an unreadable blocking set).
 _attach_gc_blocking_hashes() {
     shopt -s nullglob
     local files=( "$TASK_DIR"/t*.md "$TASK_DIR"/t*/t*.md \
@@ -506,6 +523,7 @@ _attach_gc_blocking_hashes() {
         [[ "$st" == "Folded" ]] && continue
         attach_task_hashes "$f"
     done
+    artifact_manifest referenced-hashes
 }
 
 cmd_gc() {
@@ -519,8 +537,17 @@ _attach_gc_txn() {
     grace_sec="$(parse_duration_to_seconds "$(_attach_gc_grace)")"
     now="$(date +%s)"
 
-    # Blocking set: hashes any non-Folded active/archived task still references.
-    local blocking; blocking="$(_attach_gc_blocking_hashes)"
+    # Blocking set: hashes any non-Folded active/archived task still references,
+    # UNION every artifact-manifest version (t1076_1). The explicit `|| die` is
+    # LOAD-BEARING: this function runs with errexit suppressed (with_attach_lock
+    # invokes it via `"$@" || rc=$?`), so without it a malformed manifest dying
+    # inside referenced-hashes would leave a PARTIAL blocking set and the sweep
+    # would continue — deleting blobs that are still referenced. Fail closed:
+    # never sweep with an unreadable blocking set (the inner error names the
+    # offending manifest file).
+    local blocking
+    blocking="$(_attach_gc_blocking_hashes)" || \
+        die "ait attach gc: could not compute the blocking set (see error above) — sweep aborted, no blobs deleted"
 
     local swept=0 retained=0
     local -a del_paths=()
@@ -542,11 +569,11 @@ _attach_gc_txn() {
         fi
         # Reclaim: delete blob + meta (v1 is local-only; add rejects other
         # backends, so every stored blob is local).
-        export ATTACHMENT_BACKEND="local"
-        attachment_backend_delete "$h"
-        meta_file="$(attach_meta_dir)/$(attachment_shard_path "$h").json"
+        export ARTIFACT_BACKEND="local"
+        artifact_backend_delete "$h"
+        meta_file="$(attach_meta_dir)/$(artifact_shard_path "$h").json"
         rm -f "$meta_file"
-        del_paths+=( "$(attachment_local_blob_relpath "$h")" "$(attach_meta_relpath "$h")" )
+        del_paths+=( "$(artifact_local_blob_relpath "$h")" "$(attach_meta_relpath "$h")" )
         swept=$((swept + 1))
     done < <(attach_meta zero-refcount)
 

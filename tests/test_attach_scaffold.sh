@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # test_attach_scaffold.sh - Tests for the task-attachments scaffold (t1030_1):
-# the pure helpers in lib/attachment_utils.sh, the read_yaml_mappings reader in
+# the pure helpers in lib/artifact_utils.sh, the read_yaml_mappings reader in
 # lib/yaml_utils.sh, and the read-only `ait attach ls` surface.
 #
 # Run: bash tests/test_attach_scaffold.sh
@@ -12,14 +12,14 @@ PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 LIB_DIR="$PROJECT_DIR/.aitask-scripts/lib"
 
-# die() lives in terminal_compat.sh; attachment_utils.sh calls it. Source the
+# die() lives in terminal_compat.sh; artifact_utils.sh calls it. Source the
 # helpers directly (these libs are not in ./ait's startup chain).
 # shellcheck source=../.aitask-scripts/lib/terminal_compat.sh
 source "$LIB_DIR/terminal_compat.sh"
 # shellcheck source=../.aitask-scripts/lib/yaml_utils.sh
 source "$LIB_DIR/yaml_utils.sh"
-# shellcheck source=../.aitask-scripts/lib/attachment_utils.sh
-source "$LIB_DIR/attachment_utils.sh"
+# shellcheck source=../.aitask-scripts/lib/artifact_utils.sh
+source "$LIB_DIR/artifact_utils.sh"
 
 PASS=0
 FAIL=0
@@ -31,41 +31,41 @@ trap 'rm -rf "$TMP"' EXIT
 ATTACH="$PROJECT_DIR/.aitask-scripts/aitask_attach.sh"
 GOOD_HASH="sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 
-# --- Test 1: attachment_sha256 known vector (empty input) ------------------
+# --- Test 1: artifact_sha256 known vector (empty input) ------------------
 : > "$TMP/empty"
 assert_eq "sha256 of empty file matches the known vector" \
     "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" \
-    "$(attachment_sha256 "$TMP/empty")"
+    "$(artifact_sha256 "$TMP/empty")"
 
 printf 'hello\n' > "$TMP/hello"
-hello_hash="$(attachment_sha256 "$TMP/hello")"
+hello_hash="$(artifact_sha256 "$TMP/hello")"
 assert_eq "sha256 output is a well-formed sha256:<64hex>" \
     "0" "$( [[ "$hello_hash" =~ ^sha256:[0-9a-f]{64}$ ]]; echo $? )"
 
-# --- Test 2: attachment_validate_hash accept / reject ----------------------
-assert_exit_zero    "validate_hash accepts a canonical hash" attachment_validate_hash "$GOOD_HASH"
+# --- Test 2: artifact_validate_hash accept / reject ----------------------
+assert_exit_zero    "validate_hash accepts a canonical hash" artifact_validate_hash "$GOOD_HASH"
 assert_exit_nonzero "validate_hash rejects missing sha256: prefix" \
-    attachment_validate_hash "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-assert_exit_nonzero "validate_hash rejects a too-short hash" attachment_validate_hash "sha256:abcd"
+    artifact_validate_hash "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+assert_exit_nonzero "validate_hash rejects a too-short hash" artifact_validate_hash "sha256:abcd"
 assert_exit_nonzero "validate_hash rejects uppercase hex" \
-    attachment_validate_hash "sha256:9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08"
-assert_exit_nonzero "validate_hash rejects empty input" attachment_validate_hash ""
+    artifact_validate_hash "sha256:9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08"
+assert_exit_nonzero "validate_hash rejects empty input" artifact_validate_hash ""
 
-# --- Test 3: attachment_shard_path -----------------------------------------
+# --- Test 3: artifact_shard_path -----------------------------------------
 assert_eq "shard_path splits into <2>/<62>" \
     "9f/86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" \
-    "$(attachment_shard_path "$GOOD_HASH")"
+    "$(artifact_shard_path "$GOOD_HASH")"
 # Bad hash must die (run in a subshell so its exit does not kill the test).
-( attachment_shard_path "not-a-hash" ) >/dev/null 2>&1; shard_rc=$?
+( artifact_shard_path "not-a-hash" ) >/dev/null 2>&1; shard_rc=$?
 assert_exit_nonzero_rc "shard_path dies on an invalid hash" "$shard_rc"
 
-# --- Test 4: attachment_cache_path honors XDG_CACHE_HOME --------------------
+# --- Test 4: artifact_cache_path honors XDG_CACHE_HOME --------------------
 assert_eq "cache_path uses XDG_CACHE_HOME override" \
-    "/xdg/cache/ait/attachments/$GOOD_HASH" \
-    "$(XDG_CACHE_HOME=/xdg/cache attachment_cache_path "$GOOD_HASH")"
+    "/xdg/cache/ait/artifacts/$GOOD_HASH" \
+    "$(XDG_CACHE_HOME=/xdg/cache artifact_cache_path "$GOOD_HASH")"
 assert_eq "cache_path falls back to \$HOME/.cache" \
-    "/home/fixture/.cache/ait/attachments/$GOOD_HASH" \
-    "$(HOME=/home/fixture XDG_CACHE_HOME="" attachment_cache_path "$GOOD_HASH")"
+    "/home/fixture/.cache/ait/artifacts/$GOOD_HASH" \
+    "$(HOME=/home/fixture XDG_CACHE_HOME="" artifact_cache_path "$GOOD_HASH")"
 
 # --- Test 5: read_yaml_mappings on 0 / 1 / 2 attachments -------------------
 
@@ -202,7 +202,7 @@ assert_contains "attach help lists ls" "ls" "$help_out"
 assert_contains "attach help marks unimplemented verbs" "not yet implemented" "$help_out"
 
 # --- Test 8: syntax checks for the touched/new files -----------------------
-for f in lib/attachment_utils.sh lib/yaml_utils.sh aitask_attach.sh; do
+for f in lib/artifact_utils.sh lib/yaml_utils.sh aitask_attach.sh; do
     TOTAL=$((TOTAL + 1))
     if bash -n "$PROJECT_DIR/.aitask-scripts/$f"; then
         PASS=$((PASS + 1))

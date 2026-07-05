@@ -25,7 +25,7 @@ git init -q; git config user.email t@t.t; git config user.name tester
 # shellcheck source=/dev/null
 source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
 # shellcheck source=/dev/null
-source "$PROJECT_DIR/.aitask-scripts/lib/attachment_utils.sh"
+source "$PROJECT_DIR/.aitask-scripts/lib/artifact_utils.sh"
 
 mk_task() {  # mk_task <relpath-stem> e.g. t10_demo or t20/t20_1_child
     local f="aitasks/$1.md"; mkdir -p "$(dirname "$f")"
@@ -34,8 +34,8 @@ mk_task() {  # mk_task <relpath-stem> e.g. t10_demo or t20/t20_1_child
 meta_refs()  { "$PY" "$META" --meta-dir attachments/meta refs "$1" | paste -sd, -; }
 orphaned()   { "$PY" "$META" --meta-dir attachments/meta orphaned-at "$1"; }
 set_grace()  { printf 'attachments_gc_grace: %s\n' "$1" > aitasks/metadata/project_config.yaml; }
-blob_of()    { printf 'attachments/blobs/%s' "$(attachment_shard_path "$1")"; }
-meta_file()  { printf 'attachments/meta/%s.json' "$(attachment_shard_path "$1")"; }
+blob_of()    { printf 'attachments/blobs/%s' "$(artifact_shard_path "$1")"; }
+meta_file()  { printf 'attachments/meta/%s.json' "$(artifact_shard_path "$1")"; }
 
 mk_task t10_single
 mk_task t11_sharedA
@@ -55,17 +55,17 @@ mk_task t40_rollback
 git add -A; git commit -q -m init
 
 # Distinct content -> distinct content-addressed hashes.
-printf 'single bytes\n'        > a_single.bin;  HSI="$(attachment_sha256 a_single.bin)"
-printf 'shared 11/12 bytes\n'  > a_shared.bin;  HSH="$(attachment_sha256 a_shared.bin)"
-printf 'parent own bytes\n'    > a_pown.bin;    HPO="$(attachment_sha256 a_pown.bin)"
-printf 'child A bytes\n'       > a_ca.bin;      HCA="$(attachment_sha256 a_ca.bin)"
-printf 'parent+childB bytes\n' > a_pc.bin;      HPC="$(attachment_sha256 a_pc.bin)"
-printf 'sibling bytes\n'       > a_sib.bin;     HSB="$(attachment_sha256 a_sib.bin)"
-printf 'primary own bytes\n'   > a_eown.bin;    HEO="$(attachment_sha256 a_eown.bin)"
-printf 'folded origin bytes\n' > a_fold.bin;    HFO="$(attachment_sha256 a_fold.bin)"
-printf 'multi folded bytes\n'  > a_multi.bin;   HMU="$(attachment_sha256 a_multi.bin)"
-printf 'not-in-primary bytes\n'> a_nd.bin;      HND="$(attachment_sha256 a_nd.bin)"
-printf 'rollback bytes\n'      > a_rb.bin;      HRB="$(attachment_sha256 a_rb.bin)"
+printf 'single bytes\n'        > a_single.bin;  HSI="$(artifact_sha256 a_single.bin)"
+printf 'shared 11/12 bytes\n'  > a_shared.bin;  HSH="$(artifact_sha256 a_shared.bin)"
+printf 'parent own bytes\n'    > a_pown.bin;    HPO="$(artifact_sha256 a_pown.bin)"
+printf 'child A bytes\n'       > a_ca.bin;      HCA="$(artifact_sha256 a_ca.bin)"
+printf 'parent+childB bytes\n' > a_pc.bin;      HPC="$(artifact_sha256 a_pc.bin)"
+printf 'sibling bytes\n'       > a_sib.bin;     HSB="$(artifact_sha256 a_sib.bin)"
+printf 'primary own bytes\n'   > a_eown.bin;    HEO="$(artifact_sha256 a_eown.bin)"
+printf 'folded origin bytes\n' > a_fold.bin;    HFO="$(artifact_sha256 a_fold.bin)"
+printf 'multi folded bytes\n'  > a_multi.bin;   HMU="$(artifact_sha256 a_multi.bin)"
+printf 'not-in-primary bytes\n'> a_nd.bin;      HND="$(artifact_sha256 a_nd.bin)"
+printf 'rollback bytes\n'      > a_rb.bin;      HRB="$(artifact_sha256 a_rb.bin)"
 
 "$ATT" add 10 a_single.bin --name single.bin >/dev/null 2>&1
 "$ATT" add 11 a_shared.bin --name shared.bin >/dev/null 2>&1

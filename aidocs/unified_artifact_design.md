@@ -147,32 +147,40 @@ art:<id>  →  { current: sha256:…,
                resolution hints (optional, advisory) }
 ```
 
-It generalizes t1030's `index.json` (which already tracks hash → task refcounts);
-§9 reuses it for version-aware GC.
+The manifest is a **new sibling ledger** next to t1030's per-blob attachment
+meta files (t1030 shipped per-blob refcount files at `attachments/meta/`, not a
+global `index.json`); §9 uses it for version-aware GC.
 
-**Open design point (surface, do not decide here): where the manifest lives and
-how it travels.** Two shapes, under one hard constraint — *updating the manifest
-must never touch a task file, and any configured PC must be able to resolve
-`art:<id>` through it*:
+**Settled (t1076_1): committed per-artifact manifest files.** Each artifact gets
+ONE JSON file at `<data-worktree>/artifacts/manifests/<id>.json` (`<id>` = the
+handle minus its `art:` prefix; implementation:
+`.aitask-scripts/lib/artifact_manifest.{py,sh}`). Rationale and semantics:
 
-1. **Committed index in the storage layer.** For the zero-config `local` backend,
-   a manifest committed under `.aitask-data/` (alongside the blobs). Travels with
-   the data branch; simple; but couples manifest churn to data-branch commits.
-2. **Backend-resident manifest.** For shareable/remote artifacts, the manifest
-   (or a per-artifact manifest record) lives in the backend itself and is reached
-   via project config. Travels with the backend; decouples from the data branch;
-   needs a resolution/consistency story.
-
-A hybrid is plausible (local index for local-backend artifacts, backend-resident
-records for remote ones). Settling this is the first design question for the
-storage-seam child task (§11).
+- **Travels with the `aitask-data` branch** — any configured PC resolves
+  `art:<id>` (verified by a second-clone test); updating a manifest **never
+  touches a task file** (both are t1076_1 test-pinned ACs).
+- **Per-file granularity** mirrors the per-blob attachment meta ledger — no
+  single-file write hotspot; unrelated artifacts never conflict on the shared
+  data branch (same rationale that rejected bucketed metadata in t1030_5).
+- Manifest mutations run under the same global attach-transaction lock as the
+  attachment ledger (shared blob store; gc unions manifest references into its
+  blocking set).
+- **Malformed manifests fail closed, named:** every reader — including the
+  tree-scanning `referenced-hashes` gc input — dies naming the offending file
+  and violated invariant rather than silently shrinking the set.
+- **Backend-resident manifests (shape 2) are explicitly deferred** to a future
+  remote-backend task: resolution already goes handle → manifest → backend, so
+  per-artifact backend-resident records can be added later without touching
+  task files or the handle scheme. Manifest churn coupling to data-branch
+  commits matches the cost model attachments already pay on add/rm.
 
 ## 5. Storage sink (seam B) — generalize t1030's adapter
 
-Promote t1030's `attachment_backend.sh` contract
-(`task_attachments_design.md` §5) to an **`artifact_backend`** that serves *both*
-attachments and artifacts. No new abstraction is invented — t1030's adapter seam
-is the model, widened by one concept.
+**Done (t1076_1):** t1030's `attachment_backend.sh` contract
+(`task_attachments_design.md` §5) is promoted to **`artifact_backend`**
+(`.aitask-scripts/lib/artifact_backend.sh` + `lib/artifact_backends/`), serving
+*both* attachments and artifacts. No new abstraction was invented — t1030's
+adapter seam is the model, widened by one concept.
 
 ```sh
 artifact_backend_put    <hash> <file>     # upload an immutable blob, idempotent
@@ -192,6 +200,10 @@ machine keeps a local cache (`~/.cache/ait/artifacts/<hash>`). A **wrapper bash
 script reads a blob into the local file cache for local access and writes back to
 the backend** (the `put`/`get`/`head` + write-back contract). Resolution order:
 cache hit → backend `head`+`get` → loud error (never a silent placeholder).
+The resolver (`lib/artifact_cache.sh::artifact_resolve`, t1076_1) **verifies the
+resolved bytes' hash itself** — consumers never depend on caller-side re-hashing:
+a corrupted cached copy self-heals (single re-fetch), a corrupted canonical blob
+dies loudly and is never auto-repaired.
 
 The **zero-config `local` backend** is the default for getting started and for
 small immutable attachments — it lives in `.aitask-data/` and is committed, so it
@@ -308,10 +320,12 @@ not over inline files:
 - **Archive / query / zip parity.** The artifact is archived/queried/zipped via
   its handle and the storage layer, giving HTML plans the same lifecycle t774
   wanted for markdown plans — without committing them inline.
-- **GC / refcount.** Reuses and generalizes t1030's `index.json` into the manifest
-  (§4b): a content hash is GC-able only when **no artifact version in any
-  manifest** references it. Version awareness matters — an older version's blob
-  must survive until that version is itself pruned, even after `current` moves on.
+- **GC / refcount.** The manifest (§4b) joins t1030's per-blob refcount ledger as
+  a second referrer class: a content hash is GC-able only when **no artifact
+  version in any manifest** references it (implemented in t1076_1 —
+  `ait attach gc`'s blocking set unions `artifact_manifest referenced-hashes`).
+  Version awareness matters — an older version's blob must survive until that
+  version is itself pruned, even after `current` moves on.
 - **Fold semantics.** On fold, the artifact's manifest entry **re-binds to the
   primary task** (the handle in the folded task's frontmatter moves; manifest
   ownership updates), mirroring t1030's attachment re-bind-on-fold.
@@ -369,7 +383,7 @@ Not all of this design is mapped to existing tasks. As of this writing:
 
 | Piece | Existing coverage | Verdict |
 |---|---|---|
-| 1. Storage abstraction generalization (`artifact_backend` + manifest) | t1030 builds the **attachment** backend + cache + `index.json` only | **Partial** — t1030 is the foundation; the *generalization to artifacts* + the manifest is net-new |
+| 1. Storage abstraction generalization (`artifact_backend` + manifest) | t1030 builds the **attachment** backend + cache + per-blob meta ledger only | **Done (t1076_1)** — t1030 was the foundation; the generalization to artifacts + the (net-new) manifest landed in t1076_1 |
 | 2. Artifact pointer/version model + `artifacts:` frontmatter | none | **Gap** (net-new) |
 | 3. Share-handle resolution + cache wrapper | none | **Gap** (net-new — the sharing dimension this task adds) |
 | 4. HTML-plan-as-artifact integration | **t774** exists | **Mapped, needs re-scope** — its "3rd inline-committed file" framing is revised (see the t774 coordination note) |
@@ -384,8 +398,8 @@ umbrella — see the realized mapping above.
 
 Building blocks are already tracked; the new work layers on top.
 
-1. **t1030** — attachment backend + universal cache + `index.json`. *Prereq
-   (tracked). The storage foundation everything else builds on.*
+1. **t1030** — attachment backend + universal cache + per-blob meta ledger.
+   *Prereq (landed). The storage foundation everything else builds on.*
 2. **Storage generalization + artifact pointer/version model + `artifacts:`
    frontmatter** (pieces 1–2). *New; depends on t1030.* Settles the manifest
    (§4b).
@@ -432,7 +446,8 @@ scoped here.**
 ## 14. Cross-references
 
 - [`task_attachments_design.md`](task_attachments_design.md) — t1030 attachment
-  design (backend adapter §5, universal local cache, hash-first model, `index.json`).
+  design (backend adapter §5, universal local cache, hash-first model, per-blob
+  meta ledger).
 - t774 (`aitasks/t774_support_for_html_plans.md`) — native HTML-plan file type;
   this doc revises its storage approach (see the coordination note there).
 - t635 / [`gates/`](gates/) — gate framework

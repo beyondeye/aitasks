@@ -23,7 +23,7 @@ git init -q; git config user.email t@t.t; git config user.name tester
 # shellcheck source=/dev/null
 source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
 # shellcheck source=/dev/null
-source "$PROJECT_DIR/.aitask-scripts/lib/attachment_utils.sh"
+source "$PROJECT_DIR/.aitask-scripts/lib/artifact_utils.sh"
 
 mk_task() {
     printf -- '---\npriority: medium\nstatus: Implementing\nupdated_at: 2026-01-01 00:00\n---\n\nTask %s body.\n' "$1" > "aitasks/$1.md"
@@ -33,14 +33,14 @@ git add -A; git commit -q -m init
 
 meta_refs()  { "$PY" "$META" --meta-dir attachments/meta refs "$1" | paste -sd, -; }
 set_grace()  { printf 'attachments_gc_grace: %s\n' "$1" > aitasks/metadata/project_config.yaml; }
-blob_of()    { printf 'attachments/blobs/%s' "$(attachment_shard_path "$1")"; }
+blob_of()    { printf 'attachments/blobs/%s' "$(artifact_shard_path "$1")"; }
 
 # Distinct content per case (content-addressed -> distinct hashes).
-printf 'archived-retention bytes\n'  > a_keep.bin; HK="$(attachment_sha256 a_keep.bin)"
-printf 'shared blob bytes\n'         > a_shared.bin; HS="$(attachment_sha256 a_shared.bin)"
-printf 'folded exclusion bytes\n'    > a_fold.bin; HF="$(attachment_sha256 a_fold.bin)"
-printf 'orphan reclaim bytes\n'      > a_orph.bin; HR="$(attachment_sha256 a_orph.bin)"
-printf 'gc rollback bytes\n'         > a_rb.bin;   HX="$(attachment_sha256 a_rb.bin)"
+printf 'archived-retention bytes\n'  > a_keep.bin; HK="$(artifact_sha256 a_keep.bin)"
+printf 'shared blob bytes\n'         > a_shared.bin; HS="$(artifact_sha256 a_shared.bin)"
+printf 'folded exclusion bytes\n'    > a_fold.bin; HF="$(artifact_sha256 a_fold.bin)"
+printf 'orphan reclaim bytes\n'      > a_orph.bin; HR="$(artifact_sha256 a_orph.bin)"
+printf 'gc rollback bytes\n'         > a_rb.bin;   HX="$(artifact_sha256 a_rb.bin)"
 
 "$ATT" add 5 a_keep.bin   --name keep.bin   >/dev/null 2>&1
 "$ATT" add 5 a_shared.bin --name shared.bin >/dev/null 2>&1
@@ -84,7 +84,7 @@ assert_file_exists "fresh orphan within grace is retained" "$(blob_of "$HR")"
 set_grace 0
 "$ATT" gc >/dev/null 2>&1
 assert_file_not_exists "orphan past grace is swept" "$(blob_of "$HR")"
-assert_file_not_exists "swept blob's meta file removed too" "attachments/meta/$(attachment_shard_path "$HR").json"
+assert_file_not_exists "swept blob's meta file removed too" "attachments/meta/$(artifact_shard_path "$HR").json"
 
 # ── E. gc commit-failure rollback: no deleted-but-uncommitted split-brain ─────
 "$ATT" rm 9 rb.bin >/dev/null 2>&1
@@ -95,7 +95,7 @@ rm -f .git/hooks/pre-commit
 assert_exit_nonzero_rc "gc dies when its commit fails" "$gc_rc"
 assert_file_exists "rollback restores the blob after a failed gc commit" "$(blob_of "$HX")"
 assert_file_exists "rollback restores the meta file after a failed gc commit" \
-    "attachments/meta/$(attachment_shard_path "$HX").json"
+    "attachments/meta/$(artifact_shard_path "$HX").json"
 
 echo ""
 echo "test_attach_archive_gc.sh: $PASS passed, $FAIL failed, $TOTAL total"

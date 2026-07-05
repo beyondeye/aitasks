@@ -9,6 +9,11 @@
 # is ever held at a time (registry_lock.sh tracks a single active lock per
 # process), so there is never a nested acquire.
 #
+# t1076_1: this same lock also guards ARTIFACT-MANIFEST mutations
+# (lib/artifact_manifest.py create/set-current/set-backend) — manifests share
+# the blob store with attachments and gc's blocking set unions manifest
+# references, so one lock serializes both ledgers against the sweep.
+#
 # Sourced by aitask_attach.sh; requires task_utils.sh + registry_lock.sh.
 
 [[ -n "${_AIT_ATTACHMENT_LOCK_LOADED:-}" ]] && return 0

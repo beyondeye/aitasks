@@ -17,7 +17,7 @@
 #
 # Source this file; do not execute. Requires task_utils.sh (for
 # _ait_detect_data_worktree) + yaml_utils.sh (read_yaml_mappings) to be sourced
-# by the caller; sources python_resolve.sh + attachment_utils.sh itself.
+# by the caller; sources python_resolve.sh + artifact_utils.sh itself.
 
 [[ -n "${_AIT_ATTACHMENT_META_SH_LOADED:-}" ]] && return 0
 _AIT_ATTACHMENT_META_SH_LOADED=1
@@ -25,8 +25,8 @@ _AIT_ATTACHMENT_META_SH_LOADED=1
 _AIT_ATTACHMENT_META_DIR_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/python_resolve.sh
 source "$_AIT_ATTACHMENT_META_DIR_SELF/python_resolve.sh"
-# shellcheck source=lib/attachment_utils.sh
-source "$_AIT_ATTACHMENT_META_DIR_SELF/attachment_utils.sh"
+# shellcheck source=lib/artifact_utils.sh
+source "$_AIT_ATTACHMENT_META_DIR_SELF/artifact_utils.sh"
 
 # attach_meta_dir -> per-blob metadata dir in the data worktree.
 attach_meta_dir() {
@@ -44,7 +44,7 @@ attach_meta() {
 
 # attach_meta_relpath <hash> -> data-root-relative meta file path (for staging).
 attach_meta_relpath() {
-    printf 'attachments/meta/%s.json' "$(attachment_shard_path "$1")"
+    printf 'attachments/meta/%s.json' "$(artifact_shard_path "$1")"
 }
 
 # attach_task_hashes <task_file> -- print each attachment `hash` recorded in a
