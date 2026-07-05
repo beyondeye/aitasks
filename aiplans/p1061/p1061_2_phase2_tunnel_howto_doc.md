@@ -234,3 +234,84 @@ current branch, no worktree/merge).
 ### Planned mitigations
 None — all risks are covered in-plan; no separate before/after mitigation
 tasks proposed.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-05 17:55)
+- **Requested by user:** The protocol roadmap's "What changes per phase" TLS
+  trust row still said Phase 2 "inherits tunnel's trust model (often user's
+  CA / Tailscale identity)" — misleading now that the how-to classifies by
+  the cert the phone sees (mesh/raw-TCP keep self-signed+pin; only
+  TLS-terminating tunnels need `trust=ca`, gated on `aitasks_mobile#31_3`).
+- **Changes made:** Rewrote the Phase-2 TLS trust cell to state the
+  classify-by-cert rule and link tunnel_howto.md, matching the how-to's
+  table.
+- **Files affected:** `aidocs/applink/protocol.md`.
+
+### Change Request 2 (2026-07-05 18:00)
+- **Requested by user:** The §"Why ship Phase 1 first" bullet still said
+  tunnel users "need no further work from us" with `cloudflared` as an
+  example — contradicting the corrected TLS-trust row (cloudflared is
+  TLS-terminating and gated on `aitasks_mobile#31_3`).
+- **Changes made:** Narrowed the bullet's works-today examples to mesh VPN
+  and raw-TCP forwards (`ssh -L`/`-R`, `ngrok tcp`) and qualified
+  TLS-terminating tunnels (`cloudflared` / `ngrok http`) as awaiting the
+  mobile per-endpoint CA-trust path.
+- **Files affected:** `aidocs/applink/protocol.md`.
+
+### Change Request 2b (sweep follow-on, same review iteration)
+- **Found by consistency sweep:** `protocol.md:40` "Cross-network fallback
+  (deferred)" still described the tunnel path as deferred with an
+  unqualified `cloudflared` example.
+- **Changes made:** Reworded to "(Phase 2, available)" pointing at the
+  advertised-endpoint override + tunnel_howto.md (current-state-only prose).
+- **Files affected:** `aidocs/applink/protocol.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented per the verified plan, all three steps:
+  (1) new `aidocs/applink/tunnel_howto.md` (~200 lines) — classify-by-cert
+  recipe table (cert the phone sees → pin vs ca → works-today), mesh-VPN
+  lead recipe (config + CLI paths, `alt` phrased as server emission gated on
+  `aitasks_mobile#31_2`, MagicDNS firewall note), `ssh -L` gateway-forward
+  recipe with explicit topology lines / run-on-wrong-host callout / `ssh -R`
+  + `GatewayPorts` variant / `ngrok tcp` raw-TCP class, TLS-terminating
+  reverse-tunnel recipe explicitly gated on `aitasks_mobile#31_3` with
+  pre-M3 pin-mismatch marked expected-not-misconfiguration and A3
+  (`aitasks#1061_3`) linked as the turnkey follow-up, operational security
+  cautions (trusted gateways, source-range restriction, tunnel teardown, QR
+  regen via TUI `r`), troubleshooting (fail-visible config fallback,
+  accepted host forms, CLI group precedence); (2) `protocol.md` roadmap
+  updated current-state-only — Phase-2 row links the how-to + notes the live
+  override, Discovery cell names the `advertised_*` mechanism, Phase-1
+  bullet qualified; (3) `wish_ssh_evaluation.md` "Phase 2 tunnel escape
+  hatch" cross-links the how-to.
+- **Deviations from plan:** Three review-driven consistency fixes beyond the
+  planned edit list, all in `protocol.md` (Change Requests 1, 2, 2b): the
+  "What changes per phase" TLS-trust Phase-2 cell rewritten to the
+  classify-by-cert rule; the "cross-network for free" bullet narrowed to
+  works-today paths with cloudflared qualified; the §Design-decision
+  "Cross-network fallback (deferred)" paragraph reworded to "(Phase 2,
+  available)". A final sweep confirmed no unqualified tunnel claims remain
+  in `aidocs/applink/`.
+- **Issues encountered:** None — all A1 anchors (config keys, flags,
+  launchers, defaults, `r` keybinding, `tmux.applink` nesting) verified
+  against source before writing; per-recipe semantic topology checklist
+  re-derived and matched the doc text.
+- **Key decisions:** organized every recipe by "what TLS certificate the
+  phone sees" (single axis determining trust mode + works-today status),
+  with a table up front so users can tell an expected pre-M3 failure from
+  misconfiguration; every recipe carries an explicit topology line (command
+  host · listener host · phone target · observed cert · trust mode);
+  `alt`/racing described strictly as server/QR emission until mobile M2
+  lands.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** A3 (`t1061_3`) should extend
+  `tunnel_howto.md` Recipe 3 (or add a sibling section) when the
+  auto-spawned Quick Tunnel lands, and keep the classify-by-cert table row
+  in sync; the doc already forward-links A3. A4/A5 (relay design,
+  hosted-box guide) can reuse the topology-line + classify-by-cert
+  conventions. When mobile M2/M3 land, three "gated" qualifiers need
+  flipping: tunnel_howto.md (Recipe 3 + table + troubleshooting),
+  protocol.md Phase-2 TLS-trust cell + Phase-1 bullet, and the
+  "Endpoint & trust model" inert-`trust=ca` note (the last is A1's text).
