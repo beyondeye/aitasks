@@ -63,7 +63,11 @@ Child plan: `aiplans/p1074/p1074_3_slack_adapter.md`.
   (channel-rooted thread create raises `PermissionDenied`).
 - `fetch_reactions` via `reactions.get`; `IdentityClaims` from usergroups
   (`kind=slack_usergroup`) + `is_workspace_admin`/`is_owner` flags.
-- `search.messages` → `supports_message_search=True`. `Capabilities` with Slack limits.
+- `supports_message_search=False` — **amended at plan review (2026-07-05):**
+  `search.messages` requires a user token (`xoxp-`, scope `search:read`);
+  the adapter holds only bot+app tokens, so advertising the capability would
+  be dishonest (metadata notes the user-token seam path). `Capabilities`
+  with Slack limits.
 
 ## Implementation Plan (high level — see child plan)
 
