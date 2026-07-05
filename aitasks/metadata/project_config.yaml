@@ -35,6 +35,17 @@ tmux:
     # `viewport + count` and clamped to this value. Clamped to [1, 10000] at
     # load, and itself bounded by tmux's server `history-limit` (~2000).
     history_capture_lines: 2000
+    # Advertised-endpoint override for the pairing QR (t1061_1) — see
+    # aidocs/applink/protocol.md §Pairing flow "Endpoint & trust model" and
+    # the commented reference in seed/project_config.yaml. Advertisement-only
+    # (bind stays 0.0.0.0). Any --advertise-* CLI flag makes the CLI define
+    # the whole override and these keys are ignored. A mesh DNS name is
+    # firewall-classified as external — use the numeric mesh IP for
+    # interface-scoped firewall guidance.
+    # advertised_host: 100.101.102.103   # FQDN or IP (host[:port] accepted)
+    # advertised_port: 8765              # default: serving port
+    # advertised_kind: mesh              # lan | mesh | tunnel
+    # advertised_trust: pin              # pin | ca
   default_session: aitasks
   default_split: horizontal
   prefer_tmux: true

@@ -313,3 +313,78 @@ current branch, no worktree/merge).
 None — both risks are covered in-plan (canonical spec + exact-grammar tests;
 Step-8c manual-verification offer); no separate before/after mitigation tasks
 proposed.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-05 16:20)
+- **Requested by user:** `--advertise-port` used plain `type=int` and the
+  resolver didn't validate `cli_port` — `70000` was accepted into the QR and
+  `0` silently fell through the `or`-chain to the serving port, violating the
+  planned `[1, 65535]` contract. Add a shared argparse port validator or
+  resolver validation, plus CLI tests for 0 and 70000.
+- **Changes made:** added shared `pairing.advertise_port_argtype` ([1, 65535]
+  argparse `type=`, used by both entry points), a resolver backstop raising
+  `ValueError` for out-of-range `cli_port`, and switched the port chain to
+  None-based selection (explicit > embedded > serving) so a falsy 0 can never
+  silently slip down. Tests: argparse rejection of 0/70000/non-int on both
+  entry points + resolver backstop for 0/70000.
+- **Files affected:** `.aitask-scripts/applink/pairing.py`,
+  `.aitask-scripts/applink/headless.py`, `.aitask-scripts/applink/applink_app.py`,
+  `tests/test_applink_advertise.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly per the verified plan, all six
+  steps: (1) canonical "Endpoint & trust model" spec in `protocol.md`
+  §Pairing flow (extended step-3 QR grammar + full subsection); (2) four
+  `tmux.applink.advertised_*` config keys in `server.load_applink_config()`
+  with per-key fault tolerance, documented in seed + live config; (2b/3) pure
+  `pairing.py` layer — `normalize_advertised_host` (scheme/path stripping,
+  host:port, bracketed + bare IPv6, clean rejects),
+  `Endpoint`/`ResolvedAdvertise`, `resolve_advertised_endpoints`
+  (group-level CLI>config precedence, port chain, config-invalid → LAN
+  fallback + fail-visible warning), extended `build_pairing_uri`
+  (`kind`/`trust`/`alt`, IPv6 bracketing, byte-identical legacy output);
+  (4) four `--advertise-*` flags on both real entry points threaded through
+  `ApplinkApp → AppLinkRuntime` and `headless.serve` (`--smoke` still
+  I/O-free); (5) firewall-doctor override awareness (`classify_override`,
+  `FirewallStatus.override_note` on all five render surfaces, mesh-CIDR
+  command extension); (6) `tests/test_applink_advertise.sh` (new, ~70
+  asserts) + `tests/test_applink_firewall.sh` extension (~45 asserts incl.
+  mounted `FirewallFixModal` render assertions and negative controls).
+- **Deviations from plan:** two review-driven refinements beyond the
+  original task AC, both recorded in the amended AC / plan: (a)
+  `--advertise-kind` added as a fourth flag + group-level precedence
+  (approved-plan revision closing the stale-config-coupling gap); (b)
+  Post-Review Change 1: shared `advertise_port_argtype` [1, 65535]
+  validator + resolver backstop + None-based port chain (plain `type=int`
+  accepted 70000 and silently swallowed 0). Resolver returns a
+  `ResolvedAdvertise` NamedTuple with an `override` flag (4-tuple instead
+  of the plan's 3-tuple) so emitters don't re-derive override-ness.
+- **Issues encountered:** the pre-existing `diagnose` test monkeypatched
+  `host_lan_cidr`, which the refactored `diagnose` no longer calls (it
+  captures `ip -o -4 addr show` once via `_ip_addr_output` and shares it
+  with `classify_override`); the test now patches `_ip_addr_output` for
+  determinism. Textual `Label` needed `markup=False` on the fw_sub line
+  carrying the override note (plain-text warning).
+- **Key decisions:** group-level (not per-field) CLI-vs-config precedence —
+  any `--advertise-*` flag makes the CLI define the whole override; emission
+  omits `kind`/`trust`/`alt` entirely when no override is active (legacy QR
+  byte-identical — old-client guarantee pinned by test); no DNS resolution
+  in the firewall doctor (mesh DNS names classify external, with a pinned
+  MagicDNS hint pointing users at the numeric mesh IP); invalid config host
+  degrades fail-visible to the LAN QR instead of hard-exiting (an unattended
+  headless box must keep serving).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** A3 (t1061_3) should emit its tunnel endpoint
+  via `pairing.Endpoint` + `build_pairing_uri(alt=…)` and follow the
+  primary=LAN/pin decision recorded in the parent plan; the resolver's
+  `ResolvedAdvertise.override` flag is the emission gate for explicit
+  `kind`/`trust` params. A2 (t1061_2) how-to: mesh recipe is just
+  `advertised_host: <tailscale-ip>` (trust unchanged); manual reverse-tunnel
+  recipe uses `advertised_trust: ca` and must be marked gated on
+  `aitasks_mobile#31_3`. The wire grammar lives once in `protocol.md`
+  §Pairing flow "Endpoint & trust model" — cross-reference it, never
+  restate. Mobile M2 parser fixtures can be generated with
+  `pairing.encode_alt_param` (exact-encoding tests exist in
+  `tests/test_applink_advertise.sh`).
