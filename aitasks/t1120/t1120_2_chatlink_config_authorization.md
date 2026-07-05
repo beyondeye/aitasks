@@ -8,8 +8,9 @@ labels: [chat_surface, python]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1120
+implemented_with: claudecode/fable5
 created_at: 2026-07-05 11:58
-updated_at: 2026-07-05 17:21
+updated_at: 2026-07-05 17:50
 ---
 
 ## Context
@@ -68,3 +69,8 @@ freeze.** Consumes contracts 9 (policy API), 10 (config & secrets), 11 (ceilings
   enforcement.
 - Secrets hygiene test: `git check-ignore` matches the token path; dir/file
   permissions asserted on creation.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-05T14:50:40Z status=pass attempt=1 type=human
