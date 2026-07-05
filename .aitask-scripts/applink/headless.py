@@ -40,12 +40,18 @@ for _p in (str(_APPLINK_DIR), str(_SCRIPTS_DIR)):
 import segno  # noqa: E402
 
 import firewall_doctor  # noqa: E402
-from pairing import build_pairing_uri, detect_lan_ip  # noqa: E402
-from paths import profiles_dir, sessions_dir  # noqa: E402
+from pairing import (  # noqa: E402
+    advertise_host_argtype,
+    advertise_port_argtype,
+    build_pairing_uri,
+    detect_lan_ip,
+    resolve_advertised_endpoints,
+)
+from paths import profiles_dir, project_root, sessions_dir  # noqa: E402
 from profiles import ProfileGate  # noqa: E402
 from sessions import SessionTable  # noqa: E402
 from server import (  # noqa: E402
-    AppLinkServer, DEFAULT_PORT, DEFAULT_PAIR_PROFILE,
+    AppLinkServer, DEFAULT_PORT, DEFAULT_PAIR_PROFILE, load_applink_config,
 )
 from tls import CertManager, CertError  # noqa: E402
 
@@ -72,7 +78,16 @@ def render_pairing_block(uri: str, fingerprint: str, *, show_qr: bool = True) ->
     return block
 
 
-async def serve(*, port: int, profile: str, show_qr: bool = True) -> int:
+async def serve(
+    *,
+    port: int,
+    profile: str,
+    show_qr: bool = True,
+    advertise_host: str | None = None,
+    advertise_port: int | None = None,
+    advertise_kind: str | None = None,
+    advertise_trust: str | None = None,
+) -> int:
     """Run the headless applink listener until a stop signal. Returns an exit code.
 
     Input validation happens **before any state-mutating side effect**: an
@@ -123,21 +138,44 @@ async def serve(*, port: int, profile: str, show_qr: bool = True) -> int:
         return 1
 
     # 5. Print the pairing block (refreshed on SIGHUP via _emit).
-    ip = detect_lan_ip()
+    lan_ip = detect_lan_ip()
     host = socket.gethostname()
+    # Advertised-endpoint override (t1061_1): CLI group > config group > LAN.
+    # Endpoints are resolved once; SIGHUP reprints re-mint only the token.
+    adv = resolve_advertised_endpoints(
+        serving_port=port,
+        detected_ip=lan_ip,
+        config=load_applink_config(project_root()),
+        cli_host=advertise_host,
+        cli_port=advertise_port,
+        cli_kind=advertise_kind,
+        cli_trust=advertise_trust,
+    )
 
     def _emit() -> None:
-        uri = build_pairing_uri(token, ip, port, fingerprint, host or None)
+        uri = build_pairing_uri(
+            token, adv.primary.host, adv.primary.port, fingerprint,
+            host or None,
+            kind=adv.primary.kind if adv.override else None,
+            trust=adv.primary.trust if adv.override else None,
+            alt=adv.alts or None,
+        )
         print(render_pairing_block(uri, fingerprint, show_qr=show_qr), flush=True)
 
     _emit()
+    if adv.warning:
+        # Invalid config override degraded to the LAN address — fail-visible.
+        print(f"[applink] {adv.warning}", flush=True)
 
     # 5b. Firewall doctor: if a host firewall may block the bound port, advise
     #     and print the exact LAN-scoped open command. Off-thread + failure-silent
     #     (non-systemd / slow box never delays startup). No keypress affordance —
     #     no TTY here; informational only, the user runs the printed command.
     try:
-        fw = await asyncio.to_thread(firewall_doctor.diagnose, port, ip)
+        fw = await asyncio.to_thread(
+            firewall_doctor.diagnose, port, lan_ip,
+            adv.primary.host if adv.override else None,
+        )
     except Exception:
         fw = None
     if fw is not None:
@@ -147,10 +185,11 @@ async def serve(*, port: int, profile: str, show_qr: bool = True) -> int:
             example = firewall_doctor.display_command(
                 firewall_doctor.build_open_commands("ufw", port, fw.cidr)
             )
+            note = f" {fw.override_note}" if fw.override_note else ""
             print(
                 f"\n[firewall] No managed firewall auto-detected. If the phone "
                 f"can't connect, open port {port} for {fw.cidr} — e.g. "
-                f"`{example}` (use your backend's command if not ufw).",
+                f"`{example}` (use your backend's command if not ufw).{note}",
                 flush=True,
             )
 
@@ -210,13 +249,63 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Print only the pairing URL + fingerprint, no ASCII QR "
              "(useful when redirecting stdout to a log file).",
     )
-    return parser.parse_args(argv)
+    _add_advertise_args(parser)
+    args = parser.parse_args(argv)
+    _validate_advertise_args(parser, args)
+    return args
+
+
+def _add_advertise_args(parser: argparse.ArgumentParser) -> None:
+    """Advertised-endpoint override flags (t1061_1). Any of these makes the
+    CLI define the entire override — all ``tmux.applink.advertised_*`` config
+    keys are then ignored (group precedence, no field mixing)."""
+    parser.add_argument(
+        "--advertise-host", type=advertise_host_argtype, default=None,
+        help="Advertise this host (FQDN or IP; host:port accepted) in the "
+             "pairing QR instead of the detected LAN IP. Advertisement-only: "
+             "the server still binds 0.0.0.0. Overrides ALL "
+             "tmux.applink.advertised_* config keys.",
+    )
+    parser.add_argument(
+        "--advertise-port", type=advertise_port_argtype, default=None,
+        help="Port to advertise, 1-65535 (default: the serving port; a "
+             "tunnel may expose a different public port).",
+    )
+    parser.add_argument(
+        "--advertise-kind", choices=("lan", "mesh", "tunnel"), default=None,
+        help="Endpoint kind hint for client racing (default: mesh).",
+    )
+    parser.add_argument(
+        "--advertise-trust", choices=("pin", "ca"), default=None,
+        help="Trust mode of the advertised endpoint (default: pin). Use ca "
+             "only for a TLS-terminating tunnel endpoint.",
+    )
+
+
+def _validate_advertise_args(
+    parser: argparse.ArgumentParser, args: argparse.Namespace,
+) -> None:
+    """`--advertise-port/-kind/-trust` are meaningless without a host."""
+    if args.advertise_host is None and any(
+        v is not None
+        for v in (args.advertise_port, args.advertise_kind, args.advertise_trust)
+    ):
+        parser.error(
+            "--advertise-port/--advertise-kind/--advertise-trust require "
+            "--advertise-host"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(list(argv) if argv is not None else sys.argv[1:])
     return asyncio.run(
-        serve(port=args.port, profile=args.profile, show_qr=not args.no_qr)
+        serve(
+            port=args.port, profile=args.profile, show_qr=not args.no_qr,
+            advertise_host=args.advertise_host,
+            advertise_port=args.advertise_port,
+            advertise_kind=args.advertise_kind,
+            advertise_trust=args.advertise_trust,
+        )
     )
 
 

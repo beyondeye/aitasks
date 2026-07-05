@@ -96,15 +96,20 @@ The PC server is always-on (started by the user via `ait applink`). The phone bo
 2. **Server computes its TLS-cert fingerprint** — SHA-256 of the self-signed cert's DER form, base64url-encoded. (The TLS suite/version posture is documented in [security.md](security.md); cert rotation remains a tracked follow-up there.)
 3. **TUI renders QR.** The QR encodes:
    ```
-   applink://<lan-ip>:<port>/pair?t=<base64url(T)>&fp=<fp>&name=<urlencoded(hostname)>
+   applink://<host>:<port>/pair?t=<base64url(T)>&fp=<fp>[&kind=<kind>][&trust=<trust>][&alt=<alt>][&name=<urlencoded(hostname)>]
    ```
+   - The URL authority (`<host>:<port>`) is the **primary endpoint**. By
+     default it is the detected LAN IP; a configured/CLI advertised-endpoint
+     override replaces it (see [Endpoint & trust model](#endpoint--trust-model)
+     below for `kind`, `trust`, and `alt`). All three endpoint-metadata params
+     are OPTIONAL and additive.
    - `name` is OPTIONAL and additive. The TUI sets it to the URL-encoded
      PC hostname (e.g. `socket.gethostname()` / `hostnamectl --static`).
      Mobile clients use it as the default value for a user-editable PC
      label on the connection list. Older clients that ignore unknown
      query params are unaffected (per §Versioning rule for additive
      payload fields, applied here to the QR URL).
-4. **Phone scans the QR**, parses `<lan-ip>`, `<port>`, `t`, `fp`, and (optionally) `name`. It opens a `wss://<lan-ip>:<port>/` connection, pinning the server's cert to `fp`.
+4. **Phone scans the QR**, parses `<host>`, `<port>`, `t`, `fp`, and (optionally) `name` plus the endpoint-metadata params. It opens a `wss://<host>:<port>/` connection, verifying the server per the endpoint's trust mode (default: pinning the server's cert to `fp`).
 5. **Phone sends pair request:**
    ```json
    {"v":1, "id":"p1", "kind":"req", "verb":"pair",
@@ -123,6 +128,55 @@ The PC server is always-on (started by the user via `ait applink`). The phone bo
 8. **Revoke.** The user revokes a session from the TUI (`r` keybinding). The server marks the bearer invalid; the next phone frame receives `AUTH_FAILED` and the socket is closed.
 
 Pairing tokens are single-use: once consumed in step 6, `T` is invalidated even if the session is later revoked.
+
+### Endpoint & trust model
+
+**Trust is a property of an endpoint, not of a connection.** A single paired
+connection may simultaneously offer a pin-trusted LAN endpoint and a
+CA-trusted tunnel endpoint. This is the canonical definition of the endpoint
+record and its QR wire encoding; the server emits it, and mobile clients
+parse, store, and enforce it per endpoint.
+
+```
+endpoint := host, port, kind, trust
+kind     := lan | mesh | tunnel        (racing preference hint; lan preferred)
+trust    := pin | ca                   (pin = QR fp is the trust anchor;
+                                        ca = platform CA chain + real hostname
+                                        verification, fp not consulted)
+```
+
+Wire encoding rules (all additive query params — same `applink://` scheme, no
+`v` bump):
+
+- **Primary endpoint** = the URL authority (`applink://<host>:<port>/pair`).
+  Its metadata rides in two optional params: `kind=<kind>` and
+  `trust=<trust>`. Defaults when absent: `kind=lan`, `trust=pin` — exactly
+  the LAN-only semantics. When no advertised-endpoint override is configured,
+  the server omits `kind`/`trust`/`alt` entirely and the QR is byte-identical
+  to the LAN-only form.
+- **`alt=`** is a **single** param, never repeated (repeated query keys
+  collapse last-wins in existing client parsers). Its value is a URL-encoded
+  comma-separated list of alternate endpoint records, each record
+  `host:port;kind;trust` — fields `;`-separated, in that fixed order, all
+  mandatory within a record.
+- **IPv6 hosts are bracketed** (`[fd7a::1]:8765`) in both the authority and
+  `alt` records; server-side emission always brackets IPv6.
+- **`fp=` stays mandatory and connection-scoped**: it is the trust anchor for
+  every `trust=pin` endpoint and the connection's identity key. A QR whose
+  endpoints are all `trust=ca` still carries `fp` for identity continuity.
+- **Advertised host/port are advertisement-only.** The server keeps binding
+  `0.0.0.0:<serving-port>`; the advertised port exists because a tunnel may
+  expose a different public port than the local serving port.
+- **Old-client behavior:** clients that predate this model read only the
+  authority + `t`/`fp`/`name` and connect to the primary endpoint with pin
+  semantics. A QR whose *primary* endpoint is `trust=ca` is therefore **not**
+  backward compatible (an old client would pin-verify the tunnel's CA cert
+  and fail); emitters that care about old-client compatibility must keep a
+  pin-trusted endpoint as primary.
+- `trust=ca` is currently inert client-side: emitting it is faithful to this
+  spec, but clients cannot complete a CA-trust connection until the mobile
+  per-endpoint CA-trust path (`aitasks_mobile#31_3`) lands — until then all
+  endpoints are attempted with pin semantics.
 
 ## Connection state machine
 

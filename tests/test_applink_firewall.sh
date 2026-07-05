@@ -5,9 +5,12 @@
 # backend detection (priority + None + failure-silence), LAN-CIDR derivation,
 # per-backend command synthesis, shell-safe command rendering (firewalld
 # rich-rule quoting), idempotent result classification, the backend-agnostic
-# generic-help fallback, and the diagnose() always-returns-a-status contract.
-# firewall_doctor.py imports only stdlib, so this test needs no dependency-skip
-# guard (same as test_applink_pairing.sh).
+# generic-help fallback, the diagnose() always-returns-a-status contract, and
+# the advertised-endpoint override awareness (t1061_1: classify_override /
+# override_note on every surface, incl. the mesh-DNS-name limitation).
+# firewall_doctor.py imports only stdlib, so the main group needs no
+# dependency-skip guard (same as test_applink_pairing.sh); the final
+# FirewallFixModal group is textual-gated.
 # Run: bash tests/test_applink_firewall.sh
 
 set -e
@@ -182,9 +185,9 @@ check("render_firewall_block includes the sudo command",
 
 # --- diagnose always returns a FirewallStatus with a real cidr (concern A) --
 
-fd_host = fd.host_lan_cidr
+fd_ipout = fd._ip_addr_output
 fd_detect = fd.detect_backend
-fd.host_lan_cidr = lambda ip: "192.168.1.0/24"
+fd._ip_addr_output = lambda: IP_OUT
 try:
     fd.detect_backend = lambda probe=None: None
     s = fd.diagnose(8765, "192.168.1.23")
@@ -197,8 +200,187 @@ try:
           s2.detected is True and s2.backend == "ufw"
           and s2.commands and s2.display)
 finally:
-    fd.host_lan_cidr = fd_host
+    fd._ip_addr_output = fd_ipout
+    fd.detect_backend = fd_detect
+
+# --- classify_override (t1061_1) --------------------------------------------
+# Canned `ip -o -4 addr show` with a LAN interface AND a tailscale0 mesh
+# interface. No DNS resolution by design: a mesh DNS name classifies external.
+
+TS_OUT = (
+    "1: lo    inet 127.0.0.1/8 scope host lo\\       valid_lft forever\n"
+    "2: wlp0s20f3    inet 192.168.1.23/24 brd 192.168.1.255 scope global "
+    "dynamic noprefixroute wlp0s20f3\\       valid_lft 1234sec\n"
+    "5: tailscale0    inet 100.101.102.103/10 scope global tailscale0\\       "
+    "valid_lft forever\n"
+)
+LAN_CIDR = "192.168.1.0/24"
+
+check("classify: IPv4 inside LAN cidr → covered",
+      fd.classify_override("192.168.1.100", LAN_CIDR, TS_OUT) == ("covered", None))
+check("classify: tailscale-owned IPv4 → local_iface + mesh cidr",
+      fd.classify_override("100.101.102.103", LAN_CIDR, TS_OUT)
+      == ("local_iface", "100.64.0.0/10"))
+check("classify: FQDN → external (no DNS resolution)",
+      fd.classify_override("foo.magicdns.ts.net", LAN_CIDR, TS_OUT) == ("external", None))
+check("classify: IPv6 → external",
+      fd.classify_override("fd7a::1", LAN_CIDR, TS_OUT) == ("external", None))
+check("classify: non-local IPv4 → external",
+      fd.classify_override("203.0.113.9", LAN_CIDR, TS_OUT) == ("external", None))
+
+# --- build_override_note ------------------------------------------------------
+
+check("note: covered → None",
+      fd.build_override_note("192.168.1.100", "covered", None, 8765,
+                             commands_extended=False) is None)
+n = fd.build_override_note("100.101.102.103", "local_iface", "100.64.0.0/10",
+                           8765, commands_extended=True)
+check("note: local_iface (extended) says commands include it",
+      "100.64.0.0/10" in n and "include" in n)
+n = fd.build_override_note("100.101.102.103", "local_iface", "100.64.0.0/10",
+                           8765, commands_extended=False)
+check("note: local_iface (not extended) says also open the port",
+      "also open port 8765 for 100.64.0.0/10" in n)
+n = fd.build_override_note("foo.magicdns.ts.net", "external", None, 8765,
+                           commands_extended=False)
+check("note: external warns LAN-scoped rules don't cover it",
+      "not covered" in n and "foo.magicdns.ts.net" in n)
+check("note: external FQDN carries the mesh-DNS hint (documented limitation)",
+      "mesh hostname" in n and "numeric mesh IP" in n)
+n = fd.build_override_note("203.0.113.9", "external", None, 8765,
+                           commands_extended=False)
+check("note: external IP literal has NO mesh-DNS hint", "mesh hostname" not in n)
+
+# --- diagnose with an advertised override -------------------------------------
+
+fd._ip_addr_output = lambda: TS_OUT
+try:
+    fd.detect_backend = lambda probe=None: "ufw"
+    base = fd.diagnose(8765, "192.168.1.23")
+    check("negative control: no override → note absent",
+          base.override_note is None)
+
+    s = fd.diagnose(8765, "192.168.1.23", "100.101.102.103")
+    check("mesh override extends commands with the mesh CIDR",
+          ["ufw", "allow", "from", "100.64.0.0/10", "to", "any",
+           "port", "8765", "proto", "tcp"] in s.commands)
+    check("mesh override keeps the LAN command", base.commands[0] in s.commands)
+    check("mesh override display includes the mesh CIDR",
+          "100.64.0.0/10" in (s.display or ""))
+    check("mesh override sets the note", s.override_note is not None
+          and "commands above include it" in s.override_note)
+
+    s = fd.diagnose(8765, "192.168.1.23", "foo.trycloudflare.com")
+    check("external override: commands unchanged (LAN only)",
+          s.commands == base.commands)
+    check("external override: note warns not covered",
+          s.override_note is not None and "not covered" in s.override_note)
+
+    s = fd.diagnose(8765, "192.168.1.23", "192.168.1.23")
+    check("override equal to lan_ip → no note", s.override_note is None)
+
+    s = fd.diagnose(8765, "192.168.1.23", "192.168.1.77")
+    check("override inside LAN cidr → covered, no note",
+          s.override_note is None and s.commands == base.commands)
+
+    neg = fd.diagnose(8765, "192.168.1.23", None)
+    check("negative control: advertised_host=None identical to baseline",
+          neg.commands == base.commands and neg.override_note is None
+          and neg.display == base.display)
+
+    fd.detect_backend = lambda probe=None: None
+    s = fd.diagnose(8765, "192.168.1.23", "100.101.102.103")
+    check("no backend + mesh override: note says also open the mesh CIDR",
+          s.override_note is not None
+          and "also open port 8765 for 100.64.0.0/10" in s.override_note)
+
+    # render surfaces carry the note.
+    fd.detect_backend = lambda probe=None: "ufw"
+    s = fd.diagnose(8765, "192.168.1.23", "foo.trycloudflare.com")
+    check("render_firewall_block includes override_note",
+          s.override_note in fd.render_firewall_block(s))
+    gh = fd.generic_help(8765, "192.168.1.0/24", override_note=s.override_note)
+    check("generic_help appends override_note", s.override_note in gh)
+    check("generic_help without note unchanged shape",
+          fd.generic_help(8765, "192.168.1.0/24").count("\n")
+          == gh.count("\n") - 1)
+finally:
+    fd._ip_addr_output = fd_ipout
     fd.detect_backend = fd_detect
 
 print("\nALL PASSED")
 PYEOF
+
+# ---- FirewallFixModal renders the override note (textual-gated, t1061_1) ----
+if "$PYTHON" -c "import textual, segno" 2>/dev/null; then
+"$PYTHON" - "$PROJECT_DIR" <<'PYEOF'
+import asyncio
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root / ".aitask-scripts" / "applink"))
+sys.path.insert(0, str(root / ".aitask-scripts"))
+
+import firewall_doctor as fd
+import applink_app
+from textual.app import App
+from textual.widgets import Label, Static
+
+
+def check(label, cond):
+    assert cond, f"FAIL: {label}"
+    print(f"ok - {label}")
+
+
+NOTE = ("⚠ Advertised endpoint foo.trycloudflare.com is not covered by these "
+        "LAN-scoped rules (external/tunnel endpoint).")
+
+detected = fd.FirewallStatus(
+    backend="ufw", cidr="192.168.1.0/24", port=8765, auto_fixable=True,
+    commands=fd.build_open_commands("ufw", 8765, "192.168.1.0/24"),
+    display=fd.display_command(fd.build_open_commands("ufw", 8765, "192.168.1.0/24")),
+    override_note=NOTE,
+)
+undetected = fd.FirewallStatus(
+    backend=None, cidr="192.168.1.0/24", port=8765, override_note=NOTE,
+)
+
+# Pure surface: _command_text for the undetected branch goes through
+# generic_help(override_note=...).
+modal = applink_app.FirewallFixModal(undetected)
+check("modal._command_text (no backend) carries the note",
+      NOTE in modal._command_text())
+modal = applink_app.FirewallFixModal(detected)
+check("modal._command_text (detected) is the command display",
+      modal._command_text() == detected.display)
+
+
+def _plain(widget):
+    r = widget.render()
+    return getattr(r, "plain", str(r))
+
+
+class _Harness(App):
+    pass
+
+
+async def run_checks():
+    app = _Harness()
+    async with app.run_test() as pilot:
+        m = applink_app.FirewallFixModal(detected)
+        await app.push_screen(m)
+        await pilot.pause()
+        sub = m.query_one("#fw_sub", Label)
+        check("mounted modal fw_sub shows the override note (detected branch)",
+              NOTE in _plain(sub))
+        cmd = m.query_one("#fw_cmd", Static)
+        check("mounted modal fw_cmd shows the LAN command",
+              "sudo ufw allow" in _plain(cmd))
+
+asyncio.run(run_checks())
+print("FirewallFixModal group: all assertions passed")
+PYEOF
+else
+    echo "SKIP (FirewallFixModal group): textual/segno not installed"
+fi

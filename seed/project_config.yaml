@@ -397,6 +397,45 @@ tmux:
   # Example:
   #   applink:
   #     history_capture_lines: 2000
+  #
+  # advertised_host / advertised_port / advertised_kind / advertised_trust —
+  # advertised-endpoint override for the pairing QR (see
+  # aidocs/applink/protocol.md §Pairing flow, "Endpoint & trust model").
+  # By default the QR advertises the detected LAN IP; set advertised_host to
+  # a mesh-VPN IP (e.g. a Tailscale 100.x address) or a tunnel hostname to
+  # make the QR reachable from outside the LAN. Advertisement-only: the
+  # server keeps binding 0.0.0.0 on the serving port.
+  #
+  #   advertised_host  — hostname/FQDN or IP. Accepted forms are normalized:
+  #                      a leading scheme (https://…), path, and trailing
+  #                      slashes are stripped; host:port and bracketed IPv6
+  #                      ([fd7a::1]:443) are accepted (an embedded port acts
+  #                      as advertised_port unless that is set explicitly).
+  #                      An unparseable value is ignored with a visible
+  #                      warning and the QR falls back to the LAN address.
+  #   advertised_port  — port to advertise (default: the serving port).
+  #   advertised_kind  — lan | mesh | tunnel (racing preference hint;
+  #                      default: mesh when advertised_host is set).
+  #   advertised_trust — pin | ca (default pin). Use ca only for a
+  #                      TLS-terminating tunnel endpoint (cloudflared/ngrok).
+  #
+  # Any --advertise-* CLI flag on `ait applink` / the headless runner makes
+  # the CLI define the entire override — all advertised_* keys here are then
+  # ignored (no field mixing between CLI and config).
+  #
+  # Firewall note: the firewall doctor resolves interface-scoped rules only
+  # for numeric IPs on a local interface; a mesh DNS name (e.g. Tailscale
+  # MagicDNS) is treated as external — set the numeric mesh IP to get
+  # interface-scoped firewall guidance.
+  #
+  # Example (advertise a Tailscale mesh IP):
+  #   applink:
+  #     advertised_host: 100.101.102.103
+  #     advertised_kind: mesh
   # ──────────────────────────────────────────────────────────────────
   # applink:
   #   history_capture_lines: 2000
+  #   advertised_host: 100.101.102.103
+  #   advertised_port: 8765
+  #   advertised_kind: mesh
+  #   advertised_trust: pin

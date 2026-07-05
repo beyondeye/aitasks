@@ -63,10 +63,22 @@ HARD_MAX_HISTORY_CAPTURE_LINES = 10000
 def load_applink_config(project_root) -> dict:
     """Load applink-specific config from project_config.yaml's ``tmux.applink``
     section. Fault-tolerant: a missing file / missing key / non-dict / non-int /
-    out-of-range value falls back to the default, never raises. The
-    ``history_capture_lines`` value is clamped to ``[1, HARD_MAX]``.
+    out-of-range value falls back to that key's default, never raises (each key
+    degrades independently). The ``history_capture_lines`` value is clamped to
+    ``[1, HARD_MAX]``.
+
+    Advertised-endpoint keys (t1061_1): ``advertised_host`` is returned **raw**
+    (string or None) — normalization/validation lives in
+    ``pairing.resolve_advertised_endpoints`` so the CLI and config paths share
+    one normalizer and this loader keeps its never-raises contract.
+    ``advertised_kind`` returns None when absent/invalid so the resolver can
+    apply its context-dependent default (``mesh`` when an override host is set).
     """
     lines = DEFAULT_HISTORY_CAPTURE_LINES
+    advertised_host: str | None = None
+    advertised_port: int | None = None
+    advertised_kind: str | None = None
+    advertised_trust = "pin"
     try:
         import yaml
         from pathlib import Path
@@ -74,14 +86,49 @@ def load_applink_config(project_root) -> dict:
         data = yaml.safe_load(cfg.read_text()) or {}
         tmux = data.get("tmux") or {}
         applink = tmux.get("applink") or {}
-        raw = applink.get("history_capture_lines")
-        if raw is not None:
-            val = int(raw)                 # non-int (str/list) raises → default below
-            if val >= 1:                   # sub-1 is nonsensical → keep the default
-                lines = min(val, HARD_MAX_HISTORY_CAPTURE_LINES)
+        try:
+            raw = applink.get("history_capture_lines")
+            if raw is not None:
+                val = int(raw)             # non-int (str/list) raises → default below
+                if val >= 1:               # sub-1 is nonsensical → keep the default
+                    lines = min(val, HARD_MAX_HISTORY_CAPTURE_LINES)
+        except Exception:
+            pass
+        try:
+            raw = applink.get("advertised_host")
+            if isinstance(raw, str) and raw.strip():
+                advertised_host = raw.strip()
+        except Exception:
+            pass
+        try:
+            raw = applink.get("advertised_port")
+            if raw is not None:
+                val = int(raw)
+                if 1 <= val <= 65535:
+                    advertised_port = val
+        except Exception:
+            pass
+        try:
+            raw = applink.get("advertised_kind")
+            if isinstance(raw, str) and raw in ("lan", "mesh", "tunnel"):
+                advertised_kind = raw
+        except Exception:
+            pass
+        try:
+            raw = applink.get("advertised_trust")
+            if isinstance(raw, str) and raw in ("pin", "ca"):
+                advertised_trust = raw
+        except Exception:
+            pass
     except Exception:
-        pass  # any malformed config → safe default
-    return {"history_capture_lines": lines}
+        pass  # any malformed config → safe defaults
+    return {
+        "history_capture_lines": lines,
+        "advertised_host": advertised_host,
+        "advertised_port": advertised_port,
+        "advertised_kind": advertised_kind,
+        "advertised_trust": advertised_trust,
+    }
 
 
 class AppLinkServer:

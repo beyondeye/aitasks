@@ -33,13 +33,16 @@ from textual.widgets import Button, DataTable, Footer, Header, Label, Static  # 
 # Local imports (sibling modules in the applink package).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pairing import (  # noqa: E402
+    advertise_host_argtype,
+    advertise_port_argtype,
     build_pairing_uri,
     compute_self_signed_fingerprint,
     detect_lan_ip,
+    resolve_advertised_endpoints,
 )
 from qr_widget import TerminalQR  # noqa: E402
 import firewall_doctor  # noqa: E402
-from paths import profiles_dir, sessions_dir  # noqa: E402
+from paths import profiles_dir, project_root, sessions_dir  # noqa: E402
 from sessions import SessionTable  # noqa: E402
 from profiles import ProfileGate  # noqa: E402
 from tls import CertManager  # noqa: E402
@@ -50,6 +53,7 @@ from server import (  # noqa: E402
     AppLinkServer,
     DEFAULT_PORT,
     DEFAULT_PAIR_PROFILE as DEFAULT_PROFILE,
+    load_applink_config,
 )
 
 
@@ -88,10 +92,33 @@ class AppLinkRuntime:
     construct-and-exit path performs no filesystem or network I/O.
     """
 
-    def __init__(self, port: int = DEFAULT_PORT) -> None:
+    def __init__(
+        self,
+        port: int = DEFAULT_PORT,
+        advertise_host: str | None = None,
+        advertise_port: int | None = None,
+        advertise_kind: str | None = None,
+        advertise_trust: str | None = None,
+    ) -> None:
         self.port = port
+        # Detected LAN IP stays the firewall doctor's input even when an
+        # advertised-endpoint override is active (the LAN endpoint remains
+        # served — and advertised as the `alt` record).
         self.ip = detect_lan_ip()
         self.host = _hostname()
+        # Advertised-endpoint override (t1061_1): CLI group > config group >
+        # detected LAN. `advertise_warning` carries the fail-visible message
+        # when an invalid config host degraded to the LAN address.
+        self.advertised = resolve_advertised_endpoints(
+            serving_port=port,
+            detected_ip=self.ip,
+            config=load_applink_config(project_root()),
+            cli_host=advertise_host,
+            cli_port=advertise_port,
+            cli_kind=advertise_kind,
+            cli_trust=advertise_trust,
+        )
+        self.advertise_warning = self.advertised.warning
         self.fingerprint = compute_self_signed_fingerprint()  # ensures the cert
         self.cert_manager = CertManager(sessions_dir())
         self.session_table = SessionTable(sessions_dir())
@@ -105,12 +132,16 @@ class AppLinkRuntime:
         self.firewall: firewall_doctor.FirewallStatus | None = None
 
     def build_uri(self) -> str:
+        adv = self.advertised
         return build_pairing_uri(
             token=self.token,
-            ip=self.ip,
-            port=self.port,
+            ip=adv.primary.host,
+            port=adv.primary.port,
             fingerprint=self.fingerprint,
             hostname=self.host or None,
+            kind=adv.primary.kind if adv.override else None,
+            trust=adv.primary.trust if adv.override else None,
+            alt=adv.alts or None,
         )
 
     def regenerate(self) -> str:
@@ -190,12 +221,20 @@ class FirewallFixModal(ModalScreen):
 
     def compose(self) -> ComposeResult:
         st = self._status
+        # A non-LAN advertised endpoint must be visible on every command
+        # surface — the 'f' modal must never show LAN-only remediation
+        # without the override warning (t1061_1). Detected branch: the note
+        # rides on fw_sub (the command text is st.display). Undetected
+        # branch: generic_help() appends it inside _command_text().
+        note_suffix = f"\n{st.override_note}" if st.override_note else ""
         with Container(id="fw_dialog"):
             if st.detected:
                 yield Label(f"Firewall: [bold]{st.backend}[/] is active", id="fw_title")
                 yield Label(
-                    f"Open port {st.port} for {st.cidr} (LAN-scoped)?",
+                    f"Open port {st.port} for {st.cidr} (LAN-scoped)?"
+                    f"{note_suffix}",
                     id="fw_sub",
+                    markup=False,
                 )
             else:
                 yield Label("No managed firewall auto-detected", id="fw_title")
@@ -219,8 +258,11 @@ class FirewallFixModal(ModalScreen):
     def _command_text(self) -> str:
         st = self._status
         if st.detected:
+            # override_note is shown in fw_sub; commands (st.display) already
+            # include the mesh CIDR when the override is a local interface.
             return st.display or ""
-        return firewall_doctor.generic_help(st.port, st.cidr)
+        return firewall_doctor.generic_help(
+            st.port, st.cidr, override_note=st.override_note)
 
     @on(Button.Pressed, "#btn_fw_open")
     def _on_open(self) -> None:
@@ -320,15 +362,23 @@ class PairingScreen(ShortcutsMixin, Screen):
             return
         runtime = getattr(self.app, "runtime", None)
         st = getattr(runtime, "firewall", None) if runtime else None
+        # Invalid config advertised_host degraded to the LAN address —
+        # fail-visible on the pairing screen, ahead of firewall guidance.
+        warn = getattr(runtime, "advertise_warning", None) if runtime else None
+        lines = [f"⚠ {warn}"] if warn else []
         if st is None:
-            adv.update("")
-        elif st.detected:
-            adv.update(
+            adv.update("\n".join(lines))
+            return
+        if st.detected:
+            lines.append(
                 f"⚠ Firewall ({st.backend}) active — if your phone "
                 f"can't connect, press 'f' to open port {st.port} for {st.cidr}."
             )
         else:
-            adv.update("Press 'f' for firewall help if your phone can't connect.")
+            lines.append("Press 'f' for firewall help if your phone can't connect.")
+        if st.override_note:
+            lines.append(st.override_note)
+        adv.update("\n".join(lines))
 
     def action_fix_firewall(self) -> None:
         runtime = getattr(self.app, "runtime", None)
@@ -461,13 +511,30 @@ class ApplinkApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("q", "quit", "Quit"),
     ]
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        advertise_host: str | None = None,
+        advertise_port: int | None = None,
+        advertise_kind: str | None = None,
+        advertise_trust: str | None = None,
+    ) -> None:
         super().__init__()
         self.current_tui_name = "applink"
         self.runtime: AppLinkRuntime | None = None
+        # Advertised-endpoint CLI overrides, threaded into AppLinkRuntime at
+        # mount time (construction stays I/O-free for --smoke).
+        self._advertise_host = advertise_host
+        self._advertise_port = advertise_port
+        self._advertise_kind = advertise_kind
+        self._advertise_trust = advertise_trust
 
     def on_mount(self) -> None:
-        self.runtime = AppLinkRuntime()
+        self.runtime = AppLinkRuntime(
+            advertise_host=self._advertise_host,
+            advertise_port=self._advertise_port,
+            advertise_kind=self._advertise_kind,
+            advertise_trust=self._advertise_trust,
+        )
         self.push_screen(PairingScreen())
         self.run_worker(self._start_server(), exclusive=False)
 
@@ -480,8 +547,10 @@ class ApplinkApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # app), preserving the no-I/O smoke contract.
         if server.error is None:
             try:
+                adv = self.runtime.advertised
                 self.runtime.firewall = await asyncio.to_thread(
-                    firewall_doctor.diagnose, self.runtime.port, self.runtime.ip
+                    firewall_doctor.diagnose, self.runtime.port, self.runtime.ip,
+                    adv.primary.host if adv.override else None,
                 )
             except Exception:
                 self.runtime.firewall = None
@@ -506,7 +575,40 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Headless smoke test: construct the app and exit 0 without entering the event loop.",
     )
-    return parser.parse_args(argv)
+    # Advertised-endpoint override flags (t1061_1). Any of these makes the CLI
+    # define the entire override — all tmux.applink.advertised_* config keys
+    # are then ignored (group precedence, no field mixing).
+    parser.add_argument(
+        "--advertise-host", type=advertise_host_argtype, default=None,
+        help="Advertise this host (FQDN or IP; host:port accepted) in the "
+             "pairing QR instead of the detected LAN IP. Advertisement-only: "
+             "the server still binds 0.0.0.0. Overrides ALL "
+             "tmux.applink.advertised_* config keys.",
+    )
+    parser.add_argument(
+        "--advertise-port", type=advertise_port_argtype, default=None,
+        help="Port to advertise, 1-65535 (default: the serving port; a "
+             "tunnel may expose a different public port).",
+    )
+    parser.add_argument(
+        "--advertise-kind", choices=("lan", "mesh", "tunnel"), default=None,
+        help="Endpoint kind hint for client racing (default: mesh).",
+    )
+    parser.add_argument(
+        "--advertise-trust", choices=("pin", "ca"), default=None,
+        help="Trust mode of the advertised endpoint (default: pin). Use ca "
+             "only for a TLS-terminating tunnel endpoint.",
+    )
+    args = parser.parse_args(argv)
+    if args.advertise_host is None and any(
+        v is not None
+        for v in (args.advertise_port, args.advertise_kind, args.advertise_trust)
+    ):
+        parser.error(
+            "--advertise-port/--advertise-kind/--advertise-trust require "
+            "--advertise-host"
+        )
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -519,7 +621,12 @@ def main(argv: list[str] | None = None) -> int:
         PairingScreen()
         del app
         return 0
-    ApplinkApp().run()
+    ApplinkApp(
+        advertise_host=args.advertise_host,
+        advertise_port=args.advertise_port,
+        advertise_kind=args.advertise_kind,
+        advertise_trust=args.advertise_trust,
+    ).run()
     return 0
 
 

@@ -124,19 +124,112 @@ def _fallback_cidr(lan_ip: str) -> str:
         return f"{lan_ip}/24"
 
 
-def host_lan_cidr(lan_ip: str) -> str:
-    """Run ``ip -o -4 addr show`` and return *lan_ip*'s network CIDR.
-
-    Failure-silent: if ``ip`` is missing or errors, falls back to a ``/24``.
-    """
+def _ip_addr_output() -> str:
+    """Run ``ip -o -4 addr show`` and return its stdout (failure-silent → '')."""
     try:
         proc = subprocess.run(
             ["ip", "-o", "-4", "addr", "show"],
             capture_output=True, text=True, timeout=_PROBE_TIMEOUT_S,
         )
-        return parse_lan_cidr(proc.stdout or "", lan_ip)
+        return proc.stdout or ""
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return ""
+
+
+def host_lan_cidr(lan_ip: str) -> str:
+    """Run ``ip -o -4 addr show`` and return *lan_ip*'s network CIDR.
+
+    Failure-silent: if ``ip`` is missing or errors, falls back to a ``/24``.
+    """
+    out = _ip_addr_output()
+    if not out:
         return _fallback_cidr(lan_ip)
+    return parse_lan_cidr(out, lan_ip)
+
+
+def classify_override(
+    advertised_host: str, lan_cidr: str, ip_addr_output: str,
+) -> tuple[str, str | None]:
+    """Classify an advertised-endpoint override host against local interfaces.
+
+    Returns one of:
+
+    - ``("covered", None)`` — IPv4 literal inside *lan_cidr*: the LAN-scoped
+      rules already cover it.
+    - ``("local_iface", <cidr>)`` — IPv4 literal exactly matching another
+      local ``inet`` entry (mesh case, e.g. a Tailscale address on
+      ``tailscale0`` → ``100.64.0.0/10``): rules should also cover that CIDR.
+    - ``("external", None)`` — FQDN, IPv6, or an IP not on any local
+      interface (tunnel case): LAN-scoped inbound rules do not apply.
+
+    **No DNS resolution by design** — the doctor stays deterministic and
+    offline-safe, so a mesh DNS name (e.g. Tailscale MagicDNS) classifies
+    ``external``; the override note carries the "use the numeric mesh IP"
+    hint for that case.
+    """
+    try:
+        addr = ipaddress.ip_address(advertised_host)
+    except ValueError:
+        return "external", None            # FQDN / hostname
+    if addr.version != 4:
+        return "external", None            # IPv6: `ip -o -4` can't place it
+    try:
+        if addr in ipaddress.ip_network(lan_cidr, strict=False):
+            return "covered", None
+    except ValueError:
+        pass
+    for line in ip_addr_output.splitlines():
+        tokens = line.split()
+        for i, tok in enumerate(tokens):
+            if tok == "inet" and i + 1 < len(tokens):
+                entry = tokens[i + 1]
+                if "/" in entry and entry.split("/", 1)[0] == advertised_host:
+                    try:
+                        return "local_iface", str(
+                            ipaddress.ip_interface(entry).network)
+                    except ValueError:
+                        pass
+    return "external", None
+
+
+_MESH_DNS_HINT = (
+    " If this is a mesh hostname (e.g. Tailscale MagicDNS), set the numeric "
+    "mesh IP as the advertised host to get interface-scoped firewall guidance."
+)
+
+
+def build_override_note(
+    advertised_host: str, classification: str, cidr: str | None, port: int,
+    *, commands_extended: bool,
+) -> str | None:
+    """Render the advisory line for a non-LAN advertised host (or ``None``).
+
+    ``covered`` needs no note; ``local_iface`` says whether the shown commands
+    already include the mesh CIDR; ``external`` warns that the LAN-scoped
+    rules do not apply (never silently print LAN-only guidance for a tunnel
+    endpoint), with the mesh-DNS hint when the host is not an IP literal.
+    """
+    if classification == "covered":
+        return None
+    if classification == "local_iface":
+        if commands_extended:
+            return (
+                f"Advertised host {advertised_host} is on local interface "
+                f"network {cidr} — the commands above include it."
+            )
+        return (
+            f"Advertised host {advertised_host} is on local interface "
+            f"network {cidr} — also open port {port} for {cidr}."
+        )
+    note = (
+        f"⚠ Advertised endpoint {advertised_host} is not covered by these "
+        "LAN-scoped rules (external/tunnel endpoint)."
+    )
+    try:
+        ipaddress.ip_address(advertised_host)
+    except ValueError:
+        note += _MESH_DNS_HINT
+    return note
 
 
 def build_open_commands(
@@ -197,12 +290,14 @@ def display_command(commands: list[list[str]]) -> str:
     return " && ".join("sudo " + shlex.join(argv) for argv in commands)
 
 
-def generic_help(port: int, cidr: str) -> str:
+def generic_help(port: int, cidr: str, override_note: str | None = None) -> str:
     """Backend-agnostic show-command fallback (no backend was auto-detected).
 
     Lists the exact LAN-scoped allow command for each of ufw/firewalld/nft/
     iptables, prefaced by a cautious line, so the user can apply whichever
     matches their host. This is the always-reachable UI route to the fallback.
+    *override_note* (from :attr:`FirewallStatus.override_note`) is appended so
+    no help surface shows LAN-only guidance for a non-LAN advertised endpoint.
     """
     lines = [
         "No managed firewall was auto-detected. If your phone still can't "
@@ -211,6 +306,8 @@ def generic_help(port: int, cidr: str) -> str:
     for backend in _ALL_BACKENDS:
         cmds = build_open_commands(backend, port, cidr)
         lines.append(f"  {backend}: {display_command(cmds)}")
+    if override_note:
+        lines.append(override_note)
     return "\n".join(lines)
 
 
@@ -255,13 +352,20 @@ class FirewallStatus:
     auto_fixable: bool = False
     commands: list[list[str]] = field(default_factory=list)
     display: str | None = None
+    # Advisory for a non-LAN advertised-endpoint override (t1061_1). Every
+    # renderer of commands/help (render_firewall_block, generic_help callers,
+    # the TUI modal and advisory) must surface it — never show LAN-only
+    # guidance for a tunnel/mesh endpoint without this line.
+    override_note: str | None = None
 
     @property
     def detected(self) -> bool:
         return self.backend is not None
 
 
-def diagnose(port: int, lan_ip: str) -> FirewallStatus:
+def diagnose(
+    port: int, lan_ip: str, advertised_host: str | None = None,
+) -> FirewallStatus:
     """Detect the active firewall backend and synthesize the open command(s).
 
     **Always returns a FirewallStatus, never None** — the generic-help fallback
@@ -270,12 +374,33 @@ def diagnose(port: int, lan_ip: str) -> FirewallStatus:
     so it must only be called off the construct/``--smoke`` path; both call sites
     invoke it via ``asyncio.to_thread`` so its blocking calls never stall the
     event loop.
+
+    When *advertised_host* is given (an advertised-endpoint override is
+    active) and it is not covered by the LAN CIDR: a mesh IP owned by a local
+    interface extends ``commands`` with that interface's CIDR, and every case
+    sets :attr:`FirewallStatus.override_note` for the renderers.
     """
-    cidr = host_lan_cidr(lan_ip)
+    ip_out = _ip_addr_output()
+    cidr = parse_lan_cidr(ip_out, lan_ip) if ip_out else _fallback_cidr(lan_ip)
     backend = detect_backend()
+
+    override_note = None
+    override_cidr = None
+    if advertised_host and advertised_host != lan_ip:
+        classification, override_cidr = classify_override(
+            advertised_host, cidr, ip_out)
+        override_note = build_override_note(
+            advertised_host, classification, override_cidr, port,
+            commands_extended=(
+                backend is not None and classification == "local_iface"),
+        )
+
     if backend is None:
-        return FirewallStatus(backend=None, cidr=cidr, port=port)
+        return FirewallStatus(
+            backend=None, cidr=cidr, port=port, override_note=override_note)
     commands = build_open_commands(backend, port, cidr)
+    if override_cidr is not None:
+        commands = commands + build_open_commands(backend, port, override_cidr)
     return FirewallStatus(
         backend=backend,
         cidr=cidr,
@@ -283,6 +408,7 @@ def diagnose(port: int, lan_ip: str) -> FirewallStatus:
         auto_fixable=auto_fixable(backend),
         commands=commands,
         display=display_command(commands),
+        override_note=override_note,
     )
 
 
@@ -320,7 +446,7 @@ def run_open(status: FirewallStatus) -> tuple[bool, str]:
 
 def render_firewall_block(status: FirewallStatus) -> str:
     """Stdout advisory block for the headless runner (a detected backend)."""
-    return "\n".join([
+    lines = [
         "",
         "=== ait applink — firewall ===",
         f"⚠ Firewall ({status.backend}) is active. If your phone can't "
@@ -328,4 +454,7 @@ def render_firewall_block(status: FirewallStatus) -> str:
         f"    {status.display}",
         "(LAN-scoped; run it yourself, or press 'f' in the TUI to open it "
         "with one consent.)",
-    ])
+    ]
+    if status.override_note:
+        lines.append(status.override_note)
+    return "\n".join(lines)
