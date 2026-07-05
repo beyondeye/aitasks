@@ -358,6 +358,163 @@ Bash test script(s) per the task file's Verification list, all against
   severity: low · → mitigation: embedded (plan pins "enough to test
   persistence + reconciliation"; t1120_6's plan owns `flow.py`)
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-06 00:20)
+- **Requested by user:** two review findings — (1) HIGH: the reconnect
+  executor phase-sorted global actions, so `ADVANCE_CURSOR` (phase 1)
+  persisted the cursor to the newest fetched message BEFORE
+  `PROCESS_MESSAGE` (phase 2) handled the recovered messages; a crash or
+  escaping handler exception after the cursor write permanently skips the
+  missed intake message on the next reconnect. (2) MED:
+  `GatewayPipeline.handle_event()` caught only `ChatError`, but the
+  interaction path awaits relay/store I/O that raises `OSError`/`RelayError`
+  (disk-full, permissions) — the exception escaped through `run_daemon()`
+  and could stop the gateway.
+- **Changes made:** (1) `plan_reconnect_actions` now emits per-message
+  handle-then-advance pairs (PROCESS then ITS cursor advance; self/bot
+  messages advance without processing), and the executor runs global
+  actions in **planner order** (never phase-sorted — documented in both
+  modules); a recovery failure that escapes the handler stops the global
+  chain with an audit, leaving the cursor pointing before the failed
+  message (at-least-once, never silently skipped). (2) `handle_event` now
+  catches `(ChatError, OSError, RelayError)` — audited as `handler error`,
+  state left for reconciliation to heal. Tests: per-message ordering
+  assertion, cursor-loss negative control (BoomPipeline ⇒ cursor NOT
+  advanced + audit), OSError-in-spool-write resilience control (daemon
+  survives, no answer published). Suite now 77 Python checks + launcher
+  routing, all pass.
+- **Files affected:** `.aitask-scripts/chatlink/reconcile.py`,
+  `.aitask-scripts/chatlink/daemon.py`, `.aitask-scripts/chatlink/intake.py`,
+  `tests/test_chatlink_daemon.sh`.
+
+### Change Request 2 (2026-07-06 00:35)
+- **Requested by user:** MEDIUM — `run_reconnect_reconciliation()` only
+  fetched history when a saved watch cursor existed; on first run (or
+  after cursor loss), a disconnect before any live intake message meant
+  downtime messages were silently never recovered. Asked to define and
+  implement the no-cursor behavior + a negative control.
+- **Changes made:** pinned no-cursor policy, implemented as
+  `ensure_watch_baseline()` called in `run_daemon` before the first
+  subscribe: (a) baseline = newest intake-channel message at startup
+  (pre-startup history is NEVER an intake candidate — a first run must
+  not slurp old reports); (b) an empty channel persists an explicit
+  `message_id: None` marker, and reconnect recovery then does a
+  **bounded** no-`after` fetch (`RECOVERY_FETCH_LIMIT` = 100); (c) if the
+  baseline fetch itself failed, reconnect recovery is skipped fail-safe
+  (audited) and the baseline is re-established for the next disconnect —
+  never fail-open over old history. Tests: three negative controls
+  (pre-startup message not slurped + downtime message recovered; marker
+  baseline bounded recovery; no-baseline skip + re-establish). Suite now
+  83 Python checks + launcher routing, all pass.
+- **Files affected:** `.aitask-scripts/chatlink/daemon.py`,
+  `tests/test_chatlink_daemon.sh`.
+
+### Change Request 3 (2026-07-06 00:45)
+- **Requested by user:** MEDIUM — the live subscribe loop awaited
+  `_advance_cursor_for()` outside the pipeline's error boundary, and the
+  surrounding `try` caught only `ChatError`: an `OSError` while saving
+  `watch_cursors.json` (disk-full/permissions) could terminate
+  `run_daemon()` after the event was already handled. Same local-I/O
+  resilience class as Change Request 1's handler fix.
+- **Changes made:** `_advance_cursor_for` now wraps the save in
+  `try/except OSError` → audited warning, daemon continues (stale cursor
+  only means the next reconnect re-fetches the message — at-least-once,
+  never a stopped daemon). Negative control added: cursor-save OSError
+  mid-`run_daemon` ⇒ audited, task still running, subsequent intake still
+  processed, clean stop. Suite now 84 Python checks + launcher routing,
+  all pass.
+- **Files affected:** `.aitask-scripts/chatlink/daemon.py`,
+  `tests/test_chatlink_daemon.sh`.
+
+### Change Request 4 (2026-07-06 00:55)
+- **Requested by user:** MEDIUM — `ensure_watch_baseline()` wrote
+  `watch_cursors.json` without catching `OSError`: a disk-full/permission
+  failure could abort `run_daemon()` before subscribing, or escape
+  reconnect recovery — contradicting the pinned fail-safe baseline policy.
+- **Changes made:** baseline save wrapped (`OSError` ⇒ audited warning,
+  return; retried at next reconnect). Plus a proactive sweep of the same
+  local-I/O class on the daemon path: `scan_relay_root` now treats spool
+  files as untrusted on-disk state (unreadable session dir ⇒ skipped and
+  left alone; malformed question/answer file ⇒ that seq excluded, audited
+  — a corrupt file can no longer abort daemon startup); executor phase-1
+  and phase-2 catches and `handle_event` broadened to include `ValueError`
+  (malformed spool JSON raises `json.JSONDecodeError`, not a `RelayError`).
+  Negative controls: baseline-save OSError (audited, swallowed, no
+  cursor); malformed answer file at startup (reconciliation completes,
+  healthy seq cancelled, bad seq excluded, dir removed after terminal
+  persistence). Suite now 86 Python checks + launcher routing, all pass.
+- **Files affected:** `.aitask-scripts/chatlink/daemon.py`,
+  `.aitask-scripts/chatlink/intake.py`, `tests/test_chatlink_daemon.sh`.
+
 ## Step 9 reference
 
 Post-implementation follows task-workflow Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** All 7 planned deliverables, in plan order:
+  `chatlink/sessions_store.py` (SessionRecord + SessionsStore — atomic
+  0600/0700 persistence, corrupt-record fail-closed reporting, ceilings
+  derived from records, gateway-level `watch_cursors.json`);
+  `chatlink/reconcile.py` (pure `plan_startup_actions` /
+  `plan_reconnect_actions`, phase-tagged `Action`s, `SpoolScan` input
+  shape); `chatlink/intake.py` (`GatewayPipeline` — pinned intake failure
+  table, deny modes, ceilings, minimal interaction path with
+  durable-answer-first ordering, fail-quiet platform helpers);
+  `chatlink/spawn_seam.py` (contract-8 stub: `SandboxSpec`,
+  `SandboxHandle`/`Launcher` protocols, `FakeLauncher`, `NullLauncher`);
+  `chatlink/audit.py` (applink pattern); `chatlink/daemon.py` (3-phase
+  `ActionExecutor`, `scan_relay_root`, startup/reconnect reconciliation,
+  watch-baseline policy, sequential `run_daemon`, validate-first `serve()`,
+  argparse `main`); `aitask_chatlink.sh` + `ait` dispatcher case/help;
+  `tests/test_chatlink_daemon.sh` (86 Python checks + launcher routing).
+- **Deviations from plan:** (1) `SessionRecord` gained a
+  `question_messages` map (seq → posted-question MessageRef dict) — needed
+  by component-disabling and re-prompt actions; best-effort bookkeeping.
+  (2) A gateway-level watch-cursor store (`watch_cursors.json` +
+  `load_watch_cursors`/`save_watch_cursor`) was added to `SessionsStore` —
+  the intake-channel `fetch_history(after=)` cursor is daemon-scoped, not
+  per-session. (3) `plan_startup_actions` takes `corrupt_ids` explicitly
+  (scope-honest extension of the pinned signature). (4) `NullLauncher`
+  added as the production seam placeholder until t1120_5 (launch refuses
+  honestly ⇒ failed session + annotated thread). (5) Four review rounds
+  hardened the daemon beyond the plan (see Post-Review Changes 1–4):
+  per-message handle-then-advance reconnect ordering; watch-baseline
+  no-cursor policy (`ensure_watch_baseline`, empty-channel marker, bounded
+  `RECOVERY_FETCH_LIMIT` fetch, fail-safe skip); local-I/O resilience
+  sweep (OSError/ValueError/RelayError at every daemon-path boundary;
+  spool files treated as untrusted input).
+- **Issues encountered:** MockChatAdapter registers subscribers lazily
+  (generator start) and handlers emit their own events — the test env uses
+  a background pump + sequential drain instead of counted `anext` reads.
+  The MARK_FAILED idempotency guard initially skipped saving fresh
+  tombstones (fixed + covered).
+- **Key decisions:** durable interaction outcome = the relay answer file
+  (first awaited side effect; record entry is derived bookkeeping healed
+  from the spool; staleness = `write_answer(overwrite=False)` returning
+  False — race-free, no exists-check); strictly sequential event dispatch
+  (no concurrent handler tasks — serializes ceiling check-then-write with
+  no locks); executor phase discipline (terminal persistence →
+  best-effort platform → dir removal, phase-1 failure keeps state for the
+  next pass); pre-startup channel history is never an intake candidate
+  (baseline policy); v1 launcher surface is headless-only (`--headless`
+  required) so t1120_6's TUI lands without breaking it; no permission
+  whitelist for `aitask_chatlink.sh` (user-invoked via `ait`, not
+  skill-invoked — extension-points rule).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1120_5: promote `chatlink/spawn_seam.py`
+  into `lib/sandbox_launch.py` keeping `SandboxSpec`
+  (session_id/relay_dir/agent_argv/workspace_copy_path/env_allowlist/
+  limits) and `launch/reap_orphans` names; the daemon injects the launcher
+  via `run_daemon(launcher=…)` and `serve()` currently passes
+  `NullLauncher()` — swap there. `reap_orphans(workspace_id)` must return
+  the LIVE session_id list (startup reconciliation fail-closes everything
+  else). t1120_6: `flow.py` owns the continuous spool→post pump, modal
+  dance, pagination, reactions, payload completion; reuse
+  `GatewayPipeline.post_question` and the `_handle_interaction` select
+  path (deferred stubs to replace: `MSG_DEFERRED` branches); the TUI
+  reuses `aitask_chatlink.sh` (drop the headless-only refusal in `main()`);
+  wire death→cancellation through the executor's phase discipline —
+  mutations must marshal through the daemon loop (sequential-dispatch
+  invariant). Token provisioning UX: `paths.write_token()` is ready.
