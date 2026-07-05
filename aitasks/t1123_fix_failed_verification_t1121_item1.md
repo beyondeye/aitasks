@@ -5,6 +5,7 @@ depends: [1119]
 issue_type: bug
 status: Implementing
 labels: [verification, bug]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1119
 implemented_with: claudecode/opus4_8
