@@ -154,6 +154,28 @@ needed.
    - In a wide TUI (`ait board` or full `ait monitor`), press `j` then `e` → the
      dialog stays in its **full-width** layout (no regression).
 
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Added
+  `TuiSwitcherMixin._switcher_narrow()` (default `False`), threaded
+  `narrow=self._switcher_narrow()` through `action_tui_switcher` into
+  `TuiSwitcherOverlay.__init__` (new `narrow` param, stored as `self._narrow`),
+  and passed `narrow=self._narrow` to the raw-agent `AgentCommandScreen` in
+  `action_shortcut_agent`. `MiniMonitorApp` overrides `_switcher_narrow()` → `True`.
+- **Deviations from plan:** The plan referenced the class as `MinimonitorApp`;
+  the real class is `MiniMonitorApp` (the code edit was content-anchored, so the
+  source is correct — only the seam-oracle test's class reference was corrected).
+- **Issues encountered:** `minimonitor_app.py` had a pre-existing, unrelated
+  uncommitted change in the working tree (a `capture_all_async` None-guard,
+  t1111_4) from a concurrent session. Staged only the `_switcher_narrow` hunk
+  (via `git apply --cached` of that single hunk) so the t1122 commit did not
+  sweep up the other session's in-progress work; the t1111_4 change remains
+  unstaged in the working tree.
+- **Key decisions:** Chose the host-declared hook over a magic width threshold —
+  explicit, drift-resistant, and a direct mirror of the existing
+  `_switcher_selected_session` threading.
+- **Upstream defects identified:** None.
+
 ## Step 9 (Post-Implementation)
 
 After implementation: run the verification above, then follow task-workflow Step 8
