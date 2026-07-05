@@ -516,21 +516,21 @@
         },
         "resume": {
           "all_time": {
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           },
           "prev_month": {
-            "period": "",
-            "runs": 0,
-            "score_sum": 0
-          },
-          "month": {
             "period": "2026-06",
             "runs": 1,
             "score_sum": 100
           },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
           "week": {
-            "period": "2026-W25",
+            "period": "2026-W27",
             "runs": 1,
             "score_sum": 100
           }
