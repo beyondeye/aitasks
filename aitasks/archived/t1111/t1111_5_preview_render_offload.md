@@ -5,14 +5,15 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t1111_4]
 issue_type: performance
-status: Implementing
+status: Done
 labels: [monitor, tui, performance]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-05 16:44
+updated_at: 2026-07-05 23:00
+completed_at: 2026-07-05 23:00
 ---
 
 Offload the **preview render** (`_ansi_to_rich_text`) off the UI thread —
@@ -85,3 +86,14 @@ Risk-gated: declares `risk_evaluated`; re-run risk evaluation at pick time.
 > **✅ gate:plan_approved** run=2026-07-05T13:44:03Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-05T19:59:44Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-05T20:00:19Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d41fb8c2ada0adf8
+
+> **✅ gate:risk_evaluated** run=2026-07-05T20:00:19Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1111_5/risk_evaluated_2026-07-05T20:00:19Z-risk_evaluated-a1.log`
