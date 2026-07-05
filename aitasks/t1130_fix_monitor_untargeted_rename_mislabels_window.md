@@ -8,8 +8,9 @@ labels: [tmux, monitor, tui, codeagent]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 941
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-05 16:03
-updated_at: 2026-07-05 16:26
+updated_at: 2026-07-05 16:31
 ---
 
 Fix the monitor's `on_mount` window-rename so it can never mislabel an unrelated window as `monitor`. This is a **t941 follow-up**.
@@ -45,3 +46,8 @@ Fix code-agent launches from the shared `AgentCommandScreen` so pick/raw/explain
 
 - **Observed symptom:** launching `/aitask-pick 1111_2` with Codex produced a Codex `node` pane in a tmux window named `monitor` instead of `agent-pick-1111_2`.
 - **Fix that landed (t1115):** `_compute_window_options()` now calls `should_default_to_new_window(default_window_name, operation, explicit_tmux_window)` — explicit caller window wins; otherwise an `agent-`/`create-` prefixed `default_window_name` or a fresh-window operation forces `+ New window`, so a remembered `monitor` window no longer poisons agent launches. Covered by `tests/test_agent_command_dialog_default_session.py`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-05T13:31:18Z status=pass attempt=1 type=human
