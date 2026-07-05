@@ -444,6 +444,19 @@ install_seed_gates_registry() {
     merge_seed yaml "$src" "$dest" "gate registry: gates.yaml"
 }
 
+# --- Install chatlink gateway config (t1120_2) ---
+install_seed_chatlink_config() {
+    local src="$INSTALL_DIR/seed/chatlink_config.yaml"
+    local dest="$INSTALL_DIR/aitasks/metadata/chatlink_config.yaml"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/chatlink_config.yaml in tarball — skipping chatlink config installation"
+        return
+    fi
+
+    merge_seed yaml "$src" "$dest" "chatlink config: chatlink_config.yaml"
+}
+
 # --- Install starter tmux.conf template ---
 install_seed_tmux_conf() {
     local src="$INSTALL_DIR/seed/tmux.conf"
@@ -1077,6 +1090,9 @@ main() {
 
     info "Installing gate registry..."
     install_seed_gates_registry
+
+    info "Installing chatlink gateway config..."
+    install_seed_chatlink_config
 
     info "Installing starter tmux.conf template..."
     install_seed_tmux_conf

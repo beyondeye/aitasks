@@ -1333,6 +1333,7 @@ setup_data_branch() {
             cp "$project_dir/seed/task_types.txt" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/project_config.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/gates.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
+            cp "$project_dir/seed/chatlink_config.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/doc_update_guide.md" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/code_areas.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/codeagent_config.json" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
@@ -1378,6 +1379,15 @@ setup_data_branch() {
             echo ""
             echo "# Per-user execution profiles (local, not shared)"
             echo "aitasks/metadata/profiles/local/"
+        } >> "$data_gitignore"
+    fi
+
+    # Add chatlink_sessions/ to data branch .gitignore (per-PC secrets: bot token + relay spools)
+    if ! grep -qxF "aitasks/metadata/chatlink_sessions/" "$data_gitignore" 2>/dev/null; then
+        {
+            echo ""
+            echo "# chatlink runtime state (per-PC: bot token + relay spools)"
+            echo "aitasks/metadata/chatlink_sessions/"
         } >> "$data_gitignore"
     fi
 
@@ -1567,6 +1577,29 @@ ensure_project_config_defaults() {
     ' "$target_config" > "$tmp_file"
     cat "$tmp_file" > "$target_config" && rm "$tmp_file"
     success "Updated project_config.yaml with codeagent_coauthor_domain"
+}
+
+# --- Chatlink gateway config (populate-missing, t1120_2) ---
+ensure_chatlink_config() {
+    local project_dir="$SCRIPT_DIR/.."
+    local seed_config="$project_dir/seed/chatlink_config.yaml"
+    local target_config="$project_dir/aitasks/metadata/chatlink_config.yaml"
+
+    # install.sh installs chatlink_config.yaml into aitasks/metadata/ directly
+    # (and deletes seed/ afterwards), so in normal flow target exists here.
+    # The seed fallback still matters for in-tree dev runs where seed/ is
+    # preserved, and for pre-t1120 installs re-running 'ait setup'.
+    if [[ -f "$target_config" ]]; then
+        return
+    fi
+    if [[ ! -f "$seed_config" ]]; then
+        warn "chatlink_config.yaml is missing from aitasks/metadata/ and no seed template is available."
+        warn "Re-run 'ait setup' after upgrading to populate the chatlink config from the seed."
+        return
+    fi
+    mkdir -p "$(dirname "$target_config")"
+    cp "$seed_config" "$target_config"
+    success "Created chatlink_config.yaml"
 }
 
 # --- Draft directory and gitignore setup ---
@@ -3200,6 +3233,9 @@ main() {
     echo ""
 
     ensure_project_config_defaults
+    echo ""
+
+    ensure_chatlink_config
     echo ""
 
     setup_git_tui
