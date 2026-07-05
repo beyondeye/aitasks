@@ -91,3 +91,17 @@ Changes here are to `.aitask-scripts/monitor/*` (monitor_app.py / monitor_core.p
 — framework Python, not skill markdown, so no cross-agent skill port needed.
 The same hot-path pattern likely affects **minimonitor** (minimonitor_app.py);
 evaluate whether the thread-offload fix should apply there too.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **🔄 gate:risk_evaluated** run=t1111_6_manual_gate_live status=running type=machine
+>
+> Verifier: `manual`
+> Note: t1111_6 live monitor gate-column mtime verification
+
+> **✅ gate:risk_evaluated** run=t1111_6_manual_gate_live status=pass attempt=2 type=machine
+>
+> Verifier: `manual`
+> Result: pass
+> Note: t1111_6 confirmed monitor gate column updates from task file mtime
