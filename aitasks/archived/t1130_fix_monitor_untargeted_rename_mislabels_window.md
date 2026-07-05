@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tmux, monitor, tui, codeagent]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 941
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-05 16:03
-updated_at: 2026-07-05 16:31
+updated_at: 2026-07-05 16:57
+completed_at: 2026-07-05 16:57
 ---
 
 Fix the monitor's `on_mount` window-rename so it can never mislabel an unrelated window as `monitor`. This is a **t941 follow-up**.
@@ -55,3 +56,14 @@ Fix code-agent launches from the shared `AgentCommandScreen` so pick/raw/explain
 > **✅ gate:plan_approved** run=2026-07-05T13:31:18Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-05T13:47:32Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-05T13:57:49Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:0e8e377c3487cef0
+
+> **✅ gate:risk_evaluated** run=2026-07-05T13:57:49Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1130/risk_evaluated_2026-07-05T13:57:49Z-risk_evaluated-a1.log`
