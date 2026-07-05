@@ -7,8 +7,9 @@ status: Implementing
 labels: [task_attachments, html_plans]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
+implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:04
-updated_at: 2026-07-05 17:28
+updated_at: 2026-07-05 17:59
 ---
 
 ## Heads-up — what t1030 actually shipped (verified t1030_4, 2026-06-30)
@@ -62,3 +63,8 @@ land after t1030 ships its local attachment backend + cache + index.
 - Manifest read/write does not touch any task file.
 
 Depends on t1030 (external) — wired in frontmatter.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-05T14:59:41Z status=pass attempt=1 type=human
