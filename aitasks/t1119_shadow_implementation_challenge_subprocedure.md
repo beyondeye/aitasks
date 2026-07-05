@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [shadow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-05 08:25
-updated_at: 2026-07-05 08:25
+updated_at: 2026-07-05 08:31
 ---
 
 Add a new sub-procedure to the `aitask-shadow` skill that performs an
