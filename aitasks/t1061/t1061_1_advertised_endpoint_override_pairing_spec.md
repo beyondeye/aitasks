@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
@@ -10,7 +12,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1061
 implemented_with: claudecode/fable5
 created_at: 2026-07-02 23:45
-updated_at: 2026-07-05 16:43
+updated_at: 2026-07-05 16:44
 ---
 
 **A1 of the t1061 paired decomposition** (see
@@ -73,8 +75,15 @@ trust    := pin | ca                   (pin = QR fp is the trust anchor;
     **manually run** TLS-terminating tunnel (user's own cloudflared/ngrok, no
     A3) advertise `trust=ca`
 - `.aitask-scripts/applink/headless.py` + `.aitask-scripts/applink/applink_app.py`
-  — CLI: `--advertise-host` / `--advertise-port` / `--advertise-trust`.
-  Precedence: CLI > config > `detect_lan_ip()` (+ `pin` default for trust).
+  — CLI: `--advertise-host` / `--advertise-port` / `--advertise-kind` /
+  `--advertise-trust`. Precedence is **group-level**: any `--advertise-*`
+  flag makes the CLI define the entire override (all `advertised_*` config
+  keys ignored — no field mixing, so a one-shot CLI host can't inherit a
+  stale configured kind/trust); otherwise config; otherwise
+  `detect_lan_ip()`. Defaults within the winning group: port = explicit >
+  embedded-in-host > serving port; kind `mesh`; trust `pin`.
+  (`--advertise-kind` added during planning to close the stale-config
+  coupling gap.)
 - Emission: thread the override into `AppLinkRuntime.__init__`/`build_uri()`
   and `headless.serve()`. When both an override and a detected LAN IP exist:
   primary = override endpoint, `alt` = LAN endpoint (`;lan;pin`).
