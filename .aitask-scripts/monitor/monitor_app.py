@@ -37,6 +37,7 @@ from monitor.monitor_shared import (  # noqa: E402
     format_compare_mode_glyph, format_pane_status,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
+from rich.text import Text  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 
@@ -446,6 +447,11 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # _record_preview_scroll to resolve int(scroll_y) to anchor_text without
         # mixing rendered-view coordinates with live-snapshot coordinates.
         self._preview_rendered_lines: list[str] = []
+        # Monotonic token bumped for every scheduled preview render (t1111_5).
+        # Guards the offloaded _ansi_to_rich_text render against out-of-order /
+        # superseded resolution: an apply (and its deferred scroll restore) only
+        # touches the preview if its token is still current AND focus has not moved.
+        self._preview_render_gen: int = 0
         self._pane_cards: dict[str, PaneCard] = {}
         self._selected_card_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
@@ -1158,6 +1164,18 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         except Exception:
             return
 
+        # Any (re)entry supersedes an in-flight offloaded render (t1111_5): bump
+        # the render token UP FRONT so a pending _apply_preview_render scheduled by
+        # an earlier call can no longer apply — whether this call renders fresh
+        # content, clears to (empty)/prompt, or intentionally freezes the current
+        # view. Branches that decide "do not render" must still invalidate a stale
+        # render (e.g. an empty/no-focus/frozen re-entry must not be overwritten by
+        # a slow render for the same pane that was scheduled a moment earlier), so
+        # the bump lives here rather than only at schedule time. The render branch
+        # reuses `my_gen` instead of bumping again.
+        self._preview_render_gen += 1
+        my_gen = self._preview_render_gen
+
         if not (self._focused_pane_id and self._focused_pane_id in self._snapshots):
             header.update("[bold]Content Preview[/]")
             preview.styles.min_width = 0
@@ -1202,40 +1220,109 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._last_preview_pane_id = self._focused_pane_id
             return
 
-        # -- Active branch: render fresh content and restore scroll --
+        # -- Active branch: offload the render, apply + restore scroll on the loop --
+        # Only _ansi_to_rich_text (Text.from_ansi + per-line regex) is CPU-heavy and
+        # pure, so it is offloaded (t1111_5). Everything cheap/stateful stays here on
+        # the loop: min_width, the rendered-lines bookkeeping (drives scroll-anchor
+        # save), and _last_preview_pane_id (drives same_pane) are set synchronously
+        # from the snapshot — not from the render — so their semantics stay correct
+        # immediately. preview.update(text) + scroll restore are deferred into the
+        # worker (see _apply_preview_render).
         lines = snap.content.rstrip().splitlines()
         if lines:
-            content = _ansi_to_rich_text("\n".join(lines))
             preview.styles.min_width = snap.pane.width
-            preview.update(content)
             self._preview_rendered_lines = lines
-
-            if saved is None or saved[0]:
-                # Tail follow (first view of this pane or at-bottom).
-                self.call_after_refresh(
-                    lambda: scroll.scroll_end(animate=False)
-                )
-            else:
-                anchor_text = saved[1]
-                target_idx = self._locate_anchor(lines, anchor_text)
-                if target_idx is None:
-                    # Anchor rolled off the capture buffer — snap to tail so
-                    # we don't get stuck on a stale position on pane-return.
-                    self.call_after_refresh(
-                        lambda: scroll.scroll_end(animate=False)
-                    )
-                else:
-                    target_f = float(target_idx)
-
-                    def _restore(t=target_f):
-                        scroll.scroll_to(y=t, animate=False)
-                    self.call_after_refresh(_restore)
+            # my_gen was reserved at the top of this method (every entry bumps it).
+            pane_id = self._focused_pane_id
+            if not same_pane:
+                # Pane actually switched: clear pane-A's stale body NOW so the
+                # already-updated header for pane B never sits above pane A's
+                # content while the offloaded render is in flight. Same-pane
+                # re-renders (0.3s fast-preview tick) skip this to avoid flicker.
+                preview.update("[dim]…[/]")
+            self.run_worker(
+                self._apply_preview_render(
+                    pane_id, "\n".join(lines), my_gen, saved, lines
+                ),
+                exclusive=True, group="preview", exit_on_error=False,
+            )
         else:
             preview.styles.min_width = 0
             preview.update("[dim](empty)[/]")
             self._preview_rendered_lines = []
 
         self._last_preview_pane_id = self._focused_pane_id
+
+    async def _apply_preview_render(self, pane_id, joined, my_gen, saved, lines) -> None:
+        """Offloaded preview render + guarded application (t1111_5).
+
+        Runs the pure, CPU-heavy `_ansi_to_rich_text` off the UI thread via the
+        TmuxMonitor `_run_offloaded` seam (established in t1111_4), then applies
+        `preview.update` + scroll restore back on the loop — but only if this
+        render is still the current one (`_preview_render_gen`) AND focus has not
+        moved to another pane. A late / superseded render never overwrites the
+        preview; a stale scroll restore never lands on another pane's shared
+        scroll container.
+        """
+        if self._monitor is None:
+            return
+        # Superseded while still queued (rapid arrow-nav): don't even launch the
+        # thread. `run_worker(exclusive=True)` cancels the coroutine, but the
+        # asyncio.to_thread work is not cancellable — this check is what avoids
+        # a doomed render; the generation guard below is what enforces correctness.
+        if my_gen != self._preview_render_gen:
+            return
+        try:
+            text = await self._monitor._run_offloaded(
+                lambda: _ansi_to_rich_text(joined)
+            )
+        except Exception:
+            # Fail closed: a raising from_ansi degrades to raw text, never crashes
+            # the loop.
+            text = Text(joined)
+
+        # Back on the loop after the await:
+        if my_gen != self._preview_render_gen:
+            return  # superseded by a newer render → discard
+        if pane_id != self._focused_pane_id:
+            return  # focus moved during the offload → don't write B's preview
+        try:
+            preview = self.query_one("#content-preview", PreviewPanel)
+            scroll = self.query_one("#preview-scroll", PreviewScrollContainer)
+        except Exception:
+            return
+
+        preview.update(text)
+
+        # Scroll restore AFTER preview.update. The deferred call_after_refresh
+        # callbacks fire on a later refresh cycle, by which point focus may have
+        # moved again and `scroll` is a SHARED container — so each re-checks the
+        # generation + focused pane at execution time before touching scroll.
+        def _guarded(action, g=my_gen, p=pane_id):
+            if g == self._preview_render_gen and p == self._focused_pane_id:
+                action()
+
+        if saved is None or saved[0]:
+            # Tail follow (first view of this pane or at-bottom).
+            self.call_after_refresh(
+                lambda: _guarded(lambda: scroll.scroll_end(animate=False))
+            )
+        else:
+            anchor_text = saved[1]
+            target_idx = self._locate_anchor(lines, anchor_text)
+            if target_idx is None:
+                # Anchor rolled off the capture buffer — snap to tail so we don't
+                # get stuck on a stale position on pane-return.
+                self.call_after_refresh(
+                    lambda: _guarded(lambda: scroll.scroll_end(animate=False))
+                )
+            else:
+                target_f = float(target_idx)
+                self.call_after_refresh(
+                    lambda t=target_f: _guarded(
+                        lambda: scroll.scroll_to(y=t, animate=False)
+                    )
+                )
 
     # -- Zone navigation -------------------------------------------------------
 

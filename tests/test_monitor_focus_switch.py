@@ -36,6 +36,11 @@ class _FakeMonitor:
     def capture_generation(self) -> int:
         return self._gen
 
+    async def _run_offloaded(self, fn):
+        # Mirrors TmuxMonitor._run_offloaded (t1111_4): the seam the offloaded
+        # preview render (t1111_5) routes through. Run inline for determinism.
+        return fn()
+
     async def capture_all_classified_async(self):
         # Two-phase produce (t1111_4); opaque classified payload — commit returns
         # the pre-built snapshots.
@@ -245,6 +250,15 @@ class MonitorFocusSwitchTests(unittest.TestCase):
                 app._update_selected_card_indicator = count_selected
 
                 await app._refresh_data()
+                # _refresh_data defers focus restoration (and thus the
+                # full=True selected-card reconcile) via call_after_refresh ->
+                # _restore_focus, and t1111_5 offloads the preview render into a
+                # worker scheduled from that same path. Drain both the workers
+                # and the deferred callbacks before asserting so the reconcile is
+                # observed deterministically (under aggregate load a single pause
+                # can return before _restore_focus has run).
+                await app.workers.wait_for_complete()
+                await pilot.pause()
                 await pilot.pause()
 
                 self.assertEqual(rebuild_results, [True])
