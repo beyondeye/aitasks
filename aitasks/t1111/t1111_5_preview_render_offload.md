@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1111_4]
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [monitor, tui, performance]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-02 14:43
-updated_at: 2026-07-02 14:43
+updated_at: 2026-07-05 16:01
 ---
 
 Offload the **preview render** (`_ansi_to_rich_text`) off the UI thread —
