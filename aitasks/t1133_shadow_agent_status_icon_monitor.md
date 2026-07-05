@@ -8,8 +8,9 @@ labels: [monitor, tui, shadow]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/fable5
 created_at: 2026-07-05 22:48
-updated_at: 2026-07-05 23:01
+updated_at: 2026-07-05 23:35
 ---
 
 ## Goal
@@ -127,3 +128,8 @@ sibling of this task rather than regressing minimonitor responsiveness.
 - The shadow-feedback *staleness* indicator (distinct concern; see t1113 /
   `@aitask_shadow_analyzed_at` freshness path) — this task is the shadow's live
   execution state, not analysis freshness.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-05T20:35:20Z status=pass attempt=1 type=human
