@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [t1120_2]
 issue_type: feature
@@ -96,3 +98,5 @@ All tests against `MockChatAdapter` (no live-platform calls):
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-05T20:55:23Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-05T21:41:00Z status=pass attempt=1 type=human
