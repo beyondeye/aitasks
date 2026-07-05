@@ -409,10 +409,10 @@ verification cannot silently degrade into checking an already-polluted venv.
 - Explicit semantic amendment of the frozen contract's `_acked` meaning (already-acked → ack-ownership-guaranteed) — touches ABC/Interaction/Mock docstrings + adds a contract-test pin; no signature or Mock behavior change, but future adapters (t1074_3 Slack) must be written against the amended semantics · severity: medium · → mitigation: amendment lands as one milestone-2 commit unit with the contract-test docstring pin; t1074_3 notes updated via this plan's "Notes for sibling tasks"
 
 ### Goal-achievement risk: medium
-- Live Gateway/REST paths (defer timing, thread creation, ephemeral webhooks, intents) cannot be exercised in-session — stub tests cover only pure normalization; live-path defects would surface only when a real bot runs · severity: medium · → mitigation: discord_live_smoke_verification
+- Live Gateway/REST paths (defer timing, thread creation, ephemeral webhooks, intents) cannot be exercised in-session — stub tests cover only pure normalization; live-path defects would surface only when a real bot runs · severity: medium · → mitigation: t1124 (discord_live_smoke_verification)
 
 ### Planned mitigations
-- timing: after | name: discord_live_smoke_verification | type: manual_verification | priority: medium | effort: medium | addresses: goal-achievement (live Gateway/REST paths untested in-session) | desc: With a real bot token/guild — connect Gateway, send/edit/delete message, create message-anchored + standalone threads, button interaction (auto-defer → follow-up), ephemeral + DM fallback, permalink, reactions
+- timing: after | name: discord_live_smoke_verification | created: t1124 | type: manual_verification | priority: medium | effort: medium | addresses: goal-achievement (live Gateway/REST paths untested in-session) | desc: With a real bot token/guild — connect Gateway, send/edit/delete message, create message-anchored + standalone threads, button interaction (auto-defer → follow-up), ephemeral + DM fallback, permalink, reactions
 
 ## Reference: Step 9 (Post-Implementation)
 Standard archival/merge per `task-workflow` Step 9 when this child completes.
