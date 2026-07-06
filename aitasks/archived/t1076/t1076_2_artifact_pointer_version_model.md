@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: high
 depends: [t1076_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [task_attachments, html_plans]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:04
-updated_at: 2026-07-06 19:31
+updated_at: 2026-07-07 00:14
+completed_at: 2026-07-07 00:14
 ---
 
 **Design spec:** `aidocs/unified_artifact_design.md` §3, §4 (+ §10 reconciliation).
@@ -53,3 +54,14 @@ model: the **stable-handle / mutable-manifest split**.
 > **✅ gate:plan_approved** run=2026-07-06T15:15:15Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-06T21:13:49Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-06T21:14:39Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ed2f61cfe7de536d
+
+> **✅ gate:risk_evaluated** run=2026-07-06T21:14:39Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1076_2/risk_evaluated_2026-07-06T21:14:39Z-risk_evaluated-a1.log`
