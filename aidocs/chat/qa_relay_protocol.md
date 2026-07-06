@@ -199,6 +199,50 @@ extension point: the spool layout and custom_id encoding already carry
 `seq`, so batching requires no wire change — only helper/daemon loop
 changes. Not implemented in v1.
 
+## Task payload (contract 7 + contract 1)
+
+The agent's final output, written once as `payload.json` into the session
+spool. Exit code + `payload.json` presence is the completion signal; the
+agent never creates the task and never touches git — the gateway commits.
+
+```json
+{
+  "session_id": "sxxxxxxxx",
+  "name": "fix_login_timeout",
+  "title": "Fix login timeout on slow networks",
+  "priority": "high",
+  "effort": "medium",
+  "issue_type": "bug",
+  "labels": ["auth", "backend"],
+  "description": "…markdown body…"
+}
+```
+
+| Field | Producer-side validation (shape, repo-agnostic) |
+|---|---|
+| `session_id` | relay session-id charset/length rules; derived from the session dir name |
+| `name` | slug `[a-z0-9_]`, ≤ 64 |
+| `title` | non-empty, ≤ 120 chars |
+| `priority`, `effort` | ∈ {`high`, `medium`, `low`} |
+| `issue_type` | slug `[a-z0-9_]`, ≤ 64 |
+| `labels` | list of slugs `[a-z0-9_-]`, each ≤ 64 (may be empty) |
+| `description` | non-empty markdown, ≤ 64 KiB (UTF-8 bytes) |
+
+**Validation ownership (deliberate split — one schema, two layers):**
+
+- `TaskPayload` in `chatlink/relay.py` is the **single shared schema
+  definition**. The producer (`chatlink/relay_payload.py` +
+  `aitask_relay_payload.sh`, t1120_4) validates the shape above before
+  writing, so a malformed payload fails inside the sandbox where the agent
+  can still fix it. Nothing is written on validation failure.
+- The gateway validator (t1120_6) is **authoritative**: it re-validates from
+  `TaskPayload.from_dict` (the payload is untrusted input) and layers the
+  repo-owned checks on top — `issue_type` ∈ `task_types.txt`, `labels` ⊆
+  `labels.txt`, control-char stripping — then rejects fail-closed.
+- `SessionDir.write_payload()` / `read_payload()` remain an **opaque dict
+  transport**; field validation is the caller's job via `TaskPayload`. Do
+  not add validation inside the transport.
+
 ## Spike findings (t1120_1 Step 0, 2026-07-05 — PASS)
 
 Headless round trip validated with `claude -p` via
@@ -223,5 +267,7 @@ Headless round trip validated with `claude -p` via
 | Spool read/write, schemas, session/custom_id identity | `.aitask-scripts/chatlink/relay.py` (stdlib-only; no `chat/` imports) |
 | Question → components, answer assembly | `.aitask-scripts/chatlink/render.py` (imports `chat/interactions.py`, `chat/capabilities.py`) |
 | Agent-side blocking ask CLI | `.aitask-scripts/chatlink/relay_ask.py` + `aitask_relay_ask.sh` (stdlib-only) |
+| Task-payload schema (shared producer/gateway definition) | `TaskPayload` in `.aitask-scripts/chatlink/relay.py` (see §Task payload for the validation-ownership split) |
+| Agent-side payload writer CLI | `.aitask-scripts/chatlink/relay_payload.py` + `aitask_relay_payload.sh` (stdlib-only) |
 | Gateway daemon (intake, routing, lifecycle) | t1120_3 (`chatlink/daemon.py`) |
-| Payload validation & task creation | t1120_6 (gateway side; contract 7) |
+| Payload validation & task creation | t1120_6 (gateway side, authoritative; starts from `TaskPayload.from_dict` and layers repo allowlists; contract 7) |

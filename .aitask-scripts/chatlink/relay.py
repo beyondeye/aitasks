@@ -28,6 +28,7 @@ __all__ = [
     "Question",
     "RelayError",
     "SessionDir",
+    "TaskPayload",
     "ValidationError",
     "assign_option_values",
     "build_custom_id",
@@ -48,9 +49,18 @@ MINT_RETRIES = 16
 
 ANSWER_STATUSES = ("answered", "timeout", "cancelled")
 
+# Task-payload limits (contract 7)
+PAYLOAD_LEVELS = ("high", "medium", "low")
+PAYLOAD_NAME_MAX = 64        # task name slug
+PAYLOAD_TITLE_MAX = 120
+PAYLOAD_DESCRIPTION_MAX = 64 * 1024   # bytes, UTF-8
+
 _SESSION_ID_RE = re.compile(r"^s[a-z0-9]{1,%d}$" % (SESSION_ID_MAX - 1))
 _COMPONENT_RE = re.compile(r"^[a-z0-9_]{1,%d}$" % COMPONENT_MAX)
 _OPTION_VALUE_RE = re.compile(r"^[a-z0-9]{1,%d}$" % COMPONENT_MAX)
+_NAME_SLUG_RE = re.compile(r"^[a-z0-9_]{1,%d}$" % PAYLOAD_NAME_MAX)
+_ISSUE_TYPE_RE = re.compile(r"^[a-z0-9_]{1,64}$")
+_LABEL_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
 
 _BASE36 = string.digits + string.ascii_lowercase
 
@@ -345,6 +355,93 @@ class Answer:
         return a
 
 
+@dataclass
+class TaskPayload:
+    """The agent's final task-creation payload (contract 7 + contract 1).
+
+    **Shared schema helper — the ownership split is deliberate:**
+
+    - The **producer** (``chatlink/relay_payload.py``, t1120_4) validates
+      shape here before writing, so a malformed payload fails inside the
+      sandbox where the agent can still fix it.
+    - The **gateway validator** (t1120_6) starts from ``from_dict`` and
+      layers the *repo-authoritative* checks on top: ``issue_type`` ∈
+      ``task_types.txt``, ``labels`` ⊆ ``labels.txt``, control-char
+      stripping. Those checks are repo state the sandboxed producer must
+      not own.
+
+    ``SessionDir.write_payload``/``read_payload`` stay an opaque dict
+    transport — field validation is the caller's job via this class.
+    """
+
+    session_id: str
+    name: str
+    title: str
+    priority: str
+    effort: str
+    issue_type: str
+    labels: list[str] = field(default_factory=list)
+    description: str = ""
+
+    def validate(self) -> None:
+        if not _SESSION_ID_RE.match(self.session_id or ""):
+            raise ValidationError(f"invalid session_id: {self.session_id!r}")
+        if not isinstance(self.name, str) or not _NAME_SLUG_RE.match(self.name):
+            raise ValidationError(
+                f"invalid name slug (want [a-z0-9_], ≤ {PAYLOAD_NAME_MAX}): "
+                f"{self.name!r}")
+        if not isinstance(self.title, str) or not self.title.strip() \
+                or len(self.title) > PAYLOAD_TITLE_MAX:
+            raise ValidationError(
+                f"invalid title (non-empty, ≤ {PAYLOAD_TITLE_MAX} chars): "
+                f"{self.title!r}")
+        if self.priority not in PAYLOAD_LEVELS:
+            raise ValidationError(f"invalid priority: {self.priority!r}")
+        if self.effort not in PAYLOAD_LEVELS:
+            raise ValidationError(f"invalid effort: {self.effort!r}")
+        if not isinstance(self.issue_type, str) \
+                or not _ISSUE_TYPE_RE.match(self.issue_type):
+            raise ValidationError(f"invalid issue_type: {self.issue_type!r}")
+        if not isinstance(self.labels, list) \
+                or not all(isinstance(l, str) and _LABEL_RE.match(l)
+                           for l in self.labels):
+            raise ValidationError(
+                f"labels must be a list of slug strings: {self.labels!r}")
+        if not isinstance(self.description, str) \
+                or not self.description.strip():
+            raise ValidationError("description must be a non-empty string")
+        if len(self.description.encode("utf-8")) > PAYLOAD_DESCRIPTION_MAX:
+            raise ValidationError(
+                f"description exceeds {PAYLOAD_DESCRIPTION_MAX} bytes")
+
+    def to_dict(self) -> dict:
+        return {
+            "session_id": self.session_id, "name": self.name,
+            "title": self.title, "priority": self.priority,
+            "effort": self.effort, "issue_type": self.issue_type,
+            "labels": list(self.labels), "description": self.description,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "TaskPayload":
+        if not isinstance(d, dict):
+            raise ValidationError(f"payload must be an object: {d!r}")
+        required = {"session_id", "name", "title", "priority", "effort",
+                    "issue_type", "labels", "description"}
+        missing = required - set(d)
+        if missing:
+            raise ValidationError(f"payload missing keys: {sorted(missing)}")
+        unknown = set(d) - required
+        if unknown:
+            raise ValidationError(f"unknown payload keys: {sorted(unknown)}")
+        p = cls(session_id=d["session_id"], name=d["name"], title=d["title"],
+                priority=d["priority"], effort=d["effort"],
+                issue_type=d["issue_type"], labels=d["labels"],
+                description=d["description"])
+        p.validate()
+        return p
+
+
 # --- Spool access (contract 2) ---
 
 def _atomic_write_json(path: Path, payload: dict) -> None:
@@ -481,7 +578,8 @@ class SessionDir:
 
     def write_payload(self, payload: dict) -> None:
         """Atomic write of the agent's final ``payload.json`` (validated by
-        the gateway per contract 7 — opaque here)."""
+        the gateway per contract 7 — opaque here). Field validation is the
+        caller's job via :class:`TaskPayload`."""
         if not isinstance(payload, dict):
             raise ValidationError("payload must be a dict")
         _atomic_write_json(self.path / "payload.json", payload)

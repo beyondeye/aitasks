@@ -25,16 +25,27 @@ source "$SCRIPT_DIR/lib/codex_plan_policy.sh"
 # come from lib/agent_string.sh.
 
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
-SUPPORTED_OPERATIONS=(pick explain batch-review qa explore raw shadow learn)
+SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw shadow learn)
 
 # --- Global flags (set by argument parser) ---
 
 OPT_AGENT_STRING=""
 OPT_DRY_RUN=false
-# Opt-in headless mode. Only affects `claudecode batch-review` (appends
-# `--print`); a no-op for every other agent/operation. Default interactive,
+# Opt-in headless mode. Affects `claudecode batch-review` (appends `--print`;
+# default interactive) and is REQUIRED for `explore-relay` (headless-only —
+# refuses without it); a no-op for every other agent/operation. Opt-in,
 # because Claude Code bills headless print mode at a higher per-token rate.
 OPT_HEADLESS=false
+
+# --- explore-relay constants (chat-native explore; t1120_4) ---
+# Env contract pinned in aiplans/p1120/p1120_4_chat_native_explore.md:
+# CHATLINK_RELAY_DIR (per-session spool dir) + CHATLINK_BUG_REPORT_FILE.
+# Tool-timeout budget is engine-owned: the spawned agent's Bash tool must
+# outlive the relay helper's 540 s question deadline, so both Claude Code
+# timeout controls are exported at dispatch (630 s > 540 s helper deadline;
+# the skill also passes the per-call timeout parameter — belt and braces).
+EXPLORE_RELAY_TOOL_TIMEOUT_MS=630000
+EXPLORE_RELAY_ALLOWED_TOOLS="Bash,Read,Write,Glob,Grep"
 
 # Resolve the agent string for an operation using the resolution chain:
 # 1. --agent-string flag
@@ -402,6 +413,13 @@ build_invoke_command() {
     agent_string=$(resolve_agent_string "$operation")
     parse_agent_string "$agent_string"
 
+    # Operation-support gate BEFORE model resolution: an unsupported
+    # agent/operation pair must refuse with its own reason, not a
+    # misleading model-availability error.
+    if [[ "$operation" == "explore-relay" && "$PARSED_AGENT" != "claudecode" ]]; then
+        die "explore-relay is not yet supported for $PARSED_AGENT (Claude Code only; port tracked as a follow-up task)"
+    fi
+
     local binary cli_id model_flag
     binary=$(get_cli_binary "$PARSED_AGENT")
     cli_id=$(get_cli_model_id "$PARSED_AGENT" "$PARSED_MODEL")
@@ -443,6 +461,38 @@ build_invoke_command() {
                     else
                         CMD+=("${args[@]}")
                     fi
+                    ;;
+                explore-relay)
+                    # Chat-native explore (t1120_4): headless-only, machine-
+                    # spawned by the chatlink gateway. Unlike batch-review
+                    # there is no interactive fallback — a relay-driven flow
+                    # has no terminal user — so refuse without --headless
+                    # (explicit opt-in to Claude Code's headless billing
+                    # surcharge).
+                    if [[ "$OPT_HEADLESS" != true ]]; then
+                        die "explore-relay is headless-only; pass --headless to accept Claude Code's headless billing surcharge"
+                    fi
+                    # Env preconditions (distinct reasons; checked even under
+                    # --dry-run so refusals are unit-testable).
+                    if [[ -z "${CHATLINK_RELAY_DIR:-}" || ! -d "${CHATLINK_RELAY_DIR:-}" ]]; then
+                        die "explore-relay requires CHATLINK_RELAY_DIR to point at an existing relay session directory"
+                    fi
+                    if [[ -z "${CHATLINK_BUG_REPORT_FILE:-}" || ! -f "${CHATLINK_BUG_REPORT_FILE:-}" ]]; then
+                        die "explore-relay requires CHATLINK_BUG_REPORT_FILE to point at an existing bug-report file"
+                    fi
+                    # Rebuild CMD with an `env` prefix so the tool-timeout
+                    # exports are engine-owned AND visible in --dry-run.
+                    # Natural slash-command in print mode (never inline the
+                    # rendered SKILL.md via -p); --allowedTools is required
+                    # headless (no permission prompts are possible). The
+                    # prompt MUST precede --allowedTools: the flag is
+                    # variadic and would swallow a trailing positional.
+                    CMD=(env
+                        "BASH_DEFAULT_TIMEOUT_MS=$EXPLORE_RELAY_TOOL_TIMEOUT_MS"
+                        "BASH_MAX_TIMEOUT_MS=$EXPLORE_RELAY_TOOL_TIMEOUT_MS"
+                        "$binary" "$model_flag" "$cli_id"
+                        "--print" "/aitask-explorechat"
+                        "--allowedTools" "$EXPLORE_RELAY_ALLOWED_TOOLS")
                     ;;
                 raw)
                     CMD+=("${args[@]}")
@@ -556,12 +606,17 @@ Options:
   --agent-string STR     Override agent string (e.g., claudecode/opus4_6)
   --dry-run              Print command without executing (for invoke)
   --headless             Run claudecode batch-review non-interactively (adds
-                         --print). No-op for other agents/operations. Default
-                         is interactive (avoids Claude Code's headless billing
-                         surcharge).
+                         --print); REQUIRED for explore-relay, which is
+                         headless-only and refuses without it. No-op for
+                         other agents/operations. Default is interactive
+                         (avoids Claude Code's headless billing surcharge).
   -h, --help             Show this help
 
-Operations: pick, explain, batch-review, qa, explore, raw, shadow, learn
+Operations: pick, explain, batch-review, qa, explore, explore-relay, raw,
+            shadow, learn
+  explore-relay: chat-native explore spawned by the chatlink gateway
+  (claudecode only). Requires --headless plus CHATLINK_RELAY_DIR and
+  CHATLINK_BUG_REPORT_FILE in the environment.
 Agent string format: <agent>/<model> (e.g., claudecode/opus4_6, codex/gpt5_4)
 
 Resolution chain (highest priority first):

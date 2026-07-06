@@ -10,6 +10,10 @@
 # fail-closed + degradation (26 options / 3000-char text), the no-chat-import
 # guard for the agent side, and an E2E test through the REAL
 # aitask_relay_ask.sh wrapper (question → hand-written answer → output).
+# t1120_4 additions: TaskPayload schema matrix (Part 1), E2E through the
+# REAL aitask_relay_payload.sh wrapper incl. independent wire decode and
+# no-write-on-invalid (Part 4), and a scripted fake agent playing the
+# aitask-explorechat role against the real helpers (Part 5).
 # Spec: aidocs/chat/qa_relay_protocol.md
 # Run: bash tests/test_chatlink_relay.sh
 
@@ -393,6 +397,69 @@ ans_multi = assemble_answer(multi_q, Interaction(
 check("multi-select accepts multiple values",
       ans_multi.values == ["o0", "o1"])
 
+# --- TaskPayload schema (contract 7 + contract 1; t1120_4) ---
+from chatlink.relay import TaskPayload
+
+def payload_kwargs(**over):
+    base = dict(session_id=sd.session_id, name="fix_login",
+                title="Fix login", priority="high", effort="medium",
+                issue_type="bug", labels=["auth", "back-end"],
+                description="body\n")
+    base.update(over)
+    return base
+
+good = TaskPayload(**payload_kwargs())
+good.validate()
+check("payload: valid payload accepted", True)
+rt = TaskPayload.from_dict(good.to_dict())
+check("payload: to_dict/from_dict round-trip", rt == good)
+
+check("payload: missing key rejected",
+      raises(ValidationError, TaskPayload.from_dict,
+             {k: v for k, v in good.to_dict().items() if k != "title"}))
+check("payload: unknown key rejected",
+      raises(ValidationError, TaskPayload.from_dict,
+             dict(good.to_dict(), extra=1)))
+check("payload: bad session_id rejected",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(session_id="NOPE")).validate))
+check("payload: bad name slug rejected",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(name="Bad Name")).validate))
+check("payload: oversize name rejected",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(name="x" * 65)).validate))
+check("payload: oversize title rejected",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(title="t" * 121)).validate))
+check("payload: empty title rejected",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(title="   ")).validate))
+check("payload: bad priority enum rejected",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(priority="urgent")).validate))
+check("payload: bad effort enum rejected",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(effort="huge")).validate))
+check("payload: bad issue_type rejected",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(issue_type="Bug!")).validate))
+check("payload: non-list labels rejected",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(labels="auth")).validate))
+check("payload: bad label slug rejected",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(labels=["ok", "no spaces"])).validate))
+check("payload: empty labels accepted",
+      TaskPayload(**payload_kwargs(labels=[])).validate() is None)
+check("payload: empty description rejected",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(description=" ")).validate))
+check("payload: oversize description rejected (64 KiB, UTF-8 bytes)",
+      raises(ValidationError,
+             TaskPayload(**payload_kwargs(
+                 description="é" * (32 * 1024 + 1))).validate))
+
 print(f"\nPART1_PASS:{PASS}")
 PYEOF
 then
@@ -420,8 +487,9 @@ for extra in (scripts_dir, scripts_dir / "lib"):
     sys.path.insert(0, str(extra))
 
 before = set(sys.modules)
-import chatlink.relay      # noqa: F401
-import chatlink.relay_ask  # noqa: F401
+import chatlink.relay          # noqa: F401
+import chatlink.relay_ask      # noqa: F401
+import chatlink.relay_payload  # noqa: F401
 new_modules = set(sys.modules) - before
 
 FRAMEWORK_PREFIXES = ("monitor", "applink", "aitask", "board",
@@ -521,6 +589,150 @@ set -e
 assert_eq "e2e: missing relay dir exits 2" "2" "$MISSING_RC"
 assert_contains "e2e: missing relay dir is loud on stderr" \
     "$(cat "$E2E_TMP/err_missing.txt")" "ERROR:"
+
+# ---------------------------------------------------------------------------
+# Part 4: E2E through the REAL aitask_relay_payload.sh wrapper (t1120_4)
+# ---------------------------------------------------------------------------
+
+PAYLOAD_WRAPPER="$PROJECT_DIR/.aitask-scripts/aitask_relay_payload.sh"
+PAY_DIR="$E2E_TMP/spay01"
+mkdir -p "$PAY_DIR"
+printf '## Findings\n\nline one\n' > "$E2E_TMP/desc.md"
+
+# 4a: valid payload — PAYLOAD_WRITTEN + wire bytes decoded INDEPENDENTLY
+OUT_PAY="$("$PAYLOAD_WRAPPER" --relay-dir "$PAY_DIR" \
+    --name fix_login_timeout --title "Fix login timeout" \
+    --priority high --effort medium --issue-type bug \
+    --labels auth,back-end --description-file "$E2E_TMP/desc.md")"
+PAY_RC=$?
+assert_eq "payload e2e: exit 0" "0" "$PAY_RC"
+assert_contains "payload e2e: PAYLOAD_WRITTEN line" "$OUT_PAY" \
+    "PAYLOAD_WRITTEN:$PAY_DIR/payload.json"
+# Independent ground truth: parse the wire bytes with plain json, not the
+# dataclass that wrote them.
+WIRE_CHECK="$("$PYTHON" - "$PAY_DIR/payload.json" <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+ok = (d["session_id"] == "spay01" and d["name"] == "fix_login_timeout"
+      and d["title"] == "Fix login timeout" and d["priority"] == "high"
+      and d["effort"] == "medium" and d["issue_type"] == "bug"
+      and d["labels"] == ["auth", "back-end"]
+      and d["description"].startswith("## Findings"))
+print("WIRE_OK" if ok else f"WIRE_BAD:{d}")
+PYEOF
+)"
+assert_eq "payload e2e: wire bytes match fields (independent decode)" \
+    "WIRE_OK" "$WIRE_CHECK"
+
+# 4b: session_id derived from the dir name (contract 1)
+assert_contains "payload e2e: session_id from dir name" \
+    "$(cat "$PAY_DIR/payload.json")" '"session_id": "spay01"'
+
+# 4c: invalid input → exit 2, ERROR:, and NO payload written (no side
+# effect before validation)
+PAY_DIR2="$E2E_TMP/spay02"
+mkdir -p "$PAY_DIR2"
+set +e
+"$PAYLOAD_WRAPPER" --relay-dir "$PAY_DIR2" \
+    --name "Bad Name" --title "x" --priority high --effort medium \
+    --issue-type bug --description-file "$E2E_TMP/desc.md" \
+    > /dev/null 2>"$E2E_TMP/err_pay.txt"
+BAD_RC=$?
+set -e
+assert_eq "payload e2e: invalid name exits 2" "2" "$BAD_RC"
+assert_contains "payload e2e: invalid name is loud on stderr" \
+    "$(cat "$E2E_TMP/err_pay.txt")" "ERROR:"
+assert_eq "payload e2e: nothing written on validation failure" "0" \
+    "$([ -f "$PAY_DIR2/payload.json" ] && echo 1 || echo 0)"
+
+# 4d: --description-file - reads stdin
+OUT_STDIN="$(printf 'stdin body\n' | "$PAYLOAD_WRAPPER" --relay-dir "$PAY_DIR2" \
+    --name from_stdin --title "t" --priority low --effort low \
+    --issue-type chore --description-file -)"
+assert_contains "payload e2e: stdin description accepted" "$OUT_STDIN" \
+    "PAYLOAD_WRITTEN:"
+
+# ---------------------------------------------------------------------------
+# Part 5: relay-conformance with a scripted fake agent (t1120_4) — a bash
+# script plays the aitask-explorechat role end-to-end against the REAL
+# helpers: ask (answered), ask (timeout → durable artifact, flow proceeds),
+# write payload. Proves the machinery below the LLM.
+# ---------------------------------------------------------------------------
+
+FAKE_DIR="$E2E_TMP/sfake01"
+mkdir -p "$FAKE_DIR"
+cat > "$E2E_TMP/fake_agent.sh" <<FAKEEOF
+#!/usr/bin/env bash
+set -euo pipefail
+RELAY="\$1"
+ASK="$PROJECT_DIR/.aitask-scripts/aitask_relay_ask.sh"
+PAY="$PAYLOAD_WRAPPER"
+# Q1: gets answered by the test
+OUT1="\$("\$ASK" --relay-dir "\$RELAY" --text "Which module?" \
+    --header "Module" --option "parser::p" --option "renderer::r" \
+    --timeout 30)"
+echo "\$OUT1" | grep -q "STATUS:answered" || exit 10
+CHOSEN="\$(echo "\$OUT1" | sed -n 's/^VALUE://p')"
+# Q2: nobody answers — must proceed on timeout (fail-safe), not die
+OUT2="\$("\$ASK" --relay-dir "\$RELAY" --text "Repro steps?" \
+    --free-text --timeout 1)"
+echo "\$OUT2" | grep -q "STATUS:timeout" || exit 11
+# Final act: write the payload via the real helper
+printf 'Chosen: %s (Q2 timed out; default taken)\n' "\$CHOSEN" \
+    | "\$PAY" --relay-dir "\$RELAY" --name fake_fix --title "Fake fix" \
+        --priority medium --effort low --issue-type bug \
+        --labels auth --description-file -
+FAKEEOF
+chmod +x "$E2E_TMP/fake_agent.sh"
+
+"$E2E_TMP/fake_agent.sh" "$FAKE_DIR" > "$E2E_TMP/fake_out.txt" 2>&1 &
+FAKE_PID=$!
+for _ in $(seq 1 50); do
+    [ -f "$FAKE_DIR/question-1.json" ] && break
+    sleep 0.2
+done
+
+# 5a: emitted question conforms to contract 3 (schema-validated via lib)
+Q1_CONFORM="$("$PYTHON" - "$PROJECT_DIR" "$FAKE_DIR/question-1.json" <<'PYEOF'
+import json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / ".aitask-scripts"))
+from chatlink.relay import Question
+q = Question.from_dict(json.load(open(sys.argv[2])))
+ok = (q.text == "Which module?" and [o.value for o in q.options] == ["o0", "o1"]
+      and q.session_id == "sfake01" and q.seq == 1)
+print("Q1_OK" if ok else "Q1_BAD")
+PYEOF
+)"
+assert_eq "fake agent: question-1 conforms to contract 3" "Q1_OK" "$Q1_CONFORM"
+
+# answer Q1 (renderer option value, gateway-style)
+printf '%s' '{"id": "q-sfake01-1", "seq": 1, "status": "answered", "values": ["o1"], "free_text": null, "answered_by": "tester"}' \
+    > "$FAKE_DIR/answer-1.json.tmp2" \
+    && mv "$FAKE_DIR/answer-1.json.tmp2" "$FAKE_DIR/answer-1.json"
+
+wait "$FAKE_PID"
+FAKE_RC=$?
+assert_eq "fake agent: full flow exits 0" "0" "$FAKE_RC"
+
+# 5b: timeout question left a durable terminal answer (contract 6)
+assert_contains "fake agent: durable timeout answer for q2" \
+    "$(cat "$FAKE_DIR/answer-2.json" 2>/dev/null || true)" '"timeout"'
+
+# 5c: payload landed and validates via the shared schema
+PAYLOAD_CONFORM="$("$PYTHON" - "$PROJECT_DIR" "$FAKE_DIR/payload.json" <<'PYEOF'
+import json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / ".aitask-scripts"))
+from chatlink.relay import TaskPayload
+p = TaskPayload.from_dict(json.load(open(sys.argv[2])))
+ok = (p.session_id == "sfake01" and "renderer" in p.description
+      and "timed out" in p.description)
+print("PAYLOAD_OK" if ok else "PAYLOAD_BAD")
+PYEOF
+)"
+assert_eq "fake agent: payload validates + carries Q&A outcomes" \
+    "PAYLOAD_OK" "$PAYLOAD_CONFORM"
 
 # ---------------------------------------------------------------------------
 echo ""
