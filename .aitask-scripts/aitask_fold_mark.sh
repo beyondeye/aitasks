@@ -343,14 +343,18 @@ for tid in "${transitive_ids[@]}"; do
     echo "TRANSITIVE:${tid}"
 done
 
-# Step 5b (t1030_3): transfer folded tasks' attachments to the primary.
-# Re-bind the refcount (so blobs survive the folded files' deletion at archival)
-# AND merge the folded frontmatter entries into the primary (so they stay
-# accessible via `ait attach ls/get <primary>` and are decref-discoverable).
-# Processes direct + transitive folded tasks; both have their files deleted at
-# archival. All under ONE global attach lock. Skipped entirely when no folded
-# task carries an attachment (the common case) so a plain fold never touches the
-# attach lock or creates the attachments/ tree.
+# Step 5b (t1030_3, extended t1076_2): transfer folded tasks' attachments AND
+# artifacts to the primary. For attachments: re-bind the refcount (so blobs
+# survive the folded files' deletion at archival) AND merge the folded
+# frontmatter entries into the primary (so they stay accessible via
+# `ait attach ls/get <primary>` and are decref-discoverable). For artifacts:
+# merge only the handle-only `artifacts:` frontmatter entries (dedupe by
+# handle) — manifests are handle-keyed with no ownership field, so there is no
+# ledger to re-bind. Processes direct + transitive folded tasks; both have
+# their files deleted at archival. All under ONE global attach lock. Skipped
+# entirely when no folded task carries an attachment or artifact (the common
+# case) so a plain fold never touches the attach lock or creates the
+# attachments/ tree.
 
 # Data-root-relative meta paths touched by rebind, for staging + rollback.
 fold_meta_relpaths=()
@@ -429,6 +433,63 @@ _fold_merge_one() {
     seen_names["$name"]=1
 }
 
+# _fold_transfer_artifacts <primary_file> <folded_file...> -- merge each folded
+# file's `artifacts:` frontmatter entries into the primary, deduping by handle
+# (t1076_2). Handles are the identity — one entry per handle per task, minted
+# once by `ait artifact create` — so a handle the primary already lists is
+# simply skipped. Names are advisory (get/rm are handle-addressed), so no name
+# uniquing is needed. No ledger work: artifact manifests are handle-keyed with
+# no ownership field.
+_fold_transfer_artifacts() {
+    local primary_file="$1"; shift
+    local py; py="$(require_python)"
+    declare -A seen_handles=()
+    local f recs ln k v ah ak an have
+
+    # Seed the seen set from the primary's current artifacts (no append).
+    recs="$(read_yaml_mappings "$primary_file" artifacts)" || true
+    ah=""; have=false
+    while IFS= read -r ln; do
+        if [[ -z "$ln" ]]; then
+            $have && [[ -n "$ah" ]] && seen_handles["$ah"]=1
+            ah=""; have=false; continue
+        fi
+        have=true; k="${ln%%=*}"; v="${ln#*=}"
+        [[ "$k" == "handle" ]] && ah="$v"
+    done <<< "$recs"
+    $have && [[ -n "$ah" ]] && seen_handles["$ah"]=1
+
+    for f in "$@"; do
+        [[ -f "$f" ]] || continue
+        recs="$(read_yaml_mappings "$f" artifacts)" || true
+        [[ -z "$recs" ]] && continue
+        ah=""; ak=""; an=""; have=false
+        while IFS= read -r ln; do
+            if [[ -z "$ln" ]]; then
+                $have && _fold_merge_one_artifact
+                ah=""; ak=""; an=""; have=false; continue
+            fi
+            have=true; k="${ln%%=*}"; v="${ln#*=}"
+            case "$k" in
+                handle) ah="$v" ;; kind) ak="$v" ;; name) an="$v" ;;
+            esac
+        done <<< "$recs"
+        $have && _fold_merge_one_artifact
+    done
+}
+
+# _fold_merge_one_artifact -- append the current folded artifact entry
+# (dynamic-scope locals ah/ak/an from _fold_transfer_artifacts) into the
+# primary, updating the seen set. Skips on missing handle or a handle already
+# on the primary.
+_fold_merge_one_artifact() {
+    [[ -n "$ah" ]] || return 0
+    [[ -n "${seen_handles[$ah]:-}" ]] && return 0   # dup handle: already owned
+    "$py" "$SCRIPT_DIR/lib/frontmatter_patch.py" append "$primary_file" artifacts \
+        "handle=$ah" ${ak:+"kind=$ak"} ${an:+"name=$an"}
+    seen_handles["$ah"]=1
+}
+
 # _fold_rebind_refs <primary_id> <folded_id...> -- rebind each folded id's refs
 # to the primary; collect each changed blob's meta relpath for staging/rollback.
 _fold_rebind_refs() {
@@ -443,27 +504,36 @@ _fold_rebind_refs() {
     done
 }
 
-# _fold_attach_txn -- rebind + merge, run as one transaction under the attach lock.
+# _fold_attach_txn -- rebind + merge (attachments and artifacts), run as one
+# transaction under the attach lock.
 _fold_attach_txn() {
     _fold_rebind_refs "$primary_id" \
         "${folded_ids[@]}" ${transitive_ids[@]+"${transitive_ids[@]}"}
     _fold_transfer_attachments "$primary_file" \
         ${folded_files[@]+"${folded_files[@]}"} \
         ${transitive_files[@]+"${transitive_files[@]}"}
+    _fold_transfer_artifacts "$primary_file" \
+        ${folded_files[@]+"${folded_files[@]}"} \
+        ${transitive_files[@]+"${transitive_files[@]}"}
 }
 
 # Only enter the attach transaction if a folded/transitive task actually carries
-# an attachment — keeps the common no-attachment fold off the attach lock and
-# free of the attachment libs (detection uses read_yaml_mappings, already
-# available; the libs are sourced lazily only when needed).
-_fold_any_attachments=false
+# an attachment or an artifact — keeps the common bare fold off the attach lock
+# and free of the attachment libs (detection uses read_yaml_mappings, already
+# available; the libs are sourced lazily only when needed). Artifacts need no
+# ledger rebind (manifests are handle-keyed) — only the frontmatter merge — but
+# they share the same transaction and lock.
+_fold_any_attach_or_artifacts=false
 for _ff in ${folded_files[@]+"${folded_files[@]}"} ${transitive_files[@]+"${transitive_files[@]}"}; do
     [[ -f "$_ff" ]] || continue
     if read_yaml_mappings "$_ff" attachments 2>/dev/null | grep -q '^hash='; then
-        _fold_any_attachments=true; break
+        _fold_any_attach_or_artifacts=true; break
+    fi
+    if read_yaml_mappings "$_ff" artifacts 2>/dev/null | grep -q '^handle='; then
+        _fold_any_attach_or_artifacts=true; break
     fi
 done
-if [[ "$_fold_any_attachments" == true ]]; then
+if [[ "$_fold_any_attach_or_artifacts" == true ]]; then
     # shellcheck source=lib/attachment_lock.sh
     source "$SCRIPT_DIR/lib/attachment_lock.sh"
     # shellcheck source=lib/attachment_meta.sh

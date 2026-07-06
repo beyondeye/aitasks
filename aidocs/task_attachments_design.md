@@ -58,6 +58,11 @@ Tasks gain a new optional `attachments:` list field, parsed by the existing
 `lib/yaml_utils.sh` helpers (with the small extension that the value is a
 list of mappings rather than a list of scalars).
 
+> **Sibling field (t1076_2):** mutable, *versioned* references use the separate
+> `artifacts:` field (handle-only entries; state lives in per-artifact
+> manifests) — see `unified_artifact_design.md` §4. The inline-hash scheme
+> below stays correct for attachments *because they are immutable*.
+
 ```yaml
 ---
 priority: medium

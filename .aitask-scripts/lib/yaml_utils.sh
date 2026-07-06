@@ -178,13 +178,17 @@ _read_yaml_mappings_emit_field() {
 # Parse one mapping line and store it into read_yaml_mappings' per-item parser
 # state. Operates on that function's dynamically-scoped locals (f_*/p_*) — it is
 # a private helper, only ever called from within read_yaml_mappings. Only the
-# design §3 schema keys are recognized; any other key is ignored.
+# known schema keys are recognized — the attachment schema (task_attachments
+# design §3) plus the artifact schema (handle/kind — t1076_2, unified artifact
+# design §4); any other key is ignored.
 _read_yaml_mappings_set() {
     local kv="$1" key val
     if [[ "$kv" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*):[[:space:]]*(.*)$ ]]; then
         key="${BASH_REMATCH[1]}"
         val="$(_yaml_scalar_value "${BASH_REMATCH[2]}")"
         case "$key" in
+            handle)   f_handle="$val";   p_handle=1 ;;
+            kind)     f_kind="$val";     p_kind=1 ;;
             hash)     f_hash="$val";     p_hash=1 ;;
             name)     f_name="$val";     p_name=1 ;;
             mime)     f_mime="$val";     p_mime=1 ;;
@@ -192,7 +196,7 @@ _read_yaml_mappings_set() {
             added_at) f_added_at="$val"; p_added_at=1 ;;
             backend)  f_backend="$val";  p_backend=1 ;;
             url)      f_url="$val";      p_url=1 ;;
-            *) : ;;  # unknown key — reader knows only the design §3 schema
+            *) : ;;  # unknown key — reader knows only the schemas above
         esac
     fi
 }
@@ -208,6 +212,8 @@ _read_yaml_mappings_flush() {
     else
         printf '\n'
     fi
+    _read_yaml_mappings_emit_field "$p_handle"   handle   "$f_handle"
+    _read_yaml_mappings_emit_field "$p_kind"     kind     "$f_kind"
     _read_yaml_mappings_emit_field "$p_hash"     hash     "$f_hash"
     _read_yaml_mappings_emit_field "$p_name"     name     "$f_name"
     _read_yaml_mappings_emit_field "$p_mime"     mime     "$f_mime"
@@ -220,14 +226,15 @@ _read_yaml_mappings_flush() {
 }
 
 # read_yaml_mappings <file> <field>
-# Read a block-style YAML list-of-mappings field (the task-attachments
-# `attachments:` field, schema in aidocs/task_attachments_design.md §3) and emit
-# a stable, parseable, escaping-free record stream. READ-ONLY (writing a mapping
-# is t1030_2's concern).
+# Read a block-style YAML list-of-mappings field and emit a stable, parseable,
+# escaping-free record stream. Serves both the task-attachments `attachments:`
+# field (schema: aidocs/task_attachments_design.md §3) and the artifact
+# `artifacts:` field (handle/kind/name — t1076_2, unified artifact design §4).
+# READ-ONLY (writing a mapping is frontmatter_patch.py's concern).
 #
-# ── OUTPUT CONTRACT (siblings t1030_2 / t1030_3 depend on this) ───────────────
+# ── OUTPUT CONTRACT (siblings t1030_2 / t1030_3 / t1076_2 depend on this) ─────
 #   • One `key=value` line per present field, in SCHEMA ORDER:
-#       hash, name, mime, size, added_at, backend, url
+#       handle, kind, hash, name, mime, size, added_at, backend, url
 #     Only keys actually present on an item are emitted (no synthesized empties).
 #   • Records (attachments) are separated by a single BLANK LINE. A consumer
 #     accumulates `key=value` lines into a record until a blank line.
@@ -253,6 +260,8 @@ read_yaml_mappings() {
     local in_yaml=false in_list=false line
     # Per-item parser state (bash-3.2 safe: named vars, not an associative array).
     local have_item=false first_record=true
+    local f_handle="" f_kind=""
+    local p_handle=0 p_kind=0
     local f_hash="" f_name="" f_mime="" f_size="" f_added_at="" f_backend="" f_url=""
     local p_hash=0 p_name=0 p_mime=0 p_size=0 p_added_at=0 p_backend=0 p_url=0
 
@@ -288,6 +297,8 @@ read_yaml_mappings() {
             # New list item: flush the previous, reset, parse the inline first key.
             _read_yaml_mappings_flush
             have_item=true
+            f_handle=""; f_kind=""
+            p_handle=0;  p_kind=0
             f_hash=""; f_name=""; f_mime=""; f_size=""; f_added_at=""; f_backend=""; f_url=""
             p_hash=0;  p_name=0;  p_mime=0;  p_size=0;  p_added_at=0;  p_backend=0;  p_url=0
             _read_yaml_mappings_set "${BASH_REMATCH[1]}"

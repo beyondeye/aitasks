@@ -122,6 +122,10 @@ def parse_conflict_file(content: str) -> tuple[str, str] | None:
 # Merge rules
 # ---------------------------------------------------------------------------
 
+# `attachments` (t1030) and `artifacts` (t1076_2) are DELIBERATELY absent from
+# _LIST_UNION_FIELDS: they are lists of mappings, not scalars, and a concurrent
+# edit falls through to the generic unresolved/PARTIAL path — degrading to a
+# manual conflict beats a silent union guess for structured entries.
 _LIST_UNION_FIELDS = frozenset({"labels", "depends"})
 _KEEP_LOCAL_FIELDS = frozenset(BOARD_KEYS)
 _PROMPTABLE_FIELDS = frozenset({"priority", "effort"})

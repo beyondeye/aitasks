@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """frontmatter_patch.py - surgical mutation of a block-style YAML list-of-mappings
-field in a markdown file's frontmatter (t1030_2; the task `attachments:` block).
+field in a markdown file's frontmatter (t1030_2; the task `attachments:` block,
+and since t1076_2 the `artifacts:` block).
 
 Why line-based, not a YAML round-trip: a full pyyaml load/dump would reformat the
 WHOLE frontmatter (drop comments, reorder keys, restyle scalars), violating
@@ -24,8 +25,10 @@ Subcommands exit non-zero with a message on misuse / unrepresentable input.
 import re
 import sys
 
-# Emission order for attachment mapping fields (design §3 schema order).
-FIELD_ORDER = ["hash", "name", "mime", "size", "added_at", "backend", "url"]
+# Emission order for attachment (t1030 §3) and artifact (t1076_2, unified
+# artifact design §4) mapping fields. The two entry shapes never mix keys, so
+# one ordered list serves both.
+FIELD_ORDER = ["handle", "kind", "hash", "name", "mime", "size", "added_at", "backend", "url"]
 
 ITEM_RE = re.compile(r"^\s*-\s+(.*)$")
 KV_RE = re.compile(r"^\s*-?\s*([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$")

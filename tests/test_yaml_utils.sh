@@ -177,6 +177,40 @@ assert_eq "yaml_utils.sh double-source guard variable is set" \
 source "$LIB_DIR/yaml_utils.sh"
 assert_eq "re-sourcing yaml_utils.sh is a no-op (exit 0)" "0" "$?"
 
+# --- read_yaml_mappings: artifacts: block (t1076_2) ------------------------
+# The mapping reader serves both attachments: (t1030 §3) and artifacts:
+# (unified artifact design §4). handle/kind must be emitted, handle/kind
+# FIRST, records blank-line separated, quoted names round-tripped, and
+# field-scoping must hold when both blocks coexist on one task.
+
+cat > "$TMP/artifacts.md" <<'EOF'
+---
+priority: low
+artifacts:
+  - handle: art:t774-htmlplan
+    kind: html_plan
+    name: "Login flow mockups"
+  - handle: art:t774-report
+    kind: report
+attachments:
+  - hash: sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+    name: shot.png
+---
+EOF
+
+art_out="$(read_yaml_mappings "$TMP/artifacts.md" artifacts)"
+expected_art="$(printf 'handle=art:t774-htmlplan\nkind=html_plan\nname=Login flow mockups\n\nhandle=art:t774-report\nkind=report')"
+assert_eq "artifacts records emit handle/kind/name in schema order, blank-line separated" \
+    "$expected_art" "$art_out"
+
+attach_out="$(read_yaml_mappings "$TMP/artifacts.md" attachments)"
+expected_attach="$(printf 'hash=sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08\nname=shot.png')"
+assert_eq "field-scoping: reading attachments from a mixed task yields only attachment records" \
+    "$expected_attach" "$attach_out"
+
+art_scoped="$(read_yaml_mappings "$TMP/artifacts.md" artifacts | grep -c '^hash=' || true)"
+assert_eq "field-scoping: artifacts records carry no attachment keys" "0" "$art_scoped"
+
 # --- Syntax checks for the touched libraries -------------------------------
 
 for f in lib/yaml_utils.sh lib/task_utils.sh lib/agentcrew_utils.sh aitask_archive.sh; do

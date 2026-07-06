@@ -65,6 +65,8 @@ Manage content-addressed file attachments on a task (design §6).
 
 Internal (used by the board on hard-delete; not for routine manual use):
   decref-deleted [--protect-task <id>]... <task-id>...   Release (or rebind to survivors) a deleted task's attachment refs.
+                                               Dies (fail-closed) if a doomed task still lists artifacts
+                                               no protected survivor owns — remove them first (ait artifact rm).
 
 <task> accepts a parent id (e.g. 16) or a child id (e.g. 16_2), with or without
 the leading `t`.
@@ -380,6 +382,11 @@ _attach_rm_txn() {
 # instead of being orphaned onto the deleted primary (t1096, the proper
 # rebind-on-unfold that replaced t1093's conservative skip guard). A protected id
 # that cannot be resolved is FATAL (it is the intended new owner — fail-closed).
+#
+# ARTIFACT GUARD (t1076_2): a doomed task that still lists `artifacts:` entries
+# makes the whole call die (fail-closed — the board aborts the delete) unless
+# every such handle is also listed by a protected (revived) task. Full artifact
+# manifest cleanup on hard-delete is t1135.
 cmd_decref_deleted() {
     local protect_ids=() args=()
     while [[ $# -gt 0 ]]; do
@@ -405,7 +412,11 @@ _attach_decref_deleted_txn() {
     # under rebind semantics it is the intended NEW OWNER, so silently dropping it
     # would decref/orphan a primary-owned blob as if no survivor existed
     # (fail-closed, mirroring the doomed-id treatment below).
+    # Also collect the protected tasks' ARTIFACT handles (t1076_2): a doomed
+    # task's artifact is allowed through the guard below only when a revived
+    # survivor still lists its handle (ownership survives the revive).
     local -A protect_ids_for_hash=()
+    local -A protect_artifact_handles=()
     local i pid pf h
     for (( i=0; i<n_protect; i++ )); do
         pid="${1#t}"
@@ -418,12 +429,15 @@ _attach_decref_deleted_txn() {
                 *) protect_ids_for_hash["$h"]="${protect_ids_for_hash[$h]:+${protect_ids_for_hash[$h]} }$pid" ;;
             esac
         done < <(attach_task_hashes "$pf")
+        while IFS= read -r h; do
+            [[ "$h" == handle=* ]] && protect_artifact_handles["${h#handle=}"]=1
+        done < <(read_yaml_mappings "$pf" artifacts 2>/dev/null | grep '^handle=' || true)
         shift
     done
 
     local now; now="$(date +%s)"
     local -A seen_relpath=()
-    local stage=() task_id task_file hash rel survivors sid
+    local stage=() task_id task_file hash rel survivors sid ah
     for task_id in "$@"; do
         task_id="${task_id#t}"
         # Doomed ids are derived from files the caller is about to delete, so an
@@ -431,6 +445,19 @@ _attach_decref_deleted_txn() {
         # FATAL (fail-closed: the board aborts the delete rather than leak). t1093
         task_file="$(resolve_task_file "$task_id" 2>/dev/null)" \
             || die "ait attach decref-deleted: cannot resolve doomed task t${task_id}"
+        # Artifact guard (t1076_2, fail-closed): a hard-deleted task must not
+        # leave its artifact manifests behind with no owning frontmatter entry
+        # (they would block gc with no visible task association). Allow only a
+        # handle a --protect-task (revived folded survivor) file also lists —
+        # ownership survives the revive. Full manifest cleanup / orphan reaping
+        # on hard-delete is t1135; until then the board aborts the delete and
+        # the user removes artifacts first.
+        while IFS= read -r ah; do
+            [[ "$ah" == handle=* ]] || continue
+            ah="${ah#handle=}"
+            [[ -n "${protect_artifact_handles[$ah]:-}" ]] \
+                || die "ait attach decref-deleted: t${task_id} still has artifact ${ah} — remove it first (ait artifact rm ${task_id} ${ah}); manifest cleanup on hard-delete lands with t1135"
+        done < <(read_yaml_mappings "$task_file" artifacts 2>/dev/null | grep '^handle=' || true)
         while IFS= read -r hash; do
             [[ -n "$hash" ]] || continue
             survivors="${protect_ids_for_hash[$hash]:-}"

@@ -46,6 +46,7 @@ Task Management:
   git-health     Diagnose the .aitask-data worktree state
   lock           Lock/unlock tasks to prevent concurrent work
   attach         Manage task file attachments (ls; add/get/rm/move/gc pending)
+  artifact       Manage versioned task artifacts (create/update/rm/ls/get/versions; move pending)
 
 Gates:
   gates run      Run the gate orchestrator for a task
@@ -195,6 +196,7 @@ case "${1:-help}" in
     pr-import)    shift; exec "$SCRIPTS_DIR/aitask_pr_import.sh" "$@" ;;
     applink)      shift; exec "$SCRIPTS_DIR/aitask_applink.sh" "$@" ;;
     attach)       shift; exec "$SCRIPTS_DIR/aitask_attach.sh" "$@" ;;
+    artifact)     shift; exec "$SCRIPTS_DIR/aitask_artifact.sh" "$@" ;;
     board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;
     chatlink)     shift; exec "$SCRIPTS_DIR/aitask_chatlink.sh" "$@" ;;
     codebrowser)  shift; exec "$SCRIPTS_DIR/aitask_codebrowser.sh" "$@" ;;

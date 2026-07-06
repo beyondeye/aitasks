@@ -79,7 +79,9 @@ An **artifact** is a stable logical thing with an evolving content body.
 - Each **version** is an immutable content-addressed blob — the *same* blob
   substrate t1030 uses for attachments (SHA-256 of the bytes).
 
-Operations map cleanly onto this split:
+Operations map cleanly onto this split — **implemented (t1076_2) as the
+`ait artifact` CLI** (`.aitask-scripts/aitask_artifact.sh`:
+create/update/rm/ls/get/versions):
 
 | Operation | Effect | Touches |
 |---|---|---|
@@ -87,6 +89,11 @@ Operations map cleanly onto this split:
 | Update in place (e.g. edit HTML plan) | write new blob, append to `versions`, move `current` | manifest + backend |
 | Move backend | change `backend`, re-`put` blobs in the new backend | manifest + backend |
 | Reference from a task | store the **handle only** | task frontmatter (set once) |
+
+The user-facing `ait artifact move` verb is deferred to remote-backend work
+(t1076_3/t1089/t1090): a safe move must copy every version blob to a
+*registered* target backend before repointing, and only `local` exists today.
+The substrate op (`artifact_manifest set-backend`, t1076_1) is in place.
 
 **This is what makes "handle-only, never rewrite task files" actually hold.** The
 churny state (current / versions / backend) is quarantined in the manifest; the
@@ -107,8 +114,10 @@ reconciled, not in conflict (§10): immutable → safe inline; mutable → manif
 
 ## 4. Frontmatter schema — handle-only + minimal classification
 
-Tasks (and, for HTML plans, the plan record) gain an optional `artifacts:` list.
-Every entry carries **only stable, set-once fields**:
+Tasks (and, for HTML plans, the plan record) gain an optional `artifacts:` list
+(**implemented in t1076_2** — written by `ait artifact create`, preserved
+verbatim across `aitask_update.sh` rewrites, transferred on fold). Every entry
+carries **only stable, set-once fields**:
 
 ```yaml
 ---
@@ -130,11 +139,13 @@ artifacts:
   (§4b). The entry is immutable for the artifact's life; only the manifest
   changes as the artifact evolves.
 
-Open reconciliation with t1030's inline `attachments:` (see §10 and the t1030
-coordination note): either recast immutable attachments as single-version
-artifacts under this one schema, or keep `attachments:` as a typed, inline-hash
-*view* (safe because immutable) alongside `artifacts:`. **Not decided here** —
-flagged for joint t1030/t1065 resolution.
+**Settled (t1076_2): `attachments:` stays separate.** t1030's inline-hash
+`attachments:` field is kept as-is (a typed, inline-hash *view* — safe because
+immutable) alongside the new `artifacts:` field; the two schemas share the
+mapping reader (`yaml_utils.sh::read_yaml_mappings`) and writer
+(`frontmatter_patch.py`) but remain independent lists. Recasting attachments as
+single-version artifacts under the one schema is deferred — the evaluation
+(pros/cons + migration plan if adopted) is tracked by **t1134**.
 
 ### 4b. The artifact manifest — the mutable resolution layer
 
@@ -384,7 +395,7 @@ Not all of this design is mapped to existing tasks. As of this writing:
 | Piece | Existing coverage | Verdict |
 |---|---|---|
 | 1. Storage abstraction generalization (`artifact_backend` + manifest) | t1030 builds the **attachment** backend + cache + per-blob meta ledger only | **Done (t1076_1)** — t1030 was the foundation; the generalization to artifacts + the (net-new) manifest landed in t1076_1 |
-| 2. Artifact pointer/version model + `artifacts:` frontmatter | none | **Gap** (net-new) |
+| 2. Artifact pointer/version model + `artifacts:` frontmatter | none | **Done (t1076_2)** — `ait artifact` CLI (create/update/rm/ls/get/versions), handle-only `artifacts:` frontmatter, fold transfer, hard-delete guard (full lifecycle: t1135) |
 | 3. Share-handle resolution + cache wrapper | none | **Gap** (net-new — the sharing dimension this task adds) |
 | 4. HTML-plan-as-artifact integration | **t774** exists | **Mapped, needs re-scope** — its "3rd inline-committed file" framing is revised (see the t774 coordination note) |
 | 5. Artifact-producing gate archetype | none — t635 children (t635_12…t635_24) have no such child; t635_19 is `docs_updated`, not artifact-producing | **Gap** (net-new t635 child) |

@@ -522,9 +522,9 @@ get_timestamp() {
 # extract_frontmatter_block <file> <field> -- print the raw lines of a top-level
 # frontmatter block field (the `<field>:` header plus its indented body), or
 # nothing if absent. Used to PRESERVE fields write_task_file does not model
-# (notably `attachments:`, a block list-of-mappings from t1030) across a rewrite
-# — without this, any aitask_update on an attachment-bearing task would silently
-# drop its attachments.
+# (notably `attachments:`, a block list-of-mappings from t1030, and `artifacts:`
+# from t1076_2) across a rewrite — without this, any aitask_update on a task
+# bearing those fields would silently drop them.
 extract_frontmatter_block() {
     local file="$1" field="$2"
     [[ -f "$file" ]] || return 0
@@ -572,11 +572,13 @@ write_task_file() {
     local also_blocks_dependents="${29:-}"
     local anchor="${30:-}"
 
-    # Preserve the `attachments:` block (t1030) verbatim: write_task_file rebuilds
-    # frontmatter from a fixed field set and would otherwise drop it. Capture it
-    # from the still-intact file BEFORE the truncating redirect below runs.
-    local preserved_attachments
+    # Preserve the `attachments:` (t1030) and `artifacts:` (t1076_2) blocks
+    # verbatim: write_task_file rebuilds frontmatter from a fixed field set and
+    # would otherwise drop them. Capture them from the still-intact file BEFORE
+    # the truncating redirect below runs.
+    local preserved_attachments preserved_artifacts
     preserved_attachments="$(extract_frontmatter_block "$file_path" attachments)"
+    preserved_artifacts="$(extract_frontmatter_block "$file_path" artifacts)"
 
     local updated_at
     updated_at=$(get_timestamp)
@@ -691,6 +693,10 @@ write_task_file() {
         # Preserve any existing attachments block verbatim (t1030).
         if [[ -n "$preserved_attachments" ]]; then
             printf '%s\n' "$preserved_attachments"
+        fi
+        # Preserve any existing artifacts block verbatim (t1076_2).
+        if [[ -n "$preserved_artifacts" ]]; then
+            printf '%s\n' "$preserved_artifacts"
         fi
         echo "created_at: $created_at"
         echo "updated_at: $updated_at"
