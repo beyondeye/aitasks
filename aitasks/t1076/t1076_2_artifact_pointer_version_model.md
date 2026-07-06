@@ -12,7 +12,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:04
-updated_at: 2026-07-06 18:15
+updated_at: 2026-07-06 19:28
 ---
 
 **Design spec:** `aidocs/unified_artifact_design.md` §3, §4 (+ §10 reconciliation).
