@@ -12,7 +12,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1120
 implemented_with: claudecode/fable5
 created_at: 2026-07-05 11:59
-updated_at: 2026-07-06 18:01
+updated_at: 2026-07-06 19:27
 ---
 
 ## Context
