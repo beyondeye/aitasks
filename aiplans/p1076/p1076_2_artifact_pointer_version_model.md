@@ -504,11 +504,82 @@ a child `aitasks/t16/t16_2_child.md`, `XDG_CACHE_HOME` sandbox, asserts via
    fold transfer, hard-delete guard) — 11b/11c, each with negative controls.
 4. No regression — 11d suite.
 
+## Final Implementation Notes
+
+- **Actual work done:** Everything in the plan landed as designed. New
+  `ait artifact` CLI (`.aitask-scripts/aitask_artifact.sh`, ~590 lines):
+  `create` (derived `art:t<id>-<kindslug>` handle with `_`→`.` child ids,
+  `--handle`/`--name`/`--backend` overrides, size cap via own
+  `artifact_max_size_mb` knob, dup + collision guards, blob+manifest+task
+  commit trio with full rollback, machine-parseable `HANDLE:` output),
+  `update` (manifest-only repoint — the core stable-handle/mutable-manifest
+  AC; idempotent no-op on same bytes), `move` stub (settled decision 3),
+  `rm` (name-ambiguity die, referenced-elsewhere manifest keep incl. Folded
+  revive-safety, meta-file + remaining-manifest blob-sweep guards,
+  stale-entry repair path), `ls`/`get`/`versions`. Reader/writer extensions
+  (`yaml_utils.sh` handle/kind first, `frontmatter_patch.py` FIELD_ORDER),
+  `aitask_update.sh` artifacts-block preservation, fold Step 5b transfer
+  (dedupe by handle), fail-closed decref-deleted artifact guard,
+  merge-rule decision comment, design-doc updates (§4 reconciliation
+  settled → t1134; §11 row 2 Done), follow-up tasks t1134 + t1135 created.
+- **Deviations from plan:** None of substance. The `--handle` suggestion in
+  the duplicate-collision error and the `ls` stale-row repair hint are small
+  usability additions beyond the plan text.
+- **Issues encountered:** The implementing session crashed mid-task
+  (RECLAIM_CRASH); work was recovered intact from the working tree, verified
+  against the plan step-by-step, and completed in a follow-up session. A
+  review round after recovery found the rm scan-failure hazard (see
+  Post-Review Changes — Change Request 1): destructive uncommitted mutations
+  could be left behind when `referenced-hashes` fail-closed on an unrelated
+  malformed manifest; fixed with an in-txn rollback + test F10.
+- **Key decisions:** (1) Rollback-on-scan-failure over pre-mutation scanning —
+  the union output of `referenced-hashes` loses multiplicity, so a
+  pre-mutation scan would include the doomed manifest's own hashes and block
+  the entire blob sweep. (2) `attachments:`/`artifacts:` stay separate
+  schemas sharing one reader/writer (settled §10 decision; unification
+  evaluation → t1134). (3) Folded tasks deliberately count as manifest
+  references in `rm` (revive-on-delete safety); the resulting
+  fold-then-archive orphan-manifest state is t1135's reaper concern.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1076_3 (share-handle resolution) gets the
+  manifest `backend` field already flowing through every CLI path (exported
+  as `ARTIFACT_BACKEND` before resolve/put) — registering a remote backend
+  should light up `get`/`update` without CLI surgery; the `move` verb stub
+  (`cmd_stub`) is the place to implement the copy-then-repoint safe move.
+  t1076_4 (gate archetype) should consume `create`'s `HANDLE:<handle>` line
+  and can rely on `update`'s same-bytes idempotency for its re-run AC. The
+  `_artifact_records`/`_artifact_resolve_ref` helpers are the reference
+  pattern for reading `artifacts:` frontmatter from bash.
+
 ## Step 9 reference (post-implementation)
 
 Current-branch profile — no worktree/merge. Archive via
 `./.aitask-scripts/aitask_archive.sh 1076_2`, push via `./ait git push`.
 t1076_3 and t1076_4 remain; parent archival waits for them.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-06 20:30)
+- **Requested by user:** `ait artifact rm` mutated the task frontmatter and
+  deleted the manifest BEFORE running `artifact_manifest referenced-hashes`;
+  since that scan fail-closes on any malformed manifest in the tree, the error
+  path left uncommitted destructive working-tree changes while claiming
+  "nothing committed / re-run to retry" — and the retry could not work (the
+  frontmatter entry was already gone, so `_artifact_resolve_ref` fails).
+- **Verification:** confirmed against `artifact_manifest.py`'s named
+  MALFORMED-MANIFEST POLICY (dies on any invalid manifest during
+  `referenced-hashes`) and the `_artifact_rm_txn` mutation order.
+- **Changes made:** rollback on scan failure (restore task file + manifest
+  from HEAD via `task_git reset`/`checkout`, matching the txn's other rollback
+  paths), with an honest die message ("rolled back; repair that manifest and
+  re-run"). Computing the scan pre-mutation was rejected: the union output
+  would include the doomed manifest's own hashes and block the entire blob
+  sweep (multiplicity is lost, so it cannot be subtracted). New test F10:
+  malformed sibling manifest → rm dies, frontmatter entry + manifest restored,
+  no uncommitted `aitasks/` changes; after repairing the malformed file the
+  SAME rm succeeds (negative control).
+- **Files affected:** `.aitask-scripts/aitask_artifact.sh`,
+  `tests/test_artifact_cli.sh` (82/82 pass).
 
 ## Risk
 
