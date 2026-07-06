@@ -30,7 +30,11 @@ model: the **stable-handle / mutable-manifest split**.
   fields — `handle`, `kind` (`html_plan|mockup|report|attachment|...`), optional
   `name`. No current/versions/backend in frontmatter.
 - Operations: create (mint id, write v1, set current), update-in-place (new blob,
-  append version, move current — manifest only), backend-move (manifest only).
+  append version, move current — manifest only), backend-move (substrate
+  `set-backend` landed in t1076_1; the user-facing `ait artifact move` verb is a
+  stub until a remote backend exists — a safe move must copy version blobs to a
+  registered target first, and only `local` is registered today; scope settled
+  at t1076_2 planning).
 - Attachment = single-version, never-repointed degenerate case (§10).
 
 ## Reference files / patterns
