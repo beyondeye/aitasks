@@ -7,8 +7,9 @@ status: Implementing
 labels: [task_attachments, html_plans]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
+implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:04
-updated_at: 2026-07-06 17:39
+updated_at: 2026-07-06 18:14
 ---
 
 **Design spec:** `aidocs/unified_artifact_design.md` §3, §4 (+ §10 reconciliation).
@@ -38,3 +39,8 @@ model: the **stable-handle / mutable-manifest split**.
 - Update-in-place repoints the manifest and leaves the referencing task file byte-
   identical (no frontmatter rewrite on edit or backend-move).
 - `artifacts:` frontmatter parses; handle resolves to current version via manifest.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-06T15:15:15Z status=pass attempt=1 type=human
