@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1120_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [chat_surface, python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1120
 created_at: 2026-07-05 11:59
-updated_at: 2026-07-05 11:59
+updated_at: 2026-07-06 17:26
 ---
 
 ## Context
