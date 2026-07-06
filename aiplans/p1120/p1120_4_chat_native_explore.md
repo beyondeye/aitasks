@@ -292,6 +292,20 @@ skill adds no `.j2`; the run guards the existing stub surfaces).
 Suggest separate aitasks: codex + opencode `explore-relay` ports (skill
 wrapper + dispatch branch). Do not create them silently.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-06 20:29)
+- **Requested by user:** Step 6 of the skill said "write the description to
+  a temp file" without constraining the location, while the skill's hard
+  constraints forbid modifying repo files — a headless agent could pick a
+  repo-relative path and leave stray untracked files / violate the gateway
+  contract. Make the location explicit.
+- **Changes made:** Step 6 now mandates `$CHATLINK_RELAY_DIR/description.md`
+  as the scratch path and states the session spool is the ONLY permitted
+  scratch location (writable, bind-mounted, outside the checkout; the
+  gateway only reads the spool's named files, so the extra file is inert).
+- **Files affected:** `.claude/skills/aitask-explorechat/SKILL.md`
+
 ## Step 9 reference
 
 Post-implementation follows task-workflow Step 9 (merge/verify/archive/push).
@@ -308,7 +322,7 @@ Post-implementation follows task-workflow Step 9 (merge/verify/archive/push).
   63-check suite must stay green; import-guard test extends to
   `relay_payload.py`)
 
-### Goal-achievement risk: medium
+### Goal-achievement risk: medium (RETIRED — live smoke passed, see Final Implementation Notes)
 - Skill-based headless invocation (`claude --print "/aitask-explorechat"`)
   is not byte-identical to the spike's raw-prompt shape — slash-command
   expansion + `--allowedTools` interplay in print mode could behave
@@ -332,3 +346,77 @@ Post-implementation follows task-workflow Step 9 (merge/verify/archive/push).
   severity: low · → mitigation: embedded (single `TaskPayload` definition in
   `chatlink/relay.py` consumed by both sides; normative table in
   `qa_relay_protocol.md`)
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly per plan, across two sessions
+  (the first session crashed mid-task; this session resumed via the gate
+  ledger, verified the in-tree work, and completed verification).
+  - `TaskPayload` dataclass in `chatlink/relay.py` (contract 7 + contract 1;
+    shape-strict, repo-agnostic producer validation; strict
+    `to_dict`/`from_dict` with unknown-key rejection). `write_payload`
+    docstring gained the "validation is the caller's job" line; transport
+    stays opaque.
+  - `chatlink/relay_payload.py` CLI + `aitask_relay_payload.sh` wrapper
+    (session_id derived from dir name; `PAYLOAD_WRITTEN:`/exit 0,
+    `ERROR:`/exit 2, nothing written on validation failure; `-` = stdin).
+  - `explore-relay` operation in `aitask_codeagent.sh`: headless-only
+    (refuses without `--headless`), two distinct env-precondition refusals,
+    claudecode-only gate placed BEFORE model resolution, argv
+    `env BASH_DEFAULT_TIMEOUT_MS=630000 BASH_MAX_TIMEOUT_MS=630000 claude
+    --model <id> --print /aitask-explorechat --allowedTools
+    Bash,Read,Write,Glob,Grep`; help text updated.
+  - Static `aitask-explorechat` SKILL.md (Claude tree only): env validation,
+    bug-report intake, bounded autonomous exploration, ≤3 relay clarifying
+    questions (600000 ms tool-timeout parameter on every call, named
+    timeout defaults, tool-level-failure degraded path), NON-SKIPPABLE
+    final confirmation with the bounded 2-round free-text adjustment rule,
+    payload write via the helper only.
+  - Whitelist checklist: `aitask_relay_ask.sh` (deferred t1120_1 handoff,
+    fired now) + `aitask_relay_payload.sh` in all 5 config files.
+  - `qa_relay_protocol.md`: normative §Task payload field table,
+    producer-vs-gateway validation-ownership split, module-map rows.
+- **Deviations from plan:** none beyond those already recorded in the plan's
+  verification notes (single canonical `CHATLINK_RELAY_DIR`; grep for the
+  eliminated `CHATLINK_SESSION_DIR` name is enforced as test section 6).
+  One discovery made during implementation, recorded in the argv comment +
+  a dedicated test assert: `--allowedTools` is variadic and swallows a
+  trailing positional prompt, so the slash-command MUST precede it.
+- **Issues encountered:** prior session crashed mid-task; resume found all
+  artifacts in the working tree and they passed verification unchanged.
+  Pre-existing (unrelated) failures confirmed against clean HEAD: shellcheck
+  SC1091 info notes on `aitask_codeagent.sh` source lines, and
+  `aitask_skill_verify.sh` opencode prerender drift for
+  `task-workflow-remote-/cross-repo-child-assignment.md`.
+- **Key decisions:**
+  - Live smoke executed in-task (billed opt-in accepted once) —
+    **PASS 34/34** (2026-07-06): a real `ait codeagent invoke explore-relay
+    --headless` run discovered the skill via slash-command in print mode,
+    explored the fixture bug, emitted a genuine clarifying question with
+    file:line evidence, **stayed blocked at 160 s** (proving the
+    `BASH_*_TIMEOUT_MS=630000` exports carry a real skill invocation past
+    the ~120 s default Bash-tool timeout — the plan's "unproven link"), and
+    landed a schema-valid `payload.json` with exit 0; the delayed answer was
+    consumed as `answered`, not clobbered by a helper timeout write. The
+    documented `--timeout 90` fallback is NOT needed; t1120_6 inherits no
+    constraint here.
+  - Live smoke stays env-gated (`RUN_LIVE_EXPLORE_RELAY=1`) so routine suite
+    runs never incur a billed headless call.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - Env contract for t1120_5/t1120_6: `CHATLINK_RELAY_DIR` (the concrete
+    per-session spool dir, passed verbatim as `--relay-dir`) +
+    `CHATLINK_BUG_REPORT_FILE`. There is deliberately NO second name for the
+    session dir; the drift guard in `tests/test_codeagent_explore_relay.sh`
+    section 6 fails if `CHATLINK_SESSION`+`_DIR` reappears on any surface.
+  - t1120_6's gateway validator must start from `TaskPayload.from_dict`
+    (authoritative re-validation of untrusted input) and layer repo
+    allowlists (`task_types.txt`, `labels.txt`) + control-char stripping on
+    top — do NOT add validation inside `SessionDir.write_payload`.
+  - The spawned agent may write a scratch `description.md` into the session
+    spool dir (post-review change 1) — the gateway must keep reading only
+    its named files (`question-*`, `answer-*`, `payload.json`).
+  - The sandbox launcher (t1120_5) gets its full argv from
+    `ait codeagent invoke explore-relay --headless --dry-run` shape; the
+    tool-timeout exports are part of the argv (env-prefixed) so they survive
+    any spawn path that preserves argv but not the environment.
