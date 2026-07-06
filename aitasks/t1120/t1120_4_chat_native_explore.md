@@ -8,8 +8,9 @@ labels: [chat_surface, python]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1120
+implemented_with: claudecode/fable5
 created_at: 2026-07-05 11:59
-updated_at: 2026-07-06 17:26
+updated_at: 2026-07-06 18:01
 ---
 
 ## Context
@@ -75,3 +76,8 @@ schema-conformant payloads).
   (fail-safe); payload validates against contract 7 schema.
 - Live smoke (skip-capable, explicit opt-in): one real headless invocation
   round-trips a question and writes `payload.json`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-06T15:01:38Z status=pass attempt=1 type=human
