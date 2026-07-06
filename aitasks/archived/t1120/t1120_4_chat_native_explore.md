@@ -5,14 +5,15 @@ risk_goal_achievement: medium
 effort: high
 depends: [t1120_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [chat_surface, python]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1120
 implemented_with: claudecode/fable5
 created_at: 2026-07-05 11:59
-updated_at: 2026-07-06 19:29
+updated_at: 2026-07-07 00:16
+completed_at: 2026-07-07 00:16
 ---
 
 ## Context
@@ -85,3 +86,14 @@ schema-conformant payloads).
 > **✅ gate:plan_approved** run=2026-07-06T15:01:38Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-06T21:15:26Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-06T21:15:53Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ed2f61cfe7de536d
+
+> **✅ gate:risk_evaluated** run=2026-07-06T21:15:53Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1120_4/risk_evaluated_2026-07-06T21:15:53Z-risk_evaluated-a1.log`
