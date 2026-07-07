@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1120_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [chat_surface, python, sanboxing]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1120
 created_at: 2026-07-05 12:00
-updated_at: 2026-07-05 12:00
+updated_at: 2026-07-07 22:38
 ---
 
 ## Context
