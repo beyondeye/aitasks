@@ -25,6 +25,7 @@ PYTHON="$(require_ait_python)"
 "$PYTHON" - "$PROJECT_DIR" <<'PYEOF'
 import asyncio
 import json
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -55,7 +56,24 @@ from chatlink.relay import (
 from chatlink.sessions_store import (
     SessionRecord, SessionsStore, conversation_key, message_ref_dict,
 )
+from chatlink import paths as cl_paths
 from chatlink.spawn_seam import FakeLauncher, LaunchError, NullLauncher
+
+#: Tiny committed fixture repo for workspace copies (set in main()) —
+#: intake archives HEAD per session; the real checkout would be slow.
+FIXTURE_REPO = None
+
+def _mk_fixture_repo(path):
+    path.mkdir(parents=True)
+    def g(*args):
+        subprocess.run(["git", "-C", str(path), "-c", "user.email=t@t",
+                        "-c", "user.name=t", *args],
+                       check=True, capture_output=True)
+    g("init", "-q")
+    (path / "code.txt").write_text("committed\n")
+    g("add", ".")
+    g("commit", "-q", "-m", "base")
+    return path
 
 PASS = 0
 def check(label, cond):
@@ -104,7 +122,9 @@ class Env:
 
     def __init__(self, tmp, *, deny_mode="ignore", max_sandboxes=4,
                  rate_per_hour=10, launcher=None, native_ephemeral=True,
-                 dm_enabled=True):
+                 dm_enabled=True, repo_root=None, death_signal=None):
+        self.repo_root = repo_root
+        self.death_signal = death_signal
         self.adapter = MockChatAdapter(native_ephemeral=native_ephemeral,
                                        dm_enabled=dm_enabled)
         self.clock = FakeClock()
@@ -133,7 +153,9 @@ class Env:
         self.pipeline = GatewayPipeline(
             adapter=self.adapter, config=self.config, store=self.store,
             launcher=self.launcher, relay_root=self.relay_root,
-            audit=self.audit, clock=self.clock)
+            audit=self.audit, clock=self.clock,
+            repo_root=self.repo_root or FIXTURE_REPO,
+            death_signal=self.death_signal)
         # Persistent background pump: the subscriber registers when the
         # pump task starts iterating (async generators start lazily — the
         # test_chat_mock.sh prime-in-task pattern); events are buffered in
@@ -179,7 +201,9 @@ class Env:
 
 
 async def main():
+    global FIXTURE_REPO
     tmp_base = Path(tempfile.mkdtemp(prefix="chatlink-daemon-test-"))
+    FIXTURE_REPO = _mk_fixture_repo(tmp_base / "fixture-repo")
 
     # ================= sessions_store ==================================
     t = tmp_base / "store"
@@ -298,6 +322,33 @@ async def main():
     check("spool-heal planned for missing record outcome",
           [a.kind for a in acts] == [rc.HEAL_OUTCOME])
 
+    # mid-life agent death planner (t1120_5): same fail-closed cascade as
+    # the startup branch, [] on terminal/absent record (stale-signal no-op)
+    dying = mkrec("sdie01", "asking", qmsgs={"1": qmsg}, bug=bug_ref)
+    scan_die = rc.SpoolScan("sdie01", pending_seqs=(1,))
+    acts = rc.plan_agent_death_actions(dying, scan_die)
+    check("agent death: cancel + disable + fail + react + remove",
+          [a.kind for a in acts]
+          == [rc.WRITE_CANCELLED_ANSWER, rc.DISABLE_COMPONENTS,
+              rc.MARK_FAILED, rc.REACT_FAILED, rc.REMOVE_RELAY_DIR])
+    check("agent death actions carry the agent_died reason",
+          [a for a in acts if a.kind == rc.MARK_FAILED][0]
+          .payload["reason"] == rc.FAIL_REASON_AGENT_DIED)
+    check("terminal record: death signal is a no-op",
+          rc.plan_agent_death_actions(mkrec("sdie02", "done"),
+                                      scan_die) == [])
+    check("absent record: death signal is a no-op",
+          rc.plan_agent_death_actions(None, scan_die) == [])
+    healed_die = mkrec("sdie03", "working")
+    acts = rc.plan_agent_death_actions(
+        healed_die,
+        rc.SpoolScan("sdie03", answers={1: {"status": "answered", "id": "q",
+                                            "seq": 1, "values": ["o0"],
+                                            "free_text": None,
+                                            "answered_by": "U1"}}))
+    check("agent death heals spool outcomes before failing",
+          [a.kind for a in acts][:2] == [rc.HEAL_OUTCOME, rc.MARK_FAILED])
+
     # reconnect: missed messages recovered, self/bot filtered, re-prompt
     fetched = [
         {"conversation": {"provider": "mock", "workspace_id": "W1",
@@ -325,7 +376,9 @@ async def main():
           and glb[2].payload["message_id"] == "m6")
 
     # ================= intake pipeline (real event path) =================
-    env = await Env(tmp_base / "e1").start()
+    def sig_sentinel(session_id):  # the daemon-supplied death signal seam
+        pass
+    env = await Env(tmp_base / "e1", death_signal=sig_sentinel).start()
     u1 = env.user("U1")
     await env.intake(u1)
     check("authorized intake creates one session",
@@ -336,9 +389,22 @@ async def main():
           rec.initiator_id == "U1" and rec.thread is not None
           and rec.state == "spawning")
     check("relay session dir minted", (env.relay_root / sid).is_dir())
+    spec0 = env.launcher.launched[0]
     check("launcher received the spec with clamped limits",
-          env.launcher.launched[0].session_id == sid
-          and env.launcher.launched[0].limits["wall_clock_s"] == 1800)
+          spec0.session_id == sid
+          and spec0.limits["wall_clock_s"] == 1800)
+    ws_dir = cl_paths.workspaces_root_beside(env.relay_root) / sid
+    check("spec carries the per-session workspace copy (committed HEAD)",
+          spec0.workspace_copy_path == str(ws_dir)
+          and (ws_dir / "code.txt").read_text() == "committed\n")
+    check("spec carries workspace_id + the daemon death signal",
+          spec0.workspace_id == env.chan.ref.workspace_id
+          and spec0.on_death is sig_sentinel)
+    check("env allowlist stays empty until t1120_6 sources the LLM key",
+          spec0.env_allowlist == {})
+    check("bug report written into the spool before launch",
+          (env.relay_root / sid / "bug_report.md").read_text()
+          == "it crashes")
     check("intake accepted audited", env.audit.has("info", "intake accepted"))
 
     # thread really exists on the platform
@@ -454,6 +520,40 @@ async def main():
           and order.index(("save", "failed")) < order.index(("platform", None)))
     check("NullLauncher refuses honestly",
           isinstance(NullLauncher().reap_orphans("W1"), list))
+
+    # (d) workspace-copy failure shares the launch fail path (t1120_5):
+    # record failed BEFORE the thread note, launcher never invoked, no
+    # leftover copy dir — a copy failure can never park a non-terminal
+    # session until the next startup reconciliation.
+    envW = await Env(tmp_base / "eW",
+                     repo_root=tmp_base / "not-a-repo").start()
+    uW = envW.user("U1")
+    orderW = []
+    real_saveW = envW.store.save
+    def spy_saveW(record):
+        orderW.append(("save", record.state))
+        real_saveW(record)
+    envW.store.save = spy_saveW
+    real_sendW = envW.adapter.send_message
+    async def spy_sendW(*a, **kw):
+        orderW.append(("platform", None))
+        return await real_sendW(*a, **kw)
+    envW.adapter.send_message = spy_sendW
+    await envW.intake(uW)
+    sidW = envW.store.list_ids()[0]
+    check("copy failure: session persisted failed",
+          envW.store.load(sidW).state == "failed")
+    check("copy failure: launcher never invoked (spy)",
+          envW.launcher.launched == [])
+    check("copy failure: no leftover workspace copy dir",
+          not (cl_paths.workspaces_root_beside(envW.relay_root)
+               / sidW).exists())
+    check("copy failure: terminal persistence precedes the thread note",
+          ("save", "failed") in orderW
+          and orderW.index(("save", "failed"))
+          < orderW.index(("platform", None)))
+    check("copy failure audited as step=launch",
+          envW.audit.has("error", "step=launch"))
 
     # ================= minimal interaction path ==========================
     env9 = await Env(tmp_base / "e9").start()
@@ -606,6 +706,9 @@ async def main():
     check("startup: dead session failed, cancelled answer, dir removed",
           envA.store.load(sidA).state == "failed"
           and not (envA.relay_root / sidA).exists())
+    check("workspace copy removed alongside the relay dir (phase 3)",
+          not (cl_paths.workspaces_root_beside(envA.relay_root)
+               / sidA).exists())
     phases = [p for p, _ in orderA]
     check("executor phase order: all p1 before p2 before p3",
           phases == sorted(phases))
@@ -865,14 +968,76 @@ async def main():
                                  % sidM)
           and not (envM.relay_root / sidM).exists())
 
+    # ================= production argv resolution (t1120_5) ==============
+    # The full agent command comes from the engine-owned dry-run — parsed
+    # from the %q-quoted DRY_RUN line, never hand-assembled.
+    dry_line = ("noise\nDRY_RUN: env BASH_DEFAULT_TIMEOUT_MS=630000 claude "
+                "--model claude-x --print /aitask-explorechat "
+                "--allowedTools Bash\\,Read\\,Write\n")
+    check("parse_dry_run_argv undoes %q quoting into the argv tuple",
+          dm.parse_dry_run_argv(dry_line)
+          == ("env", "BASH_DEFAULT_TIMEOUT_MS=630000", "claude", "--model",
+              "claude-x", "--print", "/aitask-explorechat",
+              "--allowedTools", "Bash,Read,Write"))
+    check("parse_dry_run_argv returns () when no DRY_RUN line",
+          dm.parse_dry_run_argv("ERROR: nope\n") == ())
+
+    # ================= merged event/death stream (t1120_5) ===============
+    # ONE sequential consumer over adapter events + death signals: a death
+    # signalled while an item is in flight is dispatched only after it —
+    # in order, never concurrently.
+    async def two_events():
+        yield "E1"
+        yield "E2"
+    qM = asyncio.Queue()
+    seq_order = []
+    async for kind, item in dm._merged_events(two_events(), qM):
+        seq_order.append((kind, item))
+        if item == "E1":
+            # arrives while E1 is "being handled" by this consumer
+            qM.put_nowait("sMid")
+        if len(seq_order) == 3:
+            break
+    check("death mid-event dispatched AFTER the in-flight event, in order",
+          seq_order == [("event", "E1"), ("death", "sMid"), ("event", "E2")])
+
+    # death-before-anything is yielded first; stream end terminates cleanly
+    qM2 = asyncio.Queue()
+    qM2.put_nowait("sFirst")
+    async def one_event():
+        yield "E1"
+    got = [pair async for pair in dm._merged_events(one_event(), qM2)]
+    check("queued death yielded before the stream item; stream end returns",
+          got == [("death", "sFirst"), ("event", "E1")])
+
+    # disconnect boundary: an unconsumed death signal survives the merged
+    # loop's close and drains when the next merged loop resumes
+    qM3 = asyncio.Queue()
+    async def endless():
+        yield "E1"
+        await asyncio.Event().wait()  # never yields again
+    merged3 = dm._merged_events(endless(), qM3)
+    first = await merged3.__anext__()
+    qM3.put_nowait("sLate")
+    await asyncio.sleep(0)  # let the queue-get task retrieve it
+    await merged3.aclose()
+    check("unconsumed death requeued on merged-loop close (never dropped)",
+          first == ("event", "E1") and qM3.qsize() == 1)
+    qM4_events = [pair async for pair in dm._merged_events(one_event(), qM3)]
+    check("requeued death drains when the merged loop resumes",
+          ("death", "sLate") in qM4_events)
+
     # ================= run_daemon end-to-end ==============================
     envF = await Env(tmp_base / "eF").start()
     uF = envF.user("U1")
     stop = asyncio.Event()
+    prod_argv = ("env", "BASH_DEFAULT_TIMEOUT_MS=630000", "claude",
+                 "--print", "/aitask-explorechat")
     task = asyncio.create_task(dm.run_daemon(
         adapter=envF.adapter, config=envF.config, store=envF.store,
         launcher=envF.launcher, relay_root=envF.relay_root,
-        audit=envF.audit, stop=stop))
+        audit=envF.audit, stop=stop, repo_root=FIXTURE_REPO,
+        agent_argv=prod_argv))
     await asyncio.sleep(0.05)  # let it subscribe
     envF.adapter.inject_message(envF.chan.ref, "daemon-path bug", uF)
     for _ in range(100):
@@ -898,6 +1063,41 @@ async def main():
           envF.audit.has("warning", "watch-cursor save failed")
           and not task.done()
           and len(envF.store.list_ids()) == 2)
+
+    # agent death mid-run (t1120_5): the recorded spec carries the daemon's
+    # death signal; firing it drives the full loop-side path — cancelled
+    # answer, record failed, dirs removed — executed by the ONE sequential
+    # consumer (the executor), never by the signalling thread.
+    specF = envF.launcher.launched[0]
+    sidF = specF.session_id
+    check("run_daemon threads the production argv into the launched spec",
+          specF.agent_argv == prod_argv)
+    check("death signal threaded into the launched spec",
+          specF.on_death is not None)
+    sessF = SessionDir(envF.relay_root / sidF)
+    sessF.write_question(make_question(sidF, 1))
+    specF.on_death(sidF)  # thread-safe entry point (same-loop call is fine)
+    for _ in range(100):
+        recF = envF.store.load(sidF)
+        if recF is not None and recF.state == "failed":
+            break
+        await asyncio.sleep(0.02)
+    check("agent death: record failed via the daemon loop",
+          envF.store.load(sidF).state == "failed")
+    check("agent death: cancelled answer written + both dirs removed",
+          envF.audit.has("info", "cancelled answer written")
+          and not (envF.relay_root / sidF).exists()
+          and not (cl_paths.workspaces_root_beside(envF.relay_root)
+                   / sidF).exists())
+    check("agent death dispatch audited", envF.audit.has("info", "agent death:"))
+    # duplicate/stale signal: record already terminal → planner no-ops
+    lines_beforeF = len(envF.audit.lines)
+    specF.on_death(sidF)
+    await asyncio.sleep(0.1)
+    check("duplicate death signal is a no-op (terminal record)",
+          not any("agent death:" in m
+                  for _, m in envF.audit.lines[lines_beforeF:])
+          and not task.done())
     stop.set()
     envF.adapter.simulate_disconnect()
     rcF = await asyncio.wait_for(task, 2.0)
@@ -919,11 +1119,30 @@ async def main():
         dm.paths.read_token = lambda: None
         rc2 = await dm.serve()
         dm.paths.read_token = real_read_token
+        # refuse 3: config + token ok, but the agent argv is unresolvable
+        # (t1120_5 — a gateway that can never launch must not start)
+        import contextlib
+        import io
+        cfg_tmp = tmp_base / "serve_cfg.yaml"
+        cfg_tmp.write_text(
+            "intake_channel:\n  provider: mock\n  workspace_id: W1\n"
+            "  conversation_id: C1\nallowed_user_ids: [U1]\n")
+        dm.paths.config_file = lambda: cfg_tmp
+        dm.paths.read_token = lambda: "tok"
+        real_resolve = dm.resolve_explore_relay_argv
+        dm.resolve_explore_relay_argv = lambda: ()
+        err3 = io.StringIO()
+        with contextlib.redirect_stderr(err3):
+            rc3 = await dm.serve()
+        dm.resolve_explore_relay_argv = real_resolve
+        dm.paths.read_token = real_read_token
     finally:
         dm.paths.config_file = real_cfg_file
         dm.audit_mod.get_logger = real_get_logger
     check("serve refuses without config (rc=2)", rc1 == 2)
     check("serve refuses without token (rc=2)", rc2 == 2)
+    check("serve refuses when the agent argv cannot be resolved (rc=2)",
+          rc3 == 2 and "explore-relay" in err3.getvalue())
     check("refuse paths construct NOTHING (spy)", constructed == [])
 
     print(f"\nAll {PASS + 1} Python checks passed.")

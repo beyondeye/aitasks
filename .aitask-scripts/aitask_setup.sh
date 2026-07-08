@@ -204,6 +204,13 @@ install_cli_tools() {
         fi
     done
 
+    # Optional tier advisory (warn-not-block, never auto-installed):
+    # docker powers the chatlink sandbox (`ait chatlink`) — see
+    # aidocs/chat/chatlink_sandbox.md.
+    if ! command -v docker &>/dev/null; then
+        warn "Optional: 'docker' not found — the chatlink sandbox tier needs it (install Docker separately to enable sandboxed agents)"
+    fi
+
     if [[ ${#missing[@]} -eq 0 ]]; then
         success "All CLI tools already installed (${tools[*]})"
         return

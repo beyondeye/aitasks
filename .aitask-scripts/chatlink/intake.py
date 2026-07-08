@@ -37,6 +37,9 @@ from chat.model import (
     MessageRef,
 )
 
+from lib.sandbox_launch import make_workspace_copy, remove_workspace_copy
+
+from . import paths
 from . import policy as policy_mod
 from .config import ChatlinkConfig
 from .relay import (
@@ -80,8 +83,13 @@ def _ref_of(event_conversation: ConversationRef | None) -> ConversationRef | Non
 class GatewayPipeline:
     """Sequentially-driven event pipeline over injected collaborators.
 
-    ``agent_argv`` is the (stubbed until t1120_5) sandbox command; ``clock``
-    is the deterministic test seam shared with the store.
+    ``agent_argv`` is the sandbox command (resolved by the daemon glue);
+    ``clock`` is the deterministic test seam shared with the store.
+    ``repo_root`` is the checkout the per-session workspace copy is taken
+    from (test seam: a small fixture repo). ``death_signal`` is the
+    thread-safe agent-death callback threaded into every launched spec
+    (t1120_5 — a ``call_soon_threadsafe`` enqueue supplied by the daemon;
+    it must never do I/O itself).
     """
 
     def __init__(
@@ -95,6 +103,8 @@ class GatewayPipeline:
         audit,
         clock=time.time,
         agent_argv: tuple = (),
+        repo_root: str | Path | None = None,
+        death_signal=None,
     ):
         self.adapter = adapter
         self.config = config
@@ -104,6 +114,10 @@ class GatewayPipeline:
         self.audit = audit
         self.clock = clock
         self.agent_argv = tuple(agent_argv)
+        self.repo_root = Path(repo_root) if repo_root is not None \
+            else paths.project_root()
+        self.workspaces_root = paths.workspaces_root_beside(self.relay_root)
+        self.death_signal = death_signal
         if config.intake_channel is None:
             # The daemon refuses to start without it; belt-and-braces here.
             raise ValueError("config.intake_channel is required")
@@ -219,29 +233,48 @@ class GatewayPipeline:
                                             "internal error (state)")
             return
 
-        # (d) launch through the seam (stubbed until t1120_5)
-        spec = SandboxSpec(
-            session_id=sid,
-            relay_dir=str(session.path),
-            agent_argv=self.agent_argv,
-            env_allowlist={},
-            limits={
-                "memory": self.config.sandbox_memory,
-                "cpus": self.config.sandbox_cpus,
-                "pids": self.config.sandbox_pids,
-                "wall_clock_s": self.config.sandbox_wall_clock_s,
-            },
-        )
+        # (d) launch through the seam. The bug-report write and the
+        # workspace-copy creation are PART of the launch step and share its
+        # fail path (a failure here must never leave a non-terminal session
+        # waiting for the next startup reconciliation). env_allowlist stays
+        # {} until t1120_6 sources the LLM key from config (contract 10: no
+        # env-var names invented here).
+        workspace_copy = self.workspaces_root / sid
         try:
+            # The agent reads the report via CHATLINK_BUG_REPORT_FILE —
+            # the backend points it at <relay>/bug_report.md (seam
+            # contract), so the file must exist before launch.
+            await asyncio.to_thread(
+                (session.path / "bug_report.md").write_text,
+                message.text or "(no text)", "utf-8")
+            await asyncio.to_thread(
+                make_workspace_copy, self.repo_root, workspace_copy)
+            spec = SandboxSpec(
+                session_id=sid,
+                relay_dir=str(session.path),
+                agent_argv=self.agent_argv,
+                workspace_copy_path=str(workspace_copy),
+                workspace_id=self.intake_ref.workspace_id,
+                env_allowlist={},
+                limits={
+                    "memory": self.config.sandbox_memory,
+                    "cpus": self.config.sandbox_cpus,
+                    "pids": self.config.sandbox_pids,
+                    "wall_clock_s": self.config.sandbox_wall_clock_s,
+                },
+                on_death=self.death_signal,
+            )
             self.launcher.launch(spec)
         except (LaunchError, OSError) as exc:
             self.audit.error("intake step=launch session=%s failed: %s",
                              sid, exc)
-            # Terminal persistence FIRST, platform cleanup after.
+            # Terminal persistence FIRST, platform cleanup after; the
+            # (partial) workspace copy is removed last (best-effort).
             record.state = "failed"
             await asyncio.to_thread(self.store.save, record)
             await self._thread_failure_note(thread.ref, message.ref,
                                             MSG_LAUNCH_FAILED)
+            await asyncio.to_thread(remove_workspace_copy, workspace_copy)
             return
 
         self.audit.info("intake accepted session=%s user=%s", sid,

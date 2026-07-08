@@ -23,9 +23,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
+import shlex
 import shutil
 import signal
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -37,9 +41,15 @@ from . import paths
 from . import reconcile
 from .config import ChatlinkConfig, load_config
 from .intake import GatewayPipeline
+from lib.sandbox_launch import (
+    DEFAULT_SANDBOX_BACKEND,
+    get_launcher,
+    repo_identity,
+)
+
 from .relay import Answer, RelayError, SessionDir
 from .sessions_store import SessionRecord, SessionsStore, conversation_key
-from .spawn_seam import Launcher, NullLauncher
+from .spawn_seam import Launcher
 
 RECONNECT_BACKOFF_S = 2.0
 #: Bound for the no-``after`` recovery fetch (empty-channel baseline case).
@@ -67,35 +77,52 @@ def scan_relay_root(relay_root: Path, audit=None) -> dict:
     for entry in sorted(relay_root.iterdir()):
         if not entry.is_dir():
             continue
-        session = SessionDir(entry)
-        try:
-            seqs = session.question_seqs()
-        except OSError as exc:
-            if audit is not None:
-                audit.warning("relay scan: unreadable session dir %s: %s "
-                              "— left alone", entry.name, exc)
-            continue
-        answers = {}
-        pending = []
-        for seq in seqs:
-            try:
-                ans = session.read_answer(seq)
-            except (OSError, ValueError, RelayError) as exc:
-                if audit is not None:
-                    audit.warning("relay scan: malformed spool file s=%s "
-                                  "seq=%s: %s — seq excluded",
-                                  entry.name, seq, exc)
-                continue
-            if ans is None:
-                pending.append(seq)
-            else:
-                answers[seq] = ans.to_dict()
-        scans[entry.name] = reconcile.SpoolScan(
-            session_id=entry.name,
-            pending_seqs=tuple(pending),
-            answers=answers,
-        )
+        scan = _scan_session_dir(entry, audit)
+        if scan is not None:
+            scans[entry.name] = scan
     return scans
+
+
+def _scan_session_dir(entry: Path, audit=None) -> reconcile.SpoolScan | None:
+    """One session dir → :class:`reconcile.SpoolScan` (``None`` when the
+    dir is unreadable — left alone on disk, conservative)."""
+    session = SessionDir(entry)
+    try:
+        seqs = session.question_seqs()
+    except OSError as exc:
+        if audit is not None:
+            audit.warning("relay scan: unreadable session dir %s: %s "
+                          "— left alone", entry.name, exc)
+        return None
+    answers = {}
+    pending = []
+    for seq in seqs:
+        try:
+            ans = session.read_answer(seq)
+        except (OSError, ValueError, RelayError) as exc:
+            if audit is not None:
+                audit.warning("relay scan: malformed spool file s=%s "
+                              "seq=%s: %s — seq excluded",
+                              entry.name, seq, exc)
+            continue
+        if ans is None:
+            pending.append(seq)
+        else:
+            answers[seq] = ans.to_dict()
+    return reconcile.SpoolScan(
+        session_id=entry.name,
+        pending_seqs=tuple(pending),
+        answers=answers,
+    )
+
+
+def scan_one_session(relay_root: Path, session_id: str,
+                     audit=None) -> reconcile.SpoolScan | None:
+    """Scan a single session's spool (the agent-death dispatch path)."""
+    entry = relay_root / session_id
+    if not entry.is_dir():
+        return None
+    return _scan_session_dir(entry, audit)
 
 
 # --------------------------------------------------------------------- #
@@ -253,6 +280,16 @@ class ActionExecutor:
             pass
         except OSError as exc:
             self.audit.warning("relay dir removal failed for %s: %s", sid, exc)
+        # The session's disposable workspace copy shares the phase-3
+        # cleanup (best-effort; absent for pre-t1120_5 sessions).
+        try:
+            shutil.rmtree(paths.workspaces_root_beside(self.relay_root) / sid)
+            self.audit.info("workspace copy removed for %s", sid)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            self.audit.warning("workspace copy removal failed for %s: %s",
+                               sid, exc)
 
     # -- global (reconnect) actions -------------------------------------- #
 
@@ -415,18 +452,36 @@ async def run_daemon(
     audit,
     stop: asyncio.Event,
     clock=time.time,
+    agent_argv: tuple = (),
+    repo_root=None,
 ) -> int:
     """Reconcile, then consume events sequentially until ``stop`` is set.
 
     The adapter is injected (production: ``DiscordAdapter.connect(token)``;
     tests: ``MockChatAdapter``) — this function performs no construction,
-    keeping it fully drivable by the test suite.
+    keeping it fully drivable by the test suite. ``agent_argv`` /
+    ``repo_root`` are threaded into the pipeline (test seams; ``repo_root``
+    defaults to the real checkout).
     """
     intake_ref = ConversationRef.from_dict(config.intake_channel)
+    # Agent-death signalling (t1120_5): the launcher backend's watchdog
+    # thread calls ``death_signal(sid)`` — a pure thread-safe enqueue onto
+    # the daemon-owned queue. The durable death handling (cancelled
+    # answers, record failure, platform cleanup) runs below, on the loop,
+    # inside the ONE sequential consumer.
+    loop = asyncio.get_running_loop()
+    death_q: asyncio.Queue = asyncio.Queue()
+
+    def death_signal(session_id: str) -> None:
+        loop.call_soon_threadsafe(death_q.put_nowait, session_id)
+
     pipeline = GatewayPipeline(
         adapter=adapter, config=config, store=store, launcher=launcher,
-        relay_root=relay_root, audit=audit, clock=clock,
+        relay_root=relay_root, audit=audit, clock=clock, repo_root=repo_root,
+        agent_argv=agent_argv, death_signal=death_signal,
     )
+    executor = ActionExecutor(store=store, relay_root=relay_root,
+                              pipeline=pipeline, audit=audit)
 
     await run_startup_reconciliation(
         store=store, relay_root=relay_root, launcher=launcher,
@@ -440,12 +495,18 @@ async def run_daemon(
     while not stop.is_set():
         stream = await _open_stream(adapter)
         try:
-            async for event in stream:
-                # Sequential dispatch: awaited to completion (binding
-                # invariant) — the next event is not read until this one
-                # is fully handled.
-                await pipeline.handle_event(event)
-                await _advance_cursor_for(event, store, audit)
+            # Sequential dispatch: awaited to completion (binding
+            # invariant) — the next item is not read until this one is
+            # fully handled. The merged source keeps ONE consumer over
+            # both adapter events and agent-death signals.
+            async for kind, item in _merged_events(stream, death_q):
+                if kind == "death":
+                    await _handle_agent_death(
+                        item, store=store, relay_root=relay_root,
+                        executor=executor, audit=audit)
+                else:
+                    await pipeline.handle_event(item)
+                    await _advance_cursor_for(item, store, audit)
                 if stop.is_set():
                     break
         except ChatError as exc:
@@ -471,6 +532,68 @@ async def _open_stream(adapter):
     if hasattr(stream, "__aiter__"):
         return stream
     return await stream
+
+
+async def _merged_events(stream, death_q: asyncio.Queue):
+    """Merge the subscribe stream with the agent-death queue into ONE
+    sequential source of tagged items (``("event", ev)`` / ``("death",
+    sid)``) — the dispatch loop stays a single consumer (binding
+    invariant; no concurrent handler tasks).
+
+    Ends when the stream ends (disconnect). Death signals are never lost
+    across the boundary: a retrieved-but-unconsumed signal is re-queued on
+    exit, and pending ones simply stay queued — both are drained when the
+    reconnect loop re-enters (bounded by the reconnect backoff). When both
+    sources are ready, deaths are yielded first (deterministic order).
+    """
+    stream_task: asyncio.Task | None = None
+    death_task: asyncio.Task | None = None
+    try:
+        while True:
+            if stream_task is None:
+                stream_task = asyncio.ensure_future(stream.__anext__())
+            if death_task is None:
+                death_task = asyncio.ensure_future(death_q.get())
+            done, _ = await asyncio.wait(
+                {stream_task, death_task},
+                return_when=asyncio.FIRST_COMPLETED)
+            if death_task in done:
+                sid = death_task.result()
+                death_task = None
+                yield ("death", sid)
+                continue  # a done stream_task is picked up next iteration
+            try:
+                event = stream_task.result()
+            except StopAsyncIteration:
+                return
+            stream_task = None
+            yield ("event", event)
+    finally:
+        if death_task is not None:
+            if death_task.done() and not death_task.cancelled():
+                # Retrieved but not consumed — put it back for the next
+                # merged loop (never silently dropped).
+                death_q.put_nowait(death_task.result())
+            else:
+                death_task.cancel()
+        if stream_task is not None:
+            stream_task.cancel()
+
+
+async def _handle_agent_death(session_id: str, *, store: SessionsStore,
+                              relay_root: Path, executor: "ActionExecutor",
+                              audit) -> None:
+    """Loop-side agent-death dispatch (t1120_5): load state, plan via the
+    pure planner, execute with phase discipline. A stale/duplicate signal
+    (record already terminal or absent) plans zero actions — no-op."""
+    record = await asyncio.to_thread(store.load, session_id)
+    scan = await asyncio.to_thread(scan_one_session, relay_root,
+                                   session_id, audit)
+    actions = reconcile.plan_agent_death_actions(record, scan)
+    if not actions:
+        return
+    audit.info("agent death: %d action(s) for %s", len(actions), session_id)
+    await executor.execute(actions)
 
 
 async def _advance_cursor_for(event, store: SessionsStore, audit) -> None:
@@ -506,6 +629,45 @@ def _refuse(msg: str) -> int:
     return 2
 
 
+def parse_dry_run_argv(output: str) -> tuple:
+    """Extract the argv from an ``ait codeagent … --dry-run`` output.
+
+    The engine prints ``DRY_RUN:`` followed by ``%q``-quoted words —
+    ``shlex.split`` undoes that quoting. ``()`` when no line matches."""
+    for line in output.splitlines():
+        if line.startswith("DRY_RUN:"):
+            return tuple(shlex.split(line[len("DRY_RUN:"):]))
+    return ()
+
+
+def resolve_explore_relay_argv() -> tuple:
+    """Resolve the production agent argv (t1120_4 handoff): the full
+    command shape comes from the engine-owned
+    ``ait codeagent invoke explore-relay --headless --dry-run`` — never
+    hand-assembled here. The dry-run's env preconditions (relay dir +
+    bug-report file must exist) are satisfied with a throwaway scratch dir;
+    the real per-session values travel via the launch env, not argv.
+    ``()`` on any failure (the caller refuses to start)."""
+    root = paths.project_root()
+    try:
+        with tempfile.TemporaryDirectory(prefix="chatlink-argv-") as td:
+            report = Path(td) / "bug_report.md"
+            report.write_text("dry-run resolution placeholder\n",
+                              encoding="utf-8")
+            env = dict(os.environ,
+                       CHATLINK_RELAY_DIR=td,
+                       CHATLINK_BUG_REPORT_FILE=str(report))
+            proc = subprocess.run(
+                [str(root / "ait"), "codeagent", "invoke", "explore-relay",
+                 "--headless", "--dry-run"],
+                capture_output=True, text=True, env=env, cwd=root)
+    except OSError:
+        return ()
+    if proc.returncode != 0:
+        return ()
+    return parse_dry_run_argv(proc.stdout)
+
+
 async def serve() -> int:
     # 1. Config — resolve + load, each refusal distinct (fail-closed).
     cfg_path = paths.config_file()
@@ -530,12 +692,33 @@ async def serve() -> int:
             f"no bot token at {paths.token_file()} — write the bot token "
             "there (0600) before starting.")
 
+    # 2b. Agent command (t1120_4 handoff) — resolved once per daemon run
+    # via the engine-owned dry-run (read-only; still a refuse-path
+    # validation: a gateway that can never launch must not start).
+    agent_argv = await asyncio.to_thread(resolve_explore_relay_argv)
+    if not agent_argv:
+        return _refuse(
+            "could not resolve the explore-relay agent command — run "
+            "'ait codeagent invoke explore-relay --headless --dry-run' "
+            "manually to diagnose the code-agent config.")
+
     # 3. Only now: side effects (adapter connect, dirs, logger).
     from chat.discord_adapter import DiscordAdapter  # lazy: needs chat tier
 
     audit = audit_mod.get_logger(paths.sessions_dir())
     store = SessionsStore(paths.sessions_dir() / "sessions")
     relay_root = paths.relay_root()
+
+    # Sandbox backend (t1120_5): repo-scoped docker launcher. Warn-not-block
+    # when docker is absent — the daemon still serves; launches then fail
+    # honestly (failed session + annotated thread), like NullLauncher did.
+    if shutil.which("docker") is None:
+        print("chatlink: warning — 'docker' not found; sandbox launches "
+              "will fail until Docker is installed "
+              "(see aidocs/chat/chatlink_sandbox.md).", file=sys.stderr)
+    launcher = get_launcher(
+        DEFAULT_SANDBOX_BACKEND,
+        repo_id=repo_identity(paths.project_root()))
 
     adapter = await DiscordAdapter.connect(token)
     try:
@@ -550,8 +733,8 @@ async def serve() -> int:
               flush=True)
         return await run_daemon(
             adapter=adapter, config=config, store=store,
-            launcher=NullLauncher(), relay_root=relay_root, audit=audit,
-            stop=stop)
+            launcher=launcher, relay_root=relay_root, audit=audit,
+            stop=stop, agent_argv=agent_argv)
     finally:
         close = getattr(adapter, "close", None)
         if close is not None:

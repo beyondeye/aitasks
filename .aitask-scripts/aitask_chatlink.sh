@@ -28,5 +28,12 @@ if [[ ${#missing[@]} -gt 0 ]]; then
     die "Missing Python packages: ${missing[*]}. Run 'ait setup' and install the chat adapter tier."
 fi
 
+# Sandbox tier preflight (t1120_5): warn-not-block — the daemon serves
+# without docker, but agent launches fail honestly until it is installed
+# (see aidocs/chat/chatlink_sandbox.md for the image build).
+if ! command -v docker >/dev/null 2>&1; then
+    echo "chatlink: warning — 'docker' not found; sandboxed agent launches will fail until Docker is installed." >&2
+fi
+
 PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     exec "$PYTHON" -m chatlink.daemon "$@"

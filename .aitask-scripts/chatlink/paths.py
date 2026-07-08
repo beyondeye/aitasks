@@ -78,6 +78,18 @@ def relay_root() -> Path:
     return sessions_dir() / "relay"
 
 
+def workspaces_root_beside(relay_root_path: Path) -> Path:
+    """Workspace-copy root for a given relay root (``…/relay`` →
+    ``…/workspaces``). Single derivation point so injected test relay roots
+    and production agree on where per-session workspace copies live."""
+    return Path(relay_root_path).parent / "workspaces"
+
+
+def workspaces_root() -> Path:
+    """Parent dir of per-session disposable workspace copies (t1120_5)."""
+    return workspaces_root_beside(relay_root())
+
+
 def write_token(token: str) -> Path:
     """Write the bot token with owner-only permissions (dir 0700, file 0600).
 

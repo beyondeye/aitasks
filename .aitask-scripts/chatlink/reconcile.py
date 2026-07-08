@@ -1,7 +1,7 @@
 """Pure reconciliation planners for the chatlink gateway (t1120_3).
 
-Two planners — **no I/O anywhere in this module** — turn observed state into
-an ordered list of :class:`Action`\\ s the daemon-side executor applies:
+Pure planners — **no I/O anywhere in this module** — turn observed state
+into an ordered list of :class:`Action`\\ s the daemon-side executor applies:
 
 - :func:`plan_startup_actions` — the crash-ownership pass that runs BEFORE
   the intake loop starts: sessions with no live agent are failed, pending
@@ -14,6 +14,10 @@ an ordered list of :class:`Action`\\ s the daemon-side executor applies:
   ``fetch_history(after=)`` diff, cursors advance, and every still-pending
   question is re-prompted (missed INTERACTION_RECEIVED events are lost —
   the documented non-replayable case — so re-prompt, never assume replay).
+- :func:`plan_agent_death_actions` — the mid-life death pass (t1120_5):
+  the launcher backend's watchdog signals an observed sandbox death; the
+  daemon dispatches this planner from its sequential loop and the executor
+  applies the same fail-closed treatment as the startup branch.
 
 Executor phase discipline (pinned in p1120_3 — the planners tag, the
 executor enforces): per session, phase ``1`` (terminal persistence:
@@ -60,6 +64,7 @@ _PHASES = {
 
 FAIL_REASON_NO_LIVE_AGENT = "no_live_agent"
 FAIL_REASON_CORRUPT_RECORD = "corrupt_record"
+FAIL_REASON_AGENT_DIED = "agent_died"
 REMOVE_REASON_ORPHAN_DIR = "orphan_relay_dir"
 REMOVE_REASON_TERMINAL = "terminal_session"
 
@@ -177,6 +182,36 @@ def plan_startup_actions(
         actions.append(Action(REMOVE_RELAY_DIR, sid,
                               {"reason": REMOVE_REASON_ORPHAN_DIR}))
 
+    return actions
+
+
+def plan_agent_death_actions(
+    record: SessionRecord | None,
+    scan: SpoolScan | None,
+) -> list[Action]:
+    """Mid-life agent-death pass (t1120_5): the daemon consumes the
+    backend's death signal from its sequential dispatch loop and applies
+    the same fail-closed treatment as startup's non-terminal-no-live-agent
+    branch — outcome healing, cancelled answers + component disabling,
+    ``MARK_FAILED``, the ❌ reaction, and relay-dir removal.
+
+    ``[]`` when the record is absent or already terminal: a stale or
+    duplicate death signal (e.g. the session completed between the
+    watchdog's observation and this dispatch) is a no-op by construction —
+    the idempotent supersession guard.
+    """
+    if record is None or record.is_terminal:
+        return []
+    actions = _heal_actions(record, scan)
+    actions.extend(_cancel_and_disable(record, scan, record.question_messages))
+    actions.append(Action(MARK_FAILED, record.session_id,
+                          {"reason": FAIL_REASON_AGENT_DIED}))
+    if record.bug_report_message is not None:
+        actions.append(Action(REACT_FAILED, record.session_id,
+                              {"message": record.bug_report_message}))
+    if scan is not None:
+        actions.append(Action(REMOVE_RELAY_DIR, record.session_id,
+                              {"reason": FAIL_REASON_AGENT_DIED}))
     return actions
 
 
