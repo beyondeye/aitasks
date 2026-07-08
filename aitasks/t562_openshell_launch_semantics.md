@@ -6,9 +6,52 @@ issue_type: feature
 status: Ready
 labels: [agentcrew]
 created_at: 2026-04-15 12:39
-updated_at: 2026-04-16 15:55
+updated_at: 2026-07-08 07:45
 boardidx: 440
 ---
+
+## Scope alignment (t1120_5 — shared sandbox-launch seam)
+
+**openshell is the second backend of `.aitask-scripts/lib/sandbox_launch.py`**
+(landed by t1120_5; pinned t1120 contract 8), not a standalone launcher
+inside `agentcrew_runner.py`. Implementing this task means registering an
+`"openshell"` entry in that module's `BACKENDS` registry (extend
+`VALID_SANDBOX_BACKENDS`; the sync `assert` enforces it) with the same
+`SandboxSpec` → `SandboxHandle` contract (`launch(spec)`,
+`handle.alive()/wait()/kill()`, `reap_orphans(workspace_id)` returning the
+LIVE session-id list).
+
+The seam has already adopted the semantics this task was going to decide,
+so they are settled — implement, don't re-litigate:
+
+- **Delivery by copy/upload** — `make_workspace_copy()` produces a
+  committed-HEAD copy; openshell delivers it via `--upload` (never a live
+  mount).
+- **Sandbox named from session identity** — docker uses
+  `ait-chatlink-<session_id>`; openshell should map the same identity onto
+  its `--name`.
+- **Headless = non-interactive no-TTY** (`--no-tty --no-keep`).
+- **Explicit cleanup verb** — `remove_workspace_copy()` +
+  `openshell sandbox delete`.
+- **Stateless orphan discovery + wall-clock deadline** — docker encodes
+  ownership/deadline as container labels (incl. the repo-scoped
+  `ait.chatlink.repo` label); openshell needs an equivalent stateless
+  tagging so `reap_orphans` works after a gateway crash.
+- **Seam env contract** — the backend exports `CHATLINK_RELAY_DIR` (mount
+  basename MUST stay the session id — the relay lib validates it) and
+  `CHATLINK_BUG_REPORT_FILE`; `spec.env_allowlist` merged on top.
+- **Death signalling** — `spec.on_death` invoked at-most-once from the
+  backend's watchdog; signal-only (all durable cleanup is daemon-side).
+
+A backend-selection config knob (docker vs openshell) is deferred to this
+task — `lib/sandbox_launch.py` currently hardcodes
+`DEFAULT_SANDBOX_BACKEND = "docker"`; add the knob here when the second
+backend makes it meaningful. The agentcrew `openshell_headless` /
+`openshell_interactive` launch modes below then become thin adapters over
+the shared seam (`LaunchContext` → `SandboxSpec`).
+
+See `aidocs/chat/chatlink_sandbox.md` and the `lib/sandbox_launch.py`
+module docstring for the full seam contract.
 
 ## Context
 
