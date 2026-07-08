@@ -6,9 +6,9 @@ issue_type: feature
 status: Ready
 labels: [chat_surface, python, sanboxing]
 gates: [risk_evaluated]
-children_to_implement: [t1120_5, t1120_6, t1120_7, t1120_8]
+children_to_implement: [t1120_6, t1120_7, t1120_8]
 created_at: 2026-07-05 08:27
-updated_at: 2026-07-07 00:16
+updated_at: 2026-07-08 20:54
 boardidx: 40
 ---
 
