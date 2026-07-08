@@ -341,3 +341,105 @@ declared — orchestrator records it; archive via `aitask_archive.sh 1120_5`).
 - Bounded-leak reap decision (terminal-record containers live until
   deadline) could surprise · severity: low · → mitigation: embedded
   (documented in seam docstring + aidocs note)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-08 08:10)
+- **Requested by user:** three review findings: (1) production launches
+  never receive the real chat-native agent argv (`serve()` passed nothing —
+  Docker would run the image CMD and exit); (2) the gateway exported
+  `CHATLINK_BUG_REPORT_FILE` but never wrote the file, so the real
+  explore-relay command would refuse at its env precondition; (3)
+  `reap_orphans` ignored `docker rm` failures despite the plan/docstring
+  saying docker failures raise.
+- **Changes made:** (1) `daemon.py` gained `parse_dry_run_argv` (pure,
+  shlex-undoes the engine's `%q` quoting) + `resolve_explore_relay_argv`
+  (engine-owned `ait codeagent invoke explore-relay --headless --dry-run`
+  with a throwaway scratch dir satisfying the dry-run env preconditions);
+  `serve()` resolves the argv as validation step 2b and REFUSES (distinct
+  message) when unresolvable — a gateway that can never launch must not
+  start. (2) intake writes `bug_report.md` (message text) into the session
+  spool inside the same launch fail path, before the workspace copy. (3)
+  reap's removals go through a raising `rm()` helper — a failed removal
+  never silently drops a session from the live set. Tests: parser unit
+  pair, run_daemon argv-threading assertion, bug-report presence+content,
+  serve refuse-3 (monkeypatched resolver, stderr asserted), FAKE_RM_RC rm-
+  failure row. Suites now 50 (sandbox) + 114 (daemon) + 13 (smoke, re-run
+  live) — all green.
+- **Files affected:** `.aitask-scripts/chatlink/daemon.py`,
+  `.aitask-scripts/chatlink/intake.py`,
+  `.aitask-scripts/lib/sandbox_launch.py`, `tests/test_sandbox_launch.sh`,
+  `tests/test_chatlink_daemon.sh`.
+
+### Change Request 2 (2026-07-08 08:20)
+- **Requested by user:** Dockerfile header still described the relay mount
+  as `/relay` after the contract moved to `/relay/<session_id>`.
+- **Changes made:** header comment updated to the session-id-basename
+  contract (comment-only; image content unchanged — no rebuild needed).
+- **Files affected:** `.aitask-scripts/chatlink/docker/Dockerfile`.
+
+## Final Implementation Notes
+
+- **Actual work done:** all six deliverables, per plan: (1) seam promoted
+  to `.aitask-scripts/lib/sandbox_launch.py` (`SandboxSpec` gained
+  `workspace_id` + `on_death`, `BACKENDS` registry + sync assert,
+  `get_launcher`, `repo_identity`, `make_workspace_copy` /
+  `remove_workspace_copy`); `chatlink/spawn_seam.py` is now an
+  explicit-name re-export shim. (2) `DockerLauncher`: pure
+  `build_docker_run_argv` (labels session/workspace/repo/deadline,
+  `--user uid:gid`, limits, `/work` + `/relay/<sid>` mounts, structural
+  CHATLINK env + HOME=/tmp, allowlist merged), `DockerHandle`
+  (inspect/wait/rm -f), per-launch watchdog thread (wall-clock kill,
+  at-most-once signal-only `on_death`), repo-scoped raising
+  `reap_orphans`. (3) daemon-side wiring: death queue +
+  `_merged_events` single sequential consumer + `_handle_agent_death` →
+  pure `reconcile.plan_agent_death_actions` → phase-disciplined executor;
+  intake writes `bug_report.md` + creates the workspace copy inside the
+  launch fail path; executor phase-3 removes the workspace copy; `serve()`
+  resolves the production argv via the engine dry-run (refuses when
+  unresolvable) and constructs the docker launcher (docker-absent =
+  warn-not-block). (4) pinned image
+  `.aitask-scripts/chatlink/docker/Dockerfile`
+  (`@anthropic-ai/claude-code@2.1.204`) + `aidocs/chat/chatlink_sandbox.md`.
+  (5) docker advisories in `aitask_chatlink.sh` preflight +
+  `aitask_setup.sh` CLI-tools step. (6) t562 scope alignment committed via
+  `./ait git`. Tests: `tests/test_sandbox_launch.sh` (50 checks, fake
+  docker CLI), `tests/test_chatlink_daemon.sh` extended 86→114,
+  `tests/test_sandbox_docker_smoke.sh` (13 checks) **run live** — image
+  built, real-container relay round trip, mid-question-kill negative
+  control, clean reap.
+- **Deviations from plan:** (a) relay dir mounts at `/relay/<session_id>`
+  (not `/relay`) — the relay lib derives AND validates the session id from
+  the dir basename (`relay.py:_SESSION_ID_RE` via
+  `SessionDir.session_id`), discovered when the first live smoke hung;
+  (b) containers run `--user uid:gid` with `HOME=/tmp` — root-created
+  files on the bind mounts were undeletable by the gateway's cleanup;
+  (c) three review findings fixed post-implementation (see Post-Review
+  Changes 1): production argv resolution in `serve()` (+refusal),
+  intake-written `bug_report.md`, raising reap removals; (d) review round 2
+  aligned a stale Dockerfile header comment.
+- **Issues encountered:** only the two live-smoke discoveries above — both
+  became seam-contract lines (module docstring + aidocs + t562 note) and
+  are covered by unit assertions.
+- **Key decisions:** watchdog is signal-only (all durable mutations run on
+  the daemon loop through the sequential dispatch + executor phase
+  discipline — cancelled answers can never be published off-loop);
+  `_merged_events` keeps ONE consumer over adapter events + death signals
+  (unconsumed signals re-queued on close, drained on reconnect); reap
+  ownership is repo-scoped (`ait.chatlink.repo` = sha256(repo root)[:12])
+  so two repos sharing a chat workspace never reap each other; bounded-leak
+  reap semantics documented (terminal-record containers die at deadline);
+  backend selection hardcoded (`DEFAULT_SANDBOX_BACKEND="docker"`) — the
+  config knob is deferred to t562 with the second backend.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1120_6: the daemon already resolves +
+  threads the production argv and writes `bug_report.md`; the remaining
+  glue is env-allowlist sourcing (LLM API key config — intake passes
+  `env_allowlist={}`, contract 10), handle retention for
+  kill-on-payload-completion (intake still drops the launch return), the
+  spool→post pump, and payload validation → task creation. The death path
+  (cancelled answers, record failure, ❌ reaction, dir removal) is already
+  live mid-run via the death signal — the pump should NOT duplicate it.
+  Smoke precedent: `tests/test_sandbox_docker_smoke.sh` shows the full
+  seam-level container flow (stub agent, host-as-gateway answering).
+  Rebuild the image only when bumping `CLAUDE_CODE_VERSION`.
