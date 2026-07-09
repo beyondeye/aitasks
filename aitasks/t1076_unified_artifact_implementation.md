@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [html_plans, task_attachments]
-children_to_implement: [t1076_3, t1076_4]
+children_to_implement: [t1076_4]
 anchor: 1065
 created_at: 2026-06-25 11:01
-updated_at: 2026-07-07 00:14
+updated_at: 2026-07-09 11:27
 boardidx: 140
 ---
 

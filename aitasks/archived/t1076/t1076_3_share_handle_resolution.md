@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: high
 depends: [t1076_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [task_attachments, html_plans]
 gates: [risk_evaluated]
 risk_mitigation_tasks: [1142]
@@ -14,6 +14,7 @@ anchor: 1065
 implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:04
 updated_at: 2026-07-09 11:27
+completed_at: 2026-07-09 11:27
 ---
 
 **Design spec:** `aidocs/unified_artifact_design.md` §6 (+ §5 cache wrapper).
@@ -48,3 +49,14 @@ that resolves on any machine with the project config.
 > **✅ gate:plan_approved** run=2026-07-09T07:56:37Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-09T08:25:51Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-09T08:27:28Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ae32e2260850f846
+
+> **✅ gate:risk_evaluated** run=2026-07-09T08:27:28Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1076_3/risk_evaluated_2026-07-09T08:27:28Z-risk_evaluated-a1.log`
