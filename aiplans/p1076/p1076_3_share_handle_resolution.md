@@ -719,3 +719,97 @@ t1076_4 remains; parent archival waits for it.
 
 ### Planned mitigations
 - timing: after | name: manual_verification_dir_backend_real_mount | type: manual_verification | priority: medium | effort: low | addresses: unmounted-share code-health risk + simulated-AC goal-achievement risk | desc: Verify dir backend + share-handle resolution on a real mounted share (NAS/USB) across two DISTINCT checkouts/environments (ideally two machines, or at minimum two users/paths on one machine) — create/get/move against the mount, confirm the same-absolute-path assumption holds or fails clearly, unmount to confirm the fail-closed "is the share mounted?" path, confirm atomic put across the mount boundary
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-09 11:20)
+- **Requested by user:** `artifact_dir_put` ran `cp "$src" "$tmp"` then
+  `mv -f "$tmp" "$dest"` without checking the copy succeeded. In
+  errexit-suppressed transaction trees (`with_attach_lock`), a failed/partial
+  `cp` would not abort — `mv` would install truncated bytes at the
+  content-addressed path and `put` would return success. `artifact_store`'s
+  `head` check only proves presence and the pre-existing-dest verification
+  only fires when the dest existed BEFORE the put, so create/update could
+  commit a manifest that works locally (cache warmed from the source file)
+  but serves corrupt store bytes to a fresh checkout.
+- **Verification:** confirmed — nothing re-verified freshly-written dir-store
+  bytes; the local backend is protected downstream (artifact_store's local
+  branch runs artifact_resolve, which hash-verifies the canonical blob), the
+  dir path had no equivalent.
+- **Changes made:** `artifact_dir_put` is now atomic in the strong sense:
+  `mktemp` failure dies; `cp` failure removes the temp and dies; the STAGED
+  temp bytes are hash-verified against `$hash` before `mv` (catches
+  disk-full / dropped-mount partial copies); `mv` failure removes the temp
+  and dies. New regression asserts in test_artifact_dir_backend.sh §A: a put
+  whose staged bytes fail verification dies, installs no store entry, and
+  leaves no temp residue (47/47 pass; share-resolution 61/61 and CLI 82/82
+  unchanged).
+- **Files affected:** `.aitask-scripts/lib/artifact_backends/dir.sh`,
+  `tests/test_artifact_dir_backend.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Everything in the plan landed as designed. New
+  backend registry `lib/artifact_registry.py` (~180 lines: `backend-env` /
+  `default-backend` / `list`; `KNOWN_ADAPTERS` extension table; fail-closed
+  config loading via direct `yaml.safe_load` with explicit non-mapping-root
+  die) + bash front `lib/artifact_registry.sh`
+  (`artifact_registry_activate` with the param-var unset loop and the
+  `^ARTIFACT_[A-Z0-9_]+$` export-name guard;
+  `artifact_registry_default_backend`). New `dir` backend
+  (`lib/artifact_backends/dir.sh`): sharded `<root>/<2>/<62>` store at an
+  absolute configured path, root-must-exist "is the share mounted?" guard,
+  strong-atomic content-verifying put (see CR1). Dispatcher gained the `dir`
+  arm at both BACKEND-EXTENSION-POINT markers. `artifact_store <hash> <file>`
+  in artifact_cache.sh is the §5 write-back wrapper (verify source → put →
+  head verify → warm cache from local bytes, no get round-trip); create and
+  update store through it. All four backend-selection sites in
+  aitask_artifact.sh route through `artifact_registry_activate`; create
+  resolves `artifacts.default_backend`; commit/rollback paths are
+  backend-conditional (blob relpaths staged only for local). `cmd_move`
+  replaced the stub: copy every version to the registered target (per-version
+  pre-existence tracked), head-verify each, `set-backend` repoint,
+  manifest-only commit, rollback deletes only newly-created target blobs;
+  same-backend move is a friendly no-op. Seed template documents the
+  `artifacts:` block (incl. secrets-never-here and the same-absolute-path
+  mount assumption); design docs updated (§3 move paragraph, §5 write-back,
+  §6 settled config home, §11 row 3 Done; attachments doc registry/write-back
+  notes + `dir` backend-table row).
+- **Deviations from plan:** None of substance. CR1 (below) strengthened
+  `artifact_dir_put` beyond the planned pre-existing-dest verification to
+  also verify freshly staged bytes.
+- **Issues encountered:** (1) Two test-fixture bugs in the first draft of
+  the share-resolution suite: the "local→dir move" artifact was created
+  without `--backend local` while the fixture's `default_backend` was `dir`
+  (making the move a same-backend no-op), and the rollback tree-cleanliness
+  assert needed scoping to data paths (test scratch files are untracked in
+  the fixture cwd). (2) An intended "dir→local move commits the blobs"
+  assert initially targeted a round-tripped artifact whose local blobs had
+  never left the data branch (non-destructive move) — nothing to commit;
+  the test now uses a dir-born artifact. (3) The unmounted-root resolve test
+  first failed because the resolver correctly served offline from the warm
+  cache — the test clears the cache before unmounting (the offline-serve
+  behavior is asserted separately).
+- **Key decisions:** Backend name IS the adapter name (one instance per
+  adapter; multi-instance indirection rejected until actually wanted);
+  `artifact_max_size_mb` stays flat (the `artifacts:` block is a backend
+  registry, not a settings home); registry loads YAML directly instead of
+  `config_utils.load_yaml_config` (that helper fails open on a non-mapping
+  root — exactly wrong for a registry); `rm` keeps the non-local warn (dir
+  deletions are not git-recoverable; reaping is t1135); dir-store corruption
+  is self-healed by put (bytes in hand provably hash to the address) while
+  local canonical corruption still dies (git-tracked, repair = data-branch
+  surgery).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1076_4 (gate archetype) can target any
+  registered backend by exporting nothing: `ait artifact create`'s
+  `default_backend` resolution + `HANDLE:` output and `update`'s same-bytes
+  idempotency are unchanged; on a configured project the gate's artifacts
+  land on the shared backend automatically. t1089/t1090: add the adapter
+  module in `lib/artifact_backends/<name>.sh`, a dispatch arm + source line
+  at the two BACKEND-EXTENSION-POINT markers, a `KNOWN_ADAPTERS` entry
+  (config keys → env vars + validators) in artifact_registry.py, and the
+  param var(s) in `_AIT_ARTIFACT_REGISTRY_PARAM_VARS` (leakage guard);
+  everything else (resolve, store, move, CLI) lights up without surgery.
+  `artifact_store` is the put-side entry point — remote puts get the same
+  presence verify + local-bytes cache warm for free.
