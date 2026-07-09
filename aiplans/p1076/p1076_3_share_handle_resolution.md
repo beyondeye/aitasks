@@ -700,7 +700,7 @@ t1076_4 remains; parent archival waits for it.
 - The `dir` backend on an unmounted share could silently write into the empty
   mountpoint or fail confusingly · severity: medium · → mitigation: in-plan
   (root must pre-exist + absolute-path validation, "is the share mounted?"
-  die; Step 9 §C) + manual_verification_dir_backend_real_mount (after)
+  die; Step 9 §C) + t1142 (manual_verification_dir_backend_real_mount, after)
 - Dispatcher/CLI edits touch the shared attach substrate (artifact_backend.sh
   is sourced by aitask_attach.sh) · severity: low · → mitigation: in-plan
   (dir.sh functions are inert unless activated; full attach regression suite
@@ -715,10 +715,10 @@ t1076_4 remains; parent archival waits for it.
   · severity: low · → mitigation: in-plan (the dir backend exercises the
   identical resolution chain — config lookup, backend get, verify, cache;
   real-remote specifics are t1089/t1090's scope by design) +
-  manual_verification_dir_backend_real_mount (after)
+  t1142 (manual_verification_dir_backend_real_mount, after)
 
 ### Planned mitigations
-- timing: after | name: manual_verification_dir_backend_real_mount | type: manual_verification | priority: medium | effort: low | addresses: unmounted-share code-health risk + simulated-AC goal-achievement risk | desc: Verify dir backend + share-handle resolution on a real mounted share (NAS/USB) across two DISTINCT checkouts/environments (ideally two machines, or at minimum two users/paths on one machine) — create/get/move against the mount, confirm the same-absolute-path assumption holds or fails clearly, unmount to confirm the fail-closed "is the share mounted?" path, confirm atomic put across the mount boundary
+- timing: after | name: manual_verification_dir_backend_real_mount (created: t1142) | type: manual_verification | priority: medium | effort: low | addresses: unmounted-share code-health risk + simulated-AC goal-achievement risk | desc: Verify dir backend + share-handle resolution on a real mounted share (NAS/USB) across two DISTINCT checkouts/environments (ideally two machines, or at minimum two users/paths on one machine) — create/get/move against the mount, confirm the same-absolute-path assumption holds or fails clearly, unmount to confirm the fail-closed "is the share mounted?" path, confirm atomic put across the mount boundary
 
 ## Post-Review Changes
 
