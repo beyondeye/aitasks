@@ -68,3 +68,5 @@ Add cross-repo support to the `ait syncer` TUI (`.aitask-scripts/syncer/`), mode
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-09T06:34:13Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-09T07:31:52Z status=pass attempt=1 type=human
