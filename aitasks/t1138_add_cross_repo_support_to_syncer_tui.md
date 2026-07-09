@@ -7,8 +7,9 @@ status: Implementing
 labels: [tui, git-integration, project_groups]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/fable5
 created_at: 2026-07-08 08:42
-updated_at: 2026-07-08 08:47
+updated_at: 2026-07-09 09:33
 ---
 
 ## Goal
@@ -60,3 +61,8 @@ Add cross-repo support to the `ait syncer` TUI (`.aitask-scripts/syncer/`), mode
 - Test `check_action` gating: actions disabled on aggregate row; enabled per selected repo+ref.
 - Single-repo regression: with `< 2` repos, the selector is absent and behavior is unchanged.
 - Reference the syncer/stats TUI test conventions (Textual render-level + pure-helper unit tests).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-09T06:34:13Z status=pass attempt=1 type=human
