@@ -7,8 +7,9 @@ status: Implementing
 labels: [task_attachments, html_plans]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
+implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:04
-updated_at: 2026-07-09 09:37
+updated_at: 2026-07-09 10:56
 ---
 
 **Design spec:** `aidocs/unified_artifact_design.md` §6 (+ §5 cache wrapper).
@@ -36,3 +37,8 @@ that resolves on any machine with the project config.
 - A handle authored on one checkout resolves on a second checkout that has only the
   project config (simulate: clear cache, resolve, confirm fetch+cache+verify).
 - Backend swap in config re-resolves the same handle without any task-file change.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-09T07:56:37Z status=pass attempt=1 type=human
