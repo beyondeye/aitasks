@@ -140,20 +140,39 @@ def parse_sync_output(stdout: str) -> SyncResult:
     )
 
 
-def run_sync_batch(timeout: float = DEFAULT_SYNC_TIMEOUT_SECONDS) -> SyncResult:
+def sync_batch_command(repo_root: Path | None = None) -> tuple[list[str], str | None]:
+    """(argv, cwd) for the ``aitask_sync.sh --batch`` invocation.
+
+    Pure command-resolution seam (no subprocess) so targeting is unit-testable
+    without live git. ``None`` preserves the legacy CWD-relative invocation
+    (the board caller); a root targets that repo's own installed script with
+    ``cwd=<root>`` so its ``_AIT_DATA_WORKTREE`` resolution applies.
+    """
+    if repo_root is None:
+        return [_SYNC_SCRIPT, "--batch"], None
+    return [str(repo_root / ".aitask-scripts" / "aitask_sync.sh"), "--batch"], str(repo_root)
+
+
+def run_sync_batch(
+    timeout: float = DEFAULT_SYNC_TIMEOUT_SECONDS,
+    repo_root: Path | None = None,
+) -> SyncResult:
     """Invoke `aitask_sync.sh --batch` and return a parsed `SyncResult`.
 
     Blocking — designed to be called from inside a `@work(thread=True)` worker.
     Owns subprocess error mapping: timeouts become `STATUS_TIMEOUT`, missing
     script becomes `STATUS_NOT_FOUND`. Otherwise hands off to
-    `parse_sync_output`.
+    `parse_sync_output`. ``repo_root`` targets another repo's sync script
+    (see `sync_batch_command`); ``None`` is the legacy CWD-relative behavior.
     """
+    argv, cwd = sync_batch_command(repo_root)
     try:
         result = subprocess.run(
-            [_SYNC_SCRIPT, "--batch"],
+            argv,
             capture_output=True,
             text=True,
             timeout=timeout,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired:
         return SyncResult(
@@ -232,7 +251,11 @@ class SyncConflictScreen(ModalScreen):
         self.dismiss(False)
 
 
-def run_interactive_sync(app, on_done: Callable[[], None] | None = None) -> None:
+def run_interactive_sync(
+    app,
+    on_done: Callable[[], None] | None = None,
+    repo_root: Path | None = None,
+) -> None:
     """Launch interactive `./ait sync` for conflict resolution.
 
     Two paths:
@@ -244,17 +267,28 @@ def run_interactive_sync(app, on_done: Callable[[], None] | None = None) -> None
       the inline call returns, invoke `on_done` (if provided) so the host
       app can refresh its state.
 
+    ``repo_root`` targets another repo's own ``ait`` dispatcher (the absolute
+    path suffices — ``ait`` cds to its repo root itself); ``None`` keeps the
+    legacy CWD-relative invocation.
+
     The no-terminal path uses `app.suspend()`, which blocks; call this from a
     worker context (e.g., `@work(exclusive=True)`) to avoid stalling the
     event loop. The terminal-spawn path is non-blocking and safe from any
     context.
     """
+    if repo_root is None:
+        ait_argv = ["./ait", "sync"]
+        cwd = None
+    else:
+        ait_argv = [str(repo_root / "ait"), "sync"]
+        cwd = str(repo_root)
+
     terminal = find_terminal()
     if terminal:
-        spawn_in_terminal(terminal, ["./ait", "sync"])
+        spawn_in_terminal(terminal, ait_argv)
         return
 
     with app.suspend():
-        subprocess.call(["./ait", "sync"])
+        subprocess.call(ait_argv, cwd=cwd)
     if on_done is not None:
         on_done()

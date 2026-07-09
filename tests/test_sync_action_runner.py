@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Tests for .aitask-scripts/lib/sync_action_runner.py — parser only."""
+"""Tests for .aitask-scripts/lib/sync_action_runner.py — parser and the
+repo-targeting command seam (no live git)."""
 from __future__ import annotations
 
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 LIB_SRC = PROJECT_DIR / ".aitask-scripts" / "lib"
 sys.path.insert(0, str(LIB_SRC))
 
+import sync_action_runner  # noqa: E402
 from sync_action_runner import (  # noqa: E402
+    sync_batch_command,
     STATUS_AUTOMERGED,
     STATUS_CONFLICT,
     STATUS_ERROR,
@@ -104,6 +109,59 @@ class ParseSyncOutputTests(unittest.TestCase):
         raw = "PUSHED\ntrailing\n"
         r = parse_sync_output(raw)
         self.assertEqual(r.raw_output, raw)
+
+
+class SyncBatchCommandTests(unittest.TestCase):
+    """Pure command-resolution seam for repo targeting (t1138)."""
+
+    def test_legacy_none_is_cwd_relative(self):
+        argv, cwd = sync_batch_command(None)
+        self.assertEqual(argv, ["./.aitask-scripts/aitask_sync.sh", "--batch"])
+        self.assertIsNone(cwd)
+
+    def test_rooted_targets_repo_own_script(self):
+        root = Path("/some/other/repo")
+        argv, cwd = sync_batch_command(root)
+        self.assertEqual(
+            argv, [str(root / ".aitask-scripts" / "aitask_sync.sh"), "--batch"]
+        )
+        self.assertEqual(cwd, str(root))
+
+
+class RunSyncBatchTargetingTests(unittest.TestCase):
+    """Construction spy: the subprocess actually targets the selected repo
+    (cwd + argv), not the launch CWD — the primary targeting guarantee."""
+
+    def _spy(self, calls):
+        def fake_run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            return SimpleNamespace(stdout="NOTHING\n")
+        return fake_run
+
+    def test_rooted_subprocess_receives_target_cwd_and_argv(self):
+        calls: list = []
+        with mock.patch.object(
+            sync_action_runner.subprocess, "run", self._spy(calls)
+        ):
+            r = sync_action_runner.run_sync_batch(repo_root=Path("/target/repo"))
+        self.assertEqual(r.status, STATUS_NOTHING)
+        self.assertEqual(len(calls), 1)
+        argv, kwargs = calls[0]
+        self.assertEqual(argv[0], "/target/repo/.aitask-scripts/aitask_sync.sh")
+        self.assertEqual(argv[1], "--batch")
+        self.assertEqual(kwargs["cwd"], "/target/repo")
+
+    def test_none_root_preserves_legacy_board_invocation(self):
+        # Regression pin for the board caller: default stays CWD-relative.
+        calls: list = []
+        with mock.patch.object(
+            sync_action_runner.subprocess, "run", self._spy(calls)
+        ):
+            r = sync_action_runner.run_sync_batch()
+        self.assertEqual(r.status, STATUS_NOTHING)
+        argv, kwargs = calls[0]
+        self.assertEqual(argv, ["./.aitask-scripts/aitask_sync.sh", "--batch"])
+        self.assertIsNone(kwargs["cwd"])
 
 
 if __name__ == "__main__":

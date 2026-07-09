@@ -40,6 +40,7 @@ from agent_launch_utils import (  # noqa: E402
     CrossGroupRingEntry,
     advance_group_selection,
     cross_group_ring,
+    compact_root,
     cross_group_step,
     default_selected_group,
     disambiguate_labels,
@@ -58,16 +59,6 @@ from stats.stats_data import (  # noqa: E402
 )
 
 ALL_SESSIONS_KEY = "__all__"
-
-
-def _compact_root(project_root: Path) -> str:
-    """Home-abbreviated project_root — a compact, globally-unique disambiguator
-    (t1099). Used as the secondary/fallback when project names collide."""
-    text = str(project_root)
-    home = str(Path.home())
-    if text == home or text.startswith(home + os.sep):
-        return "~" + text[len(home):]
-    return text
 
 
 def discover_stats_sessions() -> list[AitasksSession]:
@@ -265,8 +256,8 @@ class StatsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         compact root only when two repos share a project name."""
         labels = disambiguate_labels(
             [s.project_name for s in self.sessions],
-            [_compact_root(s.project_root) for s in self.sessions],
-            [_compact_root(s.project_root) for s in self.sessions],
+            [compact_root(s.project_root) for s in self.sessions],
+            [compact_root(s.project_root) for s in self.sessions],
         )
         mapping = {s.key: lbl for s, lbl in zip(self.sessions, labels)}
         mapping[ALL_SESSIONS_KEY] = "All projects (aggregate)"

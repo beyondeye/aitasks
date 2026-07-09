@@ -336,5 +336,36 @@ class DesyncStateTests(unittest.TestCase):
         self.assertEqual(physical_main_branch({}), "main")
 
 
+class SnapshotRootParamTests(unittest.TestCase):
+    """snapshot(root=...) targets the given repo, not the process CWD (t1138)."""
+
+    def test_snapshot_targets_given_root_not_cwd(self) -> None:
+        from desync_state import snapshot
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, _ = make_main_project(root)
+            # CWD is the aitasks checkout running the tests — NOT the fixture.
+            data = snapshot(None, False, root=project)
+            by_name = {r["name"]: r for r in data["refs"]}
+            self.assertEqual(by_name["main"]["status"], "ok")
+            self.assertEqual(by_name["main"]["local_ref"], "main")
+            self.assertEqual(by_name["aitask-data"]["status"], "missing_worktree")
+
+    def test_snapshot_root_overrides_git_cwd(self) -> None:
+        # A non-git root reports missing_worktree for both refs even though
+        # the process CWD is inside a real git repo — proving the root param,
+        # not the CWD, drives the scan.
+        from desync_state import snapshot
+
+        with tempfile.TemporaryDirectory() as tmp:
+            empty = Path(tmp) / "empty"
+            empty.mkdir()
+            data = snapshot(None, False, root=empty)
+            self.assertEqual(
+                {r["status"] for r in data["refs"]}, {"missing_worktree"}
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

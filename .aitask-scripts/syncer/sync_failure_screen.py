@@ -18,6 +18,9 @@ class SyncFailureContext:
     status: str
     stderr_tail: str
     raw_output: str = ""
+    # Absolute root of the repo the failed action targeted; None = the launch
+    # repo (legacy single-repo semantics). Used to root the resolution agent.
+    repo_root: str | None = None
 
 
 class SyncFailureScreen(ModalScreen):

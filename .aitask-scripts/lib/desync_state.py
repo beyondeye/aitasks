@@ -195,9 +195,17 @@ def snapshot_ref(name: str, fetch: bool, root: Path) -> RefState:
     )
 
 
-def snapshot(ref_filter: str | None, fetch: bool) -> dict[str, list[dict[str, object]]]:
+def snapshot(
+    ref_filter: str | None, fetch: bool, root: Path | None = None
+) -> dict[str, list[dict[str, object]]]:
+    """Snapshot tracked refs for a repo root (default: the CWD repo).
+
+    ``root`` retargets the scan at another aitasks repo (multi-repo syncer);
+    all existing callers keep the CWD default.
+    """
     names = [ref_filter] if ref_filter else ["main", "aitask-data"]
-    root = repo_root()
+    if root is None:
+        root = repo_root()
     return {"refs": [asdict(snapshot_ref(name, fetch, root)) for name in names]}
 
 

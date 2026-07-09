@@ -151,6 +151,17 @@ class RegistryRecord(NamedTuple):
     project_group: str
 
 
+def compact_root(project_root: Path) -> str:
+    """Home-abbreviated project_root — a compact, globally-unique disambiguator
+    (t1099). Used as the secondary/fallback label when project names collide
+    (stats TUI, syncer)."""
+    text = str(project_root)
+    home = str(Path.home())
+    if text == home or text.startswith(home + os.sep):
+        return "~" + text[len(home):]
+    return text
+
+
 def find_terminal() -> str | None:
     """Find an available terminal emulator, or return None."""
     terminal = os.environ.get("TERMINAL")
