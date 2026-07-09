@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t1120_5]
 issue_type: feature
@@ -8,8 +10,9 @@ labels: [chat_surface, python]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1120
+implemented_with: claudecode/fable5
 created_at: 2026-07-05 12:00
-updated_at: 2026-07-09 09:36
+updated_at: 2026-07-09 11:10
 ---
 
 ## Context
@@ -90,3 +93,8 @@ no docker):
   build on it, not replace it.
 - **t1140** (`multi_agent_sandbox_roadmap`) also depends on this task
   (multi-agent explore-relay variants come after the e2e glue).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-09T08:11:04Z status=pass attempt=1 type=human
