@@ -187,6 +187,44 @@ lint_command:
 # attachments_gc_grace: 30d
 
 # ──────────────────────────────────────────────────────────────────────
+# artifacts — Backend registry for versioned task artifacts (`ait artifact`).
+#
+# Describes how to reach the storage backends that hold artifact blobs, so an
+# artifact handle (art:<id>) created on one machine resolves on any machine
+# with this config. The `local` backend (blobs on the task-data branch) is
+# ALWAYS registered and needs no configuration — omit this whole block unless
+# you want a shared store.
+#
+# `default_backend` names the backend `ait artifact create` uses when
+# --backend is not given (default: local). `backends.<name>` registers a
+# backend; each entry carries only that backend's non-secret coordinates.
+#
+# SECRETS NEVER GO HERE — this file is git-tracked and team-shared.
+# Credentials for remote backends belong in env vars or gitignored per-user
+# files (remote adapters: s3 t1089, gdrive t1090).
+#
+# `dir` backend: a directory root shared by every checkout — a NAS mount,
+# network share, or USB drive. `path` must be ABSOLUTE and is the SAME for
+# the whole team: every participating machine must mount the share at that
+# path (use a symlink if your mountpoint differs). The root must already
+# exist when used ("is the share mounted?" guard) — only shard subdirs are
+# created. Design: aidocs/unified_artifact_design.md §6.
+#
+# Example:
+#   artifacts:
+#     default_backend: dir
+#     backends:
+#       dir:
+#         path: /mnt/share/ait-artifacts
+# ──────────────────────────────────────────────────────────────────────
+
+# artifacts:
+#   default_backend: dir
+#   backends:
+#     dir:
+#       path: /mnt/share/ait-artifacts
+
+# ──────────────────────────────────────────────────────────────────────
 # doc_update — Spec for the `docs_updated` procedure gate (a gate a task can
 # declare in its `gates:` to require its docs be updated).
 #

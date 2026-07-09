@@ -74,3 +74,37 @@ artifact_resolve() {
     fi
     die "artifact_resolve: blob not found for $hash (cache miss and backend miss)"
 }
+
+# artifact_store <hash> <file> -- write-back (design §5, t1076_3): verify
+# <file> hashes to <hash>, put it to the ACTIVE backend, VERIFY the backend
+# reports it, then warm the universal cache from the verified LOCAL bytes —
+# no backend get round-trip. The post-put head catches a LOST put (presence
+# only — backend content correctness is owned one level down: dir-put
+# content-verifies a pre-existing dest; the local branch's artifact_resolve
+# call hash-verifies the canonical blob). Every step carries an explicit
+# `|| die`: this helper runs inside with_attach_lock transactions where
+# errexit is suppressed.
+artifact_store() {
+    local hash="$1" file="$2" cache
+    artifact_validate_hash "$hash" || die "artifact_store: invalid hash: '$hash'"
+    [[ -f "$file" ]] || die "artifact_store: not a file: $file"
+    [[ "$(artifact_sha256 "$file")" == "$hash" ]] \
+        || die "artifact_store: $file does not hash to $hash"
+    artifact_backend_put "$hash" "$file" || die "artifact_store: backend put failed for $hash"
+    artifact_backend_head "$hash" \
+        || die "artifact_store: backend does not report $hash after put — write-back failed"
+    if [[ "${ARTIFACT_BACKEND:-local}" == "local" ]]; then
+        artifact_resolve "$hash" >/dev/null    # symlink fast path + canonical verify
+        return 0
+    fi
+    cache="$(artifact_cache_path "$hash")"
+    mkdir -p "$(dirname "$cache")" || die "artifact_store: cannot create cache dir"
+    local tmp
+    tmp="$(mktemp "$(dirname "$cache")/.store.XXXXXX")" || die "artifact_store: mktemp failed"
+    if ! cp "$file" "$tmp" || ! mv -f "$tmp" "$cache"; then
+        rm -f "$tmp"
+        die "artifact_store: could not warm cache for $hash"
+    fi
+    [[ "$(artifact_sha256 "$cache")" == "$hash" ]] \
+        || { rm -f "$cache"; die "artifact_store: cache warm verification failed for $hash"; }
+}

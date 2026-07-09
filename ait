@@ -46,7 +46,7 @@ Task Management:
   git-health     Diagnose the .aitask-data worktree state
   lock           Lock/unlock tasks to prevent concurrent work
   attach         Manage task file attachments (ls; add/get/rm/move/gc pending)
-  artifact       Manage versioned task artifacts (create/update/rm/ls/get/versions; move pending)
+  artifact       Manage versioned task artifacts (create/update/move/rm/ls/get/versions)
 
 Gates:
   gates run      Run the gate orchestrator for a task

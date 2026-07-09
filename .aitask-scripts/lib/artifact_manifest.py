@@ -23,9 +23,10 @@ every write):
 Invariants: handle matches HANDLE_RE and the filename; versions is non-empty,
 ordered oldest->newest, duplicate-free, every entry matches HASH_RE;
 current is a member of versions; backend matches BACKEND_RE (conservative
-name-shape validation -- registry membership / configuration is t1076_3's
-concern; this only stops typos from persisting to fail far away at
-resolution); timestamps are integer epochs.
+name-shape validation -- registry membership / configuration is enforced at
+the registry layer, lib/artifact_registry.py, at activation time (t1076_3);
+the manifest keeps shape-only validation so typos never persist to fail far
+away at resolution); timestamps are integer epochs.
 
 MALFORMED-MANIFEST POLICY (fail-closed, named): every subcommand that reads a
 manifest -- including the tree-scanning `list` / `referenced-hashes` -- dies on

@@ -173,7 +173,11 @@ Dispatch follows the same **platform-extensible dispatcher pattern** as
 `gitremoteproviderintegration.md` — a `case` on `$ARTIFACT_BACKEND`
 routes to the per-backend implementation. Backends register themselves by
 dropping a file in `artifact_backends/` and adding a `case` arm to the
-dispatcher.
+dispatcher. Since t1076_3, backend *selection* for artifacts goes through the
+config registry (`lib/artifact_registry.{py,sh}` reading the `artifacts:`
+block in `aitasks/metadata/project_config.yaml`) — `artifact_registry_activate
+<name>` validates registration and exports `$ARTIFACT_BACKEND` plus the
+adapter's params. Attachments remain local-only consumers.
 
 ### Universal local cache
 
@@ -190,6 +194,11 @@ The resolver (`lib/artifact_cache.sh::artifact_resolve`) hash-verifies the
 resolved bytes itself (t1076_1): a corrupted cached copy self-heals with a
 single re-fetch; a corrupted canonical blob dies loudly and is never
 auto-repaired.
+
+The write-back half is `artifact_store <hash> <file>` (same file, t1076_3):
+verify the source bytes, `put` to the active backend, verify presence, then
+warm the cache directly from the verified local bytes — no backend get
+round-trip.
 
 The cache is purely a performance layer; the **canonical copy lives in the
 backend**. A `local` backend short-circuits the cache by symlinking from
@@ -222,6 +231,7 @@ backends:
 | Backend | Setup cost | Auth UX | Storage cost (10 GB cold) | Notes |
 |---|---|---|---|---|
 | **Local (`.aitask-data` branch)** | none | none | free, but bloats the data repo | v1 default; perfect for small artefacts |
+| **dir** (NAS / mounted share / USB) | a mounted path | none | free | shipped t1076_3 as the first config-registered artifact backend; team must mount the share at one absolute path |
 | **S3-compatible** (R2, S3, B2, MinIO, GCS via HMAC) | bucket + HMAC key | env vars / config file | $0.02–0.03/mo + egress | one adapter covers many providers; Cloudflare R2's zero egress is the standout |
 | **GCS native** | bucket + ADC | `gcloud auth application-default login` | $0.02/mo (Archive) | best end-user auth UX; locks code to one provider |
 | **GitHub release assets** | none beyond `gh` | `gh auth` | free for public repos | clumsy for granular per-task management; nice for "publish once" |

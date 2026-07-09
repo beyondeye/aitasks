@@ -2,7 +2,7 @@
 # test_artifact_cli.sh - e2e for the `ait artifact` CLI (t1076_2): the artifact
 # pointer/version model on the t1076_1 substrate. Covers create (derived +
 # explicit handles, validation), update-in-place (the core AC: task file stays
-# byte-identical), the move stub, rm (manifest/blob guards with negative
+# byte-identical), move-to-unregistered-backend guards, rm (manifest/blob guards with negative
 # controls, ambiguity, stale-reference cleanup, Folded revive-safety), ls/get/
 # versions, the decref-deleted artifact guard, aitask_update.sh preservation of
 # the artifacts: block, and the gc interplay (manifest block lifts after rm).
@@ -81,7 +81,9 @@ assert_exit_nonzero "missing --kind dies" "$ART" create 6 tiny.txt
 assert_exit_nonzero "uppercase kind dies" "$ART" create 6 tiny.txt --kind Upper
 assert_exit_nonzero "digit-leading kind dies" "$ART" create 6 tiny.txt --kind 1x
 assert_exit_nonzero "kind with space dies" "$ART" create 6 tiny.txt --kind "a b"
-assert_exit_nonzero "non-local backend dies" "$ART" create 6 tiny.txt --kind report --backend s3
+# `s3` is UNREGISTERED in this fixture (no artifacts: block in project
+# config) — the registry rejects it pre-mutation (t1076_3).
+assert_exit_nonzero "unregistered backend dies" "$ART" create 6 tiny.txt --kind report --backend s3
 assert_exit_nonzero "invalid explicit handle (traversal) dies" "$ART" create 6 tiny.txt --kind report --handle "art:../x"
 assert_exit_nonzero "invalid explicit handle (uppercase) dies" "$ART" create 6 tiny.txt --kind report --handle "art:Foo"
 dup_err="$( "$ART" create 6 tiny.txt --kind html_plan --handle art:t5-htmlplan 2>&1 )"; rc=$?
@@ -119,13 +121,13 @@ after="$(git rev-list --count HEAD)"
 assert_eq "idempotent same-bytes update makes no commit" "0" "$((after - before))"
 assert_exit_nonzero "update on missing handle dies" "$ART" update art:nosuch plan2.html
 
-# ── D. move: stub dies, manifest untouched ────────────────────────────────────
+# ── D. move to an unregistered backend dies pre-mutation ──────────────────────
 cp "artifacts/manifests/t5-htmlplan.json" "$TMP/manifest.before"
-assert_exit_nonzero "move is a stub and dies" "$ART" move art:t5-htmlplan --to s3
+assert_exit_nonzero "move to an unregistered backend dies" "$ART" move art:t5-htmlplan --to s3
 if cmp -s "artifacts/manifests/t5-htmlplan.json" "$TMP/manifest.before"; then
     PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1))
 else
-    FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1)); echo "FAIL: move stub left the manifest untouched"
+    FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1)); echo "FAIL: rejected move left the manifest untouched"
 fi
 
 # ── E. get / versions / ls ────────────────────────────────────────────────────

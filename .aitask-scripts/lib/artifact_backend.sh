@@ -31,6 +31,8 @@ _AIT_ARTIFACT_BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Per-backend implementations. Each module defines artifact_<backend>_<op>.
 # shellcheck source=lib/artifact_backends/local.sh
 source "$_AIT_ARTIFACT_BACKEND_DIR/artifact_backends/local.sh"
+# shellcheck source=lib/artifact_backends/dir.sh
+source "$_AIT_ARTIFACT_BACKEND_DIR/artifact_backends/dir.sh"
 # BACKEND-EXTENSION-POINT (source): source new artifact_backends/<name>.sh here.
 
 # _artifact_backend_call <op> [args...]
@@ -40,8 +42,9 @@ _artifact_backend_call() {
     local backend="${ARTIFACT_BACKEND:-local}"
     case "$backend" in
         local) "artifact_local_${op}" "$@" ;;
+        dir)   "artifact_dir_${op}" "$@" ;;
         # BACKEND-EXTENSION-POINT (dispatch): add `name) artifact_name_${op} "$@" ;;`
-        *) die "artifact_backend: unknown backend '$backend' (known: local)" ;;
+        *) die "artifact_backend: unknown backend '$backend' (known: local, dir)" ;;
     esac
 }
 

@@ -90,10 +90,11 @@ create/update/rm/ls/get/versions):
 | Move backend | change `backend`, re-`put` blobs in the new backend | manifest + backend |
 | Reference from a task | store the **handle only** | task frontmatter (set once) |
 
-The user-facing `ait artifact move` verb is deferred to remote-backend work
-(t1076_3/t1089/t1090): a safe move must copy every version blob to a
-*registered* target backend before repointing, and only `local` exists today.
-The substrate op (`artifact_manifest set-backend`, t1076_1) is in place.
+The user-facing `ait artifact move` verb landed with t1076_3 (the `dir`
+backend made a second registered target exist): it copies every version blob
+to the *registered* target backend, verifies presence, then repoints via the
+substrate op (`artifact_manifest set-backend`, t1076_1). Source blobs stay
+(non-destructive); a failed move rolls back and is safely re-runnable.
 
 **This is what makes "handle-only, never rewrite task files" actually hold.** The
 churny state (current / versions / backend) is quarantined in the manifest; the
@@ -206,15 +207,18 @@ S3-compatible / GCS native / GitHub release assets / GDrive). Dispatch follows
 the platform-extensible dispatcher pattern
 ([`gitremoteproviderintegration.md`](gitremoteproviderintegration.md)).
 
-**Universal local cache + write-back.** Independent of the chosen backend, every
-machine keeps a local cache (`~/.cache/ait/artifacts/<hash>`). A **wrapper bash
-script reads a blob into the local file cache for local access and writes back to
-the backend** (the `put`/`get`/`head` + write-back contract). Resolution order:
-cache hit → backend `head`+`get` → loud error (never a silent placeholder).
-The resolver (`lib/artifact_cache.sh::artifact_resolve`, t1076_1) **verifies the
-resolved bytes' hash itself** — consumers never depend on caller-side re-hashing:
-a corrupted cached copy self-heals (single re-fetch), a corrupted canonical blob
-dies loudly and is never auto-repaired.
+**Universal local cache + write-back (done, t1076_1 + t1076_3).** Independent
+of the chosen backend, every machine keeps a local cache
+(`~/.cache/ait/artifacts/<hash>`). Resolution order: cache hit → backend
+`head`+`get` → loud error (never a silent placeholder). The resolver
+(`lib/artifact_cache.sh::artifact_resolve`, t1076_1) **verifies the resolved
+bytes' hash itself** — consumers never depend on caller-side re-hashing: a
+corrupted cached copy self-heals (single re-fetch), a corrupted canonical blob
+dies loudly and is never auto-repaired. The **write-back half is
+`artifact_store <hash> <file>`** (same file, t1076_3): verify the source
+bytes, `put` to the active backend, verify presence, then warm the cache
+directly from the verified local bytes — no backend get round-trip. Every
+`ait artifact create`/`update` stores through it.
 
 The **zero-config `local` backend** is the default for getting started and for
 small immutable attachments — it lives in `.aitask-data/` and is committed, so it
@@ -237,10 +241,36 @@ art:<id>  ──▶  manifest (current hash + backend)  ──▶  project confi
 - The **manifest** holds the current hash + backend.
 - The **project config** names how to reach the backend.
 
-Proposed config home: a new `artifacts:` block in
-`aitasks/metadata/project_config.yaml` (git-tracked, shared across the team) —
-kept separate from execution profiles (workflow behavior) and `userconfig.yaml`
-(per-user). Because references are **hash-first underneath**, a backend swap
+**Settled and implemented (t1076_3):** the config home is the `artifacts:`
+block in `aitasks/metadata/project_config.yaml` (git-tracked, shared across
+the team) — kept separate from execution profiles (workflow behavior) and
+`userconfig.yaml` (per-user):
+
+```yaml
+artifacts:
+  default_backend: dir            # optional; backend `create` uses when --backend absent
+  backends:
+    dir:
+      path: /mnt/share/ait-artifacts   # non-secret coordinates only — never credentials
+```
+
+The registry (`lib/artifact_registry.{py,sh}`) validates a backend name
+against this block at **activation time** (`artifact_registry_activate`,
+called before every backend operation) and exports the adapter's params —
+fail-closed: unregistered names, adapterless names, missing/relative paths,
+and malformed config (including a non-mapping YAML root) all die actionably.
+Backend **names are adapter names** (`local`, `dir`, later `s3`/`gdrive`) —
+one instance per adapter; `local` is always implicitly registered,
+zero-config. The first configured backend is **`dir`**
+(`lib/artifact_backends/dir.sh`): a mounted directory root (NAS / network
+share / USB). Note its extra assumption: the git-tracked `path` is one
+absolute path for the whole team, so every participating machine must mount
+the share there (true remote backends — t1089/t1090 — carry no such
+assumption). `ait artifact move <handle> --to <backend>` performs the safe
+backend move: copy every version blob to the registered target, verify, then
+repoint the manifest — non-destructive and resumable.
+
+Because references are **hash-first underneath**, a backend swap
 touches only the manifest, never task files. **Any machine with the project
 config resolves the same handle** — this is the "shareable native render whose
 handle resolves on any machine with the project configuration" property.
@@ -396,7 +426,7 @@ Not all of this design is mapped to existing tasks. As of this writing:
 |---|---|---|
 | 1. Storage abstraction generalization (`artifact_backend` + manifest) | t1030 builds the **attachment** backend + cache + per-blob meta ledger only | **Done (t1076_1)** — t1030 was the foundation; the generalization to artifacts + the (net-new) manifest landed in t1076_1 |
 | 2. Artifact pointer/version model + `artifacts:` frontmatter | none | **Done (t1076_2)** — `ait artifact` CLI (create/update/rm/ls/get/versions), handle-only `artifacts:` frontmatter, fold transfer, hard-delete guard (full lifecycle: t1135) |
-| 3. Share-handle resolution + cache wrapper | none | **Gap** (net-new — the sharing dimension this task adds) |
+| 3. Share-handle resolution + cache wrapper | none | **Done (t1076_3)** — `artifacts:` config registry (`lib/artifact_registry.{py,sh}`), `dir` backend, `artifact_store` write-back, `ait artifact move` |
 | 4. HTML-plan-as-artifact integration | **t774** exists | **Mapped, needs re-scope** — its "3rd inline-committed file" framing is revised (see the t774 coordination note) |
 | 5. Artifact-producing gate archetype | none — t635 children (t635_12…t635_24) have no such child; t635_19 is `docs_updated`, not artifact-producing | **Gap** (net-new t635 child) |
 

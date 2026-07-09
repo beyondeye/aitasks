@@ -13,10 +13,13 @@
 # single-version sibling; the two frontmatter fields stay separate (t1076_2
 # settled decision, design §10).
 #
-# STATE: `create`/`update`/`rm`/`ls`/`get`/`versions` (and `help`) are
-# functional. `move` is a stub — a SAFE backend move must copy every version
-# blob to a registered target backend before repointing the manifest, and only
-# the `local` backend exists today (remote backends: t1076_3/t1089/t1090).
+# STATE: every verb is functional, `move` included (t1076_3: copy every
+# version blob to the registered target, verify, then repoint the manifest —
+# non-destructive, resumable). Backends: `local` (zero-config, always
+# registered) and `dir` (a mounted directory root registered under
+# artifacts.backends.dir in aitasks/metadata/project_config.yaml). Backend
+# selection goes through lib/artifact_registry.sh (t1076_3); remote adapters
+# (s3/gdrive) arrive with t1089/t1090.
 #
 # LOCKING: every mutating verb runs its whole transaction (blob put, manifest
 # mutation, frontmatter patch, path-scoped commit) under the global
@@ -46,6 +49,8 @@ source "$SCRIPT_DIR/lib/attachment_lock.sh"
 source "$SCRIPT_DIR/lib/attachment_meta.sh"
 # shellcheck source=lib/artifact_manifest.sh
 source "$SCRIPT_DIR/lib/artifact_manifest.sh"
+# shellcheck source=lib/artifact_registry.sh
+source "$SCRIPT_DIR/lib/artifact_registry.sh"
 
 KIND_RE='^[a-z][a-z0-9_]{0,31}$'
 HANDLE_RE='^art:[a-z0-9][a-z0-9._-]{0,127}$'
@@ -62,7 +67,8 @@ artifact manifest and never rewrite the task file.
   create <task> <file> --kind <kind> [--name <label>] [--handle art:<id>] [--backend <n>]
                                                Create an artifact (v1) on a task.
   update <handle> <file>                       Store a new version and repoint `current`.
-  move   <handle> --to <backend>               Move the canonical copy. (not yet implemented)
+  move   <handle> --to <backend>               Copy every version to a registered backend,
+                                               then repoint the manifest (source blobs stay).
   rm     <task> <handle-or-name>               Remove an artifact reference (and, when
                                                unreferenced, its manifest + orphan blobs).
   ls     [<task>]                              List a task's artifacts, or every manifest.
@@ -185,7 +191,7 @@ _artifact_handle_referenced_elsewhere() {
 # ── Verb: create ─────────────────────────────────────────────────────────────
 
 cmd_create() {
-    local task_id="" file="" kind="" name="" handle="" backend="local"
+    local task_id="" file="" kind="" name="" handle="" backend=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --kind)    kind="${2:-}";    shift 2 ;;
@@ -206,8 +212,11 @@ cmd_create() {
     [[ -n "$kind" ]] || die "ait artifact create: --kind is required (html_plan, mockup, report, ...)"
     [[ "$kind" =~ $KIND_RE ]] \
         || die "ait artifact create: invalid kind '$kind' (lowercase [a-z0-9_], max 32 chars, must start with a letter)"
-    [[ "$backend" == "local" ]] \
-        || die "ait artifact create: backend '$backend' not yet supported (local only — remote backends arrive with t1076_3/t1089/t1090)"
+    if [[ -z "$backend" ]]; then
+        # Explicit `|| die`: a failed capture must not silently yield "".
+        backend="$(artifact_registry_default_backend)" \
+            || die "ait artifact create: could not resolve the default backend (see error above)"
+    fi
     if [[ -z "$handle" ]]; then
         # Derived handle: art:t<task>-<kindslug>. Child ids keep their structure
         # readable via `_` -> `.` (both in the handle charset): 16_2 -> t16.2.
@@ -223,7 +232,8 @@ cmd_create() {
 # _artifact_create_txn -- the full create transaction (runs under the lock).
 _artifact_create_txn() {
     local task_id="$1" task_file="$2" file="$3" kind="$4" name="$5" handle="$6" backend="$7"
-    export ARTIFACT_BACKEND="$backend"
+    # Registry membership + config validation — dies actionably pre-mutation.
+    artifact_registry_activate "$backend"
 
     # Size cap.
     local size cap
@@ -250,9 +260,9 @@ _artifact_create_txn() {
     local blob_pre=false
     artifact_backend_head "$hash" && blob_pre=true
 
-    # Store blob (idempotent atomic copy) + populate/verify cache.
-    artifact_backend_put "$hash" "$file"
-    artifact_resolve "$hash" >/dev/null
+    # Store blob (idempotent atomic put + presence verify) and warm the cache
+    # from the verified local bytes — the write-back wrapper (design §5).
+    artifact_store "$hash" "$file"
 
     artifact_manifest create "$handle" "$hash" "backend=$backend"
     require_python >/dev/null
@@ -265,12 +275,15 @@ _artifact_create_txn() {
     fi
 
     # Commit the trio (blob + manifest + task) as one path-scoped commit.
-    local blob_rel manifest_rel
-    blob_rel="$(artifact_local_blob_relpath "$hash")"
+    # Only local-backend blobs live on the data branch; other backends hold
+    # their blobs outside git, so only manifest + task file are staged.
+    local manifest_rel commit_paths=()
     manifest_rel="$(artifact_manifest_relpath "$handle")"
+    [[ "$backend" == "local" ]] && commit_paths+=( "$(artifact_local_blob_relpath "$hash")" )
+    commit_paths+=( "$manifest_rel" "$task_file" )
     if ! _artifact_commit "ait: Create artifact ${handle} on t${task_id}" \
-            "$blob_rel" "$manifest_rel" "$task_file"; then
-        _artifact_rollback_create "$task_file" "$manifest_rel" "$handle" "$blob_rel" "$hash" "$blob_pre"
+            "${commit_paths[@]}"; then
+        _artifact_rollback_create "$task_file" "$manifest_rel" "$handle" "$backend" "$hash" "$blob_pre"
         die "ait artifact create: commit failed — rolled back to pre-create state"
     fi
     success "Created artifact ${handle} (v1 ${hash}) on t${task_id}"
@@ -279,17 +292,22 @@ _artifact_create_txn() {
 
 # _artifact_rollback_create -- restore HEAD copies of pre-existing files and
 # remove newly-created ones, so a failed commit leaves no drift (under lock).
+# The txn's backend activation is still in effect, so backend_delete routes
+# to the same backend the blob was put on.
 _artifact_rollback_create() {
-    local task_file="$1" manifest_rel="$2" handle="$3" blob_rel="$4" hash="$5" blob_pre="$6"
+    local task_file="$1" manifest_rel="$2" handle="$3" backend="$4" hash="$5" blob_pre="$6"
     # Task .md always pre-exists -> unstage + restore from HEAD.
     task_git reset -q -- "$task_file" >/dev/null 2>&1 || true
     task_git checkout -- "$task_file" >/dev/null 2>&1 || true
     # Manifest: create dies on pre-existing, so it is always new here -> delete.
     task_git reset -q -- "$manifest_rel" >/dev/null 2>&1 || true
     rm -f "$(artifact_manifest_dir)/${handle#art:}.json"
-    # Blob: only created this op -> unstage + delete.
+    # Blob: only created this op -> unstage (local only — nothing staged for
+    # other backends) + delete from the backend.
     if [[ "$blob_pre" == false ]]; then
-        task_git reset -q -- "$blob_rel" >/dev/null 2>&1 || true
+        if [[ "$backend" == "local" ]]; then
+            task_git reset -q -- "$(artifact_local_blob_relpath "$hash")" >/dev/null 2>&1 || true
+        fi
         artifact_backend_delete "$hash"
     fi
 }
@@ -320,7 +338,8 @@ _artifact_update_txn() {
     fi
 
     local backend; backend="$(_artifact_manifest_backend "$handle")"
-    export ARTIFACT_BACKEND="$backend"
+    # Fails closed pre-mutation if the manifest names an unregistered backend.
+    artifact_registry_activate "$backend"
 
     local size cap
     size="$(wc -c < "$file" | tr -d '[:space:]')"
@@ -332,8 +351,8 @@ _artifact_update_txn() {
     local blob_pre=false
     artifact_backend_head "$hash" && blob_pre=true
 
-    artifact_backend_put "$hash" "$file"
-    artifact_resolve "$hash" >/dev/null
+    # Write-back: put + presence verify + warm cache from local bytes (§5).
+    artifact_store "$hash" "$file"
     artifact_manifest set-current "$handle" "$hash"
 
     local manifest_rel commit_paths=()
@@ -352,10 +371,89 @@ _artifact_update_txn() {
     success "Updated artifact ${handle} — current is now ${hash}"
 }
 
-# ── Verb: move (stub) ────────────────────────────────────────────────────────
+# ── Verb: move ───────────────────────────────────────────────────────────────
 
-cmd_stub() {
-    die "ait artifact $1: not yet available — a safe backend move (copy all version blobs to a registered backend, then repoint the manifest) arrives with remote-backend support (t1076_3/t1089/t1090)"
+cmd_move() {
+    local handle="" target=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --to) target="${2:-}"; shift 2 ;;
+            --)   shift ;;
+            -*)   die "ait artifact move: unknown option $1" ;;
+            *) if [[ -z "$handle" ]]; then handle="$1"
+               else die "ait artifact move: too many arguments"; fi; shift ;;
+        esac
+    done
+    [[ -n "$handle" && -n "$target" ]] || die "Usage: ait artifact move <handle> --to <backend>"
+    [[ -n "$(artifact_manifest get "$handle")" ]] || die "ait artifact move: no manifest for ${handle}"
+    with_attach_lock _artifact_move_txn "$handle" "$target"
+}
+
+# _artifact_move_txn -- safe backend move: copy EVERY version blob to the
+# registered target, verify presence, then repoint the manifest. Properties:
+# non-destructive (source blobs stay — recoverable / shared-store safe),
+# resumable (a re-run after any failure converges; a same-backend re-run is a
+# clean no-op), and no task-file path is ever staged (stable-handle split).
+_artifact_move_txn() {
+    local handle="$1" target="$2" source
+    source="$(_artifact_manifest_backend "$handle")" \
+        || die "ait artifact move: cannot read backend for ${handle}"
+    if [[ "$target" == "$source" ]]; then
+        success "Artifact ${handle} is already on backend '${target}' — nothing to do"
+        return 0
+    fi
+    # Validate the TARGET first: dies pre-mutation if unregistered/misconfigured.
+    artifact_registry_activate "$target"
+
+    local versions=() v
+    while IFS= read -r v; do [[ -n "$v" ]] && versions+=( "$v" ); done \
+        < <(artifact_manifest versions "$handle")
+    (( ${#versions[@]} > 0 )) || die "ait artifact move: ${handle} has no versions"
+
+    # Phase 1: resolve EVERY version from the source into the local cache
+    # (verified bytes) BEFORE touching the target — one activation each way.
+    local srcs=() p
+    artifact_registry_activate "$source"
+    for v in "${versions[@]}"; do
+        p="$(artifact_resolve "$v")" \
+            || die "ait artifact move: could not resolve ${v} from backend '${source}' — nothing moved"
+        srcs+=( "$p" )
+    done
+
+    # Phase 2: copy to the target + verify presence per blob (a failed put
+    # does not abort under the lock's suppressed errexit — the head verify is
+    # load-bearing; backend CONTENT correctness is owned by dir-put's
+    # pre-existing-dest verification / local resolve's canonical check).
+    # Track per-version pre-existence so rollback deletes only what WE created.
+    local i commit_paths=() new_hashes=()
+    artifact_registry_activate "$target"
+    for i in "${!versions[@]}"; do
+        artifact_backend_head "${versions[$i]}" || new_hashes+=( "${versions[$i]}" )
+        artifact_backend_put "${versions[$i]}" "${srcs[$i]}" \
+            || die "ait artifact move: put failed for ${versions[$i]} on '${target}'"
+        artifact_backend_head "${versions[$i]}" \
+            || die "ait artifact move: ${versions[$i]} not present on '${target}' after put"
+        [[ "$target" == "local" ]] \
+            && commit_paths+=( "$(artifact_local_blob_relpath "${versions[$i]}")" )
+    done
+
+    # Phase 3: repoint + commit (manifest always; blobs only for a local target).
+    artifact_manifest set-backend "$handle" "$target"
+    local manifest_rel; manifest_rel="$(artifact_manifest_relpath "$handle")"
+    commit_paths+=( "$manifest_rel" )
+    if ! _artifact_commit "ait: Move artifact ${handle} to backend ${target}" "${commit_paths[@]}"; then
+        # Restore HEAD state fully: unstage everything, restore the manifest,
+        # and delete only the target blobs THIS move created (pre-existing
+        # target blobs stay). Target activation is still in effect.
+        task_git reset -q -- "${commit_paths[@]}" >/dev/null 2>&1 || true
+        task_git checkout -- "$manifest_rel" >/dev/null 2>&1 || true
+        local nh
+        for nh in ${new_hashes[@]+"${new_hashes[@]}"}; do
+            artifact_backend_delete "$nh" || true
+        done
+        die "ait artifact move: commit failed — manifest and target backend restored to pre-move state, re-run to retry"
+    fi
+    success "Moved ${handle} to backend '${target}' (${#versions[@]} version(s) copied; source blobs on '${source}' were NOT deleted)"
 }
 
 # ── Verb: rm ─────────────────────────────────────────────────────────────────
@@ -430,7 +528,7 @@ _artifact_rm_txn() {
     local del_paths=( "$task_file" "$manifest_rel" )
     local swept=0
     if [[ "$backend" == "local" ]]; then
-        export ARTIFACT_BACKEND="local"
+        artifact_registry_activate local
         local remaining h
         if ! remaining="$(artifact_manifest referenced-hashes)"; then
             # The fail-closed tree scan died (a malformed manifest somewhere —
@@ -452,7 +550,7 @@ _artifact_rm_txn() {
             swept=$((swept + 1))
         done
     else
-        warn "backend '${backend}' is not local — blobs were not deleted (remote cleanup arrives with remote-backend support)"
+        warn "backend '${backend}' is not local — backend blobs were not deleted (cross-backend orphan reaping is t1135)"
     fi
 
     if ! _artifact_commit "ait: Remove artifact ${handle} from t${task_id}" "${del_paths[@]}"; then
@@ -540,7 +638,7 @@ cmd_get() {
     fi
 
     local backend; backend="$(_artifact_manifest_backend "$handle")"
-    export ARTIFACT_BACKEND="$backend"
+    artifact_registry_activate "$backend"
     # artifact_resolve verifies the resolved bytes' hash itself (t1076_1) — no
     # caller-side re-hash needed.
     local cache; cache="$(artifact_resolve "$hash")"
@@ -577,7 +675,7 @@ main() {
         ""|--help|-h|help) show_help ;;
         create)     shift; cmd_create "$@" ;;
         update)     shift; cmd_update "$@" ;;
-        move)       cmd_stub move ;;
+        move)       shift; cmd_move "$@" ;;
         rm|remove)  shift; cmd_remove "$@" ;;
         ls|list)    shift; cmd_list "$@" ;;
         get)        shift; cmd_get "$@" ;;
