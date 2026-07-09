@@ -5,12 +5,13 @@ depends: [t1061_1]
 xdeps: [t31_3]
 xdeprepo: aitasks_mobile
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [applink, applink_connectivity]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1061
 created_at: 2026-07-02 23:46
-updated_at: 2026-07-02 23:48
+updated_at: 2026-07-09 10:17
 ---
 
 **A3 of the t1061 paired decomposition** (see
