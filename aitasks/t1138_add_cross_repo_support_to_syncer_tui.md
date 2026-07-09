@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
@@ -9,7 +11,7 @@ gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-07-08 08:42
-updated_at: 2026-07-09 09:33
+updated_at: 2026-07-09 09:34
 ---
 
 ## Goal
