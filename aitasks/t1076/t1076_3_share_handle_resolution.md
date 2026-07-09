@@ -8,11 +8,12 @@ issue_type: feature
 status: Implementing
 labels: [task_attachments, html_plans]
 gates: [risk_evaluated]
+risk_mitigation_tasks: [1142]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 implemented_with: claudecode/fable5
 created_at: 2026-06-25 11:04
-updated_at: 2026-07-09 10:56
+updated_at: 2026-07-09 11:27
 ---
 
 **Design spec:** `aidocs/unified_artifact_design.md` §6 (+ §5 cache wrapper).
