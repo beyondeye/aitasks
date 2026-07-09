@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: [t1076_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_attachments, html_plans]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 created_at: 2026-06-25 11:04
-updated_at: 2026-06-25 11:04
+updated_at: 2026-07-09 09:37
 ---
 
 **Design spec:** `aidocs/unified_artifact_design.md` §6 (+ §5 cache wrapper).
