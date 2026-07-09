@@ -8,10 +8,11 @@ issue_type: feature
 status: Implementing
 labels: [tui, git-integration, project_groups]
 gates: [risk_evaluated]
+risk_mitigation_tasks: [1141]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-07-08 08:42
-updated_at: 2026-07-09 09:34
+updated_at: 2026-07-09 10:33
 ---
 
 ## Goal

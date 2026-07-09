@@ -164,14 +164,14 @@ Update `website/content/docs/tuis/syncer/_index.md` (current-state prose, no ver
 
 ### Code-health risk: medium
 - `sync_action_runner.py` and `desync_state.py` are shared with the board TUI and the monitor session-bar; a signature slip would break those consumers · severity: medium · → mitigation: in-task (all new params are optional with legacy defaults; existing tests + new unit tests pin the `None` path)
-- Syncer row-key model rework (composite keys, per-repo snapshots) could regress single-repo behavior or `check_action` gating · severity: medium · → mitigation: manual_verification_cross_repo_syncer
+- Syncer row-key model rework (composite keys, per-repo snapshots) could regress single-repo behavior or `check_action` gating · severity: medium · → mitigation: t1141 (manual_verification_cross_repo_syncer)
 - Concurrent refresh sources (interval tick, manual `r`, post-action) could interleave: a superseded local-only snapshot overwriting a newer fetched one, or accumulated background git passes · severity: medium · → mitigation: in-task structural (single `_request_refresh` funnel + coalescing pending-slot + generation-token discard guard, each unit-tested incl. negative controls) and manual_verification_cross_repo_syncer
 
 ### Goal-achievement risk: low
 - Assumes every registered repo has `.aitask-scripts/aitask_sync.sh` installed; a repo without it degrades to `NOT_FOUND` notify rather than sync · severity: low · → mitigation: in-task (acceptable degradation; status row still shows desync state)
 
 ### Planned mitigations
-- timing: after | name: manual_verification_cross_repo_syncer | type: manual_verification | priority: medium | effort: low | addresses: code-health risk (single-repo regression, live multi-repo TUI behavior, refresh scheduling) | desc: Drive the live syncer TUI in a multi-repo environment — multi-repo table layout, least-recently-fetched scheduling + Fetched age column behavior, manual r refresh of the highlighted repo, per-row s/u/p against a non-current repo, single-repo regression appearance.
+- timing: after | name: manual_verification_cross_repo_syncer (created: t1141) | type: manual_verification | priority: medium | effort: low | addresses: code-health risk (single-repo regression, live multi-repo TUI behavior, refresh scheduling) | desc: Drive the live syncer TUI in a multi-repo environment — multi-repo table layout, least-recently-fetched scheduling + Fetched age column behavior, manual r refresh of the highlighted repo, per-row s/u/p against a non-current repo, single-repo regression appearance.
 
 ## Post-Review Changes
 
