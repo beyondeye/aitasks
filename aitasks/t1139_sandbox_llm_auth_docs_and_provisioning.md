@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1120_6]
 issue_type: feature
 status: Ready
 labels: [codeagent, sanboxing, tui]
 gates: [risk_evaluated]
 anchor: 1120
 created_at: 2026-07-09 09:28
-updated_at: 2026-07-09 09:28
+updated_at: 2026-07-09 09:29
 ---
 
 ## Context

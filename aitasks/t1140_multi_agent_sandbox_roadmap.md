@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t1120_6, 1139]
 issue_type: feature
 status: Ready
 labels: [codeagent, sanboxing, openshell, codexcli, opencode]

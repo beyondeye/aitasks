@@ -8,7 +8,7 @@ labels: [chat_surface, python]
 gates: [risk_evaluated]
 anchor: 1120
 created_at: 2026-07-05 12:00
-updated_at: 2026-07-05 12:00
+updated_at: 2026-07-09 09:29
 ---
 
 ## Context
@@ -79,3 +79,13 @@ no docker):
   custom_id session_id (no cross-talk).
 - Crash-restart-reconcile (deliverable 4).
 - Reactions vocabulary asserted at each state transition.
+
+## Coordination (reverse pointers)
+
+- **t1139** (`sandbox_llm_auth_docs_and_provisioning`) depends on this
+  task: the LLM-key → `env_allowlist` config surface you land here is the
+  surface t1139 extends (multi-provider + semi-automatic provisioning).
+  Keep the config key / env-var naming minimal and extensible — t1139 must
+  build on it, not replace it.
+- **t1140** (`multi_agent_sandbox_roadmap`) also depends on this task
+  (multi-agent explore-relay variants come after the e2e glue).

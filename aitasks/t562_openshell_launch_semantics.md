@@ -6,7 +6,7 @@ issue_type: feature
 status: Ready
 labels: [agentcrew]
 created_at: 2026-04-15 12:39
-updated_at: 2026-07-08 07:45
+updated_at: 2026-07-09 09:29
 boardidx: 440
 ---
 
@@ -165,3 +165,11 @@ process constraints) while the agentcrew runner provides orchestration
 - Status transitions (`Running` → `Completed` / `Error`) and
   heartbeat files behave the same as existing modes.
 - Sandbox cleanup on agent completion and crew shutdown.
+
+## Related roadmap (reverse pointer)
+
+- **t1140** (`multi_agent_sandbox_roadmap`) gates its image/network
+  children on this task's status: OpenShell-mode sandboxes come with
+  multi-agent images, gateway-managed credential providers, and
+  kernel-level isolation, obsoleting hand-rolled equivalents. Check t1140
+  before/while implementing to close its overlapping children.
