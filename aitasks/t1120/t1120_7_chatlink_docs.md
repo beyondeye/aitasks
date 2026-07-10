@@ -64,3 +64,5 @@ code/skills now), not the plan text** (plans may have drifted).
 > **✅ gate:plan_approved** run=2026-07-10T14:40:48Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-10T16:04:34Z status=pass attempt=1 type=human
+
+> **✅ gate:merge_approved** run=2026-07-10T16:05:53Z status=pass attempt=1 type=human
