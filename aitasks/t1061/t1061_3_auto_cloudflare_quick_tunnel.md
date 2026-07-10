@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t1061_1]
 xdeps: [t31_3]
@@ -12,7 +14,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1061
 implemented_with: claudecode/fable5
 created_at: 2026-07-02 23:46
-updated_at: 2026-07-10 10:31
+updated_at: 2026-07-10 10:32
 ---
 
 **A3 of the t1061 paired decomposition** (see
