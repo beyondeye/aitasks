@@ -318,3 +318,57 @@ t1139 extends the Step-1 config surface, t1140 builds on the e2e glue.
 
 ### Planned mitigations
 - timing: after | name: chatlink_flow_concurrency_soak | type: test | priority: medium | effort: medium | addresses: daemon-loop sequential-dispatch races + completion-vs-death misclassification | desc: Soak/stress test — N concurrent mock chatlink sessions with randomized event interleavings and repeated daemon kill-restart cycles over the same store, asserting no cross-talk, no double terminal transitions, and correct completion-vs-death routing
+
+## Final Implementation Notes
+
+- **Actual work done:** All six plan steps landed as designed. New modules:
+  `chatlink/flow.py` (pure-reader pump + bounded `flow_q` + loop-side
+  handlers + shared completion sink), `chatlink/payload_guard.py`
+  (fail-closed validation), `chatlink/task_create.py` (argv-list create +
+  best-effort push), `chatlink/chatlink_app.py` (Textual status TUI).
+  Modified: `config.py` (`sandbox_env_passthrough` key), `intake.py`
+  (handle retention, env resolution, modal/pagination un-stub,
+  reactions-as-status helper `_set_status_reaction`), `daemon.py`
+  (`_merged_events` third source, pump lifecycle in `run_daemon`,
+  death-path completion routing, `MARK_FAILED`/`REACT_FAILED` reaction
+  swap), `sessions_store.py` (`status_reaction` field, back-compatible),
+  `reconcile.py` (`prev_reaction` in REACT_FAILED payloads),
+  `aitask_chatlink.sh` (bash TUI/daemon dispatch), TUI registration
+  (`tui_registry.py`, `tui_switcher.py` shortcut `l`,
+  `shortcut_scopes.py`). Tests: `tests/test_chatlink_flow.sh` (58 checks)
+  + `tests/test_chatlink_tui.sh` (smoke + Pilot render + no-Textual guard).
+- **Deviations from plan:**
+  - `aitask_create.sh --batch --commit` in a no-remote repo emits
+    `Created: <path>` (commit still lands), not `Finalized:` — discovered
+    by the real-script fixture test. `task_create.py` parses both shapes
+    (id derived from the filename stem on the `Created:` path).
+  - `_set_status_reaction` gained a `persist=False` mode so the reaction
+    mutation rides the caller's existing save — preserving the pinned
+    single-save ordering invariant (write_answer → record save → disable)
+    asserted by `test_chatlink_daemon.sh`.
+  - Two stale assertions updated for deliberately changed behavior:
+    the daemon test's deferred-stub block (now asserts modal opened /
+    expired-ephemeral) and Part 2 launcher routing (now `--smoke` rc=0 +
+    direct-daemon refusal); `test_shortcut_scopes.py` `_QUICK_JUMPS` pin
+    gained `shortcut_chatlink`.
+- **Issues encountered:** The shortcut-scope sweep loads TUI modules by
+  file path (no parent package), so `chatlink_app.py` uses absolute
+  `chatlink.*` imports, not relative ones.
+- **Key decisions:** Completion rides the death signal as well as the pump
+  (watchdog fires on every container exit — payload presence decides
+  completion vs fail-closed); scan is level-triggered so bounded-queue
+  drops are safe; unrenderable questions write a `cancelled` answer to
+  unblock the agent (contract 12 reject-with-reason) instead of looping;
+  `sandbox_env_passthrough` is a plain list of env-var names resolved from
+  the gateway environment (values never in config) — the minimal surface
+  t1139 extends.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/shortcut_scopes.py:100-120 (module load helper) — registry-coverage sweep fails on Python 3.14: the module is exec'd via spec without registering in sys.modules first, so dataclass KW_ONLY resolution crashes for syncer_app ('NoneType' object has no attribute '__dict__'); tests/test_shortcuts_registry_coverage.sh fails on a clean tree`
+- **Notes for sibling tasks:** t1120_7 (docs): user-facing surface is
+  `ait chatlink` (TUI) / `ait chatlink --headless` (daemon); config keys
+  now include `sandbox_env_passthrough`; the reactions vocabulary and the
+  fail-closed payload rejection are user-visible behavior. t1120_8 (MV):
+  the live path needs a real LLM key in the gateway environment plus
+  `sandbox_env_passthrough: [ANTHROPIC_API_KEY]` in
+  `chatlink_config.yaml`; everything else is wired. t1139: extend the
+  passthrough list (multi-provider) — do not replace it.
