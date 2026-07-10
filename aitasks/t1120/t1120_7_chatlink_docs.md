@@ -8,8 +8,9 @@ labels: [chat_surface]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1120
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-05 12:01
-updated_at: 2026-07-10 16:31
+updated_at: 2026-07-10 17:40
 ---
 
 ## Context
@@ -54,3 +55,8 @@ code/skills now), not the plan text** (plans may have drifted).
 - New page listed in `_index.md`; internal links resolve.
 - Grep the new pages for "sister", real repo names, and version-history
   phrasing — all absent.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-10T14:40:48Z status=pass attempt=1 type=human
