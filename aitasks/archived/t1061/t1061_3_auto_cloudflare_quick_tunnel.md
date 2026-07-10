@@ -7,14 +7,15 @@ depends: [t1061_1]
 xdeps: [t31_3]
 xdeprepo: aitasks_mobile
 issue_type: feature
-status: Implementing
+status: Done
 labels: [applink, applink_connectivity]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1061
 implemented_with: claudecode/fable5
 created_at: 2026-07-02 23:46
-updated_at: 2026-07-10 10:32
+updated_at: 2026-07-10 16:49
+completed_at: 2026-07-10 16:49
 ---
 
 **A3 of the t1061 paired decomposition** (see
@@ -82,3 +83,14 @@ proxy. Before any UI work:
 > **✅ gate:plan_approved** run=2026-07-10T07:32:14Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-10T13:48:39Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-10T13:49:20Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:691bc6cb729cffe6
+
+> **✅ gate:risk_evaluated** run=2026-07-10T13:49:20Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1061_3/risk_evaluated_2026-07-10T13:49:20Z-risk_evaluated-a1.log`
