@@ -3,12 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [codeagent, codexcli, opencode, models]
 gates: [risk_evaluated]
-assigned_to: dario-e@beyond-eye.com
-created_at: 2026-07-10 19:30
-updated_at: 2026-07-10 19:31
+created_at: 2026-07-10 19:28
+updated_at: 2026-07-10 19:28
 ---
 
 Add support for the GPT-5.6 Sol, Terra, and Luna model family in the aitasks code-agent model registries for both Codex and OpenCode.
