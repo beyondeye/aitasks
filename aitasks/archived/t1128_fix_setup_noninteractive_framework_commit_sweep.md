@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [chat_surface, python]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1074
 implemented_with: claudecode/fable5
 created_at: 2026-07-05 12:38
-updated_at: 2026-07-10 18:13
+updated_at: 2026-07-10 19:05
+completed_at: 2026-07-10 19:05
 ---
 
 ## Origin
@@ -40,3 +41,14 @@ For the setup sweep: track the exact set of files setup itself writes/updates du
 > **✅ gate:plan_approved** run=2026-07-10T15:13:26Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-10T16:01:02Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-10T16:05:45Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:fb45885658d6bb9d
+
+> **✅ gate:risk_evaluated** run=2026-07-10T16:05:45Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1128/risk_evaluated_2026-07-10T16:05:45Z-risk_evaluated-a1.log`
