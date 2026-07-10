@@ -12,6 +12,41 @@ plan_verified:
 
 # Plan: A3 — Auto-spawned Cloudflare Quick Tunnel (t1061_3)
 
+## Implementation status (2026-07-10)
+
+All steps completed; no deviations of substance.
+
+- **Step 1 gate PASSED (live):** downloaded cloudflared 2026.7.1; a REAL
+  AppLinkServer (self-signed no-SAN cert, temp state dir) proxied cleanly —
+  `cloudflared tunnel --url https://localhost:18765 --no-tls-verify` came up,
+  and a WebSocket upgrade + frame exchange completed through
+  `wss://<x>.trycloudflare.com` with normal CA verification on the public
+  hop. Real log lines captured and used verbatim as parser fixtures (the
+  terms-of-use line carries `www.cloudflare.com` / `developers.cloudflare.com`
+  URLs *before* the banner, confirming the strict-parser requirement).
+- **Steps 2-7 implemented** per plan: `tunnel.py` (strict `parse_tunnel_url`,
+  `QuickTunnel` with merged stdout/stderr reader, `status_line()` shared by
+  both surfaces), `pairing.merge_tunnel_endpoint`, server-owned lifecycle +
+  `tunnel_endpoint()` / `tunnel_active()` accessors, loopback per-IP
+  exemption, `--auto-tunnel` + `tmux.applink.auto_tunnel` on both entry
+  points, merge-at-build-time on every emit path (headless `_emit`, runtime
+  `build_uri` with the server-None startup guard, `_on_server_change` QR
+  re-render), config docs (seed + live), aidocs updates (turnkey Recipe-3
+  variant; the three M3 qualifiers reworded to conditional
+  "requires an app build with per-endpoint CA trust").
+- **Live e2e through the real entry point:** `headless.py --port 18099
+  --auto-tunnel --no-qr` (with cloudflared on PATH) emitted
+  `applink://<lan>:18099/pair?t=…&fp=…&alt=<x>.trycloudflare.com%3A443%3Btunnel%3Bca&name=…`
+  — primary stayed LAN/pin (no kind/trust params), tunnel rode as the alt;
+  `[applink] Tunnel: up — <x>.trycloudflare.com` printed; clean teardown, no
+  orphan cloudflared.
+- **Tests:** new `tests/test_applink_tunnel.sh` (7 groups incl. delayed
+  tunnel-up on both surfaces and the mounted-QR re-render);
+  `test_applink_server_limits.sh` extended with the loopback exemption + 3
+  negative controls. Both `AppLinkServer.__new__` test fixtures (limits,
+  pusher) gained `srv.tunnel = None` — the fixture owns supplying `_handle`'s
+  state. Full applink suite green.
+
 ## Context
 
 A3 of the t1061 paired decomposition (parent plan
@@ -257,10 +292,86 @@ Bash + Python-heredoc `check()` pattern (model:
   mobile `t31_5` covers on-device; offer a Step-8c manual-verification
   follow-up on this side for the spawn→QR→pair flow.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-10 10:55)
+- **Requested by user:** `tunnel_active()` returned True during
+  `STATE_STARTING`, exempting loopback from `MAX_PER_IP` before the public
+  URL exists — if cloudflared hangs pre-banner, no tunneled client can exist
+  yet, so the pre-URL exemption only widened local exposure. Gate on
+  `STATE_UP` only (or justify + test STARTING).
+- **Changes made:** `tunnel_active()` now returns True only for `STATE_UP`,
+  with the rationale in its docstring; Group D assertion flipped
+  (`tunnel_active False while starting`); new negative control in
+  `test_applink_server_limits.sh` (loopback still capped while the tunnel is
+  only starting).
+- **Files affected:** `.aitask-scripts/applink/server.py`,
+  `tests/test_applink_tunnel.sh`, `tests/test_applink_server_limits.sh`.
+
 ## Step 9 (Post-Implementation)
 
 Standard cleanup/merge/archival per task-workflow Step 9 (fast profile —
 current branch, no worktree/merge).
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven plan steps, in order. (1) Live origin-TLS
+  gate PASSED: cloudflared 2026.7.1 (downloaded standalone, no root)
+  proxied the self-signed no-SAN `wss://` origin with `--no-tls-verify`;
+  WebSocket upgrade + frame exchange verified through the CA-verified
+  `*.trycloudflare.com` edge against a real `AppLinkServer` on temp state.
+  (2) New `.aitask-scripts/applink/tunnel.py` — strict `parse_tunnel_url`
+  (negative-lookahead suffix guard; fixtures are verbatim real cloudflared
+  log lines), `QuickTunnel` asyncio supervisor (merged stdout/stderr reader,
+  `starting→up|failed|stopped`, `wait_url`, terminate→wait→kill teardown,
+  `on_change`, shared `status_line()`). (3) `pairing.merge_tunnel_endpoint`
+  (tunnel is always an `alt`, primary untouched) merged at BUILD time on
+  every emit path: headless `_emit()` re-merges per call (SIGHUP-safe),
+  `AppLinkRuntime.build_uri()` with the server-None startup guard,
+  `ApplinkApp._on_server_change` re-renders the mounted PairingScreen QR
+  via `TerminalQR.set_data`. (4) `tmux.applink.auto_tunnel: cloudflared`
+  config key (fault-tolerant, registry-validated) + `--auto-tunnel` on both
+  entry points; tunnel status on the pairing advisory, DevicesScreen line,
+  and headless output; binary-missing degrades fail-visible to LAN-only.
+  (5) `MAX_PER_IP` loopback exemption gated on `tunnel_active()` —
+  tightened post-review to `STATE_UP` only. (6) Docs: turnkey Recipe-3
+  variant in `tunnel_howto.md` (incl. the two bounded trust notes); the
+  three M3-gated qualifiers reworded to conditional app-build language
+  after verifying `aitasks_mobile` t31_2/t31_3 archived (t31_5 pending).
+  (7) `tests/test_applink_tunnel.sh` (7 groups: strict parsing, fake-binary
+  supervision incl. child-killed/died-after-up, merge+emission exact
+  grammar with byte-identical negative control, config key, both real
+  argparsers, headless delayed tunnel-up, mounted-QR re-render);
+  `test_applink_server_limits.sh` +5 exemption asserts.
+- **Deviations from plan:** None of substance. One post-review tightening
+  (Change Request 1): the cap exemption gates on `STATE_UP` only, not
+  STARTING — no tunneled client can exist pre-URL, so the pre-URL exemption
+  only widened local exposure.
+- **Issues encountered:** The two pre-existing `AppLinkServer.__new__` test
+  fixtures (limits, pusher) needed `srv.tunnel = None` — such fixtures own
+  supplying the state `_handle` touches. Real cloudflared logs carry
+  `www.cloudflare.com` / `developers.cloudflare.com` URLs *before* the
+  tunnel banner, confirming the strict-parser requirement empirically.
+- **Key decisions:** primary = LAN/pin with tunnel in `alt` (old-client
+  compatible; racing clients reach the tunnel — no "remote-first QR"
+  toggle); server owns the supervisor lifecycle (single owner for both
+  entry points; makes the cap-exemption gate local); merge-at-build-time
+  everywhere (no emit path may cache a pre-tunnel snapshot; tunnel death
+  drops the endpoint from reprints); `--no-tls-verify` documented as a
+  loopback-bounded trust step; docs wording stays conditional on the app
+  build (never unconditional "works today") since t31_5 on-device
+  verification is still pending.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** A4 (`t1061_4`, relay design) should note the
+  loopback exemption precedent: behind a relay ALL clients share the
+  broker's source IP, and the per-IP cap needs the same deliberate
+  treatment (`server.py` `tunnel_active()` gate is the pattern). The
+  `QuickTunnel` supervisor shape (spawn-after-bind, fail-visible degrade,
+  status_line shared across surfaces) is reusable for any future backend
+  in `TUNNEL_BACKENDS`. Mobile `t31_5` (on-device CA-trust verification)
+  can now run against `ait applink --auto-tunnel` directly. When t1068
+  (request rate-limit) lands, add its recommendation to the turnkey
+  security notes in `tunnel_howto.md`.
 
 ## Risk
 
