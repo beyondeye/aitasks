@@ -8,8 +8,9 @@ labels: [chat_surface, python]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1074
+implemented_with: claudecode/fable5
 created_at: 2026-07-05 12:38
-updated_at: 2026-07-10 16:34
+updated_at: 2026-07-10 18:13
 ---
 
 ## Origin
@@ -30,3 +31,8 @@ The second defect was found while fixing the identical issue in the new Slack ad
 ## Suggested fix
 
 For the setup sweep: track the exact set of files setup itself writes/updates during the run and commit only those (path-scoped), or in non-interactive mode default to NOT committing pre-existing dirty paths (list-and-warn instead). For the Discord adapter: mirror t1074_3's Slack fix — reject non-empty `attachments` with base `ChatError` pointing at `upload_attachment` (plus a construction-spy test), or implement the file path.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-10T15:13:26Z status=pass attempt=1 type=human
