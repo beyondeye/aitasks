@@ -573,7 +573,7 @@
         },
         "changelog": {
           "all_time": {
-            "runs": 5
+            "runs": 6
           },
           "prev_month": {
             "period": "2026-06",
@@ -581,10 +581,10 @@
           },
           "month": {
             "period": "2026-07",
-            "runs": 1
+            "runs": 2
           },
           "week": {
-            "period": "2026-W27",
+            "period": "2026-W28",
             "runs": 1
           }
         },
