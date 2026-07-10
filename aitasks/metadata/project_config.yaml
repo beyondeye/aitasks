@@ -46,6 +46,11 @@ tmux:
     # advertised_port: 8765              # default: serving port
     # advertised_kind: mesh              # lan | mesh | tunnel
     # advertised_trust: pin              # pin | ca
+    # Auto-spawned Cloudflare Quick Tunnel (t1061_3): advertise a public
+    # *.trycloudflare.com hostname as a CA-trusted alternate endpoint in the
+    # pairing QR (LAN stays primary). Requires cloudflared on PATH; one-shot
+    # CLI equivalent: --auto-tunnel. See aidocs/applink/tunnel_howto.md.
+    # auto_tunnel: cloudflared
   default_session: aitasks
   default_split: horizontal
   prefer_tmux: true

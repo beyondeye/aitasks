@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1120_6]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [chat_surface]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1120
 created_at: 2026-07-05 12:01
-updated_at: 2026-07-05 12:01
+updated_at: 2026-07-10 16:31
 ---
 
 ## Context
