@@ -2586,22 +2586,25 @@ setup_contribution_check() {
     _install_contribution_ci_workflow "$platform" "$project_dir" "$seed_ci_dir"
 }
 
-# --- Commit all framework files to git ---
-# Runs at the END of setup, after all steps have created their files.
-# This ensures review modes, .gitignore, and other late-stage files are included.
-commit_framework_files() {
-    local project_dir="$SCRIPT_DIR/.."
+# --- Pre-setup dirty-state baseline ---
+# Setup cannot tell "I wrote this file" from "the developer has uncommitted
+# work here" by inspecting the working tree at commit time. It can tell by
+# looking twice: snapshot the dirty framework-path set BEFORE setup writes
+# anything, then commit only (changed-at-commit-time − baseline). Files in
+# the baseline are left alone and reported, never committed — if setup
+# rewrites a file that was already dirty, that file's update goes
+# uncommitted rather than sweeping the developer's edit.
+AIT_SETUP_DIRTY_BASELINE=""
+AIT_SETUP_DATA_DIRTY_BASELINE=""
+AIT_SETUP_BASELINE_ARMED=0
 
-    # Bail if not in a git repo
-    if ! git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        return
-    fi
-
-    # Build the list of framework paths to check (only those that exist)
-    # NOTE: This list is duplicated in install.sh commit_installed_files().
-    # If you change one, change the other. install.sh runs stand-alone via
-    # curl|bash before extraction, so it cannot source a shared helper.
-    local paths_to_add=()
+# Print the framework pathspecs that exist in <project_dir>, one per line.
+# NOTE: The base list is duplicated in install.sh commit_installed_files().
+# If you change one, change the other. install.sh runs stand-alone via
+# curl|bash before extraction, so it cannot source a shared helper.
+_ait_framework_paths() {
+    local project_dir="$1"
+    local p
     local check_paths=(
         ".aitask-scripts/"
         "aitasks/metadata/"
@@ -2617,58 +2620,187 @@ commit_framework_files() {
         "AGENTS.md"
         "opencode.json"
     )
-
     for p in "${check_paths[@]}"; do
-        if [[ -e "$project_dir/$p" ]]; then
-            paths_to_add+=("$p")
-        fi
+        [[ -e "$project_dir/$p" ]] && printf '%s\n' "$p"
     done
+    # install.sh may not exist in tarball installs; CI files may have been
+    # installed by setup_contribution_check.
+    for p in "install.sh" ".gitlab-ci.yml" "bitbucket-pipelines.yml"; do
+        [[ -f "$project_dir/$p" ]] && printf '%s\n' "$p"
+    done
+    return 0
+}
 
-    # Also check for install.sh (may not exist in tarball installs)
-    if [[ -f "$project_dir/install.sh" ]]; then
-        paths_to_add+=("install.sh")
+# Print the data-branch framework pathspecs that exist in <data_dir>, one per
+# line. Framework-owned config dirs only — never task or plan content.
+_ait_data_framework_paths() {
+    local data_dir="$1"
+    local p
+    for p in "aitasks/metadata/" "aireviewguides/"; do
+        [[ -e "$data_dir/$p" ]] && printf '%s\n' "$p"
+    done
+    return 0
+}
+
+# Emit the filtered untracked + modified + staged set under <paths...> in
+# <workdir>, one file per line, deduplicated. <extra_exclude_re> is an ERE of
+# paths to additionally exclude (empty = none). The staged term
+# (`diff --cached`) is load-bearing: a framework file whose edit was fully
+# staged before setup runs is invisible to both `ls-files --others` (tracked
+# in the index) and `ls-files --modified` (worktree matches index) — without
+# it the baseline would miss the file and the commit would sweep the user's
+# staged hunk.
+_ait_list_framework_changes() {
+    local workdir="$1" extra_exclude_re="$2"
+    shift 2
+    local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
+    local exclude_re="$cache_artifacts_re"
+    [[ -n "$extra_exclude_re" ]] && exclude_re="$cache_artifacts_re|$extra_exclude_re"
+    local untracked modified staged
+    untracked="$(git -C "$workdir" ls-files --others --exclude-standard \
+        -- "$@" 2>/dev/null)" || true
+    modified="$(git -C "$workdir" ls-files --modified -- "$@" 2>/dev/null)" || true
+    staged="$(git -C "$workdir" diff --cached --name-only -- "$@" 2>/dev/null)" || true
+    printf '%s\n%s\n%s\n' "$untracked" "$modified" "$staged" \
+        | sed '/^$/d' | sort -u | grep -Ev "$exclude_re" || true
+}
+
+# Print stdin lines NOT present in the newline-joined set $1 (exact match).
+_ait_subtract() {
+    if [[ -z "$1" ]]; then cat; return 0; fi
+    grep -Fxv -f <(printf '%s\n' "$1") || true
+}
+
+# Print stdin lines present in the newline-joined set $1 (exact match).
+_ait_intersect() {
+    if [[ -z "$1" ]]; then cat >/dev/null; return 0; fi
+    grep -Fx -f <(printf '%s\n' "$1") || true
+}
+
+# Regex excluding data-branch paths from the main worktree's change list when
+# branch mode is active (they are committed by commit_framework_data_files).
+_ait_data_branch_exclude_re() {
+    local project_dir="$1"
+    if [[ -d "$project_dir/.aitask-data/.git" || -f "$project_dir/.aitask-data/.git" ]]; then
+        printf '%s' '^(aitasks|aiplans)/'
+    fi
+    return 0
+}
+
+# Snapshot the pre-setup dirty framework-path state. MUST run from main()
+# after ensure_git_repo and before any setup step writes a framework file —
+# commit_framework_files/commit_framework_data_files subtract this baseline
+# so foreign in-progress work is never swept into a framework commit.
+#
+# Bootstrap trade-off: when the framework is not yet git-tracked (fresh
+# install — sentinel: .aitask-scripts/VERSION untracked, same signal as
+# install.sh commit_installed_files), the baselines stay empty and the commit
+# functions commit ALL framework-path files. "VERSION not tracked" does not
+# prove there is no foreign work under those paths (partial installs,
+# hand-copied files); it only means no baseline COULD separate installer
+# output from anything else. The non-interactive commit path announces this
+# blast radius explicitly.
+snapshot_pre_setup_dirty() {
+    local project_dir="$SCRIPT_DIR/.."
+    local data_dir="$project_dir/.aitask-data"
+    AIT_SETUP_BASELINE_ARMED=1
+    AIT_SETUP_DIRTY_BASELINE=""
+    AIT_SETUP_DATA_DIRTY_BASELINE=""
+
+    if ! git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        return 0
     fi
 
-    # Check for CI config files that may have been installed by setup_contribution_check
-    for ci_file in ".gitlab-ci.yml" "bitbucket-pipelines.yml"; do
-        if [[ -f "$project_dir/$ci_file" ]]; then
-            paths_to_add+=("$ci_file")
+    # Bootstrap: framework not yet tracked → empty baselines (commit-all).
+    if ! git -C "$project_dir" rev-parse --verify HEAD &>/dev/null || \
+       ! git -C "$project_dir" ls-files --error-unmatch -- .aitask-scripts/VERSION &>/dev/null; then
+        return 0
+    fi
+
+    local fw_paths=() p
+    while IFS= read -r p; do fw_paths+=("$p"); done < <(_ait_framework_paths "$project_dir")
+    if [[ ${#fw_paths[@]} -gt 0 ]]; then
+        AIT_SETUP_DIRTY_BASELINE="$(_ait_list_framework_changes "$project_dir" \
+            "$(_ait_data_branch_exclude_re "$project_dir")" "${fw_paths[@]}")" || true
+    fi
+
+    # Data-worktree baseline — only if the worktree already exists at snapshot
+    # time. On a first-ever data-branch setup it does not, and an empty data
+    # baseline correctly means "commit all" there too.
+    if [[ -d "$data_dir/.git" || -f "$data_dir/.git" ]] && \
+       git -C "$data_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        local data_paths=()
+        while IFS= read -r p; do data_paths+=("$p"); done < <(_ait_data_framework_paths "$data_dir")
+        if [[ ${#data_paths[@]} -gt 0 ]]; then
+            AIT_SETUP_DATA_DIRTY_BASELINE="$(_ait_list_framework_changes "$data_dir" "" \
+                "${data_paths[@]}")" || true
         fi
-    done
+    fi
+    return 0
+}
+
+# --- Commit all framework files to git ---
+# Runs at the END of setup, after all steps have created their files.
+# This ensures review modes, .gitignore, and other late-stage files are included.
+#
+# CONTRACT: production callers MUST run snapshot_pre_setup_dirty() first
+# (main() does, before any framework file is written). Unarmed
+# (AIT_SETUP_BASELINE_ARMED=0) means "empty baseline" — the legacy commit-all
+# sweep behavior — acceptable ONLY for direct test invocation.
+commit_framework_files() {
+    local project_dir="$SCRIPT_DIR/.."
+
+    # Bail if not in a git repo
+    if ! git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        return
+    fi
+
+    if [[ "${AIT_SETUP_BASELINE_ARMED:-0}" != "1" ]]; then
+        warn "commit_framework_files: baseline not armed — committing without pre-setup dirty protection" >&2
+    fi
+
+    local paths_to_add=() p
+    while IFS= read -r p; do paths_to_add+=("$p"); done < <(_ait_framework_paths "$project_dir")
 
     if [[ ${#paths_to_add[@]} -eq 0 ]]; then
         return
     fi
 
-    # Check for untracked or modified framework files.
-    # Exclude interpreter cache artifacts even if local ignore rules are incomplete.
-    # In branch mode (`aitasks/`, `aiplans/` are symlinks into a `.aitask-data`
-    # worktree), additionally exclude those paths — they are committed by
-    # commit_framework_data_files(). In legacy mode, leave them in.
-    local untracked modified all_changes
-    local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
-    local data_branch_re=''
-    if [[ -d "$project_dir/.aitask-data/.git" || -f "$project_dir/.aitask-data/.git" ]]; then
-        data_branch_re='^(aitasks|aiplans)/'
-    fi
-    _filter_changes() {
-        if [[ -n "$data_branch_re" ]]; then
-            grep -Ev "$cache_artifacts_re" | grep -Ev "$data_branch_re"
-        else
-            grep -Ev "$cache_artifacts_re"
-        fi
-    }
-    untracked="$(cd "$project_dir" && git ls-files --others --exclude-standard \
-        "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
-    modified="$(cd "$project_dir" && git ls-files --modified \
-        "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
-    all_changes="$(printf "%s\n%s\n" "$untracked" "$modified" | sed '/^$/d')"
+    # Check for untracked, modified, or staged framework files.
+    # Exclude interpreter cache artifacts even if local ignore rules are
+    # incomplete. In branch mode (`aitasks/`, `aiplans/` are symlinks into a
+    # `.aitask-data` worktree), additionally exclude those paths — they are
+    # committed by commit_framework_data_files(). In legacy mode, leave them in.
+    local data_branch_re all_changes
+    data_branch_re="$(_ait_data_branch_exclude_re "$project_dir")"
+    all_changes="$(_ait_list_framework_changes "$project_dir" "$data_branch_re" \
+        "${paths_to_add[@]}")" || true
 
-    local changed_files=()
+    # Baseline diff: commit only files that were NOT already dirty before
+    # setup ran; report the rest and leave them alone (never sweep foreign
+    # in-progress work into the framework commit).
+    local changed_files=() excluded_files=() changed_file
     while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
         changed_files+=("$changed_file")
-    done <<< "$all_changes"
+    done < <(printf '%s\n' "$all_changes" | _ait_subtract "$AIT_SETUP_DIRTY_BASELINE")
+    while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        excluded_files+=("$changed_file")
+    done < <(printf '%s\n' "$all_changes" | _ait_intersect "$AIT_SETUP_DIRTY_BASELINE")
+
+    local _i
+    if [[ ${#excluded_files[@]} -gt 0 ]]; then
+        echo ""
+        warn "Pre-existing uncommitted changes under framework paths — left alone (not committed by setup):"
+        for ((_i=0; _i<${#excluded_files[@]} && _i<20; _i++)); do
+            printf '    %s\n' "${excluded_files[_i]}"
+        done
+        if [[ ${#excluded_files[@]} -gt 20 ]]; then
+            info "    ... and $((${#excluded_files[@]} - 20)) more"
+        fi
+        info "Review and commit them yourself when ready."
+    fi
 
     if [[ ${#changed_files[@]} -eq 0 ]]; then
         success "All framework files already committed to git"
@@ -2697,6 +2829,10 @@ commit_framework_files() {
         read -r answer
     else
         info "(non-interactive: auto-accepting default)"
+        if ! git -C "$project_dir" ls-files --error-unmatch -- .aitask-scripts/VERSION &>/dev/null; then
+            warn "First-time framework tracking: committing ALL $total_count listed framework-path files automatically."
+            warn "If that is not desired, rerun 'ait setup' interactively or commit the intended files manually first."
+        fi
         answer="Y"
     fi
     case "${answer:-Y}" in
@@ -2708,8 +2844,12 @@ commit_framework_files() {
                 warn "Framework files NOT committed. Run 'git add -A && git commit' manually."
                 return
             fi
-            if ! (cd "$project_dir" && git diff --cached --quiet 2>/dev/null); then
-                if ! commit_output=$(cd "$project_dir" && git commit -m "ait: Add aitask framework" 2>&1); then
+            # Path-scoped diff guard and commit: a bare `git commit` would
+            # sweep a foreign pre-staged index; a global `--cached --quiet`
+            # reads "dirty" when only a foreign file is staged and would
+            # drive a spurious commit attempt.
+            if ! (cd "$project_dir" && git diff --cached --quiet -- "${changed_files[@]}" 2>/dev/null); then
+                if ! commit_output=$(cd "$project_dir" && git commit -m "ait: Add aitask framework" -- "${changed_files[@]}" 2>&1); then
                     warn "git commit failed:"
                     printf '%s\n' "$commit_output" | awk '{print "    " $0}'
                     warn "Framework files staged but NOT committed. Run 'git commit' manually."
@@ -2721,10 +2861,16 @@ commit_framework_files() {
             # framework paths indicates a gitignore rule, pathspec quirk, or
             # a new file produced between the list and the commit. Apply the
             # same data-branch filter — those files are committed separately
-            # by commit_framework_data_files() in branch mode.
+            # by commit_framework_data_files() in branch mode — and subtract
+            # the baseline: a pre-existing dirty file is deliberately left
+            # behind, not a commit failure.
+            local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
+            local post_exclude_re="$cache_artifacts_re"
+            [[ -n "$data_branch_re" ]] && post_exclude_re="$cache_artifacts_re|$data_branch_re"
             local still_untracked
             still_untracked="$(cd "$project_dir" && git ls-files --others --exclude-standard \
-                "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
+                "${paths_to_add[@]}" 2>/dev/null | { grep -Ev "$post_exclude_re" || true; } \
+                | _ait_subtract "$AIT_SETUP_DIRTY_BASELINE")" || true
             if [[ -n "$still_untracked" ]]; then
                 warn "Some framework files remain untracked after commit:"
                 # awk reads all stdin — no SIGPIPE even if list is huge.
@@ -2753,6 +2899,11 @@ commit_framework_files() {
 # (aitasks/metadata/, optionally aireviewguides/) gets written through
 # symlinks during setup but never reaches the data worktree's index unless
 # we commit it here. Keeps `ait setup` and `ait upgrade` symmetric.
+#
+# CONTRACT: production callers MUST run snapshot_pre_setup_dirty() first
+# (main() does, before any framework file is written). Unarmed
+# (AIT_SETUP_BASELINE_ARMED=0) means "empty baseline" — the legacy commit-all
+# sweep behavior — acceptable ONLY for direct test invocation.
 commit_framework_data_files() {
     local project_dir="$SCRIPT_DIR/.."
     local data_dir="$project_dir/.aitask-data"
@@ -2766,36 +2917,52 @@ commit_framework_data_files() {
         return
     fi
 
+    if [[ "${AIT_SETUP_BASELINE_ARMED:-0}" != "1" ]]; then
+        warn "commit_framework_data_files: baseline not armed — committing without pre-setup dirty protection" >&2
+    fi
+
     # Framework-owned config dirs that may live on the data branch. Never
     # commit task or plan content here — those are user data.
-    local data_check_paths=("aitasks/metadata/" "aireviewguides/")
-    local data_paths=()
-    for p in "${data_check_paths[@]}"; do
-        [[ -e "$data_dir/$p" ]] && data_paths+=("$p")
-    done
+    local data_paths=() p
+    while IFS= read -r p; do data_paths+=("$p"); done < <(_ait_data_framework_paths "$data_dir")
 
     if [[ ${#data_paths[@]} -eq 0 ]]; then
         return
     fi
 
-    local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
-    local untracked modified all_changes
-    untracked="$(git -C "$data_dir" ls-files --others --exclude-standard \
-        "${data_paths[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
-    modified="$(git -C "$data_dir" ls-files --modified \
-        "${data_paths[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
-    all_changes="$(printf '%s\n%s\n' "$untracked" "$modified" | sed '/^$/d')"
+    local all_changes
+    all_changes="$(_ait_list_framework_changes "$data_dir" "" "${data_paths[@]}")" || true
 
-    if [[ -z "$all_changes" ]]; then
-        success "Framework data files already committed to aitask-data branch"
-        return
-    fi
-
-    local changed_files=()
+    # Baseline diff: commit only files that were NOT already dirty before
+    # setup ran (concurrent sessions routinely have in-progress work in the
+    # data worktree — never sweep it into the framework-data commit).
+    local changed_files=() excluded_files=() changed_file
     while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
         changed_files+=("$changed_file")
-    done <<< "$all_changes"
+    done < <(printf '%s\n' "$all_changes" | _ait_subtract "$AIT_SETUP_DATA_DIRTY_BASELINE")
+    while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        excluded_files+=("$changed_file")
+    done < <(printf '%s\n' "$all_changes" | _ait_intersect "$AIT_SETUP_DATA_DIRTY_BASELINE")
+
+    local _i
+    if [[ ${#excluded_files[@]} -gt 0 ]]; then
+        echo ""
+        warn "Pre-existing uncommitted changes on the aitask-data branch — left alone (not committed by setup):"
+        for ((_i=0; _i<${#excluded_files[@]} && _i<20; _i++)); do
+            printf '    %s\n' "${excluded_files[_i]}"
+        done
+        if [[ ${#excluded_files[@]} -gt 20 ]]; then
+            info "    ... and $((${#excluded_files[@]} - 20)) more"
+        fi
+        info "Review and commit them yourself when ready (via './ait git')."
+    fi
+
+    if [[ ${#changed_files[@]} -eq 0 ]]; then
+        success "Framework data files already committed to aitask-data branch"
+        return
+    fi
 
     local total_count=${#changed_files[@]}
     echo ""
@@ -2826,9 +2993,11 @@ commit_framework_data_files() {
                 warn "Framework data files NOT committed."
                 return
             fi
-            if ! git -C "$data_dir" diff --cached --quiet 2>/dev/null; then
+            # Path-scoped diff guard and commit — a bare `git commit` would
+            # sweep a foreign pre-staged index in the data worktree.
+            if ! git -C "$data_dir" diff --cached --quiet -- "${changed_files[@]}" 2>/dev/null; then
                 if ! commit_output=$(git -C "$data_dir" \
-                    commit -m "ait: Add aitask framework data" 2>&1); then
+                    commit -m "ait: Add aitask framework data" -- "${changed_files[@]}" 2>&1); then
                     warn "git commit failed (data branch):"
                     printf '%s\n' "$commit_output" | awk '{print "    " $0}'
                     warn "Framework data files staged but NOT committed."
@@ -3220,6 +3389,12 @@ main() {
 
     ensure_git_repo
     echo ""
+
+    # Snapshot pre-existing dirty framework paths BEFORE any setup step
+    # writes a framework file — commit_framework_files and
+    # commit_framework_data_files subtract this baseline so foreign
+    # in-progress work is never swept into a framework commit.
+    snapshot_pre_setup_dirty
 
     setup_data_branch
     echo ""

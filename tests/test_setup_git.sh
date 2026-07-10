@@ -545,6 +545,122 @@ assert_eq_trim "No second commit on idempotent re-run" "$commits_after_first" "$
 
 rm -rf "$TMPDIR_19"
 
+# --- Test 20: baseline armed on bootstrap — setup's own files committed ---
+echo "--- Test 20: baseline armed (bootstrap) commits setup's files ---"
+
+TMPDIR_20="$(setup_fake_project)"
+(cd "$TMPDIR_20" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && echo "init" > readme.txt && git add readme.txt && git commit -m "init" --quiet)
+SCRIPT_DIR="$TMPDIR_20/.aitask-scripts"
+
+# Snapshot BEFORE the framework file is "written by setup". VERSION is
+# untracked → bootstrap → empty baseline.
+snapshot_pre_setup_dirty
+mkdir -p "$TMPDIR_20/aireviewguides"
+echo "guide" > "$TMPDIR_20/aireviewguides/x.md"
+
+output=$(commit_framework_files 2>&1 </dev/null)
+
+committed_files=$(git -C "$TMPDIR_20" show --name-only --format='' HEAD 2>/dev/null)
+assert_contains "Setup-written file committed (bootstrap, armed)" "aireviewguides/x.md" "$committed_files"
+assert_contains_ci "Bootstrap blast-radius warning shown (non-interactive)" "first-time framework tracking" "$output"
+assert_not_contains_ci "No unarmed-baseline warning when armed" "baseline not armed" "$output"
+
+AIT_SETUP_BASELINE_ARMED=0
+rm -rf "$TMPDIR_20"
+
+# --- Test 21: NEGATIVE CONTROL — foreign dirty/staged work is never swept ---
+echo "--- Test 21: negative control — foreign work not swept ---"
+
+TMPDIR_21="$(setup_fake_project)"
+echo "# staged victim" > "$TMPDIR_21/.aitask-scripts/staged.sh"
+(cd "$TMPDIR_21" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && echo "init" > readme.txt && git add -A && git commit -m "init" --quiet)
+SCRIPT_DIR="$TMPDIR_21/.aitask-scripts"
+
+# Three foreign-work fixtures, all pre-existing when the snapshot runs:
+# 1. unstaged edit to a tracked framework file (concurrent worktree edit)
+echo "concurrent edit" >> "$TMPDIR_21/.aitask-scripts/placeholder.sh"
+# 2. fully STAGED edit to a tracked framework file (invisible to
+#    ls-files --others/--modified; exercises the diff --cached term)
+echo "staged edit" >> "$TMPDIR_21/.aitask-scripts/staged.sh"
+(cd "$TMPDIR_21" && git add .aitask-scripts/staged.sh)
+# 3. pre-staged non-framework file (exercises the path-scoped commit)
+echo "foreign" >> "$TMPDIR_21/readme.txt"
+(cd "$TMPDIR_21" && git add readme.txt)
+
+snapshot_pre_setup_dirty
+
+# Setup now legitimately writes a new framework file
+echo "# new helper" > "$TMPDIR_21/.aitask-scripts/newly_installed.sh"
+
+output=$(commit_framework_files 2>&1 </dev/null)
+
+committed_files=$(git -C "$TMPDIR_21" show --name-only --format='' HEAD 2>/dev/null)
+assert_contains "Setup-written file committed" "newly_installed.sh" "$committed_files"
+assert_not_contains "Concurrent unstaged framework edit NOT swept" "placeholder.sh" "$committed_files"
+assert_not_contains "Pre-staged framework edit NOT swept" "staged.sh" "$committed_files"
+assert_not_contains "Pre-staged foreign file NOT swept" "readme.txt" "$committed_files"
+assert_contains_ci "Excluded paths reported to the user" "left alone" "$output"
+
+status_out=$(git -C "$TMPDIR_21" status --porcelain 2>/dev/null)
+assert_contains_re "Staged framework edit still staged after commit" "^MM? +\.aitask-scripts/staged\.sh" "$status_out"
+assert_contains_re "Foreign staged file still staged after commit" "^M  readme\.txt" "$status_out"
+
+AIT_SETUP_BASELINE_ARMED=0
+rm -rf "$TMPDIR_21"
+
+# --- Test 22: structural ordering — snapshot armed before data-branch setup ---
+echo "--- Test 22: main() arms baseline before setup_data_branch ---"
+
+main_body="$(declare -f main)"
+snap_line=$(printf '%s\n' "$main_body" | grep -n "snapshot_pre_setup_dirty" | head -1 | cut -d: -f1)
+data_line=$(printf '%s\n' "$main_body" | grep -n "setup_data_branch" | head -1 | cut -d: -f1)
+assert_contains "main() calls snapshot_pre_setup_dirty" "snapshot_pre_setup_dirty" "$main_body"
+assert_contains "main() calls setup_data_branch" "setup_data_branch" "$main_body"
+snap_before_data="no"
+if [[ -n "$snap_line" && -n "$data_line" && "$snap_line" -lt "$data_line" ]]; then
+    snap_before_data="yes"
+fi
+assert_eq "snapshot_pre_setup_dirty precedes setup_data_branch in main()" "yes" "$snap_before_data"
+
+# --- Test 23: data-branch twin — foreign work in the data worktree not swept ---
+echo "--- Test 23: data-branch twin negative control ---"
+
+TMPDIR_23="$(setup_fake_project)"
+(cd "$TMPDIR_23" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && git add -A && git commit -m "init" --quiet)
+# Standalone data worktree stand-in (its own repo; the function only needs
+# .aitask-data/.git to exist and be a work tree)
+mkdir -p "$TMPDIR_23/.aitask-data/aitasks/metadata"
+(cd "$TMPDIR_23/.aitask-data" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && echo "cfg" > aitasks/metadata/tracked.txt && git add -A && git commit -m "init" --quiet)
+SCRIPT_DIR="$TMPDIR_23/.aitask-scripts"
+
+# Foreign work in the data worktree, pre-existing at snapshot time:
+# dirty tracked metadata file + pre-staged task file (outside data paths)
+echo "concurrent edit" >> "$TMPDIR_23/.aitask-data/aitasks/metadata/tracked.txt"
+echo "task" > "$TMPDIR_23/.aitask-data/aitasks/t9999_foreign.md"
+(cd "$TMPDIR_23/.aitask-data" && git add aitasks/t9999_foreign.md)
+
+snapshot_pre_setup_dirty
+
+# Setup now legitimately writes a new metadata file into the data worktree
+echo "new" > "$TMPDIR_23/.aitask-data/aitasks/metadata/new_config.yaml"
+
+output=$(commit_framework_data_files 2>&1 </dev/null)
+
+data_committed=$(git -C "$TMPDIR_23/.aitask-data" show --name-only --format='' HEAD 2>/dev/null)
+assert_contains "Setup-written data file committed" "new_config.yaml" "$data_committed"
+assert_not_contains "Dirty metadata file NOT swept (data twin)" "tracked.txt" "$data_committed"
+assert_not_contains "Pre-staged task file NOT swept (data twin)" "t9999_foreign.md" "$data_committed"
+
+data_status=$(git -C "$TMPDIR_23/.aitask-data" status --porcelain 2>/dev/null)
+assert_contains_re "Pre-staged task file still staged (data twin)" "^A  aitasks/t9999_foreign\.md" "$data_status"
+
+AIT_SETUP_BASELINE_ARMED=0
+rm -rf "$TMPDIR_23"
+
 # --- Summary ---
 echo ""
 echo "==============================="

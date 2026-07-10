@@ -414,6 +414,17 @@ async def main():
     check("send_message: reply_to → message reference (ids preserved)",
           ref_obj.message_id == 500 and ref_obj.channel_id == 200)
 
+    sends_before = len(ch.send_calls)
+    try:
+        await adapter.send_message(CH_REF, "with files",
+                                   attachments=[Attachment(id="1", filename="a.txt")])
+        check("send_message: attachments rejected loudly (no silent partial send)", False)
+    except ChatError as exc:
+        check("send_message: attachments rejected loudly (no silent partial send)",
+              type(exc) is ChatError and "upload_attachment" in str(exc))
+    check("send_message: rejected attachments → no send happened (spy)",
+          len(ch.send_calls) == sends_before)
+
     edited = await adapter.edit_message(reply_ref, "new text")
     check("edit_message: returns edited=True", edited.edited is True and edited.text == "new text")
 

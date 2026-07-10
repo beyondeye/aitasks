@@ -818,6 +818,15 @@ class DiscordAdapter(ChatAdapter):
         components: list[ActionRow] | None = None,
         reply_to: MessageRef | None = None,
     ) -> Message:
+        if attachments:
+            # Platform gap, surfaced loudly: discord.py sends files as fresh
+            # uploads, not by re-attaching existing handles — silently
+            # dropping them would fake a partial send as success. Send the
+            # text, then upload files via upload_attachment.
+            raise ChatError(
+                "Discord cannot attach existing file handles to a message; "
+                "use upload_attachment for files"
+            )
         channel = await self._resolve_channel(conversation)
         kwargs: dict = {}
         view = self._components_view(components)
