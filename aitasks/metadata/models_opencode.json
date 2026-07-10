@@ -186,6 +186,42 @@
       "verifiedstats": {}
     },
     {
+      "name": "openai_gpt_5_6_luna",
+      "cli_id": "openai/gpt-5.6-luna",
+      "notes": "GPT-5.6 Luna (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_5_6_sol",
+      "cli_id": "openai/gpt-5.6-sol",
+      "notes": "GPT-5.6 Sol (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_5_6_terra",
+      "cli_id": "openai/gpt-5.6-terra",
+      "notes": "GPT-5.6 Terra (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "openai_gpt_5_codex",
       "cli_id": "openai/gpt-5-codex",
       "notes": "GPT-5-Codex (400k context, openai provider)",
@@ -590,6 +626,42 @@
         "pick": 0,
         "explain": 0,
         "batch-review": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gpt_5_6_luna",
+      "cli_id": "opencode/gpt-5.6-luna",
+      "notes": "GPT-5.6 Luna (1050k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gpt_5_6_sol",
+      "cli_id": "opencode/gpt-5.6-sol",
+      "notes": "GPT-5.6 Sol (1050k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gpt_5_6_terra",
+      "cli_id": "opencode/gpt-5.6-terra",
+      "notes": "GPT-5.6 Terra (1050k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
       },
       "verifiedstats": {}
     },
