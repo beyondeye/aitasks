@@ -10,8 +10,9 @@ labels: [applink, applink_connectivity]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1061
+implemented_with: claudecode/fable5
 created_at: 2026-07-02 23:46
-updated_at: 2026-07-09 10:17
+updated_at: 2026-07-10 10:31
 ---
 
 **A3 of the t1061 paired decomposition** (see
@@ -72,3 +73,8 @@ proxy. Before any UI work:
   both LAN and tunnel endpoints work and racing prefers LAN when co-located.
 - Unit tests for URL parsing from cloudflared output, process supervision
   (spawn/shutdown), and QR emission shape.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-10T07:32:14Z status=pass attempt=1 type=human
