@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.28.0
+
+### Features
+
+- **Bug-report intake from chat** (t1120_1–t1120_7): Report a bug straight from Discord and a sandboxed agent explores your codebase, asks clarifying questions back in the thread, and files a structured, ready-to-work task. Ships as the `ait chatlink` TUI/daemon with Docker-isolated agent execution.
+- **Artifact storage & sharing** (t1076_1–t1076_3): New `ait artifact` CLI backed by a shared storage substrate — stable handles, version history, and pluggable backends (including a shared-directory backend) for storing and sharing build artifacts across a team.
+- **Slack support** (t1074_3): New Slack chat adapter (Socket Mode) so chat-driven workflows run on Slack alongside Discord.
+- **Auto Cloudflare tunnel for applink** (t1061_3): `ait applink --auto-tunnel` spins up a Cloudflare Quick Tunnel automatically, letting your phone reach the workspace from outside the LAN with no manual tunnel setup.
+- **Custom pairing endpoints for applink** (t1061_1): New `--advertise-*` flags and `advertised_*` config keys let you override the endpoint advertised in the pairing QR, so pairing works over mesh VPNs and custom network topologies.
+- **Cross-repo syncer** (t1138): The syncer TUI now spans multiple repositories — one row per repo×ref with per-repo sync/pull/push.
+- **Shadow-agent status glyph** (t1133): The monitor and minimonitor now show a shadow-agent indicator (`● ◆`) next to each agent.
+- **GPT-5.6 models** (t1146): Added GPT-5.6 Sol, Terra, and Luna to the Codex and OpenCode model registries.
+
+### Bug Fixes
+
+- **Safer `ait setup` on a dirty tree** (t1128): Non-interactive setup no longer sweeps unrelated uncommitted work into a framework commit; also fixed Discord silently dropping message attachments.
+- **Monitor window mislabeling** (t1130): The monitor no longer renames an unrelated window when `TMUX_PANE` is absent.
+- **Minimonitor switcher dialog** (t1122): The raw-agent dialog now adapts to the narrow minimonitor switcher.
+- **Shadow doc parsing** (t1123): Fixed a shadow doc that triggered a false concern-block match.
+
+### Documentation
+
+- **Bug-report intake docs** (t1120_7): New user + runtime documentation for the chatlink bug-report intake workflow.
+- **Phase-2 tunnel how-to** (t1061_2): New guide for reaching applink across networks via tunnels, organized by the TLS certificate the phone sees.
+
+### Performance
+
+- **Monitor refresh offload** (t1111_4): Monitor capture/classification CPU work now runs off the UI thread, removing UI freezes.
+- **Preview render offload** (t1111_5): The monitor's focused-pane preview render is now offloaded off the UI thread, keeping window switching instant.
+
 ## v0.27.1
 
 ### Bug Fixes
