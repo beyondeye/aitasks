@@ -157,6 +157,26 @@ Expected outcomes:
 - Coauthor formatting displays readable GPT-5.6 Sol/Terra/Luna labels.
 - Existing GPT-5.5 verified/usage stats remain unchanged.
 
+## Implementation Progress
+
+- Added Codex GPT-5.6 Sol, Terra, and Luna entries to metadata and seed registries.
+- Added OpenCode OpenAI-provider and OpenCode-provider GPT-5.6 Sol, Terra, and Luna entries to metadata and seed registries.
+- Added regression coverage for Codex lookup, Codex/OpenCode detected-agent resolution, model listing, and coauthor labels.
+- Verification passed:
+  - `jq . aitasks/metadata/models_codex.json aitasks/metadata/models_opencode.json seed/models_codex.json seed/models_opencode.json`
+  - `bash tests/test_agent_string.sh`
+  - `bash tests/test_resolve_detected_agent.sh`
+  - `bash tests/test_codeagent.sh`
+  - `bash tests/test_add_model.sh`
+
+## Final Implementation Notes
+
+- **Actual work done:** Added GPT-5.6 Sol, Terra, and Luna entries to Codex model registries and mirrored them into seed templates. Added OpenCode `openai/` and `opencode/` provider entries for the same model family, also mirrored into seed templates. Added focused regression tests for Codex model lookup, detected-agent resolution, list-models output, and Codex/OpenCode coauthor display.
+- **Deviations from plan:** Kept `aitask-add-model` behavior unchanged. The implementation added OpenCode registry entries directly because local `opencode models --verbose` did not yet list GPT-5.6, while the existing GPT-5.5 support pattern already uses active provider-prefixed entries for both OpenAI and OpenCode providers.
+- **Issues encountered:** The first task creation attempt failed under the sandbox while updating git/task-ID metadata, leaving a malformed draft task file; that artifact was removed and committed separately on the task-data branch before implementation. Codex model self-detection needed a stricter `model =` grep because the documented command also matched `model_reasoning_effort`; attribution was recorded as `codex/gpt5_5` after narrowing the config read.
+- **Key decisions:** Used explicit model IDs (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`) rather than the `gpt-5.6` alias. Marked new OpenCode entries active to make them selectable, matching the prior GPT-5.5 support pattern. Did not promote any GPT-5.6 model to defaults.
+- **Upstream defects identified:** None
+
 ## Risk
 
 ### Code-health risk: low
