@@ -5,14 +5,15 @@ risk_goal_achievement: medium
 effort: low
 depends: [t1120_6]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [chat_surface]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1120
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-05 12:01
-updated_at: 2026-07-10 17:40
+updated_at: 2026-07-10 19:06
+completed_at: 2026-07-10 19:06
 ---
 
 ## Context
@@ -66,3 +67,14 @@ code/skills now), not the plan text** (plans may have drifted).
 > **✅ gate:review_approved** run=2026-07-10T16:04:34Z status=pass attempt=1 type=human
 
 > **✅ gate:merge_approved** run=2026-07-10T16:05:53Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-10T16:06:08Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:fb45885658d6bb9d
+
+> **✅ gate:risk_evaluated** run=2026-07-10T16:06:08Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1120_7/risk_evaluated_2026-07-10T16:06:08Z-risk_evaluated-a1.log`
