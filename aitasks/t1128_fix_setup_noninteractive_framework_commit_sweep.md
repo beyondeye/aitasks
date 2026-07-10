@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [chat_surface, python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1074
 created_at: 2026-07-05 12:38
-updated_at: 2026-07-05 12:38
+updated_at: 2026-07-10 16:34
 ---
 
 ## Origin
