@@ -100,6 +100,12 @@ assert_contains_ci "list-models shows cli_id" "CLI_ID:claude-opus-4-6" "$output"
 assert_contains_ci "list-models shows notes" "NOTES:" "$output"
 assert_contains_ci "list-models shows verified" "VERIFIED:" "$output"
 
+# Test 3b: list-models codex shows GPT-5.6 models
+echo "--- Test 3b: list-models codex GPT-5.6 ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" list-models codex 2>&1)
+assert_contains_ci "list-models codex shows gpt5_6_sol" "MODEL:gpt5_6_sol" "$output"
+assert_contains_ci "list-models codex shows gpt-5.6-sol cli_id" "CLI_ID:gpt-5.6-sol" "$output"
+
 # Test 4: list-models with invalid agent
 echo "--- Test 4: list-models invalid agent ---"
 assert_exit_nonzero "list-models with invalid agent" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' list-models notanagent"
@@ -250,6 +256,11 @@ assert_contains_ci "coauthor returns name" "AGENT_COAUTHOR_NAME:Codex/GPT5.4" "$
 assert_contains_ci "coauthor returns email" "AGENT_COAUTHOR_EMAIL:codex@aitasks.io" "$output"
 assert_contains_ci "coauthor returns trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Codex/GPT5.4 <codex@aitasks.io>" "$output"
 
+# Test 15b: coauthor returns Codex GPT-5.6 metadata
+echo "--- Test 15b: coauthor Codex GPT-5.6 metadata ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor codex/gpt5_6_sol 2>&1)
+assert_contains_ci "coauthor returns GPT-5.6 Sol name" "AGENT_COAUTHOR_NAME:Codex/GPT5.6-Sol" "$output"
+
 # Test 16: coauthor uses configured custom domain
 echo "--- Test 16: coauthor custom domain ---"
 cat > "$TMPDIR_TEST/aitasks/metadata/project_config.yaml" << 'YAMLEOF'
@@ -331,6 +342,11 @@ assert_contains_ci "coauthor returns GPT name" "AGENT_COAUTHOR_NAME:OpenCode/GPT
 echo "--- Test 25b: coauthor OpenCode GPT 5.4 openai provider ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/openai_gpt_5_4 2>&1)
 assert_contains_ci "coauthor returns GPT 5.4 name" "AGENT_COAUTHOR_NAME:OpenCode/GPT 5.4" "$output"
+
+# Test 25c: coauthor OpenCode with GPT 5.6 openai provider
+echo "--- Test 25c: coauthor OpenCode GPT 5.6 openai provider ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor opencode/openai_gpt_5_6_sol 2>&1)
+assert_contains_ci "coauthor returns GPT 5.6 Sol name" "AGENT_COAUTHOR_NAME:OpenCode/GPT 5.6 Sol" "$output"
 
 # Restore project config before help and remaining tests
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"

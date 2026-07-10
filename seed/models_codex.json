@@ -1,6 +1,39 @@
 {
   "models": [
     {
+      "name": "gpt5_6_sol",
+      "cli_id": "gpt-5.6-sol",
+      "notes": "Flagship GPT-5.6 model with the strongest capability for complex coding, computer use, research, and cybersecurity",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "gpt5_6_terra",
+      "cli_id": "gpt-5.6-terra",
+      "notes": "Balanced GPT-5.6 model for everyday coding and agentic work, with strong capability at lower cost than Sol",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "gpt5_6_luna",
+      "cli_id": "gpt-5.6-luna",
+      "notes": "Fast and affordable GPT-5.6 model for clear, repeatable coding tasks and high-volume workflows",
+      "verified": {
+        "batch-review": 0,
+        "pick": 0,
+        "explain": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "gpt5_5",
       "cli_id": "gpt-5.5",
       "notes": "Newest frontier model for complex coding, computer use, knowledge work, and research workflows; recommended choice for most Codex tasks (ChatGPT sign-in only)",

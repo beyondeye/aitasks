@@ -81,6 +81,10 @@ else
     echo "FAIL: get_cli_model_id claudecode opus4_7_1m returned empty/null (models_claudecode.json may be missing or jq unavailable)"
 fi
 
+# --- Test 15: get_cli_model_id resolves GPT-5.6 Codex entries ---
+out="$(bash -c "source '$LIB'; get_cli_model_id codex gpt5_6_sol" 2>/dev/null)"
+assert_eq "get_cli_model_id codex gpt5_6_sol" "gpt-5.6-sol" "$out"
+
 # --- Summary ---
 
 echo ""

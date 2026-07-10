@@ -48,6 +48,10 @@ echo "=== Test: exact match codex ==="
 result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent codex --cli-id gpt-5.4 2>&1)
 assert_eq "codex exact match" "AGENT_STRING:codex/gpt5_4" "$result"
 
+echo "=== Test: exact match codex GPT-5.6 Sol ==="
+result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent codex --cli-id gpt-5.6-sol 2>&1)
+assert_eq "codex GPT-5.6 Sol exact match" "AGENT_STRING:codex/gpt5_6_sol" "$result"
+
 echo "=== Test: exact match opencode ==="
 result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent opencode --cli-id "openai/codex-mini-latest" 2>&1)
 assert_eq "opencode exact match" "AGENT_STRING:opencode/openai_codex_mini_latest" "$result"
@@ -55,6 +59,14 @@ assert_eq "opencode exact match" "AGENT_STRING:opencode/openai_codex_mini_latest
 echo "=== Test: opencode suffix match ==="
 result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent opencode --cli-id "codex-mini-latest" 2>&1)
 assert_eq "opencode suffix match" "AGENT_STRING:opencode/openai_codex_mini_latest" "$result"
+
+echo "=== Test: exact match opencode GPT-5.6 Sol ==="
+result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent opencode --cli-id "openai/gpt-5.6-sol" 2>&1)
+assert_eq "opencode GPT-5.6 Sol exact match" "AGENT_STRING:opencode/openai_gpt_5_6_sol" "$result"
+
+echo "=== Test: opencode GPT-5.6 Sol suffix match ==="
+result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent opencode --cli-id "gpt-5.6-sol" 2>&1)
+assert_eq "opencode GPT-5.6 Sol suffix match" "AGENT_STRING:opencode/openai_gpt_5_6_sol" "$result"
 
 echo "=== Test: fallback for unknown cli_id ==="
 result=$(AITASK_AGENT_STRING="" bash "$RESOLVE_SCRIPT" --agent claudecode --cli-id unknown-model 2>&1)
