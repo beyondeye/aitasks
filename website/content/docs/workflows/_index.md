@@ -20,6 +20,7 @@ The full task lifecycle — capturing ideas quickly, wrapping ad-hoc work into t
 - [Task Decomposition](task-decomposition/) — Breaking complex tasks into manageable child subtasks.
 - [Task Consolidation](task-consolidation/) — Merging overlapping or duplicate tasks into a single actionable task.
 - [Exploration-Driven](exploration-driven/) — Start with codebase exploration, create tasks from findings.
+- [Bug-Report Intake](bug-report-intake/) — Turn a Discord channel into a bug-report intake: a sandboxed agent explores the repo, asks the reporter questions in-thread, and files a task.
 
 ## Parallel
 
