@@ -422,3 +422,56 @@ finalize with a bare `git commit`, sweeping a foreign pre-staged index on a dirt
 
 Also delete the now-obsolete memory `project_ait_setup_dirty_tree_commit_sweep.md`
 once this lands.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented per the approved plan (both parts).
+  Part 1: hoisted the framework-path whitelist into `_ait_framework_paths` /
+  `_ait_data_framework_paths`, added `_ait_list_framework_changes` (untracked +
+  modified + **staged** via `git diff --cached --name-only` — the load-bearing
+  term for pre-staged framework edits), `_ait_subtract` / `_ait_intersect`
+  (grep -Fx based, macOS-portable), globals + `snapshot_pre_setup_dirty()`
+  (VERSION-tracked bootstrap sentinel, data baseline captured only when the
+  data worktree pre-exists), armed in `main()` between `ensure_git_repo` and
+  `setup_data_branch`. Both `commit_framework_files` and the
+  `commit_framework_data_files` twin now commit only `changed − baseline`,
+  report excluded paths ("left alone"), path-scope the `git commit` and the
+  `--cached --quiet` guard, warn on the unarmed path, and announce the
+  bootstrap commit-all blast radius in non-interactive mode. Part 2:
+  `DiscordAdapter.send_message` rejects non-empty `attachments` with base
+  `ChatError` naming `upload_attachment`, first statement in the body —
+  exact mirror of the Slack fix. Tests: `test_setup_git.sh` +4 blocks
+  (bootstrap positive + warning assertions; three-fixture negative control
+  incl. a fully-staged framework edit; `declare -f main` structural ordering;
+  data-branch twin negative control — first coverage of that function),
+  `test_chat_discord.sh` +2 spy checks.
+- **Deviations from plan:**
+  - Baselines are newline-joined **strings**, not bash arrays
+    (`AIT_SETUP_DIRTY_BASELINE=""`), with `grep -Fxv/-Fx -f <(printf …)`
+    subtraction/intersection — simpler and avoids bash-4.3 nameref
+    portability questions. Behavior identical to the planned array shape.
+  - Added `_ait_intersect` (not in the plan) so the excluded-paths report is
+    computed the same exact-match way as the subtraction.
+  - `install.sh` untouched, per the user's explicit scope decision.
+- **Issues encountered:** none material. `tests/test_init_data.sh` fails
+  23/30 — verified identical on the unmodified baseline (pre-existing,
+  unrelated).
+- **Key decisions:** reuse `.aitask-scripts/VERSION` as the bootstrap
+  sentinel (same signal as `install.sh commit_installed_files` — no second
+  signal); fail-open when unarmed (legacy behavior for direct test calls)
+  guarded by the structural ordering test + contract comments + runtime
+  stderr warn; the staged (`--cached`) term included at both snapshot and
+  commit time — at commit time any staged framework path is foreign by
+  definition since setup never pre-stages; bootstrap warning phrased without
+  "decline" (non-interactive auto-accepts — remedies are rerun-interactive
+  or pre-commit-manually).
+- **Verification highlights:** unarmed run reproduces the legacy sweep
+  (meaningful negative control); live `./ait setup </dev/null` on this
+  dirty repo (the exact original-incident scenario, bracketed with
+  before/after `git status --porcelain` + HEAD snapshots of both worktrees)
+  left everything byte-identical and reported the 3 pre-existing dirty
+  framework files as left alone. `test_setup_git.sh` 70/70,
+  `test_chat_discord.sh` 142, contract 148, Slack green; shellcheck findings
+  identical to the pre-edit baseline.
+- **Upstream defects identified:**
+  - `install.sh:921,1015 — commit_installed_files / commit_installed_data_files finalize with a bare git commit (no pathspec), sweeping a foreign pre-staged index on a dirty curl|bash upgrade; path-scope both commits and their --cached --quiet guards (user deferred this out of t1128)`
+  - `tests/test_init_data.sh — 23 of 30 checks fail on the unmodified baseline (pre-existing breakage, unrelated to t1128; reproduced on a clean stash of this task's changes)`
