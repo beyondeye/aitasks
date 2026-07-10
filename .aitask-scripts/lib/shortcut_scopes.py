@@ -50,6 +50,7 @@ KNOWN_BINDING_SOURCES: list[tuple[str, str, tuple[str, ...]]] = [
     ("brainstorm_dag_display", "brainstorm/brainstorm_dag_display.py", ("brainstorm.dag",)),  # class-body
     ("codebrowser_app", "codebrowser/codebrowser_app.py", ("codebrowser", "codebrowser.copypath")),
     ("applink_app", "applink/applink_app.py", ("applink", "applink.pairing", "applink.status")),
+    ("chatlink_app", "chatlink/chatlink_app.py", ("chatlink",)),
     ("monitor_app", "monitor/monitor_app.py", ("monitor",)),
     ("minimonitor_app", "monitor/minimonitor_app.py", ("minimonitor",)),
     ("syncer_app", "syncer/syncer_app.py", ("syncer",)),

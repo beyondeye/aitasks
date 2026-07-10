@@ -21,6 +21,7 @@ t1120_6's ``flow.py``.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from pathlib import Path
 
@@ -53,6 +54,7 @@ from .render import (
     AnswerMismatch,
     RenderRejected,
     assemble_answer,
+    build_modal,
     is_free_text_trigger,
     is_page_nav,
     render_question,
@@ -72,8 +74,14 @@ MSG_RATE_LIMITED = "Rate limit reached — please try again later."
 MSG_BUSY = "All bug-report slots are busy — please try again later."
 MSG_EXPIRED = "This question has expired."
 MSG_NOT_INITIATOR = "Only the user who opened this bug report can answer."
-MSG_DEFERRED = "This control is not available yet in this build."
 MSG_LAUNCH_FAILED = "Could not start the analysis agent — session failed."
+
+#: Reactions-as-status vocabulary (pinned, applied to the original
+#: bug-report message; asserted by tests at each state transition).
+STATUS_WORKING = "⏳"
+STATUS_AWAITING = "❓"
+STATUS_CREATED = "✅"
+STATUS_FAILED = "❌"
 
 
 def _ref_of(event_conversation: ConversationRef | None) -> ConversationRef | None:
@@ -105,6 +113,10 @@ class GatewayPipeline:
         agent_argv: tuple = (),
         repo_root: str | Path | None = None,
         death_signal=None,
+        handles: dict | None = None,
+        environ=None,
+        create_script=None,
+        push_argv: tuple | None = None,
     ):
         self.adapter = adapter
         self.config = config
@@ -118,6 +130,15 @@ class GatewayPipeline:
             else paths.project_root()
         self.workspaces_root = paths.workspaces_root_beside(self.relay_root)
         self.death_signal = death_signal
+        #: Live sandbox handles by session_id (daemon-owned registry;
+        #: t1120_6 kill-on-payload-completion). Popped on terminal paths.
+        self.handles: dict = {} if handles is None else handles
+        #: Env source for ``sandbox_env_passthrough`` resolution (test seam).
+        self.environ = os.environ if environ is None else environ
+        #: Task-creation seams consumed by ``flow.complete_session``
+        #: (``None`` ⇒ the real script / ``ait git push`` at repo_root).
+        self.create_script = create_script
+        self.push_argv = push_argv
         if config.intake_channel is None:
             # The daemon refuses to start without it; belt-and-braces here.
             raise ValueError("config.intake_channel is required")
@@ -236,9 +257,7 @@ class GatewayPipeline:
         # (d) launch through the seam. The bug-report write and the
         # workspace-copy creation are PART of the launch step and share its
         # fail path (a failure here must never leave a non-terminal session
-        # waiting for the next startup reconciliation). env_allowlist stays
-        # {} until t1120_6 sources the LLM key from config (contract 10: no
-        # env-var names invented here).
+        # waiting for the next startup reconciliation).
         workspace_copy = self.workspaces_root / sid
         try:
             # The agent reads the report via CHATLINK_BUG_REPORT_FILE —
@@ -255,7 +274,7 @@ class GatewayPipeline:
                 agent_argv=self.agent_argv,
                 workspace_copy_path=str(workspace_copy),
                 workspace_id=self.intake_ref.workspace_id,
-                env_allowlist={},
+                env_allowlist=self._resolve_env_passthrough(),
                 limits={
                     "memory": self.config.sandbox_memory,
                     "cpus": self.config.sandbox_cpus,
@@ -264,7 +283,7 @@ class GatewayPipeline:
                 },
                 on_death=self.death_signal,
             )
-            self.launcher.launch(spec)
+            self.handles[sid] = self.launcher.launch(spec)
         except (LaunchError, OSError) as exc:
             self.audit.error("intake step=launch session=%s failed: %s",
                              sid, exc)
@@ -279,6 +298,24 @@ class GatewayPipeline:
 
         self.audit.info("intake accepted session=%s user=%s", sid,
                         _tag(actor.id))
+        await self._set_status_reaction(record, STATUS_WORKING)
+
+    def _resolve_env_passthrough(self) -> dict:
+        """``sandbox_env_passthrough`` names → gateway env values.
+
+        A configured name absent from the environment is skipped with an
+        audit warning — never a launch blocker (the agent fails visibly
+        in-thread if it truly needed the key).
+        """
+        env: dict = {}
+        for name in self.config.sandbox_env_passthrough:
+            val = self.environ.get(name)
+            if val is None:
+                self.audit.warning(
+                    "env passthrough: %s not set — skipped", name)
+            else:
+                env[name] = val
+        return env
 
     # ------------------------------------------------------------------ #
     # Minimal interaction path (select submissions end-to-end)
@@ -318,11 +355,22 @@ class GatewayPipeline:
             await self._respond_quiet(interaction, MSG_EXPIRED)
             return
 
-        # Deferred affordances (t1120_6): recognized, audited, stubbed.
-        if is_free_text_trigger(question, interaction) or \
-                is_page_nav(question, interaction) is not None:
-            self.audit.info("deferred component (t1120_6) s=%s seq=%s", sid, seq)
-            await self._respond_quiet(interaction, MSG_DEFERRED)
+        if is_free_text_trigger(question, interaction):
+            # Contract 5: open the modal IMMEDIATELY — this must be the
+            # first awaited platform call so it beats the adapter's
+            # scheduled defer (~2 s window on Discord).
+            try:
+                await self.adapter.open_modal(interaction,
+                                              build_modal(question))
+            except ChatError as exc:
+                self.audit.info("open_modal failed s=%s seq=%s: %s",
+                                sid, seq, exc)
+                await self._respond_quiet(interaction, MSG_EXPIRED)
+            return
+
+        page = is_page_nav(question, interaction)
+        if page is not None:
+            await self._render_page(record, question, page, interaction)
             return
 
         try:
@@ -343,13 +391,47 @@ class GatewayPipeline:
             await self._respond_quiet(interaction, MSG_EXPIRED)
             return
 
-        # Derived bookkeeping + best-effort component disabling.
+        # Derived bookkeeping + best-effort component disabling. The
+        # status-reaction mutation rides the same save (persist=False).
         record.set_outcome(seq, answer.to_dict())
         if record.state == "asking":
             record.state = "working"
+        await self._set_status_reaction(record, STATUS_WORKING,
+                                        persist=False)
         await asyncio.to_thread(self.store.save, record)
         await self._disable_question_components(record, seq, question.text)
         self.audit.info("answer recorded session=%s seq=%s", sid, seq)
+
+    async def _render_page(self, record: SessionRecord, question,
+                           page: int, interaction: Interaction) -> None:
+        """Page-nav re-render: edit the stored question message in place.
+
+        The re-render is the visible outcome; the interaction itself is
+        acked quietly so the platform stops its spinner.
+        """
+        ref_dict = record.question_messages.get(str(int(question.seq)))
+        if ref_dict is None:
+            await self._respond_quiet(interaction, MSG_EXPIRED)
+            return
+        try:
+            rendered = render_question(question, self.adapter.capabilities(),
+                                       page=page)
+        except RenderRejected as exc:
+            self.audit.error("page render rejected s=%s seq=%s: %s",
+                             record.session_id, question.seq, exc.reason)
+            await self._respond_quiet(interaction, MSG_EXPIRED)
+            return
+        msg_ref = MessageRef(
+            conversation=ConversationRef.from_dict(ref_dict["conversation"]),
+            message_id=ref_dict["message_id"],
+        )
+        try:
+            await self.adapter.edit_message(msg_ref, rendered.text_chunks[-1],
+                                            components=rendered.rows)
+            await self.adapter.ack(interaction)
+        except ChatError as exc:
+            self.audit.info("page nav failed s=%s seq=%s: %s",
+                            record.session_id, question.seq, exc)
 
     async def post_question(self, record: SessionRecord, question) -> None:
         """Render + post one pending question into the session thread.
@@ -375,6 +457,8 @@ class GatewayPipeline:
                 posted.ref.conversation.to_dict(), posted.ref.message_id)
         if record.state == "spawning" or record.state == "working":
             record.state = "asking"
+        await self._set_status_reaction(record, STATUS_AWAITING,
+                                        persist=False)
         await asyncio.to_thread(self.store.save, record)
 
     # ------------------------------------------------------------------ #
@@ -403,6 +487,36 @@ class GatewayPipeline:
             await self.adapter.respond(interaction, text, ephemeral=True)
         except ChatError as exc:
             self.audit.info("interaction response failed: %s", exc)
+
+    async def _set_status_reaction(self, record: SessionRecord,
+                                   emoji: str, *, persist: bool = True) -> None:
+        """Swap the status reaction on the original bug-report message.
+
+        Mutates + persists ``record.status_reaction`` (pinned vocabulary
+        ⏳/❓/✅/❌); the platform part is best-effort/audited. No-op when
+        the record has no bug-report ref or already carries ``emoji``.
+        ``persist=False`` when the caller issues the save itself right
+        after (keeps single-save orderings intact — the caller MUST save).
+        """
+        if record.bug_report_message is None or \
+                record.status_reaction == emoji:
+            return
+        prev = record.status_reaction
+        record.status_reaction = emoji
+        if persist:
+            await asyncio.to_thread(self.store.save, record)
+        ref = record.bug_report_message
+        msg_ref = MessageRef(
+            conversation=ConversationRef.from_dict(ref["conversation"]),
+            message_id=ref["message_id"],
+        )
+        try:
+            if prev:
+                await self.adapter.remove_reaction(msg_ref, prev)
+            await self.adapter.add_reaction(msg_ref, emoji)
+        except ChatError as exc:
+            self.audit.info("status reaction failed s=%s: %s",
+                            record.session_id, exc)
 
     async def _thread_failure_note(self, thread_ref: ConversationRef,
                                    bug_msg_ref: MessageRef, note: str) -> None:

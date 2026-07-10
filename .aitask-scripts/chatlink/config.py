@@ -41,6 +41,12 @@ RANGE_SANDBOX_WALL_CLOCK_S = (60, 14400)
 DENY_MESSAGE_MODES = ("ignore", "ephemeral")
 DEFAULT_DENY_MESSAGE_MODE = "ignore"
 
+#: Env-var NAMES the gateway resolves from its own environment at launch
+#: time and passes into the sandbox (contract 10: the LLM API key — never
+#: the bot token, never git credentials). Values never live in the config
+#: file. t1139 extends this surface — keep it a plain list of names.
+ENV_PASSTHROUGH_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+
 #: Required non-empty str keys of a serialized ConversationRef.
 _INTAKE_REQUIRED = ("provider", "workspace_id", "conversation_id")
 
@@ -70,6 +76,9 @@ class ChatlinkConfig:
     sandbox_cpus: int = DEFAULT_SANDBOX_CPUS
     sandbox_pids: int = DEFAULT_SANDBOX_PIDS
     sandbox_wall_clock_s: int = DEFAULT_SANDBOX_WALL_CLOCK_S
+    #: Env-var names resolved from the gateway environment into
+    #: ``SandboxSpec.env_allowlist`` at launch (see module constant).
+    sandbox_env_passthrough: list[str] = field(default_factory=list)
 
 
 def _clamped_int(raw: object, default: int, lo: int, hi: int, key: str) -> int:
@@ -106,6 +115,27 @@ def _str_list(raw: object, key: str) -> list[str]:
                 out.append(text)
                 continue
         _warn(f"{key}: dropping non-scalar/empty entry {item!r}")
+    return out
+
+
+def _env_name_list(raw: object, key: str) -> list[str]:
+    """Coerce to a list of valid env-var names; drop invalid entries.
+
+    Per-entry degradation (same policy as the other keys): a non-list ⇒
+    ``[]`` with a warning; each entry must match
+    :data:`ENV_PASSTHROUGH_NAME_RE`, else it is dropped with a warning.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        _warn(f"{key}: expected a list, got {type(raw).__name__} — using []")
+        return []
+    out: list[str] = []
+    for item in raw:
+        if isinstance(item, str) and ENV_PASSTHROUGH_NAME_RE.match(item):
+            out.append(item)
+        else:
+            _warn(f"{key}: dropping invalid env-var name {item!r}")
     return out
 
 
@@ -233,5 +263,8 @@ def load_config(path: str | Path | None) -> ChatlinkConfig | None:
             DEFAULT_SANDBOX_WALL_CLOCK_S,
             *RANGE_SANDBOX_WALL_CLOCK_S,
             key="sandbox_wall_clock_s",
+        ),
+        sandbox_env_passthrough=_env_name_list(
+            data.get("sandbox_env_passthrough"), "sandbox_env_passthrough"
         ),
     )

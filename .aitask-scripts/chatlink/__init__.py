@@ -16,7 +16,11 @@ gateway side), ``reconcile`` (pure startup/reconnect planners; gateway
 side), ``intake`` (intake + minimal interaction pipeline; gateway side),
 ``spawn_seam`` (sandbox-launcher protocol stub — real backend in t1120_5),
 ``audit`` (gateway audit log), ``daemon`` (the Textual-free headless
-gateway daemon behind ``ait chatlink --headless``).
+gateway daemon behind ``ait chatlink --headless``), ``flow`` (spool→post
+pump + payload completion sink; gateway side), ``payload_guard``
+(fail-closed gateway payload validation), ``task_create`` (validated
+payload → ``aitask_create.sh`` + push), ``chatlink_app`` (the Textual TUI
+behind ``ait chatlink`` — the ONLY module that may import Textual).
 
 Contract: ``relay`` and ``relay_ask`` import ONLY from within ``chatlink/``
 and the stdlib — no ``chat/`` module, no aitasks framework module

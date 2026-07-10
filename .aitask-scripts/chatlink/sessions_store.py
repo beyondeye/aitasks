@@ -83,6 +83,10 @@ class SessionRecord:
     #: bookkeeping (a crash between post and save just loses the disable
     #: affordance, never correctness).
     question_messages: dict = field(default_factory=dict)
+    #: Current status reaction on the bug-report message (pinned vocabulary
+    #: ⏳/❓/✅/❌; ``""`` = none yet). Best-effort bookkeeping — lets the
+    #: next transition remove the previous emoji before adding its own.
+    status_reaction: str = ""
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -106,6 +110,8 @@ class SessionRecord:
                  "interaction_outcomes must be a dict")
         _require(isinstance(self.question_messages, dict),
                  "question_messages must be a dict")
+        _require(isinstance(self.status_reaction, str),
+                 "status_reaction must be a string")
         _require(isinstance(self.created_at, (int, float)),
                  "created_at must be a number")
         _require(isinstance(self.updated_at, (int, float)),
@@ -134,6 +140,7 @@ class SessionRecord:
             "last_seen": self.last_seen,
             "interaction_outcomes": self.interaction_outcomes,
             "question_messages": self.question_messages,
+            "status_reaction": self.status_reaction,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -151,6 +158,7 @@ class SessionRecord:
                 last_seen=dict(d.get("last_seen", {})),
                 interaction_outcomes=dict(d.get("interaction_outcomes", {})),
                 question_messages=dict(d.get("question_messages", {})),
+                status_reaction=d.get("status_reaction", ""),
                 created_at=d.get("created_at", 0.0),
                 updated_at=d.get("updated_at", 0.0),
             )

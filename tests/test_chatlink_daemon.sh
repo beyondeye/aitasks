@@ -630,7 +630,9 @@ async def main():
           env9.audit.has("info", "denied reason=not_initiator")
           and session9.read_answer(2) is None)
 
-    # deferred affordances: free-text trigger + page nav → stub + pending
+    # free-text trigger → open_modal immediately (contract 5; t1120_6);
+    # page nav for a question with no stored message ref → 'expired'
+    # ephemeral, never a crash (full pagination e2e: test_chatlink_flow.sh)
     q3 = make_question(sid9, 3, allow_free_text=True)
     session9.write_question(q3)
     ft = Interaction(id="i4", type=InteractionType.BUTTON, actor=uh,
@@ -638,14 +640,17 @@ async def main():
                      custom_id=build_custom_id(sid9, 3, "freetext"))
     env9.adapter.inject_interaction(ft)
     await env9.drain()
+    check("free-text trigger → modal opened, no answer written",
+          len(env9.adapter.opened_modals) == 1
+          and session9.read_answer(3) is None)
     pg = Interaction(id="i5", type=InteractionType.BUTTON, actor=uh,
                      conversation=ConversationRef.from_dict(rec9.thread),
                      custom_id=build_custom_id(sid9, 3, "pg1"))
     env9.adapter.inject_interaction(pg)
     await env9.drain()
-    check("free-text + page-nav deferred: audited stub, no answer, no crash",
-          sum(1 for lv, m in env9.audit.lines if "deferred component" in m) == 2
-          and session9.read_answer(3) is None)
+    check("page nav without posted message ref → expired, no crash",
+          session9.read_answer(3) is None
+          and any("expired" in m.text for m in env9.adapter.ephemeral_messages))
 
     # unknown custom_id / unknown session / absent question
     junk = Interaction(id="i6", type=InteractionType.BUTTON, actor=uh,
@@ -1154,13 +1159,25 @@ PYEOF
 # ---- Part 2: launcher / dispatcher routing ---------------------------------
 cd "$PROJECT_DIR"
 
-out="$(./ait chatlink 2>&1 || true)"
-if echo "$out" | grep -q "only --headless is available"; then
-    echo "ok - ait chatlink routes to the daemon (headless-only refusal)"
+# No --headless → the launcher dispatches the TUI module (--smoke
+# constructs the app and exits 0 without entering the event loop).
+out="$(./ait chatlink --smoke 2>&1)" && rc=0 || rc=$?
+if [[ $rc -eq 0 ]]; then
+    echo "ok - ait chatlink (no --headless) routes to the TUI (smoke rc=0)"
 elif echo "$out" | grep -q "Missing Python packages"; then
     echo "ok - ait chatlink routes to the launcher (deps preflight fired)"
 else
-    echo "FAIL: unexpected ait chatlink output: $out"
+    echo "FAIL: unexpected ait chatlink --smoke output (rc=$rc): $out"
+    exit 1
+fi
+
+# Direct daemon invocation without --headless stays refused (defense in
+# depth — the launcher, not the daemon, owns TUI dispatch).
+out="$(PYTHONPATH="$PROJECT_DIR/.aitask-scripts" "$PYTHON" -m chatlink.daemon 2>&1 || true)"
+if echo "$out" | grep -q "headless-only"; then
+    echo "ok - chatlink.daemon without --headless refuses (headless-only)"
+else
+    echo "FAIL: unexpected chatlink.daemon output: $out"
     exit 1
 fi
 

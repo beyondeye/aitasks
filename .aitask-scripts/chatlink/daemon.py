@@ -37,10 +37,11 @@ from chat.errors import ChatError
 from chat.model import ConversationRef, EventType, Message, MessageRef
 
 from . import audit as audit_mod
+from . import flow
 from . import paths
 from . import reconcile
 from .config import ChatlinkConfig, load_config
-from .intake import GatewayPipeline
+from .intake import STATUS_FAILED, GatewayPipeline
 from lib.sandbox_launch import (
     DEFAULT_SANDBOX_BACKEND,
     get_launcher,
@@ -212,6 +213,7 @@ class ActionExecutor:
                 return  # idempotent re-run — already persisted
             else:
                 record.state = "failed"
+            record.status_reaction = STATUS_FAILED
             await asyncio.to_thread(self.store.save, record)
             self.audit.info("session %s marked failed (%s)", sid,
                             a.payload.get("reason"))
@@ -254,7 +256,10 @@ class ActionExecutor:
                 msg_ref = MessageRef(
                     conversation=ConversationRef.from_dict(ref["conversation"]),
                     message_id=ref["message_id"])
-                await self.pipeline.adapter.add_reaction(msg_ref, "❌")
+                prev = a.payload.get("prev_reaction")
+                if prev and prev != STATUS_FAILED:
+                    await self.pipeline.adapter.remove_reaction(msg_ref, prev)
+                await self.pipeline.adapter.add_reaction(msg_ref, STATUS_FAILED)
             elif a.kind == reconcile.REPOST_QUESTION:
                 record = await asyncio.to_thread(self.store.load, sid)
                 if record is None or record.thread is None:
@@ -454,14 +459,18 @@ async def run_daemon(
     clock=time.time,
     agent_argv: tuple = (),
     repo_root=None,
+    create_script=None,
+    push_argv: tuple | None = None,
+    flow_scan_interval_s: float | None = None,
 ) -> int:
     """Reconcile, then consume events sequentially until ``stop`` is set.
 
     The adapter is injected (production: ``DiscordAdapter.connect(token)``;
     tests: ``MockChatAdapter``) — this function performs no construction,
     keeping it fully drivable by the test suite. ``agent_argv`` /
-    ``repo_root`` are threaded into the pipeline (test seams; ``repo_root``
-    defaults to the real checkout).
+    ``repo_root`` / ``create_script`` / ``push_argv`` /
+    ``flow_scan_interval_s`` are threaded into the pipeline and flow pump
+    (test seams; ``repo_root`` defaults to the real checkout).
     """
     intake_ref = ConversationRef.from_dict(config.intake_channel)
     # Agent-death signalling (t1120_5): the launcher backend's watchdog
@@ -479,9 +488,20 @@ async def run_daemon(
         adapter=adapter, config=config, store=store, launcher=launcher,
         relay_root=relay_root, audit=audit, clock=clock, repo_root=repo_root,
         agent_argv=agent_argv, death_signal=death_signal,
+        create_script=create_script, push_argv=push_argv,
     )
     executor = ActionExecutor(store=store, relay_root=relay_root,
                               pipeline=pipeline, audit=audit)
+    # Flow pump (t1120_6): a pure-reader background scan whose only write
+    # is the bounded flow_q — mutations stay loop-owned (see flow.py's
+    # binding concurrency contract).
+    flow_q: asyncio.Queue = asyncio.Queue(maxsize=flow.FLOW_QUEUE_MAX)
+    pump_task = asyncio.create_task(flow.run_flow_pump(
+        store=store, relay_root=relay_root, flow_q=flow_q, stop=stop,
+        audit=audit,
+        interval_s=(flow.FLOW_SCAN_INTERVAL_S if flow_scan_interval_s is None
+                    else flow_scan_interval_s),
+    ))
 
     await run_startup_reconciliation(
         store=store, relay_root=relay_root, launcher=launcher,
@@ -492,35 +512,51 @@ async def run_daemon(
     await ensure_watch_baseline(
         store=store, adapter=adapter, intake_ref=intake_ref, audit=audit)
 
-    while not stop.is_set():
-        stream = await _open_stream(adapter)
+    try:
+        while not stop.is_set():
+            stream = await _open_stream(adapter)
+            try:
+                # Sequential dispatch: awaited to completion (binding
+                # invariant) — the next item is not read until this one is
+                # fully handled. The merged source keeps ONE consumer over
+                # adapter events, agent-death signals, and flow events.
+                async for kind, item in _merged_events(stream, death_q,
+                                                       flow_q):
+                    if kind == "death":
+                        await _handle_agent_death(
+                            item, store=store, relay_root=relay_root,
+                            pipeline=pipeline, executor=executor,
+                            audit=audit)
+                    elif kind == "flow":
+                        await flow.handle_flow_event(
+                            item, pipeline=pipeline, store=store,
+                            relay_root=relay_root, executor=executor,
+                            audit=audit)
+                    else:
+                        await pipeline.handle_event(item)
+                        await _advance_cursor_for(item, store, audit)
+                    if stop.is_set():
+                        break
+            except ChatError as exc:
+                audit.warning("subscribe stream error: %s", exc)
+            if stop.is_set():
+                break
+            # Stream ended (disconnect): re-query, then re-subscribe.
+            audit.info(
+                "subscribe stream ended — reconciling and re-subscribing")
+            await run_reconnect_reconciliation(
+                store=store, relay_root=relay_root, intake_ref=intake_ref,
+                pipeline=pipeline, audit=audit)
+            try:
+                await asyncio.wait_for(stop.wait(),
+                                       timeout=RECONNECT_BACKOFF_S)
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        pump_task.cancel()
         try:
-            # Sequential dispatch: awaited to completion (binding
-            # invariant) — the next item is not read until this one is
-            # fully handled. The merged source keeps ONE consumer over
-            # both adapter events and agent-death signals.
-            async for kind, item in _merged_events(stream, death_q):
-                if kind == "death":
-                    await _handle_agent_death(
-                        item, store=store, relay_root=relay_root,
-                        executor=executor, audit=audit)
-                else:
-                    await pipeline.handle_event(item)
-                    await _advance_cursor_for(item, store, audit)
-                if stop.is_set():
-                    break
-        except ChatError as exc:
-            audit.warning("subscribe stream error: %s", exc)
-        if stop.is_set():
-            break
-        # Stream ended (disconnect): re-query, then re-subscribe.
-        audit.info("subscribe stream ended — reconciling and re-subscribing")
-        await run_reconnect_reconciliation(
-            store=store, relay_root=relay_root, intake_ref=intake_ref,
-            pipeline=pipeline, audit=audit)
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=RECONNECT_BACKOFF_S)
-        except asyncio.TimeoutError:
+            await pump_task
+        except asyncio.CancelledError:
             pass
     return 0
 
@@ -534,34 +570,46 @@ async def _open_stream(adapter):
     return await stream
 
 
-async def _merged_events(stream, death_q: asyncio.Queue):
-    """Merge the subscribe stream with the agent-death queue into ONE
-    sequential source of tagged items (``("event", ev)`` / ``("death",
-    sid)``) — the dispatch loop stays a single consumer (binding
-    invariant; no concurrent handler tasks).
+async def _merged_events(stream, death_q: asyncio.Queue,
+                         flow_q: asyncio.Queue | None = None):
+    """Merge the subscribe stream with the agent-death queue and the flow
+    queue into ONE sequential source of tagged items (``("event", ev)`` /
+    ``("death", sid)`` / ``("flow", FlowEvent)``) — the dispatch loop stays
+    a single consumer (binding invariant; no concurrent handler tasks).
 
-    Ends when the stream ends (disconnect). Death signals are never lost
-    across the boundary: a retrieved-but-unconsumed signal is re-queued on
+    Ends when the stream ends (disconnect). Queue items are never lost
+    across the boundary: a retrieved-but-unconsumed item is re-queued on
     exit, and pending ones simply stay queued — both are drained when the
-    reconnect loop re-enters (bounded by the reconnect backoff). When both
-    sources are ready, deaths are yielded first (deterministic order).
+    reconnect loop re-enters (bounded by the reconnect backoff). When
+    multiple sources are ready, deaths are yielded first, then flow events
+    (deterministic order; flow drops are safe anyway — level-triggered).
     """
     stream_task: asyncio.Task | None = None
     death_task: asyncio.Task | None = None
+    flow_task: asyncio.Task | None = None
     try:
         while True:
             if stream_task is None:
                 stream_task = asyncio.ensure_future(stream.__anext__())
             if death_task is None:
                 death_task = asyncio.ensure_future(death_q.get())
+            if flow_task is None and flow_q is not None:
+                flow_task = asyncio.ensure_future(flow_q.get())
+            pending = {stream_task, death_task}
+            if flow_task is not None:
+                pending.add(flow_task)
             done, _ = await asyncio.wait(
-                {stream_task, death_task},
-                return_when=asyncio.FIRST_COMPLETED)
+                pending, return_when=asyncio.FIRST_COMPLETED)
             if death_task in done:
                 sid = death_task.result()
                 death_task = None
                 yield ("death", sid)
-                continue  # a done stream_task is picked up next iteration
+                continue  # other done tasks are picked up next iteration
+            if flow_task is not None and flow_task in done:
+                ev = flow_task.result()
+                flow_task = None
+                yield ("flow", ev)
+                continue
             try:
                 event = stream_task.result()
             except StopAsyncIteration:
@@ -569,24 +617,42 @@ async def _merged_events(stream, death_q: asyncio.Queue):
             stream_task = None
             yield ("event", event)
     finally:
-        if death_task is not None:
-            if death_task.done() and not death_task.cancelled():
+        for task, queue in ((death_task, death_q), (flow_task, flow_q)):
+            if task is None:
+                continue
+            if task.done() and not task.cancelled():
                 # Retrieved but not consumed — put it back for the next
                 # merged loop (never silently dropped).
-                death_q.put_nowait(death_task.result())
+                queue.put_nowait(task.result())
             else:
-                death_task.cancel()
+                task.cancel()
         if stream_task is not None:
             stream_task.cancel()
 
 
 async def _handle_agent_death(session_id: str, *, store: SessionsStore,
-                              relay_root: Path, executor: "ActionExecutor",
+                              relay_root: Path,
+                              pipeline: GatewayPipeline | None,
+                              executor: "ActionExecutor",
                               audit) -> None:
     """Loop-side agent-death dispatch (t1120_5): load state, plan via the
     pure planner, execute with phase discipline. A stale/duplicate signal
-    (record already terminal or absent) plans zero actions — no-op."""
+    (record already terminal or absent) plans zero actions — no-op.
+
+    **Completion routing (t1120_6):** the watchdog fires on *every*
+    container exit — including successful completion. A non-terminal
+    session whose spool carries ``payload.json`` is a completion, not a
+    death: route it to the shared completion sink instead of the
+    fail-closed planner.
+    """
     record = await asyncio.to_thread(store.load, session_id)
+    if (pipeline is not None and record is not None
+            and not record.is_terminal
+            and (relay_root / session_id / "payload.json").exists()):
+        await flow.complete_session(
+            session_id, pipeline=pipeline, store=store,
+            relay_root=relay_root, executor=executor, audit=audit)
+        return
     scan = await asyncio.to_thread(scan_one_session, relay_root,
                                    session_id, audit)
     actions = reconcile.plan_agent_death_actions(record, scan)
@@ -749,17 +815,20 @@ def main(argv: list[str] | None = None) -> int:
         prog="ait chatlink",
         description=(
             "Chatlink gateway daemon: watch the configured bug-intake "
-            "channel and relay agent Q&A (headless; TUI arrives with "
-            "t1120_6)."
+            "channel and relay agent Q&A (headless entry; run "
+            "`ait chatlink` without flags for the TUI)."
         ),
     )
     parser.add_argument(
         "--headless", action="store_true",
-        help="Run the headless gateway daemon (required in v1).")
+        help="Run the headless gateway daemon.")
     args = parser.parse_args(list(argv) if argv is not None else sys.argv[1:])
     if not args.headless:
-        print("chatlink: only --headless is available in this build "
-              "(the TUI arrives with t1120_6).", file=sys.stderr)
+        # Defense in depth: the launcher dispatches the TUI before this
+        # module is ever imported; direct invocation stays headless-only.
+        print("chatlink: this entry point is headless-only — run "
+              "`ait chatlink` for the TUI, or pass --headless.",
+              file=sys.stderr)
         return 2
     return asyncio.run(serve())
 

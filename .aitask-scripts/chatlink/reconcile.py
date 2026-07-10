@@ -44,7 +44,7 @@ HEAL_OUTCOME = "heal_outcome"               # payload: {seq, answer}
 ADVANCE_CURSOR = "advance_cursor"           # payload: {conversation, message_id}
 # Action kinds — phase 2 (best-effort platform).
 DISABLE_COMPONENTS = "disable_components"   # payload: {seq, message}
-REACT_FAILED = "react_failed"               # payload: {message}
+REACT_FAILED = "react_failed"               # payload: {message, prev_reaction}
 REPOST_QUESTION = "repost_question"         # payload: {seq}
 PROCESS_MESSAGE = "process_message"         # payload: {message} (raw event msg)
 # Action kinds — phase 3 (cleanup).
@@ -158,7 +158,8 @@ def plan_startup_actions(
                               {"reason": FAIL_REASON_NO_LIVE_AGENT}))
         if rec.bug_report_message is not None:
             actions.append(Action(REACT_FAILED, rec.session_id,
-                                  {"message": rec.bug_report_message}))
+                                  {"message": rec.bug_report_message,
+                                   "prev_reaction": rec.status_reaction}))
         if scan is not None:
             actions.append(Action(REMOVE_RELAY_DIR, rec.session_id,
                                   {"reason": FAIL_REASON_NO_LIVE_AGENT}))
@@ -208,7 +209,8 @@ def plan_agent_death_actions(
                           {"reason": FAIL_REASON_AGENT_DIED}))
     if record.bug_report_message is not None:
         actions.append(Action(REACT_FAILED, record.session_id,
-                              {"message": record.bug_report_message}))
+                              {"message": record.bug_report_message,
+                               "prev_reaction": record.status_reaction}))
     if scan is not None:
         actions.append(Action(REMOVE_RELAY_DIR, record.session_id,
                               {"reason": FAIL_REASON_AGENT_DIED}))

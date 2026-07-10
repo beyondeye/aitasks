@@ -147,7 +147,7 @@ class TuiSwitcherScopeTests(unittest.TestCase):
     registered, so only the quick-jumps are customizable."""
 
     _QUICK_JUMPS = {
-        "shortcut_applink", "shortcut_board", "shortcut_monitor",
+        "shortcut_applink", "shortcut_chatlink", "shortcut_board", "shortcut_monitor",
         "shortcut_codebrowser", "shortcut_settings", "shortcut_stats",
         "shortcut_syncer", "shortcut_brainstorm", "shortcut_explore",
         "shortcut_git", "shortcut_create", "shortcut_agent",

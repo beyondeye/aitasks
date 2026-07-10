@@ -198,6 +198,7 @@ _TUI_SHORTCUTS = {
     "syncer": "y",
     "git": "g",
     "applink": "a",
+    "chatlink": "l",
 }
 
 
@@ -366,6 +367,7 @@ class _WindowListItem(ListItem):
 # overrides. Only these are customizable; see TuiSwitcherOverlay.BINDINGS.
 _QUICK_JUMP_BINDINGS = [
     Binding("a", "shortcut_applink", "App Linker", show=False),
+    Binding("l", "shortcut_chatlink", "Chat Link", show=False),
     Binding("b", "shortcut_board", "Board", show=False),
     Binding("m", "shortcut_monitor", "Monitor", show=False),
     Binding("c", "shortcut_codebrowser", "Code Browser", show=False),
@@ -1057,6 +1059,9 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def action_shortcut_applink(self) -> None:
         self._shortcut_switch("applink")
+
+    def action_shortcut_chatlink(self) -> None:
+        self._shortcut_switch("chatlink")
 
     def action_shortcut_board(self) -> None:
         self._shortcut_switch("board")
