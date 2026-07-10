@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
@@ -7,8 +9,9 @@ status: Implementing
 labels: [codeagent, codexcli, opencode, models]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt5_5
 created_at: 2026-07-10 19:30
-updated_at: 2026-07-10 19:31
+updated_at: 2026-07-10 19:35
 ---
 
 Add support for the GPT-5.6 Sol, Terra, and Luna model family in the aitasks code-agent model registries for both Codex and OpenCode.
@@ -63,3 +66,8 @@ Add support for the GPT-5.6 Sol, Terra, and Luna model family in the aitasks cod
 
 - Official Codex models docs: https://developers.openai.com/codex/models/
 - Official OpenAI API models docs: https://platform.openai.com/docs/models
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-10T16:35:32Z status=pass attempt=1 type=human
