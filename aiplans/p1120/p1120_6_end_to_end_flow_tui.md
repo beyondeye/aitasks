@@ -307,17 +307,17 @@ t1139 extends the Step-1 config surface, t1140 builds on the e2e glue.
 ## Risk
 
 ### Code-health risk: medium
-- Daemon-loop integration (third merged-event source + death-path amendment) touches the load-bearing sequential-dispatch core; a pump mutating outside the loop or double-handling death would corrupt session state · severity: medium · → mitigation: chatlink_flow_concurrency_soak
+- Daemon-loop integration (third merged-event source + death-path amendment) touches the load-bearing sequential-dispatch core; a pump mutating outside the loop or double-handling death would corrupt session state · severity: medium · → mitigation: t1144
 - `SessionRecord` schema growth (`status_reaction`) and intake signature changes (handles registry, env passthrough) ripple through existing tests · severity: low · → mitigation: TBD
 - TUI switcher registration is a 5-file coordinated change · severity: low · → mitigation: TBD
 
 ### Goal-achievement risk: medium
-- Completion-vs-death race: watchdog fires on every container exit, so a missed payload check misclassifies successful sessions as failed · severity: medium · → mitigation: chatlink_flow_concurrency_soak
+- Completion-vs-death race: watchdog fires on every container exit, so a missed payload check misclassifies successful sessions as failed · severity: medium · → mitigation: t1144
 - Mock-based tests cannot validate real-Discord timing (modal 2s defer window, reaction semantics) — residual risk explicitly deferred to the existing MV sibling t1120_8 · severity: medium · → mitigation: TBD
 - `sandbox_env_passthrough` shape must satisfy t1139 extensibility; wrong shape means rework in the dependent task · severity: low · → mitigation: TBD
 
 ### Planned mitigations
-- timing: after | name: chatlink_flow_concurrency_soak | type: test | priority: medium | effort: medium | addresses: daemon-loop sequential-dispatch races + completion-vs-death misclassification | desc: Soak/stress test — N concurrent mock chatlink sessions with randomized event interleavings and repeated daemon kill-restart cycles over the same store, asserting no cross-talk, no double terminal transitions, and correct completion-vs-death routing
+- timing: after | name: chatlink_flow_concurrency_soak (t1144) | type: test | priority: medium | effort: medium | addresses: daemon-loop sequential-dispatch races + completion-vs-death misclassification | desc: Soak/stress test — N concurrent mock chatlink sessions with randomized event interleavings and repeated daemon kill-restart cycles over the same store, asserting no cross-talk, no double terminal transitions, and correct completion-vs-death routing
 
 ## Final Implementation Notes
 
