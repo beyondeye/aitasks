@@ -272,6 +272,75 @@ restating them. Owns only what is currently undocumented:
   are reworded later the table silently goes stale (no test binds prose to
   source). · severity: low · → mitigation: accepted — each quoted string is grep-confirmed at write time, and the symptom/fix column stays useful even if the exact wording drifts. A prose-to-source assertion is not worth a test here.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-10 17:52)
+
+- **Requested by user:** The workflow page hard-coded
+  `https://github.com/beyondeye/aitasks/blob/main/aidocs/chat/chatlink_sandbox.md`.
+  The task's binding conventions forbid naming the author's real repos in new
+  docs, and the verification claim ("no real repo names") was therefore wrong.
+  The URL also misdirects readers in forks and packaged docs, pointing at one
+  upstream repo instead of their own checkout.
+- **Changes made:** Replaced the hard-coded GitHub URL with a repo-local,
+  URL-free reference: "see the Chatlink sandbox maintainer doc in your checkout
+  at `aidocs/chat/chatlink_sandbox.md`". This matches how the daemon's own
+  `LaunchError` points at the same file. Re-verified: `grep -riE
+  "github\.com|beyondeye|dario-bs|aitasks_mobile"` over both new docs is empty,
+  and `hugo build --gc --minify` still passes.
+- **Files affected:** `website/content/docs/workflows/bug-report-intake.md`
+- **Note on the rejected precedent:** `installation/_index.md` and `macos.md` do
+  use absolute `github.com/beyondeye/aitasks/...` links to `aidocs/`. That
+  precedent was the basis for the original choice and is *not* followed here —
+  t1120_7's conventions bind this task's new docs. Normalizing the pre-existing
+  pages is out of scope for a documentation task about chatlink.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created the website workflow page
+  `website/content/docs/workflows/bug-report-intake.md` (full setup + usage +
+  workflow guide, with a zero-to-filed-task walkthrough, a copy-pasteable sample
+  config, a sample thread transcript, a limits & safety section, and a
+  source-derived troubleshooting table) and the maintainer doc
+  `aidocs/chat/chatlink_runtime.md` (daemon session state machine, validate-then-
+  serve refusals, reconciliation, policy vs ceiling deny reasons, audit log,
+  secrets, platform scope, module map — cross-linking the spool to
+  `qa_relay_protocol.md` and the reaper to `chatlink_sandbox.md`). Added the
+  `_index.md` bullet and put `chatlink` into the two TUI enumerations it belongs
+  in (`tuis/_index.md` + the switcher-members sentence; `terminal-setup.md`).
+- **Deviations from plan:** None structural. Post-review, one hard-coded upstream
+  GitHub URL was replaced with a repo-local reference (see Post-Review Changes).
+- **Issues encountered / corrected during verification:**
+  - The draft claimed the sandbox has "no network access to your remote." The
+    `docker run` argv (`lib/sandbox_launch.py:227+`) has **no** `--network none`;
+    the container has normal networking (the agent CLI needs its model API).
+    Rewrote the safety bullet to claim only what's true (no `.git`, no git
+    credentials, no bot token; copy deleted with the session).
+  - The runtime doc initially cited a nonexistent `tests/test_chatlink_intake.sh`.
+    Replaced with the five real suites (`config`, `daemon`, `flow`, `relay`,
+    `tui`).
+- **Key decisions:** No per-TUI `docs/tuis/chatlink/` page (the status TUI is a
+  ~180-line read-only screen; the `Available TUIs` bullet links to the workflow
+  page instead). Slack intake is not documented (the daemon hard-constructs
+  `DiscordAdapter`; no code path builds a Slack adapter). Runtime doc kept
+  separate from `qa_relay_protocol.md` (that file is a pinned protocol-contract
+  doc; daemon lifecycle is a different concern).
+- **Verification:** `hugo build --gc --minify` passes (a bad `relref` fails the
+  build, so it doubles as the link check); the sample config loads through
+  `chatlink.config.load_config` with no clamping (ceilings resolve to
+  2/4/2g/2/512/1800); every quoted error string / button label / emoji is
+  grep-confirmed in `chatlink/{daemon,intake,render}.py`; greps for "sister",
+  version-history phrasing, `diffviewer`, and real repo names are all empty.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** t1120_8 (manual verification) is the remaining
+  child. The docs assert concrete reporter-visible behavior (thread name `bug:
+  <48 chars>`, the four reactions, the `Answer…` free-text modal, initiator-only
+  answering, the ~9-min timeout default, the `✅ Task created` thread note) — a
+  live Discord run is the right place to confirm these render as documented.
+  Pre-existing pages (`installation/_index.md`, `macos.md`) still use absolute
+  `github.com/beyondeye/aitasks/...` links to `aidocs/`; left as-is (out of scope
+  here) — a candidate normalization follow-up.
+
 ## Step 9 reference
 
 Post-implementation follows task-workflow Step 9. **The parent t1120 does not
