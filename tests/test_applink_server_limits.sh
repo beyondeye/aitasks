@@ -85,6 +85,7 @@ def new_server():
     srv._on_change = None
     srv._sessions = object()
     srv._router = FakeRouter()
+    srv.tunnel = None  # t1061_3: no auto-tunnel supervisor by default
     cap = logging.getLogger(f"applink.audit.srvtest.{id(srv)}")
     cap.handlers.clear()
     cap.setLevel(logging.INFO)
@@ -124,6 +125,62 @@ async def main():
           and not any("per_ip_cap" in m for m in msgs2))
     check("per-IP cap: admitted IP's count released on disconnect",
           "10.0.0.9" not in srv2._conns_by_ip)
+
+    # --- per-IP cap: loopback exemption while auto-tunnel active (t1061_3) --
+    # Tunneled phones all arrive from 127.0.0.1; with an active tunnel that
+    # bucket is exempt from MAX_PER_IP (global cap + pre-auth limits still
+    # apply). Negative controls: loopback WITHOUT a tunnel and non-loopback
+    # WITH a tunnel stay capped.
+    import tunnel as TN
+
+    def up_tunnel():
+        t = TN.QuickTunnel(8765, binary="/nonexistent")
+        t.state = TN.STATE_UP
+        t.url = "https://abc-def.trycloudflare.com"
+        return t
+
+    srv3, msgs3 = new_server()
+    srv3.tunnel = up_tunnel()
+    srv3._conns_by_ip = {"127.0.0.1": SV.MAX_PER_IP}
+    ws3 = FakeWS(frames=['{}'], ip="127.0.0.1")
+    await srv3._handle(ws3)
+    check("loopback exemption: over-cap loopback admitted while tunnel active",
+          any("CONN_ACCEPT ip=127.0.0.1" in m for m in msgs3)
+          and not any("per_ip_cap" in m for m in msgs3))
+
+    srv4, msgs4 = new_server()  # negative control: no tunnel
+    srv4._conns_by_ip = {"127.0.0.1": SV.MAX_PER_IP}
+    ws4 = FakeWS(frames=['{}'], ip="127.0.0.1")
+    await srv4._handle(ws4)
+    check("loopback exemption: loopback still capped WITHOUT a tunnel",
+          ws4.closed is True and any("per_ip_cap" in m for m in msgs4))
+
+    srv5, msgs5 = new_server()  # negative control: non-loopback with tunnel
+    srv5.tunnel = up_tunnel()
+    srv5._conns_by_ip = {"10.0.0.5": SV.MAX_PER_IP}
+    ws5 = FakeWS(frames=['{}'], ip="10.0.0.5")
+    await srv5._handle(ws5)
+    check("loopback exemption: non-loopback still capped WITH a tunnel",
+          ws5.closed is True and any("per_ip_cap" in m for m in msgs5))
+
+    srv6, msgs6 = new_server()  # inactive supervisor (failed) → capped again
+    srv6.tunnel = up_tunnel()
+    srv6.tunnel.state = TN.STATE_FAILED
+    srv6._conns_by_ip = {"127.0.0.1": SV.MAX_PER_IP}
+    ws6 = FakeWS(frames=['{}'], ip="127.0.0.1")
+    await srv6._handle(ws6)
+    check("loopback exemption: loopback capped again after tunnel failure",
+          ws6.closed is True and any("per_ip_cap" in m for m in msgs6))
+
+    srv7, msgs7 = new_server()  # STARTING (pre-URL) → still capped: no
+    srv7.tunnel = up_tunnel()   # tunneled client can exist before the URL is
+    srv7.tunnel.state = TN.STATE_STARTING  # published (hung cloudflared case)
+    srv7.tunnel.url = None
+    srv7._conns_by_ip = {"127.0.0.1": SV.MAX_PER_IP}
+    ws7 = FakeWS(frames=['{}'], ip="127.0.0.1")
+    await srv7._handle(ws7)
+    check("loopback exemption: loopback still capped while tunnel only starting",
+          ws7.closed is True and any("per_ip_cap" in m for m in msgs7))
 
     # --- pre-auth frame budget --------------------------------------------
     srv, msgs = new_server()

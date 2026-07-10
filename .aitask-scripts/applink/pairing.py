@@ -296,6 +296,24 @@ def resolve_advertised_endpoints(
     return ResolvedAdvertise(primary, alts, None, True)
 
 
+def merge_tunnel_endpoint(
+    resolved: ResolvedAdvertise, tunnel: Endpoint | None
+) -> ResolvedAdvertise:
+    """Append an auto-spawned tunnel endpoint to the advertised set (t1061_3).
+
+    The tunnel endpoint goes in ``alts`` — never the primary — so old clients
+    (which read only the URI authority and pin-verify) keep working, while
+    endpoint-racing clients reach the tunnel when remote. Called at **build
+    time** on every emit path (the tunnel URL arrives asynchronously after
+    startup, so no emitter may cache a pre-tunnel snapshot). ``tunnel is
+    None`` → ``resolved`` unchanged, preserving the byte-identical legacy URI
+    when neither an override nor a tunnel is active.
+    """
+    if tunnel is None:
+        return resolved
+    return resolved._replace(alts=[*resolved.alts, tunnel])
+
+
 def build_pairing_uri(
     token: str,
     ip: str,

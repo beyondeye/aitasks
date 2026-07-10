@@ -45,6 +45,7 @@ from pairing import (  # noqa: E402
     advertise_port_argtype,
     build_pairing_uri,
     detect_lan_ip,
+    merge_tunnel_endpoint,
     resolve_advertised_endpoints,
 )
 from paths import profiles_dir, project_root, sessions_dir  # noqa: E402
@@ -54,6 +55,7 @@ from server import (  # noqa: E402
     AppLinkServer, DEFAULT_PORT, DEFAULT_PAIR_PROFILE, load_applink_config,
 )
 from tls import CertManager, CertError  # noqa: E402
+from tunnel import STATE_STARTING  # noqa: E402
 
 
 def render_pairing_block(uri: str, fingerprint: str, *, show_qr: bool = True) -> str:
@@ -87,6 +89,7 @@ async def serve(
     advertise_port: int | None = None,
     advertise_kind: str | None = None,
     advertise_trust: str | None = None,
+    auto_tunnel: bool = False,
 ) -> int:
     """Run the headless applink listener until a stop signal. Returns an exit code.
 
@@ -122,7 +125,11 @@ async def serve(
     session_table = SessionTable(sessions_dir())
     token = session_table.mint_pairing_token()
 
-    # 4. Build and start the listener.
+    # 4. Build and start the listener. Auto-tunnel (t1061_3): CLI flag or
+    #    tmux.applink.auto_tunnel config enables the cloudflared quick-tunnel
+    #    supervisor, owned by the server (spawned after the listener binds).
+    applink_cfg = load_applink_config(project_root())
+    tunnel_backend = "cloudflared" if auto_tunnel else applink_cfg["auto_tunnel"]
     server = AppLinkServer(
         session_table=session_table,
         profile_gate=profile_gate,
@@ -130,6 +137,7 @@ async def serve(
         port=port,
         pair_profile=profile,
         on_change=None,
+        tunnel_backend=tunnel_backend,
     )
     await server.start()
     if server.error:
@@ -141,11 +149,14 @@ async def serve(
     lan_ip = detect_lan_ip()
     host = socket.gethostname()
     # Advertised-endpoint override (t1061_1): CLI group > config group > LAN.
-    # Endpoints are resolved once; SIGHUP reprints re-mint only the token.
+    # The static config is resolved once; SIGHUP reprints re-mint only the
+    # token. The auto-tunnel endpoint however arrives asynchronously, so it is
+    # merged at EACH emit (never captured in a snapshot) — a SIGHUP after a
+    # late tunnel-up picks it up.
     adv = resolve_advertised_endpoints(
         serving_port=port,
         detected_ip=lan_ip,
-        config=load_applink_config(project_root()),
+        config=applink_cfg,
         cli_host=advertise_host,
         cli_port=advertise_port,
         cli_kind=advertise_kind,
@@ -153,16 +164,32 @@ async def serve(
     )
 
     def _emit() -> None:
+        merged = merge_tunnel_endpoint(adv, server.tunnel_endpoint())
         uri = build_pairing_uri(
-            token, adv.primary.host, adv.primary.port, fingerprint,
+            token, merged.primary.host, merged.primary.port, fingerprint,
             host or None,
-            kind=adv.primary.kind if adv.override else None,
-            trust=adv.primary.trust if adv.override else None,
-            alt=adv.alts or None,
+            kind=merged.primary.kind if merged.override else None,
+            trust=merged.primary.trust if merged.override else None,
+            alt=merged.alts or None,
         )
         print(render_pairing_block(uri, fingerprint, show_qr=show_qr), flush=True)
 
-    _emit()
+    if server.tunnel is not None:
+        # Hold the first pairing block until the public URL is known (bounded)
+        # so the printed QR carries the tunnel endpoint. On timeout/failure the
+        # LAN-only block prints with a fail-visible hint (SIGHUP re-emits with
+        # the tunnel once it comes up).
+        url = await server.tunnel.wait_url()
+        _emit()
+        print(f"[applink] {server.tunnel.status_line()}", flush=True)
+        if url is None and server.tunnel.state == STATE_STARTING:
+            print(
+                "[applink] tunnel URL not ready yet — send SIGHUP to reprint "
+                "the pairing block once the tunnel is up.",
+                flush=True,
+            )
+    else:
+        _emit()
     if adv.warning:
         # Invalid config override degraded to the LAN address — fail-visible.
         print(f"[applink] {adv.warning}", flush=True)
@@ -249,6 +276,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Print only the pairing URL + fingerprint, no ASCII QR "
              "(useful when redirecting stdout to a log file).",
     )
+    parser.add_argument(
+        "--auto-tunnel", action="store_true",
+        help="Auto-spawn a Cloudflare Quick Tunnel and advertise its public "
+             "hostname as a CA-trusted alternate endpoint in the pairing QR "
+             "(also enabled by tmux.applink.auto_tunnel: cloudflared).",
+    )
     _add_advertise_args(parser)
     args = parser.parse_args(argv)
     _validate_advertise_args(parser, args)
@@ -305,6 +338,7 @@ def main(argv: list[str] | None = None) -> int:
             advertise_port=args.advertise_port,
             advertise_kind=args.advertise_kind,
             advertise_trust=args.advertise_trust,
+            auto_tunnel=args.auto_tunnel,
         )
     )
 

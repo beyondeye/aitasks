@@ -616,6 +616,7 @@ async def main():
     srv._audit = logging.getLogger("applink.audit.test")  # t985 audit (no handlers)
     srv._on_change = None
     srv._sessions = object()           # touch()/_suspend() not reached (bearer/session None)
+    srv.tunnel = None                  # t1061_3: no auto-tunnel supervisor
     monh = FakeMonitor()
     monh.snaps["%1"] = FakeSnap(FakePane("%1"), "h\n")
     srv._monitor = monh

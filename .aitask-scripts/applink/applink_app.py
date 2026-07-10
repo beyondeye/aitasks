@@ -38,9 +38,11 @@ from pairing import (  # noqa: E402
     build_pairing_uri,
     compute_self_signed_fingerprint,
     detect_lan_ip,
+    merge_tunnel_endpoint,
     resolve_advertised_endpoints,
 )
 from qr_widget import TerminalQR  # noqa: E402
+from tunnel import STATE_FAILED as TUNNEL_STATE_FAILED  # noqa: E402
 import firewall_doctor  # noqa: E402
 from paths import profiles_dir, project_root, sessions_dir  # noqa: E402
 from sessions import SessionTable  # noqa: E402
@@ -99,6 +101,7 @@ class AppLinkRuntime:
         advertise_port: int | None = None,
         advertise_kind: str | None = None,
         advertise_trust: str | None = None,
+        auto_tunnel: bool = False,
     ) -> None:
         self.port = port
         # Detected LAN IP stays the firewall doctor's input even when an
@@ -109,10 +112,16 @@ class AppLinkRuntime:
         # Advertised-endpoint override (t1061_1): CLI group > config group >
         # detected LAN. `advertise_warning` carries the fail-visible message
         # when an invalid config host degraded to the LAN address.
+        applink_cfg = load_applink_config(project_root())
+        # Auto-spawned tunnel (t1061_3): CLI flag or tmux.applink.auto_tunnel
+        # config enables the cloudflared supervisor (owned by the server).
+        self.tunnel_backend = (
+            "cloudflared" if auto_tunnel else applink_cfg["auto_tunnel"]
+        )
         self.advertised = resolve_advertised_endpoints(
             serving_port=port,
             detected_ip=self.ip,
-            config=load_applink_config(project_root()),
+            config=applink_cfg,
             cli_host=advertise_host,
             cli_port=advertise_port,
             cli_kind=advertise_kind,
@@ -132,7 +141,16 @@ class AppLinkRuntime:
         self.firewall: firewall_doctor.FirewallStatus | None = None
 
     def build_uri(self) -> str:
-        adv = self.advertised
+        # Merge the auto-tunnel endpoint at BUILD time (t1061_3): the tunnel
+        # URL arrives asynchronously after startup, so no caller may cache a
+        # pre-tunnel snapshot. Startup-order guard: PairingScreen composes
+        # before _start_server assigns self.server (and --smoke never assigns
+        # it) — server None / tunnel not up ⇒ tunnel_ep None ⇒ the LAN/config
+        # QR unchanged.
+        tunnel_ep = (
+            self.server.tunnel_endpoint() if self.server is not None else None
+        )
+        adv = merge_tunnel_endpoint(self.advertised, tunnel_ep)
         return build_pairing_uri(
             token=self.token,
             ip=adv.primary.host,
@@ -167,6 +185,7 @@ class AppLinkRuntime:
             port=self.port,
             pair_profile=self.pair_profile,
             on_change=on_change,
+            tunnel_backend=self.tunnel_backend,
         )
         return self.server
 
@@ -366,6 +385,14 @@ class PairingScreen(ShortcutsMixin, Screen):
         # fail-visible on the pairing screen, ahead of firewall guidance.
         warn = getattr(runtime, "advertise_warning", None) if runtime else None
         lines = [f"⚠ {warn}"] if warn else []
+        # Auto-tunnel state (t1061_3): shared status_line so the TUI and
+        # headless surfaces agree. Failure is fail-visible here (the server
+        # keeps serving LAN-only).
+        server = getattr(runtime, "server", None) if runtime else None
+        tun = getattr(server, "tunnel", None) if server else None
+        if tun is not None:
+            line = tun.status_line()
+            lines.append(f"⚠ {line}" if tun.state == TUNNEL_STATE_FAILED else line)
         if st is None:
             adv.update("\n".join(lines))
             return
@@ -460,10 +487,13 @@ class DevicesScreen(ShortcutsMixin, Screen):
             status.update(f"Listener error: {server.error}")
             return
         sessions = sorted(server.active_sessions(), key=lambda s: s.created_at)
+        tunnel_part = (
+            f" — {server.tunnel.status_line()}" if server.tunnel is not None else ""
+        )
         status.update(
             f"Listening on port {self.app.runtime.port} — state: "
-            f"{server.connection_state()} — {len(sessions)} paired device(s). "
-            "Press 'x' to revoke the highlighted device."
+            f"{server.connection_state()}{tunnel_part} — {len(sessions)} paired "
+            "device(s). Press 'x' to revoke the highlighted device."
         )
         prev_row = table.cursor_row if table.cursor_row is not None else 0
         table.clear()
@@ -517,6 +547,7 @@ class ApplinkApp(TuiSwitcherMixin, ShortcutsMixin, App):
         advertise_port: int | None = None,
         advertise_kind: str | None = None,
         advertise_trust: str | None = None,
+        auto_tunnel: bool = False,
     ) -> None:
         super().__init__()
         self.current_tui_name = "applink"
@@ -527,6 +558,7 @@ class ApplinkApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._advertise_port = advertise_port
         self._advertise_kind = advertise_kind
         self._advertise_trust = advertise_trust
+        self._auto_tunnel = auto_tunnel
 
     def on_mount(self) -> None:
         self.runtime = AppLinkRuntime(
@@ -534,6 +566,7 @@ class ApplinkApp(TuiSwitcherMixin, ShortcutsMixin, App):
             advertise_port=self._advertise_port,
             advertise_kind=self._advertise_kind,
             advertise_trust=self._advertise_trust,
+            auto_tunnel=self._auto_tunnel,
         )
         self.push_screen(PairingScreen())
         self.run_worker(self._start_server(), exclusive=False)
@@ -562,6 +595,12 @@ class ApplinkApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # is just a best-effort nudge for any mounted devices view.
         if isinstance(self.screen, DevicesScreen):
             self.screen._refresh()
+        # Tunnel-up arrives seconds after startup (t1061_3): the pairing QR is
+        # built once in PairingScreen.compose(), so re-render it here with the
+        # merged tunnel alt (same set_data mechanism as the 'r' regenerate
+        # action; the token is unchanged — only the endpoints refresh).
+        if isinstance(self.screen, PairingScreen) and self.screen._qr is not None:
+            self.screen._qr.set_data(self.runtime.build_uri())
 
     async def on_unmount(self) -> None:
         if self.runtime is not None and self.runtime.server is not None:
@@ -599,6 +638,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Trust mode of the advertised endpoint (default: pin). Use ca "
              "only for a TLS-terminating tunnel endpoint.",
     )
+    parser.add_argument(
+        "--auto-tunnel", action="store_true",
+        help="Auto-spawn a Cloudflare Quick Tunnel and advertise its public "
+             "hostname as a CA-trusted alternate endpoint in the pairing QR "
+             "(also enabled by tmux.applink.auto_tunnel: cloudflared).",
+    )
     args = parser.parse_args(argv)
     if args.advertise_host is None and any(
         v is not None
@@ -626,6 +671,7 @@ def main(argv: list[str] | None = None) -> int:
         advertise_port=args.advertise_port,
         advertise_kind=args.advertise_kind,
         advertise_trust=args.advertise_trust,
+        auto_tunnel=args.auto_tunnel,
     ).run()
     return 0
 

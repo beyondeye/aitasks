@@ -470,6 +470,19 @@ tmux:
   #   applink:
   #     advertised_host: 100.101.102.103
   #     advertised_kind: mesh
+  #
+  # auto_tunnel — auto-spawn a public tunnel when the applink server starts
+  # and advertise its hostname as a CA-trusted alternate endpoint in the
+  # pairing QR (the LAN endpoint stays primary, so old clients keep
+  # working). Only accepted value: cloudflared (Cloudflare Quick Tunnel —
+  # ephemeral hostname, no account; requires the cloudflared binary on
+  # PATH). Equivalent one-shot CLI flag: --auto-tunnel. See
+  # aidocs/applink/tunnel_howto.md Recipe 3 for the trust model and
+  # security notes.
+  #
+  # Example:
+  #   applink:
+  #     auto_tunnel: cloudflared
   # ──────────────────────────────────────────────────────────────────
   # applink:
   #   history_capture_lines: 2000

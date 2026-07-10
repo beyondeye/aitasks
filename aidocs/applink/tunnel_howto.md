@@ -23,14 +23,14 @@ with today's mobile client:
 | [Mesh VPN](#recipe-1-mesh-vpn-tailscale--zerotier--wireguard--recommended) (Tailscale / ZeroTier / WireGuard) | PC's mesh IP | PC's self-signed cert (TLS end-to-end) | `pin` (default) | **Yes** |
 | [`ssh -L` gateway forward](#recipe-2-ssh--l-gateway-forward-raw-tcp-pin-preserving) (raw TCP) | gateway `host:port` | PC's self-signed cert (TLS end-to-end) | `pin`, `kind=tunnel` | **Yes** |
 | Raw-TCP public tunnel (e.g. `ngrok tcp`) | tunnel `host:port` | PC's self-signed cert (TLS end-to-end) | `pin`, `kind=tunnel` | **Yes** |
-| [TLS-terminating tunnel](#recipe-3-tls-terminating-reverse-tunnel-cloudflared--ngrok-http--gated-on-mobile-ca-trust) (cloudflared / `ngrok http`) | public hostname (`:443`) | tunnel provider's public CA cert | `ca` | **No — gated on `aitasks_mobile#31_3`** (pre-that, pin mismatch is the *expected* failure) |
+| [TLS-terminating tunnel](#recipe-3-tls-terminating-reverse-tunnel-cloudflared--ngrok-http--requires-mobile-ca-trust) (cloudflared / `ngrok http`, incl. the [auto-spawned quick tunnel](#turnkey-variant-auto-spawned-cloudflare-quick-tunnel)) | public hostname (`:443`) | tunnel provider's public CA cert | `ca` | **Yes — requires an app build with per-endpoint CA trust (`aitasks_mobile#31_3`)**; older builds pin-verify and fail with a pin mismatch (the *expected* failure) |
 
 Anything that forwards **raw TCP** keeps TLS end-to-end between phone and PC,
 so the existing self-signed cert + QR fingerprint pin keep working unchanged.
 Anything that **terminates TLS at a public edge** shows the phone the
-provider's CA cert instead — that needs `trust=ca`, which the mobile client
-cannot complete until the per-endpoint CA-trust path (`aitasks_mobile#31_3`)
-lands.
+provider's CA cert instead — that needs `trust=ca`, which requires an app
+build that includes the per-endpoint CA-trust path (`aitasks_mobile#31_3`;
+the app asks for explicit consent before a CA-trust pairing).
 
 Each recipe carries a **topology line** telling you where each command runs,
 where the listener is created, and what the phone actually connects to —
@@ -136,23 +136,72 @@ Variants and caveats:
   PC's self-signed cert, and `trust=pin` keeps working. Advertise the
   provider-assigned `host:port` with `--advertise-kind tunnel`.
 
-## Recipe 3: TLS-terminating reverse tunnel (cloudflared / `ngrok http`) — gated on mobile CA trust
+## Recipe 3: TLS-terminating reverse tunnel (cloudflared / `ngrok http`) — requires mobile CA trust
 
 > **Topology:** tunnel daemon runs on the **PC** (outbound-only — no inbound
 > port anywhere) · phone connects to the public hostname on `:443` · cert
 > the phone sees: the **tunnel provider's public CA cert**, not the PC's ·
 > trust `ca`.
 
-> **Gated on `aitasks_mobile#31_3` (per-endpoint CA trust) landing
-> client-side.** The tunnel edge terminates TLS, so `trust=pin` cannot
-> succeed — the phone would pin-verify the provider's CA cert and fail (see
-> the old-client rule in
-> [Endpoint & trust model](protocol.md#endpoint--trust-model)). Until the
-> mobile CA-trust path lands, that pin-mismatch failure is **expected
-> behavior, not a misconfiguration**. The server-side emission
-> (`advertised_trust: ca`) already works and is faithful to the spec.
+> **Requires an app build that includes per-endpoint CA trust
+> (`aitasks_mobile#31_3`).** The tunnel edge terminates TLS, so `trust=pin`
+> cannot succeed — an app build predating the CA-trust path pin-verifies the
+> provider's CA cert and fails (see the old-client rule in
+> [Endpoint & trust model](protocol.md#endpoint--trust-model)); that
+> pin-mismatch failure is **expected behavior, not a misconfiguration**.
+> Current builds evaluate trust per endpoint and ask for explicit consent
+> before completing a CA-trust pairing.
 
-Recipe (for when the mobile side lands):
+### Turnkey variant: auto-spawned Cloudflare Quick Tunnel
+
+`ait applink` can run the quick tunnel itself and put the public URL in the
+QR automatically — no manual daemon, no copy-pasting hostnames. Requires the
+`cloudflared` binary on `PATH` (no Cloudflare account needed).
+
+Enable it persistently in `aitasks/metadata/project_config.yaml`:
+
+```yaml
+tmux:
+  applink:
+    auto_tunnel: cloudflared
+```
+
+or one-shot on either entry point:
+
+```bash
+ait applink --auto-tunnel
+ait monitor --headless-for-applink --auto-tunnel
+```
+
+What happens: after the listener binds, the server spawns
+`cloudflared tunnel --url https://localhost:<port> --no-tls-verify`, parses
+the generated `https://<x>.trycloudflare.com` hostname, and advertises it as
+a **CA-trusted alternate endpoint** — the QR's primary endpoint stays the
+LAN address with the unchanged fingerprint pin, so app builds without CA
+trust keep pairing on the LAN exactly as before, while endpoint-racing
+clients reach the tunnel when remote (and prefer LAN when co-located). The
+tunnel's lifecycle is tied to the server: it stops when applink stops. The
+TUI pairing screen and the headless output show the tunnel state
+(`starting` / `up — <hostname>` / `failed`); if the URL is not ready when
+the headless pairing block first prints, send `SIGHUP` to reprint it with
+the tunnel included. If `cloudflared` is missing or fails, a visible
+warning is shown and the server keeps serving LAN-only.
+
+Two trust notes, both bounded by design:
+
+- **Local hop (`--no-tls-verify`):** cloudflared's origin check is skipped
+  for the loopback-only hop cloudflared → `https://localhost:<port>`
+  (the applink origin cert is self-signed with no SAN, which cloudflared
+  would otherwise reject). The public hop phone → Cloudflare edge stays
+  fully CA-verified, and pairing/bearer auth still gates every frame.
+- **Quick tunnels are ephemeral, account-less public hostnames** with no
+  uptime guarantee. Exposure stays gated: pairing tokens are single-use with
+  a short TTL, every verb requires a valid bearer, and permission profiles
+  bound what a paired device may do (see [security.md](security.md)). For
+  sustained use prefer a mesh VPN (Recipe 1), and pair public exposure with
+  the request rate-limit hardening tracked as a security follow-up.
+
+### Manual variant
 
 1. On the PC, run the tunnel against the local applink port:
 
@@ -174,10 +223,6 @@ Recipe (for when the mobile side lands):
    ```
 
 3. Show the QR and scan.
-
-A future sibling task (`aitasks#1061_3`) turns this recipe into a near-turnkey
-flow: `ait applink` spawns the quick tunnel itself and encodes the public URL
-in the QR automatically.
 
 ## Operational security cautions
 
@@ -210,7 +255,11 @@ are single-use with a short TTL and every session needs a valid bearer (see
 - **CLI vs config precedence:** any `--advertise-*` flag makes the CLI define
   the *entire* override — all `advertised_*` config keys are then ignored (no
   field mixing). `--advertise-port/-kind/-trust` require `--advertise-host`.
-- **Pin mismatch against a TLS-terminating tunnel** is expected until the
-  mobile CA-trust path (`aitasks_mobile#31_3`) lands — see the
-  [recipe table](#which-recipe-do-i-want). If you need cross-network *now*,
-  use the mesh or raw-TCP recipes instead.
+- **Pin mismatch against a TLS-terminating tunnel** means the app build
+  predates the mobile per-endpoint CA-trust path (`aitasks_mobile#31_3`) —
+  the expected failure for such builds, not a misconfiguration (see the
+  [recipe table](#which-recipe-do-i-want)). Update the app, or use the mesh /
+  raw-TCP recipes, which work with any build.
+- **Auto-tunnel shows "failed — cloudflared not found on PATH"** → install
+  `cloudflared` (or drop the `auto_tunnel` key / `--auto-tunnel` flag); the
+  server keeps serving the LAN endpoint either way.

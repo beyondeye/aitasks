@@ -32,6 +32,8 @@ from router import (  # noqa: E402
 from pusher import PushScheduler  # noqa: E402
 import paths  # noqa: E402
 import audit  # noqa: E402
+import tunnel  # noqa: E402
+from pairing import Endpoint  # noqa: E402
 
 DEFAULT_HOST = "0.0.0.0"   # accept from the LAN; the QR carries the routable IP
 DEFAULT_SESSION = "aitasks"
@@ -79,6 +81,7 @@ def load_applink_config(project_root) -> dict:
     advertised_port: int | None = None
     advertised_kind: str | None = None
     advertised_trust = "pin"
+    auto_tunnel: str | None = None
     try:
         import yaml
         from pathlib import Path
@@ -120,6 +123,14 @@ def load_applink_config(project_root) -> dict:
                 advertised_trust = raw
         except Exception:
             pass
+        try:
+            # Auto-spawned tunnel backend (t1061_3). Only registered backend
+            # names are accepted; anything else → None (feature off).
+            raw = applink.get("auto_tunnel")
+            if isinstance(raw, str) and raw in tunnel.TUNNEL_BACKENDS:
+                auto_tunnel = raw
+        except Exception:
+            pass
     except Exception:
         pass  # any malformed config → safe defaults
     return {
@@ -128,6 +139,7 @@ def load_applink_config(project_root) -> dict:
         "advertised_port": advertised_port,
         "advertised_kind": advertised_kind,
         "advertised_trust": advertised_trust,
+        "auto_tunnel": auto_tunnel,
     }
 
 
@@ -144,12 +156,18 @@ class AppLinkServer:
         port: int,
         pair_profile: str = DEFAULT_PAIR_PROFILE,
         on_change=None,
+        tunnel_backend: str | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._ssl = ssl_context
         self._on_change = on_change
         self._ws_server = None
+        # Auto-spawned tunnel (t1061_3): the server owns the supervisor so both
+        # entry points share one lifecycle and the per-IP cap exemption can be
+        # gated locally on tunnel-active.
+        self._tunnel_backend = tunnel_backend
+        self.tunnel: tunnel.QuickTunnel | None = None
         self._conns: set[ConnState] = set()
         self._live: dict[ConnState, object] = {}   # conn -> live websocket
         self._pushers: dict[ConnState, PushScheduler] = {}  # conn -> data-plane loop
@@ -204,9 +222,28 @@ class AppLinkServer:
             )
         except Exception as exc:
             self.error = f"listener failed: {exc}"
+        if self.error is None and self._tunnel_backend == "cloudflared":
+            # Spawn strictly after the listener binds (there is nothing to
+            # proxy before). Failure is fail-visible via the supervisor's
+            # state/status_line — never blocks LAN serving.
+            self.tunnel = tunnel.QuickTunnel(self._port, on_change=self._notify)
+            started = await self.tunnel.start()
+            if started:
+                self._audit.info("TUNNEL_START backend=cloudflared port=%s",
+                                 self._port)
+            else:
+                self._audit.warning("TUNNEL_FAILED backend=cloudflared "
+                                    "detail=%s", self.tunnel.detail)
         self._notify()
 
     async def stop(self) -> None:
+        if self.tunnel is not None:
+            # Tear down the public endpoint before the listener so no new
+            # tunneled connections arrive into a closing server.
+            try:
+                await self.tunnel.stop()
+            except Exception:
+                pass
         if self._ws_server is not None:
             self._ws_server.close()
             try:
@@ -234,7 +271,14 @@ class AppLinkServer:
             self._audit.warning("CONN_REJECTED reason=global_cap ip=%s", ip)
             await ws.close()
             return
-        if self._conns_by_ip.get(ip, 0) >= MAX_PER_IP:
+        # Loopback exemption (t1061_3): with an active auto-tunnel, ALL
+        # tunneled phones arrive from 127.0.0.1 and would share one per-IP
+        # bucket — a few racing/reconnecting devices could exhaust it. Exempt
+        # loopback from the per-IP cap only while the tunnel is active; the
+        # global MAX_CONNECTIONS ceiling and every pre-auth limit still bound
+        # loopback sources. Non-loopback behavior is unchanged.
+        loopback_exempt = ip in ("127.0.0.1", "::1") and self.tunnel_active()
+        if not loopback_exempt and self._conns_by_ip.get(ip, 0) >= MAX_PER_IP:
             self._audit.warning("CONN_REJECTED reason=per_ip_cap ip=%s", ip)
             await ws.close()
             return
@@ -356,6 +400,25 @@ class AppLinkServer:
             pass
 
     # -- Introspection (for the TUI status display) ----------------------------
+
+    def tunnel_active(self) -> bool:
+        """True only while the auto-tunnel is UP (gates the loopback per-IP
+        cap exemption). STARTING does not count: no tunneled client can
+        arrive before the public URL is published, so exempting loopback
+        pre-URL would only widen local exposure (e.g. cloudflared hanging
+        before its banner) with zero benefit."""
+        return self.tunnel is not None and self.tunnel.state == tunnel.STATE_UP
+
+    def tunnel_endpoint(self) -> Endpoint | None:
+        """The advertisable tunnel endpoint, or None when the tunnel is not
+        up. Read at BUILD time by every pairing-URI emit path (the URL
+        arrives asynchronously; snapshots go stale)."""
+        if self.tunnel is None or self.tunnel.state != tunnel.STATE_UP:
+            return None
+        host = self.tunnel.hostname
+        if not host:
+            return None
+        return Endpoint(host, 443, "tunnel", "ca")
 
     def connection_state(self) -> str:
         if self.error:
