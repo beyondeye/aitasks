@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t1149_2, t1149_3]
 issue_type: documentation
 status: Ready
 labels: [web_site]
 gates: [risk_evaluated]
 anchor: 1149
 created_at: 2026-07-15 18:45
-updated_at: 2026-07-15 18:45
+updated_at: 2026-07-15 18:46
 ---
 
 ## Context

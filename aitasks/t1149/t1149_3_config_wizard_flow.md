@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t1149_1]
 issue_type: feature
 status: Ready
 labels: [tui]
