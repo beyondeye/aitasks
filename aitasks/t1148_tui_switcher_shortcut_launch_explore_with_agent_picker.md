@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tui, switcher, codeagent]
 file_references: [.aitask-scripts/lib/tui_switcher.py]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-15 10:23
-updated_at: 2026-07-15 10:23
+updated_at: 2026-07-15 10:34
 ---
 
 ## Summary
