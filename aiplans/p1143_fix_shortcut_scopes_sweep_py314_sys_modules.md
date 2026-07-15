@@ -106,3 +106,31 @@ diverge again.
 Standard cleanup/archival per task-workflow Step 9 (current-branch profile: no
 worktree/merge). Gate `risk_evaluated` is recorded post-approval; archival via
 `aitask_archive.sh 1143`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Applied the `sys.modules[name] = mod`-before-`exec_module`
+  recipe (with pop-on-failure) to both `exec_module` call sites in the embedded
+  Python of `tests/test_shortcuts_registry_coverage.sh` — the main TUI-loading
+  loop and the `brainstorm_dag_display` load. Added an inline comment at the main
+  site cross-referencing the production loader (`shortcut_scopes.py:102-114`) so
+  the two copies don't silently diverge again.
+- **Deviations from plan:** Fix location moved from the task's stated target
+  (`.aitask-scripts/lib/shortcut_scopes.py`) to the test file. The production
+  loader was already fixed by **t1014** (commit `6b997c1073`, 2026-06-18) — the
+  production sweep `register_all_known_bindings()` already returned `[]`. The
+  still-reproducing failure lived in the test's own **duplicate** loader, which
+  never received t1014's fix. Diagnosis confirmed by direct before/after
+  reproduction of the exact `AttributeError: 'NoneType' object has no attribute
+  '__dict__'` on Python 3.14.5.
+- **Issues encountered:** Initial repro used a stale path (`syncer/syncer_app.py`);
+  the real module is `.aitask-scripts/syncer/syncer_app.py`. Loading it in
+  isolation with correct `sys.path` and no `sys.modules` entry reproduces the
+  crash; the fix resolves it.
+- **Key decisions:** Kept scope to the failing test rather than touching the
+  ~10 other `exec_module` sites in `tests/` — those load data/parser modules, not
+  frozen-`@dataclass` TUI apps under `from __future__ import annotations`, so they
+  do not reproduce this py3.14 failure. Also patched the brainstorm-dag load site
+  in the same file for consistency / future-proofing even though it doesn't
+  currently crash.
+- **Upstream defects identified:** None.
