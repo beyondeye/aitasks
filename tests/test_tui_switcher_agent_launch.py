@@ -43,6 +43,34 @@ class QuickJumpRegistrationTests(unittest.TestCase):
         self.assertEqual(entry[2], "e", "hint default key matches the binding")
 
 
+class ExplorePickRegistrationTests(unittest.TestCase):
+    """The `X` explore-with-picker action registers alongside the untouched
+    fire-and-forget `x` explore shortcut (t1148)."""
+
+    def test_binding_present(self):
+        match = [
+            b for b in ts._QUICK_JUMP_BINDINGS
+            if b.action == "shortcut_explore_pick"
+        ]
+        self.assertEqual(len(match), 1, "exactly one shortcut_explore_pick binding")
+        self.assertEqual(match[0].key, "X")
+
+    def test_hint_item_present(self):
+        self.assertIn(
+            ("shortcut_explore_pick", "explore+", "X"), ts._HINT_ITEMS,
+        )
+
+    def test_fire_and_forget_explore_untouched(self):
+        # Negative control: adding the picker variant must not disturb the
+        # original `x` fire-and-forget binding/hint.
+        explore = [
+            b for b in ts._QUICK_JUMP_BINDINGS if b.action == "shortcut_explore"
+        ]
+        self.assertEqual(len(explore), 1)
+        self.assertEqual(explore[0].key, "x")
+        self.assertIn(("shortcut_explore", "explore", "x"), ts._HINT_ITEMS)
+
+
 class AgentLaunchActionTests(unittest.TestCase):
     def _make_overlay(self):
         ov = ts.TuiSwitcherOverlay(session="s1")
@@ -142,6 +170,93 @@ class AgentLaunchActionTests(unittest.TestCase):
                           new_callable=PropertyMock, return_value=mock_app), \
              patch.object(alu, "resolve_dry_run_command", return_value=None):
             ov.action_shortcut_agent()
+            self.assertFalse(mock_app.push_screen.called)
+            self.assertTrue(mock_app.notify.called)
+
+
+class ExplorePickActionTests(unittest.TestCase):
+    """The `X` handler opens the AgentCommandScreen for operation="explore"
+    and routes its result exactly like the raw-agent handler (t1148)."""
+
+    def _make_overlay(self, narrow=False):
+        ov = ts.TuiSwitcherOverlay(session="s1", narrow=narrow)
+        ov._selected_key = "s1"
+        ov._running_names = set()
+        ov.dismiss = MagicMock()
+        ov._handle_stale_selection = MagicMock(return_value=False)
+        ov._ensure_session_live = MagicMock(return_value=True)
+        ov._selected_project_root = MagicMock(return_value=Path("/p1"))
+        return ov
+
+    def test_action_pushes_explore_dialog_and_routes_result(self):
+        ov = self._make_overlay()
+        mock_app = MagicMock()
+
+        with patch.object(ts.TuiSwitcherOverlay, "app",
+                          new_callable=PropertyMock, return_value=mock_app), \
+             patch.object(alu, "resolve_dry_run_command",
+                          return_value="claude --model claude-opus-4-8 /aitask-explore"), \
+             patch.object(alu, "resolve_agent_string",
+                          return_value="claudecode/opus4_8"), \
+             patch.object(alu, "launch_in_tmux",
+                          return_value=(123, None)) as mock_launch, \
+             patch.object(alu, "maybe_spawn_minimonitor") as mock_mm, \
+             patch.object(alu, "find_terminal",
+                          return_value="xterm") as mock_ft, \
+             patch.object(alu, "spawn_in_terminal") as mock_sit:
+            ov.action_shortcut_explore_pick()
+
+            # The dialog was pushed for the explore operation.
+            self.assertEqual(mock_app.push_screen.call_count, 1)
+            screen, callback = mock_app.push_screen.call_args.args
+            self.assertIsInstance(screen, AgentCommandScreen)
+            self.assertEqual(screen.operation, "explore")
+            self.assertEqual(screen.prompt_str, "/aitask-explore")
+            # Negative control: a wide host keeps the full layout.
+            self.assertFalse(screen._narrow, "wide host keeps the full layout")
+
+            # tmux result → launch_in_tmux + minimonitor (new window) + dismiss.
+            cfg = TmuxLaunchConfig("s1", "agent-explore-1",
+                                   new_session=False, new_window=True)
+            callback(cfg)
+            self.assertEqual(mock_launch.call_count, 1)
+            self.assertEqual(mock_mm.call_count, 1)
+            self.assertTrue(ov.dismiss.called)
+
+            # "run" result → spawn_in_terminal in a found terminal.
+            ov.dismiss.reset_mock()
+            callback("run")
+            self.assertTrue(mock_ft.called)
+            self.assertEqual(mock_sit.call_count, 1)
+            self.assertTrue(ov.dismiss.called)
+
+            # Cancel (None) → no launch, overlay left open (no extra dismiss).
+            ov.dismiss.reset_mock()
+            callback(None)
+            self.assertFalse(ov.dismiss.called)
+
+    def test_narrow_host_opens_narrow_dialog(self):
+        ov = self._make_overlay(narrow=True)
+        mock_app = MagicMock()
+        with patch.object(ts.TuiSwitcherOverlay, "app",
+                          new_callable=PropertyMock, return_value=mock_app), \
+             patch.object(alu, "resolve_dry_run_command",
+                          return_value="claude /aitask-explore"), \
+             patch.object(alu, "resolve_agent_string",
+                          return_value="claudecode/opus4_8"):
+            ov.action_shortcut_explore_pick()
+            self.assertEqual(mock_app.push_screen.call_count, 1)
+            screen, _callback = mock_app.push_screen.call_args.args
+            self.assertIsInstance(screen, AgentCommandScreen)
+            self.assertTrue(screen._narrow, "narrow host stacks the dialog")
+
+    def test_action_aborts_when_command_unresolved(self):
+        ov = self._make_overlay()
+        mock_app = MagicMock()
+        with patch.object(ts.TuiSwitcherOverlay, "app",
+                          new_callable=PropertyMock, return_value=mock_app), \
+             patch.object(alu, "resolve_dry_run_command", return_value=None):
+            ov.action_shortcut_explore_pick()
             self.assertFalse(mock_app.push_screen.called)
             self.assertTrue(mock_app.notify.called)
 

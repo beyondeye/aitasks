@@ -227,6 +227,7 @@ _HINT_ITEMS = [
     ("shortcut_brainstorm", "brainstorm", "r"),
     ("shortcut_git", "git", "g"),
     ("shortcut_explore", "explore", "x"),
+    ("shortcut_explore_pick", "explore+", "X"),
     ("shortcut_create", "new task", "n"),
     ("shortcut_agent", "agent", "e"),
 ]
@@ -376,6 +377,7 @@ _QUICK_JUMP_BINDINGS = [
     Binding("y", "shortcut_syncer", "Syncer", show=False),
     Binding("r", "shortcut_brainstorm", "Brainstorm", show=False),
     Binding("x", "shortcut_explore", "Explore", show=False),
+    Binding("X", "shortcut_explore_pick", "Explore (pick agent)", show=False),
     Binding("g", "shortcut_git", "Git", show=False),
     Binding("n", "shortcut_create", "New Task", show=False),
     Binding("e", "shortcut_agent", "Code Agent", show=False),
@@ -1122,6 +1124,82 @@ class TuiSwitcherOverlay(ModalScreen):
             self.app.notify("Failed to launch explore", severity="error")
             return
         self.dismiss(window_name)
+
+    def action_shortcut_explore_pick(self) -> None:
+        """Launch an explore agent after opening the agent/model picker dialog.
+
+        Unlike ``action_shortcut_explore`` (fire-and-forget via
+        ``_spawn_in_session`` with the wrapper's default agent), this opens the
+        shared ``AgentCommandScreen`` for ``operation="explore"`` so the user can
+        confirm / change the code agent and model before the explore session
+        starts. Mirrors ``action_shortcut_agent``; the only differences are the
+        explore operation, the ``agent-explore-N`` window base, and a non-empty
+        prompt string.
+        """
+        if self._handle_stale_selection():
+            return
+        if not self._ensure_session_live():
+            return
+        project_root = self._selected_project_root()
+        from agent_command_screen import AgentCommandScreen
+        from agent_launch_utils import (
+            TmuxLaunchConfig,
+            find_terminal,
+            launch_in_tmux,
+            maybe_spawn_minimonitor,
+            resolve_agent_string,
+            resolve_dry_run_command,
+            spawn_in_terminal,
+        )
+        full_cmd = resolve_dry_run_command(project_root, "explore")
+        if not full_cmd:
+            self.app.notify(
+                "Could not resolve agent command — check model configuration.",
+                severity="error",
+            )
+            return
+        agent_string = resolve_agent_string(project_root, "explore")
+        n = 1
+        while f"agent-explore-{n}" in self._running_names:
+            n += 1
+        window_name = f"agent-explore-{n}"
+        screen = AgentCommandScreen(
+            "Launch Explore (pick agent)",
+            full_cmd,
+            "/aitask-explore",
+            default_window_name=window_name,
+            project_root=project_root,
+            operation="explore",
+            operation_args=[],
+            default_agent_string=agent_string,
+            narrow=self._narrow,
+        )
+
+        def on_result(result) -> None:
+            if isinstance(result, TmuxLaunchConfig):
+                _, err = launch_in_tmux(screen.full_command, result)
+                if err:
+                    self.app.notify(err, severity="error")
+                elif result.new_window:
+                    maybe_spawn_minimonitor(
+                        result.session, result.window, project_root=project_root,
+                    )
+                self.dismiss(window_name)
+            elif result == "run":
+                terminal = find_terminal()
+                if terminal:
+                    spawn_in_terminal(
+                        terminal, ["sh", "-c", screen.full_command],
+                        cwd=str(project_root),
+                    )
+                    self.dismiss(window_name)
+                else:
+                    self.app.notify(
+                        "No terminal emulator found", severity="error",
+                    )
+            # result is None (cancelled) → leave the overlay open
+
+        self.app.push_screen(screen, on_result)
 
     def action_shortcut_create(self) -> None:
         """Launch ait create in a new tmux window in the SELECTED session."""
