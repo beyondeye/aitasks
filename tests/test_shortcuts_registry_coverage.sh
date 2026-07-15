@@ -86,7 +86,20 @@ for path, name, cls_name, factory, expected_scope in TUIS:
     try:
         spec = importlib.util.spec_from_file_location(name, path)
         mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        # Register in sys.modules BEFORE exec_module. Under Python 3.14, a
+        # @dataclass with string annotations (`from __future__ import annotations`,
+        # as in syncer_app) is processed by dataclasses._is_type, which resolves
+        # the owning module via `sys.modules.get(cls.__module__).__dict__` — without
+        # this entry the lookup returns None and the import dies with
+        # "AttributeError: 'NoneType' object has no attribute '__dict__'". Mirrors
+        # the production loader in .aitask-scripts/lib/shortcut_scopes.py:102-114.
+        # Popped on failure so a half-initialized module is never left registered.
+        sys.modules[name] = mod
+        try:
+            spec.loader.exec_module(mod)
+        except Exception:
+            sys.modules.pop(name, None)
+            raise
         App = getattr(mod, cls_name)
         if factory == "register_class_only":
             # Emulate ShortcutsMixin.__init__ without instantiating the App.
@@ -106,7 +119,12 @@ for path, name, cls_name, factory, expected_scope in TUIS:
                 ".aitask-scripts/brainstorm/brainstorm_dag_display.py",
             )
             _m = _u.module_from_spec(_spec)
-            _spec.loader.exec_module(_m)
+            sys.modules["brainstorm_dag_display"] = _m  # py3.14: see main loop above
+            try:
+                _spec.loader.exec_module(_m)
+            except Exception:
+                sys.modules.pop("brainstorm_dag_display", None)
+                raise
     except Exception as e:
         failures.append(f"  {name}: import failed: {type(e).__name__}: {e}")
         continue
