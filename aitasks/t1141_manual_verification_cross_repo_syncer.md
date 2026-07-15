@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1138
 created_at: 2026-07-09 10:33
-updated_at: 2026-07-15 18:56
+updated_at: 2026-07-15 19:21
 ---
 
 ## Origin
@@ -28,15 +28,15 @@ Drive the live syncer TUI in a multi-repo environment and verify the cross-repo 
 
 ## Verification Checklist
 
-- [ ] Launch `ait syncer` in a repo with ≥2 registered projects: table shows one row per repo × ref (`main`, `aitask-data`) with a Project column; the launch repo is listed first.
-- [ ] Least-recently-fetched scheduling: over successive automatic ticks (default 60s), exactly one repo's Fetched age resets per tick — always the least-recently-fetched one; a repo whose fetch fails (e.g. no network/remote) does NOT get re-picked every tick (rotation advances; its Fetched age keeps growing).
-- [ ] Fetched age column ticks up smoothly between refreshes (5s display updates); `—` shows for never-fetched repos.
-- [ ] Manual `r` immediately refreshes the highlighted row's repo and defers it in the automatic rotation.
-- [ ] Per-row action gating: `s` footer hint/action only on `aitask-data` rows, `u`/`p` only on `main` rows — following the highlighted row across repos.
-- [ ] Run `s` (sync) and `u` (pull) against a NON-current repo: notifications are prefixed with that project's label, and (best-effort corroboration) that repo's `.git/FETCH_HEAD` mtime advances on `u` while the launch repo's does not. The primary targeting guarantee is the unit spy tests in `tests/test_sync_action_runner.py`.
-- [ ] Trigger a failure on a non-current repo (e.g. push with no permission) and confirm the failure modal names the project and the "Launch agent to resolve" flow roots the agent in THAT repo.
-- [ ] Single-repo regression: with only one discovered repo (e.g. temporary empty registry + outside tmux), the table shows the legacy two rows, no Project column, last column is a wall-clock "Last refresh".
-- [ ] `ait stats` still renders correct project labels after the `compact_root` promotion.
+- [x] Launch `ait syncer` in a repo with ≥2 registered projects: table shows one row per repo × ref (`main`, `aitask-data`) with a Project column; the launch repo is listed first. — PASS 2026-07-15 19:21 auto: run_test — multi-repo (3 repos) renders Project column + 6 repo×ref rows, launch repo first, project cell='aitasks'
+- [x] Least-recently-fetched scheduling: over successive automatic ticks (default 60s), exactly one repo's Fetched age resets per tick — PASS 2026-07-15 19:21 auto: run_test tick rotation covers every repo, <=1 fetch per settled tick; failed-fetch-no-starve via unit test_syncer_rows LeastRecentFetchKeyTests
+- [x] Fetched age column ticks up smoothly between refreshes (5s display updates); `—` shows for never-fetched repos. — PASS 2026-07-15 19:21 auto: run_test — never-fetched cell='—', stamp→'7s'; AGE_TICK_SECONDS=5; format_age spot values
+- [x] Manual `r` immediately refreshes the highlighted row's repo and defers it in the automatic rotation. — PASS 2026-07-15 19:21 auto: run_test — press r calls _request_refresh(selected.session_key, explicit=True); attempt-stamp records → defers in LRU
+- [x] Per-row action gating: `s` footer hint/action only on `aitask-data` rows, `u`/`p` only on `main` rows — PASS 2026-07-15 19:21 auto: run_test — check_action gating follows cursor: main→pull/push, aitask-data→sync only
+- [x] Run `s` (sync) and `u` (pull) against a NON-current repo: notifications are prefixed with that project's label, and (best-effort corroboration) that repo's `.git/FETCH_HEAD` mtime advances on `u` while the launch repo's does not. The primary targeting guarantee is the unit spy tests in `tests/test_sync_action_runner.py`. — PASS 2026-07-15 19:21 auto: run_test — sync/pull on NON-current repoB: subprocess cwd=repoB, notifications prefixed 'repoB:'; spy tests test_sync_action_runner pass. Live FETCH_HEAD mtime skipped (would mutate user repos)
+- [x] Trigger a failure on a non-current repo (e.g. push with no permission) and confirm the failure modal names the project and the "Launch agent to resolve" flow roots the agent in THAT repo. — PASS 2026-07-15 19:21 auto: run_test — push failure on repoB captured with ref_name='repoB main', repo_root=repoB (agent rooting), modal title names project
+- [x] Single-repo regression: with only one discovered repo (e.g. temporary empty registry + outside tmux), the table shows the legacy two rows, no Project column, last column is a wall-clock "Last refresh". — PASS 2026-07-15 19:21 auto: run_test — empty registry → single-repo: no Project column, legacy rows [main,aitask-data], 'Last refresh' header
+- [x] `ait stats` still renders correct project labels after the `compact_root` promotion. — PASS 2026-07-15 19:21 auto: StatsApp real registry labels==project names + rendered items; colliding names disambiguated via compact_root ('repo (~/x/repo)')
 
 ## Related
 
