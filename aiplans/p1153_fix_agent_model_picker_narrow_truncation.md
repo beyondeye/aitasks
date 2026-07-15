@@ -161,3 +161,28 @@ archive with `./.aitask-scripts/aitask_archive.sh 1153`.
   `.aitask-scripts/lib/agent_model_picker.py`,
   `tests/test_agent_model_picker_narrow.py` (added `test_switch_hint_*` and
   `AgentCommandScreenEscapeTests::test_escape_dismisses_on_non_delegating_host`).
+
+## Final Implementation Notes
+
+- **Actual work done:** Made `AgentModelPickerScreen` narrow-aware — added an
+  opt-in `narrow: bool = False` ctor param, `add_class("narrow")` in `on_mount`,
+  and an `AgentModelPickerScreen.narrow #picker_dialog { width: 100% … }` CSS
+  variant; threaded `narrow=self._narrow` from
+  `AgentCommandScreen.action_change_agent`. Plus two defects the user surfaced
+  during review (both in the same narrow minimonitor UX): a host-independent Esc
+  binding on `AgentCommandScreen`, and stacking the "Shift+←/→ to switch" hint
+  onto its own line in narrow mode. New test file
+  `tests/test_agent_model_picker_narrow.py` (6 tests) covers all three.
+- **Deviations from plan:** None on the original narrow-width fix. Scope grew by
+  two related defects (Esc cancel, hint clipping) reported in the Step-8 review;
+  logged under Post-Review Changes → Change Request 1.
+- **Issues encountered:** None. The `Label.render().plain` + `widget.region.width`
+  render-level assertions distinguish fixed-vs-broken; verified as genuine
+  negative controls (65% row width 20 < 22 needed; narrow 36 ≥ 22).
+- **Key decisions:** Kept the option-row display format uniform across all hosts
+  (fix is dialog width, not a divergent per-host label layout). Made the Esc
+  binding **non-priority** so board/codebrowser `priority=True` App handlers
+  still preempt it (no double-dismiss), while minimonitor — which has no escape
+  binding at all — finally cancels.
+- **Upstream defects identified:** None. (The Esc-cancel gap was a pre-existing
+  `AgentCommandScreen` defect but it was fixed within this task, not deferred.)
