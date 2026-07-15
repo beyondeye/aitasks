@@ -90,3 +90,21 @@ tests above, then archive with `./.aitask-scripts/aitask_archive.sh 1132`.
   verifies both its presence in setup and its actual ignore behavior (with a
   negative control). Follows the established t1120_2 precedent; fully covers the
   task's stated requirement.
+
+## Final Implementation Notes
+- **Actual work done:** Added the applink `.gitignore` seeding block to
+  `setup_data_branch` in `.aitask-scripts/aitask_setup.sh`, immediately after the
+  chatlink block — same `grep -qxF` idempotency guard and `{ echo; echo; } >>`
+  idiom, with the comment/path already present in this repo's live data-branch
+  gitignore. Added `tests/test_applink_setup_gitignore.sh`: a source-guard
+  assertion (block present in setup) plus a behavioral `git check-ignore` test on
+  a fresh temp repo (matches `tls_key.pem` + `sessions.json`, negative control
+  `labels.txt` not ignored).
+- **Deviations from plan:** None.
+- **Issues encountered:** None. The behavioral test parses the seeded ignore path
+  out of the script rather than re-hardcoding it, so it stays honest to the
+  source.
+- **Key decisions:** Kept the test independent of this repo's already-present
+  manual rule (commit `9df76f759`) by exercising a fresh git repo — the assertion
+  proves the *seeding* behavior, not just this repo's current state.
+- **Upstream defects identified:** None.
