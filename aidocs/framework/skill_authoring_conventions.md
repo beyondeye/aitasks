@@ -542,3 +542,30 @@ prompt (banner required). When in doubt, default to (ii). Existing banners
 live at `task-workflow/SKILL.md` Step 8, Step 9 merge-approval; and at the top
 of `task-workflow/upstream-followup.md`, `manual-verification-followup.md`,
 `satisfaction-feedback.md`.
+
+## AskUserQuestion visibility rule: decision content lives in the widget payload
+
+Any content the user needs in order to answer an `AskUserQuestion` MUST be
+inside the widget payload — the `question` text, option labels, or option
+descriptions. Do not rely on assistant prose emitted in the same turn as the
+tool call: some model/client combinations route pre-tool prose into a
+non-rendered narration channel, making it invisible to the user (observed with
+Claude Code + Fable 5, t1150 — the model emitted the summary as a
+thinking-family `narration` block and no `text` block at all, so three
+consecutive "summary then question" attempts showed only the bare widget).
+
+Concretely, when a skill step reads "present a summary of X, then use
+`AskUserQuestion`":
+
+- Put the summary (condensed to a few bullet lines if long) at the start of
+  the `question` text, before the actual question sentence.
+- Keep the preceding prose presentation if useful — but treat it as
+  best-effort duplication, never as the sole carrier of decision-critical
+  information.
+- Turn-final plain text (a response that ends the turn with no tool call)
+  renders reliably, but a skill flow cannot end its turn mid-procedure, so it
+  is not a substitute at question sites.
+
+The first hardened site is `aitask-explore` Step 2/Step 3 (see the
+"Visibility rule" note in its `SKILL.md.j2`). Apply the same pattern when
+authoring any new summary-before-question step.

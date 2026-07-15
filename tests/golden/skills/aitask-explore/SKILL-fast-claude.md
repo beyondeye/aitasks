@@ -119,12 +119,19 @@ Explore the codebase guided by the exploration strategy set in Step 1. Use Read,
    so findings span both repos
 2. Present a brief summary of findings so far to the user
 3. Use `AskUserQuestion`:
-   - Question: "How would you like to proceed?"
+   - Question: the condensed findings summary from step 2 (3–6 bullet lines), followed by "How would you like to proceed?"
    - Header: "Next step"
    - Options:
      - "Continue exploring" (description: "Keep investigating, you can redirect the focus")
      - "Create a task" (description: "I have enough information, let's create a task from these findings")
      - "Abort" (description: "Stop exploration without creating a task")
+
+   **Visibility rule (NON-SKIPPABLE):** the question text itself MUST carry the
+   findings summary. Assistant prose emitted in the same turn as an
+   `AskUserQuestion` call is not rendered by some model/client combinations (it
+   can be routed to a non-rendered narration channel — t1150), so the widget
+   payload is the only reliable carrier; the step-2 prose summary is best-effort
+   duplication, not the carrier.
 
 4. Handle selection:
    - **"Continue exploring":** Ask the user if they want to redirect focus or continue in the same direction. Loop back to step 1 of this exploration loop.
@@ -134,7 +141,7 @@ Explore the codebase guided by the exploration strategy set in Step 1. Use Read,
 **Notes:**
 - Track findings mentally throughout (no file writes during exploration)
 - Each exploration round should be meaningful — don't just do one file read, do enough to have something useful to report
-- Present findings as a concise bulleted summary after each round
+- Present findings as a concise bulleted summary after each round — and duplicate the condensed summary into the question text per the visibility rule in step 3
 
 ### Step 2b: Related Task Discovery
 
@@ -175,7 +182,10 @@ Summarize all exploration findings for the user in a structured format:
 **Propose task metadata** using defaults from the Step 1 table:
 
 Use `AskUserQuestion` to confirm or modify:
-- Question: "Here's the proposed task. Confirm or select 'Other' to modify:"
+- Question: the `## Exploration Summary` content from above (condensed if long),
+  followed by "Here's the proposed task. Confirm or select 'Other' to modify:" —
+  the summary MUST be inside the question text (same visibility rule as Step 2:
+  same-turn prose before the widget may not render)
 - Header: "Task"
 - Options:
   - "Create task as proposed" (description: "<task_name> [priority: <p>, effort: <e>, type: <t>]")
