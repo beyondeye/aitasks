@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
@@ -8,8 +10,9 @@ labels: [python]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1149
+implemented_with: claudecode/fable5
 created_at: 2026-07-15 18:44
-updated_at: 2026-07-15 18:51
+updated_at: 2026-07-15 19:32
 ---
 
 ## Context
@@ -59,3 +62,8 @@ This child extracts that check chain into a shared, structured **preflight modul
 - `bash tests/test_chatlink_preflight.sh` passes — result shape, probe split, pinned refusal strings, fail-closed timeouts.
 - `PYTHONPATH=.aitask-scripts python -c "import sys, chatlink.preflight; assert not any('textual' in m for m in sys.modules)"` — Textual-free.
 - `bash tests/test_chatlink_tui.sh` still passes (daemon import guard intact).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-15T16:32:44Z status=pass attempt=1 type=human
