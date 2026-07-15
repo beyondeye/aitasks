@@ -133,3 +133,31 @@ proving the flag is actually threaded, not just accepted.
 Profile 'fast' works on the current branch (no worktree merge). After review and
 commit, run the declared `risk_evaluated` gate via the Step 9 orchestrator and
 archive with `./.aitask-scripts/aitask_archive.sh 1153`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-15 18:45)
+- **Requested by user:** During Step-8 review the user reported two further
+  defects in the narrow minimonitor agent-picker/command UX (both in scope for
+  this narrow-awareness task):
+  1. The `AgentCommandScreen` spawned by minimonitor **Shift+E** cannot be
+     canceled with **Esc**.
+  2. In the narrow `AgentModelPickerScreen`, the "Shift+←/→ to switch" helper
+     hint is not always visible (clipped off the right edge).
+- **Changes made:**
+  1. **Esc fix (structural, host-independent).** `AgentCommandScreen` had a
+     `handle_escape()` method but no binding — it relied on the *host* app to
+     delegate (board/codebrowser bind escape App-level with `priority=True` and
+     call `screen.handle_escape()`; minimonitor has no escape binding at all, so
+     Esc was dead). Added a **non-priority** screen-level
+     `Binding("escape", "escape", …)` + `action_escape()` → `handle_escape()`.
+     Priority App bindings in board/codebrowser still preempt it (no
+     double-dismiss); minimonitor now cancels correctly.
+  2. **Hint visibility fix.** In `_apply_mode`, when `self._narrow` the mode
+     label and the `(Shift+←/→ to switch)` hint are separated by a newline
+     (stacked on two lines) instead of two spaces, so the hint is never clipped.
+     Wide hosts keep the inline single-line layout (no regression).
+- **Files affected:** `.aitask-scripts/lib/agent_command_screen.py`,
+  `.aitask-scripts/lib/agent_model_picker.py`,
+  `tests/test_agent_model_picker_narrow.py` (added `test_switch_hint_*` and
+  `AgentCommandScreenEscapeTests::test_escape_dismisses_on_non_delegating_host`).
