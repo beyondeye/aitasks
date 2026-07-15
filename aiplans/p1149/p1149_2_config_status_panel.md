@@ -12,8 +12,24 @@ Base branch: main
 
 Render t1149_1 preflight results as a visual checklist in
 `.aitask-scripts/chatlink/chatlink_app.py` so config state (config file,
-intake channel, allowlist, token, agent command, docker binary + image) is
-visible at a glance. Depends on t1149_1 (result contract pinned there).
+intake channel, allowlist, token, explore-relay agent command, docker binary
++ image) is visible at a glance. Depends on t1149_1 (result contract pinned
+there). Panel copy describes configuring **the current Discord bug-report
+intake / explore-relay flow**, not all future ChatLink operations.
+
+**Shipped preflight API (t1149_1 — consume as-is):**
+- `run_cheap_checks() -> CheapChecks` (`results: list[CheckResult]`,
+  `config`, `config_warnings`) — poll-safe, no subprocess.
+- Per-check expensive functions: `check_explore_relay_agent_command(resolver=…,
+  timeout=…) -> (CheckResult, argv)`, `check_docker_binary()`,
+  `check_docker_image(timeout=…)`; TUI convenience
+  `run_expensive_checks(agent_timeout=AGENT_PROBE_TIMEOUT_S,
+  docker_timeout=DOCKER_PROBE_TIMEOUT_S, resolver=None)`.
+- `CheckResult(id, category, severity, message, fix_hint,
+  daemon_refuse_message)`; categories `transport`/`runtime`/`operation`
+  (group panel rows by bucket); ids: `config_file`, `config_yaml`,
+  `intake_channel`, `allowlist`, `token`, `config_key:<key>`,
+  `docker_binary`, `docker_image`, `explore_relay_agent_command`.
 
 ## Pinned contracts (parent plan aiplans/p1149_chatlink_config_wizard_tui.md)
 
@@ -37,7 +53,7 @@ visible at a glance. Depends on t1149_1 (result contract pinned there).
    a cache `{check_id: (CheckResult, monotonic_ts)}`, placeholder
    "checking…" while the worker runs.
 3. Thread worker `_run_expensive_checks()` (`self.run_worker(…, thread=True)`
-   or `@work(thread=True)`) calls `preflight.run_expensive_checks(timeout=…)`,
+   or `@work(thread=True)`) calls `preflight.run_expensive_checks()`,
    updates the cache, requests re-render via `call_from_thread`. Triggered
    from `on_mount` (one-shot) and `action_refresh`; debounced (skip if one is
    already in flight).

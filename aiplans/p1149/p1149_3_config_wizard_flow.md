@@ -39,7 +39,15 @@ shows the specific error inline. Depends on t1149_1 only (not on the panel).
    intake_channel required non-empty strings. Invalid input → inline error
    label, modal stays open (never dismiss on bad input).
 5. **Summary step runs preflight** (cheap immediately; expensive with
-   timeout + progress) and renders results.
+   timeout + progress) and renders results. Shipped API (t1149_1):
+   `run_cheap_checks() -> CheapChecks` (`results`/`config`/
+   `config_warnings`) + `run_expensive_checks(agent_timeout=
+   AGENT_PROBE_TIMEOUT_S, docker_timeout=DOCKER_PROBE_TIMEOUT_S)`;
+   `CheckResult(id, category, severity, message, fix_hint,
+   daemon_refuse_message)` with categories `transport`/`runtime`/
+   `operation` (operation id: `explore_relay_agent_command`). Wizard copy
+   describes configuring **the current Discord bug-report intake /
+   explore-relay flow**, not all future ChatLink operations.
 6. **No partial writes**: files written ONLY at the summary step; cancel at
    any step aborts cleanly.
 7. Writer helper is Textual-free (`chatlink/config_write.py`) so it is

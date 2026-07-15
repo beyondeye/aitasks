@@ -8,7 +8,7 @@ labels: [tui]
 gates: [risk_evaluated]
 anchor: 1149
 created_at: 2026-07-15 18:45
-updated_at: 2026-07-15 18:45
+updated_at: 2026-07-15 19:47
 ---
 
 ## Context
@@ -23,7 +23,7 @@ Depends on t1149_1 (preflight result contract + `load_config_with_warnings`). Do
 2. **Field coverage (pinned).** Wizard-exposed keys: `intake_channel` (provider/workspace_id/conversation_id + optional thread_id), `allowed_user_ids`, `allowed_role_ids`, `deny_message_mode`, `repo_name`, and the six ceilings (`max_concurrent_sandboxes`, `intake_rate_per_user_per_hour`, `sandbox_memory`, `sandbox_cpus`, `sandbox_pids`, `sandbox_wall_clock_s`). NOT exposed but preserved: `sandbox_env_passthrough` + unknown keys.
 3. **Writes files only — never commits, never commands the daemon.** Per `aidocs/framework/tui_conventions.md` (no auto-commit/push of project config from runtime TUIs): config file written to the working tree; final screen tells the user to review and commit with `./ait git add aitasks/metadata/chatlink_config.yaml && ./ait git commit`. Token written via the EXISTING `paths.write_token()` (`.aitask-scripts/chatlink/paths.py:93` — correct 0700 dir / 0600 file); token file is gitignored, never committed, and the Input for it should use `password=True`.
 4. **Per-step validation** uses the same validation logic as config.py/preflight (ranges from `config.py:28-42` constants; intake_channel required non-empty strings; `deny_message_mode` in `DENY_MESSAGE_MODES`; `sandbox_memory` matches `SANDBOX_MEMORY_RE`). Invalid input -> inline error label, modal stays open (never dismiss on bad input).
-5. **Final step runs preflight** (cheap checks immediately; expensive checks with timeout, showing progress) and renders the results — the user leaves the wizard knowing whether the gateway would start.
+5. **Final step runs preflight** (cheap checks immediately; expensive checks with timeout, showing progress) and renders the results — the user leaves the wizard knowing whether the gateway would start. Shipped API (t1149_1): `run_cheap_checks() -> CheapChecks` + `run_expensive_checks(agent_timeout=AGENT_PROBE_TIMEOUT_S, docker_timeout=DOCKER_PROBE_TIMEOUT_S)`; `CheckResult(id, category, severity, message, fix_hint, daemon_refuse_message)`, categories `transport`/`runtime`/`operation`, operation id `explore_relay_agent_command`. Wizard copy describes configuring the current Discord bug-report intake / explore-relay flow, not all future ChatLink operations (t1149_1 scope/naming contract).
 6. **Daemon stays Textual-free** — wizard code lives in `chatlink_app.py` or a new `chatlink/wizard.py` imported only by it. The YAML-writer helper must be importable without Textual (put it in a non-Textual module, e.g. `chatlink/config_write.py`, so it is unit-testable headlessly).
 
 ## Key files to modify

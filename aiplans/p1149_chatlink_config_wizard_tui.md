@@ -101,8 +101,16 @@ into `chatlink/preflight.py` as structured per-check results. Rewire
 - **Checks to model:** config path resolvable (`paths.config_file()`), YAML
   parses / is a mapping (`load_config`), `intake_channel` valid, allowlist
   non-empty (warn — deny-by-default), token present (`paths.read_token()`),
-  agent command resolvable (`resolve_explore_relay_argv()`), docker binary
+  explore-relay agent command resolvable (`resolve_explore_relay_argv()` —
+  operation-qualified check id `explore_relay_agent_command`), docker binary
   present (warn-only), docker image `ait-chatlink-agent` present (new; warn).
+  **As shipped (t1149_1):** results carry a `category` bucket
+  (`transport` / `runtime` / `operation`) so future ChatLink operations add
+  checks additively; `run_cheap_checks()` returns a `CheapChecks` outcome
+  (`results`, `config`, `config_warnings`); expensive checks are per-check
+  functions (`check_explore_relay_agent_command`, `check_docker_binary`,
+  `check_docker_image`) with `run_expensive_checks(...)` as the TUI
+  convenience.
 - **Key files:** new `chatlink/preflight.py`; edit `chatlink/daemon.py`,
   `chatlink/config.py`. Tests: extend `tests/test_chatlink_daemon.sh`
   (behavior-preserving), new `tests/test_chatlink_preflight.sh` (structured
@@ -112,9 +120,11 @@ into `chatlink/preflight.py` as structured per-check results. Rewire
 
 ### t1149_2 — Config-status panel in the TUI · depends: t1149_1
 Render preflight results as a visual checklist in `chatlink_app.py` (config file,
-intake channel, allowlist, token, agent command, docker binary + image), so
-config state is visible at a glance. Replaces the current bare status line's
-config-blindness.
+intake channel, allowlist, token, explore-relay agent command, docker binary
++ image), so config state is visible at a glance. Replaces the current bare
+status line's config-blindness. Panel copy describes configuring **the
+current Discord bug-report intake / explore-relay flow** — not all possible
+future ChatLink operations.
 - **Cost boundary (pinned — the panel must stay passive/responsive).** The 2s
   polling loop runs **only `run_cheap_checks()`** (file/YAML/in-memory — no
   subprocess). The **expensive** checks (agent dry-run, docker binary, docker

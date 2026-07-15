@@ -8,14 +8,14 @@ labels: [tui]
 gates: [risk_evaluated]
 anchor: 1149
 created_at: 2026-07-15 18:44
-updated_at: 2026-07-15 18:44
+updated_at: 2026-07-15 19:47
 ---
 
 ## Context
 
 Part of t1149 (chatlink config wizard TUI). The `ait chatlink` TUI (`.aitask-scripts/chatlink/chatlink_app.py`) is a minimal read-only status view (status line from audit mtime, sessions DataTable, audit tail). It is config-blind: a broken gateway config just shows "no audit log yet (gateway never started?)".
 
-This child renders the t1149_1 preflight results as a visual config checklist in the TUI, so config state (config file, intake channel, allowlist, token, agent command, docker binary + image) is visible at a glance. Depends on t1149_1 (the preflight module pins the result contract).
+This child renders the t1149_1 preflight results as a visual config checklist in the TUI, so config state (config file, intake channel, allowlist, token, explore-relay agent command, docker binary + image) is visible at a glance. Depends on t1149_1 (the preflight module pins the result contract). Panel copy describes configuring the current Discord bug-report intake / explore-relay flow — not all possible future ChatLink operations (t1149_1 scope/naming contract).
 
 ## Pinned contracts (from the approved parent plan, aiplans/p1149_chatlink_config_wizard_tui.md)
 
@@ -32,7 +32,7 @@ This child renders the t1149_1 preflight results as a visual config checklist in
 ## Reference patterns
 
 - Existing polling: `chatlink_app.py:106-135` (`on_mount` interval, `_refresh_view`, `_status_text`).
-- Preflight API (t1149_1): `chatlink/preflight.py` — `run_cheap_checks()`, `run_expensive_checks(timeout=...)`, `CheckResult(id, severity, message, fix_hint, ...)`.
+- Preflight API (t1149_1, as shipped): `chatlink/preflight.py` — `run_cheap_checks() -> CheapChecks` (`results`/`config`/`config_warnings`; poll-safe), per-check expensive functions (`check_explore_relay_agent_command`, `check_docker_binary`, `check_docker_image`) + `run_expensive_checks(agent_timeout=AGENT_PROBE_TIMEOUT_S, docker_timeout=DOCKER_PROBE_TIMEOUT_S)`, `CheckResult(id, category, severity, message, fix_hint, daemon_refuse_message)` with categories `transport`/`runtime`/`operation` (group rows by bucket; operation id is `explore_relay_agent_command`).
 - Textual worker: `self.run_worker(..., thread=True)` or `@work(thread=True)` — post results back via `call_from_thread` / reactive assignment.
 - Render-level test style: assert `widget.render().plain` (or query text content) — see existing `tests/test_chatlink_tui.sh` Pilot section.
 - TUI conventions: `aidocs/framework/tui_conventions.md` (footer bindings show=True with labels; scope guards).
