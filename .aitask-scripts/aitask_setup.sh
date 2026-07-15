@@ -1398,6 +1398,15 @@ setup_data_branch() {
         } >> "$data_gitignore"
     fi
 
+    # Add applink_sessions/ to data branch .gitignore (per-PC secrets: TLS cert/key + bearer sessions)
+    if ! grep -qxF "aitasks/metadata/applink_sessions/" "$data_gitignore" 2>/dev/null; then
+        {
+            echo ""
+            echo "# applink runtime state (per-PC: TLS cert/key + active bearer sessions)"
+            echo "aitasks/metadata/applink_sessions/"
+        } >> "$data_gitignore"
+    fi
+
     # --- Step 4: Commit and push on data branch ---
     (
         cd "$project_dir/.aitask-data"
