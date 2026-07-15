@@ -174,9 +174,9 @@ Profile 'fast', current-branch work — no worktree/merge. Run gates
 - Markdown-only edits to one template + a convention doc; golden tests (`test_skill_render_aitask_explore.sh` Test 1) catch any unintended render drift · severity: low · → mitigation: none needed
 
 ### Goal-achievement risk: medium
-- Mitigation relies on future sessions' instruction-following to embed summaries in the question text; the widget payload is structurally rendered, but a model could still under-fill it · severity: medium · → mitigation: askuserquestion_visibility_sweep
-- Same invisible-prose hazard exists at other summary-before-question sites outside this task's scope (e.g. `risk-mitigation-followup.md` Part 1's "plain-text numbered list before the prompt", `manual-verification-followup.md` candidate list, review/qa finding summaries) · severity: medium · → mitigation: askuserquestion_visibility_sweep
+- Mitigation relies on future sessions' instruction-following to embed summaries in the question text; the widget payload is structurally rendered, but a model could still under-fill it · severity: medium · → mitigation: t1155 (askuserquestion_visibility_sweep)
+- Same invisible-prose hazard exists at other summary-before-question sites outside this task's scope (e.g. `risk-mitigation-followup.md` Part 1's "plain-text numbered list before the prompt", `manual-verification-followup.md` candidate list, review/qa finding summaries) · severity: medium · → mitigation: t1155 (askuserquestion_visibility_sweep)
 - Upstream fix timeline (narration rendering in Claude Code) is outside our control; skill-side hardening is the hedge · severity: low · → mitigation: none (accepted)
 
 ### Planned mitigations
-- timing: after | name: askuserquestion_visibility_sweep | type: chore | priority: medium | effort: medium | addresses: residual invisible-prose hazard at other summary-before-question sites (goal-achievement) | desc: Audit all skill/procedure surfaces for plain-text-summary-before-AskUserQuestion sites and embed decision-critical content in the widget payload per the new visibility-rule convention
+- timing: after | name: askuserquestion_visibility_sweep (created: t1155) | type: chore | priority: medium | effort: medium | addresses: residual invisible-prose hazard at other summary-before-question sites (goal-achievement) | desc: Audit all skill/procedure surfaces for plain-text-summary-before-AskUserQuestion sites and embed decision-critical content in the widget payload per the new visibility-rule convention

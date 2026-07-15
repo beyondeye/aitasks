@@ -8,10 +8,11 @@ issue_type: bug
 status: Implementing
 labels: [aitask_explore, claudecode, upstream_defect_followup]
 gates: [risk_evaluated]
+risk_mitigation_tasks: [1155]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-07-15 10:36
-updated_at: 2026-07-15 18:28
+updated_at: 2026-07-15 18:37
 ---
 
 ## Symptom
