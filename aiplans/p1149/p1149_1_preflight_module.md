@@ -213,3 +213,54 @@ separate before/after mitigation tasks proposed.
 - `bash tests/test_chatlink_tui.sh` — daemon import guard intact.
 
 Refer to Step 9 (Post-Implementation) of the task workflow for merge/archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. New
+  `.aitask-scripts/chatlink/preflight.py`: `CheckResult` (id, category,
+  severity, message, fix_hint, daemon_refuse_message), category buckets
+  `TRANSPORT`/`RUNTIME`/`OPERATION`, `run_cheap_checks() -> CheapChecks`
+  (results + config + config_warnings — rich return so the daemon never
+  re-loads), per-check expensive functions
+  (`check_explore_relay_agent_command(resolver=…, timeout=…) -> (result,
+  argv)`, `check_docker_binary()`, `check_docker_image(timeout=…)`),
+  `run_expensive_checks(...)` TUI convenience, and the resolver pair
+  (`parse_dry_run_argv`, `resolve_explore_relay_argv(timeout=None)`) moved
+  from daemon.py. `config.py`: `load_config_with_warnings()` (collect-only,
+  silent), `load_config()` replays via `_warn` (byte-identical),
+  `emit_warning()` public replay point; `warn` callable threaded through the
+  four helpers. `daemon.py`: `serve()` consumes cheap chain + agent check +
+  docker-binary check in the legacy order, refuses with
+  `res.daemon_refuse_message`, replays config warnings once, never
+  references the image check; resolver re-exported and passed from the
+  daemon namespace at call time (monkeypatch seam proof: pre-existing test
+  patch untouched and green).
+- **Deviations from plan:** None material. `run_expensive_checks` takes
+  `agent_timeout`/`docker_timeout` (defaulting to the TUI constants) rather
+  than a single `timeout` param — per-probe timeouts are truer to pinned
+  contract 4. `CheapChecks` is the "rich return" carrier the plan's contract
+  implied (daemon needs config + warnings, not just results).
+- **Issues encountered:** A bare local `rc` in the new daemon-test block
+  shadowed the heredoc's module alias `import chatlink.reconcile as rc`
+  (UnboundLocalError in `main()`); renamed the new locals to `rc4`.
+- **Key decisions:** (1) The daemon's docker-binary warning stays a literal
+  in `serve()` (routed through `check_docker_binary()` for the decision but
+  not for the text) — only refusal texts are single-sourced via
+  `daemon_refuse_message`; the warn line is byte-pinned by the daemon test
+  instead. (2) Image-check negative control is both a runtime spy across all
+  serve() validation runs AND a bash structural guard (`grep
+  check_docker_image daemon.py` must be empty). (3) Timeout fail-closed is
+  tested against a real slow subprocess (stub `ait` + patched
+  `paths.project_root`), not a mocked raise.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1149_2/t1149_3 consume the shipped API
+  documented in their plans (updated in this task): group panel rows by
+  `CheckResult.category`; poll only `run_cheap_checks()`; expensive probes
+  via the per-check functions or `run_expensive_checks()` with the
+  `AGENT_PROBE_TIMEOUT_S`/`DOCKER_PROBE_TIMEOUT_S` constants; per-key config
+  warnings appear as `config_key:<key>` warn results ONLY when the config
+  loads (fail-closed loads emit a `config_yaml` fail instead, with the raw
+  lines still in `CheapChecks.config_warnings`). The wizard's summary screen
+  can reuse `check_explore_relay_agent_command`'s returned argv for display.
+  Copy stays scoped to the current Discord bug-report intake / explore-relay
+  flow (scope/naming contract in the parent plan §1b).
