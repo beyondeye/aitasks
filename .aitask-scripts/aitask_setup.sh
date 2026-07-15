@@ -1339,7 +1339,6 @@ setup_data_branch() {
         if [[ -d "$project_dir/seed" ]]; then
             cp "$project_dir/seed/task_types.txt" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/project_config.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
-            cp "$project_dir/seed/gates.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/chatlink_config.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/doc_update_guide.md" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
             cp "$project_dir/seed/code_areas.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
@@ -1350,6 +1349,14 @@ setup_data_branch() {
                 mkdir -p "$project_dir/.aitask-data/aitasks/metadata/profiles"
                 cp "$project_dir/seed/profiles/"*.yaml "$project_dir/.aitask-data/aitasks/metadata/profiles/" 2>/dev/null || true
             fi
+        fi
+
+        # Gate registry is canonical under .aitask-scripts/ (ships downstream
+        # even when seed/ is absent) — copy independent of the seed metadata
+        # block above (t1147).
+        if [[ -f "$project_dir/.aitask-scripts/gates_reference.yaml" ]]; then
+            cp "$project_dir/.aitask-scripts/gates_reference.yaml" \
+               "$project_dir/.aitask-data/aitasks/metadata/gates.yaml" 2>/dev/null || true
         fi
     fi
 

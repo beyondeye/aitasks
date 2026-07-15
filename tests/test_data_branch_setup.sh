@@ -112,6 +112,7 @@ mkdir -p "$SCRIPT_DIR"
 mkdir -p "$TMPDIR_1/local/seed"
 cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$TMPDIR_1/local/seed/"
 cp "$PROJECT_DIR/seed/project_config.yaml" "$TMPDIR_1/local/seed/"
+cp "$PROJECT_DIR/.aitask-scripts/gates_reference.yaml" "$SCRIPT_DIR/"
 
 (cd "$TMPDIR_1/local" && setup_data_branch </dev/null >/dev/null 2>&1)
 
@@ -189,6 +190,14 @@ assert_file_contains "project_config has coauthor domain" \
     "$TMPDIR_1/local/.aitask-data/aitasks/metadata/project_config.yaml" \
     "codeagent_coauthor_domain: aitasks.io"
 
+# Gate registry seeded from the canonical .aitask-scripts/ reference (t1147) —
+# with verifier keys, so a fresh install never defers on "no verifier configured".
+assert_file_exists "gates.yaml copied from gates_reference" \
+    "$TMPDIR_1/local/.aitask-data/aitasks/metadata/gates.yaml"
+assert_file_contains "gates.yaml carries risk_evaluated verifier" \
+    "$TMPDIR_1/local/.aitask-data/aitasks/metadata/gates.yaml" \
+    "verifier: aitask-gate-risk"
+
 # Check data branch .gitignore has aitasks/new/
 assert_file_contains "Data .gitignore has aitasks/new/" "$TMPDIR_1/local/.aitask-data/.gitignore" "aitasks/new/"
 
@@ -197,6 +206,29 @@ assert_file_contains "CLAUDE.md has git operations section" "$TMPDIR_1/local/CLA
 assert_file_contains "CLAUDE.md mentions ait git" "$TMPDIR_1/local/CLAUDE.md" "./ait git"
 
 rm -rf "$TMPDIR_1"
+
+# --- Test 1b: Seedless fresh setup still seeds the gate registry (t1147) ---
+# Installed projects have no seed/ directory (it is deleted after install), but
+# they DO have .aitask-scripts/. The gate-registry copy must run independent of
+# the `[[ -d seed ]]` metadata block, or seedless fresh inits ship no registry.
+echo ""
+echo "--- Test 1b: Seedless fresh setup seeds gate registry from reference ---"
+
+TMPDIR_1B="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_1B/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+cp "$PROJECT_DIR/.aitask-scripts/gates_reference.yaml" "$SCRIPT_DIR/"
+# Deliberately NO seed/ directory.
+
+(cd "$TMPDIR_1B/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+
+assert_file_exists "gates.yaml seeded without seed/ dir" \
+    "$TMPDIR_1B/local/.aitask-data/aitasks/metadata/gates.yaml"
+assert_file_contains "seedless gates.yaml carries risk_evaluated verifier" \
+    "$TMPDIR_1B/local/.aitask-data/aitasks/metadata/gates.yaml" \
+    "verifier: aitask-gate-risk"
+
+rm -rf "$TMPDIR_1B"
 
 # --- Test 2: Migration from legacy mode ---
 echo "--- Test 2: Migration from legacy mode ---"

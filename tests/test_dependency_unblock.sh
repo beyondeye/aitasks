@@ -115,7 +115,7 @@ echo "--- Part 2: aitask_ls.sh blocking integration ---"
 # =====================================================================
 LREPO="$TMP/lsrepo"
 mkdir -p "$LREPO/aitasks/metadata"
-cp "$PROJECT_DIR/seed/gates.yaml" "$LREPO/aitasks/metadata/gates.yaml"
+cp "$PROJECT_DIR/.aitask-scripts/gates_reference.yaml" "$LREPO/aitasks/metadata/gates.yaml"
 : > "$LREPO/aitasks/metadata/labels.txt"
 printf 'feature\nbug\nchore\n' > "$LREPO/aitasks/metadata/task_types.txt"
 

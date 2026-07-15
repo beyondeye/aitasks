@@ -106,6 +106,21 @@ Tasks opt in per-task. A task template can specify a default set (e.g. `default_
 
 ### 2. Gate registry — `aitasks/metadata/gates.yaml`
 
+**Canonical reference & edit protocol (t1147).** The framework ships the gate
+registry from `.aitask-scripts/gates_reference.yaml` — the single source of
+truth. It lives under `.aitask-scripts/` (not `seed/`) so it reaches installed
+projects too (`.aitask-scripts/` is framework-synced downstream; `seed/` is
+deleted after install). Maintainers **edit the reference first**, then refresh
+the framework's own live runtime registry from it
+(`cp .aitask-scripts/gates_reference.yaml .aitask-data/aitasks/metadata/gates.yaml`
++ `./ait git` commit). `tests/test_gates_reference_drift.sh` enforces
+field-level equality between the two copies (in either direction) and that
+every command-driven machine gate carries a verifier, so a forgotten refresh
+fails validation instead of shipping a stale registry to downstream projects.
+Consumers: `aitask_setup.sh` (fresh data init — seedless-safe, copies whenever
+the reference exists), `install.sh` `install_seed_gates_registry()`, and the
+drift test.
+
 ```yaml
 # aitasks/metadata/gates.yaml
 default_gates: [tests_pass, review, docs_updated]

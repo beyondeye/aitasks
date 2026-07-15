@@ -432,12 +432,14 @@ install_seed_project_config() {
 }
 
 # --- Install gate registry (t635_1) ---
+# Source is the canonical reference under .aitask-scripts/ (t1147) — NOT seed/ —
+# so upgrades of installed projects (where seed/ is deleted) can also reach it.
 install_seed_gates_registry() {
-    local src="$INSTALL_DIR/seed/gates.yaml"
+    local src="$INSTALL_DIR/.aitask-scripts/gates_reference.yaml"
     local dest="$INSTALL_DIR/aitasks/metadata/gates.yaml"
 
     if [[ ! -f "$src" ]]; then
-        warn "No seed/gates.yaml in tarball — skipping gate registry installation"
+        warn "No .aitask-scripts/gates_reference.yaml in tarball — skipping gate registry installation"
         return
     fi
 

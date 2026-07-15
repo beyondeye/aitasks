@@ -1,0 +1,193 @@
+# aitasks gate registry — CANONICAL REFERENCE (t1147)
+#
+# This file is the framework's single source of truth for the shipped gate
+# registry. It lives under .aitask-scripts/ (not seed/) so it reaches installed
+# projects too — .aitask-scripts/ is framework-synced downstream, while seed/ is
+# deleted after install.
+#
+# EDIT PROTOCOL (t1147): maintainers edit THIS file first, then refresh the
+# framework's own live runtime registry from it:
+#   cp .aitask-scripts/gates_reference.yaml .aitask-data/aitasks/metadata/gates.yaml
+#   ./ait git add aitasks/metadata/gates.yaml && ./ait git commit -m "ait: Refresh gate registry from reference"
+# tests/test_gates_reference_drift.sh enforces field-level equality between the
+# two copies (in either direction), so a forgotten refresh fails validation
+# instead of shipping stale. Consumers: aitask_setup.sh (fresh data init),
+# install.sh install_seed_gates_registry(), and the drift test.
+#
+# Declares the named verification checkpoints ("gates") a task can opt into via
+# its `gates:` frontmatter list. The task file remains authoritative for *which*
+# gates apply and *what happened* (the "## Gate Runs" ledger appended by
+# `./.aitask-scripts/aitask_gate.sh`); this registry declares *how* each gate is
+# described and classified.
+#
+# Phase 1 (t635_1) seeded the minimal substrate (`type` + `description`). The
+# orchestrator schema below (t635_11) adds verifier / max_retries / unlocks /
+# timeout_seconds / signal. See aidocs/gates/aitask-gate-framework.md.
+#
+# type:
+#   machine - verified programmatically (build, tests, automated evaluation)
+#   human   - requires a person's sign-off (the interactive approval, or later an
+#             async signal)
+#
+# Orchestrator schema (t635_11) — read by lib/gate_orchestrator.py:
+#   verifier        - command the orchestrator runs as
+#                     `<verifier> <task-id> <attempt> <run-id>`, exit codes
+#                     0=pass 1=fail 2=skip 3=error (4=pending is HUMAN-ONLY). A
+#                     bare `aitask-gate-<x>` resolves to
+#                     .aitask-scripts/aitask_gate_<x>.sh; a path runs directly.
+#                     EMPTY (or absent) = no auto-run (recorded by the workflow /
+#                     a human, not executed). The build/tests/lint verifiers are
+#                     populated (t635_12, below); the risk verifier (t635_13) is
+#                     populated below and is STATE-inspection (no command); the docs
+#                     gate (t635_19) is PROCEDURE-BACKED (see `kind` below) — its
+#                     verifier names a SKILL, not a shell command, and the headless
+#                     engine never executes it. The
+#                     command-driven verifiers (build/tests/lint) read their command
+#                     from project_config.yaml and SKIP (exit 2, terminal-satisfied)
+#                     when that command is unset, so a gate that does not apply to a
+#                     project never blocks it. The risk verifier has NO skip path: a
+#                     task that declares it has opted into risk evaluation, so the
+#                     `## Risk` section + the two levels must exist (else fail).
+#   kind            - dispatch model (t635_19). ABSENT or `command` = a normal
+#                     COMMAND VERIFIER: `verifier` names a shell command the
+#                     headless orchestrator runs (exit codes 0/1/2/3). `procedure`
+#                     = a PROCEDURE-BACKED gate: `verifier` names an
+#                     `aitask-gate-<name>` SKILL run by the ATTENDED agent
+#                     (task-workflow / aitask-resume), which inspects the change,
+#                     does the work, confirms with the user, and appends the
+#                     terminal block. The headless engine NEVER shell-executes a
+#                     procedure gate — `ait gates run` reports it `needs agent`
+#                     and defers; the attended path allocates the run via
+#                     `aitask_gate.sh begin-procedure` and Read-and-follows the
+#                     skill. Full custom/external/remote procedure-gate support is
+#                     a follow-up; docs_updated is the first concrete instance.
+#   max_retries     - re-attempts after a failure (int, default 0 = single shot).
+#   timeout_seconds - max wall-clock for one machine-gate run (optional).
+#   unlocks         - gates this gate unlocks on pass. ABSENT (key omitted) =
+#                     LINEAR default (unlocks the next gate in the task's `gates:`
+#                     list). An explicit list overrides — e.g. `unlocks: [b, c]`
+#                     for a parallel fan-out — while an explicit `unlocks: []`
+#                     means TERMINAL (unlocks nothing). Absent and `[]` are
+#                     DISTINCT: do NOT write `unlocks: []` just to "fill in" a
+#                     gate, or it stops being linear. (None below declare it, so
+#                     gate order follows each task's `gates:` list.)
+#   skip (exit 2)   - "evaluated, not applicable": TERMINAL-SATISFIED — unlocks
+#                     successors and never blocks archive/dependents, but stays
+#                     distinct from `pass` in the ledger history.
+#   signal / signal_target (HUMAN gates) - the orchestrator's read-side
+#                     `file-touch` detection appends `pass` when `signal_target`
+#                     exists (`<task-id>`→`t<id>`, `<gate>` substituted), else
+#                     `pending`; it NEVER creates the signal. Signal CREATION is
+#                     `ait gate pass <task-id> <gate>` (t635_15) — the HUMAN's
+#                     tool; it writes a code-bound witness at `signal_target` then
+#                     lets the orchestrator record the ledger `pass`. A witness
+#                     signed against a DIFFERENT code state (its `code_digest`
+#                     mismatches) is re-pended, not passed (t635_15). `plan_approved`
+#                     stays attended-only (no signal_target). `review_approved` /
+#                     `merge_approved` carry a DUAL transport: attended sessions
+#                     record the pass from the interactive approval, while the
+#                     headless/remote lane pends until `ait gate pass` signs — one
+#                     gate definition, two transports. (`signal: comment` and
+#                     remote polling remain t635_16.)
+#
+#   Parallel fan-out example (illustrative — not enabled here):
+#     lint:
+#       type: machine
+#       verifier: aitask-gate-lint
+#       unlocks: [tests_pass]        # lint must pass before tests run
+#     tests_pass:
+#       type: machine
+#       verifier: aitask-gate-tests
+#       max_retries: 3
+#       unlocks: [docs_updated, review]   # parallel fan-out once tests pass
+#
+# blocks_dependents (t635_3):
+#   true  - this gate is REQUIRED to pass before tasks that `depends:` on the
+#           owning task unblock. Set on the "integration" gates — the points at
+#           which the task's code becomes available for dependents to build on.
+#   false - passing this gate does NOT gate dependents (pre-code checkpoints, and
+#           later post-integration sign-offs like async review / docs / manual
+#           verification, which would otherwise block dependents for days).
+#   A task unblocks its dependents once ALL its declared blocks_dependents gates
+#   pass; a per-task `also_blocks_dependents:` list adds further required gates.
+#   See aidocs/gates/dependency-unblock-semantics.md.
+
+gates:
+  plan_approved:
+    type: human
+    description: "Implementation plan reviewed and approved before coding begins"
+    blocks_dependents: false
+  risk_evaluated:
+    type: machine
+    description: "Plan assessed for code-health and goal-achievement risk"
+    blocks_dependents: false
+    # State-inspection verifier (t635_13): passes when the plan's `## Risk` section
+    # (with its `### Code-health risk` / `### Goal-achievement risk` subsections)
+    # exists AND the task's `risk_code_health` / `risk_goal_achievement` levels are
+    # set. Not command-driven => no exit-2/skip. The planning-time risk-evaluation
+    # procedure is the producer; this only checks its output. Dormant until a task
+    # declares the gate (t635_14).
+    verifier: aitask-gate-risk
+    max_retries: 0
+  build_verified:
+    type: machine
+    description: "Project build/verify command(s) pass after implementation"
+    blocks_dependents: true
+    # Runs project_config.yaml `verify_build`; skips (exit 2) when unset (t635_12).
+    verifier: aitask-gate-build
+    max_retries: 1
+    timeout_seconds: 600
+  tests_pass:
+    type: machine
+    description: "Project test suite passes after implementation"
+    blocks_dependents: true
+    # Runs project_config.yaml `test_command`; skips (exit 2) when unset (t635_12).
+    verifier: aitask-gate-tests-pass
+    max_retries: 1
+    timeout_seconds: 600
+  lint:
+    type: machine
+    description: "Project linter reports no errors"
+    # Style check — does not gate dependents (a lint nit shouldn't block downstream).
+    blocks_dependents: false
+    # Runs project_config.yaml `lint_command`; skips (exit 2) when unset (t635_12).
+    verifier: aitask-gate-lint
+    max_retries: 0
+  docs_updated:
+    # agent-run work (not a human sign-off), but PROCEDURE-BACKED: the headless
+    # engine defers it (needs-agent) — see `kind` in the header schema.
+    type: machine
+    kind: procedure
+    description: "Update the docs for this change per the project doc-update spec"
+    # Post-integration sign-off — like review/manual-verify it must not block
+    # dependents (would otherwise hold them up for a docs pass).
+    blocks_dependents: false
+    # The verifier names a SKILL (.claude/skills/aitask-gate-docs-updated/), not a
+    # shell command. The ATTENDED agent runs it (task-workflow Step 8 / aitask-resume):
+    # it reads the doc-update spec (seed/doc_update_guide.md default, layered with
+    # project_config.yaml doc_update.guide), inspects the change, updates docs with
+    # user confirmation, and appends pass/skip/fail. The headless engine never runs
+    # it (kind: procedure => needs-agent). unlocks ABSENT (linear-default).
+    verifier: aitask-gate-docs-updated
+    max_retries: 0
+  review_approved:
+    type: human
+    description: "Implemented changes reviewed and approved before commit"
+    blocks_dependents: true
+    # Dual transport (t635_15): attended sessions record the pass directly from
+    # the interactive review approval (Gate Recording Procedure); the
+    # headless/remote lane treats this as an ASYNC human gate — it pends until a
+    # reviewer signs via `ait gate pass <task-id> review_approved`. The signal is
+    # code-bound (`ait gate pass` stamps the witness with the code digest; a
+    # signature against a different code state re-pends).
+    signal: file-touch
+    signal_target: ".aitask-gates/<task-id>/<gate>.signed"
+  merge_approved:
+    type: human
+    description: "Merge of the task branch into the base branch approved"
+    blocks_dependents: true
+    # Dual transport (t635_15) — see review_approved. Attended records the pass
+    # from the interactive merge approval; the headless lane pends until a human
+    # signs via `ait gate pass <task-id> merge_approved`.
+    signal: file-touch
+    signal_target: ".aitask-gates/<task-id>/<gate>.signed"
