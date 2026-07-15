@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -8,8 +10,9 @@ labels: [chat_surface, python]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1120
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-05 18:05
-updated_at: 2026-07-15 17:44
+updated_at: 2026-07-15 18:28
 ---
 
 ## Origin
@@ -46,3 +49,8 @@ by t1120_2 (`aitask_setup.sh` — "# chatlink runtime state" block):
 guard `grep -qxF "aitasks/metadata/applink_sessions/"`, comment
 `# applink runtime state (per-PC: TLS cert/key + active bearer sessions)`.
 One block + a check-ignore assertion in a test.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-15T15:28:17Z status=pass attempt=1 type=human
