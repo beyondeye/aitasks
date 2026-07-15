@@ -243,3 +243,20 @@ current branch (profile 'fast'), so no worktree merge.
   the fresh-window default is confirmed to fire via the `agent-` window prefix.
   Acceptance criteria map 1:1 to the change + tests. · severity: low
   · → mitigation: none needed
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Added to
+  `.aitask-scripts/lib/tui_switcher.py`: (1) `Binding("X",
+  "shortcut_explore_pick", …)` in `_QUICK_JUMP_BINDINGS`, (2)
+  `("shortcut_explore_pick", "explore+", "X")` in `_HINT_ITEMS`, (3) the
+  `action_shortcut_explore_pick` handler mirroring `action_shortcut_agent` with
+  `operation="explore"`, `agent-explore-N` window base, and prompt
+  `/aitask-explore`. Extended `tests/test_tui_switcher_agent_launch.py` with two
+  new test classes (registration + action routing), 6 tests total.
+- **Deviations from plan:** None.
+- **Issues encountered:** None in the implementation itself.
+- **Key decisions:** Kept the dialog agent-only (no `skill_name`/profile row),
+  mirroring `action_shortcut_agent`, to match the task's Acceptance (agent/model
+  changeable) — as flagged in the approved plan's "Scope decision".
+- **Upstream defects identified:** tests/test_tui_switcher_brainstorm_session.sh:47 — the shell test's inline Python assigns `overlay._session = …`, but t1099 made `_session` a read-only derived property (identity now lives in `_selected_key`), so the test crashes with `AttributeError: property '_session' … has no setter`. Confirmed pre-existing: it fails identically on the unmodified tree (git stash check) and is unrelated to t1148.
