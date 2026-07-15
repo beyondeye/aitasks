@@ -6,9 +6,10 @@ issue_type: feature
 status: Implementing
 labels: [tui]
 gates: [risk_evaluated]
+children_to_implement: [t1149_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-15 10:36
-updated_at: 2026-07-15 16:49
+updated_at: 2026-07-15 18:44
 ---
 
 ## Goal
