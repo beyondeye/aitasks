@@ -6,8 +6,9 @@ issue_type: bug
 status: Implementing
 labels: [custom_shortcuts, tui]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-10 09:05
-updated_at: 2026-07-15 10:42
+updated_at: 2026-07-15 16:42
 ---
 
 ## Origin
@@ -34,3 +35,8 @@ Python 3.14's `dataclasses._is_type` resolves `KW_ONLY` (and other markers) via 
 ## Suggested fix
 
 In the sweep's module loader, insert the module into `sys.modules[module_name]` before `spec.loader.exec_module(m)` (the standard importlib recipe), removing it on failure. Then confirm `tests/test_shortcuts_registry_coverage.sh` passes on Python 3.14.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-15T13:42:47Z status=pass attempt=1 type=human
