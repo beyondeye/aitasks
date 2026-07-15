@@ -242,3 +242,49 @@ fresh session. Reverse-link on t635, t635_25, t635_14, and t1147 (`./ait git`).
 - AC#2 (reconcile) intentionally out of scope for t1147 (moved to the redesign) —
   a confirmed scope decision, not a coverage gap · severity: low · → mitigation:
   none needed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented Part A exactly as planned: created the
+  canonical `.aitask-scripts/gates_reference.yaml` (live-registry content + edit
+  protocol header), refreshed the live registry from it (data-branch commit),
+  moved the setup gate-registry copy OUTSIDE the `[[ -d seed ]]` guard in
+  `aitask_setup.sh` (seedless-safe), repointed `install.sh`
+  `install_seed_gates_registry()` to the reference, removed `seed/gates.yaml`,
+  redirected `tests/test_dependency_unblock.sh`, added
+  `tests/test_gates_reference_drift.sh` (structural verifier-completeness +
+  field-complete parity via `git show aitask-data:` branch-ref + packaging/wiring
+  guards), extended `tests/test_data_branch_setup.sh` (Test 1 registry
+  assertions + new seedless Test 1b), and documented the canonical
+  reference/edit protocol in `aidocs/gates/aitask-gate-framework.md`. Part B:
+  created **t635_33** (gate_activation_render_time) carrying the full redesign
+  design (Model 1 ceiling, `active_gates` + `active_gates_profile` provenance,
+  enforcement-substrate invariant, negative controls) and the absorbed t1147
+  scope (reconcile path, early warning); re-scoped the t1147 task file; added
+  the reverse pointer on t635_25.
+- **Deviations from plan:** None material. The drift test's Part 3
+  (packaging/wiring guards) was added during implementation per the C5 review
+  concern — it asserts the reference is git-tracked/staged and that both install
+  consumers read the canonical path (and neither reads seed/gates.yaml).
+- **Issues encountered:** (1) The negative-control mutation of the reference
+  could not be restored via `git checkout` (file untracked at that point) —
+  restored by editing the line back and confirmed byte-identical to the live
+  registry. (2) The Part-3 tracked-check initially failed because the new file
+  was untracked; staged it (`git add`) ahead of the Step-8 commit, which is the
+  state the guard is designed to require.
+- **Key decisions:** Canonical file under `.aitask-scripts/` (framework-synced
+  downstream) rather than seed-only + drift test — required by the future
+  `ait gates sync-registry` (t635_33) which must run in installed projects where
+  `seed/` is deleted. Parity check reads the live registry from the
+  `aitask-data` BRANCH REF (`git show`), making it non-optional without a
+  worktree and failing loudly (never silently skipping) when no source exists.
+  Reused `gate_ledger.read_registry()` as the semantic diff oracle (no new YAML
+  parsing).
+- **Upstream defects identified:** None
+- **Verification results:** test_gates_reference_drift 10/10 (negative control:
+  mutated reference correctly failed 2 checks); test_data_branch_setup 70/70
+  (incl. seedless Test 1b); test_dependency_unblock 12/12; gate regression
+  suites (ledger 27, effective-gates 12, orchestrator 40, risk-verifier 26,
+  verifiers 47, cli-wiring 15) all pass; functional install.sh check from
+  staged tracked files only → `INSTALL_PATH_OK`; shellcheck clean on changed
+  lines (remaining warnings pre-existing).
