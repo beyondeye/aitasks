@@ -5,11 +5,12 @@ depends: []
 issue_type: feature
 status: Implementing
 labels: [tui, switcher, codeagent]
+gates: [risk_evaluated]
 file_references: [.aitask-scripts/lib/tui_switcher.py]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-15 10:23
-updated_at: 2026-07-15 10:45
+updated_at: 2026-07-15 10:46
 ---
 
 ## Summary
