@@ -5,11 +5,10 @@ depends: []
 issue_type: manual_verification
 status: Implementing
 labels: [tui, git-integration, project_groups, manual_verification]
-gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1138
 created_at: 2026-07-09 10:33
-updated_at: 2026-07-15 19:21
+updated_at: 2026-07-15 19:32
 ---
 
 ## Origin
@@ -41,3 +40,23 @@ Drive the live syncer TUI in a multi-repo environment and verify the cross-repo 
 ## Related
 
 Original task: t1138 (archived). Plan: `aiplans/archived/p1138_add_cross_repo_support_to_syncer_tui.md` after archival.
+
+**Gate correction:** This task was created with an erroneous `gates: [risk_evaluated]`
+(auto-injected from the `fast` profile's `default_gates` at creation). A
+manual_verification task skips planning and can never satisfy `risk_evaluated`,
+so the gate was removed here to unblock archival of the completed verification.
+Root-cause fix tracked in **t1156**.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **🔄 gate:risk_evaluated** run=2026-07-15T16:26:02Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c286714ec7c100d7
+
+> **❌ gate:risk_evaluated** run=2026-07-15T16:26:02Z-risk_evaluated-a1 status=fail attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluation incomplete: plan has no '## Risk' section: aiplans/p1141_manual_verification_auto.md
+> Log: `.aitask-gates/1141/risk_evaluated_2026-07-15T16:26:02Z-risk_evaluated-a1.log`
