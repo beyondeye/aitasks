@@ -6,12 +6,12 @@ effort: medium
 depends: []
 issue_type: bug
 status: Implementing
-labels: [aitask_explore, claudecode]
+labels: [aitask_explore, claudecode, upstream_defect_followup]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-07-15 10:36
-updated_at: 2026-07-15 17:50
+updated_at: 2026-07-15 18:28
 ---
 
 ## Symptom
@@ -35,6 +35,12 @@ Observed live on 2026-07-15 during an explore session (this task was created fro
 ## Possible skill-side mitigation (if upstream fix is slow)
 
 Harden the explore/fold/pick skill wording where a summary precedes an `AskUserQuestion`: require the summary to be presented and the question asked such that the text is reliably visible (e.g., instruct that findings summaries must be emitted as a standalone response before the question turn). Verify any wording change against `aidocs/framework/skill_authoring_conventions.md` and regenerate per-profile goldens if `.md.j2` sources change.
+
+## Upstream report
+
+Filed: https://github.com/anthropics/claude-code/issues/77849 — "Fable 5 routes
+assistant prose before tool calls into non-rendered 'narration' blocks —
+summaries preceding AskUserQuestion are invisible".
 
 ## Acceptance criteria
 

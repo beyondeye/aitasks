@@ -107,6 +107,7 @@ Code + Fable 5, t1150). Preceding prose is allowed but only as duplication.
 - After filing: add label `upstream_defect_followup` to t1150
   (`aitask_update.sh --batch 1150 --labels …` preserving existing labels) and
   record the issue URL in the task description + this plan.
+- **FILED:** https://github.com/anthropics/claude-code/issues/77849
 
 ### 5. Live acceptance (AC 3)
 
@@ -134,6 +135,38 @@ as backstop if the in-session check is not conclusive.
 Profile 'fast', current-branch work — no worktree/merge. Run gates
 (`./ait gates run 1150` — task declares `risk_evaluated`), archive via
 `aitask_archive.sh 1150`, push via `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Root cause established with transcript evidence during
+  planning (Fable 5 emits pre-tool prose as non-rendered `narration` blocks —
+  zero `text` blocks in affected turns; confirmed by a controlled live repro in
+  the implementing session, itself running Fable 5). Hardened
+  `.claude/skills/aitask-explore/SKILL.md.j2` (Step 2 loop visibility rule +
+  Notes bullet + Step 3 summary-in-question). Added the generic
+  "AskUserQuestion visibility rule" section to
+  `aidocs/framework/skill_authoring_conventions.md`. Regenerated the 3 explore
+  goldens. Filed upstream issue
+  https://github.com/anthropics/claude-code/issues/77849; labeled t1150
+  `upstream_defect_followup` and recorded the URL in the task. Live AC check
+  passed: a widget-embedded 5-bullet summary was fully visible under Fable 5.
+- **Deviations from plan:** None material. The live acceptance was performed
+  in-session against the mitigation pattern (widget-embedded summary) rather
+  than a full fresh `/aitask-explore` run — the pattern is exactly what the new
+  wording mandates, and the user confirmed full visibility.
+- **Issues encountered:** `aitask_skill_verify.sh` reports 2 PRERENDER_FAILs
+  unrelated to this change (verified pre-existing by stashing this task's edits
+  and re-running) — see upstream defects below. Working tree also contained
+  foreign concurrent changes (`aitask_setup.sh`,
+  `tests/test_applink_setup_gitignore.sh`); staged this task's 5 files
+  explicitly.
+- **Key decisions:** Chose the widget payload (question text) as the mitigation
+  carrier — it is the only structurally guaranteed visible channel besides
+  turn-final text (which cannot be used mid-procedure). Preceding prose is kept
+  as best-effort duplication. No `{% if agent %}` gate added, so goldens stay
+  claude-only per the dimensionality rule.
+- **Upstream defects identified:**
+  - `.opencode/skills/task-workflow-remote-/cross-repo-child-assignment.md:1 — committed prerender is stale relative to its `.claude/skills/task-workflow/` source (t1117 edited the source without rerendering); `aitask_skill_verify.sh` fails with 2 PRERENDER_FAIL (aitask-pickrem / aitask-pickweb, agent=opencode, profile=remote); fix is `aitask_skill_rerender.sh remote` + commit`
 
 ## Risk
 
