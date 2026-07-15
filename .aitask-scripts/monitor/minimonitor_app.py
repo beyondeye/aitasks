@@ -210,6 +210,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("k", "kill_own_agent", "Kill", show=False),
         Binding("n", "pick_next_for_own", "Next", show=False),
         Binding("e", "launch_shadow", "Shadow", show=False),
+        Binding("E", "launch_shadow_pick", "Shadow (pick agent)", show=False),
         Binding("c", "pick_concerns", "Concerns", show=False),
         Binding("j", "tui_switcher", "TUI switcher", show=False),
         Binding("q", "quit", "Quit", show=False),
@@ -283,7 +284,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             "s/\u2191\u2193:switch  enter:send\n"
             "d:detect (\u2248 strip, = raw)\n"
             "j:tui switcher  m:full monitor\n"
-            "k:kill  n:next  e:shadow\n"
+            "k:kill  n:next  e/E:shadow\n"
             "c:concerns",
             id="mini-key-hints",
         )
@@ -1101,7 +1102,92 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if not full_cmd:
             self.notify("Failed to resolve shadow command", severity="error")
             return
+        self._spawn_shadow(full_cmd, followed_pane, task_id, target_root, snap)
 
+    def action_launch_shadow_pick(self) -> None:
+        """Open the agent/model picker, then spawn the shadow with the choice.
+
+        Same as ``action_launch_shadow`` (duplicate guard, specialized
+        same-window split placement, ``@aitask_shadow_target`` stamp + cleanup
+        hook) but opens the narrow ``AgentCommandScreen`` first so the user can
+        confirm / change the code agent and model before the shadow starts —
+        the ``E`` (shift-e) analogue of the switcher's t1148 ``X`` explore-pick
+        shortcut. Cancelling the dialog launches nothing.
+
+        The dialog's own returned placement is intentionally discarded: the
+        shadow's split-target-the-followed-AGENT-pane geometry is richer than
+        the dialog's tmux tab can express, so placement stays handler-controlled
+        in ``_spawn_shadow`` and only the (possibly agent-overridden)
+        ``full_command`` is consumed.
+        """
+        if self._monitor is None:
+            return
+        snap = self._find_own_agent_snapshot()
+        if snap is None:
+            self.notify("No followed agent to shadow", severity="warning")
+            return
+        followed_pane = snap.pane.pane_id
+        if not followed_pane:
+            self.notify("Followed agent pane id unavailable", severity="warning")
+            return
+        # Duplicate guard runs BEFORE opening the dialog (don't pop a picker just
+        # to fail). Same sync reverse-lookup as action_launch_shadow.
+        if self._find_shadow_pane_for_sync(followed_pane):
+            self.notify(
+                "A shadow is already running for this agent", severity="warning"
+            )
+            return
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+        target_root = self._root_for_snap(snap)
+        args = [followed_pane] + ([task_id] if task_id else [])
+        full_cmd = resolve_dry_run_command(target_root, "shadow", *args)
+        if not full_cmd:
+            self.notify("Failed to resolve shadow command", severity="error")
+            return
+        agent_string = resolve_agent_string(target_root, "shadow")
+        screen = AgentCommandScreen(
+            "Shadow (pick agent)",
+            full_cmd,
+            "/aitask-shadow " + " ".join(args),
+            project_root=target_root,
+            operation="shadow",
+            operation_args=args,
+            default_agent_string=agent_string,
+            narrow=True,
+        )
+
+        def on_shadow_result(result):
+            # Confirm returns a TmuxLaunchConfig; its placement is discarded (see
+            # docstring). Use screen.full_command (post-override), not the
+            # captured full_cmd. None (cancel) / "run" launch nothing, mirroring
+            # _launch_pick_for_own.
+            if isinstance(result, TmuxLaunchConfig):
+                self._spawn_shadow(
+                    screen.full_command, followed_pane, task_id, target_root, snap
+                )
+
+        self.push_screen(screen, on_shadow_result)
+
+    def _spawn_shadow(
+        self,
+        full_cmd: str,
+        followed_pane: str,
+        task_id: str | None,
+        target_root: Path,
+        snap: PaneSnapshot,
+    ) -> None:
+        """Place, launch, and lifecycle-wire the shadow companion.
+
+        Shared by the fire-and-forget ``e`` shortcut (``action_launch_shadow``)
+        and the pick-agent ``E`` shortcut (``action_launch_shadow_pick``).
+        ``full_cmd`` is the already-resolved shadow command (with any agent /
+        model override baked in). Placement is ALWAYS handler-controlled here —
+        a same-window split to the RIGHT of the followed AGENT pane sized to
+        ``shadow_pane_width``, or a separate window when ``tmux.shadow_same_window``
+        is false — never a picker dialog's own placement.
+        """
+        if self._monitor is None:
+            return
         # Placement: same window (split) by default; separate window if the
         # project config opts out.
         tmux_cfg = _load_project_tmux_config(target_root)
