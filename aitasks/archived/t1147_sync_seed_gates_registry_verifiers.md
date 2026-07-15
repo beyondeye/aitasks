@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [gates, ait_setup, installation]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
 implemented_with: claudecode/fable5
 created_at: 2026-07-10 20:52
-updated_at: 2026-07-15 19:02
+updated_at: 2026-07-15 19:22
+completed_at: 2026-07-15 19:22
 ---
 
 ## Problem
@@ -107,3 +108,14 @@ by activation-model changes).
 > **✅ gate:plan_approved** run=2026-07-15T16:02:32Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-15T16:21:50Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-15T16:22:08Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c286714ec7c100d7
+
+> **✅ gate:risk_evaluated** run=2026-07-15T16:22:08Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1147/risk_evaluated_2026-07-15T16:22:08Z-risk_evaluated-a1.log`
