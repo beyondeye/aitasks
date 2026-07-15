@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui, switcher, codeagent]
 gates: [risk_evaluated]
 file_references: [.aitask-scripts/lib/tui_switcher.py]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-15 10:23
-updated_at: 2026-07-15 10:46
+updated_at: 2026-07-15 16:43
+completed_at: 2026-07-15 16:43
 ---
 
 ## Summary
@@ -96,3 +97,14 @@ automatically.
 > **✅ gate:plan_approved** run=2026-07-15T07:45:51Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-15T13:40:34Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-15T13:43:41Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4e21b179a5c0f70a
+
+> **✅ gate:risk_evaluated** run=2026-07-15T13:43:41Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1148/risk_evaluated_2026-07-15T13:43:41Z-risk_evaluated-a1.log`
