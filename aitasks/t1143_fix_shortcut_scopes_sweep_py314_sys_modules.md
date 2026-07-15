@@ -5,6 +5,7 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [custom_shortcuts, tui]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-10 09:05
