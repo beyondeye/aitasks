@@ -325,6 +325,18 @@ class AgentModelPickerScreen(ModalScreen):
     FuzzySelect { height: auto; max-height: 20; }
     FuzzySelect VerticalScroll { height: auto; max-height: 15; }
     FuzzyOption { height: 1; width: 100%; padding: 0 1; }
+
+    /* Narrow variant (minimonitor companion pane, ~40 cols): the default
+       65%-wide dialog leaves too few columns for the "<agent>/<name>" option
+       rows, clipping the model name after the long "claudecode/" prefix. Widen
+       the dialog to full width so the name stays visible. Mirrors the narrow
+       mode of AgentCommandScreen (agent_command_screen.py). */
+    AgentModelPickerScreen.narrow #picker_dialog {
+        width: 100%;
+        min-width: 30;
+        padding: 0 1;
+        border: round $accent;
+    }
     """
 
     BINDINGS = [
@@ -335,13 +347,18 @@ class AgentModelPickerScreen(ModalScreen):
 
     def __init__(self, operation: str, current_agent: str = "",
                  current_model: str = "",
-                 all_models: dict[str, dict] | None = None):
+                 all_models: dict[str, dict] | None = None,
+                 narrow: bool = False):
         super().__init__()
         self.operation = operation
         self.current_agent = current_agent
         self.current_model = current_model
         self.all_models = all_models or {}
         self._mode_idx = 0
+        # Narrow layout for the minimonitor companion pane (~40 cols). When set,
+        # on_mount adds the `narrow` CSS class that widens the dialog so option
+        # rows are not clipped after the long "claudecode/" agent prefix.
+        self._narrow = narrow
 
     def _build_top_verified(self) -> list[dict]:
         """Build ranked list of top verified models, recent window."""
@@ -416,6 +433,8 @@ class AgentModelPickerScreen(ModalScreen):
             # initial list reflects the active mode.
 
     def on_mount(self) -> None:
+        if self._narrow:
+            self.add_class("narrow")
         self._apply_mode(0)
 
     def action_go_back(self) -> None:
@@ -445,9 +464,14 @@ class AgentModelPickerScreen(ModalScreen):
     def _apply_mode(self, idx: int) -> None:
         self._mode_idx = idx % len(self._MODES)
         mode_key, label_text = self._MODES[self._mode_idx]
+        # On a narrow pane the mode label + hint on one line overflows and the
+        # "Shift+←/→ to switch" hint gets clipped off the right; stack it on its
+        # own line so it stays visible.
+        hint = "[dim](Shift+←/→ to switch)[/dim]"
+        sep = "\n" if self._narrow else "  "
         try:
             self.query_one("#picker_step_label", Label).update(
-                f"{label_text}  [dim](Shift+←/→ to switch)[/dim]"
+                f"{label_text}{sep}{hint}"
             )
         except Exception:
             pass

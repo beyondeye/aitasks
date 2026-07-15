@@ -341,6 +341,12 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
         Binding("D", "tab_direct", "Direct tab", show=False),
         Binding("e", "edit_profile", "Edit Profile", show=False),
         Binding("E", "edit_profile", "Edit Profile", show=False),
+        # Own the escape key so the dialog is cancelable on hosts that do NOT
+        # delegate to handle_escape() (e.g. the minimonitor Shift+E launch).
+        # Non-priority: board/codebrowser bind escape App-level with
+        # priority=True, so their modal-aware handler still preempts this and
+        # calls handle_escape() itself — no double-dismiss.
+        Binding("escape", "escape", "Cancel", show=False),
     ]
 
     # Per-project remembered selections, keyed by resolved project_root.
@@ -456,6 +462,12 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
             self.set_focus(None)
         else:
             self.dismiss(None)
+
+    def action_escape(self) -> None:
+        """Screen-level escape binding target — routes through handle_escape so
+        the unfocus-then-dismiss behavior is identical to the host-delegated
+        path (board/codebrowser call handle_escape() directly)."""
+        self.handle_escape()
 
     def on_mount(self) -> None:
         # Populate direct tab
@@ -769,6 +781,7 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
             current_agent,
             current_model,
             all_models=all_models,
+            narrow=self._narrow,
         )
         self.app.push_screen(picker, self._on_agent_picked)
 
