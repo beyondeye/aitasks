@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
