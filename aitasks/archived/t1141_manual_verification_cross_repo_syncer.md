@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [tui, git-integration, project_groups, manual_verification]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1138
 created_at: 2026-07-09 10:33
-updated_at: 2026-07-15 19:32
+updated_at: 2026-07-15 19:33
+completed_at: 2026-07-15 19:33
 ---
 
 ## Origin
