@@ -7,8 +7,9 @@ status: Implementing
 labels: [gates, ait_setup, installation]
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/fable5
 created_at: 2026-07-10 20:52
-updated_at: 2026-07-15 10:43
+updated_at: 2026-07-15 19:02
 ---
 
 ## Problem
@@ -95,3 +96,8 @@ gate, warn at pick/plan time rather than silently deferring until
   documented reconcile path, verified against thinking_app.
 - A drift guard prevents `seed/gates.yaml` from silently falling behind the
   reference registry again.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-15T16:02:32Z status=pass attempt=1 type=human
