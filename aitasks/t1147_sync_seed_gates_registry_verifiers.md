@@ -59,46 +59,47 @@ The failure chain in a seeded project:
 The framework repo itself does not hit this because its `default_gates` point at
 its OWN up-to-date live registry — which is exactly why the drift went unnoticed.
 
-## Fix — two parts
+## Fix — RE-SCOPED to Part 1 only (2026-07-15)
 
-**Part 1 — bring `seed/gates.yaml` in sync (new installs).**
-Update `seed/gates.yaml` to match the canonical registry: add `verifier` +
-`max_retries` / `timeout_seconds` for `risk_evaluated`, `build_verified`,
-`tests_pass`, `lint`, `docs_updated`, and the `signal: file-touch` /
-`signal_target` fields on `review_approved` / `merge_approved`. Prevent
-recurrence: either make the live framework registry and `seed/gates.yaml` a
-single source of truth, or add a test/CI check that fails when the two diverge on
-the shipped gate set (a seed-vs-reference drift guard, analogous to how other
-seed files are kept honest).
+**Scope decision:** during planning the user flagged that the overall gate
+integration in task-workflow is too rigid (gates run when not needed, slowing
+execution) and should move to a profile + skill-templating activation model.
+The original Part 2 (reconcile already-installed projects) and the Optional
+hardening (early "no verifier" warning) are **entangled with that redesign** and
+were moved to **t635_33** (gate_activation_render_time, under the t635 gates
+umbrella). This task keeps only the design-agnostic registry-correctness fix.
 
-**Part 2 — migrate already-installed projects.**
-`aitask_setup.sh` only seeds metadata in the fresh-init branch (when
-`.aitask-data` does not yet exist), so re-running setup on an existing install
-never refreshes `gates.yaml`. Provide a reconcile path so projects seeded before
-the fix pick up the verifier keys WITHOUT clobbering project-specific
-customizations — e.g. a `setup --upgrade` / `ait gates sync-registry` that merges
-in verifier definitions for the framework's known gates while preserving any
-project-added gates or edited commands. Confirm the fix end-to-end in a stale
-install (thinking_app is a live reproduction: its
-`aitasks/metadata/gates.yaml` currently has zero `verifier:` keys).
+**Part 1 — canonical registry reference + sync + drift guard (new installs).**
+Single source of truth = `.aitask-scripts/gates_reference.yaml` (it lives under
+`.aitask-scripts/`, not `seed/`, so it also reaches installed projects — a
+prerequisite for t635_33's future `ait gates sync-registry`). `aitask_setup.sh`
+(fresh data init, seedless-safe) and `install.sh` copy from it; `seed/gates.yaml`
+is removed; `tests/test_gates_reference_drift.sh` enforces field-level equality
+between the reference and the framework's live registry plus
+verifier-completeness of every command-driven machine gate.
 
-## Optional hardening
+## Moved to t635_33 (NOT fixed by this task)
 
-The mismatch only surfaces at archival, deep into the workflow. Consider surfacing
-it earlier: when a task declares a gate (via `default_gates` injection or Step-7
-backfill) whose registry entry has no `verifier` and is not a `kind: procedure`
-gate, warn at pick/plan time rather than silently deferring until
-`aitask_archive.sh` blocks.
+**Already-installed projects — including the observed thinking_app
+reproduction — remain broken after this task lands.** Re-running setup on an
+existing install does not refresh `gates.yaml`; until t635_33's reconcile path
+(`ait gates sync-registry`) ships, stale installs need the manual workaround
+(`aitask_gate.sh append <id> risk_evaluated pass`) or a hand-copy of
+`.aitask-scripts/gates_reference.yaml` over `aitasks/metadata/gates.yaml`.
+The early "no verifier" pick/plan-time warning also moved there (likely subsumed
+by activation-model changes).
 
-## Acceptance
+## Acceptance (re-scoped)
 
 - A freshly seeded project's `aitasks/metadata/gates.yaml` contains the
   `risk_evaluated` verifier; picking + archiving a task under `fast` completes
-  without a manual gate append.
-- An existing (pre-fix) install can be migrated to the same state via the
-  documented reconcile path, verified against thinking_app.
-- A drift guard prevents `seed/gates.yaml` from silently falling behind the
-  reference registry again.
+  without a manual gate append. This includes **seedless** installs (no `seed/`
+  dir), which previously skipped registry seeding entirely.
+- A drift guard prevents the shipped reference from silently falling behind the
+  framework's live registry again (field-complete parity, both directions, no
+  worktree required), and verifies the packaging/consumer wiring.
+- ~~Existing-install migration (reconcile path, thinking_app verify)~~ →
+  **moved to t635_33**.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->

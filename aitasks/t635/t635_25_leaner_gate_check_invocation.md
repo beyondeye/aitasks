@@ -8,7 +8,7 @@ labels: [gates, task_workflow, execution_profiles]
 gates: [risk_evaluated]
 anchor: 635
 created_at: 2026-06-29 09:21
-updated_at: 2026-06-29 09:21
+updated_at: 2026-07-15 19:13
 ---
 
 ## Context
@@ -41,6 +41,13 @@ agent parse text or run inline multi-command bash:
 
 This task optimizes the gate-check **invocation** so calls are concise,
 unambiguous, and need no per-site parsing wrapper.
+
+> **Coordination (t635_33):** the render-time question this task declines
+> ("re-introduce `{% if %}` omission") is now owned by **t635_33**
+> (gate_activation_render_time) — profile renders the gate-machinery ceiling,
+> task `gates:` selects within it at runtime, enforced via a persisted
+> `active_gates` field. Decide fold-vs-sequence with t635_33 at planning time;
+> the call-shape verbs here remain useful under either outcome.
 
 ## Goal
 
