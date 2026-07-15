@@ -7,8 +7,9 @@ status: Implementing
 labels: [aitask_explore, claudecode]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/fable5
 created_at: 2026-07-15 10:36
-updated_at: 2026-07-15 16:49
+updated_at: 2026-07-15 17:50
 ---
 
 ## Symptom
@@ -38,3 +39,8 @@ Harden the explore/fold/pick skill wording where a summary precedes an `AskUserQ
 - Root cause identified (model turn-shape vs client rendering vs skill structure) with transcript evidence.
 - Either an upstream report filed with a repro, or a skill-side mitigation landed (or both).
 - Explore-skill summaries confirmed visible under fable5 in a live session.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-15T14:50:42Z status=pass attempt=1 type=human
