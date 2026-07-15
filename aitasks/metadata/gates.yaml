@@ -1,4 +1,18 @@
-# aitasks gate registry
+# aitasks gate registry — CANONICAL REFERENCE (t1147)
+#
+# This file is the framework's single source of truth for the shipped gate
+# registry. It lives under .aitask-scripts/ (not seed/) so it reaches installed
+# projects too — .aitask-scripts/ is framework-synced downstream, while seed/ is
+# deleted after install.
+#
+# EDIT PROTOCOL (t1147): maintainers edit THIS file first, then refresh the
+# framework's own live runtime registry from it:
+#   cp .aitask-scripts/gates_reference.yaml .aitask-data/aitasks/metadata/gates.yaml
+#   ./ait git add aitasks/metadata/gates.yaml && ./ait git commit -m "ait: Refresh gate registry from reference"
+# tests/test_gates_reference_drift.sh enforces field-level equality between the
+# two copies (in either direction), so a forgotten refresh fails validation
+# instead of shipping stale. Consumers: aitask_setup.sh (fresh data init),
+# install.sh install_seed_gates_registry(), and the drift test.
 #
 # Declares the named verification checkpoints ("gates") a task can opt into via
 # its `gates:` frontmatter list. The task file remains authoritative for *which*
