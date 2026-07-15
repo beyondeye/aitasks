@@ -5,6 +5,7 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [gates, ait_setup, installation]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
 implemented_with: claudecode/fable5
