@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [tui, git-integration, project_groups, manual_verification]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1138
 created_at: 2026-07-09 10:33
-updated_at: 2026-07-09 10:33
+updated_at: 2026-07-15 18:56
 ---
 
 ## Origin
