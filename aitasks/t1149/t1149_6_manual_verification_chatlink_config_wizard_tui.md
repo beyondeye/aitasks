@@ -1,11 +1,11 @@
 ---
 priority: medium
 effort: medium
-depends: [t1149_5]
+depends: [t1149_2, t1149_3]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1149_2, 1149_3]
+verifies: [t1149_2, t1149_3]
 anchor: 1149
 created_at: 2026-07-15 18:49
 updated_at: 2026-07-15 18:49
