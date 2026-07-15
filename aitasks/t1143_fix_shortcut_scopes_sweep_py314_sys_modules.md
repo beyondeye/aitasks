@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [custom_shortcuts, tui]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-10 09:05
-updated_at: 2026-07-10 09:05
+updated_at: 2026-07-15 10:42
 ---
 
 ## Origin
