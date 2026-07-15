@@ -338,6 +338,49 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         paths_mod.project_root = orig_project_root
 
+# ---- load_config vs load_config_with_warnings (t1149_1, paired) -----------
+# Same degraded config: the legacy loader must PRINT the warning lines to
+# stderr byte-for-byte, while the structured variant must print NOTHING and
+# return the same messages in the list (collection order == emission order).
+with tempfile.TemporaryDirectory() as td:
+    dcfg = Path(td) / "degraded.yaml"
+    dcfg.write_text(
+        "sandbox_cpus: 99\ndeny_message_mode: bogus\n", encoding="utf-8")
+
+    silent_err = io.StringIO()
+    with contextlib.redirect_stderr(silent_err):
+        cfg_w, warnings = cfg_mod.load_config_with_warnings(dcfg)
+    check("with_warnings: silent (nothing on stderr)",
+          silent_err.getvalue() == "")
+    check("with_warnings: config loads with degraded keys clamped",
+          cfg_w is not None and cfg_w.sandbox_cpus == 16
+          and cfg_w.deny_message_mode == "ignore")
+
+    legacy_err = io.StringIO()
+    with contextlib.redirect_stderr(legacy_err):
+        cfg_l = load_config(dcfg)
+    check("load_config: replays exactly the collected warnings to stderr",
+          legacy_err.getvalue()
+          == "".join(f"chatlink config: {m}\n" for m in warnings)
+          and len(warnings) == 2)
+    check("load_config: same effective config as the structured variant",
+          cfg_l == cfg_w)
+
+    # Fail-closed path: warning collected/replayed identically too.
+    missing = Path(td) / "nope.yaml"
+    silent_err = io.StringIO()
+    with contextlib.redirect_stderr(silent_err):
+        cfg_w, warnings = cfg_mod.load_config_with_warnings(missing)
+    legacy_err = io.StringIO()
+    with contextlib.redirect_stderr(legacy_err):
+        cfg_l = load_config(missing)
+    check("fail-closed: with_warnings silent + None, load_config replays",
+          cfg_w is None and cfg_l is None and silent_err.getvalue() == ""
+          and legacy_err.getvalue()
+          == "".join(f"chatlink config: {m}\n" for m in warnings)
+          and warnings == [f"{missing}: missing/unreadable — refusing "
+                           "(fail-closed)"])
+
 print(f"PYTHON-PASS:{PASS} PYTHON-FAIL:{FAIL}")
 sys.exit(1 if FAIL else 0)
 PYEOF

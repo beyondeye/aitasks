@@ -23,13 +23,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
-import shlex
 import shutil
 import signal
-import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -39,8 +35,15 @@ from chat.model import ConversationRef, EventType, Message, MessageRef
 from . import audit as audit_mod
 from . import flow
 from . import paths
+from . import preflight
 from . import reconcile
-from .config import ChatlinkConfig, load_config
+from .config import ChatlinkConfig, emit_warning
+# Re-exported from preflight (moved there in t1149_1) so this module's
+# namespace stays the monkeypatch seam tests and callers rely on; serve()
+# passes ``resolve_explore_relay_argv`` (looked up HERE at call time) into
+# the preflight check, so patching ``daemon.resolve_explore_relay_argv``
+# still controls daemon behavior.
+from .preflight import parse_dry_run_argv, resolve_explore_relay_argv
 from .intake import STATUS_FAILED, GatewayPipeline
 from lib.sandbox_launch import (
     DEFAULT_SANDBOX_BACKEND,
@@ -695,78 +698,33 @@ def _refuse(msg: str) -> int:
     return 2
 
 
-def parse_dry_run_argv(output: str) -> tuple:
-    """Extract the argv from an ``ait codeagent … --dry-run`` output.
-
-    The engine prints ``DRY_RUN:`` followed by ``%q``-quoted words —
-    ``shlex.split`` undoes that quoting. ``()`` when no line matches."""
-    for line in output.splitlines():
-        if line.startswith("DRY_RUN:"):
-            return tuple(shlex.split(line[len("DRY_RUN:"):]))
-    return ()
-
-
-def resolve_explore_relay_argv() -> tuple:
-    """Resolve the production agent argv (t1120_4 handoff): the full
-    command shape comes from the engine-owned
-    ``ait codeagent invoke explore-relay --headless --dry-run`` — never
-    hand-assembled here. The dry-run's env preconditions (relay dir +
-    bug-report file must exist) are satisfied with a throwaway scratch dir;
-    the real per-session values travel via the launch env, not argv.
-    ``()`` on any failure (the caller refuses to start)."""
-    root = paths.project_root()
-    try:
-        with tempfile.TemporaryDirectory(prefix="chatlink-argv-") as td:
-            report = Path(td) / "bug_report.md"
-            report.write_text("dry-run resolution placeholder\n",
-                              encoding="utf-8")
-            env = dict(os.environ,
-                       CHATLINK_RELAY_DIR=td,
-                       CHATLINK_BUG_REPORT_FILE=str(report))
-            proc = subprocess.run(
-                [str(root / "ait"), "codeagent", "invoke", "explore-relay",
-                 "--headless", "--dry-run"],
-                capture_output=True, text=True, env=env, cwd=root)
-    except OSError:
-        return ()
-    if proc.returncode != 0:
-        return ()
-    return parse_dry_run_argv(proc.stdout)
-
-
 async def serve() -> int:
-    # 1. Config — resolve + load, each refusal distinct (fail-closed).
-    cfg_path = paths.config_file()
-    if cfg_path is None:
-        return _refuse(
-            "no gateway config found — create "
-            f"{paths.CONFIG_DEFAULT_REL} (seeded by 'ait setup') first.")
-    config = load_config(cfg_path)
-    if config is None:
-        return _refuse(
-            f"gateway config {cfg_path} is missing or malformed — fix the "
-            "YAML before starting.")
-    if config.intake_channel is None:
-        return _refuse(
-            "config has no valid intake_channel — the daemon refuses to "
-            "watch without one.")
-
-    # 2. Token (per-PC secret; written by the operator — see t1120_6/7).
+    # 1-2. Validation FIRST via the shared preflight engine (t1149_1) —
+    # cheap checks in the legacy refusal order (config → yaml → intake →
+    # token). Refusal text is single-sourced from the failing check's
+    # daemon_refuse_message; the config warnings load_config used to print
+    # are replayed byte-for-byte (collection order == legacy emission
+    # order — one emission, no duplicates).
+    cheap = preflight.run_cheap_checks()
+    for msg in cheap.config_warnings:
+        emit_warning(msg)
+    for res in cheap.results:
+        if res.severity == preflight.FAIL:
+            return _refuse(res.daemon_refuse_message)
+    config = cheap.config
     token = paths.read_token()
-    if token is None:
-        return _refuse(
-            f"no bot token at {paths.token_file()} — write the bot token "
-            "there (0600) before starting.")
 
     # 2b. Agent command (t1120_4 handoff) — resolved once per daemon run
     # via the engine-owned dry-run (read-only; still a refuse-path
-    # validation: a gateway that can never launch must not start).
-    agent_argv = await asyncio.to_thread(resolve_explore_relay_argv)
-    if not agent_argv:
-        return _refuse(
-            "could not resolve the explore-relay agent command — run "
-            "'ait codeagent invoke explore-relay --headless --dry-run' "
-            "manually to diagnose the code-agent config.")
+    # validation: a gateway that can never launch must not start). The
+    # resolver is passed as this module's global — looked up at call time —
+    # so the daemon-namespace monkeypatch seam keeps working; no timeout
+    # (legacy wait-for-completion behavior).
+    agent_result, agent_argv = await asyncio.to_thread(
+        preflight.check_explore_relay_agent_command,
+        resolve_explore_relay_argv)
+    if agent_result.severity == preflight.FAIL:
+        return _refuse(agent_result.daemon_refuse_message)
 
     # 3. Only now: side effects (adapter connect, dirs, logger).
     from chat.discord_adapter import DiscordAdapter  # lazy: needs chat tier
@@ -778,7 +736,9 @@ async def serve() -> int:
     # Sandbox backend (t1120_5): repo-scoped docker launcher. Warn-not-block
     # when docker is absent — the daemon still serves; launches then fail
     # honestly (failed session + annotated thread), like NullLauncher did.
-    if shutil.which("docker") is None:
+    # (Legacy stderr text preserved verbatim; the image check is
+    # panel/wizard-only — the daemon never probes the image.)
+    if preflight.check_docker_binary().severity == preflight.WARN:
         print("chatlink: warning — 'docker' not found; sandbox launches "
               "will fail until Docker is installed "
               "(see aidocs/chat/chatlink_sandbox.md).", file=sys.stderr)

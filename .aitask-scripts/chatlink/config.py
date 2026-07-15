@@ -55,6 +55,14 @@ def _warn(msg: str) -> None:
     print(f"chatlink config: {msg}", file=sys.stderr)
 
 
+def emit_warning(msg: str) -> None:
+    """Public replay point for warnings collected by
+    :func:`load_config_with_warnings` — prints exactly what :func:`_warn`
+    would have printed (single definition of the ``chatlink config:`` line
+    format; the daemon's preflight replay goes through here, t1149_1)."""
+    _warn(msg)
+
+
 @dataclass
 class ChatlinkConfig:
     """Validated gateway config. All fields are safe to consume as-is."""
@@ -81,7 +89,8 @@ class ChatlinkConfig:
     sandbox_env_passthrough: list[str] = field(default_factory=list)
 
 
-def _clamped_int(raw: object, default: int, lo: int, hi: int, key: str) -> int:
+def _clamped_int(raw: object, default: int, lo: int, hi: int, key: str,
+                 warn=_warn) -> int:
     """``raw`` → int within ``[lo, hi]``; non-int ⇒ default, out-of-range ⇒
     clamped bound — each with a warning."""
     if raw is None:
@@ -91,21 +100,21 @@ def _clamped_int(raw: object, default: int, lo: int, hi: int, key: str) -> int:
         if isinstance(raw, bool):
             raise TypeError
     except (TypeError, ValueError):
-        _warn(f"{key}: non-integer value {raw!r} — using default {default}")
+        warn(f"{key}: non-integer value {raw!r} — using default {default}")
         return default
     if val < lo or val > hi:
         clamped = min(max(val, lo), hi)
-        _warn(f"{key}: {val} outside [{lo}, {hi}] — clamped to {clamped}")
+        warn(f"{key}: {val} outside [{lo}, {hi}] — clamped to {clamped}")
         return clamped
     return val
 
 
-def _str_list(raw: object, key: str) -> list[str]:
+def _str_list(raw: object, key: str, warn=_warn) -> list[str]:
     """Coerce a YAML list of scalars to ``list[str]``; drop non-scalars."""
     if raw is None:
         return []
     if not isinstance(raw, list):
-        _warn(f"{key}: expected a list, got {type(raw).__name__} — using []")
+        warn(f"{key}: expected a list, got {type(raw).__name__} — using []")
         return []
     out: list[str] = []
     for item in raw:
@@ -114,11 +123,11 @@ def _str_list(raw: object, key: str) -> list[str]:
             if text:
                 out.append(text)
                 continue
-        _warn(f"{key}: dropping non-scalar/empty entry {item!r}")
+        warn(f"{key}: dropping non-scalar/empty entry {item!r}")
     return out
 
 
-def _env_name_list(raw: object, key: str) -> list[str]:
+def _env_name_list(raw: object, key: str, warn=_warn) -> list[str]:
     """Coerce to a list of valid env-var names; drop invalid entries.
 
     Per-entry degradation (same policy as the other keys): a non-list ⇒
@@ -128,18 +137,18 @@ def _env_name_list(raw: object, key: str) -> list[str]:
     if raw is None:
         return []
     if not isinstance(raw, list):
-        _warn(f"{key}: expected a list, got {type(raw).__name__} — using []")
+        warn(f"{key}: expected a list, got {type(raw).__name__} — using []")
         return []
     out: list[str] = []
     for item in raw:
         if isinstance(item, str) and ENV_PASSTHROUGH_NAME_RE.match(item):
             out.append(item)
         else:
-            _warn(f"{key}: dropping invalid env-var name {item!r}")
+            warn(f"{key}: dropping invalid env-var name {item!r}")
     return out
 
 
-def _normalize_intake_channel(raw: object) -> dict | None:
+def _normalize_intake_channel(raw: object, warn=_warn) -> dict | None:
     """Normalize to exactly the ``ConversationRef.to_dict()`` shape.
 
     Required non-empty str keys ``provider`` / ``workspace_id`` /
@@ -151,25 +160,25 @@ def _normalize_intake_channel(raw: object) -> dict | None:
     if raw is None:
         return None
     if not isinstance(raw, dict):
-        _warn(f"intake_channel: expected a mapping, got {type(raw).__name__}")
+        warn(f"intake_channel: expected a mapping, got {type(raw).__name__}")
         return None
     ref: dict = {}
     for key in _INTAKE_REQUIRED:
         val = raw.get(key)
         if not isinstance(val, str) or not val.strip():
-            _warn(f"intake_channel.{key}: missing/empty — intake channel unset")
+            warn(f"intake_channel.{key}: missing/empty — intake channel unset")
             return None
         ref[key] = val.strip()
     thread_id = raw.get("thread_id")
     if thread_id is not None and not isinstance(thread_id, str):
-        _warn(f"intake_channel.thread_id: non-string {thread_id!r} — using null")
+        warn(f"intake_channel.thread_id: non-string {thread_id!r} — using null")
         thread_id = None
     ref["thread_id"] = thread_id
     metadata = raw.get("metadata")
     if metadata is None:
         metadata = {}
     elif not isinstance(metadata, dict):
-        _warn(f"intake_channel.metadata: non-mapping {metadata!r} — using {{}}")
+        warn(f"intake_channel.metadata: non-mapping {metadata!r} — using {{}}")
         metadata = {}
     ref["metadata"] = metadata
     dropped = set(raw) - set(ref)
@@ -177,34 +186,44 @@ def _normalize_intake_channel(raw: object) -> dict | None:
         # repr-map before sorting: YAML mapping keys may mix types (int vs
         # str), and sorting raw mixed keys raises TypeError — which would
         # break the never-raises degradation contract.
-        _warn(f"intake_channel: dropping unknown key(s) {sorted(map(repr, dropped))}")
+        warn(f"intake_channel: dropping unknown key(s) {sorted(map(repr, dropped))}")
     return ref
 
 
-def load_config(path: str | Path | None) -> ChatlinkConfig | None:
-    """Load and validate the gateway config; ``None`` ⇒ caller fails closed."""
+def load_config_with_warnings(
+    path: str | Path | None,
+) -> tuple[ChatlinkConfig | None, list[str]]:
+    """Load and validate the gateway config, collecting warnings.
+
+    Structured variant for preflight/TUI consumers (t1149_1): **emits nothing
+    to stderr** — every degradation/refusal message that :func:`load_config`
+    would have printed is returned in the list instead (collection order ==
+    the legacy emission order). ``(None, warnings)`` ⇒ caller fails closed.
+    """
+    warnings: list[str] = []
+    warn = warnings.append
     if path is None:
-        _warn("no config path resolved — refusing (fail-closed)")
-        return None
+        warn("no config path resolved — refusing (fail-closed)")
+        return None, warnings
     try:
         import yaml
 
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     except OSError:
-        _warn(f"{path}: missing/unreadable — refusing (fail-closed)")
-        return None
+        warn(f"{path}: missing/unreadable — refusing (fail-closed)")
+        return None, warnings
     except yaml.YAMLError:
-        _warn(f"{path}: malformed YAML — refusing (fail-closed)")
-        return None
+        warn(f"{path}: malformed YAML — refusing (fail-closed)")
+        return None, warnings
     if data is None:
         data = {}
     if not isinstance(data, dict):
-        _warn(f"{path}: top level is not a mapping — refusing (fail-closed)")
-        return None
+        warn(f"{path}: top level is not a mapping — refusing (fail-closed)")
+        return None, warnings
 
     deny_mode = data.get("deny_message_mode", DEFAULT_DENY_MESSAGE_MODE)
     if deny_mode not in DENY_MESSAGE_MODES:
-        _warn(
+        warn(
             f"deny_message_mode: unknown value {deny_mode!r} — "
             f"using {DEFAULT_DENY_MESSAGE_MODE!r}"
         )
@@ -214,23 +233,26 @@ def load_config(path: str | Path | None) -> ChatlinkConfig | None:
     if repo_name is not None and (
         not isinstance(repo_name, str) or not repo_name.strip()
     ):
-        _warn(f"repo_name: non-string/empty {repo_name!r} — using null")
+        warn(f"repo_name: non-string/empty {repo_name!r} — using null")
         repo_name = None
     elif isinstance(repo_name, str):
         repo_name = repo_name.strip()
 
     memory = data.get("sandbox_memory", DEFAULT_SANDBOX_MEMORY)
     if not isinstance(memory, str) or not SANDBOX_MEMORY_RE.match(memory):
-        _warn(
+        warn(
             f"sandbox_memory: invalid {memory!r} (want e.g. '2g') — "
             f"using {DEFAULT_SANDBOX_MEMORY!r}"
         )
         memory = DEFAULT_SANDBOX_MEMORY
 
     return ChatlinkConfig(
-        intake_channel=_normalize_intake_channel(data.get("intake_channel")),
-        allowed_user_ids=_str_list(data.get("allowed_user_ids"), "allowed_user_ids"),
-        allowed_role_ids=_str_list(data.get("allowed_role_ids"), "allowed_role_ids"),
+        intake_channel=_normalize_intake_channel(
+            data.get("intake_channel"), warn=warn),
+        allowed_user_ids=_str_list(
+            data.get("allowed_user_ids"), "allowed_user_ids", warn=warn),
+        allowed_role_ids=_str_list(
+            data.get("allowed_role_ids"), "allowed_role_ids", warn=warn),
         deny_message_mode=deny_mode,
         repo_name=repo_name,
         max_concurrent_sandboxes=_clamped_int(
@@ -238,12 +260,14 @@ def load_config(path: str | Path | None) -> ChatlinkConfig | None:
             DEFAULT_MAX_CONCURRENT_SANDBOXES,
             *RANGE_MAX_CONCURRENT_SANDBOXES,
             key="max_concurrent_sandboxes",
+            warn=warn,
         ),
         intake_rate_per_user_per_hour=_clamped_int(
             data.get("intake_rate_per_user_per_hour"),
             DEFAULT_INTAKE_RATE_PER_USER_PER_HOUR,
             *RANGE_INTAKE_RATE_PER_USER_PER_HOUR,
             key="intake_rate_per_user_per_hour",
+            warn=warn,
         ),
         sandbox_memory=memory,
         sandbox_cpus=_clamped_int(
@@ -251,20 +275,38 @@ def load_config(path: str | Path | None) -> ChatlinkConfig | None:
             DEFAULT_SANDBOX_CPUS,
             *RANGE_SANDBOX_CPUS,
             key="sandbox_cpus",
+            warn=warn,
         ),
         sandbox_pids=_clamped_int(
             data.get("sandbox_pids"),
             DEFAULT_SANDBOX_PIDS,
             *RANGE_SANDBOX_PIDS,
             key="sandbox_pids",
+            warn=warn,
         ),
         sandbox_wall_clock_s=_clamped_int(
             data.get("sandbox_wall_clock_s"),
             DEFAULT_SANDBOX_WALL_CLOCK_S,
             *RANGE_SANDBOX_WALL_CLOCK_S,
             key="sandbox_wall_clock_s",
+            warn=warn,
         ),
         sandbox_env_passthrough=_env_name_list(
-            data.get("sandbox_env_passthrough"), "sandbox_env_passthrough"
+            data.get("sandbox_env_passthrough"), "sandbox_env_passthrough",
+            warn=warn,
         ),
-    )
+    ), warnings
+
+
+def load_config(path: str | Path | None) -> ChatlinkConfig | None:
+    """Load and validate the gateway config; ``None`` ⇒ caller fails closed.
+
+    Thin wrapper over :func:`load_config_with_warnings` that **replays every
+    collected warning to stderr** via :func:`_warn` — legacy callers see
+    byte-identical output (never silently list-only, t1149_1 pinned
+    contract).
+    """
+    cfg, warnings = load_config_with_warnings(path)
+    for msg in warnings:
+        _warn(msg)
+    return cfg

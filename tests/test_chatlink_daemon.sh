@@ -1150,6 +1150,102 @@ async def main():
           rc3 == 2 and "explore-relay" in err3.getvalue())
     check("refuse paths construct NOTHING (spy)", constructed == [])
 
+    # ====== serve(): byte-exact stderr + warning replay (t1149_1) ==========
+    # The preflight rewire must keep every refusal line AND the config
+    # warnings load_config used to print byte-for-byte identical (single
+    # replay point — no lost lines, no duplicates), and must never probe
+    # the docker image (panel/wizard-only check).
+    import chatlink.preflight as pf_mod
+    real_read_token4 = dm.paths.read_token
+    image_probe_calls = []
+    real_image_check = pf_mod.check_docker_image
+    pf_mod.check_docker_image = (
+        lambda *a, **k: image_probe_calls.append(1)
+        or real_image_check(*a, **k))
+    try:
+        async def serve_stderr():
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                rc4 = await dm.serve()
+            return rc4, buf.getvalue()
+
+        # (a) missing config path → exactly the one refusal line.
+        dm.paths.config_file = lambda: None
+        rc4, err_text = await serve_stderr()
+        expected = ("chatlink: no gateway config found — create "
+                    f"{cl_paths.CONFIG_DEFAULT_REL} (seeded by 'ait setup')"
+                    " first.\n")
+        check("serve stderr byte-exact: missing config",
+              rc4 == 2 and err_text == expected)
+
+        # (b) malformed YAML → the load_config warning line replayed, THEN
+        # the refusal line, in that order — nothing else.
+        bad_cfg = tmp_base / "bad_cfg.yaml"
+        bad_cfg.write_text("[unbalanced\n")
+        dm.paths.config_file = lambda: bad_cfg
+        rc4, err_text = await serve_stderr()
+        expected = (
+            f"chatlink config: {bad_cfg}: malformed YAML — refusing "
+            "(fail-closed)\n"
+            f"chatlink: gateway config {bad_cfg} is missing or malformed — "
+            "fix the YAML before starting.\n")
+        check("serve stderr byte-exact: malformed YAML (warning + refusal)",
+              rc4 == 2 and err_text == expected)
+
+        # (c) empty-mapping config → exact intake refusal line.
+        empty_cfg = tmp_base / "empty_cfg.yaml"
+        empty_cfg.write_text("{}\n")
+        dm.paths.config_file = lambda: empty_cfg
+        rc4, err_text = await serve_stderr()
+        expected = ("chatlink: config has no valid intake_channel — the "
+                    "daemon refuses to watch without one.\n")
+        check("serve stderr byte-exact: missing intake_channel",
+              rc4 == 2 and err_text == expected)
+
+        # (d) degraded-key config passes the config checks WITHOUT refusing
+        # (clamp warning replayed), then refuses on the missing token.
+        degraded_cfg = tmp_base / "degraded_cfg.yaml"
+        degraded_cfg.write_text(
+            "intake_channel:\n  provider: mock\n  workspace_id: W1\n"
+            "  conversation_id: C1\nallowed_user_ids: [U1]\n"
+            "sandbox_cpus: 99\n")
+        dm.paths.config_file = lambda: degraded_cfg
+        dm.paths.read_token = lambda: None
+        rc4, err_text = await serve_stderr()
+        expected = (
+            "chatlink config: sandbox_cpus: 99 outside [1, 16] — clamped "
+            "to 16\n"
+            f"chatlink: no bot token at {cl_paths.token_file()} — write "
+            "the bot token there (0600) before starting.\n")
+        check("serve stderr: degraded-key warning replayed, token refusal",
+              rc4 == 2 and err_text == expected)
+
+        # (f) agent-resolution refusal → exact refusal line (clean config,
+        # token present, resolver patched at the daemon namespace).
+        dm.paths.config_file = lambda: cfg_tmp
+        dm.paths.read_token = lambda: "tok"
+        real_resolve4 = dm.resolve_explore_relay_argv
+        dm.resolve_explore_relay_argv = lambda: ()
+        try:
+            rc4, err_text = await serve_stderr()
+        finally:
+            dm.resolve_explore_relay_argv = real_resolve4
+        expected = (
+            "chatlink: could not resolve the explore-relay agent command — "
+            "run 'ait codeagent invoke explore-relay --headless --dry-run' "
+            "manually to diagnose the code-agent config.\n")
+        check("serve stderr byte-exact: agent-command refusal",
+              rc4 == 2 and err_text == expected)
+
+        # (g) negative control: none of the serve() validation runs above
+        # ever probed the docker image (the check is panel/wizard-only).
+        check("daemon validation never probes the docker image (spy)",
+              image_probe_calls == [])
+    finally:
+        pf_mod.check_docker_image = real_image_check
+        dm.paths.config_file = real_cfg_file
+        dm.paths.read_token = real_read_token4
+
     print(f"\nAll {PASS + 1} Python checks passed.")
 
 
@@ -1169,6 +1265,15 @@ elif echo "$out" | grep -q "Missing Python packages"; then
 else
     echo "FAIL: unexpected ait chatlink --smoke output (rc=$rc): $out"
     exit 1
+fi
+
+# Structural negative control (t1149_1): the docker-image check is
+# panel/wizard-only — the daemon source must never reference it.
+if grep -q "check_docker_image" "$PROJECT_DIR/.aitask-scripts/chatlink/daemon.py"; then
+    echo "FAIL: daemon.py references check_docker_image (panel-only check)"
+    exit 1
+else
+    echo "ok - daemon.py has no docker-image probe reference (structural)"
 fi
 
 # Direct daemon invocation without --headless stays refused (defense in
