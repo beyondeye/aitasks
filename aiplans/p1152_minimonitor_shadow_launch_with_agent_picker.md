@@ -255,3 +255,28 @@ current branch).
   the task spec is explicit; the only judgment call (discard dialog placement,
   reuse the shadow's own config) is the task's recommended approach · severity:
   low · → mitigation: TBD.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `Binding("E", "launch_shadow_pick", ...)` after the
+  `e` binding, updated the footer hint to `e/E:shadow`, extracted the shadow
+  placement + launch + `@aitask_shadow_target` stamp + cleanup-hook wiring from
+  `action_launch_shadow` into a shared `_spawn_shadow(full_cmd, followed_pane,
+  task_id, target_root, snap)` helper, and added `action_launch_shadow_pick`
+  which runs the duplicate guard, opens the narrow `AgentCommandScreen`
+  (`operation="shadow"`, `narrow=True`), and on a `TmuxLaunchConfig` confirm
+  calls `_spawn_shadow(screen.full_command, ...)` — discarding the dialog's own
+  placement. New test file `tests/test_minimonitor_shadow_pick.py` (8 tests).
+- **Deviations from plan:** None. Implemented exactly as planned (discard the
+  dialog placement; single shared `_spawn_shadow` helper).
+- **Issues encountered:** Test tweaks only — Textual `Static` exposes content via
+  `.render()` (not `.renderable`), and `TmuxLaunchConfig` requires `new_session`
+  / `new_window` positionally. Both fixed; all 8 new tests + the existing 25
+  `test_minimonitor_concern_action.py` tests pass; module byte-compiles.
+- **Key decisions:** The picker dialog is used ONLY for agent/model selection;
+  placement stays handler-controlled in `_spawn_shadow` because the shadow's
+  split-target-the-followed-AGENT-pane geometry cannot be expressed by the
+  dialog's tmux tab. Rejected refactoring `AgentCommandScreen` to model that
+  placement (wide blast radius: 14 call sites) per the user's "don't refactor if
+  it adds risk" guidance.
+- **Upstream defects identified:** `.aitask-scripts/lib/agent_model_picker.py:317 — AgentModelPickerScreen is fixed at width:65% and is not narrow-aware; option rows render "<agent>/<name>" and on a narrow minimonitor pane the long "claudecode/" prefix (11 chars) eats the visible width, clipping the claudecode model name (e.g. opus4_8) — surfaced by the new E shadow-pick dialog but pre-existing and shared by board/monitor/codebrowser/switcher.` Follow-up task requested by the user (Step 8b).
