@@ -7,8 +7,9 @@ status: Implementing
 labels: [tui, switcher, codeagent]
 file_references: [.aitask-scripts/lib/tui_switcher.py]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-15 10:23
-updated_at: 2026-07-15 10:34
+updated_at: 2026-07-15 10:45
 ---
 
 ## Summary
@@ -85,3 +86,8 @@ automatically.
 - The new shortcut is override-aware via the shortcuts registry and appears in
   the switcher hint row (if a hint segment is added).
 - Add/extend a test alongside `tests/test_tui_switcher_agent_launch.py`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-15T07:45:51Z status=pass attempt=1 type=human
