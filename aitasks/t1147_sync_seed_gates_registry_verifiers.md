@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [gates, ait_setup, installation]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-10 20:52
-updated_at: 2026-07-10 20:52
+updated_at: 2026-07-15 10:43
 ---
 
 ## Problem
