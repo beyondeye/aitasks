@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [workflows, remote, python, tui, codeagent, sanboxing, crash_recovery]
 gates: [risk_evaluated]
 folded_tasks: [1127, 1144]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-17 11:50
-updated_at: 2026-07-17 11:50
+updated_at: 2026-07-17 11:51
 ---
 
 ## Goal
