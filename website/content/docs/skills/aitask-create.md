@@ -49,6 +49,17 @@ Run `./.aitask-scripts/aitask_create.sh --help` for the full list of flags.
 - `--file-ref PATH[:N[-M][^N[-M]...]]` (repeatable) attaches a structured pointer to source lines in the new task's `file_references` frontmatter.
 - `--auto-merge` folds any `Ready`/`Editing` task that already references the same path into the new one. The default (`--no-auto-merge`) warns and skips instead.
 
+**Declared gates and manual-verification tasks:**
+
+```bash
+./.aitask-scripts/aitask_create.sh --batch --commit \
+    --name "add_settings_screen" --desc "..." \
+    --gates "risk_evaluated,build_verified"
+```
+
+- `--gates GATES` (comma-separated names from `aitasks/metadata/gates.yaml`) declares the verification gates the task must satisfy before it can archive. Execution profiles with `default_gates` inject this flag automatically on every task the workflow creates.
+- **`--type manual_verification` tasks keep only the gates they can reach.** A manual-verification task runs a human checklist instead of the plan/implement/review steps, so gates recorded during planning or review (`risk_evaluated`, `plan_approved`, `review_approved`, `docs_updated`) can never be satisfied and would block archival forever. The script keeps only the post-verification machine gates (`build_verified`, `tests_pass`, `lint`) and drops everything else with a notice — whether the gates came from a profile's `default_gates` or an explicit `--gates`. This also applies when finalizing a draft.
+
 See the [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) workflow guide for the full walkthrough, including the interactive codebrowser `n` flow.
 
 ## Workflows

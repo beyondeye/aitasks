@@ -710,6 +710,30 @@ extract_parent_from_draft() {
 }
 
 # Finalize a single draft: claim real ID, move to aitasks/, commit
+# Enforce the manual_verification gate invariant on a just-finalized task file.
+# A pre-existing / hand-edited draft can carry gates a manual_verification task
+# cannot reach (it skips Steps 6-8); rewrite its `gates:` line in place so the
+# finalized task never lands in the unarchivable state. No-op for any other
+# issue_type or a task with no `gates:` field. See filter_gates_for_issue_type
+# (t1156). The run_batch_mode() sink filters the --commit path; this covers the
+# separate --finalize path.
+enforce_manual_verification_gate_invariant() {
+    local filepath="$1"
+    local dtype dgates stripped kept
+    dtype=$(read_yaml_field "$filepath" issue_type)
+    [[ "$dtype" == "manual_verification" ]] || return 0
+    dgates=$(read_yaml_field "$filepath" gates)
+    [[ -n "$dgates" ]] || return 0
+    # read_yaml_field returns the inline flow list, e.g. "[risk_evaluated, build_verified]".
+    dgates="${dgates#[}"
+    dgates="${dgates%]}"
+    stripped=$(filter_gates_for_issue_type "$dtype" "$dgates" 2>&1 >/dev/null)
+    [[ -n "$stripped" ]] || return 0
+    kept=$(filter_gates_for_issue_type "$dtype" "$dgates" 2>/dev/null)
+    sed_inplace "s/^gates:.*/gates: $(format_yaml_list "$kept")/" "$filepath"
+    info "manual_verification: dropped unreachable gate(s) from finalized draft: ${stripped#STRIPPED:}"
+}
+
 finalize_draft() {
     local draft_path="$1"
     local silent="${2:-false}"
@@ -740,6 +764,7 @@ finalize_draft() {
 
         # Copy content, remove draft-specific fields
         sed '/^draft: true$/d; /^parent: .*$/d' "$draft_path" > "$filepath"
+        enforce_manual_verification_gate_invariant "$filepath"
 
         # Update parent's children_to_implement
         update_parent_children_to_implement "$parent_num" "$task_id"
@@ -774,6 +799,7 @@ finalize_draft() {
 
         # Copy content, remove draft field
         sed '/^draft: true$/d' "$draft_path" > "$filepath"
+        enforce_manual_verification_gate_invariant "$filepath"
 
         rm -f "$draft_path"
 
@@ -1928,6 +1954,16 @@ run_batch_mode() {
         || die "Invalid effort: $BATCH_EFFORT (must be low, medium, or high)"
 
     validate_task_type "$BATCH_TYPE"
+
+    # Keep only gates a manual_verification task can reach (it skips Steps 6-8,
+    # so planning/review gates like risk_evaluated would block archival forever).
+    # No-op for every other issue_type. See filter_gates_for_issue_type (t1156).
+    if [[ -n "$BATCH_GATES" ]]; then
+        local _gate_stripped
+        _gate_stripped=$(filter_gates_for_issue_type "$BATCH_TYPE" "$BATCH_GATES" 2>&1 >/dev/null)
+        BATCH_GATES=$(filter_gates_for_issue_type "$BATCH_TYPE" "$BATCH_GATES" 2>/dev/null)
+        [[ -n "$_gate_stripped" ]] && info "manual_verification: dropped unreachable gate(s): ${_gate_stripped#STRIPPED:} (recorded in planning/review steps this task type skips)"
+    fi
 
     case "$BATCH_STATUS" in
         Ready|Editing|Implementing|Postponed) ;;

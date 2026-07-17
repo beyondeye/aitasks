@@ -75,6 +75,8 @@ Set `manual_verification_followup_mode: never` in an active profile to skip Step
 
 When [`/aitask-pick`](../../skills/aitask-pick/) picks a task whose `issue_type` is `manual_verification`, Step 3 Check 3 dispatches to the Manual Verification Procedure — replacing Steps 6 (plan), 7 (implement), and 8 (review). Steps 4 (ownership lock) and 5 (worktree) still run first: manual verification is owned work that should be locked against concurrent pickers.
 
+Because the plan/review steps never run, a manual-verification task never carries the gates recorded there (`risk_evaluated`, `plan_approved`, `review_approved`, `docs_updated`) — such a gate could never be satisfied and would block archival forever. `aitask_create.sh` strips them at creation, including any injected by an execution profile's `default_gates`, so the task's archival is gated only by its own checklist. The post-verification machine gates (`build_verified`, `tests_pass`, `lint`) remain declarable as usual.
+
 Before the interactive loop begins, the picker offers to hand the checklist to an AI agent that runs it — fully or partially — on your behalf. See [Autonomous verification](#autonomous-verification).
 
 Before each prompt, the picker re-renders the **full numbered checklist** with each item's current state (`pending` / `pass` / `fail` / `skip` / `defer`), so the overview is always in view, then prints a one-line tip advertising the Other-field batch path. The prompt itself is scoped to the first remaining `pending` or `defer` item — the "current item" — but the Other field also accepts a **batch update** that resolves multiple items in one round-trip. Example checklist render:

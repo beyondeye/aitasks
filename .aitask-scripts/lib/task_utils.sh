@@ -249,6 +249,46 @@ format_yaml_list() {
     fi
 }
 
+# Gates a `manual_verification` task can actually REACH: the machine gates
+# recorded in task-workflow Step 9. Manual verification skips Steps 6-8
+# (plan / risk / review), so any gate whose checkpoint lives there is
+# unreachable and must not be declared on such a task (it would block archival
+# forever — see t1156). This is an ALLOWLIST (not a denylist) on purpose: an
+# unknown/new gate is stripped by default, so a future planning gate added to a
+# profile's default_gates can never silently make a manual_verification task
+# unarchivable. See .claude/skills/task-workflow/manual-verification.md
+# (Steps 6-8 skipped) and aitasks/metadata/gates.yaml. `merge_approved` is
+# intentionally excluded (profile-conditional human gate, never auto-injected).
+MANUAL_VERIFICATION_REACHABLE_GATES="build_verified tests_pass lint"
+
+# filter_gates_for_issue_type <issue_type> <csv-gates>
+#   Echoes the kept gates as a CSV on stdout. Echoes "STRIPPED:<csv>" on stderr
+#   iff any unreachable gate was removed. Only `manual_verification` filters;
+#   every other issue_type passes its gates through unchanged.
+filter_gates_for_issue_type() {
+    local issue_type="$1" csv="$2"
+    if [[ "$issue_type" != "manual_verification" || -z "$csv" ]]; then
+        printf '%s' "$csv"
+        return 0
+    fi
+    local kept=() stripped=() g
+    local _gates
+    IFS=',' read -ra _gates <<< "$csv"
+    for g in "${_gates[@]}"; do
+        g="${g// /}"
+        [[ -z "$g" ]] && continue
+        if [[ " $MANUAL_VERIFICATION_REACHABLE_GATES " == *" $g "* ]]; then
+            kept+=("$g")
+        else
+            stripped+=("$g")
+        fi
+    done
+    local IFS=','
+    printf '%s' "${kept[*]}"
+    [[ ${#stripped[@]} -gt 0 ]] && printf 'STRIPPED:%s\n' "${stripped[*]}" >&2
+    return 0
+}
+
 # join_yaml_flow_lists and read_yaml_field are defined in yaml_utils.sh
 # (sourced above) — a shared lib so agentcrew_utils.sh can reuse the same
 # canonical readers without a copy of its own.
