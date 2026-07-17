@@ -5,6 +5,7 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [python]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1074
 implemented_with: claudecode/opus4_8
