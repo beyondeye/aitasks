@@ -900,9 +900,22 @@ commit_installed_files() {
         changed_files+=("$changed_file")
     done <<< "$all_changes"
 
+    # Pathspec for the finalize diff-guard and commit: the framework changes
+    # PLUS any stale __pycache__ paths we are about to `git rm --cached` (those
+    # are filtered out of changed_files but their staged deletion must still be
+    # committed). Path-scoping both the guard and the commit is what stops a
+    # bare `git commit` from sweeping a foreign pre-staged index on a dirty
+    # curl|bash upgrade (mirrors commit_framework_files in aitask_setup.sh).
+    local commit_paths=("${changed_files[@]}")
+
     info "Committing framework update (v${version}) to git (${#changed_files[@]} files)..."
 
     if [[ -n "$cached_pycache" ]]; then
+        local pycache_path
+        while IFS= read -r pycache_path; do
+            [[ -n "$pycache_path" ]] || continue
+            commit_paths+=("$pycache_path")
+        done <<< "$cached_pycache"
         # shellcheck disable=SC2086 # intentional word splitting on newline-delimited list
         (cd "$INSTALL_DIR" && echo "$cached_pycache" | xargs git rm --cached --quiet 2>/dev/null) || true
     fi
@@ -917,10 +930,11 @@ commit_installed_files() {
         fi
     fi
 
-    if ! (cd "$INSTALL_DIR" && git diff --cached --quiet 2>/dev/null); then
+    if [[ ${#commit_paths[@]} -gt 0 ]] && \
+       ! (cd "$INSTALL_DIR" && git diff --cached --quiet -- "${commit_paths[@]}" 2>/dev/null); then
         local commit_output
         if ! commit_output=$(cd "$INSTALL_DIR" && \
-            git commit -m "ait: Update aitasks framework to v${version}" 2>&1); then
+            git commit -m "ait: Update aitasks framework to v${version}" -- "${commit_paths[@]}" 2>&1); then
             warn "git commit failed:"
             printf '%s\n' "$commit_output" | awk '{print "    " $0}'
             warn "Framework files staged but NOT committed. Run 'git commit' manually."
@@ -1010,10 +1024,13 @@ commit_installed_data_files() {
         return
     fi
 
-    if ! git -C "$data_dir" diff --cached --quiet 2>/dev/null; then
+    # Path-scoped diff guard and commit — a bare `git commit` would sweep a
+    # foreign pre-staged index on the data worktree (mirrors
+    # commit_framework_data_files in aitask_setup.sh).
+    if ! git -C "$data_dir" diff --cached --quiet -- "${changed_files[@]}" 2>/dev/null; then
         local commit_output
         if ! commit_output=$(git -C "$data_dir" \
-            commit -m "ait: Update aitasks framework data to v${version}" 2>&1); then
+            commit -m "ait: Update aitasks framework data to v${version}" -- "${changed_files[@]}" 2>&1); then
             warn "git commit failed (data branch):"
             printf '%s\n' "$commit_output" | awk '{print "    " $0}'
             return

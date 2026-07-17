@@ -89,6 +89,9 @@ create_data_branch_setup() {
     # Copy required scripts for setup
     setup_fake_aitask_repo "$repo_dir"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$repo_dir/.aitask-scripts/"
+    # aitask_setup.sh sources lib/github_release.sh at startup (t1069); its
+    # other startup dep, python_resolve.sh, is provided by setup_fake_aitask_repo.
+    cp "$PROJECT_DIR/.aitask-scripts/lib/github_release.sh" "$repo_dir/.aitask-scripts/lib/"
     cp -r "$PROJECT_DIR/seed" "$repo_dir/seed" 2>/dev/null || true
     (
         cd "$repo_dir"
