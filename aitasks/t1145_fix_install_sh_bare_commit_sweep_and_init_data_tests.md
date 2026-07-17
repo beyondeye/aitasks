@@ -7,8 +7,9 @@ status: Implementing
 labels: [python]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1074
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-10 19:03
-updated_at: 2026-07-17 10:42
+updated_at: 2026-07-17 10:50
 boardidx: 60
 ---
 
@@ -30,3 +31,8 @@ The `test_init_data.sh` failure was found while running setup-adjacent suites fo
 ## Suggested fix
 
 For install.sh: path-scope both finalize commits (`git commit -m ".." -- "${changed_files[@]}"`) and switch their `git diff --cached --quiet` guards to the path-scoped form — the minimal fix that stops the foreign-index sweep without porting the full snapshot mechanism (install.sh runs stand-alone and cannot source shared helpers). For test_init_data.sh: run the suite, bisect the first failing assertion, and fix the test scaffold or the regression it exposes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-17T07:50:35Z status=pass attempt=1 type=human
