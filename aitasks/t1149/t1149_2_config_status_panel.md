@@ -8,8 +8,9 @@ labels: [tui]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1149
+implemented_with: claudecode/fable5
 created_at: 2026-07-15 18:44
-updated_at: 2026-07-17 10:42
+updated_at: 2026-07-17 11:38
 ---
 
 ## Context
@@ -51,3 +52,8 @@ This child renders the t1149_1 preflight results as a visual config checklist in
 - `bash tests/test_chatlink_tui.sh` passes (smoke + Pilot render + poll-never-runs-expensive negative control).
 - `ait chatlink` against a broken/partial config shows the checklist with per-check severity and fix hints; against a valid config shows all-pass.
 - Panel stays responsive with docker stopped/absent (expensive rows show cached/timeout state, UI never freezes).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-17T08:38:17Z status=pass attempt=1 type=human
