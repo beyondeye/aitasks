@@ -797,7 +797,7 @@
       "notes": "Fable 5 — latest-generation Claude model",
       "verified": {
         "pick": 100,
-        "explore": 95,
+        "explore": 96,
         "changelog": 100
       },
       "verifiedstats": {
@@ -824,8 +824,8 @@
         },
         "explore": {
           "all_time": {
-            "runs": 4,
-            "score_sum": 380
+            "runs": 5,
+            "score_sum": 480
           },
           "prev_month": {
             "period": "2026-06",
@@ -834,13 +834,13 @@
           },
           "month": {
             "period": "2026-07",
-            "runs": 3,
-            "score_sum": 300
+            "runs": 4,
+            "score_sum": 400
           },
           "week": {
             "period": "2026-W29",
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           }
         },
         "changelog": {
