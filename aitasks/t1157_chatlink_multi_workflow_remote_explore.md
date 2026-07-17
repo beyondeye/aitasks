@@ -6,7 +6,7 @@ issue_type: feature
 status: Implementing
 labels: [workflows, remote, python, tui, codeagent, sanboxing, crash_recovery]
 gates: [risk_evaluated]
-children_to_implement: [t1157_1, t1157_2, t1157_3, t1157_4, t1157_5, t1157_6, t1157_7]
+children_to_implement: [t1157_1, t1157_2, t1157_3, t1157_4, t1157_5, t1157_6, t1157_7, t1157_8]
 folded_tasks: [1127, 1144]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-17 11:50
