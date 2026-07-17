@@ -28,6 +28,12 @@ wanted: `grep -abo "high-confidence findings" ~/.local/share/claude/versions/<v>
 then carve ±50KB around the hit and around offset of
 "Keep candidates where the vote is CONFIRMED").
 
+**Full reference (read first):** `aidocs/codeagents/claudecode_builtin_prompts.md`
+carries the complete verbatim reconstruction — all shared fragments, per-level
+assembly for all three prompt families (default subagent, Opus-4.8 inline,
+workflow-backed multi-agent), the routing matrix, flag fragments, and the
+extraction recipe. The distillation below is a summary of that document.
+
 ## Extracted /code-review structure (distilled, faithful to source)
 
 **Effort tiers (inline family):**
