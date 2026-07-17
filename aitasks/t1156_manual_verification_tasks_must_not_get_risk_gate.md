@@ -1,6 +1,8 @@
 ---
 priority: medium
-effort: low
+risk_code_health: low
+risk_goal_achievement: low
+effort: medium
 depends: []
 issue_type: bug
 status: Implementing
@@ -8,9 +10,9 @@ labels: [gates, manual_verification, task_workflow]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1138
-implemented_with: claudecode/opus4_8
+implemented_with: claudecode/fable5
 created_at: 2026-07-15 19:31
-updated_at: 2026-07-17 11:39
+updated_at: 2026-07-17 11:46
 boardidx: 190
 ---
 

@@ -3,12 +3,13 @@ priority: low
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Folded
 labels: [chat_surface, python]
 gates: [risk_evaluated]
+folded_into: 1157
 anchor: 1120
 created_at: 2026-07-05 12:01
-updated_at: 2026-07-05 12:01
+updated_at: 2026-07-17 11:50
 boardidx: 90
 ---
 

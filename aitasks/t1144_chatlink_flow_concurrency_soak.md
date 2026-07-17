@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Folded
 labels: [chat_surface, python, testing]
+folded_into: 1157
 anchor: 1120
 created_at: 2026-07-10 09:06
-updated_at: 2026-07-10 09:06
+updated_at: 2026-07-17 11:50
 boardidx: 70
 ---
 
