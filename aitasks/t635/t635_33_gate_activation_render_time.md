@@ -296,3 +296,10 @@ Standard cleanup / archival / merge per task-workflow Step 9.
 The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
 
 - **t635_25** (`t635_25_leaner_gate_check_invocation.md`)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-17T15:40:40Z status=pass attempt=1 type=human
+>
+> Note: deferred
