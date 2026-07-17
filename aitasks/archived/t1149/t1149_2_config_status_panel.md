@@ -5,14 +5,15 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1149_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1149
 implemented_with: claudecode/fable5
 created_at: 2026-07-15 18:44
-updated_at: 2026-07-17 11:38
+updated_at: 2026-07-17 11:52
+completed_at: 2026-07-17 11:52
 ---
 
 ## Context
@@ -61,3 +62,14 @@ This child renders the t1149_1 preflight results as a visual config checklist in
 > **✅ gate:plan_approved** run=2026-07-17T08:38:17Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-17T08:51:20Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-17T08:52:06Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:0ad30c003968a177
+
+> **✅ gate:risk_evaluated** run=2026-07-17T08:52:06Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1149_2/risk_evaluated_2026-07-17T08:52:06Z-risk_evaluated-a1.log`
