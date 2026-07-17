@@ -126,3 +126,31 @@ files on top" design.
 
 Standard cleanup, gate run (`risk_evaluated` recorded post-approval in Step 7),
 and archival per the shared task-workflow Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. (1) `install.sh` —
+  `commit_installed_files` now builds a `commit_paths` array (framework
+  `changed_files` + the `__pycache__` paths it `git rm --cached`es) and
+  path-scopes both the `git diff --cached --quiet` guard and the `git commit`
+  to it, plus an `${#commit_paths[@]} -gt 0` empty-pathspec guard;
+  `commit_installed_data_files` path-scopes its guard and commit to
+  `changed_files`. (2) `tests/test_init_data.sh` — `create_data_branch_setup`
+  now `cp`s `lib/github_release.sh` alongside `aitask_setup.sh`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. The pycache edge case (empty `changed_files`
+  making a naive path-scoped `git commit -- ` sweep the whole index) was
+  anticipated in planning and handled via the `commit_paths` union + the
+  `-gt 0` guard.
+- **Key decisions:** Scoped the test-scaffold `cp` to `create_data_branch_setup`
+  (the only helper that sources `aitask_setup.sh`) rather than the shared
+  `setup_fake_aitask_repo`, per the scaffold's "caller adds script-specific
+  files on top" design. Included the pycache-removal paths in the finalize
+  pathspec so the one-time `git rm --cached` cleanup still commits.
+- **Upstream defects identified:** None.
+
+**Verification results:** `bash tests/test_init_data.sh` → 30 passed, 0 failed
+(was 7/30). `shellcheck install.sh tests/test_init_data.sh` → only the 3
+pre-existing install.sh findings (SC2295/SC2043/SC1091) and pre-existing
+test-file findings; zero new findings on the changed lines. `bash -n` clean on
+both files.
