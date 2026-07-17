@@ -122,23 +122,26 @@ it**, recreating the t1147 bug via profile filtering.
   `.aitask-scripts/gates_reference.yaml` + drift guard. Its deferred scope is
   absorbed below.
 
-## Absorbed deferred scope from t1147
+## Absorbed deferred scope from t1147 — SPLIT OUT to t635_34 (2026-07-17)
 
-- **Reconcile existing installs** (t1147's former Part 2): `ait gates
-  sync-registry` filling missing verifier keys in an already-installed project's
-  `aitasks/metadata/gates.yaml` without clobbering customizations (additive
-  merge; conflict-reported, never silently overwritten; reads the canonical
-  `.aitask-scripts/gates_reference.yaml`, which ships downstream). Largely
-  design-agnostic, but under this redesign it should also reconcile profile gate
-  policy — shape it here. **Until this lands, already-installed projects
-  (incl. the thinking_app reproduction from t1147) remain on the manual
-  workaround** (`aitask_gate.sh append <id> risk_evaluated pass`, or hand-copy
-  the reference over the project registry).
-- **Early "no verifier" warning** (t1147's former Optional hardening): warn at
-  pick/plan time when a declared gate's registry entry has no `verifier` and is
-  not `kind: procedure`, instead of silently deferring until archival blocks.
-  Likely **subsumed** by "only activate gates when required" — re-evaluate
-  whether still needed.
+The absorbed t1147 reconcile scope (`ait gates sync-registry` for existing
+installs + the early "no verifier" warning) has been **moved to a dedicated
+sibling, `t635_34` (reconcile_installed_gate_registry)**, which `depends:
+[t635_33]` so it can reconcile against the `active_gates` / `rendered_gates`
+model landed here. This task (t635_33) is now scoped to the correctness/
+render-time **core** only. See
+`aitasks/t635/t635_34_reconcile_installed_gate_registry.md`.
+
+**Resolved open sub-decision (ceiling source):** the render ceiling is a
+**distinct `rendered_gates` profile key**, defaulting to the profile's
+`default_gates` when unset (backward-compatible — existing profiles need no new
+key). `active_gates = resolve(task.gates, default_gates) ∩ rendered_gates`.
+
+**Resolved coordination (t635_25):** **folded into this task** (see Folded
+Tasks below) — the call-shape verbs (`active`, `backfill-declaration`,
+pure-bash decision verbs) are implemented here in the same pass as the
+active_gates rewrite, since both touch the same `planning.md` / `SKILL.md`
+gate call-sites.
 
 ## Merged from t635_25: leaner gate check invocation
 
