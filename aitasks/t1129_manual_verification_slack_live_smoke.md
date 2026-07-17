@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [1074_3]
+depends: [t1074_3]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1074_3]
+verifies: ['1074_3']
 created_at: 2026-07-05 12:39
 updated_at: 2026-07-05 12:39
+boardidx: 70
 ---
 
 ## Manual Verification Task
