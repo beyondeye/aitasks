@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [python]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1074
 created_at: 2026-07-10 19:03
-updated_at: 2026-07-10 19:03
+updated_at: 2026-07-17 10:42
 boardidx: 30
 ---
 
