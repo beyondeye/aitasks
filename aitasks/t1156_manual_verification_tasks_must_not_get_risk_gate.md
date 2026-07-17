@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [gates, manual_verification, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1138
 created_at: 2026-07-15 19:31
-updated_at: 2026-07-15 19:31
-boardidx: 170
+updated_at: 2026-07-17 10:45
+boardidx: 190
 ---
 
 ## Origin
