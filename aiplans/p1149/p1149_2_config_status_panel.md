@@ -177,3 +177,52 @@ contracts and tests; no separate before/after mitigation tasks proposed.
 - Panel stays responsive with docker stopped/absent — expensive rows show cached/timeout state, UI never freezes or stutters on poll ticks.
 
 Refer to Step 9 (Post-Implementation) of the task workflow for merge/archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, all in
+  `.aitask-scripts/chatlink/chatlink_app.py` + `tests/test_chatlink_tui.sh`.
+  New `#preflight_panel` `Static(markup=False, height: auto)` above the
+  sessions table, titled "config checks — bug-report intake / explore-relay".
+  Pure render helper `_render_preflight(cheap_results, now)` groups rows by
+  category bucket (`[transport]`/`[runtime]`/`[operation]` labels), glyph
+  prefixes `✓`/`!`/`✗`, `— <fix_hint>` on non-pass rows. Fixed expensive row
+  set `EXPENSIVE_IDS = (docker_binary, docker_image,
+  explore_relay_agent_command)` always rendered with one of three states:
+  cached + age via the existing `_age` helper (suffixed `(re-checking…)`
+  while a probe is in flight), `… checking`, or `· not checked yet`.
+  Cheap checks run on every `_refresh_view` tick via
+  `self._cheap_runner or preflight.run_cheap_checks`; expensive probes run in
+  `_run_expensive` (pure worker body, `run_worker(..., thread=True)`) posting
+  back via `call_from_thread(self._apply_expensive, results_or_None)` —
+  `_apply_expensive` is the ONLY cache/flag mutation site (UI thread), keeps
+  the previous cache on failure and sets `_expensive_error` (rendered as
+  `! expensive checks failed — press r to retry`). `_kick_expensive()` is
+  debounced on `_expensive_running` and re-renders immediately so the
+  checking state is visible at kick time; triggered from `on_mount` (before
+  the first `_refresh_view`) and `action_refresh` (`r` label stays
+  "Refresh"). Constructor gains I/O-free seams
+  `cheap_runner=None, expensive_runner=None`.
+- **Deviations from plan:** None material. Idle-uncached rows use a `·`
+  prefix (plan's "not checked yet" state, given a glyph for alignment).
+- **Issues encountered:** None — all 25 TUI checks passed first run;
+  preflight/daemon/config suites stayed green.
+- **Key decisions:** (1) The pre-existing Pilot test app construction now
+  passes both fake seams — without them, on_mount would kick REAL expensive
+  probes (agent dry-run subprocess) inside the legacy test. (2) Placeholder
+  states are asserted through the pure render helper on an unmounted app
+  (deterministic — no race against the mount worker), while the live
+  `run_worker` → `call_from_thread` → widget delivery is proven end-to-end
+  with `await app.workers.wait_for_complete()` after mount and after
+  `pilot.press("r")`. (3) Live acceptance run against the real repo config
+  rendered fails-with-fix-hints for intake_channel/token and cached passes
+  for docker/agent.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1149_3 (wizard) can reuse the panel's
+  formatting helpers (`_format_row`, severity glyphs) and the seam pattern
+  (`cheap_runner`/`expensive_runner` constructor injection) for its final
+  preflight screen; `_kick_expensive`/`_apply_expensive` show the sanctioned
+  worker/debounce/cache shape for any wizard-side probe. Panel copy is scoped
+  to the current Discord bug-report intake / explore-relay flow per the
+  parent-plan §1b naming contract. The `EXPENSIVE_IDS`/`_EXPENSIVE_CATEGORY`
+  module constants are the place a future operation adds its own probe rows.
