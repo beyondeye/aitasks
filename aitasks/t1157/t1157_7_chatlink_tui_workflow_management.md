@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: high
-depends: [t1157_6]
+depends: [t1157_6, t1149_3]
 issue_type: feature
 status: Ready
 labels: [tui, workflows, remote, python, installation]
 gates: [risk_evaluated]
 anchor: 1157
 created_at: 2026-07-17 16:53
-updated_at: 2026-07-17 16:53
+updated_at: 2026-07-17 16:56
 ---
 
 ## Context
