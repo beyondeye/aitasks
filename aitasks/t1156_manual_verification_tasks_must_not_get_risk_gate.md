@@ -5,6 +5,7 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [gates, manual_verification, task_workflow]
+gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1138
 implemented_with: claudecode/opus4_8
