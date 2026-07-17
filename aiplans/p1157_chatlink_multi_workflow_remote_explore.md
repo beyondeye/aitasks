@@ -32,6 +32,8 @@ close the loop.
 8. `t1157_8` documents the shipped behavior.
 9. `t1157_9` adds deterministic soak and live-validation coverage; it
    incorporates folded t1144.
+10. `t1157_10` is the aggregate manual-verification checklist for the
+    Discord/TUI behaviors produced by the implementation children.
 
 ## Shared contracts
 
