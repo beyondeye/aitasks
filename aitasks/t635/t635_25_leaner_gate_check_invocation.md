@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Folded
 labels: [gates, task_workflow, execution_profiles]
 gates: [risk_evaluated]
+folded_into: 635_33
 anchor: 635
 created_at: 2026-06-29 09:21
-updated_at: 2026-07-15 19:13
+updated_at: 2026-07-17 11:03
 ---
 
 ## Context
