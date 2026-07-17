@@ -18,9 +18,32 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "explore": 100
       },
-      "verifiedstats": {},
+      "verifiedstats": {
+        "explore": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W29",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      },
       "usagestats": {
         "explore": {
           "all_time": {
