@@ -3,13 +3,14 @@ priority: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [gates, task_workflow, execution_profiles]
 gates: [risk_evaluated]
 folded_tasks: [635_25]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-15 19:12
-updated_at: 2026-07-17 18:40
+updated_at: 2026-07-18 22:34
 ---
 
 ## Problem
