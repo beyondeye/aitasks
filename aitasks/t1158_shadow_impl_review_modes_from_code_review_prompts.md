@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
@@ -9,7 +11,7 @@ gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-07-17 19:06
-updated_at: 2026-07-19 23:50
+updated_at: 2026-07-19 23:51
 boardidx: 30
 ---
 
@@ -155,13 +157,17 @@ pass. Design intent (final shape decided at planning):
 
 ## Acceptance criteria
 
-- Shadow impl review offers at least a quick tier and a deep tier (exact tier
-  set decided at planning) with documented methodology per tier.
+- Shadow impl review offers the tier set decided at planning — quick / basic /
+  standard / deep (basic = legacy compatibility tier, the one-to-one successor
+  of the pre-tier three-axis adversarial review) — with documented methodology
+  per tier.
 - Correctness angles A–E and the cleanup/altitude/conventions angles are
   available in at least one tier, adapted to review the task's diff sources
   (committed / staged / working-tree, as impl-challenge already resolves).
-- A verify pass with the 3-state verdict ladder runs in the non-quick tiers,
-  and verdicts appear in the findings presentation.
+- A verify pass with the 3-state verdict ladder runs in the **Standard and
+  Deep** tiers, and verdicts appear in the findings presentation. **Basic is
+  the deliberate legacy-compatibility exception**: it preserves the pre-tier
+  single-pass adversarial review with no formal verify.
 - Concern-block output, advisory-only guardrail, and too-early gate unchanged
   and working in every tier.
 - SKILL.md Step 3 routing text updated so the user can request a tier in free
