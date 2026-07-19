@@ -7,17 +7,22 @@ status: Ready
 labels: [gates]
 anchor: 635
 created_at: 2026-07-01 11:03
-updated_at: 2026-07-01 11:03
+updated_at: 2026-07-20 09:30
 ---
 
 ## Context
 
 There is **no interactive surface to edit which gates a task declares** (its
 `gates:` frontmatter list). Today gate declaration is only possible via
-`ait update --batch --gates <csv> <id>`, hand-editing the task file, or the
-automatic profile `default_gates` backfill at task-workflow Step 7. The board
+`ait update --batch --gates <csv> <id>` or hand-editing the task file (the
+former Step-7 `default_gates` backfill was retired by t635_33 — a picked task
+now gets a derived `active_gates` tuple at Step 4 while its raw `gates:` stays
+declared intent; an editing surface here changes that declared intent, and the
+next pick re-materializes the enforced set from it). The board
 *displays* gate-run status and *records* human gate sign-offs (t635_9) but cannot
-add/remove a task's gates; the settings TUI only edits profile `default_gates`.
+add/remove a task's gates; the settings TUI edits only the PROFILE-side keys (`default_gates` /
+`rendered_gates`; registry-driven picker tracked as t635_37), not a task's own
+`gates:`.
 `aitask_gate.sh:11` explicitly flags the "user-facing gate surface" as deferred
 ("Phase 1 has no human consumer"). This task builds that surface.
 
