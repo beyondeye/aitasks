@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: high
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: refactor

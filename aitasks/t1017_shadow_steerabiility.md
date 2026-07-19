@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Folded
 labels: [shadow]
+folded_into: 1159
 created_at: 2026-06-17 07:46
-updated_at: 2026-06-17 07:46
+updated_at: 2026-07-19 08:43
 boardidx: 450
 ---
 
