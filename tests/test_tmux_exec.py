@@ -164,6 +164,46 @@ class TestRunContract(unittest.TestCase):
             self.assertEqual(client.run(["list-sessions"]), (1, ""))
 
 
+class TestSetClipboard(unittest.TestCase):
+    def test_argv_and_stdin(self):
+        # `load-buffer -w -` with the text on stdin: sets a tmux buffer AND
+        # forwards to attached clients via OSC 52 — the only path that reaches
+        # the system clipboard from a non-visible pane.
+        captured = {}
+
+        def fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            captured["input"] = kwargs.get("input")
+            return _FakeRunResult(0, "", "")
+
+        client = TmuxClient(socket_args=["-L", "sock"])
+        with patch.object(subprocess, "run", side_effect=fake_run):
+            ok = client.set_clipboard("payload text")
+        self.assertTrue(ok)
+        self.assertEqual(
+            captured["argv"], ["tmux", "-L", "sock", "load-buffer", "-w", "-"]
+        )
+        self.assertEqual(captured["input"], "payload text")
+
+    def test_nonzero_returncode_is_false(self):
+        # e.g. tmux < 3.2 rejecting `-w`, or no server.
+        client = TmuxClient(socket_args=[])
+        with patch.object(subprocess, "run",
+                          return_value=_FakeRunResult(1, "", "unknown flag")):
+            self.assertFalse(client.set_clipboard("x"))
+
+    def test_file_not_found_is_false(self):
+        client = TmuxClient(socket_args=[])
+        with patch.object(subprocess, "run", side_effect=FileNotFoundError):
+            self.assertFalse(client.set_clipboard("x"))
+
+    def test_timeout_is_false(self):
+        client = TmuxClient(socket_args=[])
+        with patch.object(subprocess, "run",
+                          side_effect=subprocess.TimeoutExpired("tmux", 5)):
+            self.assertFalse(client.set_clipboard("x"))
+
+
 class TestRunAsyncContract(unittest.TestCase):
     def test_oserror_is_minus_one(self):
         client = TmuxClient(socket_args=[])

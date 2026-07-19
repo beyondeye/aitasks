@@ -48,6 +48,7 @@ from monitor.concern_parser import (  # noqa: E402
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
+from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
     resolve_dry_run_command,
     resolve_agent_string,
@@ -1439,7 +1440,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if not selected:
             return
         payload = build_clipboard_payload(selected)
-        self.copy_to_clipboard(payload)
+        copy_to_system_clipboard(self, payload)
         self.notify("Concerns copied to clipboard.")
 
     async def _maybe_offer_concerns(self) -> None:

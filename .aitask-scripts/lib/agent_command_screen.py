@@ -55,6 +55,7 @@ from agent_launch_utils import (  # noqa: E402
     resolve_dry_run_command,
 )
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
+from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
 
 _NEW_SESSION_SENTINEL = "__new_session__"
@@ -709,12 +710,12 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
     @on(Button.Pressed, "#btn_copy_command")
     def copy_command(self) -> None:
         cmd = self._get_current_command()
-        self.app.copy_to_clipboard(cmd)
+        copy_to_system_clipboard(self.app, cmd)
         self.app.notify("Command copied to clipboard")
 
     @on(Button.Pressed, "#btn_copy_prompt")
     def copy_prompt(self) -> None:
-        self.app.copy_to_clipboard(self.prompt_str)
+        copy_to_system_clipboard(self.app, self.prompt_str)
         self.app.notify("Prompt copied to clipboard")
 
     @on(Button.Pressed, "#btn_run_terminal")

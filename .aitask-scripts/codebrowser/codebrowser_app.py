@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal as _find_terminal, spawn_in_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name, tmux_session_target
 from tmux_exec import TmuxClient
+from tui_clipboard import copy_to_system_clipboard
 from tui_switcher import TuiSwitcherMixin
 from shortcuts_mixin import ShortcutsMixin
 
@@ -144,13 +145,13 @@ class CopyFilePathScreen(ShortcutsMixin, ModalScreen):
 
     @on(Button.Pressed, "#btn_copy_rel")
     def copy_relative(self) -> None:
-        self.app.copy_to_clipboard(self.relative_path)
+        copy_to_system_clipboard(self.app, self.relative_path)
         self.app.notify(f"Copied: {self.relative_path}", timeout=2)
         self.dismiss(None)
 
     @on(Button.Pressed, "#btn_copy_abs")
     def copy_absolute(self) -> None:
-        self.app.copy_to_clipboard(self.absolute_path)
+        copy_to_system_clipboard(self.app, self.absolute_path)
         self.app.notify(f"Copied: {self.absolute_path}", timeout=2)
         self.dismiss(None)
 

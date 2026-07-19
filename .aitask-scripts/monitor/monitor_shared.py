@@ -602,8 +602,8 @@ class ConcernPickerModal(ModalScreen):
     (``A``); dismisses with ``None`` on Esc / Cancel. The modal stays pure-UI: it
     does NOT build the clipboard payload or touch the clipboard — the caller's
     action handler runs ``concern_parser.build_clipboard_payload`` +
-    ``app.copy_to_clipboard``. This keeps it unit-testable without a clipboard
-    backend.
+    ``tui_clipboard.copy_to_system_clipboard``. This keeps it unit-testable
+    without a clipboard backend.
     """
 
     BINDINGS = [

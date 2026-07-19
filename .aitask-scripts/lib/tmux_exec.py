@@ -178,6 +178,26 @@ class TmuxClient:
             return (-1, "")
         return (result.returncode, result.stdout or "")
 
+    def set_clipboard(self, text: str, timeout: float = _DEFAULT_TIMEOUT) -> bool:
+        """Push ``text`` to the system clipboard through the tmux server.
+
+        ``load-buffer -w -`` (text on stdin) sets a tmux paste buffer AND
+        forwards it to every attached client's terminal via OSC 52. This is the
+        only clipboard path that works from a **non-visible** pane: a plain
+        OSC 52 written by an application in a hidden window is stored as a tmux
+        buffer but never forwarded to the outer terminal, so the system
+        clipboard is silently left untouched. Returns ``True`` on success;
+        ``False`` on any failure (no tmux, tmux < 3.2 lacking ``-w``, timeout).
+        """
+        try:
+            result = subprocess.run(
+                self._argv(["load-buffer", "-w", "-"]),
+                input=text, capture_output=True, text=True, timeout=timeout,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+        return result.returncode == 0
+
     async def run_async(
         self, args: list[str], timeout: float = _DEFAULT_TIMEOUT
     ) -> tuple[int, str]:

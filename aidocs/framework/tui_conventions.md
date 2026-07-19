@@ -119,6 +119,21 @@ surfaces. Always include a help/instructions line so keyboard discoverability
 never depends on focus styling alone. (See the priority-bindings note above for
 the matching arrow-key fix.)
 
+## Clipboard copies route through `lib/tui_clipboard.copy_to_system_clipboard`
+
+Never call Textual's `app.copy_to_clipboard` directly from TUI code
+(`tests/test_tui_clipboard_seam.sh` enforces this). Textual's method emits a
+bare OSC 52 escape, and tmux only forwards a pane's OSC 52 to the outer
+terminal when that pane is in the client's **visible** window — from a
+background window (or a session no terminal client is attached to, e.g. a
+second project session) the text lands in a tmux paste buffer and the system
+clipboard is silently left untouched, while the TUI still shows its "copied"
+notification. `copy_to_system_clipboard(app, text)` keeps the OSC 52 copy
+(the working path outside tmux) and, when `$TMUX` is set, additionally pushes
+the text through the tmux gateway (`TmuxClient.set_clipboard`, i.e.
+`load-buffer -w`), which forwards to attached clients regardless of pane
+visibility.
+
 ## Filters over a multi-select list keep selected rows visible
 
 A search/fuzzy filter over a **multi-select** list (e.g. the `FuzzyCheckList`
