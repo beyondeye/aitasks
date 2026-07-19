@@ -9,8 +9,9 @@ gates: [risk_evaluated]
 folded_tasks: [635_25]
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/fable5
 created_at: 2026-07-15 19:12
-updated_at: 2026-07-18 22:34
+updated_at: 2026-07-19 08:26
 ---
 
 ## Problem
@@ -303,3 +304,5 @@ The following existing tasks have been folded into this task. Their requirements
 > **✅ gate:plan_approved** run=2026-07-17T15:40:40Z status=pass attempt=1 type=human
 >
 > Note: deferred
+
+> **✅ gate:plan_approved** run=2026-07-19T05:26:40Z status=pass attempt=2 type=human
