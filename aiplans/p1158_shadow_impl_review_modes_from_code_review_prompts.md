@@ -438,10 +438,10 @@ per task-workflow (no worktree — fast profile works on current branch; gates:
   angle adaptation actually produces sharper shadow reviews is only observable
   in live use. Bounded: structure is verifiable now, Basic preserves the known-
   good legacy behavior as a fallback, and prompts are cheap to iterate.
-  · severity: medium · → mitigation: shadow_impl_review_tier_live_check
+  · severity: medium · → mitigation: t1168
 
 ### Planned mitigations
-- timing: after | name: shadow_impl_review_tier_live_check | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement (live review quality unverifiable mechanically) | desc: Spawn the shadow against a real completed task and run the impl review at each tier (quick/basic/standard/deep), confirming tier auto-detection from free text (incl. "adversarial review" → basic), Basic's one-to-one legacy behavior, verdict-annotated findings in standard/deep, disposition tags + blocking-first ordering in all tiers, and the deterministic two-stage chooser on a 3-option-capped agent (Codex). For a generated Standard or Deep review, additionally confirm the minimonitor pipeline end-to-end — (1) the concern auto-offer triggers, (2) the picker opens in blocking-first order, (3) disposition and verdict text show in each concern body, (4) selected concerns forward to the clipboard/followed agent unchanged.
+- timing: after | name: shadow_impl_review_tier_live_check (created: t1168) | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement (live review quality unverifiable mechanically) | desc: Spawn the shadow against a real completed task and run the impl review at each tier (quick/basic/standard/deep), confirming tier auto-detection from free text (incl. "adversarial review" → basic), Basic's one-to-one legacy behavior, verdict-annotated findings in standard/deep, disposition tags + blocking-first ordering in all tiers, and the deterministic two-stage chooser on a 3-option-capped agent (Codex). For a generated Standard or Deep review, additionally confirm the minimonitor pipeline end-to-end — (1) the concern auto-offer triggers, (2) the picker opens in blocking-first order, (3) disposition and verdict text show in each concern body, (4) selected concerns forward to the clipboard/followed agent unchanged.
 
 ## Post-Review Changes
 

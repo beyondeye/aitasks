@@ -8,10 +8,11 @@ issue_type: feature
 status: Implementing
 labels: [shadow]
 gates: [risk_evaluated]
+risk_mitigation_tasks: [1168]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-07-17 19:06
-updated_at: 2026-07-19 23:51
+updated_at: 2026-07-20 00:16
 boardidx: 30
 ---
 
