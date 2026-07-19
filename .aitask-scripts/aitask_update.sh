@@ -36,6 +36,23 @@ BATCH_GATES_SET=false
 # (list, replaces-all). Registered for durability alongside gates: (t635_3).
 BATCH_ALSO_BLOCKS_DEPENDENTS=""
 BATCH_ALSO_BLOCKS_DEPENDENTS_SET=false
+# active_gates tuple (t635_33): derived enforcement state written by
+# `aitask_gate.sh materialize-active`. The four flags form an ATOMIC unit —
+# validate_active_tuple_flags hard-rejects a strict subset (all four or none),
+# so a partial invocation can never persist a mixed tuple.
+BATCH_ACTIVE_GATES=""
+BATCH_ACTIVE_GATES_SET=false
+BATCH_ACTIVE_GATES_FILTERED=""
+BATCH_ACTIVE_GATES_FILTERED_SET=false
+BATCH_ACTIVE_GATES_PROFILE=""
+BATCH_ACTIVE_GATES_PROFILE_SET=false
+BATCH_ACTIVE_GATES_DIGEST=""
+BATCH_ACTIVE_GATES_DIGEST_SET=false
+# --clear-active-gates removes the whole tuple (grouped deletion — the only
+# other legitimate tuple state besides all-four-present). Used by
+# materialize-active's failure path so a stale snapshot from a previous
+# profile can never silently keep governing after a failed re-derivation.
+BATCH_CLEAR_ACTIVE_GATES=false
 BATCH_EFFORT=""
 BATCH_STATUS=""
 BATCH_TYPE=""
@@ -174,6 +191,18 @@ Gate options (batch mode):
                          Per-task extra gates required before dependents unblock
                          (comma-separated, replaces all; empty clears it).
                          Augments the registry's blocks_dependents defaults.
+  --active-gates CSV, --active-gates-filtered CSV,
+  --active-gates-profile NAME, --active-gates-digest DIGEST
+                         The derived active-gates tuple (t635_33), written by
+                         `aitask_gate.sh materialize-active` — not intended for
+                         manual use. ATOMIC: pass all four or none (a strict
+                         subset is rejected with no file change). An empty
+                         --active-gates CSV persists the load-bearing
+                         `active_gates: []` (fully profile-filtered task).
+  --clear-active-gates   Remove the whole active-gates tuple (grouped deletion;
+                         raw `gates:` then governs). Mutually exclusive with
+                         the --active-gates* flags. Used by materialize-active's
+                         failure path to drop a stale snapshot.
 
 Description options (batch mode):
   --description, -d DESC New description text (replaces existing)
@@ -277,6 +306,11 @@ parse_args() {
             --risk-mitigation-tasks) BATCH_RISK_MITIGATION_TASKS="$2"; BATCH_RISK_MITIGATION_TASKS_SET=true; shift 2 ;;
             --gates) BATCH_GATES="$2"; BATCH_GATES_SET=true; shift 2 ;;
             --also-blocks-dependents) BATCH_ALSO_BLOCKS_DEPENDENTS="$2"; BATCH_ALSO_BLOCKS_DEPENDENTS_SET=true; shift 2 ;;
+            --active-gates) BATCH_ACTIVE_GATES="$2"; BATCH_ACTIVE_GATES_SET=true; shift 2 ;;
+            --active-gates-filtered) BATCH_ACTIVE_GATES_FILTERED="$2"; BATCH_ACTIVE_GATES_FILTERED_SET=true; shift 2 ;;
+            --active-gates-profile) BATCH_ACTIVE_GATES_PROFILE="$2"; BATCH_ACTIVE_GATES_PROFILE_SET=true; shift 2 ;;
+            --active-gates-digest) BATCH_ACTIVE_GATES_DIGEST="$2"; BATCH_ACTIVE_GATES_DIGEST_SET=true; shift 2 ;;
+            --clear-active-gates) BATCH_CLEAR_ACTIVE_GATES=true; shift ;;
             --effort|-e) BATCH_EFFORT="$2"; shift 2 ;;
             --status|-s) BATCH_STATUS="$2"; shift 2 ;;
             --type) BATCH_TYPE="$2"; shift 2 ;;
@@ -376,7 +410,21 @@ parse_yaml_frontmatter() {
     CURRENT_RISK_GOAL_ACHIEVEMENT=""
     CURRENT_RISK_MITIGATION_TASKS=""
     CURRENT_GATES=""
+    # gates: is presence-tracked too (t635_33): an explicit `gates: []` is a
+    # deliberate opt-out (never backfilled from a profile, and a resolve input
+    # authenticated by the tuple's gates-half digest) — dropping the key on an
+    # unrelated rewrite would both revoke the opt-out at the next resolve and
+    # instantly stale every freshly written tuple.
+    CURRENT_GATES_PRESENT=false
     CURRENT_ALSO_BLOCKS_DEPENDENTS=""
+    # Active-gates tuple (t635_33). Presence-tracked: an explicit
+    # `active_gates: []` is load-bearing (fully profile-filtered task) and must
+    # survive unrelated rewrites — value emptiness cannot express that.
+    CURRENT_ACTIVE_GATES=""
+    CURRENT_ACTIVE_GATES_FILTERED=""
+    CURRENT_ACTIVE_GATES_PROFILE=""
+    CURRENT_ACTIVE_GATES_DIGEST=""
+    CURRENT_ACTIVE_TUPLE_PRESENT=false
     CURRENT_EFFORT="medium"
     CURRENT_DEPS=""
     CURRENT_XDEPS=""
@@ -465,10 +513,20 @@ parse_yaml_frontmatter() {
                     ;;
                 gates)
                     CURRENT_GATES=$(parse_yaml_list "$value")
+                    CURRENT_GATES_PRESENT=true
                     ;;
                 also_blocks_dependents)
                     CURRENT_ALSO_BLOCKS_DEPENDENTS=$(parse_yaml_list "$value")
                     ;;
+                active_gates)
+                    CURRENT_ACTIVE_GATES=$(parse_yaml_list "$value")
+                    CURRENT_ACTIVE_TUPLE_PRESENT=true
+                    ;;
+                active_gates_filtered)
+                    CURRENT_ACTIVE_GATES_FILTERED=$(parse_yaml_list "$value")
+                    ;;
+                active_gates_profile) CURRENT_ACTIVE_GATES_PROFILE="$value" ;;
+                active_gates_digest) CURRENT_ACTIVE_GATES_DIGEST="$value" ;;
                 children_to_implement)
                     CURRENT_CHILDREN_TO_IMPLEMENT=$(parse_yaml_list "$value")
                     CURRENT_CHILDREN_TO_IMPLEMENT=$(normalize_task_ids "$CURRENT_CHILDREN_TO_IMPLEMENT")
@@ -617,12 +675,16 @@ write_task_file() {
         echo "issue_type: $issue_type"
         echo "status: $status"
         echo "labels: $labels_yaml"
-        # Only write gates if present (opt-in declared gate set; absent/empty
-        # means "no gates active" per the gate framework, so never emit `[]`).
+        # gates: is presence-tracked (t635_33): a non-empty set always emits;
+        # an explicit empty `gates: []` (deliberate opt-out, and a resolve
+        # input authenticated by the tuple's gates-half digest) is preserved
+        # via CURRENT_GATES_PRESENT. Only a truly absent key emits nothing.
         if [[ -n "$gates" ]]; then
             local gates_yaml
             gates_yaml=$(format_yaml_list "$gates")
             echo "gates: $gates_yaml"
+        elif [[ "$CURRENT_GATES_PRESENT" == true ]]; then
+            echo "gates: []"
         fi
         # Only write also_blocks_dependents if present (per-task extra unblock
         # gates; absent/empty means "registry defaults only", so never emit []).
@@ -630,6 +692,19 @@ write_task_file() {
             local abd_yaml
             abd_yaml=$(format_yaml_list "$also_blocks_dependents")
             echo "also_blocks_dependents: $abd_yaml"
+        fi
+        # Active-gates tuple (t635_33): derived enforcement state, emitted as a
+        # UNIT from the CURRENT_ACTIVE_* globals (parse_yaml_frontmatter fills
+        # them; the batch --active-gates* path overrides them). PRESENCE-tracked,
+        # NOT the `gates:` never-emit-[] pattern: `active_gates: []` is
+        # load-bearing (a fully profile-filtered task) — dropping it on an
+        # unrelated rewrite would fall enforcement back to raw `gates:` and
+        # convert a filtered task back into a gated one.
+        if [[ "$CURRENT_ACTIVE_TUPLE_PRESENT" == true ]]; then
+            echo "active_gates: $(format_yaml_list "$CURRENT_ACTIVE_GATES")"
+            echo "active_gates_filtered: $(format_yaml_list "$CURRENT_ACTIVE_GATES_FILTERED")"
+            echo "active_gates_profile: $CURRENT_ACTIVE_GATES_PROFILE"
+            echo "active_gates_digest: $CURRENT_ACTIVE_GATES_DIGEST"
         fi
         # Only write verifies if present
         if [[ -n "$verifies" ]]; then
@@ -1010,7 +1085,13 @@ handle_child_task_completion() {
     local saved_risk_goal_achievement="$CURRENT_RISK_GOAL_ACHIEVEMENT"
     local saved_risk_mitigation="$CURRENT_RISK_MITIGATION_TASKS"
     local saved_gates="$CURRENT_GATES"
+    local saved_gates_present="$CURRENT_GATES_PRESENT"
     local saved_abd="$CURRENT_ALSO_BLOCKS_DEPENDENTS"
+    local saved_active_gates="$CURRENT_ACTIVE_GATES"
+    local saved_active_filtered="$CURRENT_ACTIVE_GATES_FILTERED"
+    local saved_active_profile="$CURRENT_ACTIVE_GATES_PROFILE"
+    local saved_active_digest="$CURRENT_ACTIVE_GATES_DIGEST"
+    local saved_active_present="$CURRENT_ACTIVE_TUPLE_PRESENT"
     local saved_effort="$CURRENT_EFFORT"
     local saved_deps="$CURRENT_DEPS"
     local saved_xdeps="$CURRENT_XDEPS"
@@ -1058,7 +1139,13 @@ handle_child_task_completion() {
     CURRENT_RISK_GOAL_ACHIEVEMENT="$saved_risk_goal_achievement"
     CURRENT_RISK_MITIGATION_TASKS="$saved_risk_mitigation"
     CURRENT_GATES="$saved_gates"
+    CURRENT_GATES_PRESENT="$saved_gates_present"
     CURRENT_ALSO_BLOCKS_DEPENDENTS="$saved_abd"
+    CURRENT_ACTIVE_GATES="$saved_active_gates"
+    CURRENT_ACTIVE_GATES_FILTERED="$saved_active_filtered"
+    CURRENT_ACTIVE_GATES_PROFILE="$saved_active_profile"
+    CURRENT_ACTIVE_GATES_DIGEST="$saved_active_digest"
+    CURRENT_ACTIVE_TUPLE_PRESENT="$saved_active_present"
     CURRENT_EFFORT="$saved_effort"
     CURRENT_DEPS="$saved_deps"
     CURRENT_XDEPS="$saved_xdeps"
@@ -1657,6 +1744,9 @@ run_batch_mode() {
     [[ "$BATCH_IMPLEMENTED_WITH_SET" == true ]] && has_update=true
     [[ ${#BATCH_ADD_FILE_REFS[@]} -gt 0 ]] && has_update=true
     [[ ${#BATCH_REMOVE_FILE_REFS[@]} -gt 0 ]] && has_update=true
+    # Any tuple flag counts (atomicity is validated separately at parse time).
+    [[ "$BATCH_ACTIVE_GATES_SET" == true ]] && has_update=true
+    [[ "$BATCH_CLEAR_ACTIVE_GATES" == true ]] && has_update=true
 
     if [[ "$has_update" == false ]]; then
         die "No update parameters specified. Use --help for usage."
@@ -1728,10 +1818,36 @@ run_batch_mode() {
     new_risk_mitigation_tasks=$(normalize_task_ids "$new_risk_mitigation_tasks")
 
     # gates: list, replaces-all (batch). Defaults to current → preserved when
-    # --gates is not passed, so an unrelated `ait update` never drops the field.
+    # --gates is not passed (INCLUDING an explicit empty `gates: []` opt-out,
+    # via CURRENT_GATES_PRESENT). `--gates ""` keeps its documented contract:
+    # it clears the key entirely (presence false).
     local new_gates="$CURRENT_GATES"
     if [[ "$BATCH_GATES_SET" == true ]]; then
         new_gates="$BATCH_GATES"
+        if [[ -n "$BATCH_GATES" ]]; then
+            CURRENT_GATES_PRESENT=true
+        else
+            CURRENT_GATES_PRESENT=false
+        fi
+    fi
+    # active_gates tuple (t635_33): atomic replace-all. validate_active_tuple_flags
+    # (called at parse time) guarantees the four flags arrive together, so a
+    # single presence check suffices. Not passed → the parsed CURRENT_ACTIVE_*
+    # values flow through write_task_file untouched (preserve-by-default, incl.
+    # an explicit empty tuple).
+    if [[ "$BATCH_ACTIVE_GATES_SET" == true ]]; then
+        CURRENT_ACTIVE_GATES="$BATCH_ACTIVE_GATES"
+        CURRENT_ACTIVE_GATES_FILTERED="$BATCH_ACTIVE_GATES_FILTERED"
+        CURRENT_ACTIVE_GATES_PROFILE="$BATCH_ACTIVE_GATES_PROFILE"
+        CURRENT_ACTIVE_GATES_DIGEST="$BATCH_ACTIVE_GATES_DIGEST"
+        CURRENT_ACTIVE_TUPLE_PRESENT=true
+    elif [[ "$BATCH_CLEAR_ACTIVE_GATES" == true ]]; then
+        # Grouped deletion: the merged result has NO tuple (raw gates: governs).
+        CURRENT_ACTIVE_GATES=""
+        CURRENT_ACTIVE_GATES_FILTERED=""
+        CURRENT_ACTIVE_GATES_PROFILE=""
+        CURRENT_ACTIVE_GATES_DIGEST=""
+        CURRENT_ACTIVE_TUPLE_PRESENT=false
     fi
     # also_blocks_dependents: list, replaces-all (batch). Same preserve-by-default
     # semantics as gates: (t635_3).
@@ -1911,6 +2027,25 @@ run_batch_mode() {
 
 # --- Main ---
 
+# Active-gates tuple atomicity guard (t635_33): the four --active-gates* flags
+# must be passed together (all four) or not at all — a strict subset would let
+# a caller persist a mixed tuple (e.g. a new active set under a stale digest),
+# which the outputs-half digest could then only classify as corrupt after the
+# fact. Rejecting at the CLI makes the atomicity structural, not a convention.
+validate_active_tuple_flags() {
+    local n=0
+    [[ "$BATCH_ACTIVE_GATES_SET" == true ]] && n=$((n + 1))
+    [[ "$BATCH_ACTIVE_GATES_FILTERED_SET" == true ]] && n=$((n + 1))
+    [[ "$BATCH_ACTIVE_GATES_PROFILE_SET" == true ]] && n=$((n + 1))
+    [[ "$BATCH_ACTIVE_GATES_DIGEST_SET" == true ]] && n=$((n + 1))
+    if [[ $n -gt 0 && $n -lt 4 ]]; then
+        die "--active-gates* flags form an atomic tuple: pass all four (--active-gates, --active-gates-filtered, --active-gates-profile, --active-gates-digest) or none — task file unchanged"
+    fi
+    if [[ "$BATCH_CLEAR_ACTIVE_GATES" == true && $n -gt 0 ]]; then
+        die "--clear-active-gates cannot be combined with the --active-gates* tuple flags — task file unchanged"
+    fi
+}
+
 main() {
     # Cross-repo redirect (t832_7): if `--project <name>` appears, resolve
     # the name to a sibling aitasks project root, then re-exec that
@@ -1992,6 +2127,11 @@ main() {
     ORIGINAL_ARGS=("$@")
 
     parse_args "$@"
+
+    # Active-gates tuple atomicity (t635_33): the four --active-gates* flags
+    # are all-or-nothing — reject a strict subset BEFORE any file is touched,
+    # so a partial invocation can never persist a mixed tuple.
+    validate_active_tuple_flags
 
     # Normalize + validate --anchor (topic group key): strip an optional leading
     # t, assert the id shape, and confirm the target exists. An empty value

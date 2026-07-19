@@ -434,5 +434,79 @@ class TestGateRunsUnion(unittest.TestCase):
         self.assertEqual(merged.count("run=2026-06-30T10:00:00Z"), 1)  # deduped
 
 
+# ---------------------------------------------------------------------------
+# TestActiveGatesTupleMerge (t635_33)
+# ---------------------------------------------------------------------------
+
+class TestActiveGatesTupleMerge(unittest.TestCase):
+    """The four active_gates* fields move as ONE group: the newer-updated_at
+    side's tuple STATE wins wholesale — including absence. Never mixes sides."""
+
+    def _tuple(self, active, filtered, profile, digest):
+        return {
+            "active_gates": active,
+            "active_gates_filtered": filtered,
+            "active_gates_profile": profile,
+            "active_gates_digest": digest,
+        }
+
+    def test_both_present_newer_wins_wholesale(self):
+        local = {"updated_at": "2026-07-01 10:00",
+                 **self._tuple(["risk_evaluated"], [], "fast", "a.b.c")}
+        remote = {"updated_at": "2026-07-02 10:00",
+                  **self._tuple([], ["risk_evaluated"], "default", "d.e.f")}
+        merged, unresolved = merge_frontmatter(local, remote, batch=True)
+        self.assertEqual(merged["active_gates"], [])
+        self.assertEqual(merged["active_gates_filtered"], ["risk_evaluated"])
+        self.assertEqual(merged["active_gates_profile"], "default")
+        self.assertEqual(merged["active_gates_digest"], "d.e.f")
+        for f in ("active_gates", "active_gates_filtered",
+                  "active_gates_profile", "active_gates_digest"):
+            self.assertNotIn(f, unresolved)
+
+    def test_newer_absent_deletes_tuple_local_newer(self):
+        # Newer LOCAL legitimately has no tuple; the older remote's snapshot
+        # must NOT be resurrected by one-sided preservation.
+        local = {"updated_at": "2026-07-02 10:00"}
+        remote = {"updated_at": "2026-07-01 10:00",
+                  **self._tuple(["risk_evaluated"], [], "fast", "a.b.c")}
+        merged, _ = merge_frontmatter(local, remote, batch=True)
+        for f in ("active_gates", "active_gates_filtered",
+                  "active_gates_profile", "active_gates_digest"):
+            self.assertNotIn(f, merged)
+
+    def test_newer_absent_deletes_tuple_remote_newer(self):
+        local = {"updated_at": "2026-07-01 10:00",
+                 **self._tuple(["risk_evaluated"], [], "fast", "a.b.c")}
+        remote = {"updated_at": "2026-07-02 10:00"}
+        merged, _ = merge_frontmatter(local, remote, batch=True)
+        for f in ("active_gates", "active_gates_filtered",
+                  "active_gates_profile", "active_gates_digest"):
+            self.assertNotIn(f, merged)
+
+    def test_never_mixes_sides(self):
+        # Newer side carries only a PARTIAL tuple (should not happen — CLI
+        # enforces atomicity — but merge must still not blend the older side's
+        # remaining fields into it).
+        local = {"updated_at": "2026-07-02 10:00",
+                 "active_gates": ["risk_evaluated"]}
+        remote = {"updated_at": "2026-07-01 10:00",
+                  **self._tuple([], ["risk_evaluated"], "default", "d.e.f")}
+        merged, _ = merge_frontmatter(local, remote, batch=True)
+        self.assertEqual(merged.get("active_gates"), ["risk_evaluated"])
+        self.assertNotIn("active_gates_filtered", merged)
+        self.assertNotIn("active_gates_profile", merged)
+        self.assertNotIn("active_gates_digest", merged)
+
+    def test_empty_tuple_preserved_when_newer(self):
+        # An explicit empty active set (fully filtered task) is load-bearing.
+        local = {"updated_at": "2026-07-02 10:00",
+                 **self._tuple([], ["risk_evaluated"], "default", "d.e.f")}
+        remote = {"updated_at": "2026-07-01 10:00"}
+        merged, _ = merge_frontmatter(local, remote, batch=True)
+        self.assertEqual(merged["active_gates"], [])
+        self.assertEqual(merged["active_gates_filtered"], ["risk_evaluated"])
+
+
 if __name__ == "__main__":
     unittest.main()

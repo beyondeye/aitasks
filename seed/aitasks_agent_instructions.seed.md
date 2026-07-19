@@ -22,8 +22,18 @@ folded_tasks: [2, 4]     # merged child tasks
 folded_into: 1            # parent task ID if folded
 anchor: 130               # topic-group key = root task id (absent ⇒ task is its own root)
 issue: https://...        # linked issue tracker URL
+gates: [risk_evaluated]   # declared gate set (intent; [] = opt-out)
+active_gates: [risk_evaluated]      # framework-derived enforced set — never hand-edit
+active_gates_filtered: []           # framework-derived (profile-removed gates)
+active_gates_profile: fast          # framework-derived provenance stamp
+active_gates_digest: a.b.c          # framework-derived integrity digest
 ---
 ```
+
+The four `active_gates*` fields are a derived tuple written atomically by the
+framework at pick/claim time (`aitask_gate.sh materialize-active`) — do not
+edit or partially copy them; a mismatched digest makes enforcement fall back
+to the raw `gates:` field until the next pick.
 
 ## Task Hierarchy
 

@@ -209,48 +209,87 @@ assert_contains "synthetic profile triggers true branch (return immediately)" \
 assert_not_contains "synthetic profile suppresses fallback prose" \
     '**Profile check.** If the active profile has' "$SYNTH_OUT"
 
-# === Test 5: risk steps are profile-invariant + runtime-gated (t635_14) ===
+# === Test 5: risk machinery is profile-CONDITIONAL via rendered_set (t635_33) ===
 #
-# t635_14 retired the `risk_evaluation` profile toggle. The planning risk
-# producer + mitigation design, the Step-7 risk-field write, the "before" /
-# Step-8d "after" creation, and the gate-declaration backfill are now ALWAYS
-# rendered and gated at RUNTIME (aitask_gate.sh effective-gates / has-gates-field),
-# not by a render-time profile key. So they appear in EVERY profile render
-# (default included), and Step 8c always points to Step 8d. (Previously these
-# were wrapped in {%- if profile.risk_evaluation %} and proven by per-profile
-# goldens; that gate is gone.)
-echo "=== Test 5: risk steps profile-invariant (runtime-gated, t635_14) ==="
-for profile in "${PROFILES[@]}"; do
+# t635_33 re-introduced render-time omission: the risk producer machinery is
+# wrapped in {% if 'risk_evaluated' in rendered_set %}, where rendered_set is
+# the profile's render ceiling (rendered_gates if the key is present, else
+# default_gates, else []). `fast` declares default_gates: [risk_evaluated] →
+# machinery rendered; `default`/`remote` declare none → machinery OMITTED and
+# Step 8c routes straight to Step 9. Correctness is preserved at runtime by the
+# claim-time `materialize-active` tuple (ALWAYS rendered — never Jinja-gated),
+# which replaced the former Step-7 gates: backfill.
+echo "=== Test 5: risk machinery profile-conditional via rendered_set (t635_33) ==="
+RISK_PROFILES=(fast)
+LEAN_PROFILES=(default remote)
+for profile in "${RISK_PROFILES[@]}"; do
     RP="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
     RS="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
     assert_contains "planning.md $profile: emits the eval step" \
         'Risk evaluation (end of planning)' "$RP"
     assert_contains "planning.md $profile: emits the mitigation design step" \
         'Risk-mitigation design (end of planning)' "$RP"
-    assert_contains "planning.md $profile: emits the runtime risk-gate check" \
-        'aitask_gate.sh effective-gates' "$RP"
-    assert_contains "SKILL.md $profile: emits the two-field write" \
-        '--risk-code-health' "$RS"
-    assert_contains "SKILL.md $profile: write includes goal-achievement flag" \
-        '--risk-goal-achievement' "$RS"
+    assert_contains "planning.md $profile: risk check is the exit-code verb" \
+        'aitask_gate.sh active <task_id> risk_evaluated' "$RP"
+    assert_not_contains "planning.md $profile: no effective-gates text parsing" \
+        'effective-gates <task_id> --profile' "$RP"
     assert_contains "SKILL.md $profile: emits the Step 7 'before' creation hook" \
         'Risk-mitigation "before" creation' "$RS"
     assert_contains "SKILL.md $profile: emits Step 8d 'after' creation" \
         'Step 8d: Risk-Mitigation' "$RS"
     assert_contains "SKILL.md $profile: Step 8c points to Step 8d" \
         'proceed to Step 8d' "$RS"
-    # Gate-declaration backfill (always rendered, t635_14): keys off the
-    # field-presence oracle so an explicit `gates: []` opt-out is preserved.
-    assert_contains "SKILL.md $profile: emits the gate-declaration backfill" \
+done
+for profile in "${LEAN_PROFILES[@]}"; do
+    RP="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    RS="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    assert_not_contains "planning.md $profile: risk eval step OMITTED" \
+        'Risk evaluation (end of planning)' "$RP"
+    assert_not_contains "planning.md $profile: mitigation design OMITTED" \
+        'Risk-mitigation design (end of planning)' "$RP"
+    assert_not_contains "planning.md $profile: risk-section guard OMITTED" \
+        'Risk-section guard' "$RP"
+    assert_not_contains "SKILL.md $profile: 'before' creation OMITTED" \
+        'Risk-mitigation "before" creation' "$RS"
+    assert_not_contains "SKILL.md $profile: Step 8d OMITTED" \
+        'Step 8d: Risk-Mitigation' "$RS"
+    assert_contains "SKILL.md $profile: Step 8c routes straight to Step 9" \
+        'When the procedure returns, proceed to Step 9.' "$RS"
+done
+for profile in "${PROFILES[@]}"; do
+    RP="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    RS="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    # The claim-time materialization is the correctness safety valve: ALWAYS
+    # rendered, in every profile (writing `active_gates: []` is what makes a
+    # declared-but-unrendered gate invisible to every enforcer).
+    assert_contains "SKILL.md $profile: materialize-active always rendered" \
+        'aitask_gate.sh materialize-active' "$RS"
+    # The two-field risk write stays profile-invariant (runtime no-op when the
+    # plan has no ## Risk section).
+    assert_contains "SKILL.md $profile: emits the two-field write" \
+        '--risk-code-health' "$RS"
+    # The Step-7 gates: backfill is retired — no inline bash block remains.
+    assert_not_contains "SKILL.md $profile: no gate-declaration backfill" \
         'Gate-declaration backfill' "$RS"
-    assert_contains "SKILL.md $profile: backfill uses the has-gates-field oracle" \
-        'aitask_gate.sh has-gates-field' "$RS"
     # The retired profile key must not reappear as a render-time Jinja gate.
     assert_not_contains "planning.md $profile: no profile.risk_evaluation Jinja" \
         'profile.risk_evaluation' "$RP"
     assert_not_contains "SKILL.md $profile: no profile.risk_evaluation Jinja" \
         'profile.risk_evaluation' "$RS"
 done
+# Material leanness: the lean render must be strictly smaller than the risk
+# render for BOTH files (the t635_14 regression this task reverses).
+FAST_S_LINES="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/fast.yaml" claude 2>&1 | wc -l)"
+DEF_S_LINES="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/default.yaml" claude 2>&1 | wc -l)"
+FAST_P_LINES="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/fast.yaml" claude 2>&1 | wc -l)"
+DEF_P_LINES="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/default.yaml" claude 2>&1 | wc -l)"
+if [[ "$DEF_S_LINES" -lt "$FAST_S_LINES" && "$DEF_P_LINES" -lt "$FAST_P_LINES" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: default render not leaner (SKILL $DEF_S_LINES vs $FAST_S_LINES; planning $DEF_P_LINES vs $FAST_P_LINES)"
+fi
+TOTAL=$((TOTAL + 1))
 
 # === Test 6: synthetic record_gates: true fires the gated recording sites (t635_2) ===
 #
@@ -267,10 +306,14 @@ done
 echo "=== Test 6: synthetic record_gates: true profile ==="
 TMP_REC="$(mktemp "${TMPDIR:-/tmp}/test_record_XXXXXX.yaml")"
 trap 'rm -f "$TMP_PROFILE" "$TMP_RISK" "$TMP_REC"' EXIT
+# default_gates makes rendered_set = [risk_evaluated], so the nested
+# risk_evaluated self-record site (record_gates AND rendered-set gated since
+# t635_33) is exercised alongside the plain record_gates sites.
 cat > "$TMP_REC" <<'YAML'
 name: test_record_gates
 description: "Synthetic profile for t635_2 test (record_gates true)"
 record_gates: true
+default_gates: [risk_evaluated]
 YAML
 REC_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$TMP_REC" claude 2>&1)"
 REC_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$TMP_REC" claude 2>&1)"

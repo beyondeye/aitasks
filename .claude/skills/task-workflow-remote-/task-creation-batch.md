@@ -29,6 +29,10 @@ Creates a task using `aitask_create.sh` in batch mode.
 > (`aitasks/metadata/gates.yaml`) defines how each gate runs; the profile chooses
 > which to declare. This is rendered into the command for you (no caller parameter);
 > when the profile declares none, the flag is omitted.
+>
+> Never pass the `active_gates*` fields at creation — they form a
+> framework-derived tuple written only by `aitask_gate.sh materialize-active`
+> at pick/claim time (t635_33), not user- or caller-authored metadata.
 
 ## Output
 

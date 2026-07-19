@@ -174,7 +174,9 @@ build_dep_satisfied_set() {
     [[ -x "$gate_script" ]] || return 0
 
     local candidates
-    candidates=$(grep -lE '^(gates|also_blocks_dependents):' \
+    # active_gates included (t635_33): a profile-default gate task carries only
+    # the materialized tuple (no `gates:` field), and must still be evaluated.
+    candidates=$(grep -lE '^(gates|active_gates|also_blocks_dependents):' \
         "$TASK_DIR"/t[0-9]*_*.md "$TASK_DIR"/t[0-9]*/t[0-9]*_[0-9]*_*.md 2>/dev/null || true)
     [[ -z "$candidates" ]] && return 0
 

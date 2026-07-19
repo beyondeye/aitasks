@@ -34,7 +34,8 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `post_plan_action` | string | no | `"start_implementation"` = skip to impl; `"ask"` = always show checkpoint; omit = ask | Step 6 checkpoint |
 | `post_plan_action_for_child` | string | no | Same values as `post_plan_action`; overrides `post_plan_action` when the current task is a child task. Defaults to `post_plan_action` if omitted | Step 6 checkpoint |
 | `record_gates` | bool | no | `true` = record approval checkpoints (plan/review/merge approval, plus build and risk evaluation when they run) as gate-run entries in the task's `## Gate Runs` ledger, committed for cross-PC visibility and later resume; omit or `false` = disabled (opt-in, off by default) | Steps 6–9 |
-| `default_gates` | list | no | Comma-separated gate names declared into new tasks' `gates:` frontmatter (auto-injected as `--gates` at creation) and backfilled onto a picked task that lacks the field. Drives the planning risk producer in lockstep with the verify-time checker — declaring `risk_evaluated` is what now runs risk evaluation (it replaces the former `risk_evaluation` toggle). Omit/empty = declare nothing. See **Gate Declaration Model**. | Step 6.1 / Step 7 (creation + backfill) |
+| `default_gates` | list | no | Comma-separated gate names declared into new tasks' `gates:` frontmatter (auto-injected as `--gates` at creation) and used as the resolve fallback for a picked task lacking the field (materialized into `active_gates` at claim, Step 4). Drives the planning risk producer in lockstep with the verify-time checker — declaring `risk_evaluated` is what now runs risk evaluation (it replaces the former `risk_evaluation` toggle). Omit/empty = declare nothing. See **Gate Declaration Model**. | task creation / Step 4 (materialize) |
+| `rendered_gates` | list | no | **Render ceiling (t635_33):** the gates whose workflow machinery is rendered into this profile's task-workflow variant, and the cap on every task's enforced set (`active_gates = resolve(gates:, default_gates) ∩ rendered set`). Key-presence semantics: present (even `[]` — an explicit render-nothing override) wins; omitted = defaults to `default_gates`, so existing profiles need no new key. A gate outside the ceiling is invisible everywhere — never rendered, never enforced, never blocks archival or dependents. | render time / Step 4 (materialize) |
 | `max_parallel_gates` | int | no | Max unlocked machine-gate verifiers the gate orchestrator (`aitask-run-gates` / `ait gates run`) dispatches concurrently, capped by core count; omit = `2` | `aitask_run_gates.sh` (gate orchestrator) |
 | `enableFeedbackQuestions` | bool | no | `false` = skip satisfaction feedback prompts; omit or `true` = ask them | Satisfaction Feedback Procedure |
 | `qa_mode` | string | no | `"ask"` = prompt; `"create_task"` = auto-create follow-up; `"implement"` = implement tests now; `"plan_only"` = export plan only; omit = ask | aitask-qa Step 5 |
@@ -67,15 +68,24 @@ checkpoint is configured in exactly one place — never both. (This is the princ
 behind retiring the former `risk_evaluation` toggle in favour of declaring the
 `risk_evaluated` gate.)
 
-- **Effective gate set.** For any task, the effective set is its own `gates:`
-  frontmatter field when present (even an explicit empty `gates: []`, a deliberate
-  opt-out), otherwise the active profile's `default_gates`. The workflow resolves it
-  with `aitask_gate.sh effective-gates <task_id> [--profile <file>]`.
+- **Active gate set (enforced).** For any task, resolution starts from its own
+  `gates:` frontmatter field when present (even an explicit empty `gates: []`, a
+  deliberate opt-out), otherwise the active profile's `default_gates`; the result
+  is then intersected with the profile's **render ceiling** (`rendered_gates`,
+  defaulting to `default_gates`). Step 4 persists the outcome on the task as the
+  four-field `active_gates` tuple (`aitask_gate.sh materialize-active`), which
+  every enforcer — planning producer (`aitask_gate.sh active`), Step-9
+  orchestrator, archival guard, dependency-unblock — reads. Raw `gates:` stays
+  the declared **intent**; a declared-but-unrendered gate is filtered into
+  `active_gates_filtered` and can never block anything.
 - **Declaration points.** Profile-driven task creation auto-injects `--gates` from
-  `default_gates` (see `task-creation-batch.md`); when a picked task has no `gates:`
-  field, the task-workflow **backfills** it from `default_gates` post-approval
-  (Step 7). After that the task's literal `gates:` field is authoritative everywhere
-  (planning producer, Step-9 orchestrator, archival guard).
+  `default_gates` (see `task-creation-batch.md`); a picked task's enforcement
+  comes from the claim-time materialization above (there is no `gates:` backfill —
+  a task without the field keeps it absent). Re-picking under another profile
+  re-materializes the tuple, so enforcement always follows the CURRENT profile;
+  `aitask_gate.sh active-gates-status <task_id> --profile <file>` reports
+  freshness. (`aitask_gate.sh effective-gates` remains for introspection of the
+  pre-ceiling resolve.)
 - **Producer + checker toggle together.** Declaring `risk_evaluated` runs **both**
   the planning-time risk **producer** (the `## Risk` section + levels, before plan
   approval) and the verify-time **checker** (the `aitask-gate-risk` verifier at

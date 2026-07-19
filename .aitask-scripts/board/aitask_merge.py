@@ -129,6 +129,12 @@ def parse_conflict_file(content: str) -> tuple[str, str] | None:
 _LIST_UNION_FIELDS = frozenset({"labels", "depends"})
 _KEEP_LOCAL_FIELDS = frozenset(BOARD_KEYS)
 _PROMPTABLE_FIELDS = frozenset({"priority", "effort"})
+# Active-gates tuple (t635_33): derived, profile-filtered enforcement state
+# written atomically at claim time. Deliberately NOT in _LIST_UNION_FIELDS
+# (like `gates`, it is computed replace-all — a union would fabricate a set no
+# profile ever produced) and resolved as ONE group in merge_frontmatter.
+_ACTIVE_TUPLE_FIELDS = ("active_gates", "active_gates_filtered",
+                        "active_gates_profile", "active_gates_digest")
 
 
 def _parse_timestamp(ts) -> str:
@@ -171,7 +177,22 @@ def merge_frontmatter(
 
     all_keys = list(dict.fromkeys(list(local_meta.keys()) + list(remote_meta.keys())))
 
+    # Active-gates tuple (t635_33): grouped presence/deletion semantics. The
+    # four fields move as a UNIT, taken wholesale from the newer-updated_at
+    # side's STATE — including absence: if the newer side legitimately has no
+    # tuple, the merged result has NO tuple (the generic one-side-only rule
+    # below would resurrect the older side's obsolete snapshot). Never mixes
+    # sides — a mixed tuple has inconsistent provenance and would only be
+    # caught later as digest corruption.
+    if any(k in local_meta or k in remote_meta for k in _ACTIVE_TUPLE_FIELDS):
+        tuple_src = local_meta if newer == "LOCAL" else remote_meta
+        for k in _ACTIVE_TUPLE_FIELDS:
+            if k in tuple_src:
+                merged[k] = tuple_src[k]
+
     for key in all_keys:
+        if key in _ACTIVE_TUPLE_FIELDS:
+            continue  # resolved as a group above
         in_local = key in local_meta
         in_remote = key in remote_meta
 

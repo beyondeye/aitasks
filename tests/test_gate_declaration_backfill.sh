@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# test_gate_declaration_backfill.sh - Tests the Step-7 gate-declaration backfill
-# primitive (t635_14): a picked task with NO `gates:` field adopts the active
-# profile's `default_gates`, while an explicit `gates: []` opt-out and an
-# already-declaring task are left untouched, and a profile with no `default_gates`
-# is a no-op.
+# test_gate_declaration_backfill.sh - Tests the gate-declaration CLI primitives
+# (t635_14): has-gates-field (presence oracle) -> effective-gates --profile ->
+# update --gates. A task with NO `gates:` field adopts the profile's
+# `default_gates` through this sequence, while an explicit `gates: []` opt-out
+# and an already-declaring task are left untouched, and a profile with no
+# `default_gates` is a no-op. The presence oracle (not `list`) is what protects
+# an explicit `gates: []`.
 #
-# Exercises the exact helper sequence the task-workflow Step-7 backfill runs:
-#   has-gates-field (presence oracle) -> effective-gates --profile -> update --gates
-# The presence oracle (not `list`) is what protects an explicit `gates: []`.
+# NOTE (t635_33): the task-workflow no longer runs this sequence — the Step-7
+# backfill was replaced by the claim-time `materialize-active` tuple (see
+# tests/test_gate_active_gates.sh, which asserts raw `gates:` is NOT
+# backfilled). The primitives stay shipped (creation-side `--gates` injection,
+# fold union writes, debugging) and this file keeps them covered.
 #
 # Run: bash tests/test_gate_declaration_backfill.sh
 

@@ -364,12 +364,14 @@ class Engine:
     def _read_state(self):
         with open(self.file, encoding="utf-8") as fh:
             text = fh.read()
-        declared = gl.read_declared_gates_from_text(text)
+        # Enforced active set (t635_33): a profile-filtered gate is never
+        # scheduled/recorded; falls back to raw `gates:` when no valid tuple.
+        active = gl.read_active_gates_from_text(text)
         runs = gl.parse_gate_run_blocks(text)
         state = {}
         for r in runs:
             state[r.name] = r
-        return declared, state, _runs_by_gate(runs)
+        return active, state, _runs_by_gate(runs)
 
     def _run_machine_gate(self, gate: str, runs_by_gate: dict) -> None:
         meta = self.registry.get(gate, {})
@@ -444,8 +446,11 @@ class Engine:
         return False
 
     def run(self, gate=None, dry_run=False) -> int:
-        declared, state, runs_by_gate = self._read_state()
-        if not declared:
+        # `active` is the enforced set (t635_33). An empty set — no gates, an
+        # opt-out, or a fully profile-filtered task — prints the same sentinel
+        # line SKILL.md Step 9 branches on for the legacy inline fallback.
+        active, state, runs_by_gate = self._read_state()
+        if not active:
             self.reports.append("No gates declared; nothing to do.")
             return 0
         if gate is not None:
@@ -454,19 +459,19 @@ class Engine:
         # return and the no-progress break. Sized for the worst case: every
         # gate's full retry budget plus the unlock-chain depth.
         total_budget = sum((self.registry.get(g, {}).get("max_retries", 0) or 0) + 1
-                           for g in declared)
-        for _ in range(total_budget + len(declared) + 2):
-            declared, state, runs_by_gate = self._read_state()
-            if all(_satisfied(state, g) for g in declared):
+                           for g in active)
+        for _ in range(total_budget + len(active) + 2):
+            active, state, runs_by_gate = self._read_state()
+            if all(_satisfied(state, g) for g in active):
                 self.reports.append("All gates satisfied. Task ready for archive "
                                     "(suggest status: Done — not auto-applied).")
                 return 0
-            unlocked = compute_unlocked(declared, self.registry, state, runs_by_gate)
+            unlocked = compute_unlocked(active, self.registry, state, runs_by_gate)
             if not unlocked:
-                for g in declared:
+                for g in active:
                     if not _satisfied(state, g):
                         self.reports.append(
-                            f"  {g}: " + blocked_reason(g, declared, self.registry,
+                            f"  {g}: " + blocked_reason(g, active, self.registry,
                                                         state, runs_by_gate, self.digest))
                 return 0
             machine = [g for g in unlocked
@@ -486,7 +491,7 @@ class Engine:
                 # stuck). Report why and stop instead of breaking silently.
                 for g in unlocked:
                     self.reports.append(
-                        f"  {g}: " + blocked_reason(g, declared, self.registry,
+                        f"  {g}: " + blocked_reason(g, active, self.registry,
                                                     state, runs_by_gate, self.digest))
                 return 0
             changed = False
@@ -505,11 +510,11 @@ class Engine:
     def _force_one(self, gate: str) -> int:
         """`--gate`: force-run one gate, overriding skip-already-passed + budget,
         but only when its predecessors are satisfied (concern 7)."""
-        declared, state, runs_by_gate = self._read_state()
-        if gate not in declared:
-            self.reports.append(f"{gate}: not a declared gate for this task")
+        active, state, runs_by_gate = self._read_state()
+        if gate not in active:
+            self.reports.append(f"{gate}: not in this task's active gate set")
             return 0
-        preds = predecessors_map(declared, self.registry).get(gate, [])
+        preds = predecessors_map(active, self.registry).get(gate, [])
         unmet = [p for p in preds if not _satisfied(state, p)]
         if unmet:
             self.reports.append(f"{gate}: predecessors not satisfied ({', '.join(unmet)}) — not forced")
@@ -534,11 +539,11 @@ def run(task_file: str, task_id: str, *, gate=None, dry_run=False,
 def unlocked(task_file: str, registry_file=DEFAULT_REGISTRY) -> list[str]:
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
-    declared = gl.read_declared_gates_from_text(text)
+    active = gl.read_active_gates_from_text(text)  # enforced set (t635_33)
     registry = gl.read_registry(registry_file)
     state = {r.name: r for r in gl.parse_gate_run_blocks(text)}
     runs_by_gate = _runs_by_gate(gl.parse_gate_run_blocks(text))
-    return compute_unlocked(declared, registry, state, runs_by_gate)
+    return compute_unlocked(active, registry, state, runs_by_gate)
 
 
 # --- CLI ------------------------------------------------------------------
