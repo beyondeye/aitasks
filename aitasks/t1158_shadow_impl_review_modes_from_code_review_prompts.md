@@ -7,8 +7,9 @@ status: Implementing
 labels: [shadow]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/fable5
 created_at: 2026-07-17 19:06
-updated_at: 2026-07-19 12:42
+updated_at: 2026-07-19 23:50
 boardidx: 30
 ---
 
@@ -165,3 +166,8 @@ pass. Design intent (final shape decided at planning):
   and working in every tier.
 - SKILL.md Step 3 routing text updated so the user can request a tier in free
   text ("quick review of the implementation", "deep review").
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-19T20:51:07Z status=pass attempt=1 type=human
