@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [shadow]
 gates: [risk_evaluated]
 risk_mitigation_tasks: [1168]
@@ -13,6 +13,7 @@ assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-07-17 19:06
 updated_at: 2026-07-20 00:16
+completed_at: 2026-07-20 00:16
 boardidx: 30
 ---
 
@@ -180,3 +181,14 @@ pass. Design intent (final shape decided at planning):
 > **✅ gate:plan_approved** run=2026-07-19T20:51:07Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-19T21:12:46Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-19T21:16:35Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:be9ad60e156d7842
+
+> **✅ gate:risk_evaluated** run=2026-07-19T21:16:35Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1158/risk_evaluated_2026-07-19T21:16:35Z-risk_evaluated-a1.log`
