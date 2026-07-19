@@ -50,7 +50,14 @@ the parser-safety guard in `tests/test_concern_parser.py`.
 - `priority` ∈ {`high`, `medium`, `low`}, matched case-insensitively. An unknown
   value degrades to `low`; the item is **never dropped**.
 - `region` is a free-text plan-region / axis label (which part of the plan the
-  concern targets).
+  concern targets). Producers MUST keep it **short** (≤ ~30 chars — a
+  `basename.ext:LINE` locus or an axis label, never a full repo path; full
+  paths go in the body). The parser requires the complete
+  `[priority | region]` marker on one captured line: some agent TUIs (e.g.
+  Codex CLI's markdown renderer) hard-wrap long output rows with **literal
+  newlines** that even the `-J` wrap-join cannot rejoin, and a wrap landing
+  *inside the bracket* leaves no parseable marker line — the whole item is
+  silently dropped (observed live with a 48-char full-path region).
 - `body` is free text. A wrapped continuation line (any non-blank line between
   the fences that is **not** a marker) is appended, space-joined, to the current
   concern's body.

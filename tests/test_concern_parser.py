@@ -190,6 +190,26 @@ class TestParseConcerns(unittest.TestCase):
         )
         self.assertTrue(payload.startswith("Custom:\n\n- [low | r] b"))
 
+    def test_disposition_verdict_trailer_round_trips(self):
+        """A body carrying the t1158 disposition/verdict trailer round-trips
+        unchanged through parse → clipboard payload.
+
+        The tiered impl review appends ``Disposition: …`` / ``Verified: …`` as
+        free text inside the body (not parser fields); the wire format is
+        unchanged, so the trailer must survive verbatim end-to-end.
+        """
+        body = (
+            "The new guard drops the falsy-zero case, so an index of 0 is "
+            "treated as missing and the first entry is silently skipped. "
+            "Disposition: blocking. Verified: CONFIRMED."
+        )
+        text = block(f"- [high | lib/picker.py:42] {body}")
+        concerns = parse_concerns(text)
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(concerns[0].body, body)  # trailer intact after parse
+        payload = build_clipboard_payload(concerns)
+        self.assertIn(f"- [high | lib/picker.py:42] {body}", payload)
+
 
 class TestShadowDocsNotParserLive(unittest.TestCase):
     """Guard: no shadow sub-procedure doc may embed a *parser-live* example block.

@@ -1,4 +1,4 @@
-# Implementation Challenge (adversarial)
+# Implementation Challenge (adversarial, tiered)
 
 A sub-procedure of the shadow skill (`aitask-shadow`). Use it when the user wants
 the **code actually written** for a task stress-tested — "review the
@@ -7,6 +7,15 @@ written". This is the implementation-side companion to `plan-challenge.md` (whic
 reviews the *plan*). Your job is to be a constructive adversary against the
 **implementation**: actively look for where the code, as written, is wrong — not
 to reassure.
+
+The review runs at one of four **effort tiers** — `quick`, `basic`, `standard`,
+`deep` — selected in the **Tier selection** section below. **Basic is the
+compatibility tier**: the direct successor of the pre-tier adversarial review
+(the legacy three-axis analysis, preserved as-is). **Standard is the recommended
+improved review.** Angle texts, the verdict ladder, the disposition rubric, and
+the ordering/cap rules live in the shared catalog
+`.claude/skills/aitask-shadow/impl-review-angles.md` — read it when a tier
+references it.
 
 **Advisory-only:** present the findings to the user; never drive the followed
 agent's pane. (Reading local git state — commits, diffs — is fine; "advisory-only"
@@ -51,6 +60,9 @@ governs the *followed pane*, not your own repo reads.)
    Review whichever of committed / staged / unstaged actually carries this task's
    changes. **Tell the user which source you reviewed** (committed vs
    working-tree) — a working-tree review is of in-progress, not-yet-final state.
+
+   Throughout this procedure and the angle catalog, "the diff" means this
+   **resolved diff source** — there is no separate diff-gathering phase.
 3. **The plan's `## Final Implementation Notes`** — the agent's own narrative
    (*Actual work done*, *Deviations from plan*, *Issues encountered*, *Key
    decisions*), written by task-workflow Step 8 at end of implementation. This is
@@ -60,7 +72,7 @@ When you (re)capture the followed pane to read long content, use the deep
 plan-review capture — `./.aitask-scripts/aitask_shadow_capture.sh --deep <followed_pane_id>` —
 so a long diff or notes section isn't truncated to the default window's tail.
 
-## "Too early to review" gate (required — run first)
+## "Too early to review" gate (required — run first, every tier)
 
 If the resolved plan — **after** applying the archived-plan fallback in input 1 —
 does **not** contain a `## Final Implementation Notes` section, the implementation
@@ -74,29 +86,179 @@ or **proceed anyway** against the partial state. Do not silently continue. If th
 user proceeds anyway, the diff to review is necessarily the **working-tree /
 index** state (input 2's fallback), not committed history — review that and say so.
 
-## Attack the implementation along these axes
+## Tier selection (after the gate)
 
-(Skip any that don't apply; add others the change invites.)
+Auto-detect the tier from the user's free-text ask:
 
-- **Implementation flaws** — bugs, missed cases, incorrect logic, off-by-ones,
-  mishandled error/empty/edge inputs, or regressions in the code *as actually
-  written*, checked against the plan/task intent and the real diff.
-- **Risks left unmitigated** — cross-reference the plan's `## Risk` section and
-  Final Implementation Notes. Do **NOT** re-flag a risk the implementation
-  explicitly addressed/mitigated; surface only risks that remain **open** in the
-  landed code.
-- **Unjustified deviations from the plan** — compare the diff against the plan. A
-  deviation the Final Implementation Notes justify is fine. Flag only
-  deviations that are unexplained or whose justification does not hold up.
+- "quick" / "fast" → **Quick**
+- "basic" / "legacy" / an unqualified "adversarial review" → **Basic**
+- "standard" / "normal" → **Standard**
+- "deep" / "thorough" / "max" / "exhaustive" → **Deep**
+- A generic "review the implementation" with no level or compatibility wording:
+  ask via `AskUserQuestion` (Header "Review tier") with four options —
+  "Standard (Recommended) — systematic angle-based review with precision
+  verification, ≤8 findings" / "Basic — the legacy three-axis adversarial
+  review, single full-context pass, no cap" / "Quick — reduced hunk-only scan,
+  no verification, ≤4 findings" / "Deep — expanded angles, recall-biased
+  verification, gap sweep, ≤15 findings".
 
-## Produce a prioritized list, then stay honest
+  **Deterministic 3-option-capped adaptation:** agents whose user-input tool
+  caps at 3 options per question (e.g. Codex CLI `request_user_input` — see
+  `.agents/skills/codex_tool_mapping.md`) MUST use this fixed two-stage chooser
+  instead of ad-hoc combining/dropping: Stage 1 = "Standard (Recommended)" /
+  "Basic — legacy adversarial review" / "Other tier (quick or deep)…";
+  Stage 2 (only when "Other tier") = "Quick — reduced hunk-only scan" /
+  "Deep — expanded angles + gap sweep". Free-text tier naming bypasses the
+  chooser entirely on every agent.
 
-Produce a prioritized list of concrete problems. For each: a one-line statement,
-*why* it bites (the triggering scenario), and severity (high / medium / low).
-Order by severity. Separate fatal (should block acceptance) from fixable
-(follow-up). **Stay honest** (same rule as `plan-challenge.md`): if a dimension is
-genuinely clean, say so briefly — a short list of real problems beats a long list
-of weak ones. No generic "consider adding tests" filler.
+Nothing routes to Quick implicitly — it runs only on an explicit request.
+
+**Angle scoping (user intent wins).** The tier picks the *default* angle set
+(see the activation table). A user ask naming specific angles or focus areas
+("just check the callers", "only plan deviations", "skip the cleanup angles")
+narrows or extends that default, at the tier's depth (candidate caps and the
+verify pass still apply in Standard/Deep). Map free-text focus phrases to
+catalog angle names and confirm the resolved set in one line. Two guard rails:
+
+- Only an **explicit user narrowing** may drop a legacy axis from a run's
+  default set — for Basic that protects all three axes (S0/S1/S2) equally; for
+  Standard/Deep it protects S1/S2 (S0 is not in their default set — superseded
+  by the A–E methodology).
+- Scoping never changes a tier's **methodology**: at Basic, a focus request
+  narrows the attention of the single adversarial pass — it does not activate
+  Standard's candidate fan-out, verdict ladder, or Deep's gap sweep. A user who
+  wants the angle methodology asks for Standard/Deep.
+
+State the chosen tier (and any angle scoping) to the user before starting.
+
+## Angle-activation table
+
+Angle and mechanism texts live in `impl-review-angles.md`.
+
+| Angle / mechanism | quick | basic | standard | deep |
+|---|---|---|---|---|
+| Single full-context legacy pass (methodology) | — | ✓ | — | — |
+| S0 — implementation flaws (legacy broad axis) | — | ✓ (legacy axis 1) | — (superseded by A–C) | — (superseded by A–E) |
+| A — line-by-line diff scan | hunk-only variant | — | ✓ | ✓ |
+| B — removed-behavior auditor | — | — | ✓ | ✓ |
+| C — cross-file tracer | — | — | ✓ | ✓ |
+| D — language-pitfall specialist | — | — | — | ✓ |
+| E — wrapper/proxy correctness | — | — | — | ✓ |
+| Reuse / Simplification / Efficiency | dup+dead-code hunk glance | — | ✓ | ✓ |
+| Altitude | — | — | ✓ | ✓ |
+| Conventions (CLAUDE.md) | — | — | ✓ | ✓ |
+| S1 — unmitigated plan risks | — | ✓ (legacy axis 2) | ✓ | ✓ |
+| S2 — plan-deviation auditor | notes-vs-diff glance | ✓ (legacy axis 3) | ✓ | ✓ |
+| Verify pass (verdict ladder) | — | — | precision | recall |
+| Gap sweep | — | — | — | ✓ |
+| Findings cap (see cap-overflow rule in the catalog) | ≤4 | none | ≤8 | ≤15 |
+
+## Tier: Quick
+
+`quick → 1 diff pass → no verify → ≤4 findings`
+
+A reduced hunk-only scan; no full-context review, no verification. Tell the
+user up front this is the reduced-scope pass. One pass over the resolved diff:
+flag only runtime-correctness bugs visible from the hunk alone — inverted/wrong
+condition, off-by-one, null/undefined deref where adjacent lines show the value
+can be absent, removed guard, falsy-zero check, missing `await`, wrong-variable
+copy-paste, error swallowed in a catch that should propagate — plus hunk-visible
+duplication of an existing helper and dead code the diff leaves behind. Also
+one cheap shadow glance: scan the Final Implementation Notes against the diff
+for a glaring unexplained deviation. Skip test/fixture hunks (`test/`, `spec/`,
+`__tests__/`, `*_test.*`, `*.test.*`, `fixtures/`, `testdata/`). No full-file
+reads. Do **not** flag style, naming, perf, missing tests, or anything outside
+the hunk. At most **4 findings**, one line each. If nothing qualifies, say so.
+
+## Tier: Basic (= Legacy)
+
+`basic → 1 full-context adversarial pass → no formal verify → prioritized findings`
+
+The pre-tier adversarial review, preserved one-to-one — the compatibility tier.
+One full-context adversarial pass over the resolved implementation diff, the
+plan, its `## Risk` section, and the Final Implementation Notes, attacking
+along the three legacy axes from the catalog (skip any that don't apply; add
+others the change invites):
+
+- **Angle S0 — implementation flaws** (legacy axis 1)
+- **Angle S1 — unmitigated plan risks** (legacy axis 2)
+- **Angle S2 — plan-deviation auditor** (legacy axis 3)
+
+No multi-angle candidate fan-out, no verdict ladder, no gap sweep, no findings
+cap, no minimum. The findings presentation, honesty rules, advisory-only
+guardrail, and concern-block behavior below apply exactly as in every tier.
+
+## Tier: Standard
+
+`standard → 10 angles × 6 candidates → precision verify → ≤8 findings`
+
+The recommended improved review. You are reviewing for **precision**: every
+finding you surface should be one a maintainer would act on.
+
+**Phase 1 — Find candidates.** Run **10 independent finder angles** in sequence
+yourself, in THIS context — do NOT spawn subagents for them: **A, B, C** +
+**Reuse, Simplification, Efficiency, Altitude, Conventions** + **S1, S2** (texts
+in the catalog). Each surfaces **up to 6 candidate findings** with `file`,
+`line`, a one-line `summary`, and a concrete `failure_scenario` (for
+cleanup/S-axis candidates, the failure scenario states the concrete cost per
+the catalog's cleanup-precedence note). Apply the catalog's **anti-drop rule**.
+
+**Phase 2 — Verify (self, 1-vote, 3-state, precision-biased).** Dedup
+candidates that point at the same line/mechanism, keeping the one with the most
+concrete failure scenario. For each remaining candidate, re-read the relevant
+code and assign exactly one verdict from the catalog's **verdict ladder**
+(without the recall addendum). Keep CONFIRMED and PLAUSIBLE; drop REFUTED.
+
+At most **8 findings** (cap-overflow rule in the catalog).
+
+## Tier: Deep
+
+`deep → 12 angles × 8 candidates → recall verify → gap sweep → ≤15 findings`
+
+You are reviewing for **recall**: catch every real bug a careful reviewer would
+catch in one sitting. At this level, catching real bugs matters more than
+avoiding false positives — err on the side of surfacing.
+
+**Phase 1 — Find candidates.** Run **12 independent finder angles** in sequence
+yourself, in THIS context — do NOT spawn subagents for them: **A, B, C, D, E** +
+**Reuse, Simplification, Efficiency, Altitude, Conventions** + **S1, S2**. Each
+surfaces **up to 8 candidate findings**. Do NOT let one angle's conclusions
+suppress another's — if two angles flag the same line for different reasons,
+record both. Apply the catalog's **anti-drop rule**.
+
+**Phase 2 — Verify (self, 1-vote, recall-biased).** Dedup near-duplicates (same
+defect, same location, same reason → keep one). For each remaining candidate,
+re-read the relevant code and assign exactly one verdict from the catalog's
+**verdict ladder**, applying the **recall addendum** (PLAUSIBLE by default).
+Keep CONFIRMED and PLAUSIBLE; drop REFUTED. Do NOT drop on uncertainty.
+
+**Phase 3 — Sweep for gaps.** Run the catalog's **gap-sweep focus list**:
+one more pass as a fresh reviewer holding the verified list, hunting ONLY for
+defects not already listed; up to 8 additional candidates, verified the same
+way as Phase 2. Never pad.
+
+At most **15 findings** (cap-overflow rule in the catalog).
+
+## Findings presentation (all tiers), then stay honest
+
+Produce a prose findings list, partitioned per the catalog's **ordering and
+caps** rules: `blocking` findings first, then `follow-up`, severity-ordered
+within each partition. For each finding give:
+
+- a one-line statement of the problem;
+- *why* it bites (the triggering scenario);
+- severity (high / medium / low);
+- its **disposition** — `blocking` or `follow-up`, classified per the
+  catalog's **disposition rubric** (impact vs obligations — never by angle,
+  never by verdict);
+- in Standard/Deep: its **verdict** (CONFIRMED or PLAUSIBLE).
+
+If the tier's cap omitted anything, disclose it per the catalog's disclosure
+rule. **Stay honest** (same rule as `plan-challenge.md`): if a dimension is
+genuinely clean, say so briefly — a short list of real problems beats a long
+list of weak ones. No generic "consider adding tests" filler, and never pad to
+reach a cap or a minimum — the extracted /code-review minimum-findings floors
+are deliberately NOT adopted, in any tier.
 
 ## Also emit the structured concern block (for pick-and-forward)
 
@@ -117,8 +279,8 @@ Emit a block delimited by an opening `===AITASK-CONCERNS===` line and a closing
 between them. The concern lines themselves look like:
 
 ```
-- [high | path/to/file.ext:120] The new guard compares the raw email instead of the normalized one, so a task assigned with a trailing-space email never matches and re-locks every resume. It bites on the common reclaim path. Normalizing both sides before compare would fix it — exact form your call.
-- [medium | unmitigated risk] The plan's Risk section flagged concurrent writers to the ledger, but the diff adds no locking around the append, so two resumes can interleave and drop one run. The Final Implementation Notes don't mention it, so it looks unaddressed rather than deliberately deferred.
+- [high | file.ext:120] In path/to/file.ext the new guard compares the raw email instead of the normalized one, so a task assigned with a trailing-space email never matches and re-locks every resume. It bites on the common reclaim path. Normalizing both sides before compare would fix it — exact form your call. Disposition: blocking. Verified: CONFIRMED.
+- [medium | unmitigated risk] The plan's Risk section flagged concurrent writers to the ledger, but the diff adds no locking around the append, so two resumes can interleave and drop one run. The Final Implementation Notes don't mention it, so it looks unaddressed rather than deliberately deferred. Disposition: follow-up. Verified: PLAUSIBLE.
 ```
 
 Rules — all load-bearing for minimonitor's parser; match them exactly:
@@ -128,15 +290,32 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
   it, so the parser can't mistake wrapped text for a new item).
 - `priority` is one of `high`, `medium`, `low` — reuse the severity you assigned.
 - `region` for implementation concerns should identify the **code locus**
-  (e.g. `path/to/file.ext:LINE`) or the **axis** (`unmitigated risk`,
-  `unjustified deviation`, `correctness`).
+  or the **axis** (`unmitigated risk`, `unjustified deviation`, `correctness`)
+  — and MUST stay **short** (≤ ~30 chars): use `basename.ext:LINE`, never a
+  full repo path (put the full path in the body instead). The whole
+  `[priority | region]` marker must survive on ONE rendered row: some agent
+  TUIs hard-wrap long lines with literal newlines that even a wrap-joined
+  capture cannot rejoin, and a wrap *inside the bracket* makes the item
+  unparseable to minimonitor.
 - `body` carries the **full framing** — the problem, *why it bites*, and enough
   context for the receiving agent to choose **how** to fix it. Do **not** compress
   it to a bare one-liner. "One logical line" is a **parser constraint** (emit no
   literal newline mid-concern — let the terminal soft-wrap), not a brevity
   constraint.
-- Order items by severity, matching the prose list.
+- End the body with the finding's disposition as prose (`Disposition: blocking.`
+  or `Disposition: follow-up.`) and, in Standard/Deep, its verdict
+  (`Verified: CONFIRMED.` / `Verified: PLAUSIBLE.`). These stay **free text
+  inside the body** — they are not parser fields, and the line format above is
+  unchanged.
+- Order items to match the prose list: blocking partition first, then
+  follow-up, severity-ordered within each partition.
 - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
   auto-offer only fires on a complete block.
 - Emit the block **only when you have at least one concern**. If the
   implementation is genuinely clean, omit the block entirely.
+
+**UX boundary (current minimonitor behavior):** minimonitor displays and
+forwards the disposition/verdict text inside each concern body, but it has no
+native address-now/follow-up sections, badges, filters, or separate actions
+yet — those belong to the future concern-format redesign, outside this
+procedure's scope.

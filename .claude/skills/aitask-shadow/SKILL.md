@@ -152,8 +152,13 @@ to spell it out).
 - **Adversarially challenge a plan** ("poke holes", "what could go wrong",
   "stress-test this") → read and follow `plan-challenge.md`.
 - **Adversarially challenge the implementation** ("review the implementation",
-  "did it actually do what the plan said", "check the code that was written") →
-  read and follow `impl-challenge.md`.
+  "adversarial review", "basic/legacy review", "quick review of the
+  implementation", "deep review of the code", "did it actually do what the
+  plan said", "check the code that was written") → read and follow
+  `impl-challenge.md`. It offers effort tiers (quick / basic / standard /
+  deep; basic = the legacy three-axis adversarial review) — a tier named in
+  the user's ask is honored ("adversarial review" with no qualifier → basic);
+  otherwise it asks, recommending standard.
 - **Socratic questioning of a plan** ("ask me questions about this", "make me
   think it through") → read and follow `plan-socratic.md`.
 - **Surface a plan's assumptions** ("what is this assuming?", "what has to be
