@@ -312,3 +312,5 @@ The following existing tasks have been folded into this task. Their requirements
 > Note: deferred
 
 > **✅ gate:plan_approved** run=2026-07-19T05:26:40Z status=pass attempt=2 type=human
+
+> **✅ gate:review_approved** run=2026-07-19T19:21:37Z status=pass attempt=1 type=human
