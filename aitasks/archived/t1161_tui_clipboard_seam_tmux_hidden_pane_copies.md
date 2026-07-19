@@ -3,10 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [tui, tmux]
+implemented_with: claudecode/fable5
 created_at: 2026-07-19 11:04
-updated_at: 2026-07-19 11:04
+updated_at: 2026-07-19 11:05
+completed_at: 2026-07-19 11:05
 ---
 
 TUI clipboard copies silently fail to reach the system clipboard when the copying pane is not in the tmux client's visible window.
