@@ -310,3 +310,69 @@ mitigation tasks are proposed.
 - Manual: `ait chatlink` → `w` → complete flow → config written to working tree, token file 0600, final preflight screen shows results; the TUI made no git commit.
 
 Refer to Step 9 (Post-Implementation) of the task workflow for merge/archival.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-19 07:55)
+- **Requested by user:** Clearing a pre-existing `repo_name` did not work — `build_edits()` omitted the key when empty, and the merge-never-drop writer then preserved the stale value. Add explicit clear/delete behavior for exposed optional fields + a regression test.
+- **Changes made:** Added a `DELETE` sentinel to `config_write` — an edit value of `DELETE` removes the key at either merge level (top-level or one-deep nested); `build_edits()` now maps an emptied `repo_name` to `config_write.DELETE` (the wizard owns the exposed keys, so clearing removes the stored value). Regression tests: writer-level (DELETE removes pre-existing `repo_name`, nested `thread_id` DELETE, no-op on absent key, other keys preserved) and wizard-level (emptied `repo_name` maps to DELETE in `build_edits`; cleared value absent from a saved config).
+- **Files affected:** `.aitask-scripts/chatlink/config_write.py`, `.aitask-scripts/chatlink/wizard.py`, `tests/test_chatlink_wizard.sh`, `tests/test_chatlink_tui.sh`
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. NEW
+  `.aitask-scripts/chatlink/preflight_render.py` (Textual-free
+  `SEVERITY_GLYPHS` + `format_row`, moved verbatim from `ChatlinkApp`),
+  NEW `.aitask-scripts/chatlink/config_write.py` (`HEADER`,
+  `ConfigWriteError`, `DELETE` sentinel, `write_config(path, edits,
+  allow_replace=False)` — one-level nested merge, parent-dir creation,
+  atomic tmp+`os.replace`), NEW `.aitask-scripts/chatlink/wizard.py`
+  (`WizardSeams`/`resolve_seams`, `initial_state` pre-fill via
+  `load_config_with_warnings`, `build_edits`, `_WizardStep` base +
+  IntakeChannel/Allowlist/DenyRepo/Ceilings/Token/Summary screens,
+  `_ReplaceConfirmScreen`, `start_wizard` chaining controller with
+  BACK/NEXT/DONE sentinels). `chatlink_app.py`: `w` binding →
+  `action_wizard`, wizard seam constructor params (I/O-free), `_format_row`
+  delegates to `preflight_render`. Tests: NEW `tests/test_chatlink_wizard.sh`
+  (24 headless checks: import guard, formatter shape, preservation,
+  nested merge, DELETE, fresh/absent-parent, round-trip, malformed-YAML
+  conflict, allow_replace, atomicity) + Pilot wizard walk in
+  `tests/test_chatlink_tui.sh` (56 checks total: abort-leaves-untouched,
+  inline errors, Back state retention, token-failure retry, 0600 token,
+  YAML content, preflight rows, commit hint, repo_name clearing).
+- **Deviations from plan:** None material. Allowlist "warn before
+  advancing" implemented as warn-once-then-advance on the second Next.
+  Post-save the Save button relabels to Close (dismisses the wizard).
+- **Issues encountered:** (1) Textual Button swallows a second click
+  inside its ~0.3s active-effect window — Pilot retry clicks need a 0.4s
+  sleep (test-only artifact, commented in the test). (2) The expensive-
+  probe spy count needed baselining because the panel's on_mount kick
+  shares the injected runner. (3) A `git stash` round-trip (used to
+  confirm a pre-existing test failure) collided with a concurrent
+  session's uncommitted work; all files were restored from the stash and
+  `stash@{0}` was deliberately left in place as the recovery point for
+  that session's `aitask_gate.sh` snapshot.
+- **Key decisions:** (1) `DELETE` sentinel in `config_write` (post-review
+  change request 1) so clearing an exposed optional field removes the key
+  instead of the merge preserving the stale value. (2) Malformed existing
+  YAML degrades to an explicit replace-confirm screen (`allow_replace`),
+  never a silent overwrite. (3) Failure-aware save renders per-item
+  outcomes (`config: written` / `token: FAILED — <reason>`) with
+  idempotent Save retry. (4) Shared row formatting extracted to
+  `preflight_render.py` because `chatlink_app.py` imports `wizard.py`
+  (circular-import avoidance); panel render assertions prove the
+  extraction behavior-preserving.
+- **Upstream defects identified:**
+  - `tests/test_shortcut_scopes.py:149` — `_QUICK_JUMPS` set is missing
+    `shortcut_explore_pick` (added to the TUI switcher by t1148, commit
+    24eac8dc4), so `TuiSwitcherScopeTests` fails 2/6 on a clean HEAD
+    checkout — pre-existing, unrelated to this task.
+- **Notes for sibling tasks:** t1149_4 (docs rewrite) should document the
+  `w` wizard flow: six steps, pre-fill from the existing config (edit ==
+  create), token stored via the 0600 per-PC file, summary runs preflight
+  and prints the `./ait git` commit hint (the TUI never commits).
+  t1149_5 (live Discord validation) can hook its check into the Summary
+  preflight section or as an extra wizard step before Token; the
+  `WizardSeams` injection pattern + `preflight_render.format_row` are the
+  extension points. The `DELETE` sentinel is the canonical way any future
+  wizard field clears a stored optional key.
