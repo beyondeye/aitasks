@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-17 19:06
-updated_at: 2026-07-17 19:06
+updated_at: 2026-07-19 12:42
 boardidx: 30
 ---
 
