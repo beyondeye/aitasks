@@ -6,6 +6,12 @@
 #    and status line against a seeded SessionsStore + audit log.
 # 3. Guard: importing chatlink.daemon must NOT load textual (the TUI is the
 #    only chatlink module allowed to).
+# 4. Config wizard walk (t1149_3): `w` opens the step chain; per-step inline
+#    validation keeps the modal open; Back retains state; abort mid-wizard
+#    leaves config + token untouched; Save writes the merged YAML + 0600
+#    token (failure-aware: a raising token writer keeps the config write,
+#    renders the per-item FAILED state, and a later Save retries); the
+#    summary renders injected preflight results + the ./ait git commit hint.
 # Run: bash tests/test_chatlink_tui.sh
 
 set -e
@@ -47,6 +53,8 @@ print("ok - chatlink.daemon import does not load textual")
 
 from textual.widgets import DataTable, Log, Static  # noqa: E402
 
+from chatlink import paths  # noqa: E402
+from chatlink import wizard as wiz  # noqa: E402
 from chatlink.audit import AUDIT_FILENAME  # noqa: E402
 from chatlink.chatlink_app import ChatlinkApp  # noqa: E402
 from chatlink.preflight import CheapChecks, CheckResult  # noqa: E402
@@ -203,6 +211,247 @@ async def main():
         check("failure surfaces error line",
               "expensive checks failed — press r to retry" in text)
         await app.action_quit()
+
+    # ---- config wizard walk (t1149_3) ------------------------------------
+    import stat
+    import yaml
+    from textual.widgets import Button, Input
+
+    wtmp = Path(tempfile.mkdtemp(prefix="chatlink-wizard-tui-test-"))
+    (wtmp / "sessions").mkdir()
+    config_path = wtmp / "chatlink_config.yaml"
+    # Redirect the default token writer/reader to the tmp root so the REAL
+    # paths.write_token (0700 dir / 0600 file) is exercised without ever
+    # touching the repo's metadata dir.
+    paths.project_root = lambda: wtmp
+    token_calls = {"fail": False}
+
+    def token_writer(tok):
+        if token_calls["fail"]:
+            raise RuntimeError("disk full")
+        return paths.write_token(tok)
+
+    wiz_expensive = {"n": 0}
+
+    def wiz_spy_expensive():
+        wiz_expensive["n"] += 1
+        return [
+            CheckResult(id="explore_relay_agent_command",
+                        category="operation", severity="pass",
+                        message="agent command: fake-agent … (5 words)"),
+            CheckResult(id="docker_binary", category="runtime",
+                        severity="pass", message="docker binary present"),
+        ]
+
+    def make_wizard_app():
+        return ChatlinkApp(
+            sessions_dir=wtmp / "sessions", clock=lambda: now,
+            cheap_runner=fake_cheap, expensive_runner=wiz_spy_expensive,
+            wizard_config_path=config_path, token_writer=token_writer)
+
+    # --- abort mid-wizard: zero writes ---
+    app2 = make_wizard_app()
+    async with app2.run_test(size=(110, 50)) as pilot:
+        await pilot.pause()
+        await pilot.press("w")
+        await pilot.pause()
+        check("w opens the intake step",
+              isinstance(app2.screen, wiz.IntakeChannelScreen))
+        app2.screen.query_one("#wiz_workspace", Input).value = "111"
+        app2.screen.query_one("#wiz_conversation", Input).value = "222"
+        app2.screen.query_one("#wiz_conversation", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("intake advances to allowlist",
+              isinstance(app2.screen, wiz.AllowlistScreen))
+        await pilot.press("escape")
+        await pilot.pause()
+        check("escape aborts the wizard",
+              not isinstance(app2.screen, wiz._WizardStep))
+        check("abort leaves config file untouched", not config_path.exists())
+        check("abort leaves token file untouched",
+              not paths.token_file().exists())
+        await app2.action_quit()
+
+    # --- full walk: validation, Back state retention, save, preflight ---
+    app3 = make_wizard_app()
+    async with app3.run_test(size=(110, 50)) as pilot:
+        await pilot.pause()
+        await pilot.press("w")
+        await pilot.pause()
+        scr = app3.screen
+        check("wizard restarts at intake",
+              isinstance(scr, wiz.IntakeChannelScreen))
+
+        # Inline validation: required field missing keeps the modal open.
+        scr.query_one("#wiz_workspace", Input).value = ""
+        scr.query_one("#wiz_workspace", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("missing workspace_id keeps intake open with inline error",
+              app3.screen is scr
+              and "workspace_id is required"
+              in str(scr.query_one("#wizard_error").render()))
+
+        scr.query_one("#wiz_provider", Input).value = "discord"
+        scr.query_one("#wiz_workspace", Input).value = "111"
+        scr.query_one("#wiz_conversation", Input).value = "222"
+        await pilot.press("enter")
+        await pilot.pause()
+        check("valid intake advances",
+              isinstance(app3.screen, wiz.AllowlistScreen))
+
+        # Back retains the entered intake values.
+        await pilot.click("#btn_wiz_back")
+        await pilot.pause()
+        check("back returns to intake with state retained",
+              isinstance(app3.screen, wiz.IntakeChannelScreen)
+              and app3.screen.query_one("#wiz_workspace", Input).value
+              == "111")
+        app3.screen.query_one("#wiz_workspace", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Allowlist: empty-empty warns once, advances on the second Next.
+        scr = app3.screen
+        scr.query_one("#wiz_user_ids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("empty allowlists warn without advancing",
+              app3.screen is scr
+              and "deny-by-default"
+              in str(scr.query_one("#wizard_error").render()))
+        await pilot.press("enter")
+        await pilot.pause()
+        check("second Next accepts empty allowlists",
+              isinstance(app3.screen, wiz.DenyRepoScreen))
+
+        app3.screen.query_one("#wiz_repo_name", Input).value = "testrepo"
+        app3.screen.query_one("#wiz_repo_name", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("deny/repo advances to ceilings",
+              isinstance(app3.screen, wiz.CeilingsScreen))
+
+        # Ceilings: out-of-range value keeps the modal open, then fix.
+        scr = app3.screen
+        scr.query_one("#wiz_sandbox_pids", Input).value = "99999"
+        scr.query_one("#wiz_sandbox_pids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("out-of-range ceiling keeps modal open with range error",
+              app3.screen is scr
+              and "outside [16, 4096]"
+              in str(scr.query_one("#wizard_error").render()))
+        scr.query_one("#wiz_sandbox_pids", Input).value = "1024"
+        await pilot.press("enter")
+        await pilot.pause()
+        check("valid ceilings advance to token",
+              isinstance(app3.screen, wiz.TokenScreen))
+
+        # Token: required when none stored yet.
+        scr = app3.screen
+        scr.query_one("#wiz_token", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("empty token without a stored one keeps modal open",
+              app3.screen is scr
+              and "no token stored yet"
+              in str(scr.query_one("#wizard_error").render()))
+        scr.query_one("#wiz_token", Input).value = "secret-token-123"
+        await pilot.press("enter")
+        await pilot.pause()
+        check("token advances to summary",
+              isinstance(app3.screen, wiz.SummaryScreen))
+
+        summary = str(
+            app3.screen.query_one("#wiz_summary").render())
+        check("summary shows token as will-write, never the value",
+              "(will write)" in summary
+              and "secret-token-123" not in summary)
+
+        # Failure-aware save: token writer raises AFTER the config landed.
+        # (Baseline the expensive-probe spy: the panel's on_mount kick also
+        # runs it; only the summary preflight should add one more call.)
+        probes_before = wiz_expensive["n"]
+        token_calls["fail"] = True
+        await pilot.click("#btn_wiz_next")
+        await pilot.pause()
+        state_text = str(
+            app3.screen.query_one("#wiz_save_state").render())
+        check("config write persisted despite token failure",
+              config_path.exists()
+              and "config: written" in state_text)
+        check("token failure rendered per-item, modal stays open",
+              isinstance(app3.screen, wiz.SummaryScreen)
+              and "token: FAILED — disk full" in state_text)
+        check("token file not written on failure",
+              not paths.token_file().exists())
+
+        # Retry with the writer fixed: save completes end-to-end. (The
+        # sleep steps past the Button's ~0.3s active-effect window, which
+        # swallows a same-instant second click — a Pilot artifact, not a
+        # user-facing behavior.)
+        token_calls["fail"] = False
+        await asyncio.sleep(0.4)
+        await pilot.click("#btn_wiz_next")
+        await app3.workers.wait_for_complete()
+        await pilot.pause()
+        state_text = str(
+            app3.screen.query_one("#wiz_save_state").render())
+        check("retry completes both writes",
+              "config: written" in state_text
+              and "token: written" in state_text)
+        check("token file written with 0600",
+              stat.S_IMODE(paths.token_file().stat().st_mode) == 0o600)
+        check("token file holds the entered value",
+              paths.token_file().read_text(encoding="utf-8")
+              == "secret-token-123")
+
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        check("saved config carries the wizard values",
+              data["intake_channel"]["workspace_id"] == "111"
+              and data["intake_channel"]["conversation_id"] == "222"
+              and data["allowed_user_ids"] == []
+              and data["repo_name"] == "testrepo"
+              and data["sandbox_pids"] == 1024)
+
+        # Clearing an exposed optional field must DELETE it, not let the
+        # merge writer preserve the stale value (regression: repo_name).
+        from chatlink import config_write
+        cleared = dict(app3.screen.state)
+        cleared["repo_name"] = ""
+        check("emptied repo_name maps to DELETE in build_edits",
+              wiz.build_edits(cleared)["repo_name"]
+              is config_write.DELETE)
+        config_write.write_config(config_path, wiz.build_edits(cleared))
+        check("cleared repo_name removed from a saved config",
+              "repo_name" not in yaml.safe_load(
+                  config_path.read_text(encoding="utf-8")))
+        # Restore the config the earlier assertions wrote (harmless).
+        config_write.write_config(config_path,
+                                  wiz.build_edits(app3.screen.state))
+
+        pf_text = str(app3.screen.query_one("#wiz_preflight").render())
+        check("summary renders cheap preflight rows",
+              "✗ bot token missing" in pf_text)
+        check("summary renders expensive preflight results",
+              wiz_expensive["n"] == probes_before + 1
+              and "agent command: fake-agent" in pf_text)
+        check("summary shows the ait git commit hint",
+              "./ait git add" in pf_text
+              and "never commits" in pf_text)
+
+        # Save became Close; it dismisses the wizard.
+        check("save button relabeled to Close",
+              str(app3.screen.query_one(
+                  "#btn_wiz_next", Button).label) == "Close")
+        await asyncio.sleep(0.4)
+        await pilot.click("#btn_wiz_next")
+        await pilot.pause()
+        check("close dismisses the wizard",
+              not isinstance(app3.screen, wiz._WizardStep))
+        await app3.action_quit()
 
     print(f"\nPASS: {PASS}, FAIL: 0")
 
