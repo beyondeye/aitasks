@@ -8,8 +8,9 @@ labels: [tui]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1148
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-19 10:51
-updated_at: 2026-07-19 12:45
+updated_at: 2026-07-19 12:53
 boardidx: 50
 ---
 
@@ -42,3 +43,8 @@ Add `"shortcut_explore_pick"` to `_QUICK_JUMPS` in
 `tests/test_shortcut_scopes.py` (and check whether the set can be derived
 from the switcher's quick-jump table instead of hand-maintained, per the
 derive-don't-duplicate convention).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-19T09:53:55Z status=pass attempt=1 type=human
