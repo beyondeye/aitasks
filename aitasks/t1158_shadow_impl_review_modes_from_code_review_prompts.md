@@ -8,6 +8,7 @@ labels: [shadow]
 gates: [risk_evaluated]
 created_at: 2026-07-17 19:06
 updated_at: 2026-07-17 19:06
+boardidx: 30
 ---
 
 Add effort-tiered, angle-based implementation review modes to the shadow skill

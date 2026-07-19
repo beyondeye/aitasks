@@ -7,7 +7,7 @@ status: Postponed
 labels: [task_attachments, design]
 created_at: 2026-06-30 17:39
 updated_at: 2026-06-30 17:39
-boardidx: 260
+boardidx: 290
 ---
 
 Track the deferred migration of attachment metadata from one-file-per-blob to
