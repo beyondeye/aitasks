@@ -26,6 +26,22 @@ Extend the framework's per-task git-worktree support so that a task family — a
 - **Existing precedent for deferred merges**: Claude-Web mode (`aitask-pickweb` + `aitask_web_merge.sh`) decouples "work on a branch" from "merge/archive later" via per-branch completion markers and a later merge scan. Study as a model.
 - No pending tasks overlap this scope (worktree mentions in active tasks are incidental).
 
+## Acceptance criteria
+
+- **Per-child selective sync-back is a required workflow stage, not an optional
+  optimization.** At each child's completion the workflow must evaluate the
+  family branch's accumulated changes and sync the eligible subset back to main
+  (with user approval). A design that only merges once at family completion is
+  an incomplete implementation of this task.
+- **Rationale — divergence control:** each partial sync shrinks the diff the
+  family branch carries against main, keeping the final merge small and
+  low-conflict. This works hand-in-hand with the sync-forward policy of design
+  question 6: regularly syncing eligible changes *to* main and rebasing/merging
+  main *into* the family branch are the two halves of keeping a long-lived
+  family worktree from diverging.
+- A targeted-sync sub-skill/procedure (hunk/path-level selection) exists as a
+  reusable unit, not inlined ad hoc into task-workflow steps.
+
 ## Design questions to resolve in planning
 
 1. **Sharing policy**: always share one worktree for all children vs. per-family opt-in (frontmatter field or profile key) vs. per-child decision at pick time.
