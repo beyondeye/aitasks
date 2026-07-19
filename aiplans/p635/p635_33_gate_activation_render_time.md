@@ -4,7 +4,8 @@ Parent Task: aitasks/t635_gates_framework.md
 Sibling Tasks: aitasks/t635/t635_24_*, t635_28_*, t635_30_*, t635_31_*, t635_34_*
 Archived Sibling Plans: aiplans/archived/p635/p635_14_profile_gate_declaration_unification.md
 Base branch: main
-plan_verified: []
+plan_verified:
+  - claudecode/fable5 @ 2026-07-19 08:25
 ---
 
 # t635_33 — Gate activation at render time (+ folded t635_25)
@@ -41,6 +42,18 @@ AND enforcement) in lockstep.
   materialization** and **the divergent `task-workflown`/pickn tree** — created
   as separate t635 siblings during implementation (separate render trees +
   goldens; folding them in balloons blast radius).
+
+**Verification pass (2026-07-19, pre-implementation re-pick):** all source
+anchors re-checked against main — zero drift (no commits touched any anchor file
+since 2026-07-16). Three anchor corrections folded in below: the merge script is
+`.aitask-scripts/board/aitask_merge.py` (not `.aitask-scripts/aitask_merge.py`);
+the t1156 creation sink is `filter_gates_for_issue_type` at
+`aitask_create.sh:1962-1965`; minor gate_ledger.py line drift in the site table.
+Confirmed unimplemented: no `active_gates` code, no `rendered_gates` key
+anywhere, no `active`/`materialize-active`/`active-gates-status` verbs;
+`tests/test_gate_active_gates.sh` absent; t635_35/36 not yet created (highest
+child t635_34); task-workflow authoring sources are plain `.md` with embedded
+Jinja (`planning.md`, `SKILL.md`), not `.md.j2`.
 
 ## Design
 
@@ -90,13 +103,14 @@ live profile (dependency-unblock, board, `ait gates run`) must never guess at
 "live" profile state they cannot see.
 
 **Manual-verification carve-out (t1156 — landed, must not regress).** t1156
-strips unreachable gates at the *creation* sink (`aitask_create.sh:1958`),
-leaving `gates:` absent on `manual_verification` tasks — and those tasks DO
-reach Step 4 (Check 3 runs ownership before dispatch), so an unguarded
-materialize would resolve profile `default_gates` and stamp `risk_evaluated`
-right back. `materialize-active` therefore applies the same issue-type rule at
-the materialize sink: for `issue_type: manual_verification`, intersect the
-resolved set with the shared allowlist `MANUAL_VERIFICATION_REACHABLE_GATES`
+strips unreachable gates at the *creation* sink (via
+`filter_gates_for_issue_type`, `aitask_create.sh:1962-1965`), leaving `gates:`
+absent on `manual_verification` tasks — and those tasks DO reach Step 4 (Check 3
+runs ownership before dispatch), so an unguarded materialize would resolve
+profile `default_gates` and stamp `risk_evaluated` right back.
+`materialize-active` therefore applies the same issue-type rule at the
+materialize sink: for `issue_type: manual_verification`, intersect the resolved
+set with the shared allowlist `MANUAL_VERIFICATION_REACHABLE_GATES`
 (`lib/task_utils.sh:262` — single source, same constant t1156's creation sink
 uses). ONE compute path (`cmd_compute_active`) is shared by `materialize-active`
 and `active-gates-status` so freshness comparison applies the identical rule.
@@ -122,8 +136,8 @@ under-enforce or keep enforcing a set computed from inputs that no longer exist.
 Profile-content drift under the same name is caught at every claim (materialize
 recomputes the full digest) and by `active-gates-status` wherever a profile is
 in scope. **Merge rule — grouped presence/deletion semantics:** the tuple moves
-as a UNIT — `aitask_merge.py` resolves the four fields as one group, taking the
-newer-`updated_at` side's tuple STATE wholesale, **including absence**: if the
+as a UNIT — `board/aitask_merge.py` resolves the four fields as one group, taking
+the newer-`updated_at` side's tuple STATE wholesale, **including absence**: if the
 newer side legitimately has no tuple and the older side has one, the merged
 result has NO tuple (generic per-field one-sided preservation would resurrect
 the obsolete snapshot). Never mixes sides. Tests cover: both-present with
@@ -162,7 +176,7 @@ aitask_gate.sh materialize-active <task_id> [--profile <file>]
   the persisted one, print `NOOP:unchanged` and do NOT rewrite the file, bump
   `updated_at`, or create a commit (a re-pick under the same profile is a no-op).
   The whole read-compute-write transaction runs under the existing per-task gate
-  mutex `acquire_gate_lock` (`aitask_gate.sh:68-80`, mkdir-based — the same lock
+  mutex `acquire_gate_lock` (`aitask_gate.sh:71`, mkdir-based — the same lock
   the ledger appenders take), so a whole-file rewrite can never interleave with a
   concurrent `append`. Tests: unchanged re-pick → `NOOP:unchanged`, zero diff;
   materialize racing a concurrent append → both effects land.
@@ -217,18 +231,19 @@ semantics). Tuple absent OR invalid → `filtered = []` → `also` unfiltered
 [merge_approved]` (not declared, not filtered) → dependents still BLOCKED until
 it passes.
 Swap raw-`gates:` reads → `read_active_gates_from_text` at ALL enforce/schedule/
-record sites (the stress-test found 9, not 4):
+record sites (the stress-test found 9, not 4; line anchors re-verified
+2026-07-19):
 
 | Site | File:line | Role |
 |---|---|---|
-| `should_self_record` | gate_ledger.py:455 | **P0** Step-7 self-record decision (else double-record returns) |
-| `dependents_status` | gate_ledger.py:678 | dependency-unblock |
-| `unmet_procedure_gates` | gate_ledger.py:702 | procedure-gate dispatch |
-| `archive_status_from_text` | gate_ledger.py:745 | archival guard (via `archive-ready`→`aitask_archive.sh gate_guard`) |
-| `read_task_gate_state` | gate_ledger.py:793 | board + monitor archive/deps decisions — **including the decision summaries**: `_has_failed_gate` (aitask_board.py:819-822) and the compact status/human-pending summaries scan ALL `state.current` ledger entries, so a failed historical run of a now-filtered gate would still classify "failed gate" / show pending. Filter every *decision* surface to the active set; historical runs of inactive gates stay visible **audit-only** (status text), never drive a classification. Board/monitor tests included. |
+| `should_self_record` | gate_ledger.py:445 | **P0** Step-7 self-record decision (else double-record returns) |
+| `dependents_status` | gate_ledger.py:665 | dependency-unblock |
+| `unmet_procedure_gates` | gate_ledger.py:695 | procedure-gate dispatch |
+| `archive_status_from_text` | gate_ledger.py:735 | archival guard (via `archive-ready`→`aitask_archive.sh gate_guard`) |
+| `read_task_gate_state` | gate_ledger.py:785 | board + monitor archive/deps decisions — **including the decision summaries**: `_has_failed_gate` (aitask_board.py:819-822) and the compact status/human-pending summaries scan ALL `state.current` ledger entries, so a failed historical run of a now-filtered gate would still classify "failed gate" / show pending. Filter every *decision* surface to the active set; historical runs of inactive gates stay visible **audit-only** (status text), never drive a classification. Board/monitor tests included. |
 | `unlocked()` | gate_orchestrator.py:537 | `ait gates unlocked` engine scheduling |
 | `_read_state` | gate_orchestrator.py:367 | `ait gates run` |
-| `format_list` | gate_ledger.py:620 | `aitask_gate.sh list` — **decided: stays on the DECLARED set** (it is the declared-intent introspection verb, per t635_14). The enforced set is displayed by `active-gates-status` (prints the full tuple + freshness). The gate-CLI contract doc states the distinction explicitly: `list` = declared intent, `active-gates-status` = enforced active set. |
+| `format_list` | gate_ledger.py:619 | `aitask_gate.sh list` — **decided: stays on the DECLARED set** (it is the declared-intent introspection verb, per t635_14). The enforced set is displayed by `active-gates-status` (prints the full tuple + freshness). The gate-CLI contract doc states the distinction explicitly: `list` = declared intent, `active-gates-status` = enforced active set. |
 | decision verbs | aitask_gate.sh | `active` / `should-self-record` read active set |
 
 Fallback: task with `active_gates` present → authoritative (filtered gate
@@ -239,9 +254,10 @@ has no passing gates either way, so `deps-unblock` at `aitask_ls.sh:192` never
 wrongly satisfies. No fix needed there beyond the grep below.
 
 ### `aitask_ls.sh` candidate grep (P0-4)
-`build_dep_satisfied_set` (aitask_ls.sh:177) greps `^(gates|also_blocks_dependents):`
-to pick candidates. Since gates now come via `active_gates` (no `gates:` backfill),
-add it: `^(gates|active_gates|also_blocks_dependents):` — else a profile-default
+`build_dep_satisfied_set` (aitask_ls.sh:172; grep at :177) greps
+`^(gates|also_blocks_dependents):` to pick candidates. Since gates now come via
+`active_gates` (no `gates:` backfill), add it:
+`^(gates|active_gates|also_blocks_dependents):` — else a profile-default
 gate task is never evaluated and the `dependents_status` swap is moot.
 
 ### CLI verbs (folded t635_25, retargeted to active_gates)
@@ -263,7 +279,7 @@ gate task is never evaluated and the `dependents_status` swap is moot.
 ### Render-time omission (minijinja, strict undefined)
 **P0-2 — inject `rendered_set` into the render context**, do NOT rely on `{% set %}`
 (it does not cross `{% include %}`, which planning.md uses). In
-`skill_template.py` `render_skill` (~:110-122), compute and pass:
+`skill_template.py` `render_skill` (def :110, render call :122), compute and pass:
 ```python
 # Key-presence, not truthiness: an explicit rendered_gates: [] must NOT fall
 # back to default_gates (it is the profile's render-nothing override).
@@ -296,6 +312,10 @@ including `rendered_gates: []` surviving the editor round-trip).
 
 ## Implementation steps
 
+0. **Create the two follow-up siblings FIRST** (t635_35 remote/web lane
+   materialization, t635_36 task-workflown/pickn migration — see Follow-up
+   tasks below), both `depends: [635_33]`, via the Batch Task Creation
+   Procedure. The Step-8 review checklist verifies they exist.
 1. **`lib/gate_ledger.py`** — add `read_active_tuple_from_text` (the single
    validated reader: gates-half + outputs-half digest checks, returns
    `(active, filtered, valid)`) with the `read_active_gates_from_text`
@@ -303,7 +323,7 @@ including `rendered_gates: []` surviving the editor round-trip).
    `_read_profile_rendered_gates` (key-presence fallback to `default_gates`),
    `compute_active_gates(task_text, profile_file)` (key-presence semantics), a
    staleness comparator; swap the 6 gate_ledger sites
-   (455/620[doc-only — stays declared]/678/702/745/793); in `dependents_status`,
+   (445/619[doc-only — stays declared]/665/695/735/785); in `dependents_status`,
    drop declared-but-filtered entries from `also_blocks_dependents` via the
    tuple reader's `filtered` (keep independent blockers).
 2. **`lib/gate_orchestrator.py`** — swap `_read_state:367` and `unlocked():537`.
@@ -312,7 +332,7 @@ including `rendered_gates: []` surviving the editor round-trip).
    pure-bash decision path for `active`/`has-gates-field`/`should-self-record`;
    dispatch + help. `materialize-active`: atomic-tuple write, hard-fail on
    unresolvable profile (no write), `NOOP:unchanged` read-compare-write, entire
-   transaction under `acquire_gate_lock` (`:68-80`), t1156 issue-type allowlist
+   transaction under `acquire_gate_lock` (`:71`), t1156 issue-type allowlist
    applied via the shared `MANUAL_VERIFICATION_REACHABLE_GATES`
    (`lib/task_utils.sh:262`) in the single `cmd_compute_active` path shared with
    `active-gates-status`.
@@ -328,7 +348,7 @@ including `rendered_gates: []` surviving the editor round-trip).
      CLI-enforced, not a caller convention + `write_task_file`
      field set. **CRITICAL —
      presence-tracked emission, NOT the `gates:` pattern:** `write_task_file`
-     emits `gates:` only when non-empty (`aitask_update.sh:620-625` — "never emit
+     emits `gates:` only when non-empty (`aitask_update.sh:620-626` — "never emit
      `[]`"), so reusing that plumbing would silently DROP the load-bearing
      `active_gates: []` on any unrelated rewrite → field absent → raw-`gates:`
      fallback → a filtered task converts back into a gated task. Track field
@@ -336,24 +356,25 @@ including `rendered_gates: []` surviving the editor round-trip).
      `active_gates: []` when the tuple is present. **Round-trip tests:** explicit
      empty tuple survives an unrelated `ait update` (e.g. `--priority`), a rename,
      a merge, and a fold.
-   - `aitask_merge.py merge_frontmatter()` — **grouped presence/deletion
-     semantics**: the four tuple fields resolve as ONE group to the
-     newer-`updated_at` side's state, including absence (newer-side-no-tuple
-     deletes; generic one-sided preservation would resurrect an obsolete
-     snapshot); never mix sides (a mixed tuple has inconsistent provenance);
-     keep `active_gates` OUT of `_LIST_UNION_FIELDS` (computed replace-all,
-     like `gates`); add to the key-order emit (~:433/:444). Tests: both-present
-     different → winner tuple; newer-absent vs older-present in both
-     local/remote orientations → no tuple.
+   - `board/aitask_merge.py` `merge_frontmatter()` (def :156) — **grouped
+     presence/deletion semantics**: the four tuple fields resolve as ONE group
+     to the newer-`updated_at` side's state, including absence
+     (newer-side-no-tuple deletes; generic one-sided preservation would
+     resurrect an obsolete snapshot); never mix sides (a mixed tuple has
+     inconsistent provenance); keep `active_gates` OUT of `_LIST_UNION_FIELDS`
+     (:129 — computed replace-all, like `gates`); add to the key-order emit
+     (~:434/:437). Tests: both-present different → winner tuple; newer-absent
+     vs older-present in both local/remote orientations → no tuple.
    - `aitask_fold_mark.sh` — no-op; **must NOT union `active_gates`** (recomputed at
      next claim; unioning would corrupt it). Fold must also preserve an explicit
      empty tuple (round-trip test above).
    - `aitask_board.py` — read-only display of `active_gates` (low priority; ensure
-     not dropped). Extend `TaskGateState` (gate_ledger.py:119) if the board should
+     not dropped). Extend `TaskGateState` (gate_ledger.py:115) if the board should
      show the active set.
    - Docs: `task-format.md`, `CLAUDE.md`, seed instructions + AGENTS.md mirror,
      `task-creation-batch.md` — mark both as framework-derived, not user-authored.
-7. **Skill closures** (`.claude/skills/task-workflow/`):
+7. **Skill closures** (`.claude/skills/task-workflow/` — plain `.md` sources with
+   embedded Jinja):
    - `SKILL.md` Step 4 — always-rendered `materialize-active` call after ownership +
      optional `active-gates-status` staleness notice.
    - `planning.md` §6.1 — producer trigger + risk-section guard use `active <id>
@@ -423,11 +444,11 @@ including `rendered_gates: []` surviving the editor round-trip).
   `test_gate_no_double_record.sh`.
 - **Render-content assertions** — invert `test_skill_render_task_workflow.sh` **Test 5**
   (currently asserts the risk producer text is profile-INvariant across all 3 —
-  lines ~212-247): make it profile-conditional (present for fast, absent for
-  default/remote); transform the "backfill always rendered" asserts (~242-248) into
+  lines ~212-256): make it profile-conditional (present for fast, absent for
+  default/remote); transform the "backfill always rendered" asserts (~242-247) into
   "`materialize-active` always rendered"; keep the `profile.risk_evaluation`
   absent-asserts (~249-252). Assert `default` shrinks materially vs the post-t635_14
-  baseline. Keep Test 1b agent-invariance (the new gate is profile-dimension, not
+  baseline. Keep Test 1b invariance (the new gate is profile-dimension, not
   `{% if agent %}`).
 - **Regression** — `test_gate_effective_gates.sh`,
   `test_gate_declaration_backfill.sh` (adapt to Step-4 materialize replacing Step-7
@@ -478,7 +499,7 @@ reverse coordination note referencing t1156's archived plan.
 ### Code-health risk: high
 - **Wide blast radius across load-bearing enforcement.** The change swaps the
   gate-reading seam at 9 enforce/schedule/record sites (gate_ledger.py
-  455/620/678/702/745/793, gate_orchestrator.py 367/537), injects a render-context
+  445/619/665/695/735/785, gate_orchestrator.py 367/537), injects a render-context
   var (skill_template.py), edits the `aitask_ls.sh` candidate grep, and adds a
   frontmatter field with 5-layer registration — the archival guard, orchestrator,
   and dependency-unblock all change what they read at once · severity: high · →
