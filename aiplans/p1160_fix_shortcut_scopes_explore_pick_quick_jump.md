@@ -98,3 +98,26 @@ not needed (single file), but a quick `shellcheck`/lint is N/A (Python test).
 
 Follow task-workflow Step 8 (review + commit as `bug: ... (t1160)`) and Step 9
 (archival). The `risk_evaluated` gate is recorded by the Step-9 orchestrator.
+
+## Final Implementation Notes
+
+- **Actual work done:** Edited `tests/test_shortcut_scopes.py` only, exactly as
+  planned: (1) added `import tui_switcher  # noqa: E402` next to the existing lib
+  imports; (2) replaced the 13-entry hand-maintained `_QUICK_JUMPS` literal in
+  `TuiSwitcherScopeTests` with `{b.action for b in tui_switcher._QUICK_JUMP_BINDINGS}`
+  (the canonical 14-entry table); (3) added a sanity anchor loop at the top of
+  `test_quick_jumps_in_iter_all_bindings` asserting `shortcut_board`,
+  `shortcut_explore`, and `shortcut_explore_pick` are present, so a broken
+  import/derivation fails loudly rather than making the equality assertion vacuous.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. `python3 tests/test_shortcut_scopes.py` went from
+  2/6 failing (`shortcut_explore_pick` missing) to 6/6 passing.
+- **Key decisions:** Chose derive-over-patch (derive-don't-duplicate convention,
+  explicitly requested by the task) so this drift class cannot recur when a
+  quick-jump is added. Retained an independent-ground-truth backstop via the
+  anchor guard, per derive-with-guard. Used the private `_QUICK_JUMP_BINDINGS`
+  symbol directly (the file already reaches into `keybinding_registry` internals);
+  no public accessor exists and adding one was out of scope for a test-only fix.
+  Verified `import tui_switcher` adds no new dependency — Textual is already a hard
+  dependency of this suite (the sweep imports every TUI module).
+- **Upstream defects identified:** None.
