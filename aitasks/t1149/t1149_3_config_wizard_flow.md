@@ -8,8 +8,9 @@ labels: [tui]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1149
+implemented_with: claudecode/fable5
 created_at: 2026-07-15 18:45
-updated_at: 2026-07-18 22:35
+updated_at: 2026-07-19 08:28
 ---
 
 ## Context
@@ -60,3 +61,8 @@ Depends on t1149_1 (preflight result contract + `load_config_with_warnings`). Do
 - Writer unit test: pre-existing `sandbox_env_passthrough: [FOO_KEY]` survives a save that edits only ceilings; unknown future key survives; output parses via `load_config` with the same effective values.
 - Manual: `ait chatlink` -> `w` -> complete flow -> config file written, token file 0600, final preflight screen shows results; no git commit was made by the TUI.
 - Aborting mid-wizard leaves both files untouched.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-19T05:28:11Z status=pass attempt=1 type=human
