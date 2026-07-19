@@ -532,3 +532,284 @@ reverse coordination note referencing t1156's archived plan.
 
 ### Planned mitigations
 - timing: after | name: gate_activation_live_verify | type: manual_verification | priority: medium | effort: medium | addresses: code-health mis-enforcement + goal-achievement whole-flow correctness | desc: Live cross-profile verification — a task declaring a profile-filtered gate archives cleanly under a lean profile (no manual gate append), is enforced under fast, and shows the correct active set in board/monitor; exercises the real pick→archive flow, not just unit fixtures.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-19 09:10)
+- **Requested by user:** Six review concerns: (1, high) a failed
+  `materialize-active` re-derivation left a previous profile's tuple
+  authoritative (profileless digest halves still validate) — over-blocking on
+  fast→default switches, under-enforcing on the reverse; (2, medium)
+  `materialize-active` leaked `task_git` commit output onto stdout before the
+  status line and swallowed persist failures silently; (3, medium)
+  profile-read errors degraded to an empty render ceiling, so a directory
+  path / vanished file / garbage profile could silently persist
+  `active_gates: []`; (4, low) the AGENTS.md mirror was not updated alongside
+  CLAUDE.md and the seed; (5, low) the promised profile-editor round-trip test
+  for `rendered_gates: []` was missing; (6, low) working-tree hygiene — the
+  `task-workflown/gate-cli.md` copy, the untracked `.aitask-data` symlink, and
+  over-claiming a green suite.
+- **Changes made:** (1) `materialize-active` hard-fail paths now CLEAR any
+  persisted tuple (new `aitask_update.sh --clear-active-gates` grouped-deletion
+  flag, mutually exclusive with the tuple flags) before exiting nonzero, so the
+  raw-`gates:` fallback truly governs after a failed re-derivation; SKILL.md
+  Step 4 documents both the clear-on-failure semantics and the no-profile
+  claim-time-snapshot semantics explicitly. A bare no-`--profile` invocation
+  stays a plain usage error (the skill skips the call by design — the snapshot
+  keeps governing). (2) git persist output fully quieted (stdout = exactly one
+  status line, asserted by test) and a persist failure now emits a WARN on
+  stderr instead of being swallowed; the verb still exits 0 there because the
+  tuple is already durable in the task file and fixtures/legacy no-git setups
+  make commit failure a normal condition. (3) `compute_active_gates` now reads
+  the profile strictly via `_read_profile_text_strict` (regular readable file
+  + top-level `name:` key required) and raises `ProfileReadError` (CLI exit 3)
+  instead of degrading to `[]`; the bash caller adds `-f` and converts the
+  failure into the clear-stale-tuple path. (4) AGENTS.md mirrors the
+  CLAUDE.md/seed gates + tuple documentation. (5) new
+  `tests/test_profile_editor_rendered_gates.py` (5 tests): collect → serialize
+  → load round-trip keeps an explicit `rendered_gates: []` present, blank text
+  clears the key, and the real `render_skill` seam distinguishes `[]` (renders
+  nothing) from unset (falls back to `default_gates`). (6) verified with
+  evidence that the `task-workflown/gate-cli.md` copy FIXES the source-parity
+  assertion (removing it re-breaks it), so it is kept — required by the
+  workflown mirror contract and consumed when t635_36 migrates the tree; the
+  `.aitask-data` symlink is worktree scaffolding and is excluded via
+  path-scoped staging; the 7 remaining `test_skill_render_task_workflown.sh`
+  failures are pre-existing at HEAD (stale `profile.risk_evaluation` blocks —
+  the documented latent defect t635_36 owns) and are disclosed, not claimed
+  green.
+- **Files affected:** `.aitask-scripts/aitask_gate.sh`,
+  `.aitask-scripts/aitask_update.sh`, `.aitask-scripts/lib/gate_ledger.py`,
+  `.claude/skills/task-workflow/SKILL.md` (+ regenerated goldens and committed
+  remote prerenders), `AGENTS.md`, `tests/test_gate_active_gates.sh` (72
+  asserts now), new `tests/test_profile_editor_rendered_gates.py`.
+
+### Change Request 2 (2026-07-19 09:55)
+- **Requested by user:** Three further review concerns: (A, high) the tuple
+  write itself destroyed an explicit `gates: []` opt-out — write_task_file's
+  never-emit-[] rule dropped the key, so the fresh tuple's gates-half digest
+  ("present empty") immediately mismatched the rewritten file ("absent"),
+  going STALE and letting the next fast pick resolve `default_gates` and
+  revoke the opt-out (reproduced live: STALE:fast->fast right after
+  materialize); (B, high) continuing the workflow after a profiled
+  materialization failure under-enforces — the raw-`gates:` fallback lacks the
+  current profile's `default_gates` (a gates-absent task under fast should
+  inherit risk_evaluated) — and `_materialize_fail` claimed "cleared" even
+  when the clear itself failed; (C, medium) name:-only profile validation
+  still let a malformed gate list (`default_gates: [unclosed`, scalar values)
+  read as an empty ceiling and persist `active_gates: []`.
+- **Changes made:** (A) raw `gates:` is now presence-tracked in
+  aitask_update.sh exactly like the tuple (CURRENT_GATES_PRESENT through
+  parse / batch-apply / parent-write save-restore / write_task_file): a
+  non-empty set emits as before, an explicit empty key emits `gates: []`, and
+  only a truly absent key emits nothing; `--gates ""` keeps its documented
+  clear-the-key contract. This also fixes the PRE-EXISTING bug where any
+  unrelated `ait update` silently dropped a `gates: []` opt-out. Tests: the
+  opt-out survives the tuple write, is immediately FRESH, re-picks are NOOP,
+  and survives an unrelated `--priority` update with no default_gates
+  resurrection. (B) SKILL.md Step 4 now ABORTS the pick on a nonzero
+  materialize exit (Task Abort Procedure) instead of warning-and-continuing —
+  clearing the stale tuple remains cleanup, not a justification to proceed;
+  `_materialize_fail` reports honestly ("stale tuple cleared" only on a
+  successful clear, "could NOT be cleared" warning otherwise, "no prior tuple
+  present" when none existed), asserted by tests. The CLI-level NO_GATES
+  assertion after clear-on-fail is kept with a comment naming it the transient
+  state the workflow abort exists to avoid. (C)
+  `_validate_profile_gate_list_syntax` rejects a PRESENT `default_gates` /
+  `rendered_gates` whose value is not list-shaped (inline `[...]` or bare-key
+  block form) with ProfileReadError; tests cover an unclosed inline list and a
+  scalar value (nonzero exit, nothing written).
+- **Files affected:** `.aitask-scripts/aitask_update.sh`,
+  `.aitask-scripts/aitask_gate.sh`, `.aitask-scripts/lib/gate_ledger.py`,
+  `.claude/skills/task-workflow/SKILL.md` (+ regenerated goldens and remote
+  prerenders), `tests/test_gate_active_gates.sh` (82 asserts now).
+
+### Change Request 3 (2026-07-19 10:25)
+- **Requested by user:** (D, medium) the gate-list validator was not
+  syntax-safe: `\s*` after the key consumed newlines, so a valid BLOCK list
+  (`default_gates:` + `- item` lines) was mis-read as the scalar
+  `- risk_evaluated` and rejected (a regression against the readers'
+  supported form), while malformed inline YAML like `[a,,b]` passed the broad
+  `\[.*\]` check and was silently normalized; (E, medium) a failed
+  path-scoped `task_git add`/`commit` still printed plain `MATERIALIZED:*`
+  with exit 0, telling Step 4 the tuple was durable when other checkouts of
+  the task-data branch could not see it; (F, low) `_materialize_fail`
+  unconditionally appended "raw gates: fallback governs" even when its own
+  cleanup report said the stale tuple could NOT be cleared — in that branch
+  the old tuple stays authoritative, making the report self-contradictory.
+- **Changes made:** (D) validator rewritten: the value match is anchored to
+  the key's OWN line (horizontal whitespace only); a present inline list must
+  be a complete `[...]` whose every comma-separated item is a (possibly
+  quoted) gate-name token (`[a,,b]`, scalars, unterminated lists rejected); a
+  bare `key:` must be followed only by `- item` block lines until dedent
+  (mis-dashed block lines rejected; empty block = empty list). Exercised
+  against a 10-case matrix (valid/empty/malformed × inline/block/absent) plus
+  new bash regressions incl. the block-form profile now ACCEPTED end-to-end.
+  (E) persistence is now status-typed: a `task_git rev-parse` probe is the
+  non-git seam (fixtures skip persistence silently); in a real repo a failed
+  add/commit yields the structured single-line
+  `MATERIALIZED_UNCOMMITTED:<csv>` (locally enforced, not yet committed) plus
+  a stderr WARN; SKILL.md Step 4 parses the new status (warn + continue —
+  local enforcement is correct; a later `./ait git` commit of aitasks/ picks
+  it up). Test simulates a real-repo failure via a held `.git/index.lock`:
+  UNCOMMITTED under the lock, NOOP/plain MATERIALIZED after release. (F)
+  `_materialize_fail`'s governing-state suffix is now conditional: "raw
+  gates: fallback governs" only when the tuple was cleared or never existed;
+  a failed clear instead warns that the outdated tuple may still govern and
+  names the manual clear command.
+- **Files affected:** `.aitask-scripts/lib/gate_ledger.py`,
+  `.aitask-scripts/aitask_gate.sh`, `.claude/skills/task-workflow/SKILL.md`
+  (+ regenerated goldens and remote prerenders),
+  `tests/test_gate_active_gates.sh` (87 asserts now).
+
+### Change Request 4 (2026-07-19 10:50)
+- **Requested by user:** (G, medium) the validator still missed forms its
+  readers accept: an unindented dash line was treated as a dedent, so
+  `default_gates:\n-\n` passed validation while the reader returned []
+  (silent empty ceiling), and the item regex's independent optional quotes
+  accepted mismatched pairs like `['risk_evaluated"]`; (H, medium) after a
+  transient commit failure, an unchanged re-pick exited through the
+  tuple-equality NOOP branch BEFORE persistence, so the pending commit was
+  never healed nor re-warned — and the test codified that non-healing.
+- **Changes made:** (G) block walk rewritten: a dash line at ANY indentation
+  (including none — matching both readers' `[ \t]*-` patterns) is validated
+  as a sequence item and a bare `-` is rejected; an indented non-dash line
+  inside the block is rejected; only a dedented non-item line ends the block.
+  The item regex now requires MATCHED quote pairs
+  (`name | 'name' | "name"`). Regressions added: indentless block accepted
+  end-to-end, bare-dash rejected, mismatched quotes rejected (verified
+  against the reader's parse of each case). (H) persistence extracted into
+  `_persist_task_file` (rev-parse non-git seam + porcelain dirty check +
+  quiet add/commit) and now runs on BOTH paths: the identical-tuple branch
+  verifies/repairs a pending commit before reporting `NOOP:unchanged`, and
+  reports the new `NOOP_UNCOMMITTED:pending-persist` (with stderr WARN) when
+  the repair is still refused. SKILL.md Step 4 and the CLI help document both
+  NOOP statuses. Tests: unchanged retry under a held index lock →
+  NOOP_UNCOMMITTED; after lock release → NOOP:unchanged AND `git status
+  --porcelain` proves the file was actually committed by the heal.
+- **Files affected:** `.aitask-scripts/lib/gate_ledger.py`,
+  `.aitask-scripts/aitask_gate.sh`, `.claude/skills/task-workflow/SKILL.md`
+  (+ regenerated goldens and remote prerenders),
+  `tests/test_gate_active_gates.sh` (92 asserts now).
+
+### Change Request 5 (2026-07-19 11:10)
+- **Requested by user:** (I, medium) the validator skipped blank lines inside
+  block lists while both regex readers stop consuming at the first blank —
+  `default_gates:\n  - a\n\n  - b` validated cleanly but parsed as only [a],
+  silently dropping the second gate; (J, medium) `_persist_task_file`
+  conflated diagnostics with success: any nonzero rev-parse (including a
+  BROKEN real task-data repo) was treated as the fixture seam, and a failing
+  `status --porcelain` with empty stdout read as "clean".
+- **Changes made:** (I) the validator now REJECTS a dash item that follows a
+  blank line inside the block ("a blank line splits the block list — the
+  readers stop at blank lines and would drop the items after it"); trailing
+  blanks before the next key remain fine. Deliberate scope decision, stated
+  explicitly: rather than teaching BOTH canonical readers (python fenced +
+  bash whole-file) to consume interior blanks — a framework-wide parsing
+  semantics change that would also risk the bash reader swallowing markdown
+  `- ` bullets from a task BODY after a blank line — validation is aligned to
+  the readers' real contract, so no gate can be silently dropped (loud error
+  instead of survival-by-reader-change). Regression: the blank-split profile
+  is rejected with nothing written. (J) `_persist_task_file` now
+  discriminates: rev-parse failure with NO git markers (`.git` /
+  `.aitask-data` absent) = the expected non-git fixture seam (skip silently);
+  rev-parse failure WITH markers present = broken repo → unverified →
+  UNCOMMITTED status; the porcelain status command's own exit is captured
+  separately and a failure reads as "unverified", never "clean". Regressions:
+  a fixture with a corrupt `.git` file yields MATERIALIZED_UNCOMMITTED and
+  NOOP_UNCOMMITTED on the unchanged retry.
+- **Files affected:** `.aitask-scripts/lib/gate_ledger.py`,
+  `.aitask-scripts/aitask_gate.sh`, `tests/test_gate_active_gates.sh` (95
+  asserts now).
+
+### Change Request 6 (2026-07-19 11:25)
+- **Requested by user:** (K, medium) the blank-split safeguard also rejected
+  blanks BEFORE the first block item (`default_gates:\n\n  - risk_evaluated`),
+  a valid form the authoritative python reader consumes whole — an
+  unnecessary fail-closed regression.
+- **Changes made:** the block walk now tracks `item_seen`: a blank line only
+  triggers the split rejection when a dash item follows a blank in an
+  already-started list; leading blanks between the key line and the first
+  item are accepted. Regressions: leading-blank profile materializes
+  end-to-end (`MATERIALIZED:risk_evaluated`); the interior blank-split case
+  stays rejected.
+- **Files affected:** `.aitask-scripts/lib/gate_ledger.py`,
+  `tests/test_gate_active_gates.sh` (96 asserts now).
+
+## Final Implementation Notes
+
+- **Actual work done:** Landed the full Model-1 design as planned: the
+  `rendered_set` render-context injection with `{% if 'risk_evaluated' in
+  rendered_set %}` gating of all risk machinery (planning §6.1 producer +
+  guard, Step-7 self-record + mitigation-before, Step 8d) plus Step-8c
+  routing; the four-field `active_gates*` tuple materialized at Step 4 via
+  the new `aitask_gate.sh materialize-active` (replacing the Step-7 backfill,
+  which was removed); the single validated tuple reader
+  `read_active_tuple_from_text` swapped at all 9 enforce/schedule/record
+  sites (gate_ledger ×5 + orchestrator ×2 + bash decision verbs + board
+  decision surfaces), with `also_blocks_dependents` filtered-subtraction;
+  pure-bash `active`/`has-gates-field`/`should-self-record`;
+  `active-gates-status` freshness introspection; `rendered_gates` profile key
+  (schema/editor/docs); CLI-atomic tuple plumbing in `aitask_update.sh` (+
+  `--clear-active-gates` grouped deletion); grouped newer-side-wholesale
+  tuple merge in `board/aitask_merge.py`; `aitask_ls.sh` candidate grep;
+  docs (task-format.md, CLAUDE.md, AGENTS.md, seed instructions,
+  profiles.md, task-creation-batch.md, new `gate-cli.md`); goldens + remote
+  prerenders regenerated. Follow-up siblings t635_35 (remote/web lane) and
+  t635_36 (task-workflown migration) created as implementation step 0, both
+  `depends: [635_33]`. `default`'s rendered SKILL.md shrank 766→~750 lines
+  and its planning.md lost the entire risk block (the restored leanness).
+- **Deviations from plan:** (1) Implementation moved into an isolated git
+  worktree (`aiwork/t635_33_gate_activation_render_time`, branch
+  `aitask/t635_33_gate_activation_render_time`) after a concurrent session's
+  `git stash` + reset wiped the first round of edits in the shared checkout —
+  the fast profile's current-branch mode was abandoned mid-task for safety;
+  all wiped edits were later byte-verified recovered against stash@{0}. The
+  concurrent session's own stashed files (chatlink_app.py,
+  test_chatlink_tui.sh, settings.local.json) remain untouched in stash@{0}.
+  (2) Six review rounds hardened the initial implementation (see Post-Review
+  Changes 1–6): clear-on-failure semantics + workflow abort, presence-tracked
+  raw `gates:` (opt-out preservation), strict profile validation
+  (line-anchored, block/inline/quote/blank-split rules), structured
+  MATERIALIZED_UNCOMMITTED / NOOP_UNCOMMITTED persistence statuses with a
+  three-way non-git/broken-repo seam, AGENTS.md mirror, and the
+  profile-editor round-trip test. (3) `gate-cli.md` was also copied into
+  `task-workflown/` to keep its source-parity contract green (consumed when
+  t635_36 migrates that tree).
+- **Issues encountered:** the concurrent-writer wipe (above);
+  `tests/test_skill_render_task_workflown.sh` fails 7 asserts at HEAD
+  (pre-existing: its stale `{% if profile.risk_evaluation %}` blocks — the
+  documented latent defect t635_36 owns); the initial `assert_contains`
+  argument order in the new test file; profile-editor list rows could not
+  express present-but-empty (fixed with the literal `[]` affordance).
+- **Key decisions:** key-presence (not truthiness) semantics for
+  `rendered_gates` in all three compute paths; full compute lives ONLY in
+  python (`compute_active_gates`) with the MV allowlist passed in from
+  task_utils.sh (single source) while decision verbs are pure bash validating
+  the profileless digest halves (implicit cross-language hash agreement);
+  `list` stays declared-intent, `active-gates-status` is the enforced-set
+  display; blank-split block lists are rejected rather than teaching both
+  canonical readers new semantics (documented trade-off, CR5); persistence
+  failures are status-typed rather than fatal (the tuple is locally durable;
+  Step 4 aborts only on materialization failure proper).
+- **Upstream defects identified:**
+  - tests/golden/procs/task-workflow/gate-recording-default.md:21 — golden was
+    stale since t635_15 (dual-transport paragraph missing); fixed in this task
+    by the golden regeneration, no follow-up needed.
+  - .aitask-scripts/aitask_update.sh:620 — pre-existing: any `ait update`
+    rewrite silently dropped an explicit `gates: []` opt-out (never-emit-[]
+    writer); fixed in this task via presence-tracking (CR2), no follow-up
+    needed.
+  - .claude/skills/task-workflown/SKILL.md:1 — pre-existing latent t1147: 8
+    stale `{% if profile.risk_evaluation %}` blocks render no risk producer
+    under gate-declaring profiles; already tracked as t635_36 (created by
+    this task), no new follow-up needed.
+- **Notes for sibling tasks:** t635_35/t635_36 should reuse the Step-4
+  materialize call shape from `.claude/skills/task-workflow/SKILL.md` Step 4
+  verbatim (incl. the MATERIALIZED_UNCOMMITTED / NOOP_UNCOMMITTED handling
+  and the abort-on-failure rule) and the `rendered_set` Jinja pattern from
+  planning.md; `remote.yaml` gets its explicit `rendered_gates: []` in
+  t635_35. The gate-CLI contract reference is `gate-cli.md` (already copied
+  into task-workflown). t635_34 reconciles installed registries against this
+  model. The after-mitigation `gate_activation_live_verify` manual task is
+  created at Step 8c/8d of this session.
