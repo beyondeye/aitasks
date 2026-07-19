@@ -531,7 +531,7 @@ reverse coordination note referencing t1156's archived plan.
 - Full goldens regen + `aitask_skill_verify.sh`.
 
 ### Planned mitigations
-- timing: after | name: gate_activation_live_verify | type: manual_verification | priority: medium | effort: medium | addresses: code-health mis-enforcement + goal-achievement whole-flow correctness | desc: Live cross-profile verification — a task declaring a profile-filtered gate archives cleanly under a lean profile (no manual gate append), is enforced under fast, and shows the correct active set in board/monitor; exercises the real pick→archive flow, not just unit fixtures.
+- timing: after | name: gate_activation_live_verify | type: manual_verification | created: t1163 | priority: medium | effort: medium | addresses: code-health mis-enforcement + goal-achievement whole-flow correctness | desc: Live cross-profile verification — a task declaring a profile-filtered gate archives cleanly under a lean profile (no manual gate append), is enforced under fast, and shows the correct active set in board/monitor; exercises the real pick→archive flow, not just unit fixtures.
 
 ## Post-Review Changes
 
