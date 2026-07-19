@@ -33,6 +33,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
 import keybinding_registry  # noqa: E402
 import shortcut_scopes  # noqa: E402
+import tui_switcher  # noqa: E402
 
 _SCRIPTS_DIR = REPO_ROOT / ".aitask-scripts"
 
@@ -146,12 +147,13 @@ class TuiSwitcherScopeTests(unittest.TestCase):
     structural keys (escape/enter/←/→/j) stay fixed literals and are NOT
     registered, so only the quick-jumps are customizable."""
 
-    _QUICK_JUMPS = {
-        "shortcut_applink", "shortcut_chatlink", "shortcut_board", "shortcut_monitor",
-        "shortcut_codebrowser", "shortcut_settings", "shortcut_stats",
-        "shortcut_syncer", "shortcut_brainstorm", "shortcut_explore",
-        "shortcut_git", "shortcut_create", "shortcut_agent",
-    }
+    # Derived from the switcher's canonical quick-jump table (t1160) so this
+    # guard cannot drift when a quick-jump is added/removed — a hand-maintained
+    # copy silently fell behind when t1148 added shortcut_explore_pick. The
+    # equality assertions below still verify the registration + sweep pipeline
+    # surfaces exactly these actions under shared.tui_switcher, and that the
+    # fixed structural keys (escape/enter/←/→/j) are left unregistered.
+    _QUICK_JUMPS = {b.action for b in tui_switcher._QUICK_JUMP_BINDINGS}
     _STRUCTURAL = {"dismiss_overlay", "select_tui", "prev_session", "next_session"}
 
     def setUp(self) -> None:
@@ -161,6 +163,11 @@ class TuiSwitcherScopeTests(unittest.TestCase):
         keybinding_registry._reset_for_tests()
 
     def test_quick_jumps_in_iter_all_bindings(self):
+        # Sanity: the derived expectation must be non-empty and contain anchors,
+        # so a broken import/derivation can't make the equality below vacuous.
+        for anchor in ("shortcut_board", "shortcut_explore", "shortcut_explore_pick"):
+            self.assertIn(anchor, self._QUICK_JUMPS)
+
         shortcut_scopes.register_all_known_bindings()
         actions = {
             action for (scope, action, _k, _l)
