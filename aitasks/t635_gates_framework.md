@@ -5,9 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [gates]
-children_to_implement: [t635_16, t635_17, t635_18, t635_23, t635_24, t635_26, t635_27, t635_28, t635_29, t635_30, t635_31, t635_32, t635_33, t635_34, t635_35, t635_36]
+children_to_implement: [t635_16, t635_17, t635_18, t635_23, t635_24, t635_26, t635_27, t635_28, t635_29, t635_30, t635_31, t635_32, t635_34, t635_35, t635_36]
 created_at: 2026-04-23 20:21
-updated_at: 2026-07-19 08:27
+updated_at: 2026-07-19 22:43
 boardcol: now
 boardidx: 20
 ---
