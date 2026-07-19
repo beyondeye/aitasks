@@ -59,6 +59,7 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "post_plan_action_for_child": ("enum", ["start_implementation", "ask"]),
     "record_gates": ("bool", None),
     "default_gates": ("list", None),
+    "rendered_gates": ("list", None),
     "max_parallel_gates": ("int", None),
     "enableFeedbackQuestions": ("bool", None),
     "manual_verification_followup_mode": ("enum", ["ask", "never"]),
@@ -190,9 +191,10 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
     "default_gates": (
         "Gates declared into new tasks (drives risk evaluation)",
         "Comma-separated gate names that profile-driven task creation declares "
-        "in each new task's `gates:` frontmatter (via `--gates`), and that the "
-        "task-workflow backfills onto a picked task lacking the field. The "
-        "registry (aitasks/metadata/gates.yaml) defines HOW each gate runs; this "
+        "in each new task's `gates:` frontmatter (via `--gates`), and the "
+        "resolve fallback for a picked task lacking the field (materialized "
+        "into `active_gates` at claim time, t635_33). The registry "
+        "(aitasks/metadata/gates.yaml) defines HOW each gate runs; this "
         "list chooses WHICH gates a task declares — the single config point "
         "(replaces the old `risk_evaluation` toggle: declaring `risk_evaluated` "
         "is what now runs the planning risk producer + the verify-time checker, "
@@ -203,6 +205,22 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "  (unset/empty)          — declare nothing (behaves as today)\n"
         "Note: declaring a HUMAN gate (plan_approved/review_approved/"
         "merge_approved) requires record_gates: true, or archival deadlocks."
+    ),
+    "rendered_gates": (
+        "Render ceiling — gate machinery rendered into this profile's "
+        "task-workflow",
+        "Comma-separated gate names whose workflow machinery (planning "
+        "producer, self-record steps, …) is rendered into this profile's "
+        "task-workflow variant. A task's runtime set is always filtered by "
+        "this ceiling: active_gates = resolve(task gates:, default_gates) ∩ "
+        "rendered set, persisted at claim time — a gate outside the ceiling "
+        "is invisible everywhere (never rendered, never enforced, never "
+        "blocks archival). Key-PRESENCE semantics:\n"
+        "  <gate1,gate2,...>      — render exactly these gates' machinery\n"
+        "  [] (present, empty)    — explicit render-nothing override (does "
+        "NOT fall back to default_gates)\n"
+        "  (unset)                — defaults to default_gates (lean profiles "
+        "need no new key)"
     ),
     "max_parallel_gates": (
         "Max machine gates the orchestrator runs in parallel",
@@ -349,7 +367,8 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
         "post_plan_action",
         "post_plan_action_for_child",
     ]),
-    ("Gates", ["record_gates", "default_gates", "max_parallel_gates"]),
+    ("Gates", ["record_gates", "default_gates", "rendered_gates",
+               "max_parallel_gates"]),
     ("Feedback", ["enableFeedbackQuestions"]),
     ("Manual Verification", [
         "manual_verification_followup_mode",
@@ -611,8 +630,11 @@ def compose_profile_fields(
                 # widget + EditStringScreen infra, so it lands on the
                 # `profile_str_` id); parsed back to a YAML list in
                 # collect_profile_values. (t635_14 default_gates.)
+                # A present-but-EMPTY list displays as the literal `[]` so it
+                # stays distinguishable from an unset key (t635_33
+                # rendered_gates: [] is a load-bearing override).
                 if isinstance(current_raw, (list, tuple)):
-                    current = ", ".join(str(x) for x in current_raw)
+                    current = ", ".join(str(x) for x in current_raw) or "[]"
                 elif current_raw is None:
                     current = ""
                 else:
@@ -702,11 +724,17 @@ def collect_profile_values(
         elif ktype == "list":
             # List values are edited via the string row (see compose). Parse the
             # comma-separated text back to a list; empty clears the key so it is
-            # omitted from the profile YAML. (t635_14 default_gates.)
+            # omitted from the profile YAML. (t635_14 default_gates.) The
+            # literal text `[]` writes a present-but-EMPTY list — distinct from
+            # unset (t635_33: `rendered_gates: []` is an explicit
+            # render-nothing override that must survive the round-trip).
             try:
                 row = query_one(f"#{str_widget_id}", ConfigRow)
-                items = [x.strip() for x in (row.value or "").split(",") if x.strip()]
-                if items:
+                raw_text = (row.value or "").strip()
+                items = [x.strip() for x in raw_text.split(",") if x.strip()]
+                if raw_text == "[]":
+                    data[key] = []
+                elif items:
                     data[key] = items
                 else:
                     data.pop(key, None)

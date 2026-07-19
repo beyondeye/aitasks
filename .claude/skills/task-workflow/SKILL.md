@@ -206,6 +206,23 @@ If none of the checks trigger, proceed to Step 4 as normal.
 
   **Note:** The script handles email storage, lock acquisition, task metadata update (`status` → Implementing, `assigned_to`), and git add/commit/push internally. If the script fails entirely (non-zero exit without structured output), display the error and abort.
 
+- **Materialize the active-gates tuple (ALWAYS runs — never profile-omitted):** With ownership held, derive and persist the task's enforced gate set under the current profile. If `active_profile_filename` is set, run:
+
+  ```bash
+  ./.aitask-scripts/aitask_gate.sh materialize-active <task_num> --profile aitasks/metadata/profiles/<active_profile_filename>
+  ```
+
+  Parse the single stdout line:
+  - `MATERIALIZED:<csv>` — active set persisted and committed. `MATERIALIZED:(empty)` means a fully profile-filtered (or ungated) task — that persisted empty set is exactly what makes a declared-but-unrendered gate invisible to every enforcer. Continue.
+  - `MATERIALIZED_UNCOMMITTED:<csv>` — the tuple was written and is enforced locally, but the path-scoped git commit failed (e.g. an index lock). Warn: "active-gates tuple written but not committed — other checkouts won't see it until the task data is committed." and continue; a later `./ait git` commit of `aitasks/` picks it up.
+  - `NOOP:unchanged` — re-pick under the same profile with unchanged inputs; nothing rewritten (any previously pending commit of the task file was verified/repaired). Continue.
+  - `NOOP_UNCOMMITTED:pending-persist` — the tuple is unchanged and enforced locally, but the task file still carries changes git refused to commit. Warn as for `MATERIALIZED_UNCOMMITTED` and continue.
+  - Nonzero exit — the re-derivation failed (unreadable/invalid profile, compute backend unavailable). The helper clears any previously persisted tuple (its stderr says whether the clear succeeded), but the raw-`gates:` fallback is only the task's declared intent — it does NOT include this profile's `default_gates`, so continuing could silently under-enforce the current profile. **ABORT the pick**: display "active-gates materialization failed (\<output\>) — fix the profile / compute backend and re-pick t\<task_num\>.", then execute the **Task Abort Procedure** (see `task-abort.md`). Do NOT proceed to Step 5.
+
+  If `active_profile_filename` is NOT set (a manual/resume invocation without a profile), skip the call. This is the claim-time-snapshot governance model: with no profile in scope there is nothing to re-derive against, so the previously persisted tuple (when present and intact) remains the enforced snapshot, and a task never materialized follows its raw `gates:` field. (`./.aitask-scripts/aitask_gate.sh active-gates-status <task_num> --profile <file>` shows the stored tuple + freshness when a profile is in scope.)
+
+  This claim-time materialization replaces the former Step-7 `gates:` backfill: raw `gates:` stays the task's declared intent, and the persisted `active_gates` tuple is the enforced set that planning, the Step-9 orchestrator, and the archival guard all read. Re-running on every (re-)pick re-derives the set under the CURRENT profile, so a profile switch can never leave stale enforcement. (Gate CLI verb shapes — decision vs action vs introspection — are documented once in `gate-cli.md`.)
+
 - **Store previous status for potential abort** (remember the `previous_status` from context)
 
 - **Re-entry Routing gate:** After ownership is held (via **any** success path above — `OWNED`, `FORCE_UNLOCKED` + `OWNED`, or crash-recovery → `reclaim`), check the `resume_point` context variable set by Step 3 Check 5. If it is `IMPLEMENT` or `POSTIMPL`, follow the **Re-entry Routing** procedure below **instead of** proceeding to Step 5 → Step 6. Otherwise (unset, or `PLAN`), proceed to Step 5 normally. (The routing is gated on `resume_point`, not on which ownership path was taken — a force-unlock takeover of an in-flight task returns plain `OWNED` with no reclaim signal, and its resume must not be lost.)
@@ -325,20 +342,6 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
 **Record plan-approved gate:** Reaching Step 7 means the Step 6 checkpoint approved the plan. Execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=plan_approved`, `status=pass`, `fields="type=human"`.
 {%- endif %}
 
-**Gate-declaration backfill (post-approval write):** Make this task's planning-time gate decision durable so the Step-9 checker runs in lockstep with the planning producer. If the task has **no** `gates:` field yet — and only then — declare the active profile's `default_gates` on it:
-
-```bash
-if ! ./.aitask-scripts/aitask_gate.sh has-gates-field <task_id>; then
-  eff="$(./.aitask-scripts/aitask_gate.sh effective-gates <task_id> --profile aitasks/metadata/profiles/<active_profile_filename> | paste -sd, -)"
-  if [ -n "$eff" ]; then
-    ./.aitask-scripts/aitask_update.sh --batch <task_id> --gates "$eff"
-    ./ait git add aitasks/ && ./ait git commit -m "ait: Declare gates for t<task_id> from profile" 2>/dev/null || true
-  fi
-fi
-```
-
-`has-gates-field` exits non-zero **only** when the `gates:` key is absent (it exits 0 even for an explicit `gates: []`), so a deliberate opt-out is never overwritten. Omit the `--profile` argument if `active_profile_filename` is unset (no active profile). It is a no-op when the task already declares gates or the profile declares none.
-
 **Risk fields (post-approval write):** If the approved plan contains a `## Risk` section (authored by the Risk Evaluation Procedure during planning), write the two decided levels to the task's frontmatter now:
 
 ```bash
@@ -348,16 +351,17 @@ fi
 ```
 
 Skip silently if the plan has no `## Risk` section (e.g. the task is not risk-gated). This is the post-approval write gate: planning runs in read-only plan mode, so the fields are not written during Step 6.
-{%- if profile.record_gates is defined and profile.record_gates %}
+{%- if profile.record_gates is defined and profile.record_gates and 'risk_evaluated' in rendered_set %}
 
-**Record risk-evaluated gate (only when the task does NOT declare it):** When the plan has a `## Risk` section, decide whether to self-record `risk_evaluated`. The Step-9 orchestrator records it for any task that *declares* `risk_evaluated` in `gates:`; self-recording here too would double-record. Check first:
+**Record risk-evaluated gate (only when the task will NOT be orchestrator-recorded):** When the plan has a `## Risk` section, decide whether to self-record `risk_evaluated`. The Step-9 orchestrator records it for any task whose *enforced active set* contains `risk_evaluated`; self-recording here too would double-record. Check first:
 
 ```bash
 ./.aitask-scripts/aitask_gate.sh should-self-record <task_id> risk_evaluated
 ```
 
-If it exits **0** (the task does not literally declare the gate), execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=risk_evaluated`, `status=pass`, `fields="type=machine"`. If it exits **1** (declared), **skip** — the Step-9 orchestrator records it (no double-record).
+If it exits **0** (the gate is not in the task's active set), execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=risk_evaluated`, `status=pass`, `fields="type=machine"`. If it exits **1** (active), **skip** — the Step-9 orchestrator records it (no double-record).
 {%- endif %}
+{%- if 'risk_evaluated' in rendered_set %}
 
 **Risk-mitigation "before" creation (post-approval):** If the approved plan has a `### Planned mitigations` subsection with ≥1 `before` line (authored during planning by the Risk-Mitigation Follow-up Procedure), execute **Part 2 (Step 7 "before" creation)** of that procedure now (see `risk-mitigation-followup.md`). It creates each "before" mitigation as an **independent task the original depends on** (not a child), read-modify-writes the original's `depends:` and `risk_mitigation_tasks` to wire the blocking edge, and back-fills the plan's mitigation links.
 
@@ -377,6 +381,7 @@ If it returns `risk_before_created: true`, the original is now blocked by an unf
 4. Display: "Created risk-mitigation 'before' task(s) the original depends on. Task t\<task_id\> reverted to Ready — implement the mitigation first, then re-pick t\<task_id\> (its plan will be force re-verified)." Then **END the workflow** — do NOT proceed to the implementation below or to Step 8.
 
 If it returns `risk_before_created: false` (no "before" mitigations), continue to implementation normally.
+{%- endif %}
 
 Follow the approved plan, working in the directory specified in the plan metadata.
 
@@ -541,6 +546,7 @@ Execute the **Manual Verification Follow-up Procedure** (see `manual-verificatio
 - `task_file`, `task_id`, `is_child`, `active_profile`, `parent_id` from the current context.
 - `task_slug` — filename stem with the `t<id>_` prefix stripped (e.g. `aitasks/t42_add_login.md` → `add_login`).
 
+{%- if 'risk_evaluated' in rendered_set %}
 When the procedure returns, proceed to Step 8d.
 
 ### Step 8d: Risk-Mitigation "After" Follow-up
@@ -548,6 +554,9 @@ When the procedure returns, proceed to Step 8d.
 Entered from Step 8c. At this point the code and plan files have already been committed. This step applies only when the task was risk-gated; if the approved plan has a `### Planned mitigations` subsection with ≥1 `after` line (authored during planning by the Risk-Mitigation Follow-up Procedure), execute **Part 3 (Step 8d "after" creation)** of that procedure now (see `risk-mitigation-followup.md`) with `task_id`, `task_num`, `plan_file`, `is_child`, `parent_id`, and `active_profile` from the current context. If the plan has no such subsection (the common case for non-risk-gated tasks), this step is a no-op.
 
 It creates each "after" mitigation as an independent follow-up task and records it in the original's `risk_mitigation_tasks`. "After" mitigations block nothing, so the workflow continues normally. When the procedure returns, proceed to Step 9.
+{%- else %}
+When the procedure returns, proceed to Step 9.
+{%- endif %}
 
 ### Step 9: Post-Implementation
 

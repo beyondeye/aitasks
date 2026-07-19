@@ -228,6 +228,13 @@ fi
 # Gate names are plain strings (no task-id normalization). Mirrors the verifies
 # union: a merged task should carry the union of every folded task's gates so a
 # declared checkpoint is never lost on fold (t635_1).
+#
+# The derived active_gates* tuple (t635_33) is deliberately NOT unioned — it is
+# profile-filtered enforcement state, recomputed at the next claim; unioning
+# would corrupt it. The aitask_update.sh write below preserves the primary's
+# tuple as-is; when this union changes `gates:`, the tuple's gates-half digest
+# stops matching and every reader falls back to the raw field (fail-closed)
+# until re-materialization.
 declare -A seen_gates=()
 gates_list=()
 

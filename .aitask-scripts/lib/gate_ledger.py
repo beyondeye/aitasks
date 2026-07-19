@@ -28,6 +28,13 @@ CLI:
                                  -> ALL_PASS | BLOCKED:<csv> | NO_GATES (t635_4)
     gate_ledger.py resume-point  <task-file>
                                  -> PLAN | IMPLEMENT | POSTIMPL (t635_5)
+    gate_ledger.py active        <task-file> <gate>
+                                 -> exit 0 iff gate in the enforced active set
+                                    (t635_33; python twin of the bash verb)
+    gate_ledger.py compute-active <task-file> <profile> [mv_allowlist_csv]
+                                 -> ACTIVE:<csv> / FILTERED:<csv> / DIGEST:<d>
+    gate_ledger.py active-status <task-file> <profile> <profile-name> [mv_allowlist_csv]
+                                 -> ABSENT | FRESH | STALE:<stamped>-><current>
 
 Supported append keys (anything else is ignored with a warning):
     marker line : run, status, attempt, duration, type
@@ -113,7 +120,16 @@ class GateRun:
 
 @dataclass(frozen=True)
 class TaskGateState:
-    """Structured gate state for TUI consumers."""
+    """Structured gate state for TUI consumers.
+
+    ``declared_gates`` is the task's raw declared intent (``gates:`` field);
+    ``active_gates`` / ``filtered_gates`` are the enforced set and the
+    profile-removed remainder from the validated tuple (t635_33; equal to
+    declared / ``[]`` when no valid tuple exists). TUI *decision* surfaces
+    (failed-gate classification, pending-human-gate detection, compact counts)
+    must key off the active set — historical runs of filtered gates stay
+    visible in ``status_text`` audit-only, never driving a classification.
+    """
 
     task_file: str
     declared_gates: list[str]
@@ -125,6 +141,8 @@ class TaskGateState:
     dependents_decision: str
     dependents_pending: list[str]
     resume_point: str
+    active_gates: list[str] = field(default_factory=list)
+    filtered_gates: list[str] = field(default_factory=list)
 
 
 def _normalize_body_key(label: str) -> str:
@@ -260,12 +278,15 @@ def compact_gate_summary(state: TaskGateState) -> str:
 
     Derived from the recorded gate runs (``state.current``, i.e. the last run
     per gate) — not ``declared_gates``, which is empty framework-wide today, so
-    a declared-based count would read ``0/0`` for every task. Returns ``""``
-    when no gate runs are recorded, so callers can show no column for ungated
-    tasks. Example output: ``"3/4 pass, 1 pending"``, ``"2/2 pass"``, or
+    a declared-based count would read ``0/0`` for every task. Runs of
+    profile-filtered gates (``state.filtered_gates``, t635_33) are excluded:
+    a failed historical run of a now-inactive gate must not surface as an
+    unmet gate in the at-a-glance column. Returns ``""`` when no counted gate
+    runs are recorded, so callers can show no column for ungated tasks.
+    Example output: ``"3/4 pass, 1 pending"``, ``"2/2 pass"``, or
     ``"1/3 pass, 1 pending, 1 failed"``.
     """
-    runs = list(state.current.values())
+    runs = [r for r in state.current.values() if r.name not in state.filtered_gates]
     if not runs:
         return ""
     total = len(runs)
@@ -445,14 +466,332 @@ def effective_gates(task_file: str, profile_file: str | None = None) -> list[str
 def should_self_record(task_file: str, gate: str) -> bool:
     """Whether task-workflow should self-record ``gate`` at Step 7.
 
-    True iff the task does **not** literally declare the gate in its ``gates:``
-    field — the LITERAL declaration, not the effective set, because the Step-9
-    orchestrator runs and records based on the literal field. A declared gate is
-    recorded by the orchestrator, so the Step-7 self-record must skip it; this is
-    the structural fix for the ``risk_evaluated`` double-record (t635_13 req #3 /
-    t635_14).
+    True iff the gate is **not** in the task's enforced active set — the same
+    set the Step-9 orchestrator runs and records from (t635_33; previously the
+    literal ``gates:`` field, t635_13 req #3 / t635_14). A gate in the active
+    set is recorded by the orchestrator, so the Step-7 self-record must skip it.
+    Reading the ENFORCED set matters since the Step-7 ``gates:`` backfill was
+    replaced by claim-time materialization: a profile-default gate now lives in
+    ``active_gates`` (raw ``gates:`` stays absent), and a literal-declared read
+    here would self-record it AND let the orchestrator record it — the
+    double-record this decision exists to prevent.
     """
-    return gate not in read_declared_gates(task_file)
+    with open(task_file, encoding="utf-8") as fh:
+        return gate not in read_active_gates_from_text(fh.read())
+
+
+# --- Active-gates tuple (t635_33) -----------------------------------------
+#
+# The execution profile renders a gate-machinery ceiling (`rendered_gates`,
+# defaulting to `default_gates`); the task's `gates:` selects within it at
+# runtime. The profile-filtered result is persisted on the task as a mandatory
+# atomic four-field tuple, written at claim time (task-workflow Step 4 via
+# `aitask_gate.sh materialize-active`):
+#
+#   active_gates:          the enforced set (may be [])
+#   active_gates_filtered: gates the profile ceiling removed (declared intent
+#                          minus active — consumed by dependency-unblock so
+#                          declared-but-filtered `also_blocks_dependents`
+#                          entries are dropped while independent ones survive)
+#   active_gates_profile:  provenance stamp (producing profile name)
+#   active_gates_digest:   <gates>.<profile>.<outputs> — 12-hex sha256 halves
+#                          over ALL resolve inputs AND the stored outputs
+#
+# Every enforcer reads through `read_active_tuple_from_text`, which validates
+# the two profileless digest halves (gates + outputs) and fails CLOSED to the
+# raw `gates:` field: a stale (edited `gates:`) or corrupt (hand-edited
+# outputs) tuple is treated as absent, so declared intent governs — the tuple
+# can over-block until the next materialization but never silently
+# under-enforce. Raw `gates:` stays the task's declared intent; `active_gates`
+# is the enforced set.
+
+ACTIVE_TUPLE_FIELDS = ("active_gates", "active_gates_filtered",
+                       "active_gates_profile", "active_gates_digest")
+
+
+def _hash12(s: str) -> str:
+    """First 12 hex chars of sha256 — must stay byte-identical to the bash
+    twin `_gate_hash12` in aitask_gate.sh (cross-checked by
+    tests/test_gate_active_gates.sh)."""
+    import hashlib
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
+
+
+def _read_frontmatter_scalar_from_text(text: str, key: str) -> str:
+    """Read a scalar frontmatter field's value ('' when absent)."""
+    fm = _frontmatter_text(text)
+    m = re.search(rf"(?m)^{re.escape(key)}:\s*(.*?)\s*$", fm)
+    return m.group(1).strip().strip("'\"") if m else ""
+
+
+def _gates_half_input(text: str) -> str:
+    """Canonical digest input for the raw ``gates:`` field state.
+
+    Covers presence/absence AND content, so a reader WITHOUT a profile can
+    detect a same-profile manual ``gates:`` edit. `gates=absent` (no key) is
+    distinct from `gates=` (explicit ``[]`` opt-out).
+    """
+    if _frontmatter_has_key(text, "gates"):
+        return "gates=" + ",".join(read_declared_gates_from_text(text))
+    return "gates=absent"
+
+
+def _profile_half_input(default_gates: list[str], rendered_set: list[str]) -> str:
+    """Canonical digest input for BOTH profile inputs. ``default_gates`` is a
+    resolve input for any task without an explicit ``gates:`` field, so an
+    edit to it under an unchanged ``rendered_gates`` must still change the
+    digest."""
+    return ("default_gates=" + ",".join(default_gates)
+            + "|rendered_gates=" + ",".join(rendered_set))
+
+
+def _outputs_half_input(active: list[str], filtered: list[str]) -> str:
+    """Canonical digest input for the stored tuple values themselves, so a
+    hand-edited or partially-updated active set is detected as corrupt rather
+    than trusted (input-only authentication would let a corrupted output pass
+    while ``gates:`` is unchanged, silently under-enforcing)."""
+    return "active=" + ",".join(active) + "|filtered=" + ",".join(filtered)
+
+
+def build_active_digest(text: str, default_gates: list[str], rendered_set: list[str],
+                        active: list[str], filtered: list[str]) -> str:
+    return ".".join((
+        _hash12(_gates_half_input(text)),
+        _hash12(_profile_half_input(default_gates, rendered_set)),
+        _hash12(_outputs_half_input(active, filtered)),
+    ))
+
+
+def _digest_profileless_halves_match(text: str) -> bool:
+    """Validate the two digest halves checkable WITHOUT a profile in scope:
+    the gates-half against the current raw ``gates:`` field and the
+    outputs-half against the stored tuple values."""
+    digest = _read_frontmatter_scalar_from_text(text, "active_gates_digest")
+    parts = digest.split(".")
+    if len(parts) != 3:
+        return False
+    active = _read_frontmatter_list_from_text(text, "active_gates")
+    filtered = _read_frontmatter_list_from_text(text, "active_gates_filtered")
+    return (parts[0] == _hash12(_gates_half_input(text))
+            and parts[2] == _hash12(_outputs_half_input(active, filtered)))
+
+
+def read_active_tuple_from_text(text: str) -> tuple[list[str], list[str], bool]:
+    """(active, filtered, tuple_valid). ALL enforcement consumers go through
+    this single reader so ``active_gates`` and ``active_gates_filtered`` can
+    never be read under different validity conclusions — a stale filtered list
+    must not keep removing a newly-declared blocker after ``active_gates``
+    already fell back to raw intent.
+
+    Tuple present + both profileless digest halves valid → authoritative (even
+    ``[]`` — the safety valve that makes a declared-but-unrendered gate
+    invisible). Stale or corrupt → treated as ABSENT: fall back to the raw
+    ``gates:`` field (declared intent, today's behavior) with ``filtered=[]``.
+    """
+    if _frontmatter_has_key(text, "active_gates"):
+        if _digest_profileless_halves_match(text):
+            return (_read_frontmatter_list_from_text(text, "active_gates"),
+                    _read_frontmatter_list_from_text(text, "active_gates_filtered"),
+                    True)
+        # stale (gates: edited) or corrupt (outputs edited) → tuple ignored
+    return (read_declared_gates_from_text(text), [], False)
+
+
+def read_active_gates_from_text(text: str) -> list[str]:
+    """Convenience for set-only enforcement sites."""
+    return read_active_tuple_from_text(text)[0]
+
+
+def _read_profile_rendered_gates(profile_file: str) -> list[str]:
+    """Resolve the profile's render ceiling (t635_33).
+
+    ``rendered_gates`` if the KEY is present — even ``[]``, an explicit
+    render-nothing override — else ``default_gates``, else ``[]``.
+    Key-presence, NOT truthiness: an ``or``-chain would make an explicit
+    ``rendered_gates: []`` fall back to a nonempty ``default_gates`` and
+    render machinery the profile disabled. Same semantics as the render
+    context in skill_template.py and the bash compute path.
+    """
+    try:
+        with open(profile_file, encoding="utf-8") as fh:
+            ptext = fh.read()
+    except OSError as exc:
+        sys.stderr.write(f"Warning: could not read profile {profile_file!r}: {exc}\n")
+        return []
+    if _frontmatter_has_key(ptext, "rendered_gates"):
+        return _read_frontmatter_list_from_text(ptext, "rendered_gates")
+    return _read_frontmatter_list_from_text(ptext, "default_gates")
+
+
+class ProfileReadError(RuntimeError):
+    """A profile file required for an authoritative compute is missing,
+    unreadable, or not plausibly a profile. Deliberately DISTINCT from the
+    warn-and-degrade behavior of the introspection readers: computing an
+    active set from a half-read profile would persist ``active_gates: []``
+    and silently disable gates."""
+
+
+# A gate name, optionally in a MATCHED quote pair (mismatched quoting like
+# `'x"` is rejected — the regex readers would silently strip it).
+_GATE_LIST_ITEM_RE = re.compile(r"(?:[A-Za-z0-9_]+|'[A-Za-z0-9_]+'|\"[A-Za-z0-9_]+\")")
+
+
+def _validate_profile_gate_list_syntax(ptext: str, key: str, profile_file: str) -> None:
+    """Reject a PRESENT gate-list key whose value is not a well-formed list.
+
+    The regex list readers return ``[]`` (or silently normalize) anything they
+    cannot parse — for an authoritative compute that would turn a typo like
+    ``default_gates: [unclosed``, a scalar value, ``[a,,b]``, or a mis-dashed
+    block into an empty/guessed render ceiling and persist ``active_gates:
+    []``, silently disabling gates. Accepted shapes, matching the readers:
+      * inline ``[...]`` on the key's own line, empty or with every
+        comma-separated item a (possibly quoted) gate name;
+      * a bare ``key:`` followed by ``- item`` block lines (each item a gate
+        name); a bare key with no indented lines reads as empty.
+    The value match is anchored to the key's OWN line (horizontal whitespace
+    only) so block form is never mis-read as a scalar.
+    """
+    fm = _frontmatter_text(ptext)
+    m = re.search(rf"(?m)^{re.escape(key)}:[ \t]*(.*?)[ \t]*$", fm)
+    if not m:
+        return  # key absent — nothing to validate
+
+    def _bad(detail: str):
+        raise ProfileReadError(
+            f"profile {profile_file!r} has a malformed {key}: {detail} "
+            f"(expected a YAML list like [a, b] or `- item` block lines)")
+
+    val = m.group(1)
+    if val:
+        inline = re.fullmatch(r"\[(.*)\]", val)
+        if not inline:
+            _bad(f"scalar/unterminated value {val!r}")
+        inner = inline.group(1).strip()
+        if inner:
+            for part in inner.split(","):
+                if not _GATE_LIST_ITEM_RE.fullmatch(part.strip()):
+                    _bad(f"invalid list item {part.strip()!r} in {val!r}")
+        return
+    # Bare `key:` — block form. YAML (and the readers) accept sequence items
+    # at ANY indentation, including none, so a dash line is a list item
+    # wherever it sits — it must carry a valid gate name (a bare `-` reads as
+    # [] and would silently empty the ceiling). The block ends at the first
+    # non-dash unindented line (the next top-level key); an indented non-dash
+    # line inside the block is malformed. A dash item AFTER a blank line is
+    # also rejected: both regex readers stop consuming at the blank, so the
+    # trailing items would be silently DROPPED from the parsed set — the one
+    # disagreement worse than a loud error. (Trailing blanks before the next
+    # key are fine.)
+    lines = fm.splitlines()
+    start = fm[:m.start()].count("\n") + 1
+    blank_pending = False
+    item_seen = False
+    for ln in lines[start:]:
+        if not ln.strip():
+            blank_pending = True
+            continue
+        if re.match(r"^[ \t]*-(?:[ \t]|$)", ln):
+            # Only a blank INSIDE an already-started list is a split (the
+            # reader stops there and would drop the rest); blanks between the
+            # key line and the first item are consumed by the reader and fine.
+            if blank_pending and item_seen:
+                _bad("a blank line splits the block list — the reader stops "
+                     "at blank lines and would drop the items after it; "
+                     "keep items contiguous")
+            blank_pending = False
+            bm = re.match(r"^[ \t]*-[ \t]*(\S.*?)[ \t]*$", ln)
+            if not bm or not _GATE_LIST_ITEM_RE.fullmatch(bm.group(1)):
+                _bad(f"invalid block line {ln.strip()!r}")
+            item_seen = True
+            continue
+        if re.match(r"^[ \t]+", ln):
+            _bad(f"invalid block line {ln.strip()!r}")
+        break  # dedented non-item line — next top-level key, block ended
+
+
+def _read_profile_text_strict(profile_file: str) -> str:
+    """Read a profile for compute_active_gates — fail loudly, never degrade.
+
+    Requires a regular, readable file whose content carries a top-level
+    ``name:`` key (every shipped profile does) and syntactically list-shaped
+    ``default_gates`` / ``rendered_gates`` values when those keys are present
+    — so a directory, a file that vanished after the caller's precheck, or
+    garbage/malformed content raises instead of resolving to an empty render
+    ceiling.
+    """
+    import os.path
+    if not os.path.isfile(profile_file):
+        raise ProfileReadError(f"profile is not a regular file: {profile_file!r}")
+    try:
+        with open(profile_file, encoding="utf-8") as fh:
+            ptext = fh.read()
+    except OSError as exc:
+        raise ProfileReadError(f"cannot read profile {profile_file!r}: {exc}") from exc
+    if not _frontmatter_has_key(ptext, "name"):
+        raise ProfileReadError(
+            f"profile {profile_file!r} has no top-level 'name:' key — not a profile?")
+    _validate_profile_gate_list_syntax(ptext, "default_gates", profile_file)
+    _validate_profile_gate_list_syntax(ptext, "rendered_gates", profile_file)
+    return ptext
+
+
+def compute_active_gates(text: str, profile_file: str,
+                         mv_allowlist: tuple[str, ...] = ()) -> tuple[list[str], list[str], str]:
+    """Compute (active, filtered, digest) for a task under a profile.
+
+    ``active = resolve(task.gates, profile.default_gates) ∩ rendered_set``;
+    ``filtered`` is what the ceiling removed. For ``issue_type:
+    manual_verification`` the resolved set is first intersected with
+    ``mv_allowlist`` (the t1156 reachable-gates allowlist, passed in by the
+    bash caller from task_utils.sh's MANUAL_VERIFICATION_REACHABLE_GATES so
+    there is a single source) — such tasks skip Steps 6-8, so an unreachable
+    gate would block archival forever; stripped-as-unreachable gates land in
+    neither ``active`` nor ``filtered``.
+
+    Raises :class:`ProfileReadError` on a missing/invalid profile — this is
+    the authoritative write path, so a read failure must propagate (the bash
+    caller then clears any stale tuple and exits nonzero) rather than degrade
+    to an empty ceiling that would persist ``active_gates: []``.
+    """
+    ptext = _read_profile_text_strict(profile_file)
+    default_gates = _read_frontmatter_list_from_text(ptext, "default_gates")
+    if _frontmatter_has_key(ptext, "rendered_gates"):
+        rendered = _read_frontmatter_list_from_text(ptext, "rendered_gates")
+    else:
+        rendered = list(default_gates)
+    if _frontmatter_has_key(text, "gates"):
+        resolved = read_declared_gates_from_text(text)
+    else:
+        resolved = list(default_gates)
+    if _read_frontmatter_scalar_from_text(text, "issue_type") == "manual_verification":
+        resolved = [g for g in resolved if g in mv_allowlist]
+    active = [g for g in resolved if g in rendered]
+    filtered = [g for g in resolved if g not in rendered]
+    digest = build_active_digest(text, default_gates, rendered, active, filtered)
+    return active, filtered, digest
+
+
+def active_tuple_status(text: str, profile_file: str, profile_name: str,
+                        mv_allowlist: tuple[str, ...] = ()) -> str:
+    """Freshness of the persisted tuple vs the CURRENTLY governing profile.
+
+    Returns ``ABSENT`` (no tuple), ``FRESH`` (stamp, digest, and stored values
+    all match a recomputation under ``profile_file``), or
+    ``STALE:<stamped>-><current>``. Uses the same compute path as
+    materialize-active so freshness comparison applies the identical rule
+    (incl. the manual-verification allowlist).
+    """
+    if not _frontmatter_has_key(text, "active_gates"):
+        return "ABSENT"
+    stamped = _read_frontmatter_scalar_from_text(text, "active_gates_profile")
+    stored_digest = _read_frontmatter_scalar_from_text(text, "active_gates_digest")
+    stored_active = _read_frontmatter_list_from_text(text, "active_gates")
+    stored_filtered = _read_frontmatter_list_from_text(text, "active_gates_filtered")
+    active, filtered, digest = compute_active_gates(text, profile_file, mv_allowlist)
+    if (stamped == profile_name and stored_digest == digest
+            and stored_active == active and stored_filtered == filtered):
+        return "FRESH"
+    return f"STALE:{stamped or '(unknown)'}->{profile_name}"
 
 
 def _truthy(value: str) -> bool:
@@ -617,6 +956,9 @@ def read_registry(registry_file: str) -> dict[str, dict]:
 
 
 def format_list(task_file: str, registry_file: str | None) -> str:
+    # Deliberately the DECLARED set (t635_33): `list` is the declared-intent
+    # introspection verb; the enforced active set is displayed by
+    # `aitask_gate.sh active-gates-status` (full tuple + freshness).
     declared = read_declared_gates(task_file)
     if not declared:
         return "(no gates declared)"
@@ -665,6 +1007,16 @@ def _dependents_status_from_state(declared: list[str], also: list[str],
 def dependents_status(task_file: str, registry_file: str | None) -> tuple[str, list[str]]:
     """Decide whether ``task_file`` releases its dependents.
 
+    Reads the ENFORCED active set (t635_33) — a profile-filtered gate must not
+    hold dependents. ``also_blocks_dependents`` entries are filtered by the
+    persisted ``active_gates_filtered`` list, dropping exactly the
+    declared-but-filtered gates while keeping independent blockers (e.g. a
+    checkpoint gate like ``merge_approved`` that is intentionally listed
+    without being declared). Both reads come from the ONE validated tuple
+    reader: an absent/stale/corrupt tuple yields ``filtered=[]``, so ``also``
+    degrades to unfiltered in the same decision that falls ``active_gates``
+    back to raw intent.
+
     Returns one of:
       - ``("NO_GATES", [])``   — no required-to-unblock gates (ungated, or a
         gated task that flags none as blocking). Caller falls back to today's
@@ -675,10 +1027,12 @@ def dependents_status(task_file: str, registry_file: str | None) -> tuple[str, l
     """
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
-    declared = read_declared_gates_from_text(text)
+    active, filtered, _valid = read_active_tuple_from_text(text)
     also = _read_frontmatter_list_from_text(text, "also_blocks_dependents")
+    also_effective = [g for g in also if g not in filtered]
     registry = read_registry(registry_file) if registry_file else {}
-    return _dependents_status_from_state(declared, also, registry, derive_gate_runs(text))
+    return _dependents_status_from_state(active, also_effective, registry,
+                                         derive_gate_runs(text))
 
 
 # --- Gate-guarded archival decision (t635_4) ------------------------------
@@ -699,13 +1053,13 @@ def unmet_procedure_gates(task_file: str, registry_file: str | None) -> list[str
     excluded (it must NOT be re-dispatched)."""
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
-    declared = read_declared_gates_from_text(text)
-    if not declared:
+    active = read_active_gates_from_text(text)  # enforced set (t635_33)
+    if not active:
         return []
     registry = read_registry(registry_file) if registry_file else {}
     state = derive_gate_runs(text)
     out = []
-    for g in declared:
+    for g in active:
         if registry.get(g, {}).get("kind") != "procedure":
             continue
         st = state.get(g).status if state.get(g) else None
@@ -739,10 +1093,11 @@ def archive_status_from_text(text: str) -> tuple[str, list[str]]:
     scan, which iterates ``(filename, content)`` pairs) classify archival
     readiness deterministically, without re-reading a path that may not exist
     under a rebased project root. Composes the shared primitives — no parsing
-    fork (D6).
+    fork (D6). Reads the ENFORCED active set (t635_33): a profile-filtered
+    gate can never block archival.
     """
     return _archive_status_from_state(
-        read_declared_gates_from_text(text), derive_gate_runs(text))
+        read_active_gates_from_text(text), derive_gate_runs(text))
 
 
 # --- Ledger-driven re-entry decision (t635_5) -----------------------------
@@ -791,10 +1146,13 @@ def read_task_gate_state(task_file: str, registry_file: str | None = None) -> Ta
     for run in runs:
         current[run.name] = run
     declared = read_declared_gates_from_text(text)
+    active, filtered, _valid = read_active_tuple_from_text(text)
     also = _read_frontmatter_list_from_text(text, "also_blocks_dependents")
+    also_effective = [g for g in also if g not in filtered]
     registry = read_registry(registry_file) if registry_file else {}
-    archive_decision, archive_pending = _archive_status_from_state(declared, current)
-    dep_decision, dep_pending = _dependents_status_from_state(declared, also, registry, current)
+    archive_decision, archive_pending = _archive_status_from_state(active, current)
+    dep_decision, dep_pending = _dependents_status_from_state(active, also_effective,
+                                                              registry, current)
     order: list[str] = []
     seen: set[str] = set()
     for run in runs:
@@ -812,6 +1170,8 @@ def read_task_gate_state(task_file: str, registry_file: str | None = None) -> Ta
         dependents_decision=dep_decision,
         dependents_pending=dep_pending,
         resume_point=_resume_point_from_state(current),
+        active_gates=active,
+        filtered_gates=filtered,
     )
 
 
@@ -933,6 +1293,42 @@ def main(argv: list[str]) -> int:
             sys.stderr.write("Usage: gate_ledger.py should-self-record <file> <gate>\n")
             return 2
         return 0 if should_self_record(argv[1], argv[2]) else 1
+
+    if cmd == "active":
+        if len(argv) < 3:
+            sys.stderr.write("Usage: gate_ledger.py active <file> <gate>\n")
+            return 2
+        with open(argv[1], encoding="utf-8") as fh:
+            return 0 if argv[2] in read_active_gates_from_text(fh.read()) else 1
+
+    if cmd == "compute-active":
+        if len(argv) < 3:
+            sys.stderr.write("Usage: gate_ledger.py compute-active <file> <profile> [mv_allowlist_csv]\n")
+            return 2
+        allowlist = tuple(g for g in (argv[3] if len(argv) > 3 else "").split(",") if g)
+        with open(argv[1], encoding="utf-8") as fh:
+            try:
+                active, filtered, digest = compute_active_gates(fh.read(), argv[2], allowlist)
+            except ProfileReadError as exc:
+                sys.stderr.write(f"Error: {exc}\n")
+                return 3
+        sys.stdout.write("ACTIVE:" + ",".join(active) + "\n")
+        sys.stdout.write("FILTERED:" + ",".join(filtered) + "\n")
+        sys.stdout.write("DIGEST:" + digest + "\n")
+        return 0
+
+    if cmd == "active-status":
+        if len(argv) < 4:
+            sys.stderr.write("Usage: gate_ledger.py active-status <file> <profile> <profile_name> [mv_allowlist_csv]\n")
+            return 2
+        allowlist = tuple(g for g in (argv[4] if len(argv) > 4 else "").split(",") if g)
+        with open(argv[1], encoding="utf-8") as fh:
+            try:
+                sys.stdout.write(active_tuple_status(fh.read(), argv[2], argv[3], allowlist) + "\n")
+            except ProfileReadError as exc:
+                sys.stderr.write(f"Error: {exc}\n")
+                return 3
+        return 0
 
     sys.stderr.write(f"Unknown command: {cmd}\n")
     return 2

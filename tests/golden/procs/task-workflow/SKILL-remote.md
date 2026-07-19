@@ -196,6 +196,23 @@ If none of the checks trigger, proceed to Step 4 as normal.
 
   **Note:** The script handles email storage, lock acquisition, task metadata update (`status` → Implementing, `assigned_to`), and git add/commit/push internally. If the script fails entirely (non-zero exit without structured output), display the error and abort.
 
+- **Materialize the active-gates tuple (ALWAYS runs — never profile-omitted):** With ownership held, derive and persist the task's enforced gate set under the current profile. If `active_profile_filename` is set, run:
+
+  ```bash
+  ./.aitask-scripts/aitask_gate.sh materialize-active <task_num> --profile aitasks/metadata/profiles/<active_profile_filename>
+  ```
+
+  Parse the single stdout line:
+  - `MATERIALIZED:<csv>` — active set persisted and committed. `MATERIALIZED:(empty)` means a fully profile-filtered (or ungated) task — that persisted empty set is exactly what makes a declared-but-unrendered gate invisible to every enforcer. Continue.
+  - `MATERIALIZED_UNCOMMITTED:<csv>` — the tuple was written and is enforced locally, but the path-scoped git commit failed (e.g. an index lock). Warn: "active-gates tuple written but not committed — other checkouts won't see it until the task data is committed." and continue; a later `./ait git` commit of `aitasks/` picks it up.
+  - `NOOP:unchanged` — re-pick under the same profile with unchanged inputs; nothing rewritten (any previously pending commit of the task file was verified/repaired). Continue.
+  - `NOOP_UNCOMMITTED:pending-persist` — the tuple is unchanged and enforced locally, but the task file still carries changes git refused to commit. Warn as for `MATERIALIZED_UNCOMMITTED` and continue.
+  - Nonzero exit — the re-derivation failed (unreadable/invalid profile, compute backend unavailable). The helper clears any previously persisted tuple (its stderr says whether the clear succeeded), but the raw-`gates:` fallback is only the task's declared intent — it does NOT include this profile's `default_gates`, so continuing could silently under-enforce the current profile. **ABORT the pick**: display "active-gates materialization failed (\<output\>) — fix the profile / compute backend and re-pick t\<task_num\>.", then execute the **Task Abort Procedure** (see `task-abort.md`). Do NOT proceed to Step 5.
+
+  If `active_profile_filename` is NOT set (a manual/resume invocation without a profile), skip the call. This is the claim-time-snapshot governance model: with no profile in scope there is nothing to re-derive against, so the previously persisted tuple (when present and intact) remains the enforced snapshot, and a task never materialized follows its raw `gates:` field. (`./.aitask-scripts/aitask_gate.sh active-gates-status <task_num> --profile <file>` shows the stored tuple + freshness when a profile is in scope.)
+
+  This claim-time materialization replaces the former Step-7 `gates:` backfill: raw `gates:` stays the task's declared intent, and the persisted `active_gates` tuple is the enforced set that planning, the Step-9 orchestrator, and the archival guard all read. Re-running on every (re-)pick re-derives the set under the CURRENT profile, so a profile switch can never leave stale enforcement. (Gate CLI verb shapes — decision vs action vs introspection — are documented once in `gate-cli.md`.)
+
 - **Store previous status for potential abort** (remember the `previous_status` from context)
 
 - **Re-entry Routing gate:** After ownership is held (via **any** success path above — `OWNED`, `FORCE_UNLOCKED` + `OWNED`, or crash-recovery → `reclaim`), check the `resume_point` context variable set by Step 3 Check 5. If it is `IMPLEMENT` or `POSTIMPL`, follow the **Re-entry Routing** procedure below **instead of** proceeding to Step 5 → Step 6. Otherwise (unset, or `PLAN`), proceed to Step 5 normally. (The routing is gated on `resume_point`, not on which ownership path was taken — a force-unlock takeover of an in-flight task returns plain `OWNED` with no reclaim signal, and its resume must not be lost.)
@@ -305,20 +322,6 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
 
 **Cross-repo child assignment (post-approval creation):** If `cross_repo_planned` is `true` (set in `planning.md` §6.1 — the approved plan is a cross-repo paired design), execute the **Cross-Repo Child Assignment Procedure** (see `cross-repo-child-assignment.md`) now. It creates the cross-repo parent first, then assigns all children (local + cross-repo) to their parents with their plans, demotes the local parent to a parent-of-children, and presents its own child checkpoint. When it returns, the workflow has ended (via that checkpoint's "Start first child" / "Stop here") — do **NOT** continue with the normal single-task implementation below or proceed to Step 8. (This is the post-approval creation gate: planning runs in read-only plan mode, so no tasks were created during Step 6.)
 
-**Gate-declaration backfill (post-approval write):** Make this task's planning-time gate decision durable so the Step-9 checker runs in lockstep with the planning producer. If the task has **no** `gates:` field yet — and only then — declare the active profile's `default_gates` on it:
-
-```bash
-if ! ./.aitask-scripts/aitask_gate.sh has-gates-field <task_id>; then
-  eff="$(./.aitask-scripts/aitask_gate.sh effective-gates <task_id> --profile aitasks/metadata/profiles/<active_profile_filename> | paste -sd, -)"
-  if [ -n "$eff" ]; then
-    ./.aitask-scripts/aitask_update.sh --batch <task_id> --gates "$eff"
-    ./ait git add aitasks/ && ./ait git commit -m "ait: Declare gates for t<task_id> from profile" 2>/dev/null || true
-  fi
-fi
-```
-
-`has-gates-field` exits non-zero **only** when the `gates:` key is absent (it exits 0 even for an explicit `gates: []`), so a deliberate opt-out is never overwritten. Omit the `--profile` argument if `active_profile_filename` is unset (no active profile). It is a no-op when the task already declares gates or the profile declares none.
-
 **Risk fields (post-approval write):** If the approved plan contains a `## Risk` section (authored by the Risk Evaluation Procedure during planning), write the two decided levels to the task's frontmatter now:
 
 ```bash
@@ -328,25 +331,6 @@ fi
 ```
 
 Skip silently if the plan has no `## Risk` section (e.g. the task is not risk-gated). This is the post-approval write gate: planning runs in read-only plan mode, so the fields are not written during Step 6.
-
-**Risk-mitigation "before" creation (post-approval):** If the approved plan has a `### Planned mitigations` subsection with ≥1 `before` line (authored during planning by the Risk-Mitigation Follow-up Procedure), execute **Part 2 (Step 7 "before" creation)** of that procedure now (see `risk-mitigation-followup.md`). It creates each "before" mitigation as an **independent task the original depends on** (not a child), read-modify-writes the original's `depends:` and `risk_mitigation_tasks` to wire the blocking edge, and back-fills the plan's mitigation links.
-
-If it returns `risk_before_created: true`, the original is now blocked by an unfinished mitigation and must **not** be implemented this session. Stop the original here:
-
-1. Release the task lock via the **Lock Release Procedure** (see `lock-release.md`).
-2. Revert the task to `Ready` and clear `assigned_to` (it will show **Blocked** in `ait ls` until the mitigation lands):
-   ```bash
-   ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to ""
-   ```
-3. Commit and push the status revert:
-   ```bash
-   ./ait git add aitasks/
-   ./ait git commit -m "ait: Revert t<task_num> to Ready (risk mitigation pending)" 2>/dev/null || true
-   ./ait git push
-   ```
-4. Display: "Created risk-mitigation 'before' task(s) the original depends on. Task t\<task_id\> reverted to Ready — implement the mitigation first, then re-pick t\<task_id\> (its plan will be force re-verified)." Then **END the workflow** — do NOT proceed to the implementation below or to Step 8.
-
-If it returns `risk_before_created: false` (no "before" mitigations), continue to implementation normally.
 
 Follow the approved plan, working in the directory specified in the plan metadata.
 
@@ -484,14 +468,7 @@ Entered from Step 8b (or directly from Step 8 if 8b was a no-op). At this point 
 Execute the **Manual Verification Follow-up Procedure** (see `manual-verification-followup.md`) with:
 - `task_file`, `task_id`, `is_child`, `active_profile`, `parent_id` from the current context.
 - `task_slug` — filename stem with the `t<id>_` prefix stripped (e.g. `aitasks/t42_add_login.md` → `add_login`).
-
-When the procedure returns, proceed to Step 8d.
-
-### Step 8d: Risk-Mitigation "After" Follow-up
-
-Entered from Step 8c. At this point the code and plan files have already been committed. This step applies only when the task was risk-gated; if the approved plan has a `### Planned mitigations` subsection with ≥1 `after` line (authored during planning by the Risk-Mitigation Follow-up Procedure), execute **Part 3 (Step 8d "after" creation)** of that procedure now (see `risk-mitigation-followup.md`) with `task_id`, `task_num`, `plan_file`, `is_child`, `parent_id`, and `active_profile` from the current context. If the plan has no such subsection (the common case for non-risk-gated tasks), this step is a no-op.
-
-It creates each "after" mitigation as an independent follow-up task and records it in the original's `risk_mitigation_tasks`. "After" mitigations block nothing, so the workflow continues normally. When the procedure returns, proceed to Step 9.
+When the procedure returns, proceed to Step 9.
 
 ### Step 9: Post-Implementation
 

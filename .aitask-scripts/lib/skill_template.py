@@ -118,8 +118,19 @@ def render_skill(template_path: Path, profile: dict[str, Any], agent_name: str) 
         undefined_behavior="strict",
     )
     template_source = template_path.read_text(encoding="utf-8")
+    # Render ceiling (t635_33): the gate machinery rendered into this profile's
+    # variants. Key-presence, not truthiness — an explicit `rendered_gates: []`
+    # must NOT fall back to `default_gates` (it is the profile's render-nothing
+    # override). Injected into the render context (not `{% set %}`) because
+    # {% set %} does not cross {% include %}. Must mirror
+    # gate_ledger._read_profile_rendered_gates and the bash compute path.
+    if "rendered_gates" in profile:
+        rendered_set = profile["rendered_gates"] or []
+    else:
+        rendered_set = profile.get("default_gates") or []
     try:
-        return env.render_str(template_source, profile=profile, agent=agent_name)
+        return env.render_str(template_source, profile=profile, agent=agent_name,
+                              rendered_set=rendered_set)
     except minijinja.TemplateError as e:
         raise RuntimeError(
             f"Template '{template_path}' render failed: {e}. "

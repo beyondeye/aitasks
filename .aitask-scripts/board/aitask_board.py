@@ -802,12 +802,14 @@ class TaskManager:
         return "  ".join(parts)
 
     def _human_pending_gates(self, result: GateStateResult) -> list[str]:
+        # Decision surface: key off the ENFORCED active set (t635_33) — a
+        # profile-filtered human gate must not show as pending.
         state = result.state
         if not state:
             return []
         registry = self.gate_registry()
         gates = []
-        for gate in state.declared_gates:
+        for gate in state.active_gates:
             meta = registry.get(gate, {})
             if meta.get("type") != "human":
                 continue
@@ -817,9 +819,14 @@ class TaskManager:
         return gates
 
     def _has_failed_gate(self, result: GateStateResult) -> bool:
+        # Decision surface: a failed historical run of a profile-filtered gate
+        # (state.filtered_gates, t635_33) stays audit-only in the summary text
+        # and must not classify the task as "failed gate".
         state = result.state
         return bool(state and any(
-            run.status in ("fail", "error") for run in state.current.values()
+            run.status in ("fail", "error")
+            for run in state.current.values()
+            if run.name not in state.filtered_gates
         ))
 
     def _inflight_item_for(self, task: Task) -> InFlightItem | None:

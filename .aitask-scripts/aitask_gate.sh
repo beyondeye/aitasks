@@ -449,31 +449,351 @@ cmd_effective_gates() {
     delegate_python effective-gates "$file" "$profile" || true
 }
 
+# --- Active-gates tuple (t635_33) ------------------------------------------
+#
+# The profile renders a gate-machinery ceiling (`rendered_gates`, defaulting to
+# `default_gates`); the task's `gates:` selects within it. The profile-filtered
+# result is persisted at claim time as an atomic four-field tuple
+# (active_gates / active_gates_filtered / active_gates_profile /
+# active_gates_digest) that every enforcer consumes. The DECISION verbs below
+# (`active`, `has-gates-field`, `should-self-record`) are pure bash — always
+# available, clean 0/1 exit, no python-availability ambiguity. The ACTION /
+# introspection verbs (`materialize-active`, `active-gates-status`) delegate the
+# full compute to lib/gate_ledger.py `compute-active` — the single compute
+# implementation — passing the t1156 manual-verification allowlist from
+# task_utils.sh so there is one source for it.
+
+# 12-hex sha256 of a string — byte-identical twin of gate_ledger._hash12
+# (cross-checked by tests/test_gate_active_gates.sh).
+_gate_hash12() {
+    local s="$1" hex
+    if command -v sha256sum >/dev/null 2>&1; then
+        hex="$(printf '%s' "$s" | sha256sum | awk '{print $1}')"
+    elif command -v shasum >/dev/null 2>&1; then
+        hex="$(printf '%s' "$s" | shasum -a 256 | awk '{print $1}')"
+    elif command -v openssl >/dev/null 2>&1; then
+        hex="$(printf '%s' "$s" | openssl dgst -sha256 | awk '{print $NF}')"
+    else
+        die "No sha256 tool available (need sha256sum, shasum, or openssl)"
+    fi
+    printf '%s' "${hex:0:12}"
+}
+
+# Key-presence oracle: exit 0 iff <file> declares <key>: at all (even `[]`).
+# Scans only the frontmatter of a fenced markdown file; scans the whole file
+# when unfenced (profile YAML).
+_yaml_has_key() {
+    local file="$1" key="$2"
+    awk -v k="$key" '
+        NR == 1 && $0 == "---" { fenced = 1; next }
+        fenced && $0 == "---" { exit }
+        index($0, k ":") == 1 { found = 1; exit }
+        END { exit found ? 0 : 1 }
+    ' "$file"
+}
+
+# CSV of a YAML list field ("" when absent/empty) — matches the python
+# ",".join() canonical form used in the digest inputs.
+_yaml_list_csv() {
+    read_yaml_list "$1" "$2" | paste -sd, -
+}
+
+# Validate the two digest halves checkable WITHOUT a profile: gates-half vs the
+# current raw `gates:` field, outputs-half vs the stored tuple values. Mirrors
+# gate_ledger._digest_profileless_halves_match.
+_digest_halves_ok() {
+    local file="$1" digest g_half o_half gates_input outputs_input
+    digest="$(read_yaml_field "$file" active_gates_digest)"
+    [[ "$digest" =~ ^[0-9a-f]{12}\.[0-9a-f]{12}\.[0-9a-f]{12}$ ]] || return 1
+    g_half="${digest%%.*}"
+    o_half="${digest##*.}"
+    if _yaml_has_key "$file" gates; then
+        gates_input="gates=$(_yaml_list_csv "$file" gates)"
+    else
+        gates_input="gates=absent"
+    fi
+    outputs_input="active=$(_yaml_list_csv "$file" active_gates)|filtered=$(_yaml_list_csv "$file" active_gates_filtered)"
+    [[ "$(_gate_hash12 "$gates_input")" == "$g_half" \
+       && "$(_gate_hash12 "$outputs_input")" == "$o_half" ]]
+}
+
+# The task's enforced gate set as a CSV: the validated `active_gates` tuple when
+# present and intact, else the raw `gates:` fallback (declared intent — the
+# pre-materialization behavior). Mirrors gate_ledger.read_active_tuple_from_text
+# so bash and python enforcers agree, including on the stale/corrupt case.
+_active_set_csv() {
+    local file="$1"
+    if _yaml_has_key "$file" active_gates && _digest_halves_ok "$file"; then
+        _yaml_list_csv "$file" active_gates
+    else
+        _yaml_list_csv "$file" gates
+    fi
+}
+
+# active: decision verb (t635_33, folded t635_25). Exit 0 iff <gate> is in the
+# task's ENFORCED active set; exit 1 otherwise. Pure bash. Replaces the
+# `effective-gates | grep` producer-trigger shape — callers branch on the exit
+# code, no text parsing.
+cmd_active() {
+    local task_id="${1:-}" gate="${2:-}"
+    [[ -z "$task_id" || -z "$gate" ]] && die "Usage: aitask_gate.sh active <task-id> <gate>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+    if [[ "${AIT_GATES_BACKEND:-}" == "python" ]]; then
+        delegate_python active "$file" "$gate"
+        return $?
+    fi
+    local set_csv
+    set_csv="$(_active_set_csv "$file")"
+    [[ ",${set_csv}," == *",${gate},"* ]]
+}
+
 # has-gates-field: field-presence oracle (t635_14). Exit 0 iff the task's
 # frontmatter declares a `gates:` key AT ALL (even `gates: []`); exit 1 when
-# absent. The Step-7 backfill keys off this so a deliberate `gates: []` opt-out is
-# never overwritten — `list` can't make this distinction (it returns "no gates"
-# for both absent and `[]`). Python-unavailable degrades to exit 1 (treated as
-# absent; the paired effective-gates call then yields nothing, so no write).
+# absent — so a deliberate `gates: []` opt-out is never overwritten (`list`
+# can't make this distinction). Pure bash (t635_33; previously python-only).
 cmd_has_gates_field() {
     local task_id="${1:-}"
     [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh has-gates-field <task-id>"
     local file
     file="$(resolve_task_file "$task_id")"
-    delegate_python has-gates-field "$file"
+    if [[ "${AIT_GATES_BACKEND:-}" == "python" ]]; then
+        delegate_python has-gates-field "$file"
+        return $?
+    fi
+    _yaml_has_key "$file" gates
 }
 
 # should-self-record: decide whether task-workflow self-records <gate> at Step 7
-# (t635_13/t635_14). Exit 0 = record (task does NOT literally declare the gate);
-# exit 1 = skip (the gate is declared, so the Step-9 orchestrator records it — a
-# self-record here would double-record). Keys off the LITERAL `gates:` field, not
-# the effective set.
+# (t635_13/t635_14/t635_33). Exit 0 = record (gate NOT in the enforced active
+# set); exit 1 = skip (the gate is enforced, so the Step-9 orchestrator records
+# it — a self-record here would double-record). Reads the same set the
+# orchestrator runs from. Pure bash (previously python-only).
 cmd_should_self_record() {
     local task_id="${1:-}" gate="${2:-}"
     [[ -z "$task_id" || -z "$gate" ]] && die "Usage: aitask_gate.sh should-self-record <task-id> <gate>"
     local file
     file="$(resolve_task_file "$task_id")"
-    delegate_python should-self-record "$file" "$gate"
+    if [[ "${AIT_GATES_BACKEND:-}" == "python" ]]; then
+        delegate_python should-self-record "$file" "$gate"
+        return $?
+    fi
+    local set_csv
+    set_csv="$(_active_set_csv "$file")"
+    [[ ",${set_csv}," != *",${gate},"* ]]
+}
+
+_mv_allowlist_csv() {
+    printf '%s' "${MANUAL_VERIFICATION_REACHABLE_GATES// /,}"
+}
+
+# Derive the provenance stamp from a profile path: the path under .../profiles/
+# without the extension (`fast`, `local/fast`); basename for out-of-tree paths.
+_profile_stamp_name() {
+    local p="$1" name
+    case "$p" in
+        *"/profiles/"*) name="${p##*/profiles/}" ;;
+        *) name="$(basename "$p")" ;;
+    esac
+    name="${name%.yaml}"
+    name="${name%.yml}"
+    printf '%s' "$name"
+}
+
+# Single compute path shared by materialize-active and active-gates-status so
+# freshness comparison applies the identical rule (incl. the t1156
+# manual-verification allowlist, sourced ONCE from task_utils.sh). Delegates to
+# lib/gate_ledger.py — the only full-compute implementation. Output:
+# ACTIVE:<csv> / FILTERED:<csv> / DIGEST:<digest>.
+cmd_compute_active() {  # internal: <task-file> <profile-file>
+    delegate_python compute-active "$1" "$2" "$(_mv_allowlist_csv)"
+}
+
+# materialize-active: action verb (t635_33). Computes the task's active-gates
+# tuple under --profile and persists it in ONE atomic aitask_update.sh call
+# (all four fields), then commits the task file path-scoped. Stdout is exactly
+# one line: MATERIALIZED:<csv> | MATERIALIZED:(empty) | NOOP:unchanged.
+#
+# Always run at claim time (task-workflow Step 4), even for lean profiles —
+# writing `active_gates: []` is the safety valve that neutralizes a
+# declared-but-unrendered gate. Hard-fails (nonzero) when the profile is
+# missing/invalid or the compute backend is unavailable, and on that path
+# CLEARS any previously persisted tuple: the old snapshot's profileless digest
+# halves would still validate, so leaving it in place would keep the PREVIOUS
+# profile's enforcement authoritative under the CURRENT profile's rendered
+# workflow (over-blocking on a fast→default switch, under-enforcing on the
+# reverse). After a failed re-derivation the raw `gates:` fallback must truly
+# govern, exactly as the caller is told. The whole read-compute-write
+# transaction runs under the per-task gate mutex, so it can never interleave
+# with a concurrent append.
+cmd_materialize_active() {
+    local task_id="" profile=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --profile) profile="${2:-}"; shift 2 ;;
+            *) task_id="$1"; shift ;;
+        esac
+    done
+    # No --profile is a CALLER contract error (the skill skips the call when no
+    # profile is in scope — the persisted snapshot keeps governing by design),
+    # so it does not clear anything.
+    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh materialize-active <task-id> --profile <file>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+    [[ -z "$profile" ]] && \
+        die "materialize-active: no profile given — nothing written (raw gates: fallback governs)"
+
+    local profile_name
+    profile_name="$(_profile_stamp_name "$profile")"
+
+    local key="${task_id//\//_}"
+    acquire_gate_lock "$key"
+    # shellcheck disable=SC2064
+    trap 'release_gate_lock' EXIT
+
+    # Hard-fail helper for the profiled path: a re-derivation that cannot
+    # complete must not leave a stale snapshot governing — drop the tuple
+    # (grouped deletion) so the raw-gates fallback truly applies, and report
+    # HONESTLY both whether the clear succeeded and which state now governs
+    # (a failed clear leaves the OLD tuple authoritative — its profileless
+    # digest halves still validate — so claiming the fallback governs there
+    # would be self-contradictory). The raw fallback is only the declared
+    # intent, NOT the current profile's defaults — the caller (task-workflow
+    # Step 4) must therefore ABORT the pick on this exit, not continue with
+    # potentially under-enforced state.
+    _materialize_fail() {
+        local state="no prior tuple present; raw gates: fallback governs"
+        if _yaml_has_key "$file" active_gates; then
+            if "$SCRIPT_DIR/aitask_update.sh" --batch "$task_id" --clear-active-gates \
+                    --silent >/dev/null 2>&1; then
+                state="stale tuple cleared; raw gates: fallback governs"
+            else
+                state="WARNING: stale tuple could NOT be cleared — the outdated tuple may still govern; clear it (aitask_update.sh --batch $task_id --clear-active-gates) before relying on enforcement"
+            fi
+        fi
+        release_gate_lock; trap - EXIT
+        die "materialize-active: $1 — $state"
+    }
+
+    if [[ ! -f "$profile" || ! -r "$profile" ]]; then
+        _materialize_fail "profile not a readable file: $profile"
+    fi
+
+    local out
+    if ! out="$(cmd_compute_active "$file" "$profile")"; then
+        _materialize_fail "compute failed (python unavailable or invalid profile?)"
+    fi
+    local active filtered digest
+    active="$(printf '%s\n' "$out" | sed -n 's/^ACTIVE://p')"
+    filtered="$(printf '%s\n' "$out" | sed -n 's/^FILTERED://p')"
+    digest="$(printf '%s\n' "$out" | sed -n 's/^DIGEST://p')"
+    if [[ -z "$digest" ]]; then
+        _materialize_fail "compute produced no digest"
+    fi
+
+    # Path-scoped persistence, shared by the write path and the NOOP repair
+    # below. The tuple is already durable in the task FILE (the local
+    # enforcement source of truth); the commit is what makes it visible to
+    # other checkouts of the task-data branch. Git output is fully quieted so
+    # stdout stays a single status line. The rev-parse probe is the non-git
+    # seam: fixtures / dirs with no repo skip persistence silently (return 0);
+    # in a REAL repo, exit 1 = the file has pending changes git refused to
+    # commit.
+    _persist_task_file() {
+        if ! task_git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            # Only a context with NO git markers at all is the expected
+            # non-git seam (fixtures/tests) — persistence is not applicable.
+            # A present .git / .aitask-data whose rev-parse fails is a BROKEN
+            # task-data repo: persistence cannot be verified → failure.
+            if [[ ! -e .git && ! -e .aitask-data ]]; then
+                return 0
+            fi
+            return 1
+        fi
+        # Capture the status command's own exit separately: a failing status
+        # with empty stdout must read as "unverified", never as "clean".
+        local st
+        if ! st="$(task_git status --porcelain -- "$file" 2>/dev/null)"; then
+            return 1
+        fi
+        [[ -z "$st" ]] && return 0
+        { task_git add -- "$file" \
+            && task_git commit -m "ait: Materialize active gates for t${task_id}" -- "$file"; \
+        } >/dev/null 2>&1
+    }
+
+    # Idempotence: identical persisted tuple → no rewrite, no updated_at bump.
+    # Persistence is still VERIFIED/repaired: a previous invocation may have
+    # written the tuple but failed its commit (e.g. transient index lock), and
+    # an unchanged re-pick must heal that pending state, not skip past it.
+    if _yaml_has_key "$file" active_gates \
+        && [[ "$(_yaml_list_csv "$file" active_gates)" == "$active" ]] \
+        && [[ "$(_yaml_list_csv "$file" active_gates_filtered)" == "$filtered" ]] \
+        && [[ "$(read_yaml_field "$file" active_gates_profile)" == "$profile_name" ]] \
+        && [[ "$(read_yaml_field "$file" active_gates_digest)" == "$digest" ]]; then
+        release_gate_lock
+        trap - EXIT
+        if _persist_task_file; then
+            echo "NOOP:unchanged"
+        else
+            warn "materialize-active: task file still has uncommitted changes git refused to commit"
+            echo "NOOP_UNCOMMITTED:pending-persist"
+        fi
+        return 0
+    fi
+
+    if ! "$SCRIPT_DIR/aitask_update.sh" --batch "$task_id" \
+            --active-gates "$active" \
+            --active-gates-filtered "$filtered" \
+            --active-gates-profile "$profile_name" \
+            --active-gates-digest "$digest" \
+            --silent >/dev/null; then
+        _materialize_fail "tuple write failed"
+    fi
+
+    release_gate_lock
+    trap - EXIT
+
+    local status_word="MATERIALIZED"
+    if ! _persist_task_file; then
+        status_word="MATERIALIZED_UNCOMMITTED"
+        warn "materialize-active: git persist failed for $file (tuple written locally; commit it with the task data)"
+    fi
+    if [[ -n "$active" ]]; then
+        echo "${status_word}:${active}"
+    else
+        echo "${status_word}:(empty)"
+    fi
+}
+
+# active-gates-status: provenance/staleness introspection (t635_33). First line:
+# ABSENT | FRESH | STALE:<stamped>-><current>; when a tuple exists, the stored
+# tuple follows as ACTIVE:/FILTERED:/PROFILE: lines. Compares stamp, digest,
+# and stored values against a recomputation under --profile (same compute path
+# as materialize-active).
+cmd_active_gates_status() {
+    local task_id="" profile=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --profile) profile="${2:-}"; shift 2 ;;
+            *) task_id="$1"; shift ;;
+        esac
+    done
+    [[ -z "$task_id" || -z "$profile" ]] && \
+        die "Usage: aitask_gate.sh active-gates-status <task-id> --profile <file>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+    [[ -r "$profile" ]] || die "active-gates-status: profile not readable: $profile"
+
+    local profile_name
+    profile_name="$(_profile_stamp_name "$profile")"
+    delegate_python active-status "$file" "$profile" "$profile_name" "$(_mv_allowlist_csv)" \
+        || die "active-gates-status: compute failed (python unavailable?)"
+    if _yaml_has_key "$file" active_gates; then
+        echo "ACTIVE:$(_yaml_list_csv "$file" active_gates)"
+        echo "FILTERED:$(_yaml_list_csv "$file" active_gates_filtered)"
+        echo "PROFILE:$(read_yaml_field "$file" active_gates_profile)"
+    fi
 }
 
 # --- begin-procedure (procedure-backed gates, t635_19) ---------------------
@@ -574,9 +894,40 @@ Commands:
         keys off this so an explicit `gates: []` opt-out is never overwritten.
 
   should-self-record <task-id> <gate>
-        Decide whether task-workflow self-records <gate> at Step 7 (t635_14):
-        exit 0 = record (gate not literally declared), exit 1 = skip (declared →
-        the orchestrator records it; avoids a double-record).
+        Decide whether task-workflow self-records <gate> at Step 7 (t635_14/
+        t635_33): exit 0 = record (gate not in the enforced active set),
+        exit 1 = skip (enforced → the orchestrator records it; avoids a
+        double-record). Pure bash.
+
+  active <task-id> <gate>
+        Decision verb (t635_33): exit 0 iff <gate> is in the task's ENFORCED
+        active set — the validated active_gates tuple when present/intact, else
+        the raw `gates:` fallback. Pure bash; callers branch on the exit code
+        (replaces `effective-gates | grep`).
+
+  materialize-active <task-id> --profile <file>
+        Action verb (t635_33): compute the task's profile-filtered active-gates
+        tuple (active_gates, active_gates_filtered, active_gates_profile,
+        active_gates_digest) and persist all four atomically, committing the
+        task file path-scoped. Prints ONE line: MATERIALIZED:<csv|(empty)> |
+        MATERIALIZED_UNCOMMITTED:<csv|(empty)> (tuple written + enforced
+        locally, but the git repo refused the path-scoped commit — commit the
+        task data to make it cross-PC visible) | NOOP:unchanged (identical
+        tuple; any pending commit of the task file is verified/repaired) |
+        NOOP_UNCOMMITTED:pending-persist (identical tuple, repair commit still
+        refused). Outside a git context (fixtures) persistence is skipped
+        silently. Hard-fails
+        (nonzero, and clears any prior tuple) on an unreadable/invalid
+        profile or compute failure — the CALLER must abort its flow then. Run
+        at claim time (task-workflow Step 4), ALWAYS — writing
+        `active_gates: []` is what makes a declared-but-unrendered gate
+        invisible to every enforcer.
+
+  active-gates-status <task-id> --profile <file>
+        Freshness/provenance introspection (t635_33). First line: ABSENT |
+        FRESH | STALE:<stamped>-><current>; when a tuple exists, the stored
+        tuple follows as ACTIVE:/FILTERED:/PROFILE: lines. The enforced-set
+        display verb (`list` shows the DECLARED intent).
 
   procedure-gates <task-id>
         List the task's declared PROCEDURE-BACKED gates (kind: procedure) not yet
@@ -607,6 +958,9 @@ main() {
         effective-gates) shift; cmd_effective_gates "$@" ;;
         has-gates-field) shift; cmd_has_gates_field "$@" ;;
         should-self-record) shift; cmd_should_self_record "$@" ;;
+        active) shift; cmd_active "$@" ;;
+        materialize-active) shift; cmd_materialize_active "$@" ;;
+        active-gates-status) shift; cmd_active_gates_status "$@" ;;
         procedure-gates) shift; cmd_procedure_gates "$@" ;;
         begin-procedure) shift; cmd_begin_procedure "$@" ;;
         --help|-h|help|"") show_help ;;
