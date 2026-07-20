@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [tui]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1149
 created_at: 2026-07-20 18:06
-updated_at: 2026-07-20 18:06
+updated_at: 2026-07-20 18:11
 ---
 
 ## Goal
