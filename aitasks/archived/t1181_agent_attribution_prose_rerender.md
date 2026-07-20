@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [claudeskills, codexcli]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1171
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 12:20
-updated_at: 2026-07-20 12:51
+updated_at: 2026-07-20 17:26
+completed_at: 2026-07-20 17:26
 boardidx: 30
 ---
 
@@ -82,3 +83,20 @@ separate per-agent port task is needed — the rerender covers Codex and OpenCod
 > **✅ gate:plan_approved** run=2026-07-20T09:51:55Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-20T09:56:21Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-20T14:23:15Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c0d3139ed16f199a
+
+> **❌ gate:risk_evaluated** run=2026-07-20T14:23:15Z-risk_evaluated-a1 status=fail attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluation incomplete: plan '## Risk' missing '### Code-health risk' subsection
+> Log: `.aitask-gates/1181/risk_evaluated_2026-07-20T14:23:15Z-risk_evaluated-a1.log`
+
+> **✅ gate:risk_evaluated** run=manual-reverify-t1181 status=pass attempt=2 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1181/risk_evaluated_manual-reverify-t1181.log`
