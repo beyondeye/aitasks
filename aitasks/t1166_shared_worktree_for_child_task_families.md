@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_workflow, git-integration, child_tasks]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-19 23:02
-updated_at: 2026-07-19 23:02
+updated_at: 2026-07-20 10:29
 ---
 
 ## Goal
