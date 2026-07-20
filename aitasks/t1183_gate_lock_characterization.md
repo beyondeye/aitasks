@@ -1,0 +1,73 @@
+---
+priority: medium
+effort: low
+depends: []
+issue_type: test
+status: Ready
+labels: [gates]
+gates: [risk_evaluated]
+anchor: 635
+created_at: 2026-07-20 12:25
+updated_at: 2026-07-20 12:25
+---
+
+## Origin
+
+Risk-mitigation ("before") for t635_30, created at Step 7 from the approved
+plan's risk evaluation (`aiplans/p635/p635_30_task_gate_editing_surface.md`).
+t635_30 depends on this task and cannot be implemented until it lands.
+
+## Risk addressed
+
+Code-health risk (severity: medium) — *"Changing the gate lock key from raw
+argument to resolved file alters mutual-exclusion for the **existing**
+`append`/`materialize-active` verbs. A wrong derivation over-excludes or
+under-excludes on a load-bearing path."*
+
+t635_30 will replace `local key="${task_id//\//_}"` in
+`.aitask-scripts/aitask_gate.sh` (`cmd_materialize_active`, ~line 648) with a
+key derived from the **resolved task file**, because the current key is computed
+from the raw argument: `ait gate append t635_30` and `ait gate append 635_30`
+today take *different* locks (`/tmp/aitask_gate_lock_t635_30` vs
+`/tmp/aitask_gate_lock_635_30`) and therefore do **not** mutually exclude. That
+is a real pre-existing bug, but fixing it changes concurrency behavior on a
+load-bearing path used by every gate append and every claim-time
+materialization.
+
+## Goal
+
+Pin the **current** mutual-exclusion behavior of `aitask_gate.sh` with
+characterization tests, so the lock-key change in t635_30 is provably safe for
+existing callers rather than an unverified swap.
+
+Cover at least:
+
+1. **Same-spelling exclusion holds today** — two concurrent `append` calls using
+   the *identical* task-id spelling serialize (no interleaved/lost ledger
+   block). This behavior must survive the change.
+2. **Cross-spelling exclusion is currently ABSENT** — concurrent `append`
+   `t<id>` vs `<id>` do *not* exclude today. Assert the status quo explicitly so
+   the t635_30 change flips exactly this assertion and nothing else. (This is
+   the characterization test's real payload: it documents the bug as current
+   behavior.)
+3. **`materialize-active` vs `append`** on the same task serialize under the
+   same-spelling case.
+4. **Lock lifecycle** — the `mkdir` lock directory is released on normal exit
+   and on `die` (the `trap release_gate_lock EXIT` path), and the >120s stale
+   lock is reclaimed with the `warn` message.
+5. **Retry exhaustion** — a held lock causes `die` after the 20-attempt budget
+   rather than proceeding unlocked (fail-closed).
+
+Note `acquire_gate_lock` (`.aitask-scripts/aitask_gate.sh:70-91`) is a
+**non-reentrant** `mkdir` lock — a nested acquisition of the same key retries
+20x at 0.3s and then dies. Tests must not accidentally rely on reentrancy.
+
+## Reference
+
+- `.aitask-scripts/aitask_gate.sh:68-97` — `acquire_gate_lock` /
+  `release_gate_lock`.
+- `.aitask-scripts/aitask_gate.sh:648` — the raw-argument key to be replaced.
+- `aitask_create.sh acquire_child_lock` — the mirrored lock pattern.
+- Test conventions: `tests/lib/asserts.sh`, fixture pattern in
+  `tests/test_gate_cli_wiring.sh:20-27`.
+- Consumer plan: `aiplans/p635/p635_30_task_gate_editing_surface.md` §1.
