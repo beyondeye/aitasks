@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/fable5
 created_at: 2026-07-20 12:25
-updated_at: 2026-07-20 12:27
+updated_at: 2026-07-20 13:01
 boardidx: 50
 ---
 
@@ -77,3 +78,8 @@ Note `acquire_gate_lock` (`.aitask-scripts/aitask_gate.sh:70-91`) is a
 - Test conventions: `tests/lib/asserts.sh`, fixture pattern in
   `tests/test_gate_cli_wiring.sh:20-27`.
 - Consumer plan: `aiplans/p635/p635_30_task_gate_editing_surface.md` §1.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-20T10:01:19Z status=pass attempt=1 type=human
