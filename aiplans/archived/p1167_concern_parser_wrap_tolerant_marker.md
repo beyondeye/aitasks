@@ -313,3 +313,4 @@ Current-branch profile — no worktree/branch cleanup. Run the gate orchestrator
   test-harness/import-isolation artifact, not a defect in another module's
   behavior, so they are not listed here. They are a test-infrastructure gap and
   belong to `/aitask-qa` if pursued.)
+- **Manual-verification failure:** item "Spawn a Codex shadow via minimonitor `e` on a plan review at a narrow pane width (~55 cols), with a concern whose region is a long full path" failed; follow-up task t1187.
