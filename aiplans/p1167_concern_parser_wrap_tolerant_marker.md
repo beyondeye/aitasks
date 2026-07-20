@@ -256,3 +256,60 @@ pass, with the live-capture fixture asserting both `parse_concerns` length 1 and
 Current-branch profile — no worktree/branch cleanup. Run the gate orchestrator
 (`risk_evaluated` is the active gate), then archive via
 `./.aitask-scripts/aitask_archive.sh 1167`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in three files.
+  `concern_parser.py` gained `_MARKER_START`, `_MAX_MARKER_JOIN_ROWS = 2`,
+  `_join_sep()` and `_join_split_marker()`, and `_parse_items` was rewritten
+  from a `for` over `splitlines()` to an index walk so a join can consume more
+  than one row. `tests/test_concern_parser.py` gained `TestSplitMarkerJoin`
+  (8 tests). `concern-format.md`'s `region` bullet was rewritten into a
+  "split-marker hazard and its bounded recovery" subsection.
+
+- **Deviations from plan:** None. The plan was revised *before* approval in
+  response to two shadow-review concerns (see below), and implementation
+  followed the revised plan verbatim.
+
+- **Issues encountered:**
+  - `python3 -m pytest` is unavailable in this environment (`.aitask/venv` has
+    no pytest); used `python3 -m unittest tests.test_concern_parser` instead.
+    The plan's Verification block should be read accordingly.
+  - The aggregate runner (`tests/run_all_python_tests.sh`, 1765 tests) reports
+    4 failures + 1 error in `test_tui_switcher_agent_launch`. These are
+    **pre-existing and unrelated**: the file passes 14/14 standalone, and the
+    failures are `assertIsInstance` mismatches caused by the same module being
+    imported under two `sys.path` identities in one process. This diff touches
+    neither the switcher nor its imports.
+  - The main-branch index carried **5 pre-staged files from a concurrent
+    session** (`.agents/skills/codex_tool_mapping.md`, three
+    `.claude/skills/aitask-shadow/*` files, `website/.../shadow-agent.md`).
+    Committed with an explicit pathspec (`git commit -- <my three paths>`) so
+    the other session's staged work was neither committed nor unstaged.
+
+- **Key decisions:**
+  - **Bound = 2 joined rows (3-row marker).** Justified by arithmetic rather
+    than taste: ~165 chars of marker at 55 columns ≈ a 150-char region, ~5× the
+    producer's 30-char rule and ~3× the 53-char region that actually broke. Made
+    an asserted contract by an at-bound (parses) / over-bound (does not) test
+    pair, so changing the constant forces a deliberate decision.
+  - **Region reconstruction is explicitly best-effort.** A capture cannot
+    distinguish a renderer-consumed space from a continuing token, so `_join_sep`
+    treats a trailing `-`/`/` as intra-token (exact for paths — the only failure
+    mode seen live) and restores a space otherwise. `priority` and `body` stay
+    exact. The known cosmetic loss (prose region broken after a spaced slash →
+    `foo /bar`) is asserted in a test so it reads as a decision, not a bug.
+  - **Commit-on-success lookahead** rather than a consuming scan: a failed join
+    consumes nothing, and the scan stops at any row beginning a marker. This is
+    what preserves the existing collision-hardening guarantee, and it is covered
+    by two negative controls.
+  - **Scope kept to the parser.** The producer-side short-region rule from t1158
+    stays in force and is now documented as the *primary* defense; this fix is
+    the structural backstop, not a replacement.
+
+- **Upstream defects identified:** None.
+
+  (The `test_tui_switcher_agent_launch` aggregate-runner failures above are a
+  test-harness/import-isolation artifact, not a defect in another module's
+  behavior, so they are not listed here. They are a test-infrastructure gap and
+  belong to `/aitask-qa` if pursued.)
