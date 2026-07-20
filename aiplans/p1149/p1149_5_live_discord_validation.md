@@ -326,3 +326,94 @@ all other risks are mitigated in-plan by the pinned contracts and tests.
 - Manual (real bot token, via the queued manual-verification follow-up): valid token all-pass; revoked token → token row fails; portal intent off → intent row fails; bot removed from channel → visibility row fails; UI never hangs; skip works.
 
 Refer to Step 9 (Post-Implementation) of the task workflow for merge/archival.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-20 09:35)
+- **Requested by user:** (1) connect()'s failure path awaited the
+  cancelled gateway/ready tasks unbounded — a cancellation-resistant
+  gateway task could stall a cancelling caller past the wizard deadline;
+  bound those awaits too. (2) Keep the unrelated
+  `.claude/settings.local.json` diff out of the task commit. (3)
+  `fetch_bot_permissions` called `channel.permissions_for` without the
+  duck-typed callability guard used elsewhere — map its absence
+  deliberately.
+- **Changes made:** (1) Every cleanup await in connect()'s except path is
+  now `wait_for(..., CONNECT_CLEANUP_TIMEOUT_S)` + suppress (over-bound
+  tasks are abandoned with their outcome consumed); new
+  cancellation-resistant-gateway test asserts the caller-side deadline
+  holds and the client still closes. (2) The commit stages only this
+  task's files explicitly. (3) Absent/non-callable `permissions_for` now
+  raises a deliberate `ChatError` ("cannot inspect bot permissions");
+  new test pins it.
+- **Files affected:** `.aitask-scripts/chat/discord_adapter.py`,
+  `tests/test_chat_discord.sh`
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned (with the plan's two
+  review-driven amendment rounds folded in before implementation).
+  `chat/discord_adapter.py`: `CONNECT_CLEANUP_TIMEOUT_S = 5.0`; public
+  `close()` (duck-typed client close + bounded gateway-task consumption,
+  safe on never-connected/fake clients); hardened `connect()` (readiness
+  raced against the gateway task — `PrivilegedIntentsRequired` and clean
+  early exits surface instead of hanging in `wait_until_ready()`, with a
+  deterministic `RuntimeError("Discord gateway closed before becoming
+  ready")` fallback; every failure-path cleanup await bounded +
+  suppressed; gateway task stored on the adapter for `close()`);
+  `fetch_bot_permissions(conversation, names)` primitive (explicit bot
+  member via `get_member`/`fetch_member` fallback, `permissions_for`
+  callability guard raising a deliberate `ChatError`). NEW
+  `chatlink/live_check.py`: sync `run_live_checks(token, workspace_id,
+  conversation_id, thread_id=None, *, timeout=30.0, connector=None)` →
+  exactly four `CheckResult` rows (`live_login`, `live_intents`,
+  `live_channel_visible`, `live_permissions`, category `transport`);
+  deadline-shared per-stage `wait_for` (body never cancelled from
+  outside, so the finally-close always runs, itself bounded by
+  `CLOSE_TIMEOUT_S`); class-name-based exception matching (never imports
+  the SDK); fixed-template messages (token hygiene);
+  `REQUIRED_BOT_PERMISSIONS`/`OPTIONAL_BOT_PERMISSIONS` pinned to
+  `aidocs/chat/discord_bot_setup.md` step 5; visibility checks the
+  configured (possibly thread) ref while permissions ALWAYS evaluate the
+  parent-channel ref. `chatlink/wizard.py`: `LiveCheckScreen` inserted
+  between Token and Summary (`_STEPS`), titles renumbered to `/7`,
+  `WizardSeams.live_runner` + `resolve_seams` default, worker with
+  generation token + `is_attached` guard. `chatlink_app.py`:
+  `live_runner=None` constructor seam threaded into `action_wizard`.
+  Docs: troubleshooting note in
+  `website/content/docs/workflows/bug-report-intake.md` + live-validation
+  note in `aidocs/chat/discord_bot_setup.md`.
+- **Deviations from plan:** None material. The provider≠discord case
+  disables the Validate button at compose time (plus a defensive guard in
+  the handler) rather than an inline-error-only approach.
+- **Issues encountered:** The screen's planned `_running`/`_gen`
+  attribute names silently collided with Textual's internal
+  `MessagePump._running` (set True when the pump starts), making the
+  validate handler early-return unconditionally — renamed to
+  `_live_running`/`_live_gen`. In the connect() teardown test, the fake
+  client subclass configured `next_config` on the subclass while
+  `__init__` reads the base-class attribute — a stale `ready: True`
+  leaked into the resistant-gateway scenario until reset on the base.
+- **Key decisions:** (1) connect() self-cleans on ANY failure including
+  caller-side cancellation (the caller has no adapter handle to close on
+  timeout), with every cleanup await bounded so a cancellation-resistant
+  gateway task cannot stall a cancelling caller past its deadline. (2)
+  live_check uses a deadline shared across stages instead of one outer
+  `wait_for`, so the teardown `finally` is never itself cancelled. (3)
+  Row messages carry at most an exception class name — hygiene tests
+  inject exceptions whose message contains the token. (4)
+  `fetch_bot_permissions` is a DiscordAdapter-specific primitive (like
+  `connect`), NOT added to the `ChatAdapter` ABC; the permission-name
+  policy lives in chatlink. (5) The live step is advisory-only: the
+  Pilot walk saves successfully right after a FAILING injected live row.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1149_4 (docs rewrite) should describe the
+  wizard as seven steps and may fold the live-validation troubleshooting
+  paragraph (added at the top of the bug-report-intake troubleshooting
+  section) into its rewritten structure — keep the content. The
+  `live_runner` seam follows the exact same constructor-seam pattern as
+  the other five wizard seams; `tests/test_chatlink_tui.sh` shows the
+  spy/blocking-Event idiom for driving the live step. `connect()` now
+  surfaces disabled privileged intents as an exception instead of
+  hanging — the daemon inherits this (its "bot sits there silently"
+  failure mode becomes a crash with a real error).
