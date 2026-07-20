@@ -8,6 +8,8 @@ labels: [python, cli, testing, chat_surface, security]
 gates: [risk_evaluated]
 created_at: 2026-07-19 22:35
 updated_at: 2026-07-19 22:35
+boardcol: next
+boardidx: 10
 ---
 
 ## Goal

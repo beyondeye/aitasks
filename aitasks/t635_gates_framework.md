@@ -9,7 +9,7 @@ children_to_implement: [t635_16, t635_17, t635_18, t635_23, t635_24, t635_26, t6
 created_at: 2026-04-23 20:21
 updated_at: 2026-07-19 23:33
 boardcol: now
-boardidx: 20
+boardidx: 10
 ---
 
 Parent task for implementing the aitasks gate framework AND its gradual
