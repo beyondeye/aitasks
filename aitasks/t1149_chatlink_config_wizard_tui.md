@@ -6,9 +6,9 @@ issue_type: feature
 status: Ready
 labels: [tui]
 gates: [risk_evaluated]
-children_to_implement: [t1149_4, t1149_5]
+children_to_implement: [t1149_4]
 created_at: 2026-07-15 10:36
-updated_at: 2026-07-19 12:43
+updated_at: 2026-07-20 12:37
 boardidx: 50
 ---
 
