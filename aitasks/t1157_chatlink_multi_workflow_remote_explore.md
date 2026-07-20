@@ -12,7 +12,7 @@ children_to_implement: [t1157_1, t1157_2, t1157_3, t1157_4, t1157_5, t1157_6, t1
 folded_tasks: [1127, 1144]
 created_at: 2026-07-17 11:50
 updated_at: 2026-07-17 16:58
-boardidx: 90
+boardidx: 130
 ---
 
 ## Goal

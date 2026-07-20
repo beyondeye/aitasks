@@ -8,6 +8,7 @@ labels: [verification, bug]
 anchor: 1158
 created_at: 2026-07-20 18:08
 updated_at: 2026-07-20 18:08
+boardidx: 20
 ---
 
 ## Failed verification item from t1167

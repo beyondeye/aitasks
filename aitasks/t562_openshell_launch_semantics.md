@@ -7,7 +7,7 @@ status: Ready
 labels: [agentcrew]
 created_at: 2026-04-15 12:39
 updated_at: 2026-07-09 09:29
-boardidx: 650
+boardidx: 690
 ---
 
 ## Scope alignment (t1120_5 — shared sandbox-launch seam)

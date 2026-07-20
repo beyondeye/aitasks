@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 anchor: 1150
 created_at: 2026-07-15 18:32
 updated_at: 2026-07-15 18:32
-boardidx: 270
+boardidx: 310
 ---
 
 ## Origin

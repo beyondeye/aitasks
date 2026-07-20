@@ -8,7 +8,7 @@ labels: [claudeskills]
 anchor: 1071
 created_at: 2026-07-01 15:10
 updated_at: 2026-07-01 15:10
-boardidx: 330
+boardidx: 370
 ---
 
 Migrate the `docs_updated` gate skill to read its guide path via the shared
