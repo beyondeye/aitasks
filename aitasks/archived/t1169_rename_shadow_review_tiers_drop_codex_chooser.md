@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Done
 labels: [shadow]
 anchor: 1158
+implemented_with: claudecode/fable5
 created_at: 2026-07-20 09:34
-updated_at: 2026-07-20 09:34
+updated_at: 2026-07-20 09:35
+completed_at: 2026-07-20 09:35
 ---
 
 Rename the shadow implementation-review effort tiers from
