@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [gates, task_workflow, execution_profiles]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-19 22:28
-updated_at: 2026-07-19 22:28
+updated_at: 2026-07-20 09:51
 ---
 
 ## Origin
