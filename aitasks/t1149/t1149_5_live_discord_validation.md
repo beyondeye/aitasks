@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1149
+implemented_with: claudecode/fable5
 created_at: 2026-07-15 18:46
-updated_at: 2026-07-20 09:54
+updated_at: 2026-07-20 12:09
 ---
 
 ## Context
@@ -58,3 +59,8 @@ This is the riskiest child (async SDK inside Textual + missing teardown API) and
 - Fake-seam unit tests: each failure mode -> its distinct row; teardown called on success, failure, and timeout paths.
 - `bash tests/test_chatlink_tui.sh` (wizard walk with live step skipped) still passes.
 - Manual (needs a real bot token): valid token all-pass; revoked token -> token row fails; intent toggled off in portal -> intent row fails; bot removed from channel -> visibility row fails. UI never hangs; skipping works.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-20T09:09:06Z status=pass attempt=1 type=human
