@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
+implemented_with: codex/gpt5_6_terra
 created_at: 2026-07-20 12:20
-updated_at: 2026-07-20 12:43
+updated_at: 2026-07-20 12:49
 boardidx: 20
 ---
 
@@ -66,3 +67,8 @@ Verify by hand, in a real tmux session:
 
 Record the outcome. If any step fails, the t1171 change needs revisiting —
 reference `aiplans/archived/` for its plan.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-20T09:49:04Z status=pass attempt=1 type=human
