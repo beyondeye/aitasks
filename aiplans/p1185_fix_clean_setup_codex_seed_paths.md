@@ -315,5 +315,6 @@ grep -r default_mode_request_user_input /tmp/t1185-install/.codex/config.toml
   `.codex/config.toml` while preserving the user's existing rules — the exact
   path t1180 reported as broken.
 
-- **Upstream defects identified:** None.
+- **Upstream defects identified:**
+  - `install.sh:338-344 — create_data_dirs() runs unguarded mkdir -p on aitasks/ and aiplans/, which fails ("File exists") when either is a dangling symlink, aborting the install under set -e. Same defect class as the one guarded in ensure_agent_config_seeds by this task. Observed with a hand-built tarball that included the repo's aitasks/aiplans symlinks; a genuine release tarball excludes them, so this is a latent robustness gap rather than a live user-facing failure.`
 
