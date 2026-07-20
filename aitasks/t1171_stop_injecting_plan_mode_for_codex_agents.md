@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 09:50
-updated_at: 2026-07-20 10:26
+updated_at: 2026-07-20 10:55
 ---
 
 ## Background
@@ -134,3 +135,8 @@ The injection is fully localized to three source files plus their tests/docs.
   motivation recorded here is accurate rather than assumed.
 - Check whether any other agent tree (`.agents/`, `.opencode/`) or a seed
   template references the plan-mode launch before finishing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-20T07:55:59Z status=pass attempt=1 type=human
