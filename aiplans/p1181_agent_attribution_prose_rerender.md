@@ -103,18 +103,28 @@ All 12 copies currently carry byte-identical line 5 (verified).
 
 ## Risk
 
-**Code-health risk: low.**
-A single sentence of prose in a procedure file, propagated by the sanctioned
-rerender pipeline. No executable code, no control flow, no schema, no contract
-changes. The blast radius is exactly the ~12 rendered copies, and the rerender
-is deterministic and idempotent. The one genuinely destructive move available
-here — editing the `.pre-rewrite` fixture — is explicitly fenced off in the plan
-and is covered by a `git status` check in Verification.
+### Code-health risk: low
 
-**Goal-achievement risk: low.**
-The goal is narrow and objectively checkable: no copy may still say "Codex CLI",
-and every copy must carry identical corrected text. Both are verified by grep.
-The only judgment call is the replacement wording, and the task itself
+- Stale copy left behind because the rerender does not reach every tracked copy
+  (`task-workflown` is a hand-maintained fork outside the `*-<profile>-` glob)
+  · severity: low · → mitigation: covered in-task — grep over `git ls-files
+  '*agent-attribution.md'` asserts no tracked copy retains the old text
+- Accidental hand-edit of a rendered copy or of the `.pre-rewrite` fixture
+  baseline · severity: low · → mitigation: covered in-task — `git status
+  --porcelain tests/fixtures/` must be clean and the fixture count must stay at
+  exactly 25
+
+Otherwise this is a single sentence of prose in a procedure file, propagated by
+the sanctioned rerender pipeline: no executable code, no control flow, no
+schema, no contract changes, and the rerender is deterministic and idempotent.
+
+### Goal-achievement risk: low
+
+- None identified.
+
+The goal is narrow and objectively checkable: no tracked copy may still say
+"Codex CLI", and every copy must carry identical corrected text — both verified
+by grep. The only judgment call is the replacement wording, and the task
 pre-authorized the chosen shape ("generalize the parenthetical (or swap in
 Claude Code)"). The claim's factual basis — Claude Code's planning phase being
 read-only plan mode — is directly observable in this very session.
@@ -165,6 +175,20 @@ in-task. No before- or after-mitigation task is warranted.
   3. `.claude/skills/task-workflow-_skillrun_416236_1779701547729-/` also still
      carries the stale text but is an **untracked transient render dir** — left
      alone deliberately.
+
+  4. **The `risk_evaluated` gate failed on first run** because this plan's
+     `## Risk` section was authored as bold paragraphs
+     (`**Code-health risk: low.**`) rather than the H3 subsections
+     (`### Code-health risk: low`) that `aitask_gate_risk.sh` requires as
+     evidence. The gate has `max_retries: 0` in `aitasks/metadata/gates.yaml`,
+     so `./ait gates run` returned `blocked: exhausted` on the retry and could
+     not re-verify. Resolution: the `## Risk` section was rewritten into the
+     canonical format from `risk-evaluation.md` Step 3, the verifier was then
+     invoked **directly** (`aitask_gate_risk.sh 1181 2 manual-reverify-t1181`)
+     to obtain independent confirmation of a genuine pass (exit 0,
+     `RESULT: pass`) rather than assuming the edit was sufficient, and the pass
+     was recorded through the Step-9 archive-guard "Resolve now & archive"
+     branch.
 
 - **Issues encountered:** A grep for `Codex CLI` across tracked files flags
   `website/content/docs/concepts/agent-attribution.md:17`. Inspected: it is an
