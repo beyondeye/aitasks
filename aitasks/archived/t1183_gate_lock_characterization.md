@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: test
-status: Implementing
+status: Done
 labels: [gates]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 635
 implemented_with: claudecode/fable5
 created_at: 2026-07-20 12:25
-updated_at: 2026-07-20 13:01
+updated_at: 2026-07-20 18:12
+completed_at: 2026-07-20 18:12
 boardidx: 50
 ---
 
@@ -93,3 +94,14 @@ Note `acquire_gate_lock` (`.aitask-scripts/aitask_gate.sh:70-91`) is a
 > **✅ gate:plan_approved** run=2026-07-20T10:01:19Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-20T15:07:47Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-20T15:12:02Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:6f39503aa2146515
+
+> **✅ gate:risk_evaluated** run=2026-07-20T15:12:02Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1183/risk_evaluated_2026-07-20T15:12:02Z-risk_evaluated-a1.log`
