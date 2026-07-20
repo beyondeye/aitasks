@@ -7,7 +7,7 @@ status: Ready
 labels: []
 created_at: 2026-06-02 11:55
 updated_at: 2026-06-02 11:55
-boardidx: 120
+boardidx: 110
 boardcol: manual_verifications
 ---
 
