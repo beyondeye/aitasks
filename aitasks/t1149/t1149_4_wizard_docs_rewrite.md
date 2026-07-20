@@ -47,3 +47,11 @@ Document ONLY current wizard/panel behavior as shipped by t1149_2 + t1149_3. **N
 - `cd website && hugo build --gc --minify` succeeds.
 - Rendered page: wizard is the primary path; fallback preserved; no mention of live Discord validation; troubleshooting rows consistent with shipped behavior.
 - Grep the doc for the old imperative-only framing (`printf '%s' 'YOUR_BOT_TOKEN'` appears only in the fallback subsection).
+
+## Coordination
+
+- **t1189 (chatlink live-check user-facing hints + channel-access docs)** touches the
+  same website page: it adds a server-invite vs. per-channel permission-overwrites
+  explanation and a troubleshooting row for "bot lacks access to the intake channel".
+  Whichever task lands second must preserve the other's content on
+  `website/content/docs/workflows/bug-report-intake.md`.
