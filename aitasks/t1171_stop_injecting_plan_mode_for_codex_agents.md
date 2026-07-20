@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
@@ -13,7 +15,7 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 09:50
-updated_at: 2026-07-20 10:55
+updated_at: 2026-07-20 10:56
 ---
 
 ## Background
@@ -30,6 +32,14 @@ interactive prompts work in Codex's default mode.
 Meanwhile, forcing plan mode causes its own problems — notably **dynamic skill
 rendering does not work** in plan mode (the render step needs write access,
 which plan mode restricts).
+
+**Verified during planning (2026-07-20):** the Codex skill stubs (e.g.
+`.agents/skills/aitask-pick/SKILL.md`) run
+`aitask_skill_render.sh … --agent codex` as their step 2, which reaches
+`lib/skill_template.py:246-250` `_atomic_write()` — `mkdir(parents=True)` →
+`write_text()` → `os.replace()`. Three filesystem mutations, all blocked by a
+read-only plan mode; the stub's step 3 then reads a rendered-variant path that
+may not exist. The stated cause holds up and is no longer an assumption.
 
 **Decision: stop injecting the `/plan` line when spawning Codex agents.**
 All Codex skill launches should use the plain, already-existing default-mode

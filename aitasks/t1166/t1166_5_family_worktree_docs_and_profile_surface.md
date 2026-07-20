@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t1166_3, t1166_4]
 issue_type: documentation
 status: Ready
 labels: [task_workflow, git-integration, child_tasks, documentation]

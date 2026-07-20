@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1166_1, t1166_2]
 issue_type: feature
 status: Ready
 labels: [task_workflow, git-integration, child_tasks, skills]

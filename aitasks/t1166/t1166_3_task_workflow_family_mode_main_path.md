@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t1166_1, t1166_2]
 issue_type: feature
 status: Ready
 labels: [task_workflow, git-integration, child_tasks, skills]
 gates: [risk_evaluated]
 anchor: 1166
 created_at: 2026-07-20 12:06
-updated_at: 2026-07-20 12:06
+updated_at: 2026-07-20 12:07
 ---
 
 ## Context
