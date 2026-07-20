@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [claudeskills, codexcli]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1171
 created_at: 2026-07-20 12:20
-updated_at: 2026-07-20 12:20
+updated_at: 2026-07-20 12:41
 ---
 
 ## Origin
