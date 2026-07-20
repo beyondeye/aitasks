@@ -247,3 +247,73 @@ grep -r default_mode_request_user_input /tmp/t1185-install/.codex/config.toml
   (the t1147 pattern) was proposed and declined — the seedless-clone residual is
   accepted at severity low.
 - After this lands, t1180 (`depends: [1185]`) can re-run its clean-setup step.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `ensure_agent_config_seeds()` to
+  `.aitask-scripts/aitask_setup.sh` (after `ensure_chatlink_config()`, +59 lines)
+  and wired it into `main()` after `ensure_chatlink_config`. It copies four agent
+  config seeds from `seed/` into `aitasks/metadata/` only when absent, applying
+  the `claude_settings.local.json` → `claude_settings.seed.json` rename that
+  `install.sh` also applies. Added `tests/test_setup_agent_config_seeds.sh`
+  (22 assertions). No existing code path was modified.
+
+- **Deviations from plan:** One. The plan specified an unconditional
+  `mkdir -p "$dest_dir"`. During verification I confirmed that `mkdir -p` **fails**
+  through a dangling `aitasks/` symlink (`mkdir: cannot create directory: File
+  exists`), which under `set -euo pipefail` would abort the entire `ait setup`
+  run. It is unreachable in the current call order — the helper runs after
+  `setup_data_branch` has materialized `.aitask-data/` — but an unconditional
+  `mkdir` is a latent hard-abort. Changed to create the directory only when
+  genuinely absent and to degrade to a `warn` + `return 0` if creation fails.
+  Test 8 pins the behavior. Two further tests were added beyond the plan's six:
+  Test 7 (data-branch symlink layout) and Test 8 (dangling symlink).
+
+- **Issues encountered:**
+  - The first `install.sh --local-tarball` run failed (`mkdir: cannot create
+    directory 'aitasks': File exists`) because the hand-built tarball included
+    the repo's `aitasks`/`aiplans` symlinks, which a real release tarball does
+    not. Rebuilt the tarball with those excluded; install then succeeded (rc=0).
+    Worth noting that `install.sh` has the same dangling-symlink exposure this
+    task guarded against in `ensure_agent_config_seeds`, though it is not
+    reachable via a genuine release tarball.
+  - In that install fixture `setup_codex_cli` initially early-returned ("No Codex
+    CLI staging files found") because the hand-built tarball lacked the packaged
+    `codex_skills/` staging directory that the release workflow produces. Supplied
+    the staging manually to exercise the merge path. Tarball artifact, not a
+    product defect.
+
+- **Key decisions:**
+  - **Scope widened beyond the literal AC, with user confirmation:** covers all
+    four agent config seeds (Codex config + rules, OpenCode config, Claude
+    settings), not just the two Codex ones. Same defect, same fix, one manifest.
+  - **Rejected the task's own suggested "fall back to `seed/` paths":**
+    `aidocs/framework/aitasks_extension_points.md:116` and `install.sh:1153`
+    confirm `install.sh` deletes `seed/` after install, so a reader-side fallback
+    is a no-op for real installs.
+  - **Rejected extending the clean-init `cp` list at `:1339-1351`:** it only fires
+    on first-time initialization, so it would not repair already-initialized
+    repos (this repository included). The populate-missing helper runs on every
+    `ait setup` and covers both. Deliberately kept as a single manifest rather
+    than duplicating the list into the clean-init block, to avoid drift.
+  - Reader sites (`:2067`, `:2081`, `:2218`, `:1807`) left unchanged per the scope
+    decision; the fail-loud conversion is queued as a mitigation task.
+
+- **Verification performed:** New test 22/22. Regressions all green:
+  `test_data_branch_setup` 70/70, `test_agent_instructions` all passed,
+  `test_opencode_setup` 31/31, `test_codex_no_plan_injection` 29/29, plus
+  `test_install_merge`, `test_data_branch_migration`, `test_setup_git`,
+  `test_setup_verify_venv_imports`, `test_skill_verify`. `shellcheck
+  aitask_setup.sh` holds at the 18-finding baseline (no new findings); the new
+  test file has zero warnings/errors. Two end-to-end proofs: (a) reproducing this
+  repo's real broken layout, the helper populated 3 seeds — correctly not
+  clobbering the pre-existing `claude_settings.seed.json` — and `.codex/config.toml`
+  then gained `default_mode_request_user_input = true`, landing on the data branch
+  through the symlink; (b) a full `install.sh --local-tarball` run (rc=0) where
+  `seed/` is deleted and the helper is a verified no-op (15 files → 15), after
+  which `setup_codex_cli` merged `[features]` into the pre-existing
+  `.codex/config.toml` while preserving the user's existing rules — the exact
+  path t1180 reported as broken.
+
+- **Upstream defects identified:** None.
+
