@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1149
 implemented_with: claudecode/fable5
 created_at: 2026-07-20 18:11
-updated_at: 2026-07-20 19:13
+updated_at: 2026-07-20 19:14
 ---
 
 ## Context
@@ -92,3 +94,5 @@ User-facing `aidocs/` references in runtime hint strings:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-20T16:13:59Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-20T16:29:28Z status=pass attempt=1 type=human
