@@ -184,9 +184,9 @@ The dry-run tests cannot cover this.
 - Deleting `tests/test_skillrun_codex_planmode.sh` outright would silently drop
   unrelated coverage (shadow pane-id / task-id forwarding) · severity: medium · → mitigation: handled in-plan (step 4 renames and repurposes rather than deletes)
 - Fixing the now-wrong `agent-attribution.md` exemplar rerenders ~12 skill
-  variants, widening the diff beyond the Codex launch path · severity: low · → mitigation: agent_attribution_prose_rerender
+  variants, widening the diff beyond the Codex launch path · severity: low · → mitigation: t1181
 - Shell tests are not run by CI, so a regression here is caught only by manual
-  verification · severity: low · → mitigation: codex_default_mode_live_verification
+  verification · severity: low · → mitigation: t1180
 
 ### Goal-achievement risk: low
 - The goal is precisely "stop injecting `/plan`", and the default-mode `else`
@@ -194,11 +194,11 @@ The dry-run tests cannot cover this.
   `shadow`, and `learn` — so the target state is proven, not newly written. Both
   call sites and the full reference set were enumerated by grep during planning.
 - Residual: the behavior this task exists to restore (Codex reaching default mode
-  *and* the step-2 render succeeding) is not provable by dry-run tests · severity: low · → mitigation: codex_default_mode_live_verification
+  *and* the step-2 render succeeding) is not provable by dry-run tests · severity: low · → mitigation: t1180
 
 ### Planned mitigations
-- timing: after | name: codex_default_mode_live_verification | type: test | priority: medium | effort: low | addresses: goal-achievement residual + no-CI-coverage | desc: Manual-verification task — spawn a real Codex agent, confirm it lands in default mode and that the stub's step-2 aitask_skill_render.sh call succeeds and writes its rendered variant.
-- timing: after | name: agent_attribution_prose_rerender | type: documentation | priority: low | effort: low | addresses: diff-widening from the ~12-variant rerender | desc: Fix the now-wrong "(e.g., Codex CLI)" plan-mode exemplar in .claude/skills/task-workflow/agent-attribution.md:5, rerender all variants, regenerate goldens in the same commit.
+- timing: after | name: codex_default_mode_live_verification (created: t1180) | type: test | priority: medium | effort: low | addresses: goal-achievement residual + no-CI-coverage | desc: Manual-verification task — spawn a real Codex agent, confirm it lands in default mode and that the stub's step-2 aitask_skill_render.sh call succeeds and writes its rendered variant.
+- timing: after | name: agent_attribution_prose_rerender (created: t1181) | type: documentation | priority: low | effort: low | addresses: diff-widening from the ~12-variant rerender | desc: Fix the now-wrong "(e.g., Codex CLI)" plan-mode exemplar in .claude/skills/task-workflow/agent-attribution.md:5, rerender all variants, regenerate goldens in the same commit.
 
 ## Final Implementation Notes
 
