@@ -328,13 +328,13 @@ archives automatically after the last child.
 ## Risk
 
 ### Code-health risk: medium
-- Per-dimension modes create a 4-combination policy matrix (plus precedence rule) restated across policy/preflight/docs/tests; a missed surface or an unpinned combination leaves the contract ambiguous · severity: medium · → mitigation: update_live_verification_for_new_allowlist_semantics
+- Per-dimension modes create a 4-combination policy matrix (plus precedence rule) restated across policy/preflight/docs/tests; a missed surface or an unpinned combination leaves the contract ambiguous · severity: medium · → mitigation: t1192
 - Wizard structural refactor (reorder + derived numbering + seam declaration) touches every screen class and every pilot-walkthrough test sequence · severity: medium · → mitigation: none (covered by rewritten TUI walkthrough tests)
 - New `allowlist_fetch` module duplicates live_check-style orchestration; drift risk contained by reusing `_exc_names` and the same contracts · severity: low · → mitigation: none
 
 ### Goal-achievement risk: medium
-- Live-Discord member enumeration can only be proven against a real server; the dedicated `fetch_channel_members` helper (guild chunk / fetch_members fallback + visibility filter) addresses the known empty-cache failure mode, but chunking latency on very large guilds and fakes-pass-while-live-fails residual risk remain · severity: medium · → mitigation: update_live_verification_for_new_allowlist_semantics (+ aggregate manual-verification sibling)
+- Live-Discord member enumeration can only be proven against a real server; the dedicated `fetch_channel_members` helper (guild chunk / fetch_members fallback + visibility filter) addresses the known empty-cache failure mode, but chunking latency on very large guilds and fakes-pass-while-live-fails residual risk remain · severity: medium · → mitigation: t1192 (+ aggregate manual-verification sibling)
 - Picker UX for very large member lists (cap + filter) may need iteration after first real use · severity: low · → mitigation: none
 
 ### Planned mitigations
-- timing: after | name: update_live_verification_for_new_allowlist_semantics | type: chore | priority: medium | effort: low | addresses: per-dimension mode matrix consistency + live-Discord behavior risk | desc: Update the existing live-verification tasks/checklists (t1124 discord live smoke, t1184 live-validation follow-up, t1120_8) to the per-dimension authorization modes, the reordered wizard step flow, and the picker path.
+- timing: after | name: update_live_verification_for_new_allowlist_semantics (created: t1192, at decomposition time — Step 8d never runs for a decomposed parent) | type: chore | priority: medium | effort: low | addresses: per-dimension mode matrix consistency + live-Discord behavior risk | desc: Update the existing live-verification tasks/checklists (t1124 discord live smoke, t1184 live-validation follow-up, t1120_8) to the per-dimension authorization modes, the reordered wizard step flow, and the picker path.

@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [1186]
 issue_type: chore
 status: Ready
 labels: [tui]
