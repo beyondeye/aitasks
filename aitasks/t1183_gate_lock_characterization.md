@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: test
@@ -52,11 +54,17 @@ Cover at least:
 1. **Same-spelling exclusion holds today** — two concurrent `append` calls using
    the *identical* task-id spelling serialize (no interleaved/lost ledger
    block). This behavior must survive the change.
-2. **Cross-spelling exclusion is currently ABSENT** — concurrent `append`
-   `t<id>` vs `<id>` do *not* exclude today. Assert the status quo explicitly so
-   the t635_30 change flips exactly this assertion and nothing else. (This is
-   the characterization test's real payload: it documents the bug as current
-   behavior.)
+2. **Key derivation = raw argument** (corrected premise, verified during
+   planning). The originally stated cross-spelling scenario is unreachable:
+   `resolve_task_file` runs *before* the lock is taken and a `t`-prefixed id
+   dies there ("No task file found"), so `append t<id>` never acquires any
+   lock. The real divergence t635_30 fixes — raw-argument key vs
+   resolved-file key — is pinned instead by pre-holding lock directories:
+   today a held `/tmp/aitask_gate_lock_<raw-id>` blocks `append <id>` while a
+   held `/tmp/aitask_gate_lock_<file-basename>` is ignored; t635_30 flips
+   exactly that pair. Additionally assert the t-spelling status quo (dies at
+   resolve, pre-lock) as an alias-introduction tripwire. (This is the
+   characterization test's real payload.)
 3. **`materialize-active` vs `append`** on the same task serialize under the
    same-spelling case.
 4. **Lock lifecycle** — the `mkdir` lock directory is released on normal exit
