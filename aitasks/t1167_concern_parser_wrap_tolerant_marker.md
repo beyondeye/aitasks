@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1158
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 00:13
-updated_at: 2026-07-20 08:56
+updated_at: 2026-07-20 09:26
 ---
 
 ## Origin
@@ -59,3 +60,8 @@ negative control that an unbounded-looking garbage `- [` line without any
 closing bracket within the bound is still not parsed. Update
 `concern-format.md`'s parser-contract notes accordingly (the short-region
 producer rule stays — it is still good hygiene).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-20T06:26:23Z status=pass attempt=1 type=human
