@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 17:23
-updated_at: 2026-07-20 18:13
+updated_at: 2026-07-20 22:51
 ---
 
 ## Origin
@@ -33,3 +34,8 @@ The fresh data branch contained `codex_instructions.seed.md`, but not the Codex 
 ## Suggested fix
 
 Seed the Codex config and rules files into fresh task-data initialization, or make setup fall back to the repository `seed/` paths when their task-data copies are absent. Add a clean-install regression test covering the merged default-mode prompt feature.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-20T19:51:54Z status=pass attempt=1 type=human
