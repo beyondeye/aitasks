@@ -52,12 +52,34 @@ the parser-safety guard in `tests/test_concern_parser.py`.
 - `region` is a free-text plan-region / axis label (which part of the plan the
   concern targets). Producers MUST keep it **short** (≤ ~30 chars — a
   `basename.ext:LINE` locus or an axis label, never a full repo path; full
-  paths go in the body). The parser requires the complete
-  `[priority | region]` marker on one captured line: some agent TUIs (e.g.
-  Codex CLI's markdown renderer) hard-wrap long output rows with **literal
-  newlines** that even the `-J` wrap-join cannot rejoin, and a wrap landing
-  *inside the bracket* leaves no parseable marker line — the whole item is
-  silently dropped (observed live with a 48-char full-path region).
+  paths go in the body). This rule is the **primary defense** against the
+  split-marker hazard below, and it remains in force: keeping the region short
+  means the bracket never wraps at all, so the region stays exact and nothing
+  relies on the parser's recovery envelope.
+
+  **Split-marker hazard and its bounded recovery.** Some agent TUIs (e.g. Codex
+  CLI's markdown renderer) hard-wrap long output rows with **literal newlines**
+  that even the `-J` wrap-join cannot rejoin. A wrap landing *inside* the
+  `[priority | region]` bracket leaves no parseable marker line, and the whole
+  item used to be **silently dropped** (observed live with a 53-char full-path
+  region at ~55 columns). The parser now rejoins such a split, within a
+  **bounded envelope** (t1167):
+
+  - The marker may span at most **3 rows** (the opening row plus
+    `_MAX_MARKER_JOIN_ROWS = 2`). At ~55 columns that covers ~165 chars of
+    marker — a region of ~150 chars, roughly 5× the 30-char rule above.
+  - A split wider than that is **still dropped**. This is the accepted,
+    documented limit, not an oversight — hence the producer rule stays primary.
+  - Across a join, `priority` and `body` are reconstructed **exactly**;
+    `region` is **best-effort**. A capture cannot distinguish "the renderer
+    consumed a space here" from "the token continues here", so the parser
+    treats a fragment ending in `-` or `/` as an intra-token break (exact for
+    paths, the only failure mode seen live) and restores a space otherwise. A
+    *prose* region broken right after a spaced slash therefore loses that
+    space. That is accepted: `region` is a display label rendered in the
+    picker, never a key.
+  - The recovery cannot swallow a following concern: the lookahead commits only
+    on success and stops at any row that itself begins a marker.
 - `body` is free text. A wrapped continuation line (any non-blank line between
   the fences that is **not** a marker) is appended, space-joined, to the current
   concern's body.

@@ -28,6 +28,12 @@ Format (single source of truth: ``.claude/skills/aitask-shadow/concern-format.md
   (dash + space) is **mandatory**: tmux soft-wrapping never prefixes a
   continuation line with it, so a wrapped body line — even one containing
   bracket- or ``key=value``-looking text — can never be misread as a new item.
+- A marker whose ``[priority | region]`` bracket was split across rows by an
+  agent TUI's own hard-wrap is rejoined, bounded to
+  ``_MAX_MARKER_JOIN_ROWS`` following rows (t1167). Within that envelope
+  ``priority`` and ``body`` are exact and ``region`` is best-effort; a wider
+  split is still dropped. The producer-side short-region rule remains the
+  primary defense — see ``concern-format.md``.
 - ``priority`` is normalized case-insensitively to {high, medium, low}; an
   unknown value degrades to ``low`` (the item is never dropped).
 - **Last block wins:** when several blocks are present, only the most recent
@@ -57,6 +63,21 @@ _CLOSE = "===END-CONCERNS==="
 _ITEM = re.compile(
     r"^\s*-\s+\[\s*(?P<priority>\w+)\s*\|\s*(?P<region>[^\]]*)\]\s*(?P<body>.*)$"
 )
+
+# A row that *starts* like an item marker. Used only to detect a marker whose
+# bracket was split across rows by an agent TUI's own hard-wrap (t1167).
+_MARKER_START = re.compile(r"^\s*-\s+\[")
+
+# Max continuation rows joined to close a split bracket, so a marker spans at
+# most _MAX_MARKER_JOIN_ROWS + 1 = 3 rows. At the ~55-column width where the
+# failure was observed that covers ~165 chars of marker — a region of ~150
+# chars, roughly 5x the producer's 30-char short-region rule and 3x the 53-char
+# region that actually broke. Deliberately generous rather than tight: it exists
+# only to absorb producer violations of that rule, while staying narrow enough
+# that over-joining (the sole new risk) stays implausible. A wider split is
+# still dropped — that is the accepted, documented limit, and the producer-side
+# short-region rule remains the primary defense.
+_MAX_MARKER_JOIN_ROWS = 2
 
 _VALID = {"high", "medium", "low"}
 
@@ -97,21 +118,87 @@ def _last_block_region(text: str, *, require_close: bool) -> str | None:
     return text[body_start:close_idx]
 
 
+def _join_sep(joined: str) -> str:
+    """Separator to use when rejoining a hard-wrapped marker fragment.
+
+    The renderers observed in the wild break at word *and* intra-token
+    boundaries: an intra-token break loses nothing, a word break consumes the
+    space. A fragment ending in ``-`` or ``/`` is taken as an intra-token break
+    (this reconstructs a wrapped path exactly); anything else is treated as a
+    word break and gets its space back.
+
+    This is a **heuristic**, and deliberately so: a capture cannot distinguish
+    "the renderer consumed a space here" from "the token continues here". See
+    :func:`_join_split_marker` for why an approximation is acceptable.
+    """
+    return "" if joined.endswith(("-", "/")) else " "
+
+
+def _join_split_marker(lines: list[str], start: int):
+    """Rejoin a marker bracket split across rows by an agent TUI's hard-wrap.
+
+    Agent TUIs that render markdown themselves (observed: Codex CLI at ~55
+    columns) hard-wrap long rows with **literal newlines** that ``tmux
+    capture-pane -J`` cannot rejoin. A wrap landing inside ``[priority |
+    region]`` leaves no row matching :data:`_ITEM`, and the whole item used to
+    be silently dropped (t1167).
+
+    Returns ``(match, rows_consumed)`` on success and ``(None, 1)`` otherwise.
+    On failure **nothing is consumed**, so the rows fall through to the normal
+    continuation handling and a failed join can never swallow a following item.
+
+    ``priority`` and ``body`` are reconstructed exactly; ``region`` is
+    **best-effort** (see :func:`_join_sep`) — it is a display label rendered in
+    the picker, never a key, so the load-bearing guarantee here is only that the
+    item is no longer dropped. The known imperfect case is a prose region
+    containing a spaced slash broken right after the slash (``foo / bar`` ->
+    ``foo /bar``): accepted, cosmetic, and pinned by a test.
+    """
+    joined = lines[start]
+    for k in range(1, _MAX_MARKER_JOIN_ROWS + 1):
+        nxt_idx = start + k
+        if nxt_idx >= len(lines):
+            break
+        nxt = lines[nxt_idx]
+        # A real continuation never carries "- [" — that is a new item, so stop
+        # rather than swallow it (preserves the collision-hardening guarantee).
+        if _MARKER_START.match(nxt):
+            break
+        joined += _join_sep(joined) + nxt.lstrip()
+        if "]" in nxt:
+            m = _ITEM.match(joined)
+            if m:
+                return m, k + 1
+            break
+    return None, 1
+
+
 def _parse_items(region: str) -> list[Concern]:
     """Extract concerns from a block region (the only home of the grammar).
 
     A line matching the item marker starts a new concern; any other non-blank
     line is a wrap continuation and is appended (space-joined) to the current
     concern's body. Blank lines are ignored.
+
+    A row that *starts* like a marker but whose bracket never closes on that row
+    is offered to :func:`_join_split_marker`, which rejoins a bounded number of
+    following rows to recover a marker the renderer hard-wrapped mid-bracket.
     """
     # Each entry: [priority, region, [body_parts]].
     items: list[list] = []
-    for line in region.splitlines():
+    lines = region.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         m = _ITEM.match(line)
+        consumed = 1
+        if m is None and _MARKER_START.match(line) and "]" not in line:
+            m, consumed = _join_split_marker(lines, i)
         if m:
             items.append([m.group("priority"), m.group("region"), [m.group("body")]])
         elif line.strip() and items:
             items[-1][2].append(line)
+        i += consumed
     out: list[Concern] = []
     for priority, region_label, parts in items:
         body = " ".join(p.strip() for p in parts if p.strip()).strip()

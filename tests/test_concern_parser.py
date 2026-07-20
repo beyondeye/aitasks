@@ -314,5 +314,150 @@ class TestShadowDocsNotParserLive(unittest.TestCase):
         self.assertTrue(contains_any_concern_block(masked))
 
 
+class TestSplitMarkerJoin(unittest.TestCase):
+    """Marker brackets hard-wrapped by an agent TUI's own renderer (t1167).
+
+    Agent TUIs that render markdown themselves break long rows with **literal
+    newlines** that ``tmux capture-pane -J`` cannot rejoin. A break landing
+    inside ``[priority | region]`` used to drop the whole item silently.
+    """
+
+    def test_live_codex_capture_mid_region_split(self):
+        """The real capture from t1158's Step 8 review — the reported failure.
+
+        Codex CLI at ~55 columns broke a 53-char full-path region after the
+        hyphen in ``impl-review-``. Before this fix: 0 concerns parsed and the
+        auto-offer never fired.
+        """
+        text = block(
+            "- [medium | .claude/skills/aitask-shadow/impl-review-",
+            "angles.md:12] The angle list is not derived from the guide.",
+        )
+        concerns = parse_concerns(text)
+        self.assertEqual(
+            concerns,
+            [
+                Concern(
+                    "medium",
+                    ".claude/skills/aitask-shadow/impl-review-angles.md:12",
+                    "The angle list is not derived from the guide.",
+                )
+            ],
+        )
+        # The auto-offer must now fire — this is the user-visible acceptance
+        # signal for the whole task.
+        self.assertTrue(has_concern_block(text))
+
+    def test_word_boundary_split_restores_space(self):
+        """A prose region broken at a word boundary gets its consumed space back."""
+        text = block(
+            "- [high | Step 7 ownership",
+            "guard] The guard double-commits.",
+        )
+        self.assertEqual(
+            parse_concerns(text),
+            [Concern("high", "Step 7 ownership guard", "The guard double-commits.")],
+        )
+
+    def test_prose_spaced_slash_split_is_accepted_best_effort(self):
+        """Documented cosmetic loss — NOT a latent bug.
+
+        Region reconstruction is explicitly best-effort: a capture cannot tell
+        "the renderer consumed a space" from "the token continues". The join
+        rule treats a trailing ``/`` as an intra-token break because that is
+        exact for paths (the only failure mode observed live). The cost is that
+        a *prose* region broken right after a spaced slash loses that space.
+        ``region`` is a display label, never a key, so this is accepted — and
+        pinned here so a future reader sees it was a decision.
+        """
+        text = block(
+            "- [low | foo /",
+            "bar] Prose region with a spaced slash.",
+        )
+        self.assertEqual(
+            parse_concerns(text),
+            [Concern("low", "foo /bar", "Prose region with a spaced slash.")],
+        )
+
+    def test_at_bound_marker_parses(self):
+        """A marker spanning exactly _MAX_MARKER_JOIN_ROWS + 1 rows still parses.
+
+        Pins the bound as intentional: with the over-bound test below, changing
+        the constant forces a deliberate decision.
+        """
+        text = block(
+            "- [high | aaaaaaaaaaaaaaaaaaaa/",
+            "bbbbbbbbbbbbbbbbbbbb/",
+            "cccccccccccccccccccc] Body after a three-row marker.",
+        )
+        self.assertEqual(
+            parse_concerns(text),
+            [
+                Concern(
+                    "high",
+                    "aaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbb/cccccccccccccccccccc",
+                    "Body after a three-row marker.",
+                )
+            ],
+        )
+
+    def test_over_bound_marker_is_not_parsed(self):
+        """Negative control: a 4-row marker exceeds the envelope and is dropped.
+
+        This is the accepted, documented limit — the producer-side short-region
+        rule remains the primary defense.
+        """
+        text = block(
+            "- [high | aaaaaaaaaaaaaaaaaaaa/",
+            "bbbbbbbbbbbbbbbbbbbb/",
+            "cccccccccccccccccccc/",
+            "dddddddddddddddddddd] Body after a four-row marker.",
+        )
+        self.assertEqual(parse_concerns(text), [])
+        self.assertFalse(has_concern_block(text))
+
+    def test_unclosed_bracket_never_parses(self):
+        """Negative control: a garbage ``- [`` row with no closing bracket at all."""
+        text = block(
+            "- [high | this bracket never closes",
+            "and neither does this row",
+        )
+        self.assertEqual(parse_concerns(text), [])
+        self.assertFalse(has_concern_block(text))
+
+    def test_failed_join_consumes_nothing(self):
+        """Negative control: a failed join must not swallow a following item.
+
+        The lookahead commits only on success, and stops early at any row that
+        itself starts like a marker — so the valid concern below survives.
+        """
+        text = block(
+            "- [high | unclosed bracket row",
+            "- [low | real region] The real concern.",
+        )
+        self.assertEqual(
+            parse_concerns(text),
+            [Concern("low", "real region", "The real concern.")],
+        )
+
+    def test_body_wrap_still_round_trips(self):
+        """Regression guard on the rewritten loop: body continuation is unchanged."""
+        text = block(
+            "- [medium | parser module] Multi-block accumulation is",
+            "undefined when several blocks are present in one capture.",
+        )
+        self.assertEqual(
+            parse_concerns(text),
+            [
+                Concern(
+                    "medium",
+                    "parser module",
+                    "Multi-block accumulation is undefined when several blocks "
+                    "are present in one capture.",
+                )
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
