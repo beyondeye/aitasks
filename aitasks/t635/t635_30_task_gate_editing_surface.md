@@ -67,3 +67,8 @@ General to ALL gates (command, human, and procedure-backed like `docs_updated`).
 
 ## Depends
 - t635_11 (gate substrate / orchestrator + registry).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-20T09:24:30Z status=pass attempt=1 type=human
