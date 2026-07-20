@@ -16,6 +16,7 @@ children_to_implement: [t1166_1, t1166_2, t1166_3, t1166_4, t1166_5, t1166_6]
 created_at: 2026-07-19 23:02
 updated_at: 2026-07-20 12:11
 boardidx: 10
+boardcol: now
 ---
 
 ## Goal

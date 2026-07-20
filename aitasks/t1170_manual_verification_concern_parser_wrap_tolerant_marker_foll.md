@@ -13,7 +13,7 @@ verifies: [1167]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-20 09:48
 updated_at: 2026-07-20 12:17
-boardidx: 30
+boardidx: 70
 ---
 
 ## Manual Verification Task

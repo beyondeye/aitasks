@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [1149_5]
+depends: [t1149_5]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1149_5]
+verifies: ['1149_5']
 created_at: 2026-07-20 12:37
 updated_at: 2026-07-20 12:37
+boardidx: 60
 ---
 
 ## Manual Verification Task
