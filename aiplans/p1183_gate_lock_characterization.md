@@ -198,3 +198,47 @@ the active gate), archival via `aitask_archive.sh 1183`.
 No mitigation follow-up tasks planned: this task is itself the "before"
 mitigation for t635_30, both dimensions are low, and the in-plan negative
 control covers the mischaracterization concern.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `tests/test_gate_lock_characterization.sh` (36
+  assertions, ~15s) pinning the gate mutex: same-spelling concurrent-append
+  serialization (test 1), the raw-vs-resolved-file key-derivation flip pair via
+  pre-held lock dirs (2a/2b), the t-spelling-dies-at-resolve alias tripwire
+  (3), `materialize-active` sharing the append lock — pre-held probe plus a
+  deterministic contention test that holds the mutex itself and proves all
+  contenders blocked before releasing (4/4b), EXIT-trap release on `die` via a
+  fixture failing interpreter (5), and stale >120s reclaim with warn (6). Also
+  corrected the task's AC item 2 (committed separately via `./ait git`).
+- **Deviations from plan:** Test 4b uses its own task id 987656 instead of
+  reusing 987653 — test 4's negative control materializes 987653's tuple,
+  which would break 4b's "no tuple yet" contention proof. Tests 1/4/4b/5/6
+  route lock paths through a `key_for_id()` helper (added beyond the plan) so
+  the t635_30 flip is 2a/2b swap + one helper line; validated by simulating
+  the full post-t635_30 state (all three key sites swapped + helper updated →
+  exactly the 2a/2b assertions fail, everything else green).
+- **Issues encountered:** `command -v false` returns the bash builtin's bare
+  name, which `resolve_python`'s `-x` check rejects, silently falling through
+  to a real interpreter — test 5 now ships its own failing `failpy` script.
+  One unreproduced 3/4 anomaly in test 1 on the very first run (0 recurrences
+  in 150+ soak rounds with 4 and 8 contenders); test 1 and 4b now capture and
+  dump contender stderr on anomaly so any recurrence is diagnosable.
+- **Key decisions:** Kept the strict 4/4 serialization assertion (a lost block
+  is exactly what the suite must detect) rather than tolerating the rare
+  anomaly; characterized the key derivation via deterministic pre-held lock
+  dirs instead of the unimplementable cross-spelling race in the original AC;
+  made test 3 a deliberate tripwire that fails loudly if an alias spelling
+  ever becomes resolvable, with in-file replacement instructions.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/archive_utils.sh:53 — archive_path_for_id does
+    arithmetic on a non-numeric task id; a t-prefixed id (e.g. t1183) crashes
+    with "unbound variable" noise under set -u before resolve_task_file's
+    friendly "No task file found" die`
+  - `.aitask-scripts/aitask_gate.sh:80-88 — acquire_gate_lock stale-reclaim
+    TOCTOU: if the lock dir vanishes between the -d check and stat, the
+    stat-fail fallback (|| echo "0") computes age≈now, treats the lock as
+    stale, and rmdirs a lock another process may have just re-acquired,
+    permitting double-hold and a lost append; plausible-by-inspection
+    (observed once, unreproduced in 150+ soak rounds); mirrored pattern in
+    aitask_create.sh acquire_child_lock`
+
