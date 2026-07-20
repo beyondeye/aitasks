@@ -5,14 +5,13 @@ risk_goal_achievement: low
 effort: medium
 depends: [t635_11, 1183]
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [gates]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 risk_mitigation_tasks: [1183]
-assigned_to: dario-e@beyond-eye.com
 anchor: 635
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-01 11:03
