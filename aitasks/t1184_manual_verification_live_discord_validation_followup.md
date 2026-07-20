@@ -7,7 +7,7 @@ status: Ready
 labels: [verification, manual]
 verifies: ['1149_5']
 created_at: 2026-07-20 12:37
-updated_at: 2026-07-20 12:37
+updated_at: 2026-07-20 19:16
 boardidx: 60
 ---
 
@@ -26,7 +26,7 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1149_5] Real bot token, valid config: run wizard live validation — all four rows pass (login, intents, channel visible, permissions)
 - [ ] [t1149_5] Revoked/garbage token → live_login row fails with the token fix hint
 - [ ] [t1149_5] Privileged intent toggled off in the portal → live_intents row fails (names both intents); no hang
-- [ ] [t1149_5] Bot removed from the intake channel/server → live_channel_visible row fails
-- [ ] [t1149_5] A required channel permission revoked → live_permissions row lists the missing name(s)
+- [ ] [t1149_5] Bot removed from the intake channel/server → live_channel_visible row fails; fix hint links the public docs page and shows a ready invite URL with the bot's real application ID (t1189)
+- [ ] [t1149_5] A required channel permission revoked → live_permissions row lists the missing name(s); fix hint carries the same docs link + invite URL (t1189)
 - [ ] [t1149_5] UI never hangs: validation completes or times out within ~30s; Continue works mid-run; skipping the step entirely works
 - [ ] [t1149_5] Wizard save succeeds regardless of failing live rows (advisory-only); token value never appears anywhere on screen

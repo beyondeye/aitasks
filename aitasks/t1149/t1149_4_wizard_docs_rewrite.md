@@ -8,7 +8,7 @@ labels: [web_site]
 gates: [risk_evaluated]
 anchor: 1149
 created_at: 2026-07-15 18:45
-updated_at: 2026-07-15 18:46
+updated_at: 2026-07-20 19:16
 ---
 
 ## Context
@@ -50,8 +50,11 @@ Document ONLY current wizard/panel behavior as shipped by t1149_2 + t1149_3. **N
 
 ## Coordination
 
-- **t1189 (chatlink live-check user-facing hints + channel-access docs)** touches the
-  same website page: it adds a server-invite vs. per-channel permission-overwrites
-  explanation and a troubleshooting row for "bot lacks access to the intake channel".
-  Whichever task lands second must preserve the other's content on
-  `website/content/docs/workflows/bug-report-intake.md`.
+- **t1189 (chatlink live-check user-facing hints + channel-access docs) has landed
+  first** on `website/content/docs/workflows/bug-report-intake.md`: it added (a) a
+  server-invite vs. per-channel permission-overwrites paragraph after the invite-URL
+  step in Prerequisites, and (b) a troubleshooting row for "the bot lacks access to
+  the intake channel". This rewrite MUST carry both forward. t1189 also switched the
+  wizard/daemon fix-hint strings to reference this page's public URL
+  (`https://www.aitasks.io/docs/workflows/bug-report-intake/`) — keep the page at
+  that path.
