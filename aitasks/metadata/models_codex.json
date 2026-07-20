@@ -17,7 +17,7 @@
       "notes": "Balanced GPT-5.6 model for everyday coding and agentic work, with strong capability at lower cost than Sol",
       "verified": {
         "batch-review": 0,
-        "pick": 0,
+        "pick": 100,
         "explain": 0,
         "explore": 100
       },
@@ -39,6 +39,27 @@
           },
           "week": {
             "period": "2026-W29",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W30",
             "runs": 1,
             "score_sum": 100
           }
