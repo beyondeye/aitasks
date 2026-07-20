@@ -58,15 +58,35 @@ OPTIONAL_BOT_PERMISSIONS = ("manage_messages",)
 _CHECK_IDS = ("live_login", "live_intents", "live_channel_visible",
               "live_permissions")
 
+#: Public docs page all user-facing hints reference (aidocs/ is not
+#: shipped to user installs).
+_DOCS_URL = "https://www.aitasks.io/docs/workflows/bug-report-intake/"
+#: Invite-URL template from the docs; ``{cid}`` is the bot user id
+#: (equals the application ID for modern bots).
+_INVITE_URL_TMPL = ("https://discord.com/oauth2/authorize?client_id={cid}"
+                    "&scope=bot+applications.commands"
+                    "&permissions=397552863296")
+
 _FIX_TOKEN = ("reset the bot token in the Discord developer portal "
               "(Bot page) and re-enter it in the wizard")
 _FIX_INTENTS = ("enable BOTH privileged intents — Message Content and "
                 "Server Members — on the portal Bot page, then restart")
 _FIX_VISIBILITY = ("check server/channel ids and invite the bot to the "
-                   "server with channel access "
-                   "(aidocs/chat/discord_bot_setup.md)")
+                   "server with channel access (see " + _DOCS_URL + ")")
 _FIX_PERMISSIONS = ("re-invite the bot with the documented permission set "
-                    "(aidocs/chat/discord_bot_setup.md, invite URL step)")
+                    "(see " + _DOCS_URL + ")")
+
+
+def _invite_hint(base: str, bot_id: str | None) -> str:
+    """Append a ready-to-paste invite URL when the bot user id is known.
+
+    Hygiene: the id is spliced only when it is a pure digit string (it
+    comes from ``client.user.id``) — never free text that could carry
+    exception/token content (pinned fixed-template contract).
+    """
+    if bot_id and bot_id.isdigit():
+        return base + " — invite URL: " + _INVITE_URL_TMPL.format(cid=bot_id)
+    return base
 
 
 def _row(check_id: str, severity: str, message: str,
@@ -154,6 +174,10 @@ async def _run_async(token: str, workspace_id: str, conversation_id: str,
             _fill_not_checked(results, "connection failed")
         return results
 
+    # Connected: the bot user id enables a concrete invite URL in the
+    # visibility/permission fix hints (exactly the failures it remedies).
+    bot_id = getattr(adapter, "self_id", None)
+
     try:
         # Reaching ready means the Gateway accepted the requested intents.
         results.append(_row("live_login", PASS, "token accepted"))
@@ -174,7 +198,7 @@ async def _run_async(token: str, workspace_id: str, conversation_id: str,
             results.append(_row(
                 "live_channel_visible", FAIL,
                 f"channel lookup timed out after {timeout:.0f}s",
-                _FIX_VISIBILITY))
+                _invite_hint(_FIX_VISIBILITY, bot_id)))
             _fill_not_checked(results, "channel lookup timed out")
             return results
         except BaseException as exc:  # noqa: BLE001
@@ -189,7 +213,7 @@ async def _run_async(token: str, workspace_id: str, conversation_id: str,
                 message = (f"channel lookup failed "
                            f"({type(exc).__name__})")
             results.append(_row("live_channel_visible", FAIL, message,
-                                _FIX_VISIBILITY))
+                                _invite_hint(_FIX_VISIBILITY, bot_id)))
             _fill_not_checked(results, "channel not visible")
             return results
         results.append(_row(
@@ -212,7 +236,7 @@ async def _run_async(token: str, workspace_id: str, conversation_id: str,
             results.append(_row(
                 "live_permissions", FAIL,
                 f"permission lookup timed out after {timeout:.0f}s",
-                _FIX_PERMISSIONS))
+                _invite_hint(_FIX_PERMISSIONS, bot_id)))
             return results
         except BaseException as exc:  # noqa: BLE001
             names = _exc_names(exc)
@@ -223,7 +247,7 @@ async def _run_async(token: str, workspace_id: str, conversation_id: str,
                 message = (f"permission lookup failed "
                            f"({type(exc).__name__})")
             results.append(_row("live_permissions", FAIL, message,
-                                _FIX_PERMISSIONS))
+                                _invite_hint(_FIX_PERMISSIONS, bot_id)))
             return results
         if not perms:
             results.append(_row(
@@ -238,7 +262,8 @@ async def _run_async(token: str, workspace_id: str, conversation_id: str,
             results.append(_row(
                 "live_permissions", FAIL,
                 "missing required channel permission(s): "
-                + ", ".join(missing_required), _FIX_PERMISSIONS))
+                + ", ".join(missing_required),
+                _invite_hint(_FIX_PERMISSIONS, bot_id)))
         elif missing_optional:
             results.append(_row(
                 "live_permissions", WARN,

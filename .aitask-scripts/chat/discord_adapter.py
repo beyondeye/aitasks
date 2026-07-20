@@ -626,6 +626,16 @@ class DiscordAdapter(ChatAdapter):
         self._live: dict[str, _LiveInteraction] = {}
         self._gateway_task: asyncio.Task | None = None  # set by connect()
 
+    @property
+    def self_id(self) -> str | None:
+        """Bot user id (equals the application ID for modern bots).
+
+        Set by :meth:`connect` from ``client.user.id``; ``None`` until
+        connected. Read by the chatlink live check to render a concrete
+        invite URL in fix hints.
+        """
+        return self._self_id
+
     # ------------------------------------------------------------------ #
     # SDK seam + real-Gateway construction
     # ------------------------------------------------------------------ #

@@ -63,6 +63,14 @@ over it. Install the SDK tier with `ait setup --with-chat`.
 6. **Authorize**: open the URL, pick the target server (requires *Manage
    Server* on it), confirm.
 
+   Authorizing adds the bot to the **server** — it does not grant access to
+   any particular channel. Per-channel access follows the channel's
+   permission **overwrites**: public channels are visible by default, but a
+   **private channel** requires explicitly adding the bot (or a role it
+   holds) in the channel's permission settings (*Edit Channel →
+   Permissions*). A bot invited with the full permission set above can
+   still fail the live check's channel-visibility row for this reason.
+
    The `ait chatlink` config wizard's optional live-validation step can
    verify this setup end-to-end (token, both privileged intents, channel
    visibility, and the permission set above) before the gateway ever runs.

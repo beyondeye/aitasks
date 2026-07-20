@@ -76,6 +76,12 @@ container's mounts, see the Chatlink sandbox maintainer doc in your checkout at
    https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applications.commands&permissions=397552863296
    ```
 
+   The invite adds the bot to the **server** — it does not grant access to any
+   particular channel. Per-channel access follows the channel's permission
+   **overwrites**: a public channel is visible to the bot by default, but for a
+   **private channel** you must explicitly add the bot (or a role it holds) in
+   the channel's permission settings (**Edit Channel → Permissions**).
+
 5. Turn on **Developer Mode** (User Settings → Advanced), then right-click your
    server → **Copy Server ID**, and right-click the intake channel → **Copy
    Channel ID**. You need both.
@@ -309,6 +315,7 @@ at config time instead of at first failure.
 | The bot sits in the channel and nothing happens. | Deny-by-default: both allowlists are empty, so no one may initiate. | Add the reporter to `allowed_user_ids` (or a role to `allowed_role_ids`). Set `deny_message_mode: ephemeral` to see refusals while testing. |
 | A thread opens but the report looks empty. | The **Message Content** intent is off, so message text arrives empty. | Enable it on the Bot page and restart the gateway. |
 | Members or roles do not resolve, so the allowlist never matches. | The **Server Members** intent is off. | Enable it on the Bot page and restart the gateway. |
+| The wizard live check (or a session) reports the bot lacks access to the intake channel. | The bot is in the server, but the channel's permission overwrites exclude it — typical for **private channels**. | Add the bot (or a role it holds) in the channel's permission settings (**Edit Channel → Permissions**), or re-invite with the invite URL above and re-check. |
 | *"Only the user who opened this bug report can answer."* | Someone other than the reporter clicked the controls. | Expected. Only the reporter may answer. |
 | *"All bug-report slots are busy"* | `max_concurrent_sandboxes` reached. | Wait, or raise the ceiling (max 16). |
 | *"Rate limit reached"* | `intake_rate_per_user_per_hour` reached for that user. | Wait, or raise the ceiling (max 60). |

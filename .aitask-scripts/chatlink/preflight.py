@@ -304,7 +304,8 @@ def check_docker_binary() -> CheckResult:
         return CheckResult(
             id="docker_binary", category=RUNTIME, severity=WARN,
             message="'docker' not found — sandbox launches will fail",
-            fix_hint="install Docker (see aidocs/chat/chatlink_sandbox.md)")
+            fix_hint="install Docker (see https://www.aitasks.io/docs/"
+                     "workflows/bug-report-intake/)")
     return CheckResult(
         id="docker_binary", category=RUNTIME, severity=PASS,
         message="docker binary present")

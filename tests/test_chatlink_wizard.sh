@@ -237,8 +237,9 @@ class UserNotFound(Exception): pass
 
 class FakeAdapter:
     def __init__(self, conv_exc=None, perms=None, perm_exc=None,
-                 dm=False, conv_slow=0.0):
+                 dm=False, conv_slow=0.0, self_id="1234567890"):
         self.closed = 0
+        self.self_id = self_id
         self.conv_exc = conv_exc
         self.perms = dict(perms or {})
         self.perm_exc = perm_exc
@@ -342,6 +343,24 @@ check("live: teardown close called on the failure path",
       nf_adapter.closed == 1)
 check("live: token never appears in any row (visibility failure)",
       hygiene(rows))
+check("live: visibility fix hint carries the concrete invite URL",
+      "discord.com/oauth2/authorize" in rows[2].fix_hint
+      and "client_id=1234567890" in rows[2].fix_hint)
+check("live: visibility fix hint references the public docs page",
+      "aitasks.io/docs/workflows/bug-report-intake" in rows[2].fix_hint
+      and "aidocs/" not in rows[2].fix_hint)
+
+# adapter without a bot user id → plain hint, no invite URL spliced
+rows = run(FakeAdapter(conv_exc=ConversationNotFound("gone"), self_id=None))
+check("live: no bot id falls back to the plain docs hint",
+      "aitasks.io/docs/workflows/bug-report-intake" in rows[2].fix_hint
+      and "oauth2/authorize" not in rows[2].fix_hint)
+
+# non-digit bot id (hygiene negative control) → never spliced into the URL
+rows = run(FakeAdapter(conv_exc=ConversationNotFound("gone"),
+                       self_id="boom " + TOKEN))
+check("live: non-digit bot id is never spliced into the invite URL",
+      "oauth2/authorize" not in rows[2].fix_hint and hygiene(rows))
 
 # permission gaps → fail listing missing required names
 gap_perms = {n: True for n in ALL_PERMS}
@@ -354,6 +373,10 @@ check("live: missing required permissions row lists the names",
       and "add_reactions" in rows[3].message)
 check("live: teardown close called on the permission-gap path",
       gap_adapter.closed == 1)
+check("live: permission fix hint carries the concrete invite URL",
+      "discord.com/oauth2/authorize" in rows[3].fix_hint
+      and "client_id=1234567890" in rows[3].fix_hint
+      and "permissions=397552863296" in rows[3].fix_hint)
 
 # only the optional permission missing → warn, not fail
 opt_perms = {n: True for n in ALL_PERMS}

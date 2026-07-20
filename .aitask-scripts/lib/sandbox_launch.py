@@ -330,7 +330,8 @@ class DockerLauncher:
         if shutil.which("docker") is None:
             raise LaunchError(
                 "docker not found — install Docker or disable the sandbox "
-                "feature (see aidocs/chat/chatlink_sandbox.md)")
+                "feature (see https://www.aitasks.io/docs/workflows/"
+                "bug-report-intake/)")
         if spec.workspace_copy_path is None:
             raise LaunchError(
                 "workspace_copy_path is required by the docker backend "

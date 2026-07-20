@@ -736,12 +736,13 @@ async def serve() -> int:
     # Sandbox backend (t1120_5): repo-scoped docker launcher. Warn-not-block
     # when docker is absent — the daemon still serves; launches then fail
     # honestly (failed session + annotated thread), like NullLauncher did.
-    # (Legacy stderr text preserved verbatim; the image check is
+    # (Stderr hint mirrors preflight's docker row; the image check is
     # panel/wizard-only — the daemon never probes the image.)
     if preflight.check_docker_binary().severity == preflight.WARN:
         print("chatlink: warning — 'docker' not found; sandbox launches "
-              "will fail until Docker is installed "
-              "(see aidocs/chat/chatlink_sandbox.md).", file=sys.stderr)
+              "will fail until Docker is installed (see "
+              "https://www.aitasks.io/docs/workflows/bug-report-intake/).",
+              file=sys.stderr)
     launcher = get_launcher(
         DEFAULT_SANDBOX_BACKEND,
         repo_id=repo_identity(paths.project_root()))
