@@ -2,7 +2,7 @@
 
 This procedure records which code agent and LLM model is executing the task by setting the `implemented_with` field in the task's frontmatter. It is referenced from Step 7 (task-workflow), aitask-wrap (Step 4a), aitask-pickrem (Step 8), and aitask-pickweb (Step 6).
 
-**When to execute:** At the start of implementation, after plan mode has been exited. This timing is critical because some code agents (e.g., Codex CLI) run initial workflow steps in plan mode, which is read-only and cannot write metadata.
+**When to execute:** At the start of implementation, after plan mode has been exited. This timing is critical because on code agents with a plan mode (e.g., Claude Code), the workflow's planning phase runs read-only and cannot write metadata.
 
 **Procedure:**
 
