@@ -151,3 +151,5 @@ The injection is fully localized to three source files plus their tests/docs.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-20T07:55:59Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-20T09:12:17Z status=pass attempt=1 type=human
