@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui, web_site]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1149
 implemented_with: claudecode/fable5
 created_at: 2026-07-20 18:11
-updated_at: 2026-07-20 19:14
+updated_at: 2026-07-20 19:31
+completed_at: 2026-07-20 19:31
 ---
 
 ## Context
@@ -96,3 +97,14 @@ User-facing `aidocs/` references in runtime hint strings:
 > **✅ gate:plan_approved** run=2026-07-20T16:13:59Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-20T16:29:28Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-20T16:31:01Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:32e54e36d404e724
+
+> **✅ gate:risk_evaluated** run=2026-07-20T16:31:01Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1189/risk_evaluated_2026-07-20T16:31:01Z-risk_evaluated-a1.log`
