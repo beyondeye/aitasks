@@ -19,16 +19,16 @@ Base branch: main
 ### Item 2
 - Item text: Spawn a Codex shadow via minimonitor `e` on a plan review at a narrow pane width (~55 cols), with a concern whose region is a long full path — confirm the auto-offer FIRES (pre-fix it silently reported no concerns)
 - Approach: live interactive TUI / coding-agent workflow
-- Action run: not run autonomously; it requires a user-driven Codex shadow launch and visual confirmation in minimonitor.
-- Output (trimmed): the same split-marker capture passed the strict auto-offer predicate, but this does not establish the requested live `e` launch.
-- Verdict: defer
+- Action run: not run autonomously; the user subsequently recorded the live check as failed and the verification helper created follow-up t1187.
+- Output (trimmed): the same split-marker capture passed the strict auto-offer predicate, but the requested live `e` launch did not meet the acceptance criterion.
+- Verdict: fail
 
 ### Item 3
 - Item text: Confirm the picker renders the rejoined region label readably, and that forwarding the selected concern to the followed agent produces the correct `- [priority | region] body` payload
 - Approach: payload inspection plus interactive-picker boundary
-- Action run: inspected `build_clipboard_payload` from the live capture; no real picker/followed-agent forwarding was performed.
-- Output (trimmed): canonical payload recovered exactly; visual readability and delivery to a followed live agent remain unverified.
-- Verdict: defer
+- Action run: inspected `build_clipboard_payload` from the live capture; the user then confirmed the live picker readability and forwarding behavior.
+- Output (trimmed): canonical payload recovered exactly and the user confirmed the real picker emits it when forwarding to the followed agent.
+- Verdict: pass
 
 ### Item 4
 - Item text: Confirm a normal short-region shadow review (producer rule respected) is unaffected — no regression in the common path
