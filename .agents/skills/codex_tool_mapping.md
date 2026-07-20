@@ -4,7 +4,7 @@ When the source skill references Claude Code tools, use these Codex CLI equivale
 
 | Claude Code Tool | Codex CLI Equivalent | Notes |
 |---|---|---|
-| `AskUserQuestion` | `functions.request_user_input` | Max 3 questions per call, max 3 options per question. Available in default mode via the `default_mode_request_user_input` feature (`ait setup` enables it), as well as plan/Suggest mode. In default mode the model prefers assumptions, so reserve prompts for genuinely unavoidable decisions. |
+| `AskUserQuestion` | `functions.request_user_input` | Max 3 questions per call. 4 options per question work (verified live on Codex v0.144.6, 2026-07-20 — an earlier 3-option cap no longer applies; Codex appends its own "None of the above" row). Available in default mode via the `default_mode_request_user_input` feature (`ait setup` enables it), as well as plan/Suggest mode. In default mode the model prefers assumptions, so reserve prompts for genuinely unavoidable decisions. |
 | `Bash(command)` | `functions.exec_command(command)` | Direct equivalent |
 | `Read(file)` | `functions.exec_command("cat <file>")` | Use cat for file reading |
 | `Write(file, content)` | `functions.apply_patch(...)` | Use Add File patch for new files |
@@ -22,13 +22,16 @@ When the source skill references Claude Code tools, use these Codex CLI equivale
 
 ### AskUserQuestion Limits
 
-Codex CLI's `request_user_input` supports max 3 options per question (Claude
-allows 4) and max 3 questions per call (Claude allows 4). When the source
-skill presents 4 options:
+Codex CLI's `request_user_input` accepts **4 options per question** — the same
+as Claude's `AskUserQuestion` — verified live on Codex v0.144.6 (2026-07-20;
+an earlier 3-option cap no longer applies). Codex renders one extra
+auto-appended "None of the above" row, which is harmless. Present a source
+skill's 4-option question as-is; no combining, splitting, or dropping is
+needed.
 
-1. Combine the two least critical options into one if semantically possible
-2. Or split into two sequential prompts
-3. Or drop the least essential option
+Questions per call remain capped at 3 (Claude allows 4). When the source skill
+batches 4 questions in one call, split them into two sequential
+`request_user_input` calls.
 
 `request_user_input` is available in **default mode** (via the
 `default_mode_request_user_input` feature that `ait setup` enables) as well as

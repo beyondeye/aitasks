@@ -106,11 +106,11 @@ conventions findings when the output cap forces a cut.
 ## Shadow / legacy axes
 
 The three axes of the pre-tier adversarial review, preserved one-to-one. They
-are the Basic tier's entire attack surface (run as one full-context pass) and
-S1/S2 also run as angles in Standard/Deep. S0 is Basic-only: in Standard/Deep
-the broad flaw sweep is *superseded* by the mechanized angles A–E (note: Angle
-A is not a subsumption of S0 — A's line-by-line hunk methodology is a
-different, narrower procedure than S0's broad sweep).
+are the Default tier's entire attack surface (run as one full-context pass)
+and S1/S2 also run as angles in Advanced/Deep. S0 is Default-only: in
+Advanced/Deep the broad flaw sweep is *superseded* by the mechanized angles
+A–E (note: Angle A is not a subsumption of S0 — A's line-by-line hunk
+methodology is a different, narrower procedure than S0's broad sweep).
 
 ### Angle S0 — implementation flaws (legacy broad axis)
 Bugs, missed cases, incorrect logic, off-by-ones, mishandled error/empty/edge

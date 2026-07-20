@@ -53,15 +53,18 @@ Ask for one of these specifically, or ask broadly ("review this plan") and the s
 
 ### Review the implementation
 
-Once an agent has *implemented* a task — not just planned it — the shadow can adversarially review the **code that was actually written**. This is the implementation-side companion to challenging a plan. It reads the task and plan (what was supposed to be built), discovers the real change — the task's commits, or the uncommitted working-tree diff when the agent has not committed yet — and the plan's own *Final Implementation Notes*, then looks for:
+Once an agent has *implemented* a task — not just planned it — the shadow can adversarially review the **code that was actually written**. This is the implementation-side companion to challenging a plan. It reads the task and plan (what was supposed to be built), discovers the real change — the task's commits, or the uncommitted working-tree diff when the agent has not committed yet — and the plan's own *Final Implementation Notes*, then reviews at one of four **effort tiers**:
 
-- **Implementation flaws** — bugs, missed cases, incorrect logic, or regressions in the code as actually written.
-- **Risks left unmitigated** — risks the plan flagged that the landed code does not address (it does not re-flag risks the implementation already handled).
-- **Unjustified deviations from the plan** — where the code diverged from the plan without the Final Implementation Notes explaining why.
+- **Quick** — a reduced, hunk-only scan of the diff: only correctness bugs visible from the changed lines themselves (plus obvious duplication and dead code), at most 4 findings, no verification pass. A fast sanity check; it runs only when you explicitly ask for it.
+- **Default** — one full-context adversarial pass over the diff, the plan, its risks, and the Final Implementation Notes, along three axes: **implementation flaws** (bugs, missed cases, incorrect logic, or regressions in the code as actually written); **risks left unmitigated** (risks the plan flagged that the landed code does not address — already-handled risks are not re-flagged); and **unjustified deviations from the plan** (divergences the Final Implementation Notes do not explain). No findings cap.
+- **Advanced** — the recommended systematic review. Ten targeted review angles run in sequence — a line-by-line diff scan, a removed-behavior audit (what invariant did each deleted line enforce, and where is it re-established?), caller/callee tracing across files, five cleanup angles (reuse, simplification, efficiency, altitude, project-convention violations), and the two plan axes above — followed by a verification pass that re-reads the code and grades every candidate finding **CONFIRMED**, **PLAUSIBLE**, or **REFUTED**; only the first two are reported. Tuned for precision: at most 8 findings, each one a maintainer would act on.
+- **Deep** — the widest net. Adds language-pitfall and wrapper/delegation-correctness angles, biases verification toward recall (realistic-but-unconfirmed triggers are kept, not dismissed), and finishes with a gap-sweep pass hunting only for defects the earlier angles missed. Up to 15 findings.
 
-You get a prioritized list, separating problems that should block acceptance from follow-ups. If the plan shows the implementation phase has not finished yet (no *Final Implementation Notes*), the shadow warns you it is probably too early to review and lets you stop or proceed against the partial state.
+Every finding states the problem, why it bites, and a severity, plus a **disposition**: `blocking` (should be addressed before the change is accepted) or `follow-up` (real, but sensible as a separate task). Findings are listed blocking-first, and in the Advanced and Deep tiers each finding also carries its verification verdict. A tier's findings cap never drops a blocking finding, and anything a cap omits is disclosed rather than silently cut.
 
-Ask for it with "review the implementation", "did it actually do what the plan said", or "check the code that was written".
+Name a tier in your ask — "quick review of the implementation", "advanced review", "deep review". An unqualified "adversarial review" runs the Default tier; a generic "review the implementation" makes the shadow ask which tier you want, recommending Advanced. You can also narrow the focus in free text ("just check the callers", "only plan deviations") at any tier.
+
+If the plan shows the implementation phase has not finished yet (no *Final Implementation Notes*), the shadow warns you it is probably too early to review and lets you stop or proceed against the partial state.
 
 ### Diagnose skill or helper errors
 
@@ -81,7 +84,7 @@ The learner captures the followed pane read-only, walks you through selecting wh
 
 ### Forward concerns to the followed agent
 
-When the shadow interrogates a plan, reviews an implementation, or diagnoses genuine skill/helper errors, alongside its human-readable findings it can emit a structured, machine-parseable **concern block** — a fenced list (`===AITASK-CONCERNS===` … `===END-CONCERNS===`) of `- [priority | region] body` items, where `priority` is `high`, `medium`, or `low` and `region` names the plan area, skill, or helper the concern targets. The block is additive: the shadow still prints its normal prose; the block is an extra copy meant for pick-and-forward.
+When the shadow interrogates a plan, reviews an implementation, or diagnoses genuine skill/helper errors, alongside its human-readable findings it can emit a structured, machine-parseable **concern block** — a fenced list (`===AITASK-CONCERNS===` … `===END-CONCERNS===`) of `- [priority | region] body` items, where `priority` is `high`, `medium`, or `low` and `region` names the plan area, skill, or helper the concern targets. Implementation-review concerns are ordered blocking-first and carry their disposition (and, in the Advanced and Deep tiers, the verification verdict) inside the body text. The block is additive: the shadow still prints its normal prose; the block is an extra copy meant for pick-and-forward.
 
 From [minimonitor](../../tuis/minimonitor/) you can then **selectively forward** these concerns to the followed agent without retyping them. Press **c** to open a checklist of the shadow's concerns, tick the ones you want, and minimonitor copies them — with a short preamble — to your clipboard for you to paste into the agent. When a fresh concern block appears, minimonitor also proactively hints that the shadow raised concerns. This keeps the advisory-only contract intact: the concerns land on *your* clipboard, and you decide what to paste. See [How to pick shadow concerns](../../tuis/minimonitor/how-to/#how-to-pick-shadow-concerns).
 

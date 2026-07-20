@@ -8,11 +8,11 @@ reviews the *plan*). Your job is to be a constructive adversary against the
 **implementation**: actively look for where the code, as written, is wrong — not
 to reassure.
 
-The review runs at one of four **effort tiers** — `quick`, `basic`, `standard`,
-`deep` — selected in the **Tier selection** section below. **Basic is the
-compatibility tier**: the direct successor of the pre-tier adversarial review
-(the legacy three-axis analysis, preserved as-is). **Standard is the recommended
-improved review.** Angle texts, the verdict ladder, the disposition rubric, and
+The review runs at one of four **effort tiers** — `quick`, `default`,
+`advanced`, `deep` — selected in the **Tier selection** section below.
+**Default is the compatibility tier**: the direct successor of the pre-tier
+adversarial review (the legacy three-axis analysis, preserved as-is).
+**Advanced is the recommended improved review.** Angle texts, the verdict ladder, the disposition rubric, and
 the ordering/cap rules live in the shared catalog
 `.claude/skills/aitask-shadow/impl-review-angles.md` — read it when a tier
 references it.
@@ -91,25 +91,20 @@ index** state (input 2's fallback), not committed history — review that and sa
 Auto-detect the tier from the user's free-text ask:
 
 - "quick" / "fast" → **Quick**
-- "basic" / "legacy" / an unqualified "adversarial review" → **Basic**
-- "standard" / "normal" → **Standard**
+- "default" / "basic" / "legacy" / an unqualified "adversarial review" →
+  **Default**
+- "advanced" / "standard" / "normal" → **Advanced**
 - "deep" / "thorough" / "max" / "exhaustive" → **Deep**
 - A generic "review the implementation" with no level or compatibility wording:
   ask via `AskUserQuestion` (Header "Review tier") with four options —
-  "Standard (Recommended) — systematic angle-based review with precision
-  verification, ≤8 findings" / "Basic — the legacy three-axis adversarial
+  "Advanced (Recommended) — systematic angle-based review with precision
+  verification, ≤8 findings" / "Default — the legacy three-axis adversarial
   review, single full-context pass, no cap" / "Quick — reduced hunk-only scan,
   no verification, ≤4 findings" / "Deep — expanded angles, recall-biased
-  verification, gap sweep, ≤15 findings".
-
-  **Deterministic 3-option-capped adaptation:** agents whose user-input tool
-  caps at 3 options per question (e.g. Codex CLI `request_user_input` — see
-  `.agents/skills/codex_tool_mapping.md`) MUST use this fixed two-stage chooser
-  instead of ad-hoc combining/dropping: Stage 1 = "Standard (Recommended)" /
-  "Basic — legacy adversarial review" / "Other tier (quick or deep)…";
-  Stage 2 (only when "Other tier") = "Quick — reduced hunk-only scan" /
-  "Deep — expanded angles + gap sweep". Free-text tier naming bypasses the
-  chooser entirely on every agent.
+  verification, gap sweep, ≤15 findings". This single 4-option question works
+  on every supported agent — Codex CLI's `request_user_input` accepts 4
+  options per question (verified live on v0.144.6; see
+  `.agents/skills/codex_tool_mapping.md`).
 
 Nothing routes to Quick implicitly — it runs only on an explicit request.
 
@@ -117,17 +112,17 @@ Nothing routes to Quick implicitly — it runs only on an explicit request.
 (see the activation table). A user ask naming specific angles or focus areas
 ("just check the callers", "only plan deviations", "skip the cleanup angles")
 narrows or extends that default, at the tier's depth (candidate caps and the
-verify pass still apply in Standard/Deep). Map free-text focus phrases to
+verify pass still apply in Advanced/Deep). Map free-text focus phrases to
 catalog angle names and confirm the resolved set in one line. Two guard rails:
 
 - Only an **explicit user narrowing** may drop a legacy axis from a run's
-  default set — for Basic that protects all three axes (S0/S1/S2) equally; for
-  Standard/Deep it protects S1/S2 (S0 is not in their default set — superseded
-  by the A–E methodology).
-- Scoping never changes a tier's **methodology**: at Basic, a focus request
+  default set — for the Default tier that protects all three axes (S0/S1/S2)
+  equally; for Advanced/Deep it protects S1/S2 (S0 is not in their default
+  set — superseded by the A–E methodology).
+- Scoping never changes a tier's **methodology**: at Default, a focus request
   narrows the attention of the single adversarial pass — it does not activate
-  Standard's candidate fan-out, verdict ladder, or Deep's gap sweep. A user who
-  wants the angle methodology asks for Standard/Deep.
+  Advanced's candidate fan-out, verdict ladder, or Deep's gap sweep. A user
+  who wants the angle methodology asks for Advanced/Deep.
 
 State the chosen tier (and any angle scoping) to the user before starting.
 
@@ -135,7 +130,7 @@ State the chosen tier (and any angle scoping) to the user before starting.
 
 Angle and mechanism texts live in `impl-review-angles.md`.
 
-| Angle / mechanism | quick | basic | standard | deep |
+| Angle / mechanism | quick | default | advanced | deep |
 |---|---|---|---|---|
 | Single full-context legacy pass (methodology) | — | ✓ | — | — |
 | S0 — implementation flaws (legacy broad axis) | — | ✓ (legacy axis 1) | — (superseded by A–C) | — (superseded by A–E) |
@@ -170,9 +165,9 @@ for a glaring unexplained deviation. Skip test/fixture hunks (`test/`, `spec/`,
 reads. Do **not** flag style, naming, perf, missing tests, or anything outside
 the hunk. At most **4 findings**, one line each. If nothing qualifies, say so.
 
-## Tier: Basic (= Legacy)
+## Tier: Default (= Legacy)
 
-`basic → 1 full-context adversarial pass → no formal verify → prioritized findings`
+`default → 1 full-context adversarial pass → no formal verify → prioritized findings`
 
 The pre-tier adversarial review, preserved one-to-one — the compatibility tier.
 One full-context adversarial pass over the resolved implementation diff, the
@@ -188,9 +183,9 @@ No multi-angle candidate fan-out, no verdict ladder, no gap sweep, no findings
 cap, no minimum. The findings presentation, honesty rules, advisory-only
 guardrail, and concern-block behavior below apply exactly as in every tier.
 
-## Tier: Standard
+## Tier: Advanced
 
-`standard → 10 angles × 6 candidates → precision verify → ≤8 findings`
+`advanced → 10 angles × 6 candidates → precision verify → ≤8 findings`
 
 The recommended improved review. You are reviewing for **precision**: every
 finding you surface should be one a maintainer would act on.
@@ -251,7 +246,7 @@ within each partition. For each finding give:
 - its **disposition** — `blocking` or `follow-up`, classified per the
   catalog's **disposition rubric** (impact vs obligations — never by angle,
   never by verdict);
-- in Standard/Deep: its **verdict** (CONFIRMED or PLAUSIBLE).
+- in Advanced/Deep: its **verdict** (CONFIRMED or PLAUSIBLE).
 
 If the tier's cap omitted anything, disclose it per the catalog's disclosure
 rule. **Stay honest** (same rule as `plan-challenge.md`): if a dimension is
@@ -303,7 +298,7 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
   literal newline mid-concern — let the terminal soft-wrap), not a brevity
   constraint.
 - End the body with the finding's disposition as prose (`Disposition: blocking.`
-  or `Disposition: follow-up.`) and, in Standard/Deep, its verdict
+  or `Disposition: follow-up.`) and, in Advanced/Deep, its verdict
   (`Verified: CONFIRMED.` / `Verified: PLAUSIBLE.`). These stay **free text
   inside the body** — they are not parser fields, and the line format above is
   unchanged.
