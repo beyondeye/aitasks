@@ -7,6 +7,10 @@ status: Implementing
 labels: [gates, task_workflow, execution_profiles]
 gates: [risk_evaluated]
 also_blocks_dependents: [risk_evaluated]
+active_gates: []
+active_gates_filtered: [risk_evaluated]
+active_gates_profile: default
+active_gates_digest: 5892c63ff1b4.bb8bee3fef56.59da88187338
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-20 10:02
