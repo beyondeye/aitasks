@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1149
+implemented_with: claudecode/fable5
 created_at: 2026-07-20 18:11
-updated_at: 2026-07-20 18:27
+updated_at: 2026-07-20 19:13
 ---
 
 ## Context
@@ -86,3 +87,8 @@ User-facing `aidocs/` references in runtime hint strings:
 - **t1184 (manual verification of t1149_5)** exercises the failure rows this task
   changes; its checklist expectations ("fix hint" wording) may need a touch-up if wording
   changes materially.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-20T16:13:59Z status=pass attempt=1 type=human
