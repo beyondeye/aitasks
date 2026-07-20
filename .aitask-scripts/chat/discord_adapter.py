@@ -30,9 +30,11 @@ Install the SDK tier with ``ait setup --with-chat``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import inspect
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from io import BytesIO
 
 from ._subscription import (  # shared hub (t1074_3); re-exported for tests
@@ -97,6 +99,13 @@ DM_WORKSPACE = "@me"
 # while leaving consumers a real window to make open_modal / respond the
 # initial response (see the amended _acked contract).
 DEFER_DELAY_SECONDS = 2.0
+
+# Bound on the client teardown awaited from connect()'s failure path and
+# close(). connect() may itself be cancelled by a caller-side wait_for
+# (e.g. chatlink's live config check), and asyncio.wait_for waits for the
+# cancelled coroutine's cleanup — an unbounded client.close() there would
+# stall the caller past its own advertised deadline.
+CONNECT_CLEANUP_TIMEOUT_S = 5.0
 
 # Discord component/command wire constants (raw API payloads).
 _BUTTON_STYLES = {"primary": 1, "secondary": 2, "success": 3, "danger": 4, "link": 5}
@@ -615,6 +624,7 @@ class DiscordAdapter(ChatAdapter):
         self._sdk_override = sdk
         self._hub = _SubscriptionHub()
         self._live: dict[str, _LiveInteraction] = {}
+        self._gateway_task: asyncio.Task | None = None  # set by connect()
 
     # ------------------------------------------------------------------ #
     # SDK seam + real-Gateway construction
@@ -627,6 +637,28 @@ class DiscordAdapter(ChatAdapter):
         import discord  # lazy: only real SDK paths reach here
         self._sdk_override = discord
         return discord
+
+    async def close(self) -> None:
+        """Tear down the Gateway/HTTP client.
+
+        Safe on never-connected instances and duck-typed fakes (a client
+        without ``close`` is a no-op). Every await is bounded by
+        ``CONNECT_CLEANUP_TIMEOUT_S`` so callers running under their own
+        deadline (chatlink live check) can never be stalled by a stuck
+        teardown. The gateway task spawned by :meth:`connect` is awaited
+        (cancelled on timeout) so its outcome is always consumed — no
+        pending-task warnings or late exceptions after close.
+        """
+        close = getattr(self._client, "close", None)
+        if callable(close):
+            result = close()
+            if inspect.isawaitable(result):
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(result, CONNECT_CLEANUP_TIMEOUT_S)
+        task, self._gateway_task = self._gateway_task, None
+        if task is not None:
+            with contextlib.suppress(BaseException):
+                await asyncio.wait_for(task, CONNECT_CLEANUP_TIMEOUT_S)
 
     @classmethod
     async def connect(
@@ -705,9 +737,46 @@ class DiscordAdapter(ChatAdapter):
         async def on_disconnect():  # pragma: no cover
             adapter._hub.disconnect_all()
 
-        await client.login(token)
-        asyncio.get_running_loop().create_task(client.connect(reconnect=True))
-        await client.wait_until_ready()
+        gateway_task = None
+        ready_task = None
+        try:
+            await client.login(token)
+            gateway_task = asyncio.get_running_loop().create_task(
+                client.connect(reconnect=True))
+            ready_task = asyncio.ensure_future(client.wait_until_ready())
+            done, _pending = await asyncio.wait(
+                {gateway_task, ready_task},
+                return_when=asyncio.FIRST_COMPLETED)
+            if gateway_task in done:
+                # The Gateway ended before readiness (e.g.
+                # PrivilegedIntentsRequired with portal intents disabled,
+                # or an early clean disconnect) — surface it instead of
+                # hanging forever in wait_until_ready().
+                exc = gateway_task.exception()
+                if exc is None:
+                    exc = RuntimeError(
+                        "Discord gateway closed before becoming ready")
+                raise exc
+        except BaseException:
+            # Self-clean: on any failure — including a caller-side
+            # timeout cancellation, where the caller has no adapter
+            # handle to close — the client must not leak. EVERY cleanup
+            # await is bounded: a cancellation-resistant gateway task or
+            # a stuck close must not stall a cancelling caller past its
+            # own deadline (an over-bound task is abandoned, its outcome
+            # consumed by the wait_for).
+            for task in (gateway_task, ready_task):
+                if task is None:
+                    continue
+                if not task.done():
+                    task.cancel()
+                with contextlib.suppress(BaseException):
+                    await asyncio.wait_for(task, CONNECT_CLEANUP_TIMEOUT_S)
+            with contextlib.suppress(BaseException):
+                await asyncio.wait_for(
+                    client.close(), CONNECT_CLEANUP_TIMEOUT_S)
+            raise
+        adapter._gateway_task = gateway_task
         adapter._self_id = str(client.user.id)
         return adapter
 
@@ -1115,6 +1184,46 @@ class DiscordAdapter(ChatAdapter):
         if callable(perms_for):
             is_member = bool(getattr(perms_for(member), "view_channel", False))
         return member_to_claims(member, is_channel_member=is_member)
+
+    async def fetch_bot_permissions(
+        self, conversation: ConversationRef, names: Iterable[str]
+    ) -> dict[str, bool]:
+        """The bot's own effective permissions on a conversation.
+
+        Discord-specific config-time helper (outside the ``ChatAdapter``
+        contract, like :meth:`connect`): resolves the channel and the
+        bot's own member — explicit ``get_member``/``fetch_member``
+        fallback rather than ``guild.me``, which can be missing/stale on
+        partial caches, fakes, and gateway edge cases — and reports
+        ``{name: bool}`` for the requested permission names (policy of
+        which names matter stays with the caller). A DM channel has no
+        guild permission model — returns ``{}`` (not applicable). Member
+        resolution failures surface as mapped user-target errors, never
+        as a vague all-False permission map.
+        """
+        channel = await self._resolve_channel(conversation)
+        guild = getattr(channel, "guild", None)
+        if guild is None:
+            return {}
+        bot_id = self._self_id or str(
+            getattr(getattr(self._client, "user", None), "id", ""))
+        uid = self._snowflake(bot_id)
+        member = None
+        get_member = getattr(guild, "get_member", None)
+        if callable(get_member):
+            member = get_member(uid)
+        if member is None:
+            try:
+                member = await guild.fetch_member(uid)
+            except Exception as exc:  # noqa: BLE001
+                raise map_discord_error(exc, target="user") from exc
+        perms_for = getattr(channel, "permissions_for", None)
+        if not callable(perms_for):
+            raise ChatError(
+                "channel object exposes no permissions_for — cannot "
+                "inspect bot permissions")
+        perms = perms_for(member)
+        return {name: bool(getattr(perms, name, False)) for name in names}
 
     # ------------------------------------------------------------------ #
     # Reconciliation

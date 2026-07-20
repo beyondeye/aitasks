@@ -63,6 +63,10 @@ over it. Install the SDK tier with `ait setup --with-chat`.
 6. **Authorize**: open the URL, pick the target server (requires *Manage
    Server* on it), confirm.
 
+   The `ait chatlink` config wizard's optional live-validation step can
+   verify this setup end-to-end (token, both privileged intents, channel
+   visibility, and the permission set above) before the gateway ever runs.
+
 7. **Guild ID for command scope**: enable Developer Mode (User Settings →
    Advanced), right-click the server → *Copy Server ID*. Passing this as
    `guild_id` to the adapter makes slash-command registration **guild-scoped

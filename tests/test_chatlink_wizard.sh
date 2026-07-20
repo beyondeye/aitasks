@@ -209,6 +209,194 @@ check("allow_replace replaces malformed file", data == {"sandbox_cpus": 8})
 stray = [p for p in cfg1.parent.iterdir() if p.suffix == ".tmp"]
 check("no stray tmp files left behind", stray == [])
 
+# ======================================================================== #
+# t1149_5 — live_check: fake-connector rows, teardown, hygiene
+# ======================================================================== #
+import asyncio  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+import chatlink.live_check as live_check  # noqa: E402
+assert "textual" not in sys.modules, \
+    "FAIL: live_check must not load textual"
+assert "discord" not in sys.modules, \
+    "FAIL: live_check must not load the discord SDK"
+print("ok - live_check imports without textual and without discord")
+
+TOKEN = "tok-SECRET-12345"
+IDS = ("live_login", "live_intents", "live_channel_visible",
+       "live_permissions")
+ALL_PERMS = (live_check.REQUIRED_BOT_PERMISSIONS
+             + live_check.OPTIONAL_BOT_PERMISSIONS)
+
+
+class LoginFailure(Exception): pass
+class PrivilegedIntentsRequired(Exception): pass
+class ConversationNotFound(Exception): pass
+class UserNotFound(Exception): pass
+
+
+class FakeAdapter:
+    def __init__(self, conv_exc=None, perms=None, perm_exc=None,
+                 dm=False, conv_slow=0.0):
+        self.closed = 0
+        self.conv_exc = conv_exc
+        self.perms = dict(perms or {})
+        self.perm_exc = perm_exc
+        self.dm = dm
+        self.conv_slow = conv_slow
+        self.visibility_refs = []
+        self.perm_calls = []
+
+    async def fetch_conversation(self, ref):
+        self.visibility_refs.append(ref)
+        if self.conv_slow:
+            await asyncio.sleep(self.conv_slow)
+        if self.conv_exc:
+            raise self.conv_exc
+        return SimpleNamespace()
+
+    async def fetch_bot_permissions(self, ref, names):
+        self.perm_calls.append((ref, tuple(names)))
+        if self.perm_exc:
+            raise self.perm_exc
+        if self.dm:
+            return {}
+        return {n: bool(self.perms.get(n)) for n in names}
+
+    async def close(self):
+        self.closed += 1
+
+
+def connector_for(adapter=None, exc=None, slow=0.0):
+    async def connect(token):
+        assert token == TOKEN, "connector must receive the entered token"
+        if slow:
+            await asyncio.sleep(slow)
+        if exc:
+            raise exc
+        return adapter
+    return connect
+
+
+def run(adapter=None, exc=None, slow=0.0, thread_id=None, timeout=5.0):
+    return live_check.run_live_checks(
+        TOKEN, "100", "200", thread_id, timeout=timeout,
+        connector=connector_for(adapter, exc, slow))
+
+
+def hygiene(rows):
+    return all(TOKEN not in (res.message + res.fix_hint) for res in rows)
+
+
+# all-pass path
+ok_adapter = FakeAdapter(perms={n: True for n in ALL_PERMS})
+rows = run(ok_adapter)
+check("live: all-pass run returns the four rows in order",
+      tuple(r.id for r in rows) == IDS)
+check("live: all-pass run all severities pass",
+      all(r.severity == "pass" for r in rows))
+check("live: teardown close called on the success path",
+      ok_adapter.closed == 1)
+check("live: rows carry the transport category",
+      all(r.category == "transport" for r in rows))
+check("live: token never appears in any row (success)", hygiene(rows))
+
+# login failure → distinct row, rest not-checked warns
+rows = run(exc=LoginFailure("401 " + TOKEN))
+check("live: login failure row", rows[0].id == "live_login"
+      and rows[0].severity == "fail"
+      and "token rejected" in rows[0].message)
+check("live: login failure fills not-checked warns",
+      tuple(r.id for r in rows) == IDS
+      and all(r.severity == "warn" and "not checked" in r.message
+              for r in rows[1:]))
+check("live: token never appears in any row (login failure w/ token in exc)",
+      hygiene(rows))
+
+# privileged intents failure → login pass + intents fail
+rows = run(exc=PrivilegedIntentsRequired("intents"))
+check("live: intents failure row",
+      rows[0].severity == "pass" and rows[1].id == "live_intents"
+      and rows[1].severity == "fail"
+      and "privileged intents" in rows[1].message)
+check("live: intents fix hint names both intents",
+      "Message Content" in rows[1].fix_hint
+      and "Server Members" in rows[1].fix_hint)
+
+# unexpected connector error → sanitized class-name-only message
+class BoomError(Exception): pass
+rows = run(exc=BoomError("kaboom with " + TOKEN))
+check("live: unexpected error row carries class name only",
+      rows[0].severity == "fail" and "BoomError" in rows[0].message
+      and hygiene(rows))
+
+# channel not visible → visibility fail, teardown still runs
+nf_adapter = FakeAdapter(conv_exc=ConversationNotFound("gone " + TOKEN))
+rows = run(nf_adapter)
+check("live: channel-not-found row",
+      rows[2].id == "live_channel_visible" and rows[2].severity == "fail"
+      and "not found or not visible" in rows[2].message)
+check("live: perms not checked after visibility failure",
+      rows[3].severity == "warn" and "not checked" in rows[3].message)
+check("live: teardown close called on the failure path",
+      nf_adapter.closed == 1)
+check("live: token never appears in any row (visibility failure)",
+      hygiene(rows))
+
+# permission gaps → fail listing missing required names
+gap_perms = {n: True for n in ALL_PERMS}
+gap_perms["manage_threads"] = False
+gap_perms["add_reactions"] = False
+gap_adapter = FakeAdapter(perms=gap_perms)
+rows = run(gap_adapter)
+check("live: missing required permissions row lists the names",
+      rows[3].severity == "fail" and "manage_threads" in rows[3].message
+      and "add_reactions" in rows[3].message)
+check("live: teardown close called on the permission-gap path",
+      gap_adapter.closed == 1)
+
+# only the optional permission missing → warn, not fail
+opt_perms = {n: True for n in ALL_PERMS}
+opt_perms["manage_messages"] = False
+rows = run(FakeAdapter(perms=opt_perms))
+check("live: missing optional permission is a warn",
+      rows[3].severity == "warn" and "manage_messages" in rows[3].message)
+
+# member-resolution failure surfaces distinctly
+rows = run(FakeAdapter(perms={}, perm_exc=UserNotFound("who")))
+check("live: bot-member resolution failure row",
+      rows[3].severity == "fail"
+      and "bot's own member" in rows[3].message)
+
+# DM channel → permissions n/a pass
+rows = run(FakeAdapter(dm=True))
+check("live: DM channel renders permissions n/a",
+      rows[3].severity == "pass" and "DM channel" in rows[3].message)
+
+# thread scoping: visibility uses the thread ref, permissions the parent
+th_adapter = FakeAdapter(perms={n: True for n in ALL_PERMS})
+rows = run(th_adapter, thread_id="777")
+check("live: visibility checks the configured thread ref",
+      th_adapter.visibility_refs[0].thread_id == "777"
+      and "(thread)" in rows[2].message)
+check("live: permissions check the PARENT channel ref",
+      th_adapter.perm_calls[0][0].thread_id is None
+      and th_adapter.perm_calls[0][0].conversation_id == "200")
+
+# connect timeout → bounded, login row fails, nothing to close
+rows = run(slow=30.0, timeout=0.2)
+check("live: connect timeout renders a timed-out login row",
+      rows[0].severity == "fail" and "timed out" in rows[0].message
+      and all(r.severity == "warn" for r in rows[1:]))
+
+# post-connect stage timeout → row fails AND teardown still runs
+slow_adapter = FakeAdapter(conv_slow=30.0)
+rows = run(slow_adapter, timeout=0.2)
+check("live: stage timeout renders a timed-out visibility row",
+      rows[2].severity == "fail" and "timed out" in rows[2].message)
+check("live: teardown close called on the timeout path",
+      slow_adapter.closed == 1)
+
 print(f"\nPASS: {PASS}, FAIL: 0")
 PYEOF
 

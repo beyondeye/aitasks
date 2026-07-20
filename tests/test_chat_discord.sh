@@ -742,6 +742,275 @@ async def main():
     except InteractionExpired:
         check("respond on unknown/expired interaction → InteractionExpired", True)
 
+    # ================================================================= #
+    # t1149_5 — close() / connect() teardown / fetch_bot_permissions
+    # ================================================================= #
+
+    # --- close(): duck-typed teardown --------------------------------- #
+    class ClosableClient(FakeClient):
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self.closed = 0
+        async def close(self):
+            self.closed += 1
+
+    cc = ClosableClient()
+    c_adapter = DiscordAdapter(cc, self_id="9", sdk=make_fake_sdk())
+    await c_adapter.close()
+    check("close() awaits the client's async close", cc.closed == 1)
+
+    plain_adapter, _pc, _ = make_adapter()
+    await plain_adapter.close()   # FakeClient has no close — must not raise
+    check("close() is a no-op on a client without close", True)
+
+    cc2 = ClosableClient()
+    g_adapter = DiscordAdapter(cc2, self_id="9", sdk=make_fake_sdk())
+    async def _late_gateway_error():
+        raise RuntimeError("late gateway error")
+    g_adapter._gateway_task = asyncio.get_running_loop().create_task(
+        _late_gateway_error())
+    await asyncio.sleep(0)  # let the task finish
+    await g_adapter.close()
+    check("close() consumes the gateway task outcome",
+          g_adapter._gateway_task is None)
+
+    # --- connect(): failure-path teardown via a fake discord module --- #
+    class FakeGatewayClient:
+        next_config = {}
+        last = None
+        def __init__(self, intents=None):
+            cfg = dict(FakeGatewayClient.next_config)
+            self.intents = intents
+            self.login_exc = cfg.get("login_exc")
+            self.gateway_mode = cfg.get("gateway_mode", "run")
+            self.gateway_exc = cfg.get("gateway_exc")
+            self.close_hang_s = cfg.get("close_hang_s", 0)
+            self.closed = 0
+            self.user = SimpleNamespace(id=99)
+            self._ready = asyncio.Event()
+            if cfg.get("ready"):
+                self._ready.set()
+            self._stop = asyncio.Event()
+            FakeGatewayClient.last = self
+        def event(self, fn):
+            return fn
+        async def login(self, token):
+            if self.login_exc:
+                raise self.login_exc
+        async def connect(self, reconnect=True):
+            if self.gateway_mode == "raise":
+                raise self.gateway_exc
+            if self.gateway_mode == "return":
+                return
+            await self._stop.wait()
+        async def wait_until_ready(self):
+            await self._ready.wait()
+        async def close(self):
+            self.closed += 1
+            if self.close_hang_s:
+                await asyncio.sleep(self.close_hang_s)
+            self._stop.set()
+
+    class LoginFailure(Exception): pass
+    class PrivilegedIntentsRequired(Exception): pass
+
+    fake_discord = SimpleNamespace(
+        Intents=SimpleNamespace(
+            default=lambda: SimpleNamespace(
+                members=False, message_content=False)),
+        Client=FakeGatewayClient,
+        LoginFailure=LoginFailure,
+        PrivilegedIntentsRequired=PrivilegedIntentsRequired,
+    )
+    sys.modules["discord"] = fake_discord
+    saved_cleanup_timeout = da.CONNECT_CLEANUP_TIMEOUT_S
+    try:
+        def pending_tasks():
+            return {t for t in asyncio.all_tasks()
+                    if t is not asyncio.current_task() and not t.done()}
+
+        # login failure → client closed, exception surfaced
+        before = pending_tasks()
+        FakeGatewayClient.next_config = {"login_exc": LoginFailure("bad")}
+        try:
+            await DiscordAdapter.connect("tok")
+            check("connect(): login failure raises", False)
+        except LoginFailure:
+            check("connect(): login failure raises", True)
+        check("connect(): login failure closes the client",
+              FakeGatewayClient.last.closed == 1)
+        check("connect(): login failure leaves no pending tasks",
+              pending_tasks() == before)
+
+        # gateway task fails pre-ready → surfaced (no hang), client closed
+        FakeGatewayClient.next_config = {
+            "gateway_mode": "raise",
+            "gateway_exc": PrivilegedIntentsRequired("intents"),
+        }
+        try:
+            await asyncio.wait_for(DiscordAdapter.connect("tok"), 5)
+            check("connect(): gateway failure pre-ready surfaces", False)
+        except PrivilegedIntentsRequired:
+            check("connect(): gateway failure pre-ready surfaces", True)
+        check("connect(): gateway failure closes the client",
+              FakeGatewayClient.last.closed == 1)
+        check("connect(): gateway failure leaves no pending tasks",
+              pending_tasks() == before)
+
+        # gateway task returns CLEANLY pre-ready → deterministic fallback
+        FakeGatewayClient.next_config = {"gateway_mode": "return"}
+        try:
+            await asyncio.wait_for(DiscordAdapter.connect("tok"), 5)
+            check("connect(): clean gateway exit pre-ready raises fallback",
+                  False)
+        except RuntimeError as exc:
+            check("connect(): clean gateway exit pre-ready raises fallback",
+                  "gateway closed before becoming ready" in str(exc))
+        check("connect(): clean-exit path leaves no pending tasks",
+              pending_tasks() == before)
+
+        # hanging client.close() cannot stall the cleanup past the bound
+        da.CONNECT_CLEANUP_TIMEOUT_S = 0.05
+        FakeGatewayClient.next_config = {
+            "login_exc": LoginFailure("bad"), "close_hang_s": 30}
+        t0 = asyncio.get_running_loop().time()
+        try:
+            await DiscordAdapter.connect("tok")
+        except LoginFailure:
+            pass
+        elapsed = asyncio.get_running_loop().time() - t0
+        check("connect(): hanging close is bounded by the cleanup timeout",
+              elapsed < 2, f"elapsed={elapsed:.2f}s")
+        da.CONNECT_CLEANUP_TIMEOUT_S = saved_cleanup_timeout
+
+        # success path: ready fires, adapter returned, close() consumes all
+        FakeGatewayClient.next_config = {"ready": True}
+        live_adapter = await asyncio.wait_for(DiscordAdapter.connect("tok"), 5)
+        check("connect(): success returns a ready adapter with self_id",
+              live_adapter._self_id == "99")
+        check("connect(): success stores the gateway task",
+              live_adapter._gateway_task is not None
+              and not live_adapter._gateway_task.done())
+        await live_adapter.close()
+        check("connect()+close(): gateway task consumed, no pending tasks",
+              live_adapter._gateway_task is None
+              and pending_tasks() == before)
+        check("connect()+close(): client closed once",
+              FakeGatewayClient.last.closed == 1)
+
+        # cancellation-RESISTANT gateway task: the failure-path awaits are
+        # bounded too, so a caller-side wait_for deadline is enforced even
+        # when the gateway task refuses to die promptly. (Last in this
+        # section: the abandoned resistant task drains on its own below.)
+        class ResistantClient(FakeGatewayClient):
+            async def connect(self, reconnect=True):
+                try:
+                    await self._stop.wait()
+                except asyncio.CancelledError:
+                    await asyncio.sleep(0.5)   # resist prompt cancellation
+                    raise
+        fake_discord.Client = ResistantClient
+        # __init__ reads the BASE class attribute — reset it there.
+        FakeGatewayClient.next_config = {}     # never ready, gateway runs
+        da.CONNECT_CLEANUP_TIMEOUT_S = 0.05
+        t0 = asyncio.get_running_loop().time()
+        try:
+            await asyncio.wait_for(DiscordAdapter.connect("tok"), 0.1)
+            check("connect(): resistant gateway still times out", False)
+        except asyncio.TimeoutError:
+            check("connect(): resistant gateway still times out", True)
+        elapsed = asyncio.get_running_loop().time() - t0
+        check("connect(): resistant-gateway cleanup is bounded",
+              elapsed < 1.0, f"elapsed={elapsed:.2f}s")
+        check("connect(): resistant-gateway path still closes the client",
+              ResistantClient.last.closed == 1)
+        await asyncio.sleep(0.6)               # drain the abandoned task
+    finally:
+        da.CONNECT_CLEANUP_TIMEOUT_S = saved_cleanup_timeout
+        del sys.modules["discord"]
+
+    # --- fetch_bot_permissions ---------------------------------------- #
+    def perm_guild(member=None, fetch_member_result=None, fetch_exc=None):
+        async def fetch_member(uid):
+            if fetch_exc:
+                raise fetch_exc
+            if fetch_member_result is not None:
+                return fetch_member_result
+            raise NotFound("no member")
+        return SimpleNamespace(id=100, get_member=lambda uid: member,
+                               fetch_member=fetch_member)
+
+    class PermCheckChannel(FakeChannel):
+        def __init__(self, perms, **kw):
+            super().__init__(**kw)
+            self._bot_perms = perms
+            self.perm_member = None
+        def permissions_for(self, member):
+            self.perm_member = member
+            return self._bot_perms
+
+    bot_member = SimpleNamespace(id=9, roles=[])
+    perms_ns = SimpleNamespace(view_channel=True, send_messages=True,
+                               manage_messages=False)
+    p_ch = PermCheckChannel(perms_ns,
+                            guild_obj=perm_guild(member=bot_member))
+    p_adapter2 = DiscordAdapter(FakeClient(channels={200: p_ch}),
+                                self_id="9", sdk=make_fake_sdk())
+    got = await p_adapter2.fetch_bot_permissions(
+        CH_REF, ("view_channel", "send_messages", "manage_messages",
+                 "not_a_real_perm"))
+    check("fetch_bot_permissions reports the requested names",
+          got == {"view_channel": True, "send_messages": True,
+                  "manage_messages": False, "not_a_real_perm": False})
+    check("fetch_bot_permissions used the cached bot member",
+          p_ch.perm_member is bot_member)
+
+    # cache miss → fetch_member fallback
+    p_ch2 = PermCheckChannel(
+        perms_ns, guild_obj=perm_guild(member=None,
+                                       fetch_member_result=bot_member))
+    p_adapter3 = DiscordAdapter(FakeClient(channels={200: p_ch2}),
+                                self_id="9", sdk=make_fake_sdk())
+    got2 = await p_adapter3.fetch_bot_permissions(CH_REF, ("view_channel",))
+    check("fetch_bot_permissions falls back to fetch_member",
+          got2 == {"view_channel": True}
+          and p_ch2.perm_member is bot_member)
+
+    # both member paths fail → distinct mapped user error (not a perm map)
+    p_ch3 = PermCheckChannel(
+        perms_ns, guild_obj=perm_guild(member=None,
+                                       fetch_exc=NotFound("who")))
+    p_adapter4 = DiscordAdapter(FakeClient(channels={200: p_ch3}),
+                                self_id="9", sdk=make_fake_sdk())
+    try:
+        await p_adapter4.fetch_bot_permissions(CH_REF, ("view_channel",))
+        check("fetch_bot_permissions member failure → UserNotFound", False)
+    except UserNotFound:
+        check("fetch_bot_permissions member failure → UserNotFound", True)
+
+    # DM channel (no guild) → {} (no guild permission model)
+    dm_ch = FakeChannel(guild_obj=None)
+    dm_adapter2 = DiscordAdapter(FakeClient(channels={200: dm_ch}),
+                                 self_id="9", sdk=make_fake_sdk())
+    check("fetch_bot_permissions on a DM returns {}",
+          await dm_adapter2.fetch_bot_permissions(
+              CH_REF, ("view_channel",)) == {})
+
+    # channel without permissions_for → deliberate ChatError, not an
+    # AttributeError-shaped surprise
+    class NoPermsChannel(FakeChannel):
+        permissions_for = None
+    np_ch = NoPermsChannel(guild_obj=perm_guild(member=bot_member))
+    np_adapter = DiscordAdapter(FakeClient(channels={200: np_ch}),
+                                self_id="9", sdk=make_fake_sdk())
+    try:
+        await np_adapter.fetch_bot_permissions(CH_REF, ("view_channel",))
+        check("fetch_bot_permissions without permissions_for → ChatError",
+              False)
+    except ChatError as exc:
+        check("fetch_bot_permissions without permissions_for → ChatError",
+              "cannot inspect bot permissions" in str(exc))
+
 
 asyncio.run(main())
 assert "discord" not in sys.modules, "no test path may import the SDK"

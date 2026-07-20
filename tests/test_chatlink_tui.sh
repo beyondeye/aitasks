@@ -243,11 +243,36 @@ async def main():
                         severity="pass", message="docker binary present"),
         ]
 
+    # Live-validation seam spy (t1149_5): returns a deliberately FAILING
+    # row so the walk proves the step is advisory-only (save unaffected).
+    import threading
+    wiz_live = {"n": 0, "args": None}
+    live_block = threading.Event()
+    live_mode = {"block": False}
+
+    def wiz_spy_live(token, workspace_id, conversation_id,
+                     thread_id=None, **_kw):
+        wiz_live["n"] += 1
+        wiz_live["args"] = (token, workspace_id, conversation_id,
+                            thread_id)
+        if live_mode["block"]:
+            live_block.wait(timeout=10)
+        return [
+            CheckResult(id="live_login", category="transport",
+                        severity="pass", message="token accepted"),
+            CheckResult(id="live_permissions", category="transport",
+                        severity="fail",
+                        message="missing required channel permission(s): "
+                                "manage_threads",
+                        fix_hint="re-invite the bot"),
+        ]
+
     def make_wizard_app():
         return ChatlinkApp(
             sessions_dir=wtmp / "sessions", clock=lambda: now,
             cheap_runner=fake_cheap, expensive_runner=wiz_spy_expensive,
-            wizard_config_path=config_path, token_writer=token_writer)
+            wizard_config_path=config_path, token_writer=token_writer,
+            live_runner=wiz_spy_live)
 
     # --- abort mid-wizard: zero writes ---
     app2 = make_wizard_app()
@@ -361,7 +386,40 @@ async def main():
         scr.query_one("#wiz_token", Input).value = "secret-token-123"
         await pilot.press("enter")
         await pilot.pause()
-        check("token advances to summary",
+        check("token advances to live validation",
+              isinstance(app3.screen, wiz.LiveCheckScreen))
+
+        # Skip path: Continue without validating — the live seam is
+        # never called and the wizard proceeds normally.
+        check("live seam not called before validate", wiz_live["n"] == 0)
+        await pilot.click("#btn_wiz_next")
+        await pilot.pause()
+        check("continue skips live validation into summary",
+              isinstance(app3.screen, wiz.SummaryScreen)
+              and wiz_live["n"] == 0)
+
+        # Back into the live step and validate with the injected runner.
+        await pilot.click("#btn_wiz_back")
+        await pilot.pause()
+        check("back returns to live validation",
+              isinstance(app3.screen, wiz.LiveCheckScreen))
+        await pilot.click("#btn_wiz_live_run")
+        await app3.workers.wait_for_complete()
+        await pilot.pause()
+        live_text = str(
+            app3.screen.query_one("#wiz_live_results").render())
+        check("live results rendered via format_row",
+              "✓ token accepted" in live_text
+              and "✗ missing required channel permission(s)" in live_text)
+        check("live runner received the entered values",
+              wiz_live["n"] == 1
+              and wiz_live["args"]
+              == ("secret-token-123", "111", "222", None))
+        await asyncio.sleep(0.4)  # Button active-effect window (see below)
+        await pilot.click("#btn_wiz_next")
+        await pilot.pause()
+        check("continue after a FAILING live validation reaches summary "
+              "(advisory-only)",
               isinstance(app3.screen, wiz.SummaryScreen))
 
         summary = str(
@@ -452,6 +510,57 @@ async def main():
         check("close dismisses the wizard",
               not isinstance(app3.screen, wiz._WizardStep))
         await app3.action_quit()
+
+    # --- live step, mid-run Continue: a late worker result must not touch
+    # the dismissed screen (generation + is_attached guard, t1149_5) ---
+    live_mode["block"] = True
+    wiz_live["n"] = 0
+    app4 = make_wizard_app()
+    async with app4.run_test(size=(110, 50)) as pilot:
+        await pilot.pause()
+        await pilot.press("w")
+        await pilot.pause()
+        # Config + token exist from the walk above, so every step is
+        # pre-filled/kept — Enter through to the live step.
+        scr = app4.screen
+        scr.query_one("#wiz_conversation", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        app4.screen.query_one("#wiz_user_ids", Input).focus()
+        await pilot.press("enter")   # deny-by-default warn
+        await pilot.pause()
+        await pilot.press("enter")   # second Next advances
+        await pilot.pause()
+        app4.screen.query_one("#wiz_repo_name", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        app4.screen.query_one("#wiz_sandbox_pids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        app4.screen.query_one("#wiz_token", Input).focus()
+        await pilot.press("enter")   # empty keeps the stored token
+        await pilot.pause()
+        check("mid-run walk reaches the live step",
+              isinstance(app4.screen, wiz.LiveCheckScreen))
+        await pilot.click("#btn_wiz_live_run")
+        await pilot.pause()
+        check("live progress line shown while the worker runs",
+              "validating live" in str(
+                  app4.screen.query_one("#wiz_live_results").render()))
+        await pilot.click("#btn_wiz_next")   # Continue mid-run
+        await pilot.pause()
+        check("continue mid-run reaches summary",
+              isinstance(app4.screen, wiz.SummaryScreen))
+        live_block.set()                     # release the worker late
+        await app4.workers.wait_for_complete()
+        await pilot.pause()
+        check("late live result did not disturb the summary screen",
+              isinstance(app4.screen, wiz.SummaryScreen)
+              and wiz_live["n"] == 1)
+        await pilot.press("escape")          # abort — no writes intended
+        await pilot.pause()
+        await app4.action_quit()
+    live_mode["block"] = False
 
     print(f"\nPASS: {PASS}, FAIL: 0")
 

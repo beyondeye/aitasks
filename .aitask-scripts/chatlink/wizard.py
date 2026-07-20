@@ -41,7 +41,8 @@ except ImportError:  # entrypoint did not pre-insert .aitask-scripts/lib
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
     from profile_editor import CycleField
 
-from . import config, config_write, paths, preflight, preflight_render
+from . import config, config_write, live_check, paths, preflight, \
+    preflight_render
 
 #: Screen-dismissal sentinels for the step chain.
 BACK = object()
@@ -75,6 +76,7 @@ class WizardSeams:
     token_writer: Callable | None = None
     cheap_runner: Callable | None = None
     expensive_runner: Callable | None = None
+    live_runner: Callable | None = None
 
 
 def resolve_seams(seams: WizardSeams | None) -> WizardSeams:
@@ -88,6 +90,7 @@ def resolve_seams(seams: WizardSeams | None) -> WizardSeams:
         cheap_runner=seams.cheap_runner or preflight.run_cheap_checks,
         expensive_runner=(seams.expensive_runner
                           or preflight.run_expensive_checks),
+        live_runner=seams.live_runner or live_check.run_live_checks,
     )
 
 
@@ -218,7 +221,7 @@ class _WizardStep(ModalScreen):
 
 
 class IntakeChannelScreen(_WizardStep):
-    step_title = ("Step 1/6 — Bug-report intake channel "
+    step_title = ("Step 1/7 — Bug-report intake channel "
                   "(Discord bug-report intake / explore-relay flow)")
 
     def body(self) -> ComposeResult:
@@ -250,7 +253,7 @@ class IntakeChannelScreen(_WizardStep):
 
 
 class AllowlistScreen(_WizardStep):
-    step_title = "Step 2/6 — Who may open a bug report (deny-by-default)"
+    step_title = "Step 2/7 — Who may open a bug report (deny-by-default)"
 
     def __init__(self, state: dict, **kwargs):
         super().__init__(state, **kwargs)
@@ -285,7 +288,7 @@ class AllowlistScreen(_WizardStep):
 
 
 class DenyRepoScreen(_WizardStep):
-    step_title = "Step 3/6 — Denied-message handling & repo name"
+    step_title = "Step 3/7 — Denied-message handling & repo name"
 
     def body(self) -> ComposeResult:
         yield Label("Reply to denied users in the intake channel:",
@@ -306,7 +309,7 @@ class DenyRepoScreen(_WizardStep):
 
 
 class CeilingsScreen(_WizardStep):
-    step_title = "Step 4/6 — Sandbox resource ceilings"
+    step_title = "Step 4/7 — Sandbox resource ceilings"
 
     def body(self) -> ComposeResult:
         for key, label, rng in _CEILING_FIELDS:
@@ -340,7 +343,7 @@ class CeilingsScreen(_WizardStep):
 
 
 class TokenScreen(_WizardStep):
-    step_title = "Step 5/6 — Discord bot token"
+    step_title = "Step 5/7 — Discord bot token"
 
     def __init__(self, state: dict, seams: WizardSeams, **kwargs):
         super().__init__(state, **kwargs)
@@ -365,6 +368,91 @@ class TokenScreen(_WizardStep):
                         "(the gateway cannot start without it)")
             return
         self.state["token"] = token or None
+        self.dismiss(NEXT)
+
+
+class LiveCheckScreen(_WizardStep):
+    """Optional live Discord validation (t1149_5) — advisory only.
+
+    "Validate live now" runs the Textual-free
+    :func:`chatlink.live_check.run_live_checks` in a thread worker and
+    renders its rows; Continue always advances (== skip when never run)
+    and the wizard outcome never depends on the results. A generation
+    token + ``is_attached`` guard keeps a late worker result from
+    touching a dismissed screen (the user may Continue mid-run).
+    """
+
+    step_title = "Step 6/7 — Live validation (optional)"
+    next_label = "Continue"
+
+    def __init__(self, state: dict, seams: WizardSeams, **kwargs):
+        super().__init__(state, **kwargs)
+        self.seams = seams
+        self._live_running = False
+        self._live_gen = 0
+
+    def body(self) -> ComposeResult:
+        yield Label(
+            "Optionally connect to Discord now with the entered token to "
+            "verify it live: login, privileged intents, intake-channel "
+            "visibility, bot permissions.\n"
+            "Advisory only — Continue proceeds regardless.",
+            classes="wizard-label")
+        discord_only = self.state["provider"] != "discord"
+        yield Button("Validate live now", id="btn_wiz_live_run",
+                     disabled=discord_only)
+        if discord_only:
+            yield Label("live validation supports Discord only",
+                        classes="wizard-label")
+        yield Static("", id="wiz_live_results", markup=False)
+
+    @on(Button.Pressed, "#btn_wiz_live_run")
+    def _on_validate(self) -> None:
+        if self._live_running or self.state["provider"] != "discord":
+            return
+        token = self.state["token"] or self.seams.token_reader()
+        if not token:
+            self._error("no token to validate — enter one on the "
+                        "previous step (Continue still works)")
+            return
+        self._error("")
+        self._live_running = True
+        self._live_gen += 1
+        gen = self._live_gen
+        runner = self.seams.live_runner
+        workspace_id = self.state["workspace_id"]
+        conversation_id = self.state["conversation_id"]
+        thread_id = self.state["thread_id"] or None
+        self.query_one("#wiz_live_results", Static).update(
+            "… validating live "
+            f"(up to {live_check.LIVE_CHECK_TIMEOUT_S:.0f}s)")
+
+        def work() -> None:
+            """Worker thread body — pure (no widget access)."""
+            try:
+                results = list(runner(token, workspace_id,
+                                      conversation_id, thread_id))
+            except Exception:
+                results = None
+            self.app.call_from_thread(self._apply_results, gen, results)
+
+        self.run_worker(work, thread=True)
+
+    def _apply_results(self, gen: int, results) -> None:
+        if gen != self._live_gen or not self.is_attached:
+            return  # superseded run, or the screen was already dismissed
+        self._live_running = False
+        if results is None:
+            self.query_one("#wiz_live_results", Static).update(
+                "! live validation errored — you can Continue "
+                "(advisory only)")
+            return
+        lines = [f"  {preflight_render.format_row(res)}"
+                 for res in results]
+        self.query_one("#wiz_live_results", Static).update(
+            "\n".join(lines))
+
+    def _accept(self) -> None:
         self.dismiss(NEXT)
 
 
@@ -419,7 +507,7 @@ class SummaryScreen(_WizardStep):
     config_write, token via the seam — failure-aware, idempotent retry),
     then run preflight and render the results."""
 
-    step_title = "Step 6/6 — Summary & save"
+    step_title = "Step 7/7 — Summary & save"
     next_label = "Save"
 
     def __init__(self, state: dict, seams: WizardSeams, **kwargs):
@@ -586,7 +674,7 @@ def start_wizard(app, seams: WizardSeams | None = None) -> None:
     def make_step(idx: int) -> _WizardStep:
         first = idx == 0
         cls = _STEPS[idx]
-        if cls in (TokenScreen, SummaryScreen):
+        if cls in (TokenScreen, LiveCheckScreen, SummaryScreen):
             return cls(state, seams, first=first)
         return cls(state, first=first)
 
@@ -607,4 +695,4 @@ def start_wizard(app, seams: WizardSeams | None = None) -> None:
 
 
 _STEPS = (IntakeChannelScreen, AllowlistScreen, DenyRepoScreen,
-          CeilingsScreen, TokenScreen, SummaryScreen)
+          CeilingsScreen, TokenScreen, LiveCheckScreen, SummaryScreen)

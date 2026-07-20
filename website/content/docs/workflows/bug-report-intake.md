@@ -292,6 +292,12 @@ moving through its states and tails the audit log.
 
 ## Troubleshooting
 
+The `ait chatlink` config wizard offers an optional **live validation** step
+after token entry: it connects to Discord with the entered token and verifies
+the token, both privileged intents, intake-channel visibility, and the bot's
+channel permissions — catching the token, intent, and visibility rows below
+at config time instead of at first failure.
+
 | Symptom | Cause | Fix |
 |---|---|---|
 | `no gateway config found` | `chatlink_config.yaml` is absent. | Run `ait setup`, or point `chatlink.config` in `project_config.yaml` at your file. |

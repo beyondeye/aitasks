@@ -109,7 +109,7 @@ class ChatlinkApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def __init__(self, *, sessions_dir: str | Path | None = None,
                  clock=time.time, cheap_runner=None, expensive_runner=None,
                  wizard_config_path=None, token_reader=None,
-                 token_writer=None):
+                 token_writer=None, live_runner=None):
         super().__init__()
         self.current_tui_name = "chatlink"
         # No I/O in the constructor (--smoke contract); resolve lazily.
@@ -126,6 +126,7 @@ class ChatlinkApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._wizard_config_path = wizard_config_path
         self._token_reader = token_reader
         self._token_writer = token_writer
+        self._live_runner = live_runner
         # Expensive-check cache: {check_id: (CheckResult, clock timestamp)}.
         # Mutated ONLY on the UI thread (_apply_expensive).
         self._expensive_cache: dict[
@@ -170,6 +171,7 @@ class ChatlinkApp(TuiSwitcherMixin, ShortcutsMixin, App):
             token_writer=self._token_writer,
             cheap_runner=self._cheap_runner,
             expensive_runner=self._expensive_runner,
+            live_runner=self._live_runner,
         ))
 
     # ------------------------------------------------------------------ #
