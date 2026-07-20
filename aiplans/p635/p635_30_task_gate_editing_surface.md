@@ -235,7 +235,7 @@ single status line callers parse.
 - Changing the gate lock key from raw argument to resolved file alters
   mutual-exclusion for the **existing** `append`/`materialize-active` verbs. A wrong
   derivation over-excludes or under-excludes on a load-bearing path · severity:
-  medium · → mitigation: gate_lock_characterization
+  medium · → mitigation: t1183 (gate_lock_characterization)
 - Adding `_AIT_RESOLVE_PROVENANCE` to `resolve_task_file` touches a helper used by
   nearly every script; a missed reset-at-entry leaks a stale value into an
   unrelated caller's guard · severity: medium · → mitigation: covered by the
@@ -255,7 +255,7 @@ single status line callers parse.
   refusal message and the command reference)
 
 ### Planned mitigations
-- timing: before | name: gate_lock_characterization | type: test | priority: medium | effort: low | addresses: code-health — gate lock key derivation change | desc: Pin the current mutual-exclusion behavior of aitask_gate.sh append/materialize-active with characterization tests, so the lock-key change from raw argument to resolved task file is provably safe for existing callers
+- timing: before | created: t1183 | name: gate_lock_characterization | type: test | priority: medium | effort: low | addresses: code-health — gate lock key derivation change | desc: Pin the current mutual-exclusion behavior of aitask_gate.sh append/materialize-active with characterization tests, so the lock-key change from raw argument to resolved task file is provably safe for existing callers
 - timing: after | name: also_blocks_dependents_prune | type: enhancement | priority: low | effort: low | addresses: code-health — dangling also_blocks_dependents after gate removal | desc: Offer to prune (not merely warn about) also_blocks_dependents entries left dangling when ait gate remove strips the referenced gate
 
 ## Verification
