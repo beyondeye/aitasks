@@ -209,10 +209,10 @@ grep -r default_mode_request_user_input /tmp/t1185-install/.codex/config.toml
   `install_seed_*` family) that knows the seed→metadata filename mapping,
   including the `claude_settings.local.json` → `claude_settings.seed.json`
   rename. If a future seed is added to one manifest and not the other, the two
-  drift silently. · severity: low · → mitigation: seed_manifest_drift_guard
+  drift silently. · severity: low · → mitigation: t1194 (seed_manifest_drift_guard)
 - The reader sites left unchanged by this task still skip silently when a seed
   is absent, which is what let this bug pass setup undetected in the first
-  place. · severity: low · → mitigation: fail_loud_agent_seed_readers
+  place. · severity: low · → mitigation: t1195 (fail_loud_agent_seed_readers)
 - Writing into `aitasks/metadata/` means the populated files are auto-committed
   to the data branch by `commit_framework_data_files`. That is the intended and
   already-proven behavior for this slot, but it does make `ait setup` produce a
@@ -236,8 +236,8 @@ grep -r default_mode_request_user_input /tmp/t1185-install/.codex/config.toml
   coverage. · severity: low · → mitigation: none (accepted; severity low)
 
 ### Planned mitigations
-- timing: after | name: seed_manifest_drift_guard | type: test | priority: medium | effort: low | addresses: code-health — dual-manifest drift | desc: Assert the seed→metadata filename mapping in install.sh's install_seed_* family and ensure_agent_config_seeds()'s pairs list stay in sync, so a seed added to one but not the other fails loudly.
-- timing: after | name: fail_loud_agent_seed_readers | type: enhancement | priority: medium | effort: low | addresses: code-health — silent no-op defect class | desc: Convert the silent [[ -f ]] skips at aitask_setup.sh:2067, :2081, :2218, :1807 into visible warnings so the next instance of this bug class self-reports instead of passing setup silently.
+- timing: after | task: t1194 | name: seed_manifest_drift_guard | type: test | priority: medium | effort: low | addresses: code-health — dual-manifest drift | desc: Assert the seed→metadata filename mapping in install.sh's install_seed_* family and ensure_agent_config_seeds()'s pairs list stay in sync, so a seed added to one but not the other fails loudly.
+- timing: after | task: t1195 | name: fail_loud_agent_seed_readers | type: enhancement | priority: medium | effort: low | addresses: code-health — silent no-op defect class | desc: Convert the silent [[ -f ]] skips at aitask_setup.sh:2067, :2081, :2218, :1807 into visible warnings so the next instance of this bug class self-reports instead of passing setup silently.
 
 ## Follow-ups (not in this task)
 
