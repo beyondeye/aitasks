@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 12:20
-updated_at: 2026-07-20 12:41
+updated_at: 2026-07-20 12:51
 boardidx: 30
 ---
 
@@ -72,3 +73,8 @@ text for branch comparison. Editing it would corrupt the baseline.
 
 This is a shared sub-procedure that auto-renders into every agent tree, so no
 separate per-agent port task is needed — the rerender covers Codex and OpenCode.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-20T09:51:55Z status=pass attempt=1 type=human
