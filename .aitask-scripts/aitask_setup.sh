@@ -1625,6 +1625,62 @@ ensure_chatlink_config() {
     success "Created chatlink_config.yaml"
 }
 
+# --- Agent config seeds (populate-missing, t1185) ---
+# install.sh installs these into aitasks/metadata/ directly (and deletes seed/
+# afterwards), so in the normal tarball flow the targets already exist. This
+# populate-missing pass matters for (a) source-tree / clean-clone runs where
+# seed/ survives but aitasks/metadata/ was never populated, and (b) repos whose
+# data branch was initialized before these seeds joined the clean-init set —
+# re-running `ait setup` repairs them.
+#
+# Without it, setup_codex_cli/setup_opencode find no seed and silently skip
+# their merge, leaving .codex/config.toml without the
+# default_mode_request_user_input feature that t1171 depends on.
+#
+# Existing files are never overwritten — user customizations win.
+ensure_agent_config_seeds() {
+    local project_dir="$SCRIPT_DIR/.."
+    local seed_dir="$project_dir/seed"
+    local dest_dir="$project_dir/aitasks/metadata"
+
+    [[ -d "$seed_dir" ]] || return 0
+
+    # "<seed filename>:<metadata filename>" — the dest name differs for the
+    # Claude settings seed; install.sh:582-583 applies the same rename.
+    local pairs=(
+        "codex_config.seed.toml:codex_config.seed.toml"
+        "codex_rules.default.rules:codex_rules.default.rules"
+        "opencode_config.seed.json:opencode_config.seed.json"
+        "claude_settings.local.json:claude_settings.seed.json"
+    )
+
+    # Only create the destination when it is genuinely absent. A dangling
+    # aitasks/ symlink (data branch not yet materialized) makes `mkdir -p` fail,
+    # which under `set -e` would abort the whole setup run. The normal sequence
+    # calls this after setup_data_branch, so the dir exists by then — degrade to
+    # a warning rather than taking setup down if that ever stops holding.
+    if [[ ! -d "$dest_dir" ]] && ! mkdir -p "$dest_dir" 2>/dev/null; then
+        warn "Cannot populate agent config seeds — $dest_dir is unavailable"
+        return 0
+    fi
+
+    local pair src_name dest_name copied=0
+    for pair in "${pairs[@]}"; do
+        src_name="${pair%%:*}"
+        dest_name="${pair##*:}"
+        [[ -f "$seed_dir/$src_name" ]] || continue
+        [[ -f "$dest_dir/$dest_name" ]] && continue
+        cp "$seed_dir/$src_name" "$dest_dir/$dest_name"
+        info "  Populated aitasks/metadata/$dest_name from seed"
+        copied=$((copied + 1))
+    done
+
+    if [[ $copied -gt 0 ]]; then
+        success "Populated $copied missing agent config seed(s)"
+    fi
+    return 0
+}
+
 # --- Draft directory and gitignore setup ---
 setup_draft_directory() {
     local project_dir="$SCRIPT_DIR/.."
@@ -3434,6 +3490,9 @@ main() {
     echo ""
 
     ensure_chatlink_config
+    echo ""
+
+    ensure_agent_config_seeds
     echo ""
 
     setup_git_tui
