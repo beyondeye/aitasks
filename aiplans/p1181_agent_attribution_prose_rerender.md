@@ -125,3 +125,73 @@ None. Both dimensions are low; the failure modes (wrong wording, stray
 hand-edit of a rendered copy or the fixture) are caught by the grep and
 `git status` checks in Verification plus the two test scripts, all of which run
 in-task. No before- or after-mitigation task is warranted.
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced the stale plan-mode exemplar at
+  `.claude/skills/task-workflow/agent-attribution.md:5` with the planned generic
+  wording ("on code agents with a plan mode (e.g., Claude Code), the workflow's
+  planning phase runs read-only and cannot write metadata"), then propagated it.
+  Five files changed in total: the canonical source, three tracked `remote`
+  rendered variants (`.claude/`, `.agents/`, `.opencode/`), and
+  `.claude/skills/task-workflown/agent-attribution.md`.
+
+- **Deviations from plan:** Two, both discovered during implementation.
+
+  1. **`aitask_skill_rerender.sh` takes a profile argument.** The plan (copied
+     from the task's Steps) called it bare; it is
+     `aitask_skill_rerender.sh <profile_name>` and had to be run once per
+     profile (`default`, `fast`, `remote`).
+
+  2. **The plan's "12 rendered copies" model was wrong — and this is the
+     substantive finding.** Of the 12 on-disk `agent-attribution.md` copies:
+     - Only **4 are git-tracked**: the canonical source, plus the three
+       `remote` variants. The `default` and `fast` rendered variants are
+       **gitignored**, so the rerender refreshed them but they never appear in
+       the diff. The real tracked diff is therefore 4 files, not 12.
+     - `.claude/skills/task-workflown/` is **tracked but is NOT a rendered
+       copy** — the rerender glob matches `*-<profile>-` only, so it skipped
+       `task-workflown` entirely and left it carrying the stale "Codex CLI"
+       text. It is the t928 hardening sandbox, a hand-maintained fork that
+       diverges from canonical across 17 files.
+
+     Precedent search showed t1117 (`49ee5e30f`) applying an identical change to
+     both `task-workflow/` and `task-workflown/` in one commit, and t1014
+     (`6b997c107`) was itself a "task-workflown parity" bugfix. The scope
+     question was surfaced to the user, who chose to include it. The
+     `task-workflown` copy was hand-edited to match, preserving its one
+     deliberate divergence on line 3 (`Step 7 (task-workflown)`).
+
+  3. `.claude/skills/task-workflow-_skillrun_416236_1779701547729-/` also still
+     carries the stale text but is an **untracked transient render dir** — left
+     alone deliberately.
+
+- **Issues encountered:** A grep for `Codex CLI` across tracked files flags
+  `website/content/docs/concepts/agent-attribution.md:17`. Inspected: it is an
+  unrelated and still-correct per-agent **self-detection enumeration** ("Codex
+  CLI from `~/.codex/config.toml`"), which is an explicit literal-enumeration
+  exception to the genericization rule in
+  `aidocs/framework/adding_a_new_codeagent.md` §23b. No change made.
+
+- **Key decisions:**
+  - Chose generic-claim-plus-one-anchor phrasing over a bare Codex→Claude Code
+    swap, so the sentence stays true as the supported-agent set changes.
+  - Goldens were **not** regenerated: `tests/golden/procs/task-workflow/`
+    contains no `agent-attribution-*.md` golden (goldens cover SKILL, planning,
+    manual-verification, satisfaction-feedback, risk-*, etc.). Verified as a
+    genuine no-op rather than assumed — `aitask_skill_verify.sh` reported no
+    drift.
+  - The `.pre-rewrite` fixture was left untouched as required; confirmed via
+    `git status --porcelain tests/fixtures/` (clean) and a fixture count of
+    exactly 25.
+  - `.claude/settings.local.json` was modified before this session started and
+    was deliberately excluded from the commit.
+
+- **Upstream defects identified:** None.
+
+  (Noted for completeness, not as a defect: `aitask_skill_rerender.sh` cannot
+  reach `task-workflown` by design — its glob targets rendered `*-<profile>-`
+  dirs, and `task-workflown` is a hand-maintained fork, not a render target.
+  This is the sandbox's intended architecture, not a bug in the rerender
+  script. It does mean canonical→`task-workflown` propagation stays a manual
+  step, which is what t1014 already established.)
