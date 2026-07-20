@@ -50,11 +50,10 @@ out=$("$CODEAGENT" --agent-string opencode/opencode_claude_sonnet_4_6 \
 assert_contains "opencode learn uses --prompt" "--prompt" "$out"
 assert_contains "opencode learn emits /aitask-learn-skill" "/aitask-learn-skill" "$out"
 
-# Codex is interactive-but-not-planning (default mode), NOT routed through the
-# /plan PTY helper.
+# Codex launches directly in its default mode — no plan-mode wrapper.
 out=$("$CODEAGENT" --agent-string codex/gpt5_5 --dry-run invoke learn %7 2>&1)
 assert_contains "codex learn builds composer prompt" "aitask-learn-skill" "$out"
-assert_not_contains "codex learn does NOT force plan mode" "aitask_codex_plan_invoke" "$out"
+assert_not_contains "codex learn is not wrapped in plan mode" "aitask_codex_plan_invoke" "$out"
 
 # ============================================================
 # Tests: explicit default (no silent DEFAULT_AGENT_STRING fallback)
@@ -74,13 +73,6 @@ assert_exit_zero "learn is a supported operation" \
     "$CODEAGENT" --dry-run invoke learn %1
 assert_exit_nonzero "an unknown operation is still rejected" \
     "$CODEAGENT" --dry-run invoke bogus-op %1
-
-# shellcheck source=/dev/null
-. "$PROJECT_DIR/.aitask-scripts/lib/codex_plan_policy.sh"
-rc=0; codex_skill_forces_plan_mode learn || rc=$?
-assert_exit_nonzero_rc "codex_skill_forces_plan_mode learn is relaxed (returns 1)" "$rc"
-rc=0; codex_skill_forces_plan_mode pick || rc=$?
-assert_exit_zero_rc "codex_skill_forces_plan_mode pick still forces plan mode" "$rc"
 
 # ============================================================
 # Tests: launcher --dry-run (no live tmux required)

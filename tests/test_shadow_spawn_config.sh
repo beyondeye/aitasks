@@ -45,12 +45,11 @@ out=$("$CODEAGENT" --agent-string opencode/opencode_claude_sonnet_4_6 \
 assert_contains "opencode shadow uses --prompt" "--prompt" "$out"
 assert_contains "opencode shadow emits /aitask-shadow" "/aitask-shadow" "$out"
 
-# Codex is analysis-style (default mode), NOT routed through the /plan PTY
-# helper. The dry-run command must be a direct codex invocation, not the
-# aitask_codex_plan_invoke.py wrapper.
+# Codex launches directly in its default mode. The dry-run command must be a
+# direct codex invocation, with no plan-mode wrapper.
 out=$("$CODEAGENT" --agent-string codex/gpt5_5 --dry-run invoke shadow %7 100_2 2>&1)
 assert_contains "codex shadow builds composer prompt" "aitask-shadow" "$out"
-assert_not_contains "codex shadow does NOT force plan mode" "aitask_codex_plan_invoke" "$out"
+assert_not_contains "codex shadow is not wrapped in plan mode" "aitask_codex_plan_invoke" "$out"
 
 # ============================================================
 # Tests: operation support
@@ -61,14 +60,6 @@ assert_exit_zero "shadow is a supported operation" \
     "$CODEAGENT" --dry-run invoke shadow %1
 assert_exit_nonzero "an unknown operation is still rejected" \
     "$CODEAGENT" --dry-run invoke bogus-op %1
-
-# Codex plan policy: shadow must be a relaxed (default-mode) skill, like qa/explain.
-# shellcheck source=/dev/null
-. "$PROJECT_DIR/.aitask-scripts/lib/codex_plan_policy.sh"
-rc=0; codex_skill_forces_plan_mode shadow || rc=$?
-assert_exit_nonzero_rc "codex_skill_forces_plan_mode shadow is relaxed (returns 1)" "$rc"
-rc=0; codex_skill_forces_plan_mode pick || rc=$?
-assert_exit_zero_rc "codex_skill_forces_plan_mode pick still forces plan mode" "$rc"
 
 # ============================================================
 # Tests: resolve_pane_id_by_pid (faked gateway)

@@ -22,13 +22,11 @@ Use stronger reasoning/model settings when you need reliable workflow compliance
 
 `ait setup` enables the `default_mode_request_user_input` feature in the generated Codex config (`.codex/config.toml`), so `request_user_input` is available in Codex's default mode. This makes the interactive workflow checkpoints — task confirmation, plan approval, and commit review — *available* during the `aitask-*` workflow. Availability is necessary but not sufficient for reliable compliance: see [Reasoning effort and workflow compliance](#reasoning-effort-and-workflow-compliance) below.
 
-> `ait codeagent invoke` launches the planning skills (`pick`, `explore`) through plan mode — it reliably surfaces their commit and merge approval prompts and suits the planning phase. The analysis skills (`qa`, `explain`) run in Codex's default mode.
+> `ait codeagent invoke` launches every Codex skill in Codex's default mode.
 
 #### Reasoning effort and workflow compliance
 
 Set Codex's reasoning effort to **at least `high`** when running the `aitask-*` workflow. At lower effort, Codex may silently skip required non-skippable workflow steps and treat the archive as the end of the workflow even when the interactive prompts are available. Raising the effort to `high` resolves most of these compliance problems.
-
-When you change the effort setting, Codex also asks whether to override the current plan-mode effort setting — accept it so the planning phase runs at `high` effort too.
 
 Some skipped prompts are *not* compliance failures: execution profiles such as `fast` deliberately pre-answer prompts like task confirmation, email, and worktree creation. Those skips are expected — the caveat here is only about steps no profile pre-answers.
 

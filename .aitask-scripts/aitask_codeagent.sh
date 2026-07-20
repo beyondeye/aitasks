@@ -16,8 +16,6 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck source=lib/agent_string.sh
 source "$SCRIPT_DIR/lib/agent_string.sh"
-# shellcheck source=lib/codex_plan_policy.sh
-source "$SCRIPT_DIR/lib/codex_plan_policy.sh"
 
 # --- Constants ---
 # DEFAULT_AGENT_STRING, METADATA_DIR, SUPPORTED_AGENTS, PARSED_AGENT, PARSED_MODEL,
@@ -505,11 +503,10 @@ build_invoke_command() {
                     CMD+=("${args[@]}")
                     ;;
                 *)
-                    # Skill launches: build the $aitask-* composer prompt, then
-                    # branch on the plan-mode policy. Planning skills (pick,
-                    # explore) go through the /plan PTY helper; analysis skills
-                    # (qa, explain) launch directly in Codex's default mode.
-                    # See lib/codex_plan_policy.sh.
+                    # Skill launches: build the $aitask-* composer prompt and
+                    # launch Codex directly in its default mode. Interactive
+                    # prompts work there via the default_mode_request_user_input
+                    # feature flag that `ait setup` enables.
                     local prompt
                     case "$operation" in
                         pick)    prompt=$(build_skill_prompt "\$aitask-pick" "${args[@]}") ;;
@@ -519,11 +516,7 @@ build_invoke_command() {
                         shadow)  prompt=$(build_skill_prompt "\$aitask-shadow" "${args[@]}") ;;
                         learn)   prompt=$(build_skill_prompt "\$aitask-learn-skill" "${args[@]}") ;;
                     esac
-                    if codex_skill_forces_plan_mode "$operation"; then
-                        CMD=("python3" "$SCRIPT_DIR/aitask_codex_plan_invoke.py" "--prompt" "$prompt" "--" "$binary" "$model_flag" "$cli_id")
-                    else
-                        CMD=("$binary" "$model_flag" "$cli_id" "$prompt")
-                    fi
+                    CMD=("$binary" "$model_flag" "$cli_id" "$prompt")
                     ;;
             esac
             ;;

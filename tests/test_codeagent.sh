@@ -35,13 +35,10 @@ setup_test_env() {
 
     # Copy required scripts
     cp "$PROJECT_DIR/.aitask-scripts/aitask_codeagent.sh" "$tmpdir/.aitask-scripts/"
-    cp "$PROJECT_DIR/.aitask-scripts/aitask_codex_plan_invoke.py" "$tmpdir/.aitask-scripts/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$tmpdir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$tmpdir/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/agent_string.sh" "$tmpdir/.aitask-scripts/lib/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/codex_plan_policy.sh" "$tmpdir/.aitask-scripts/lib/"
     chmod +x "$tmpdir/.aitask-scripts/aitask_codeagent.sh"
-    chmod +x "$tmpdir/.aitask-scripts/aitask_codex_plan_invoke.py"
 
     # Copy model configs
     cp "$PROJECT_DIR/aitasks/metadata/models_claudecode.json" "$tmpdir/aitasks/metadata/"
@@ -75,7 +72,6 @@ echo ""
 # Test 1: Syntax check
 echo "--- Test 1: Syntax check ---"
 assert_exit_zero "bash -n syntax check" bash -n "$PROJECT_DIR/.aitask-scripts/aitask_codeagent.sh"
-assert_exit_zero "codex plan helper compiles" python3 -m py_compile "$PROJECT_DIR/.aitask-scripts/aitask_codex_plan_invoke.py"
 
 # Setup test environment
 TMPDIR_TEST="$(setup_test_env)"
@@ -169,24 +165,23 @@ assert_contains_ci "dry-run contains model flag" "claude-opus-4-8" "$output"
 assert_contains_ci "dry-run contains aitask-pick" "aitask-pick" "$output"
 assert_contains_ci "dry-run contains task number" "42" "$output"
 
-# Test 11b: Codex interactive skill invokes plan-mode helper
-echo "--- Test 11b: Codex pick dry-run uses plan helper ---"
+# Test 11b: Codex pick launches directly in Codex default mode
+echo "--- Test 11b: Codex pick dry-run stays direct ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke pick 42 2>&1)
-assert_contains_ci "codex pick dry-run uses helper" "aitask_codex_plan_invoke" "$output"
-assert_contains_ci "codex pick dry-run contains prompt flag" "prompt" "$output"
+assert_not_contains_ci "codex pick bypasses plan helper" "aitask_codex_plan_invoke" "$output"
 assert_contains_ci "codex pick dry-run contains aitask-pick" "aitask-pick" "$output"
 assert_contains_ci "codex pick dry-run contains task number" "42" "$output"
 assert_contains_ci "codex pick dry-run contains codex binary" "codex" "$output"
 assert_contains_ci "codex pick dry-run contains codex model" "gpt-5.4" "$output"
 
-# Test 11c: Codex explore (a planning skill) also uses the plan-mode helper
-echo "--- Test 11c: Codex explore dry-run uses plan helper ---"
+# Test 11c: Codex explore also launches directly in Codex default mode
+echo "--- Test 11c: Codex explore dry-run stays direct ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke explore 2>&1)
-assert_contains_ci "codex explore dry-run uses helper" "aitask_codex_plan_invoke" "$output"
+assert_not_contains_ci "codex explore bypasses plan helper" "aitask_codex_plan_invoke" "$output"
 assert_contains_ci "codex explore dry-run contains aitask-explore" "aitask-explore" "$output"
 
 # Test 11c2: Codex analysis skills (qa, explain) launch directly in default mode
-echo "--- Test 11c2: Codex qa/explain dry-runs bypass the plan helper ---"
+echo "--- Test 11c2: Codex qa/explain dry-runs stay direct ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke explain src/main.py 2>&1)
 assert_not_contains_ci "codex explain bypasses plan helper" "aitask_codex_plan_invoke" "$output"
 assert_contains_ci "codex explain dry-run contains aitask-explain" "aitask-explain" "$output"
@@ -199,7 +194,7 @@ assert_contains_ci "codex qa dry-run contains aitask-qa" "aitask-qa" "$output"
 assert_contains_ci "codex qa dry-run contains task number" "42" "$output"
 assert_contains_ci "codex qa dry-run contains codex binary" "codex" "$output"
 
-# Test 11d: Codex passthrough operations do not use plan-mode helper
+# Test 11d: Codex passthrough operations stay direct
 echo "--- Test 11d: Codex passthrough dry-runs stay direct ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke raw hello 2>&1)
 assert_not_contains_ci "codex raw bypasses plan helper" "aitask_codex_plan_invoke" "$output"
