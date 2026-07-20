@@ -199,3 +199,63 @@ The dry-run tests cannot cover this.
 ### Planned mitigations
 - timing: after | name: codex_default_mode_live_verification | type: test | priority: medium | effort: low | addresses: goal-achievement residual + no-CI-coverage | desc: Manual-verification task — spawn a real Codex agent, confirm it lands in default mode and that the stub's step-2 aitask_skill_render.sh call succeeds and writes its rendered variant.
 - timing: after | name: agent_attribution_prose_rerender | type: documentation | priority: low | effort: low | addresses: diff-widening from the ~12-variant rerender | desc: Fix the now-wrong "(e.g., Codex CLI)" plan-mode exemplar in .claude/skills/task-workflow/agent-attribution.md:5, rerender all variants, regenerate goldens in the same commit.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented steps 1-5 and 7 as planned. Both call sites
+  (`aitask_codeagent.sh`, `aitask_skillrun.sh`) collapsed to the pre-existing
+  default-mode `else` branch; `aitask_codex_plan_invoke.py` (301 lines) and
+  `lib/codex_plan_policy.sh` deleted along with their `source` lines; `pexpect`
+  dropped from both `aitask_setup.sh` arrays in the same commit as
+  `tests/test_codex_plan_invoke.py`; tests updated; docs rewritten; the task's
+  Background amended to record the verified motivation. Net: 12 files,
+  +36 / −552, plus one new guard test.
+
+- **Deviations from plan:**
+  1. **Step 6 deliberately excluded.** The `agent-attribution.md` exemplar fix
+     was split into the confirmed `agent_attribution_prose_rerender` follow-up
+     (decided during risk-mitigation design, before implementation), keeping this
+     diff scoped to the Codex launch path. Not a silent scope change — it is
+     recorded in Planned mitigations above.
+  2. **Docs: two of four files needed no change.** `getting-started.md:85` and
+     `skills/_index.md:14` already described default-mode operation correctly, so
+     they were left alone rather than edited for the sake of it.
+  3. **`known-issues.md:31` removed rather than reworded.** The sentence's premise
+     ("accept it so the planning phase runs at high effort too") is false once the
+     planning phase no longer runs in Codex plan mode.
+
+- **Issues encountered:**
+  1. **The new guard test caught a flaw in itself.** Its dangling-reference check
+     initially grepped `tests/` as well as `.aitask-scripts/`, so it flagged the
+     *legitimate* `assert_not_contains` negative controls in `test_codeagent.sh`
+     and the two shadow tests. Fixed by scoping the grep to production source,
+     with a comment explaining why tests are excluded.
+  2. **Guard proven falsifiable.** Rather than trust a passing guard, it was fed
+     two synthetic regressions: the helper name restored, and a bare `/plan`
+     token typed without the helper. Both sentinels fired independently, so
+     neither is redundant.
+  3. **Python suite noise required a baseline.** The suite reported failures, so a
+     detached worktree at clean HEAD was used for comparison: baseline
+     14 failures + 2 errors vs. 4 failures + 1 error with these changes, over an
+     identical 1765 tests. Counts vary run-to-run on identical code — the suite is
+     order-dependent/flaky, and this change (which edits no Python source)
+     introduced nothing. Worktree removed afterward.
+
+- **Key decisions:**
+  - **Repurposed rather than deleted `test_skillrun_codex_planmode.sh`** →
+    `test_skillrun_codex.sh`. Deleting it would have silently dropped unrelated
+    coverage (shadow `%7` pane-id and `100_2` task-id forwarding) that had nothing
+    to do with plan mode.
+  - **Guard placed at the real dry-run surface** (both `codeagent invoke` and
+    `skillrun`, all 8 operations) rather than unit-testing a helper, so it fails
+    the way a regression would actually arrive.
+  - **Two independent sentinels** in the guard (`aitask_codex_plan_invoke` and
+    `/plan`), so reintroducing the injection by a different mechanism than the
+    old helper is still caught.
+  - **shellcheck compared against baseline** (26 → 24 findings) rather than
+    reported as "clean" — the remaining findings are pre-existing
+    `aitask_setup.sh` style items and SC1091 source-following notices.
+
+- **Upstream defects identified:**
+  - `tests/run_all_python_tests.sh:22-26 — runner masks failures: prints "Results: 25 passed, 0 failed" and exits 0 while the unittest phase beneath it reports FAILED (14 failures + 2 errors of 1765). A real regression in any Python test would be invisible to anyone trusting the exit code or summary line. Compounded by .github/workflows/ containing zero references to tests/, so nothing else catches it.`
+  - `tests/test_agent_command_dialog_default_session.py:21 — order-dependent dual-import failure: passes in isolation, fails in the full suite with "AgentCommandScreen() is not an instance of <class 'agent_command_screen.AgentCommandScreen'>". The module is loaded under two distinct names, so isinstance identity breaks depending on which test ran first. Pre-existing; present on clean HEAD.`
