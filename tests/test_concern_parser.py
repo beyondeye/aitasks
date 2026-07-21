@@ -210,6 +210,30 @@ class TestParseConcerns(unittest.TestCase):
         payload = build_clipboard_payload(concerns)
         self.assertIn(f"- [high | lib/picker.py:42] {body}", payload)
 
+    def test_informational_disposition_trailer_round_trips(self):
+        """The t1200 ``informational`` disposition rides in the body too.
+
+        t1200 added a third disposition so the review stops silently omitting
+        findings it judges already-handled. Like ``blocking`` / ``follow-up`` it
+        is free text inside the body, NOT a parser field — this pins that adding
+        the value did not perturb the wire format.
+        """
+        body = (
+            "The plan explicitly accepted the unlocked counter increment, on "
+            "the rationale that only the reaper writes it; that holds against "
+            "the diff, so I am not asking for a change — flagging it so you can "
+            "judge the single-writer assumption yourself. "
+            "Disposition: informational. Verified: CONFIRMED."
+        )
+        text = block(f"- [low | accepted risk] {body}")
+        concerns = parse_concerns(text)
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(concerns[0].priority, "low")
+        self.assertEqual(concerns[0].region, "accepted risk")
+        self.assertEqual(concerns[0].body, body)  # trailer intact after parse
+        payload = build_clipboard_payload(concerns)
+        self.assertIn(f"- [low | accepted risk] {body}", payload)
+
 
 class TestShadowDocsNotParserLive(unittest.TestCase):
     """Guard: no shadow sub-procedure doc may embed a *parser-live* example block.

@@ -158,7 +158,8 @@ to spell it out).
   `impl-challenge.md`. It offers effort tiers (quick / default / advanced /
   deep; default = the legacy three-axis adversarial review) — a tier named in
   the user's ask is honored ("adversarial review" with no qualifier →
-  default); otherwise it asks, recommending advanced.
+  default, and an inferred tier is always announced with the recommended
+  alternative named); otherwise it asks, recommending advanced.
 - **Socratic questioning of a plan** ("ask me questions about this", "make me
   think it through") → read and follow `plan-socratic.md`.
 - **Surface a plan's assumptions** ("what is this assuming?", "what has to be

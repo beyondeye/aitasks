@@ -11,9 +11,12 @@ to reassure.
 The review runs at one of four **effort tiers** — `quick`, `default`,
 `advanced`, `deep` — selected in the **Tier selection** section below.
 **Default is the compatibility tier**: the direct successor of the pre-tier
-adversarial review (the legacy three-axis analysis, preserved as-is).
+adversarial review. Its **methodology** is that legacy three-axis analysis
+preserved one-to-one (one full-context pass, no cap, no fan-out); its
+**reporting rules** — dispositions, partition ordering, and the
+no-silent-omission rule — are the shared modern ones every tier uses.
 **Advanced is the recommended improved review.** Angle texts, the verdict ladder, the disposition rubric, and
-the ordering/cap rules live in the shared catalog
+the ordering / cap / no-silent-omission rules live in the shared catalog
 `.claude/skills/aitask-shadow/impl-review-angles.md` — read it when a tier
 references it.
 
@@ -126,6 +129,13 @@ catalog angle names and confirm the resolved set in one line. Two guard rails:
 
 State the chosen tier (and any angle scoping) to the user before starting.
 
+**Announce an inferred tier (required).** When the tier was **inferred** rather
+than named — in particular when an unqualified "adversarial review" resolved to
+Default — say so explicitly in that same line and name the alternative, e.g.:
+*"Running **Default** (the legacy three-axis review) — Advanced is the
+recommended tier; say 'advanced review' for it."* A user must never have to infer
+which review they got from the shape of its output.
+
 ## Angle-activation table
 
 Angle and mechanism texts live in `impl-review-angles.md`.
@@ -146,6 +156,7 @@ Angle and mechanism texts live in `impl-review-angles.md`.
 | S2 — plan-deviation auditor | notes-vs-diff glance | ✓ (legacy axis 3) | ✓ | ✓ |
 | Verify pass (verdict ladder) | — | — | precision | recall |
 | Gap sweep | — | — | — | ✓ |
+| Anti-drop rule | ✓ | ✓ | ✓ | ✓ |
 | Findings cap (see cap-overflow rule in the catalog) | ≤4 | none | ≤8 | ≤15 |
 
 ## Tier: Quick
@@ -163,14 +174,18 @@ one cheap shadow glance: scan the Final Implementation Notes against the diff
 for a glaring unexplained deviation. Skip test/fixture hunks (`test/`, `spec/`,
 `__tests__/`, `*_test.*`, `*.test.*`, `fixtures/`, `testdata/`). No full-file
 reads. Do **not** flag style, naming, perf, missing tests, or anything outside
-the hunk. At most **4 findings**, one line each. If nothing qualifies, say so.
+the hunk. Within that scope the catalog's **anti-drop rule** still applies: a
+hunk-visible candidate you are merely unsure about is reported, not dropped. At
+most **4 findings**, one line each. If nothing qualifies, say so.
 
 ## Tier: Default (= Legacy)
 
 `default → 1 full-context adversarial pass → no formal verify → prioritized findings`
 
-The pre-tier adversarial review, preserved one-to-one — the compatibility tier.
-One full-context adversarial pass over the resolved implementation diff, the
+The compatibility tier: the pre-tier adversarial review's **methodology**
+preserved one-to-one. (Its reporting rules are the shared modern ones — see the
+findings-presentation section below.) One full-context adversarial pass over the
+resolved implementation diff, the
 plan, its `## Risk` section, and the Final Implementation Notes, attacking
 along the three legacy axes from the catalog (skip any that don't apply; add
 others the change invites):
@@ -182,6 +197,12 @@ others the change invites):
 No multi-angle candidate fan-out, no verdict ladder, no gap sweep, no findings
 cap, no minimum. The findings presentation, honesty rules, advisory-only
 guardrail, and concern-block behavior below apply exactly as in every tier.
+
+Apply the catalog's **anti-drop rule**. There is no verify pass at this tier to
+adjudicate a half-believed candidate, so it goes straight into the findings list
+with an honest severity and disposition — never dropped. If you believe the
+matter is already handled, say so as an `informational` finding with your
+reasoning, and let the user decide.
 
 ## Tier: Advanced
 
@@ -236,24 +257,34 @@ At most **15 findings** (cap-overflow rule in the catalog).
 
 ## Findings presentation (all tiers), then stay honest
 
-Produce a prose findings list, partitioned per the catalog's **ordering and
-caps** rules: `blocking` findings first, then `follow-up`, severity-ordered
-within each partition. For each finding give:
+Produce a prose findings list, partitioned per the catalog's **ordering, caps,
+and no-silent-omission** rules: `blocking` findings first, then `follow-up`,
+then `informational`, severity-ordered within each partition. For each finding
+give:
 
 - a one-line statement of the problem;
 - *why* it bites (the triggering scenario);
 - severity (high / medium / low);
-- its **disposition** — `blocking` or `follow-up`, classified per the
-  catalog's **disposition rubric** (impact vs obligations — never by angle,
-  never by verdict);
+- its **disposition** — `blocking`, `follow-up`, or `informational`, classified
+  per the catalog's **disposition rubric** (impact vs obligations — never by
+  angle, never by verdict);
 - in Advanced/Deep: its **verdict** (CONFIRMED or PLAUSIBLE).
 
-If the tier's cap omitted anything, disclose it per the catalog's disclosure
-rule. **Stay honest** (same rule as `plan-challenge.md`): if a dimension is
-genuinely clean, say so briefly — a short list of real problems beats a long
-list of weak ones. No generic "consider adding tests" filler, and never pad to
-reach a cap or a minimum — the extracted /code-review minimum-findings floors
-are deliberately NOT adopted, in any tier.
+If anything was left out — by the tier's cap or for any other reason — disclose
+it per the catalog's **no-silent-omission rule**.
+
+**Stay honest** (same rule as `plan-challenge.md`): if a dimension is genuinely
+clean, say so briefly — a short list of real problems beats a long list of weak
+ones. No generic "consider adding tests" filler, and never pad to reach a cap or
+a minimum — the extracted /code-review minimum-findings floors are deliberately
+NOT adopted, in any tier.
+
+**Honesty is not licence to drop.** The anti-padding rule forbids *inventing*
+weak findings; it never permits *suppressing* a real one. When you are unsure
+whether something is worth the user's time, that is exactly what the
+`informational` disposition is for — report it with your reasoning and let the
+user judge. Deciding on the user's behalf that a real observation is not worth
+showing is the one failure mode this section exists to prevent.
 
 ## Also emit the structured concern block (for pick-and-forward)
 
@@ -276,6 +307,7 @@ between them. The concern lines themselves look like:
 ```
 - [high | file.ext:120] In path/to/file.ext the new guard compares the raw email instead of the normalized one, so a task assigned with a trailing-space email never matches and re-locks every resume. It bites on the common reclaim path. Normalizing both sides before compare would fix it — exact form your call. Disposition: blocking. Verified: CONFIRMED.
 - [medium | unmitigated risk] The plan's Risk section flagged concurrent writers to the ledger, but the diff adds no locking around the append, so two resumes can interleave and drop one run. The Final Implementation Notes don't mention it, so it looks unaddressed rather than deliberately deferred. Disposition: follow-up. Verified: PLAUSIBLE.
+- [low | accepted risk] The plan explicitly accepted the unlocked counter increment, on the rationale that only the reaper writes it. That rationale holds against the diff — the only other writer is behind the same mutex — so I am not asking for a change; flagging it so you can judge the single-writer assumption yourself. Disposition: informational. Verified: CONFIRMED.
 ```
 
 Rules — all load-bearing for minimonitor's parser; match them exactly:
@@ -297,13 +329,14 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
   it to a bare one-liner. "One logical line" is a **parser constraint** (emit no
   literal newline mid-concern — let the terminal soft-wrap), not a brevity
   constraint.
-- End the body with the finding's disposition as prose (`Disposition: blocking.`
-  or `Disposition: follow-up.`) and, in Advanced/Deep, its verdict
+- End the body with the finding's disposition as prose — one of
+  `Disposition: blocking.`, `Disposition: follow-up.`, or
+  `Disposition: informational.` — and, in Advanced/Deep, its verdict
   (`Verified: CONFIRMED.` / `Verified: PLAUSIBLE.`). These stay **free text
   inside the body** — they are not parser fields, and the line format above is
   unchanged.
 - Order items to match the prose list: blocking partition first, then
-  follow-up, severity-ordered within each partition.
+  follow-up, then informational, severity-ordered within each partition.
 - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
   auto-offer only fires on a complete block.
 - Emit the block **only when you have at least one concern**. If the
@@ -311,6 +344,7 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
 
 **UX boundary (current minimonitor behavior):** minimonitor displays and
 forwards the disposition/verdict text inside each concern body, but it has no
-native address-now/follow-up sections, badges, filters, or separate actions
-yet — those belong to the future concern-format redesign, outside this
-procedure's scope.
+native blocking / follow-up / informational sections, badges, filters, or
+separate actions yet — an `informational` item looks like any other row in the
+picker, distinguished only by its body text. Those affordances belong to the
+future concern-format redesign, outside this procedure's scope.

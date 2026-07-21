@@ -4,8 +4,8 @@ Shared fragments for the shadow implementation review tiers
 (`impl-challenge.md`). Read this file when a tier references it — the tier
 definitions name which angles and mechanisms below are active. Single source of
 truth: every angle text, the verdict ladder, the disposition rubric, and the
-ordering/cap rules live only here; tier sections reference them by name and
-never restate them.
+ordering / cap / no-silent-omission rules live only here; tier sections
+reference them by name and never restate them.
 
 Adapted from Claude Code's built-in `/code-review` prompts — the verbatim
 extraction and per-level assembly live in
@@ -119,8 +119,12 @@ plan/task intent and the real diff.
 
 ### Angle S1 — unmitigated plan risks
 Cross-reference the plan's `## Risk` section and Final Implementation Notes.
-Do **NOT** re-flag a risk the implementation explicitly addressed/mitigated;
-surface only risks that remain **open** in the landed code.
+Risks that remain **open** in the landed code are the angle's real output. Do
+**NOT** re-raise a risk the implementation explicitly addressed/mitigated *as a
+problem* — but this is a **classification** rule, not a drop instruction: an
+addressed or validly accepted risk is reported as `informational` per the
+disposition rubric, with the mitigation or acceptance rationale named, so the
+user can judge it independently. Nothing this angle sees is silently discarded.
 
 ### Angle S2 — plan-deviation auditor
 Compare the diff against the plan. A deviation the Final Implementation Notes
@@ -129,9 +133,17 @@ justification does not hold up.
 
 ## Anti-drop rule
 
-Pass every candidate with a nameable failure scenario through to the verify
-pass — finders that silently drop half-believed candidates bypass the verify
-step and are the dominant cause of misses.
+Every candidate with a nameable failure scenario must **reach the output** —
+through the verify pass in the tiers that have one (Advanced, Deep), and
+**directly into the findings list** in the tiers that do not (Quick, Default).
+Finders that silently drop half-believed candidates bypass the only step that
+can adjudicate them, and are the dominant cause of misses.
+
+In a tier with **no verify pass**, do not resolve your own uncertainty by
+dropping: report the candidate with an honest severity and disposition — use
+`informational` when you believe it is already handled, and say why. The rule
+applies within the tier's declared scope (Quick stays hunk-only) and **before**
+the tier's cap.
 
 ## Verdict ladder (3-state)
 
@@ -169,8 +181,8 @@ not pad.
 
 ## Disposition rubric (angle-independent)
 
-Every finding, in every tier, carries a disposition: `blocking` or
-`follow-up`. Disposition is decided by the finding's **reachable impact
+Every finding, in every tier, carries a disposition: `blocking`, `follow-up`,
+or `informational`. Disposition is decided by the finding's **reachable impact
 measured against the change's obligations** — the task's acceptance criteria,
 the plan's stated goal and contracts, existing behavior, and mandatory project
 rules. The discovering angle is **discovery context only** and never
@@ -200,39 +212,64 @@ determines disposition; verdict confidence never does either.
     not invalidate the change;
   - hardening or test gaps beyond the task's stated AC;
   - improvements to adjacent code the diff merely touches.
-- **Accepted/deferred risks (three-way):**
+- **`informational`** — real and worth the user seeing, but you are **not
+  asking for action**: the change delivers its obligations, and you believe the
+  finding is already handled, explicitly accepted, or outside this change's
+  remit. State **why** you consider it settled — quote the plan's acceptance
+  rationale, the guard that covers it, or the obligation boundary — so the user
+  can disagree and escalate it themselves.
+  **`informational` is never a parking slot for a finding you believe is a
+  genuine unaddressed defect.** That is `blocking` or `follow-up` by the rules
+  above, or `informational` only when you can say what settles it. This
+  disposition means "I looked, I think it is fine, here is my reasoning."
+- **Accepted/deferred risks (three-way — none of these are omitted):**
   - a risk the plan **validly** accepted or deferred (explicitly documented,
-    rationale holds, no obligation breached) is **omitted by default** — per
-    Angle S1's rule, an explicitly addressed decision is not re-flagged;
-  - emit it as `follow-up` **only when tracking is genuinely required** (the
-    acceptance defers real work and no follow-up task or mitigation entry
-    exists to carry it);
+    rationale holds, no obligation breached) is **`informational`** — report it
+    with the plan's stated rationale named, so the user can judge that rationale
+    independently. (This is what Angle S1's "do not re-flag" means in practice:
+    S1 governs whether it counts as a *problem*, never whether the user sees it.)
+  - an acceptance that defers real work with **no follow-up task or mitigation
+    entry** carrying it is `follow-up` — the tracking gap is itself the finding;
   - an acceptance that **does not hold up** — the rationale is unsupported,
     or the "accepted" risk in fact breaches a task obligation (AC, plan
     contract, existing behavior) — is `blocking`, classified like any other
     unmet obligation.
-- **Cross-checks (the categorical trap):** a cleanup-angle finding whose
-  reachable impact breaches an obligation (a task-breaking performance
-  regression, a mandatory-rule violation) is `blocking`; a correctness-angle
-  finding that is a minor newly introduced imperfection breaching no
-  obligation is `follow-up`. Classify by impact, not by angle category.
+- **Cross-checks (the categorical trap):** classify by impact, not by angle
+  category — any angle can yield `blocking`, `follow-up`, or `informational`.
+  A cleanup-angle finding whose reachable impact breaches an obligation (a
+  task-breaking performance regression, a mandatory-rule violation) is
+  `blocking`; a correctness-angle finding that is a minor newly introduced
+  imperfection breaching no obligation is `follow-up`; a correctness-angle
+  finding whose mechanism is demonstrably already guarded elsewhere in the
+  change is `informational`, never a silent drop.
 - **Uncertainty rule:** a PLAUSIBLE verdict does NOT demote a finding to
-  `follow-up`. Confidence (verdict) and disposition are orthogonal: classify
-  by consequence-if-real; the verdict expresses how sure you are.
+  `follow-up`, and never to `informational`. Confidence (verdict) and
+  disposition are orthogonal: classify by consequence-if-real; the verdict
+  expresses how sure you are. "I am not certain this is a bug" is a PLAUSIBLE
+  `blocking` finding, not an `informational` one — `informational` requires a
+  positive reason to believe the matter is settled, not mere doubt.
 
-## Ordering and caps (partition before cap)
+## Ordering, caps, and the no-silent-omission rule (partition before cap)
 
-Partition findings `blocking` first, then `follow-up`; severity-ordered
-*within* each partition. Tier findings caps apply **after** classification and
-cut from the end of the `follow-up` partition first — a blocking finding is
-never dropped in favor of a follow-up, regardless of severity.
+Partition findings `blocking` first, then `follow-up`, then `informational`;
+severity-ordered *within* each partition. Tier findings caps apply **after**
+classification and cut from the end of the `informational` partition first, then
+from the end of `follow-up` — a `blocking` finding is never dropped in favor of a
+`follow-up` or `informational` one, regardless of severity.
 
 **Cap-overflow rule (deterministic):** the cap never truncates the `blocking`
 partition — when blocking findings alone reach or exceed the tier cap, report
 **all** blocking findings (the advertised cap is exceeded by exactly the
-blocking overflow) and omit the entire `follow-up` partition.
+blocking overflow) and omit the `follow-up` and `informational` partitions
+entirely.
 
-**Disclosure:** whenever the cap omits anything, state it explicitly at the end
-of the prose list — how many findings were omitted and from which partition
-(e.g. "cap: 3 follow-up findings omitted"). Silent omission is never allowed.
-The concern block mirrors the same partition order and the same included set.
+**No silent omission (any tier, any reason).** A candidate that survived to
+classification is either **reported** or **disclosed**. Whenever anything is left
+out — a cap cut, a scope narrowing the user asked for, a dedup merge that
+swallowed a distinct mechanism — state it explicitly at the end of the prose
+list: how many, from which partition, and why (e.g. "cap: 3 follow-up and 2
+informational findings omitted"). The **only** sanctioned silent drop is a
+**REFUTED** verdict, and only when you can quote the line that refutes it; "it
+probably does not matter" is not a refutation — that finding is `informational`,
+and the user decides. The concern block mirrors the same partition order and the
+same included set.
