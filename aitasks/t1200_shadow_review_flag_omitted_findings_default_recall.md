@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1158
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-21 11:34
-updated_at: 2026-07-21 11:35
+updated_at: 2026-07-21 12:11
 ---
 
 The shadow agent's implementation review (`aitask-shadow` → `impl-challenge.md`)
@@ -137,3 +138,8 @@ materially weaker review and is never told.
 - Related but distinct, do not fold: **t1182** (manual-verification carryover for
   the t1158 tier work) and **t1159** (shadow review-loop automation). t1182's
   checklist may want an added item once this lands.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-21T09:11:54Z status=pass attempt=1 type=human
