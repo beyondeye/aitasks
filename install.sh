@@ -547,6 +547,52 @@ install_seed_reviewguides() {
     fi
 }
 
+# --- Install seed code areas map (t1194) ---
+# Project-owned content (/aitask-contribute maintains areas:, aitask_codemap.sh
+# refuses to write over it) — never overwrite an existing map, even on --force.
+# A yaml merge would round-trip the file through yaml.safe_dump and destroy the
+# format documentation in its header while adding nothing. Mirrors
+# install_seed_reviewguides.
+install_seed_code_areas() {
+    local src="$INSTALL_DIR/seed/code_areas.yaml"
+    local dest="$INSTALL_DIR/aitasks/metadata/code_areas.yaml"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/code_areas.yaml in tarball — skipping code areas installation"
+        return
+    fi
+
+    if [[ -f "$dest" ]]; then
+        info "  Code areas map exists (kept): code_areas.yaml"
+        return
+    fi
+
+    cp "$src" "$dest"
+    info "  Installed code areas map: code_areas.yaml"
+}
+
+# --- Install generic doc-update guide (t1194) ---
+# The docs_updated gate resolves aitasks/metadata/doc_update_guide.md at runtime
+# (seed/ is gone by then), so the tarball flow must install it. User-editable
+# prose — never overwrite an existing guide, even on --force.
+install_seed_doc_update_guide() {
+    local src="$INSTALL_DIR/seed/doc_update_guide.md"
+    local dest="$INSTALL_DIR/aitasks/metadata/doc_update_guide.md"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/doc_update_guide.md in tarball — skipping doc-update guide installation"
+        return
+    fi
+
+    if [[ -f "$dest" ]]; then
+        info "  Doc-update guide exists (kept): doc_update_guide.md"
+        return
+    fi
+
+    cp "$src" "$dest"
+    info "  Installed doc-update guide: doc_update_guide.md"
+}
+
 # --- Install seed code agent configuration ---
 install_seed_codeagent_config() {
     local src="$INSTALL_DIR/seed/codeagent_config.json"
@@ -1127,6 +1173,12 @@ main() {
 
     info "Installing review guides..."
     install_seed_reviewguides
+
+    info "Installing code areas map..."
+    install_seed_code_areas
+
+    info "Installing doc-update guide..."
+    install_seed_doc_update_guide
 
     info "Installing code agent configuration..."
     install_seed_codeagent_config

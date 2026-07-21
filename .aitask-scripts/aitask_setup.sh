@@ -1335,29 +1335,10 @@ setup_data_branch() {
         mkdir -p "$project_dir/.aitask-data/aitasks/archived"
         mkdir -p "$project_dir/.aitask-data/aiplans/archived"
 
-        # Copy seed metadata if available
-        if [[ -d "$project_dir/seed" ]]; then
-            cp "$project_dir/seed/task_types.txt" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
-            cp "$project_dir/seed/project_config.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
-            cp "$project_dir/seed/chatlink_config.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
-            cp "$project_dir/seed/doc_update_guide.md" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
-            cp "$project_dir/seed/code_areas.yaml" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
-            cp "$project_dir/seed/codeagent_config.json" "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
-            cp "$project_dir/seed"/models_*.json "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
-            cp "$project_dir/seed/"*_instructions.seed.md "$project_dir/.aitask-data/aitasks/metadata/" 2>/dev/null || true
-            if [[ -d "$project_dir/seed/profiles" ]]; then
-                mkdir -p "$project_dir/.aitask-data/aitasks/metadata/profiles"
-                cp "$project_dir/seed/profiles/"*.yaml "$project_dir/.aitask-data/aitasks/metadata/profiles/" 2>/dev/null || true
-            fi
-        fi
-
-        # Gate registry is canonical under .aitask-scripts/ (ships downstream
-        # even when seed/ is absent) — copy independent of the seed metadata
-        # block above (t1147).
-        if [[ -f "$project_dir/.aitask-scripts/gates_reference.yaml" ]]; then
-            cp "$project_dir/.aitask-scripts/gates_reference.yaml" \
-               "$project_dir/.aitask-data/aitasks/metadata/gates.yaml" 2>/dev/null || true
-        fi
+        populate_data_branch_seed_metadata \
+            "$project_dir/seed" \
+            "$project_dir/.aitask-data/aitasks/metadata" \
+            "$project_dir/.aitask-scripts/gates_reference.yaml"
     fi
 
     # Add aitasks/new/ to data branch .gitignore
@@ -1623,6 +1604,41 @@ ensure_chatlink_config() {
     mkdir -p "$(dirname "$target_config")"
     cp "$seed_config" "$target_config"
     success "Created chatlink_config.yaml"
+}
+
+# --- Data-branch metadata population (extracted from setup_data_branch, t1194) ---
+# Populates a freshly created data-branch metadata dir. Extracted so the
+# seed->metadata mapping is callable (and testable) on its own: together with
+# ensure_agent_config_seeds() it is the source-tree counterpart of install.sh's
+# install_seed_* family, and tests/test_seed_manifest_drift.sh derives this side
+# of the manifest by calling both directly.
+#
+# The gate registry is copied BEFORE the seed-dir guard on purpose: it is
+# canonical under .aitask-scripts/ and ships downstream even when seed/ is
+# absent (t1147). Folding it below the guard would silently drop gates.yaml on
+# every seedless run.
+populate_data_branch_seed_metadata() {
+    local seed_dir="$1" dest_dir="$2" gates_reference="$3"
+
+    if [[ -f "$gates_reference" ]]; then
+        cp "$gates_reference" "$dest_dir/gates.yaml" 2>/dev/null || true
+    fi
+
+    [[ -d "$seed_dir" ]] || return 0
+
+    cp "$seed_dir/task_types.txt" "$dest_dir/" 2>/dev/null || true
+    cp "$seed_dir/project_config.yaml" "$dest_dir/" 2>/dev/null || true
+    cp "$seed_dir/chatlink_config.yaml" "$dest_dir/" 2>/dev/null || true
+    cp "$seed_dir/doc_update_guide.md" "$dest_dir/" 2>/dev/null || true
+    cp "$seed_dir/code_areas.yaml" "$dest_dir/" 2>/dev/null || true
+    cp "$seed_dir/codeagent_config.json" "$dest_dir/" 2>/dev/null || true
+    cp "$seed_dir"/models_*.json "$dest_dir/" 2>/dev/null || true
+    cp "$seed_dir/"*_instructions.seed.md "$dest_dir/" 2>/dev/null || true
+    if [[ -d "$seed_dir/profiles" ]]; then
+        mkdir -p "$dest_dir/profiles"
+        cp "$seed_dir/profiles/"*.yaml "$dest_dir/profiles/" 2>/dev/null || true
+    fi
+    return 0
 }
 
 # --- Agent config seeds (populate-missing, t1185) ---
