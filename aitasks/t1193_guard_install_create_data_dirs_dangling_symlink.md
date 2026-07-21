@@ -76,3 +76,14 @@ Add a regression test covering install into a dir containing a dangling
 > **✅ gate:plan_approved** run=2026-07-21T07:37:52Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-21T08:05:44Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-21T08:07:38Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:8bf1901442a997bf
+
+> **✅ gate:risk_evaluated** run=2026-07-21T08:07:38Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1193/risk_evaluated_2026-07-21T08:07:38Z-risk_evaluated-a1.log`

@@ -340,7 +340,7 @@ Notes and offered as a Step 8b follow-up.
   expensive to diagnose. The changes are shallow (two installers mechanically
   identical to the existing sixteen; one function extraction with explicit
   args) and the new guard exercises both on every run, but automated tests
-  cannot run a real end-to-end tarball install. · severity: medium · → mitigation: manual_verification_fresh_install_seed_delivery
+  cannot run a real end-to-end tarball install. · severity: medium · → mitigation: t1198
 - The §1 extraction must preserve the t1147 seed/gates independence — the
   gate-registry copy is deliberately outside the `seed/` guard, and an
   extraction that folded it inside would silently drop `gates.yaml` on every
@@ -361,7 +361,7 @@ Notes and offered as a Step 8b follow-up.
   · severity: low · → mitigation: TBD
 
 ### Planned mitigations
-- timing: after | name: manual_verification_fresh_install_seed_delivery | type: manual_verification | priority: medium | effort: low | addresses: code-health — bootstrap-path change unverifiable by automated tests | desc: Run install.sh --local-tarball into a scratch project and confirm aitasks/metadata/ receives doc_update_guide.md and code_areas.yaml alongside the pre-existing seeds, then run ait setup in a clean clone and confirm the same set.
+- timing: after | name: t1198 (manual_verification_fresh_install_seed_delivery) | type: manual_verification | priority: medium | effort: low | addresses: code-health — bootstrap-path change unverifiable by automated tests | desc: Run install.sh --local-tarball into a scratch project and confirm aitasks/metadata/ receives doc_update_guide.md and code_areas.yaml alongside the pre-existing seeds, then run ait setup in a clean clone and confirm the same set.
 
 ## Final Implementation Notes
 
