@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1186_2]
 issue_type: refactor
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1149
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 19:30
-updated_at: 2026-07-21 11:17
+updated_at: 2026-07-21 11:18
 ---
 
 ## Context
@@ -93,3 +95,5 @@ all set by steps 1-2, so the move is safe.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-21T08:18:01Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-21T08:26:39Z status=pass attempt=1 type=human
