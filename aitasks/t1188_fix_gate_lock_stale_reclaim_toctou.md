@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/fable5
 created_at: 2026-07-20 18:10
-updated_at: 2026-07-20 23:00
+updated_at: 2026-07-21 06:18
 boardidx: 30
 ---
 
@@ -70,3 +73,8 @@ non-numeric input) so non-numeric ids fail with only the friendly resolver
 error. t1183's characterization tests 1/4b (serialization) and 6 (stale
 reclaim) cover the lock behavior; extend test 3's t-spelling assertion to
 require stderr free of "unbound variable" once fixed.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-21T03:18:54Z status=pass attempt=1 type=human
