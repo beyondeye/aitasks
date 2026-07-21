@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1149
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 19:30
-updated_at: 2026-07-21 11:34
+updated_at: 2026-07-21 12:32
 ---
 
 ## Context
@@ -131,3 +132,8 @@ lists end-to-end. REQUIRED state-model tests (from review):
 4. Back/Next retention — leave and re-enter the screen; assert all four lists + both
    modes are retained and re-displayed correctly.
 All other chatlink test files stay green.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-21T09:32:31Z status=pass attempt=1 type=human
