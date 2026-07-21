@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 folded_tasks: [1017]
 created_at: 2026-07-19 08:43
 updated_at: 2026-07-19 08:43
-boardidx: 150
+boardidx: 110
 ---
 
 Design and build a specialized shadow review-loop that automates the plan-review and implementation-review feedback cycles between the shadow agent and the followed (main) agent, removing the manual juggling the current workflow requires. This likely needs a redesign of how the shadow agent works and how it interacts with minimonitor — brainstorm possible solutions at planning time.

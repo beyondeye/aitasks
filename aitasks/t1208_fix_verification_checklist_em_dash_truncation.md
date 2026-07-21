@@ -8,6 +8,8 @@ labels: [verification]
 anchor: 1202
 created_at: 2026-07-21 18:09
 updated_at: 2026-07-21 18:09
+boardidx: 40
+boardcol: bug_fixes
 ---
 
 ## Problem

@@ -29,10 +29,16 @@
       "id": "tests",
       "title": "tests",
       "color": "#FF5555"
+    },
+    {
+      "id": "bug_fixes",
+      "title": "bug fixes",
+      "color": "#FF5555"
     }
   ],
   "column_order": [
     "tests",
+    "bug_fixes",
     "in_the_works",
     "now",
     "next",

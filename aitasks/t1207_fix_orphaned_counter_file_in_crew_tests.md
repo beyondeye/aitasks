@@ -9,6 +9,8 @@ gates: [risk_evaluated]
 anchor: 1171
 created_at: 2026-07-21 18:02
 updated_at: 2026-07-21 18:02
+boardidx: 30
+boardcol: bug_fixes
 ---
 
 ## Origin
