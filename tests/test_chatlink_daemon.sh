@@ -122,7 +122,8 @@ class Env:
 
     def __init__(self, tmp, *, deny_mode="ignore", max_sandboxes=4,
                  rate_per_hour=10, launcher=None, native_ephemeral=True,
-                 dm_enabled=True, repo_root=None, death_signal=None):
+                 dm_enabled=True, repo_root=None, death_signal=None,
+                 config_kwargs=None):
         self.repo_root = repo_root
         self.death_signal = death_signal
         self.adapter = MockChatAdapter(native_ephemeral=native_ephemeral,
@@ -139,17 +140,20 @@ class Env:
         self.deny_mode = deny_mode
         self.max_sandboxes = max_sandboxes
         self.rate = rate_per_hour
+        self.config_kwargs = config_kwargs or {}
 
     async def start(self):
         self.chan = await self.adapter.create_conversation(
             ConversationKind.CHANNEL, name="bugs")
-        self.config = ChatlinkConfig(
+        cfg_kwargs = dict(
             intake_channel=self.chan.ref.to_dict(),
             allowed_user_ids=["U1"],
             deny_message_mode=self.deny_mode,
             max_concurrent_sandboxes=self.max_sandboxes,
             intake_rate_per_user_per_hour=self.rate,
         )
+        cfg_kwargs.update(self.config_kwargs)
+        self.config = ChatlinkConfig(**cfg_kwargs)
         self.pipeline = GatewayPipeline(
             adapter=self.adapter, config=self.config, store=self.store,
             launcher=self.launcher, relay_root=self.relay_root,
@@ -453,6 +457,34 @@ async def main():
     check("DeliveryFailed swallowed + audited",
           env3.audit.has("info", "ephemeral delivery failed"))
     check("denial NEVER posted publicly", public_posts == [])
+
+    # t1186_1: authorization modes flow through the REAL intake path
+    # (_handle_message → decide → _deny → audit/ephemeral), not just the
+    # pure policy table.
+    envN = await Env(tmp_base / "eN", deny_mode="ephemeral",
+                     config_kwargs=dict(
+                         user_authorization_mode="denylist",
+                         role_authorization_mode="denylist",
+                         denied_user_ids=["U7"])).start()
+    posts_before = len(envN.adapter.ephemeral_messages)
+    await envN.intake(envN.user("U7"))
+    check("denylist mode: denied user opens no session",
+          envN.store.list_ids() == [])
+    check("denylist mode: denial audited with the new reason",
+          envN.audit.has("info", "denied reason=user_denied"))
+    check("denylist mode: exactly one ephemeral denial delivered",
+          len(envN.adapter.ephemeral_messages) == posts_before + 1)
+    # open-members posture (both-denylist, lists empty): a plain channel
+    # member is allowed end-to-end (ok_not_denied).
+    envO = await Env(tmp_base / "eO", config_kwargs=dict(
+        user_authorization_mode="denylist",
+        role_authorization_mode="denylist",
+        allowed_user_ids=[])).start()
+    await envO.intake(envO.user("U8"))
+    check("open-members posture: plain channel member opens a session",
+          len(envO.store.list_ids()) == 1)
+    check("open-members posture: intake accepted audited",
+          envO.audit.has("info", "intake accepted"))
 
     # ceilings: sandbox bound and same-user rate race (sequential dispatch)
     env4 = await Env(tmp_base / "e4", rate_per_hour=1).start()

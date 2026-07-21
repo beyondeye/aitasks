@@ -111,6 +111,9 @@ try:
               "to watch without one."))
     check("empty config: allowlist deny-by-default warn (no refusal text)",
           res["allowlist"].severity == pf.WARN
+          and res["allowlist"].message == (
+              "both allowlists empty — deny-by-default: nobody can open "
+              "a bug report")
           and res["allowlist"].daemon_refuse_message is None)
 
     # (4) valid degraded config: per-key warn result + config loaded.
@@ -135,6 +138,84 @@ try:
           res["intake_channel"].severity == pf.PASS
           and res["allowlist"].severity == pf.PASS
           and res["token"].severity == pf.PASS)
+
+    # (4b) posture-derived authorization rows (t1186_1). All warn-only —
+    # never a fail / daemon_refuse_message.
+    def rows_for(yaml_text):
+        p = base / "posture.yaml"
+        p.write_text(yaml_text)
+        cl_paths.config_file = lambda: p
+        return by_id(pf.run_cheap_checks().results)
+
+    res = rows_for("user_authorization_mode: denylist\n"
+                   "denied_user_ids: [X1]\n")
+    check("mixed degenerate: denylist/allowlist names the roles dimension",
+          res["allowlist"].severity == pf.WARN
+          and res["allowlist"].message == (
+              "denylist has no effect — the empty roles allowlist denies "
+              "everyone")
+          and res["allowlist"].fix_hint == (
+              "fill allowed_role_ids or switch role_authorization_mode "
+              "to denylist")
+          and res["allowlist"].daemon_refuse_message is None)
+    res = rows_for("role_authorization_mode: denylist\n"
+                   "denied_role_ids: [R1]\n")
+    check("mixed degenerate: allowlist/denylist names the users dimension",
+          res["allowlist"].severity == pf.WARN
+          and res["allowlist"].message == (
+              "denylist has no effect — the empty users allowlist denies "
+              "everyone"))
+    res = rows_for("user_authorization_mode: denylist\n"
+                   "role_authorization_mode: denylist\n")
+    check("open access: both-denylist empty warns",
+          res["allowlist"].severity == pf.WARN
+          and res["allowlist"].message == (
+              "open access: any channel member can open a bug report"))
+    res = rows_for("user_authorization_mode: allowlist\n"
+                   "allowed_user_ids: [U1]\n"
+                   "role_authorization_mode: denylist\n"
+                   "denied_role_ids: [R1, R2]\n")
+    check("restricted: per-dimension posture PASS row",
+          res["allowlist"].severity == pf.PASS
+          and res["allowlist"].message == (
+              "users: allowlist (1 ids) / roles: denylist (2 ids)"))
+
+    # (4c) ignored-inactive-list warns: both directions, both dimensions.
+    res = rows_for("allowed_user_ids: [U1]\ndenied_user_ids: [X1]\n")
+    check("ignored list: denied_user_ids under allowlist mode",
+          res["authorization_users_ignored"].severity == pf.WARN
+          and res["authorization_users_ignored"].message == (
+              "denied_user_ids is set but ignored — "
+              "user_authorization_mode is 'allowlist'"))
+    res = rows_for("user_authorization_mode: denylist\n"
+                   "allowed_user_ids: [U1]\nallowed_role_ids: [R1]\n")
+    check("ignored list: allowed_user_ids under denylist mode",
+          res["authorization_users_ignored"].severity == pf.WARN
+          and res["authorization_users_ignored"].message == (
+              "allowed_user_ids is set but ignored — "
+              "user_authorization_mode is 'denylist'"))
+    res = rows_for("allowed_user_ids: [U1]\ndenied_role_ids: [R1]\n")
+    check("ignored list: denied_role_ids under allowlist mode",
+          res["authorization_roles_ignored"].severity == pf.WARN
+          and res["authorization_roles_ignored"].message == (
+              "denied_role_ids is set but ignored — "
+              "role_authorization_mode is 'allowlist'"))
+    res = rows_for("role_authorization_mode: denylist\n"
+                   "allowed_role_ids: [R1]\nallowed_user_ids: [U1]\n")
+    check("ignored list: allowed_role_ids under denylist mode",
+          res["authorization_roles_ignored"].severity == pf.WARN
+          and res["authorization_roles_ignored"].message == (
+              "allowed_role_ids is set but ignored — "
+              "role_authorization_mode is 'denylist'"))
+    check("ignored-list warns are runtime-bucketed, no refusal text",
+          res["authorization_roles_ignored"].category == pf.RUNTIME
+          and res["authorization_roles_ignored"].daemon_refuse_message
+          is None)
+
+    # restore the degraded config for the order checks below
+    cl_paths.config_file = lambda: degraded
+    out = pf.run_cheap_checks()
+    res = by_id(out.results)
 
     # (5) category buckets (scope/naming contract, t1149 parent plan).
     check("cheap results carry the transport/runtime buckets",

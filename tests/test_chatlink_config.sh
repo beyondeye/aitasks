@@ -65,7 +65,8 @@ for extra in (scripts_dir, scripts_dir / "lib"):
 from chatlink import config as cfg_mod
 from chatlink import paths as paths_mod
 from chatlink.config import ChatlinkConfig, load_config
-from chatlink.policy import Decision, decide, may_answer
+from chatlink.policy import (Decision, Posture, decide, effective_posture,
+                             may_answer)
 from chat.model import IdentityClaims, Role, ConversationRef
 
 PASS = 0
@@ -299,6 +300,128 @@ check("policy: None initiator => not_initiator (fail-closed)",
       may_answer(None, "u2") == Decision(False, "not_initiator"))
 check("policy: both empty => not_initiator (never allow on vacuous equality)",
       may_answer("", "") == Decision(False, "not_initiator"))
+
+# --- t1186_1: per-dimension authorization modes ------------------------------
+AL, DL = "allowlist", "denylist"
+
+
+def mk_conf(um=AL, rm=AL, au=(), ar=(), du=(), dr=()):
+    return ChatlinkConfig(
+        user_authorization_mode=um, role_authorization_mode=rm,
+        allowed_user_ids=list(au), allowed_role_ids=list(ar),
+        denied_user_ids=list(du), denied_role_ids=list(dr))
+
+
+def claims_for(uid="m1", rids=(), member=True):
+    return IdentityClaims(
+        user_id=uid, is_channel_member=member,
+        roles=[Role(id=r, name=r, kind="discord_role") for r in rids])
+
+
+# Mode parsing: defaults, explicit, invalid => default + warning.
+with tempfile.TemporaryDirectory() as tmp:
+    conf, w = load_yaml_text(tmp, "")
+    check("config: default authorization modes allowlist",
+          conf.user_authorization_mode == AL
+          and conf.role_authorization_mode == AL
+          and conf.denied_user_ids == [] and conf.denied_role_ids == [])
+    conf, w = load_yaml_text(tmp, """
+user_authorization_mode: denylist
+role_authorization_mode: denylist
+denied_user_ids: ["x1", 7]
+denied_role_ids: ["r5"]
+""")
+    check("config: explicit denylist modes kept",
+          conf.user_authorization_mode == DL
+          and conf.role_authorization_mode == DL)
+    check("config: denied lists parsed via _str_list (int coerced)",
+          conf.denied_user_ids == ["x1", "7"]
+          and conf.denied_role_ids == ["r5"])
+    conf, w = load_yaml_text(tmp, "user_authorization_mode: blocklist\n")
+    check("config: invalid mode => default + warning",
+          conf.user_authorization_mode == AL
+          and "user_authorization_mode: unknown value 'blocklist'" in w)
+
+# Pinned decision table (t1186_1 task file) transcribed verbatim:
+# precedence explicit deny > explicit allow > default; default allows
+# (ok_not_denied) only when BOTH dimensions are denylist.
+TABLE = [
+    # allowlist/allowlist (row 1)
+    ("AL/AL user allowed => ok_user",
+     dict(au=["m1"], ar=["r9"]), dict(), True, "ok_user"),
+    ("AL/AL role allowed => ok_role",
+     dict(au=["u0"], ar=["r9"]), dict(rids=["r9"]), True, "ok_role"),
+    ("AL/AL no match, roles configured => role_not_allowed",
+     dict(au=["u0"], ar=["r9"]), dict(), False, "role_not_allowed"),
+    ("AL/AL no match, roles empty => user_not_allowed",
+     dict(au=["u0"]), dict(), False, "user_not_allowed"),
+    # denylist/denylist (row 2)
+    ("DL/DL denied user => user_denied",
+     dict(um=DL, rm=DL, du=["m1"]), dict(), False, "user_denied"),
+    ("DL/DL denied role => role_denied",
+     dict(um=DL, rm=DL, dr=["r7"]), dict(rids=["r7"]), False, "role_denied"),
+    ("DL/DL no match => ok_not_denied",
+     dict(um=DL, rm=DL, du=["x"], dr=["y"]), dict(), True, "ok_not_denied"),
+    ("DL/DL both denied lists empty => ok_not_denied (open access)",
+     dict(um=DL, rm=DL), dict(), True, "ok_not_denied"),
+    # denylist/allowlist (row 3)
+    ("DL/AL denied user holding allowed role => user_denied (deny first)",
+     dict(um=DL, du=["m1"], ar=["r9"]), dict(rids=["r9"]),
+     False, "user_denied"),
+    ("DL/AL allowed role => ok_role",
+     dict(um=DL, du=["x"], ar=["r9"]), dict(rids=["r9"]), True, "ok_role"),
+    ("DL/AL no match, roles configured => role_not_allowed",
+     dict(um=DL, ar=["r9"]), dict(), False, "role_not_allowed"),
+    ("DL/AL empty role allowlist => user_not_allowed (deny-all posture)",
+     dict(um=DL, du=["x"]), dict(), False, "user_not_allowed"),
+    # allowlist/denylist (row 4)
+    ("AL/DL allowed user holding denied role => role_denied (deny first)",
+     dict(rm=DL, au=["m1"], dr=["r7"]), dict(rids=["r7"]),
+     False, "role_denied"),
+    ("AL/DL allowed user => ok_user",
+     dict(rm=DL, au=["m1"], dr=["r7"]), dict(), True, "ok_user"),
+    ("AL/DL no match => user_not_allowed",
+     dict(rm=DL, au=["u0"]), dict(), False, "user_not_allowed"),
+    ("AL/DL empty user allowlist => user_not_allowed (deny-all posture)",
+     dict(rm=DL, dr=["x"]), dict(), False, "user_not_allowed"),
+    # degenerate deny-all posture (a): both-allowlist, both lists empty
+    ("AL/AL both empty => user_not_allowed (deny-all posture)",
+     dict(), dict(), False, "user_not_allowed"),
+]
+for label, conf_args, claims_args, allow, reason in TABLE:
+    check(f"policy table: {label}",
+          decide(claims_for(**claims_args), mk_conf(**conf_args))
+          == Decision(allow, reason))
+
+# not_channel_member denies first in every mode combination.
+for um in (AL, DL):
+    for rm in (AL, DL):
+        check(f"policy: non-member => not_channel_member ({um}/{rm})",
+              decide(claims_for(member=False),
+                     mk_conf(um=um, rm=rm, au=["m1"], du=["m1"]))
+              == Decision(False, "not_channel_member"))
+
+# effective_posture over the full table: kind + degenerate_dimensions.
+POSTURES = [
+    ("AL/AL both empty => deny_all users+roles",
+     dict(), Posture("deny_all", ("users", "roles"))),
+    ("AL/AL users populated => restricted",
+     dict(au=["u1"]), Posture("restricted")),
+    ("DL/AL empty role allowlist => deny_all roles",
+     dict(um=DL, du=["x"]), Posture("deny_all", ("roles",))),
+    ("DL/AL roles populated => restricted",
+     dict(um=DL, ar=["r1"]), Posture("restricted")),
+    ("AL/DL empty user allowlist => deny_all users",
+     dict(rm=DL, dr=["x"]), Posture("deny_all", ("users",))),
+    ("AL/DL users populated => restricted",
+     dict(rm=DL, au=["u1"]), Posture("restricted")),
+    ("DL/DL both empty => open_members",
+     dict(um=DL, rm=DL), Posture("open_members")),
+    ("DL/DL denied populated => restricted",
+     dict(um=DL, rm=DL, du=["x"]), Posture("restricted")),
+]
+for label, conf_args, expected in POSTURES:
+    check(f"posture: {label}", effective_posture(mk_conf(**conf_args)) == expected)
 
 # --- paths: permissions + absolute config resolution --------------------------
 with tempfile.TemporaryDirectory() as tmp:

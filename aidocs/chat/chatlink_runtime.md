@@ -101,12 +101,22 @@ Mid-life container deaths are signalled, never polled, by the daemon.
 ## Authorization and ceilings
 
 `policy.decide()` gates intake (deny-by-default); `policy.may_answer()` gates
-every interaction to the initiating reporter. The two families of denial reason
-are deliberately distinct so tests can pin one negative control per reason:
+every interaction to the initiating reporter. The user and role dimensions each
+run in `allowlist` or `denylist` mode (`user_authorization_mode` /
+`role_authorization_mode`, both default `allowlist` — existing configs keep the
+deny-by-default posture). Each dimension consults only its mode's active list
+(`allowed_*` for allowlist, `denied_*` for denylist). Precedence is pinned:
+explicit deny > explicit allow > default; the default allows (`ok_not_denied`)
+only when both dimensions are denylist, else it denies. An empty allowlist
+dimension still means "nobody" (fail-closed); `policy.effective_posture()`
+classifies the resulting posture (`deny_all` / `open_members` / `restricted`,
+naming the degenerate dimension) as the single source for preflight and the
+wizard. The two families of denial reason are deliberately distinct so tests
+can pin one negative control per reason:
 
 | Family | Reasons |
 |---|---|
-| Policy (`policy.py`) | `no_config`, `no_claims`, `not_channel_member`, `user_not_allowed`, `role_not_allowed`, `not_initiator` (allow: `ok_user`, `ok_role`, `ok_initiator`) |
+| Policy (`policy.py`) | `no_config`, `no_claims`, `not_channel_member`, `user_not_allowed`, `role_not_allowed`, `user_denied`, `role_denied`, `not_initiator` (allow: `ok_user`, `ok_role`, `ok_not_denied`, `ok_initiator`) |
 | Ceiling (`intake.py`) | `ceiling_sandboxes`, `ceiling_user_rate` |
 
 Ceilings are `max_concurrent_sandboxes` (counted via `count_nonterminal`) and

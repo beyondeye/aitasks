@@ -41,6 +41,12 @@ RANGE_SANDBOX_WALL_CLOCK_S = (60, 14400)
 DENY_MESSAGE_MODES = ("ignore", "ephemeral")
 DEFAULT_DENY_MESSAGE_MODE = "ignore"
 
+# Per-dimension authorization modes (t1186_1). ``allowlist``: listed ids
+# allowed, empty list grants nobody. ``denylist``: listed ids blocked, empty
+# list blocks nobody. Default preserves the pinned deny-by-default posture.
+AUTHORIZATION_MODES = ("allowlist", "denylist")
+DEFAULT_AUTHORIZATION_MODE = "allowlist"
+
 #: Env-var NAMES the gateway resolves from its own environment at launch
 #: time and passes into the sandbox (contract 10: the LLM API key — never
 #: the bot token, never git credentials). Values never live in the config
@@ -73,6 +79,14 @@ class ChatlinkConfig:
     intake_channel: dict | None = None
     allowed_user_ids: list[str] = field(default_factory=list)
     allowed_role_ids: list[str] = field(default_factory=list)
+    #: Per-dimension modes (t1186_1): each dimension consults only its
+    #: mode's active list (``allowed_*`` for allowlist, ``denied_*`` for
+    #: denylist); the other list is ignored. Precedence in ``policy.decide``:
+    #: explicit deny > explicit allow > default.
+    user_authorization_mode: str = DEFAULT_AUTHORIZATION_MODE
+    role_authorization_mode: str = DEFAULT_AUTHORIZATION_MODE
+    denied_user_ids: list[str] = field(default_factory=list)
+    denied_role_ids: list[str] = field(default_factory=list)
     deny_message_mode: str = DEFAULT_DENY_MESSAGE_MODE
     #: Optional logical project name for audit/display (contract 10 "repo
     #: linkage" — the operative repo is the one this config lives in).
@@ -229,6 +243,19 @@ def load_config_with_warnings(
         )
         deny_mode = DEFAULT_DENY_MESSAGE_MODE
 
+    def _authorization_mode(key: str) -> str:
+        mode = data.get(key, DEFAULT_AUTHORIZATION_MODE)
+        if mode not in AUTHORIZATION_MODES:
+            warn(
+                f"{key}: unknown value {mode!r} — "
+                f"using {DEFAULT_AUTHORIZATION_MODE!r}"
+            )
+            mode = DEFAULT_AUTHORIZATION_MODE
+        return mode
+
+    user_auth_mode = _authorization_mode("user_authorization_mode")
+    role_auth_mode = _authorization_mode("role_authorization_mode")
+
     repo_name = data.get("repo_name")
     if repo_name is not None and (
         not isinstance(repo_name, str) or not repo_name.strip()
@@ -253,6 +280,12 @@ def load_config_with_warnings(
             data.get("allowed_user_ids"), "allowed_user_ids", warn=warn),
         allowed_role_ids=_str_list(
             data.get("allowed_role_ids"), "allowed_role_ids", warn=warn),
+        user_authorization_mode=user_auth_mode,
+        role_authorization_mode=role_auth_mode,
+        denied_user_ids=_str_list(
+            data.get("denied_user_ids"), "denied_user_ids", warn=warn),
+        denied_role_ids=_str_list(
+            data.get("denied_role_ids"), "denied_role_ids", warn=warn),
         deny_message_mode=deny_mode,
         repo_name=repo_name,
         max_concurrent_sandboxes=_clamped_int(

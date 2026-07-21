@@ -26,13 +26,27 @@
 #  metadata: {}
 
 # --- Authorization (deny-by-default) --------------------------------------
-# Users/roles allowed to initiate a bug-report intake. Both lists empty
-# (or unset) means nobody is allowed. Role ids are platform role ids
-# (Discord guild role id / Slack usergroup id).
+# Who may initiate a bug-report intake. The user and role dimensions each
+# run in one of two modes (default: allowlist for both):
+#   allowlist - listed ids are allowed; an EMPTY list grants nobody.
+#   denylist  - listed ids are blocked; an empty list blocks nobody.
+# Each dimension consults only its mode's list (allowed_* for allowlist,
+# denied_* for denylist); the other list is ignored. Precedence: explicit
+# deny > explicit allow > default — the default allows any channel member
+# only when BOTH dimensions are denylist, otherwise it denies. With both
+# modes at the allowlist default and both lists empty (or unset), nobody
+# is allowed. Role ids are platform role ids (Discord guild role id /
+# Slack usergroup id).
+#user_authorization_mode: allowlist
+#role_authorization_mode: allowlist
 #allowed_user_ids:
 #  - "111111111111111111"
 #allowed_role_ids:
 #  - "222222222222222222"
+#denied_user_ids:
+#  - "333333333333333333"
+#denied_role_ids:
+#  - "444444444444444444"
 
 # How to respond to a denied user's message in the intake channel:
 #   ignore    - no reaction (default)

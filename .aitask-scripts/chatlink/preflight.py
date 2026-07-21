@@ -46,6 +46,7 @@ from pathlib import Path
 
 from . import paths
 from .config import load_config_with_warnings, ChatlinkConfig
+from .policy import effective_posture
 
 # Severities.
 PASS = "pass"
@@ -153,6 +154,78 @@ def _config_key_id(warning: str) -> str:
     return "config_key:" + warning.split(":", 1)[0].strip()
 
 
+def _authorization_results(cfg: ChatlinkConfig) -> list[CheckResult]:
+    """Posture-derived authorization rows (t1186_1). Warn-only — an
+    unfortunate posture is a valid configuration, so never a ``fail`` /
+    ``daemon_refuse_message``. Facts come from ``policy.effective_posture``
+    (single source of the degenerate-combination cause); this helper only
+    renders copy."""
+    results: list[CheckResult] = []
+    posture = effective_posture(cfg)
+    if posture.kind == "deny_all":
+        if posture.degenerate_dimensions == ("users", "roles"):
+            results.append(CheckResult(
+                id="allowlist", category=TRANSPORT, severity=WARN,
+                message="both allowlists empty — deny-by-default: nobody "
+                        "can open a bug report",
+                fix_hint="add reporter ids to allowed_user_ids or "
+                         "allowed_role_ids"))
+        else:
+            dim = posture.degenerate_dimensions[0]
+            allow_key, mode_key = {
+                "users": ("allowed_user_ids", "user_authorization_mode"),
+                "roles": ("allowed_role_ids", "role_authorization_mode"),
+            }[dim]
+            results.append(CheckResult(
+                id="allowlist", category=TRANSPORT, severity=WARN,
+                message=f"denylist has no effect — the empty {dim} "
+                        "allowlist denies everyone",
+                fix_hint=f"fill {allow_key} or switch {mode_key} to "
+                         "denylist"))
+    elif posture.kind == "open_members":
+        results.append(CheckResult(
+            id="allowlist", category=TRANSPORT, severity=WARN,
+            message="open access: any channel member can open a bug report",
+            fix_hint="add ids to denied_user_ids/denied_role_ids to block "
+                     "specific members, or switch a dimension to allowlist"))
+    else:
+        user_active = (cfg.denied_user_ids
+                       if cfg.user_authorization_mode == "denylist"
+                       else cfg.allowed_user_ids)
+        role_active = (cfg.denied_role_ids
+                       if cfg.role_authorization_mode == "denylist"
+                       else cfg.allowed_role_ids)
+        results.append(CheckResult(
+            id="allowlist", category=TRANSPORT, severity=PASS,
+            message=(
+                f"users: {cfg.user_authorization_mode} "
+                f"({len(user_active)} ids) / "
+                f"roles: {cfg.role_authorization_mode} "
+                f"({len(role_active)} ids)")))
+    # Stale-config consistency: each dimension consults only its mode's
+    # active list — a populated inactive list looks meaningful but is
+    # ignored (both directions, both dimensions: denied-while-allowlist
+    # and allowed-while-denylist).
+    for dim_id, mode_key, mode, allowed, denied in (
+        ("users", "user_authorization_mode", cfg.user_authorization_mode,
+         cfg.allowed_user_ids, cfg.denied_user_ids),
+        ("roles", "role_authorization_mode", cfg.role_authorization_mode,
+         cfg.allowed_role_ids, cfg.denied_role_ids),
+    ):
+        if mode == "denylist":
+            inactive_key, inactive = f"allowed_{dim_id[:-1]}_ids", allowed
+        else:
+            inactive_key, inactive = f"denied_{dim_id[:-1]}_ids", denied
+        if inactive:
+            results.append(CheckResult(
+                id=f"authorization_{dim_id}_ignored", category=RUNTIME,
+                severity=WARN,
+                message=f"{inactive_key} is set but ignored — "
+                        f"{mode_key} is {mode!r}",
+                fix_hint=f"clear {inactive_key} or switch {mode_key}"))
+    return results
+
+
 def _check_token() -> CheckResult:
     if paths.read_token() is None:
         return CheckResult(
@@ -237,18 +310,7 @@ def run_cheap_checks() -> CheapChecks:
             message=(f"intake channel: {ref['provider']} "
                      f"{ref['workspace_id']}/{ref['conversation_id']}")))
 
-    if not cfg.allowed_user_ids and not cfg.allowed_role_ids:
-        out.results.append(CheckResult(
-            id="allowlist", category=TRANSPORT, severity=WARN,
-            message="both allowlists empty — deny-by-default: nobody can "
-                    "open a bug report",
-            fix_hint="add reporter ids to allowed_user_ids or "
-                     "allowed_role_ids"))
-    else:
-        count = len(cfg.allowed_user_ids) + len(cfg.allowed_role_ids)
-        out.results.append(CheckResult(
-            id="allowlist", category=TRANSPORT, severity=PASS,
-            message=f"allowlist: {count} user/role id(s)"))
+    out.results.extend(_authorization_results(cfg))
 
     out.results.append(_check_token())
     return out

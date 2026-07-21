@@ -95,8 +95,12 @@ your team.
 | Key | Default | Meaning |
 |---|---|---|
 | `intake_channel` | unset | The channel to watch. For Discord, `workspace_id` is the **server (guild) ID** and `conversation_id` is the **channel ID**. The gateway refuses to start until this is set. |
-| `allowed_user_ids` | `[]` | Users who may open bug reports. |
-| `allowed_role_ids` | `[]` | Roles whose members may open bug reports. |
+| `user_authorization_mode` | `allowlist` | `allowlist` — only users in `allowed_user_ids` may open bug reports (empty list: nobody). `denylist` — users in `denied_user_ids` are blocked (empty list: nobody blocked). |
+| `role_authorization_mode` | `allowlist` | Same two modes for the role dimension, over `allowed_role_ids` / `denied_role_ids`. |
+| `allowed_user_ids` | `[]` | Users who may open bug reports (consulted only in `allowlist` mode). |
+| `allowed_role_ids` | `[]` | Roles whose members may open bug reports (consulted only in `allowlist` mode). |
+| `denied_user_ids` | `[]` | Users blocked from opening bug reports (consulted only in `denylist` mode). |
+| `denied_role_ids` | `[]` | Roles whose members are blocked (consulted only in `denylist` mode). |
 | `deny_message_mode` | `ignore` | `ignore` — an unauthorized message is silently skipped. `ephemeral` — the user gets a private refusal. |
 | `repo_name` | unset | A logical project name, used only in audit and display output. |
 | `max_concurrent_sandboxes` | `2` | Live sessions at once (1–16). |
@@ -106,10 +110,16 @@ your team.
 | `sandbox_pids` | `512` | Container process limit (16–4096). |
 | `sandbox_wall_clock_s` | `1800` | Hard wall-clock cap per session (60–14400). |
 
-**Authorization is deny-by-default.** If both `allowed_user_ids` and
-`allowed_role_ids` are empty, nobody can open a bug report — the gateway watches
-the channel and ignores everything. This is the single most common reason a
-freshly configured gateway appears to do nothing.
+**Authorization is deny-by-default.** Each dimension consults only its mode's
+list; the other list is ignored. Precedence: explicit deny > explicit allow >
+default — the default allows any channel member only when *both* dimensions are
+`denylist`, otherwise it denies. Under the default modes, if both
+`allowed_user_ids` and `allowed_role_ids` are empty, nobody can open a bug
+report — the gateway watches the channel and ignores everything. This is the
+single most common reason a freshly configured gateway appears to do nothing.
+An empty allowlist dimension always means "nobody" (fail-closed), even when the
+other dimension is a denylist — preflight warns loudly about these deny-all
+combinations.
 
 Out-of-range ceilings are clamped to the nearest valid value with a warning; a
 malformed YAML file makes the gateway refuse to start.
