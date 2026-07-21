@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1149
+implemented_with: claudecode/fable5
 created_at: 2026-07-20 19:29
-updated_at: 2026-07-20 22:59
+updated_at: 2026-07-21 06:27
 ---
 
 ## Context
@@ -119,3 +120,8 @@ chosen over "empty allowlist dimension is inactive", whose degenerate case is fa
 - `bash tests/test_chatlink_wizard.sh` and `bash tests/test_chatlink_tui.sh` stay green
   (no wizard changes in this child; the existing empty-allowlist wizard warning still
   reflects the default allowlist/allowlist posture).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-21T03:27:02Z status=pass attempt=1 type=human
