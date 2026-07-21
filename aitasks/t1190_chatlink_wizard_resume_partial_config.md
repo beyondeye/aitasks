@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/fable5
 created_at: 2026-07-20 18:40
-updated_at: 2026-07-21 12:46
+updated_at: 2026-07-21 17:17
 boardidx: 10
 ---
 
@@ -97,3 +98,8 @@ numbering, or must be reconciled with t1186 before landing.
   (`tests/test_chatlink_tui.sh`, `tests/test_chatlink_wizard.sh`) are updated
   to state the new, true contract.
 - The config file and token file are still written only at the summary step.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-21T14:18:07Z status=pass attempt=1 type=human
