@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 anchor: 1065
 created_at: 2026-07-06 18:29
 updated_at: 2026-07-06 18:29
-boardidx: 240
+boardidx: 250
 ---
 
 **Design spec:** `aidocs/unified_artifact_design.md` §4, §10.

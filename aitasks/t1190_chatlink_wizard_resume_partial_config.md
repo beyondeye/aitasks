@@ -8,7 +8,7 @@ labels: [chatlink, tui]
 gates: [risk_evaluated]
 created_at: 2026-07-20 18:40
 updated_at: 2026-07-20 18:40
-boardidx: 40
+boardidx: 10
 ---
 
 ## Problem

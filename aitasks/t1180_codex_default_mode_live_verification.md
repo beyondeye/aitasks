@@ -14,7 +14,7 @@ anchor: 1171
 implemented_with: codex/gpt5_6_terra
 created_at: 2026-07-20 12:20
 updated_at: 2026-07-20 18:06
-boardidx: 90
+boardidx: 100
 ---
 
 ## Origin
