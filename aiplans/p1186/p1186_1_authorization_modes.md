@@ -138,3 +138,40 @@ Post-implementation per task-workflow Step 9 (gates incl. risk_evaluated; archiv
 None identified. — requirements are pinned exhaustively (decision table, reason codes,
 degenerate postures, doc surfaces, test list) by user decision 2026-07-20; approach
 mirrors existing string-enum + pure-helper patterns.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned, including the three
+  review-round additions: (1) `Posture` frozen dataclass (`kind` +
+  `degenerate_dimensions`) returned by `policy.effective_posture()` instead of a
+  bare string, (2) preflight ignored-inactive-list WARNs in both directions ×
+  both dimensions (`authorization_users_ignored` / `authorization_roles_ignored`,
+  RUNTIME bucket), (3) daemon-level intake-wiring test via a new `config_kwargs`
+  override on the test `Env` factory (`tests/test_chatlink_daemon.sh:123-155`).
+  `decide()` tail rewritten to the pinned precedence; four new `ChatlinkConfig`
+  fields parsed with the `deny_mode` string-enum pattern; preflight allowlist row
+  group extracted into `_authorization_results()` (`preflight.py:157`); all four
+  doc surfaces updated.
+- **Deviations from plan:** None material. The preflight `allowlist` row id was
+  kept for all posture rows (deny_all/open_members/restricted) so the daemon's
+  legacy refusal-order test and the TUI surface stay stable; only the
+  ignored-list warns use new ids.
+- **Issues encountered:** None — existing negative controls passed unchanged on
+  first run after the `decide()` rewrite (deny-before-allow ordering directly
+  encodes the pinned precedence).
+- **Key decisions:** `effective_posture()` computes deny_all as "every
+  allowlist-mode dimension has an empty list, and at least one dimension is an
+  allowlist" — this single expression covers all three degenerate combos and
+  yields the causing dimensions for free. Intake/audit/ephemeral wiring needed
+  zero changes: `decision.reason` flows through `_deny` generically, which the
+  new daemon test now pins.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1186_4 (wizard picker UI) should consume
+  `policy.effective_posture(config)` for its posture copy — `kind` selects the
+  message class, `degenerate_dimensions` names the dimension; do not re-derive
+  combos. The config test's `mk_conf(um, rm, au, ar, du, dr)` and
+  `claims_for(uid, rids, member)` helpers (test_chatlink_config.sh, t1186_1
+  section) are reusable for any further policy tests. The daemon test `Env`
+  now accepts `config_kwargs` for arbitrary `ChatlinkConfig` overrides.
+  Wizard save path (`build_edits`) must learn the two mode keys + denied lists
+  in t1186_4; `config_write`'s merge-never-drop already preserves hand-edited
+  fields until then.
