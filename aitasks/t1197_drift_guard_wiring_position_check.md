@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-21 11:03
-updated_at: 2026-07-21 11:11
+updated_at: 2026-07-21 11:53
 ---
 
 ## Origin
@@ -79,3 +80,8 @@ current false negative the moment `install.sh` reworded that line).
 - A control for the missing-anchor case: feed a `main()` body with no cleanup
   line and assert the helper errors.
 - `bash tests/test_seed_manifest_drift.sh` still passes end to end.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-21T08:53:43Z status=pass attempt=1 type=human
