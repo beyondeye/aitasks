@@ -3,7 +3,7 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: []
 active_gates: []
 active_gates_filtered: []
@@ -14,6 +14,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1199
 created_at: 2026-07-21 11:43
 updated_at: 2026-07-21 17:51
+completed_at: 2026-07-21 17:51
 ---
 
 Carry-over of deferred manual-verification items from t1199. Re-pick this task to continue the remaining checklist.
