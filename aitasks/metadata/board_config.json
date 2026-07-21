@@ -24,13 +24,19 @@
       "id": "manual_verifications",
       "title": "manual_verifications",
       "color": "#FF5555"
+    },
+    {
+      "id": "tests",
+      "title": "tests",
+      "color": "#FF5555"
     }
   ],
   "column_order": [
+    "tests",
+    "in_the_works",
     "now",
     "next",
     "manual_verifications",
-    "backlog",
-    "in_the_works"
+    "backlog"
   ]
 }
