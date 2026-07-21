@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1071
+implemented_with: claudecode/fable5
 created_at: 2026-07-01 15:10
-updated_at: 2026-07-21 18:41
+updated_at: 2026-07-21 19:08
 boardidx: 310
 ---
 
@@ -59,3 +60,8 @@ companion resolver. Do not advertise the scalar helper as covering the list fiel
 - Quoted / commented `doc_update.guide` values resolve correctly (the cases the old
   grep failed).
 - The docs_updated gate still passes/skips/falls-back as before.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-21T16:08:09Z status=pass attempt=1 type=human
