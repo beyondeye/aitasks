@@ -12,6 +12,9 @@
 #    token (failure-aware: a raising token writer keeps the config write,
 #    renders the per-item FAILED state, and a later Save retries); the
 #    summary renders injected preflight results + the ./ait git commit hint.
+#    Step order (t1186_3): intake → token → live check → allowlist →
+#    deny/repo → ceilings → summary, with the "Step N/7" title DERIVED from
+#    the _STEPS index (asserted at two different positions).
 # Run: bash tests/test_chatlink_tui.sh
 
 set -e
@@ -287,8 +290,8 @@ async def main():
         app2.screen.query_one("#wiz_conversation", Input).focus()
         await pilot.press("enter")
         await pilot.pause()
-        check("intake advances to allowlist",
-              isinstance(app2.screen, wiz.AllowlistScreen))
+        check("intake advances to token",
+              isinstance(app2.screen, wiz.TokenScreen))
         await pilot.press("escape")
         await pilot.pause()
         check("escape aborts the wizard",
@@ -323,8 +326,12 @@ async def main():
         scr.query_one("#wiz_conversation", Input).value = "222"
         await pilot.press("enter")
         await pilot.pause()
-        check("valid intake advances",
-              isinstance(app3.screen, wiz.AllowlistScreen))
+        check("valid intake advances to token",
+              isinstance(app3.screen, wiz.TokenScreen))
+        # Numbering is DERIVED from the _STEPS index, not a literal.
+        check("token title numbered from the _STEPS index (2/7)",
+              "Step 2/7" in str(
+                  app3.screen.query_one("#wizard_title").render()))
 
         # Back retains the entered intake values.
         await pilot.click("#btn_wiz_back")
@@ -336,6 +343,60 @@ async def main():
         app3.screen.query_one("#wiz_workspace", Input).focus()
         await pilot.press("enter")
         await pilot.pause()
+
+        # Token: required when none stored yet (app2 aborted without
+        # writing one).
+        scr = app3.screen
+        scr.query_one("#wiz_token", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("empty token without a stored one keeps modal open",
+              app3.screen is scr
+              and "no token stored yet"
+              in str(scr.query_one("#wizard_error").render()))
+        scr.query_one("#wiz_token", Input).value = "secret-token-123"
+        await pilot.press("enter")
+        await pilot.pause()
+        check("token advances to live validation",
+              isinstance(app3.screen, wiz.LiveCheckScreen))
+
+        # Skip path: Continue without validating — the live seam is
+        # never called and the wizard proceeds normally.
+        check("live seam not called before validate", wiz_live["n"] == 0)
+        await pilot.click("#btn_wiz_next")
+        await pilot.pause()
+        check("continue skips live validation into allowlist",
+              isinstance(app3.screen, wiz.AllowlistScreen)
+              and wiz_live["n"] == 0)
+        # Second index: proves the title tracks position rather than a
+        # relabeled per-class constant.
+        check("allowlist title numbered from the _STEPS index (4/7)",
+              "Step 4/7" in str(
+                  app3.screen.query_one("#wizard_title").render()))
+
+        # Back into the live step and validate with the injected runner.
+        await pilot.click("#btn_wiz_back")
+        await pilot.pause()
+        check("back returns to live validation",
+              isinstance(app3.screen, wiz.LiveCheckScreen))
+        await pilot.click("#btn_wiz_live_run")
+        await app3.workers.wait_for_complete()
+        await pilot.pause()
+        live_text = str(
+            app3.screen.query_one("#wiz_live_results").render())
+        check("live results rendered via format_row",
+              "✓ token accepted" in live_text
+              and "✗ missing required channel permission(s)" in live_text)
+        check("live runner received the entered values",
+              wiz_live["n"] == 1
+              and wiz_live["args"]
+              == ("secret-token-123", "111", "222", None))
+        await asyncio.sleep(0.4)  # Button active-effect window (see below)
+        await pilot.click("#btn_wiz_next")
+        await pilot.pause()
+        check("continue after a FAILING live validation advances "
+              "(advisory-only)",
+              isinstance(app3.screen, wiz.AllowlistScreen))
 
         # Allowlist: empty-empty warns once, advances on the second Next.
         scr = app3.screen
@@ -371,55 +432,7 @@ async def main():
         scr.query_one("#wiz_sandbox_pids", Input).value = "1024"
         await pilot.press("enter")
         await pilot.pause()
-        check("valid ceilings advance to token",
-              isinstance(app3.screen, wiz.TokenScreen))
-
-        # Token: required when none stored yet.
-        scr = app3.screen
-        scr.query_one("#wiz_token", Input).focus()
-        await pilot.press("enter")
-        await pilot.pause()
-        check("empty token without a stored one keeps modal open",
-              app3.screen is scr
-              and "no token stored yet"
-              in str(scr.query_one("#wizard_error").render()))
-        scr.query_one("#wiz_token", Input).value = "secret-token-123"
-        await pilot.press("enter")
-        await pilot.pause()
-        check("token advances to live validation",
-              isinstance(app3.screen, wiz.LiveCheckScreen))
-
-        # Skip path: Continue without validating — the live seam is
-        # never called and the wizard proceeds normally.
-        check("live seam not called before validate", wiz_live["n"] == 0)
-        await pilot.click("#btn_wiz_next")
-        await pilot.pause()
-        check("continue skips live validation into summary",
-              isinstance(app3.screen, wiz.SummaryScreen)
-              and wiz_live["n"] == 0)
-
-        # Back into the live step and validate with the injected runner.
-        await pilot.click("#btn_wiz_back")
-        await pilot.pause()
-        check("back returns to live validation",
-              isinstance(app3.screen, wiz.LiveCheckScreen))
-        await pilot.click("#btn_wiz_live_run")
-        await app3.workers.wait_for_complete()
-        await pilot.pause()
-        live_text = str(
-            app3.screen.query_one("#wiz_live_results").render())
-        check("live results rendered via format_row",
-              "✓ token accepted" in live_text
-              and "✗ missing required channel permission(s)" in live_text)
-        check("live runner received the entered values",
-              wiz_live["n"] == 1
-              and wiz_live["args"]
-              == ("secret-token-123", "111", "222", None))
-        await asyncio.sleep(0.4)  # Button active-effect window (see below)
-        await pilot.click("#btn_wiz_next")
-        await pilot.pause()
-        check("continue after a FAILING live validation reaches summary "
-              "(advisory-only)",
+        check("valid ceilings advance to summary",
               isinstance(app3.screen, wiz.SummaryScreen))
 
         summary = str(
@@ -521,20 +534,10 @@ async def main():
         await pilot.press("w")
         await pilot.pause()
         # Config + token exist from the walk above, so every step is
-        # pre-filled/kept — Enter through to the live step.
+        # pre-filled/kept — Enter through to the live step (which the
+        # reorder puts third, right after intake and token).
         scr = app4.screen
         scr.query_one("#wiz_conversation", Input).focus()
-        await pilot.press("enter")
-        await pilot.pause()
-        app4.screen.query_one("#wiz_user_ids", Input).focus()
-        await pilot.press("enter")   # deny-by-default warn
-        await pilot.pause()
-        await pilot.press("enter")   # second Next advances
-        await pilot.pause()
-        app4.screen.query_one("#wiz_repo_name", Input).focus()
-        await pilot.press("enter")
-        await pilot.pause()
-        app4.screen.query_one("#wiz_sandbox_pids", Input).focus()
         await pilot.press("enter")
         await pilot.pause()
         app4.screen.query_one("#wiz_token", Input).focus()
@@ -549,13 +552,13 @@ async def main():
                   app4.screen.query_one("#wiz_live_results").render()))
         await pilot.click("#btn_wiz_next")   # Continue mid-run
         await pilot.pause()
-        check("continue mid-run reaches summary",
-              isinstance(app4.screen, wiz.SummaryScreen))
+        check("continue mid-run reaches allowlist",
+              isinstance(app4.screen, wiz.AllowlistScreen))
         live_block.set()                     # release the worker late
         await app4.workers.wait_for_complete()
         await pilot.pause()
-        check("late live result did not disturb the summary screen",
-              isinstance(app4.screen, wiz.SummaryScreen)
+        check("late live result did not disturb the allowlist screen",
+              isinstance(app4.screen, wiz.AllowlistScreen)
               and wiz_live["n"] == 1)
         await pilot.press("escape")          # abort — no writes intended
         await pilot.pause()

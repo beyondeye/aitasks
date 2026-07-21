@@ -1,9 +1,16 @@
 """Config wizard for the ``ait chatlink`` TUI (t1149_3).
 
-Textual ModalScreens stepping through: intake channel → allowlist →
-deny mode / repo name → ceilings → token → summary (write + final
-preflight). Imported ONLY by ``chatlink_app.py`` — the daemon stays
-Textual-free (guard-tested).
+Textual ModalScreens stepping through: intake channel → token → live
+check → allowlist → deny mode / repo name → ceilings → summary (write +
+final preflight). Imported ONLY by ``chatlink_app.py`` — the daemon
+stays Textual-free (guard-tested).
+
+The token and the (optional) live check precede the allowlist so the
+allowlist step can fetch live Discord members/roles (t1186_3 reorder).
+:data:`_STEPS` is the single source of truth for both order and the
+rendered ``Step N/7`` numbering — screens declare only their
+:attr:`_WizardStep.step_name` and whether they
+:attr:`_WizardStep.needs_seams`.
 
 Contracts (pinned in aiplans/p1149/p1149_3_config_wizard_flow.md):
 
@@ -168,17 +175,27 @@ class _WizardStep(ModalScreen):
     _WizardStep #wizard_buttons Button { margin-right: 2; }
     """
 
-    step_title = ""
+    #: Title text WITHOUT numbering — the ``Step N/7`` prefix is derived
+    #: from the screen's position in :data:`_STEPS` by :func:`make_step`.
+    step_name = ""
     next_label = "Next"
+    #: Whether :func:`make_step` must pass the :class:`WizardSeams` arg.
+    #: Declared here rather than in a hardcoded class tuple so reordering
+    #: or adding a screen never touches the factory.
+    needs_seams = False
 
-    def __init__(self, state: dict, *, first: bool = False):
+    def __init__(self, state: dict, *, first: bool = False,
+                 step_no: int = 0, step_total: int = 0):
         super().__init__()
         self.state = state
         self._first = first
+        self.step_no = step_no
+        self.step_total = step_total
 
     def compose(self) -> ComposeResult:
         with Container(id="wizard_dialog"):
-            yield Label(self.step_title, id="wizard_title")
+            yield Label(f"Step {self.step_no}/{self.step_total} — "
+                        f"{self.step_name}", id="wizard_title")
             yield from self.body()
             yield Label("", id="wizard_error")
             with Horizontal(id="wizard_buttons"):
@@ -221,8 +238,8 @@ class _WizardStep(ModalScreen):
 
 
 class IntakeChannelScreen(_WizardStep):
-    step_title = ("Step 1/7 — Bug-report intake channel "
-                  "(Discord bug-report intake / explore-relay flow)")
+    step_name = ("Bug-report intake channel "
+                 "(Discord bug-report intake / explore-relay flow)")
 
     def body(self) -> ComposeResult:
         yield Label("Provider:", classes="wizard-label")
@@ -253,7 +270,7 @@ class IntakeChannelScreen(_WizardStep):
 
 
 class AllowlistScreen(_WizardStep):
-    step_title = "Step 2/7 — Who may open a bug report (deny-by-default)"
+    step_name = "Who may open a bug report (deny-by-default)"
 
     def __init__(self, state: dict, **kwargs):
         super().__init__(state, **kwargs)
@@ -288,7 +305,7 @@ class AllowlistScreen(_WizardStep):
 
 
 class DenyRepoScreen(_WizardStep):
-    step_title = "Step 3/7 — Denied-message handling & repo name"
+    step_name = "Denied-message handling & repo name"
 
     def body(self) -> ComposeResult:
         yield Label("Reply to denied users in the intake channel:",
@@ -309,7 +326,7 @@ class DenyRepoScreen(_WizardStep):
 
 
 class CeilingsScreen(_WizardStep):
-    step_title = "Step 4/7 — Sandbox resource ceilings"
+    step_name = "Sandbox resource ceilings"
 
     def body(self) -> ComposeResult:
         for key, label, rng in _CEILING_FIELDS:
@@ -343,7 +360,8 @@ class CeilingsScreen(_WizardStep):
 
 
 class TokenScreen(_WizardStep):
-    step_title = "Step 5/7 — Discord bot token"
+    step_name = "Discord bot token"
+    needs_seams = True
 
     def __init__(self, state: dict, seams: WizardSeams, **kwargs):
         super().__init__(state, **kwargs)
@@ -382,8 +400,9 @@ class LiveCheckScreen(_WizardStep):
     touching a dismissed screen (the user may Continue mid-run).
     """
 
-    step_title = "Step 6/7 — Live validation (optional)"
+    step_name = "Live validation (optional)"
     next_label = "Continue"
+    needs_seams = True
 
     def __init__(self, state: dict, seams: WizardSeams, **kwargs):
         super().__init__(state, **kwargs)
@@ -507,8 +526,9 @@ class SummaryScreen(_WizardStep):
     config_write, token via the seam — failure-aware, idempotent retry),
     then run preflight and render the results."""
 
-    step_title = "Step 7/7 — Summary & save"
+    step_name = "Summary & save"
     next_label = "Save"
+    needs_seams = True
 
     def __init__(self, state: dict, seams: WizardSeams, **kwargs):
         super().__init__(state, **kwargs)
@@ -672,11 +692,12 @@ def start_wizard(app, seams: WizardSeams | None = None) -> None:
     state = initial_state(seams)
 
     def make_step(idx: int) -> _WizardStep:
-        first = idx == 0
         cls = _STEPS[idx]
-        if cls in (TokenScreen, LiveCheckScreen, SummaryScreen):
-            return cls(state, seams, first=first)
-        return cls(state, first=first)
+        kwargs = dict(first=idx == 0, step_no=idx + 1,
+                      step_total=len(_STEPS))
+        if cls.needs_seams:
+            return cls(state, seams, **kwargs)
+        return cls(state, **kwargs)
 
     def show(idx: int) -> None:
         def handle(result) -> None:
@@ -694,5 +715,10 @@ def start_wizard(app, seams: WizardSeams | None = None) -> None:
     show(0)
 
 
-_STEPS = (IntakeChannelScreen, AllowlistScreen, DenyRepoScreen,
-          CeilingsScreen, TokenScreen, LiveCheckScreen, SummaryScreen)
+#: Step order AND the source of the rendered ``Step N/7`` numbering.
+#: The token + live check precede the allowlist so the allowlist step can
+#: fetch live members/roles; ``LiveCheckScreen`` reads only provider /
+#: token / workspace_id / conversation_id / thread_id, all set by steps
+#: 1-2.
+_STEPS = (IntakeChannelScreen, TokenScreen, LiveCheckScreen,
+          AllowlistScreen, DenyRepoScreen, CeilingsScreen, SummaryScreen)
