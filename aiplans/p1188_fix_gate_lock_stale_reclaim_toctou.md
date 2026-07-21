@@ -213,3 +213,38 @@ the friendly `No task file found` die from `resolve_task_file`.
 
 Then proceed to Step 9 (Post-Implementation) for gates, archival, and cleanup
 per the task-workflow skill.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned. TOCTOU-safe staleness
+  check in `acquire_gate_lock` (`.aitask-scripts/aitask_gate.sh`) and
+  `acquire_child_lock` (`.aitask-scripts/aitask_create.sh`): stat failure now
+  means "lock vanished — retry mkdir immediately", and stale reclaim goes
+  through an atomic `mv` to a PID-namespaced quarantine (preflight `rm -rf`
+  prevents nesting into a leaked dir), so reclaim is single-winner and release
+  semantics are untouched. Numeric guard in `archive_path_for_id`
+  (`lib/archive_utils.sh`) plus empty-path guards in `_find_archive_for_task`,
+  `_search_numbered_then_legacy`, and `search_archived_task`
+  (`lib/archive_scan.sh`). Tests: extended characterization test 3
+  (no "unbound variable" noise), new test 6b (stale reclaim under contention),
+  new test 7 and parallel-child-create test 3b (deterministic vanished-dir
+  stat-failure via a PATH `stat` shim keyed on the lock path, real stat
+  resolved before shimming), non-numeric assertions in `test_archive_utils.sh`
+  (Groups C/F) and `test_archive_scan.sh` (Test 10).
+- **Deviations from plan:** One shape adjustment: the plan's
+  `[[ -z "$zst_path" ]] && return 0` guard in `_search_numbered_then_legacy`
+  would have skipped that function's legacy-archive fallback, so the numbered
+  probes were wrapped in `if [[ -n "$zst_path" ]]` instead — same treatment as
+  `search_archived_task`, legacy fallback preserved. `_find_archive_for_task`
+  kept the early return (it has no legacy fallback).
+- **Issues encountered:** None — all suites passed first run: characterization
+  46/46 (plus a clean 5-round soak, no DIAG), archive_utils 48/48,
+  archive_scan 25/25, parallel_child_create 24/24. Shellcheck reports only
+  pre-existing info/style findings in untouched lines.
+- **Key decisions:** Owner-token staleness was considered and rejected
+  (documented in the plan): it cannot close the residual check-then-remove
+  window inherent to mkdir locks, and it would change release semantics
+  (`rmdir` fails on non-empty dirs) and break the pinned test 6 fixture. The
+  atomic-rename reclaim was added beyond the task's minimal suggested fix
+  because the two-waiter reclaim race is the same defect class (removing a
+  lock another process just re-acquired) through a different door.
+- **Upstream defects identified:** None
