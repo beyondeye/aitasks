@@ -376,3 +376,90 @@ then `./.aitask-scripts/aitask_archive.sh 1196`.
     out)", since the template deliberately no longer carries the default values.
 
 - **Files affected:** `aidocs/agentcrew/agentcrew_architecture.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, with one addition forced by a
+  bug found during verification (below). `seed/crew_runner_config.yaml` is now a
+  comment-only template; `install_seed_crew_runner_config()` was added to
+  `install.sh` and wired into `main()` before the `seed/` cleanup;
+  `populate_data_branch_seed_metadata()` gained a `cp` line (restoring t1194
+  manifest parity) and `ensure_crew_runner_config()` was added as a
+  source-tree-only populate-missing pass; the architecture doc's seeding claim
+  is now true. Test coverage landed in a new harness,
+  `tests/test_crew_runner_config_delivery.sh`, rather than in
+  `tests/test_crew_runner.sh` as originally planned.
+
+- **Deviations from plan:**
+  1. *Test location.* The plan put the content contract in
+     `tests/test_crew_runner.sh` as "Test 19". That script's footer reads a
+     file-backed `COUNTER_FILE` the shared `asserts.sh` helpers never write, so
+     it prints `FAIL:` and still exits 0 — the contract would not have been
+     pinned in CI. `test_crew_runner.sh` was reverted to HEAD and the checks
+     moved to a new harness with a working `[[ $FAIL -eq 0 ]]` exit path.
+  2. *Install-flow coverage added.* The plan's verification was helper-level
+     only. `aidocs/framework/aitasks_extension_points.md` §"Test the full
+     install flow for setup helpers" mandates exercising a metadata-touching
+     setup helper through the real `install.sh → ait setup` flow, because
+     `install.sh` deletes `seed/`. The new harness builds a local tarball and
+     runs the real installer (~0.1s, network-free), then hands off to the setup
+     helper on that genuinely seedless repo.
+  3. *Doc precision.* The file-table row at `agentcrew_architecture.md:438` was
+     changed after all ("Default runner configuration template" → "Runner
+     configuration template (all keys commented out)"); the plan had said it
+     could stay as-is, but "Default" misdescribes a template that deliberately
+     carries no defaults.
+
+- **Issues encountered:**
+  - **Introduced and fixed a `set -e` abort bug.** The first draft of
+    `ensure_crew_runner_config()` used `[[ -f "$seed_config" ]] || return`. A
+    bare `return` after a failed test propagates status 1, and the helper runs
+    at top level in `aitask_setup.sh`'s `main()` under `set -euo pipefail` — so
+    on **every tarball-installed repo** (where `seed/` is deleted, i.e. the
+    common case) it would have aborted the entire `ait setup` run. Caught by a
+    manual spot-check, not by a test; fixed with explicit `return 0` on every
+    exit path, and now pinned by T3c. Note the *first* guard
+    (`[[ -f target ]] && return`) is not affected: when the test succeeds
+    `return` yields 0. Same hazard class as t1193 and the dangling-symlink guard
+    in `ensure_agent_config_seeds()`.
+  - **Two review iterations**, both doc/test-integrity issues — see Post-Review
+    Changes above.
+
+- **Key decisions:**
+  - *Comment-only template over seeding real values.* The old seed hardcoded
+    `interval: 30` / `max_concurrent: 3`, byte-identical to
+    `DEFAULT_INTERVAL`/`DEFAULT_MAX_CONCURRENT` in `agentcrew_runner.py`.
+    Seeding it verbatim would have made those constants dead code free to drift.
+    Commenting both keys keeps Python the single source of truth while still
+    giving users a discoverable knob. `read_yaml()` returns `{}` for such a file,
+    so resolution is byte-for-byte identical to the absent-file path (asserted).
+  - *Copy-if-absent instead of `merge_seed yaml`.* A `--force` merge would
+    `safe_dump` an empty mapping and rewrite the file to a bare `{}`, destroying
+    the documentation that is its entire payload. Precedent:
+    `install_seed_doc_update_guide()`.
+  - *Scoped the setup helper honestly rather than adding a second template
+    location.* Tarball repos are covered by `install.sh`, which `ait upgrade`
+    re-runs with `--force` (`aitask_upgrade.sh:141-152`). The t1147 pattern (a
+    canonical reference under `.aitask-scripts/`, like `gates_reference.yaml`)
+    would close the remaining `ait setup`-only repair gap, but it would change
+    `populate_data_branch_seed_metadata()`'s signature and therefore t1194's
+    guard call site — disproportionate for a file whose absence costs nothing at
+    runtime. The residual is documented in the helper's comment and pinned by
+    T3c rather than left as a claim.
+  - *Every regression the harness guards was verified to fail it* (uncommented
+    key → 3 failures; bare `return` → T3c; installer unwired from `main()` →
+    T2), each exiting 1.
+
+- **Upstream defects identified:**
+  - `tests/test_crew_runner.sh:762 — footer reads a file-backed COUNTER_FILE that
+    no assertion writes, so the suite prints "FAIL:" lines and still exits 0;
+    all 19 tests are unenforced in CI.` The file initialises `COUNTER_FILE` with
+    `_inc_pass`/`_inc_fail` helpers, but every assertion goes through the shared
+    `tests/lib/asserts.sh` helpers, which mutate shell-global `PASS`/`FAIL`/
+    `TOTAL` — values that are additionally lost across the file's `( … )`
+    subshells. Introduced by the t923 migration to shared asserts, which
+    orphaned the file-based counters that existed precisely to survive
+    subshells. Reproduced at HEAD (before this task's changes): a deliberately
+    broken assertion printed `FAIL:` and the script still exited 0. Fixing it
+    means reworking the subshell/counter structure of all 18 pre-existing tests,
+    so it was left out of t1196's scope.
