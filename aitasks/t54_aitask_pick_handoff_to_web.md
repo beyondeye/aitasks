@@ -7,7 +7,7 @@ status: Ready
 labels: []
 created_at: 2026-02-08 08:04
 updated_at: 2026-02-08 08:04
-boardidx: 120
+boardidx: 110
 boardcol: backlog
 ---
 
