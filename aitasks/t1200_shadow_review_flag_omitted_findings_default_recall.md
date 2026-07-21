@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [shadow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1158
 created_at: 2026-07-21 11:34
-updated_at: 2026-07-21 11:34
+updated_at: 2026-07-21 11:35
 ---
 
 The shadow agent's implementation review (`aitask-shadow` → `impl-challenge.md`)
