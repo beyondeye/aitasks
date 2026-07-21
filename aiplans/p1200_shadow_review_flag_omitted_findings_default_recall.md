@@ -388,10 +388,10 @@ updating `DISPOSITIONS` **and** every site in `SITES`.
   anti-drop may therefore only **partially** lift Default's finding volume — some
   of the user's symptom may be inherent to the legacy methodology, and the real
   remedy would be "use Advanced"
-  · severity: medium · → mitigation: shadow_default_tier_recall_reassessment
+  · severity: medium · → mitigation: t1203 (shadow_default_tier_recall_reassessment)
 
 ### Planned mitigations
-- timing: after | name: shadow_default_tier_recall_reassessment | type: enhancement | priority: low | effort: medium | addresses: goal-achievement risk 2 (Default keeps its legacy methodology, so the fix may only partially lift finding volume) | desc: After live use, re-assess whether the Default tier's finding volume actually recovered; if the legacy three-axis one-pass methodology is itself the limiter, decide between promoting Advanced as the routed default or retiring Default
+- timing: after | name: shadow_default_tier_recall_reassessment | created: t1203 | type: enhancement | priority: low | effort: medium | addresses: goal-achievement risk 2 (Default keeps its legacy methodology, so the fix may only partially lift finding volume) | desc: After live use, re-assess whether the Default tier's finding volume actually recovered; if the legacy three-axis one-pass methodology is itself the limiter, decide between promoting Advanced as the routed default or retiring Default
 
 ## Step 9 (Post-Implementation)
 
