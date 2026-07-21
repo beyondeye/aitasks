@@ -89,6 +89,8 @@ assert_eq "path(100)"  "archived/_b0/old1.tar.zst"           "$(archive_path_for
 assert_eq "path(999)"  "archived/_b0/old9.tar.zst"           "$(archive_path_for_id 999 "archived")"
 assert_eq "path(1000)" "archived/_b1/old10.tar.zst"          "$(archive_path_for_id 1000 "archived")"
 assert_eq "path(5432)" "aitasks/archived/_b5/old54.tar.zst"  "$(archive_path_for_id 5432 "aitasks/archived")"
+assert_eq "path(non-numeric) -> empty (no arithmetic crash under set -u)" \
+    "" "$(archive_path_for_id t1183 "archived")"
 
 # --- Group D: _search_archive() ---
 echo "--- Group D: _search_archive() ---"
@@ -139,6 +141,9 @@ assert_eq "find archive for task 150" "$TMPDIR_F/aitasks/archived/_b0/old1.tar.z
 
 result=$(_find_archive_for_task 9999 "$TMPDIR_F/aitasks/archived")
 assert_eq "find archive for nonexistent returns empty" "" "$result"
+
+result=$(_find_archive_for_task t1183 "$TMPDIR_F/aitasks/archived")
+assert_eq "find archive for non-numeric id returns empty" "" "$result"
 rm -rf "$TMPDIR_F"
 
 # --- Group G: _search_all_archives() ---

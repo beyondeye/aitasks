@@ -193,6 +193,14 @@ TMPDIR_10=$(setup_test_env)
 source_scan
 result=$(search_archived_task "150" "$TMPDIR_10/aitasks/archived")
 assert_eq "Search not found" "NOT_FOUND" "$result"
+
+# Non-numeric id: NOT_FOUND with no arithmetic crash noise (set -u)
+err_log=$(mktemp)
+result=$(search_archived_task "t1183" "$TMPDIR_10/aitasks/archived" 2>"$err_log")
+assert_eq "Search non-numeric id -> NOT_FOUND" "NOT_FOUND" "$result"
+assert_not_contains "Search non-numeric id is noise-free" \
+    "unbound variable" "$(cat "$err_log")"
+rm -f "$err_log"
 rm -rf "$TMPDIR_10"
 
 # --- Test 11: search_archived_task -- O(1) lookup correctness ---

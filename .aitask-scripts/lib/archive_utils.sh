@@ -50,6 +50,9 @@ archive_path_for_id() {
     local task_id="$1"
     local archived_dir="$2"
     local bundle dir
+    # Non-numeric ids (e.g. "t1183") cannot be bundled — return empty instead
+    # of crashing on the arithmetic under set -u.
+    [[ "$task_id" =~ ^[0-9]+$ ]] || return 0
     bundle=$(( task_id / 100 ))
     dir=$(( bundle / 10 ))
     echo "${archived_dir}/_b${dir}/old${bundle}.tar.zst"
@@ -155,6 +158,7 @@ _find_archive_for_task() {
     local archived_dir="$2"
     local zst_path gz_path
     zst_path=$(archive_path_for_id "$task_id" "$archived_dir")
+    [[ -z "$zst_path" ]] && return 0
     if [[ -f "$zst_path" ]]; then
         echo "$zst_path"
         return
@@ -199,19 +203,21 @@ _search_numbered_then_legacy() {
     # Try numbered archive first (O(1) lookup): .tar.zst then .tar.gz
     local zst_path gz_path match
     zst_path=$(archive_path_for_id "$task_id" "$archived_dir")
-    if [[ -f "$zst_path" ]]; then
-        match=$(_search_archive "$zst_path" "$pattern")
-        if [[ -n "$match" ]]; then
-            echo "${zst_path}:${match}"
-            return
+    if [[ -n "$zst_path" ]]; then
+        if [[ -f "$zst_path" ]]; then
+            match=$(_search_archive "$zst_path" "$pattern")
+            if [[ -n "$match" ]]; then
+                echo "${zst_path}:${match}"
+                return
+            fi
         fi
-    fi
-    gz_path="${zst_path%.tar.zst}.tar.gz"
-    if [[ -f "$gz_path" ]]; then
-        match=$(_search_archive "$gz_path" "$pattern")
-        if [[ -n "$match" ]]; then
-            echo "${gz_path}:${match}"
-            return
+        gz_path="${zst_path%.tar.zst}.tar.gz"
+        if [[ -f "$gz_path" ]]; then
+            match=$(_search_archive "$gz_path" "$pattern")
+            if [[ -n "$match" ]]; then
+                echo "${gz_path}:${match}"
+                return
+            fi
         fi
     fi
 

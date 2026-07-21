@@ -78,11 +78,26 @@ acquire_gate_lock() {
             die "Failed to acquire gate append lock for $key after $max_retries attempts"
         fi
         if [[ -d "$lock_dir" ]]; then
-            local lock_age
-            lock_age=$(( $(date +%s) - $(stat -c %Y "$lock_dir" 2>/dev/null || stat -f %m "$lock_dir" 2>/dev/null || echo "0") ))
-            if [[ "$lock_age" -gt 120 ]]; then
-                warn "Removing stale gate lock for $key (age: ${lock_age}s)"
-                rmdir "$lock_dir" 2>/dev/null || true
+            local lock_mtime lock_age
+            if lock_mtime=$(stat -c %Y "$lock_dir" 2>/dev/null || stat -f %m "$lock_dir" 2>/dev/null); then
+                lock_age=$(( $(date +%s) - lock_mtime ))
+                if [[ "$lock_age" -gt 120 ]]; then
+                    # Single-winner reclaim: rename is atomic, so only one
+                    # waiter can claim the stale dir, and a lock re-acquired
+                    # at this path after the rename is never touched. The
+                    # preflight rm clears a quarantine dir leaked by a dead
+                    # PID-reused process (mv onto an existing dir would nest
+                    # instead of replacing).
+                    local stale_dest="${lock_dir}.stale.$$"
+                    rm -rf "$stale_dest" 2>/dev/null || true
+                    if mv "$lock_dir" "$stale_dest" 2>/dev/null; then
+                        warn "Removing stale gate lock for $key (age: ${lock_age}s)"
+                        rmdir "$stale_dest" 2>/dev/null || true
+                    fi
+                    continue
+                fi
+            else
+                # Lock vanished between -d and stat — retry mkdir immediately.
                 continue
             fi
         fi

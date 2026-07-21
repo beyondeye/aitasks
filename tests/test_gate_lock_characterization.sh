@@ -25,10 +25,12 @@
 #   Test 4b (deterministic append/materialize contention) must still pass
 #   Test 5  (trap releases lock on die)             must still pass
 #   Test 6  (stale >120s lock reclaimed with warn)  must still pass
+#   Test 6b (stale reclaim under contention)        must still pass
+#   Test 7  (vanished-dir stat-fail -> clean retry) must still pass
 #
-#   Tests 1/4/4b/5/6 build their pre-held and asserted lock paths through the
-#   key_for_id() helper below — after t635_30 lands, update that ONE helper to
-#   the resolved-basename derivation (for this fixture: `t<id>_x`) and they
+#   Tests 1/4/4b/5/6/6b/7 build their pre-held and asserted lock paths through
+#   the key_for_id() helper below — after t635_30 lands, update that ONE helper
+#   to the resolved-basename derivation (for this fixture: `t<id>_x`) and they
 #   keep passing. Only 2a/2b hardcode both spellings, deliberately: they ARE
 #   the characterization of the derivation and must have their outcomes
 #   swapped, not re-keyed.
@@ -76,6 +78,8 @@ LOCK_DIRS=(
     /tmp/aitask_gate_lock_987654
     /tmp/aitask_gate_lock_987655
     /tmp/aitask_gate_lock_987656
+    /tmp/aitask_gate_lock_987657
+    /tmp/aitask_gate_lock_987658
     /tmp/aitask_gate_lock_t987651_x
     /tmp/aitask_gate_lock_t987652
     /tmp/aitask_gate_lock_t987652_x
@@ -83,13 +87,18 @@ LOCK_DIRS=(
     /tmp/aitask_gate_lock_t987654_x
     /tmp/aitask_gate_lock_t987655_x
     /tmp/aitask_gate_lock_t987656_x
+    /tmp/aitask_gate_lock_t987657_x
+    /tmp/aitask_gate_lock_t987658_x
 )
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test_gatelock_XXXXXX")"
 cleanup() {
     rm -rf "$TMP"
     local d
-    for d in "${LOCK_DIRS[@]}"; do rmdir "$d" 2>/dev/null || true; done
+    for d in "${LOCK_DIRS[@]}"; do
+        rmdir "$d" 2>/dev/null || true
+        rm -rf "$d".stale.* 2>/dev/null || true
+    done
 }
 trap cleanup EXIT
 
@@ -115,7 +124,7 @@ gates: [tests_pass]
 Body for t${id}.
 EOF
 }
-for id in 987651 987652 987653 987654 987655 987656; do make_task "$id"; done
+for id in 987651 987652 987653 987654 987655 987656 987657 987658; do make_task "$id"; done
 
 run_gate() {
     ( cd "$TMP" && TASK_DIR=aitasks "$GATE" "$@" )
@@ -184,6 +193,8 @@ out="$(run_gate append t987652 tests_pass pass 2>&1)"; rc=$?
 assert_exit_nonzero_rc "append t<id> exits nonzero" "$rc"
 assert_contains "t-spelling fails task resolution (before any lock)" \
     "No task file found" "$out"
+assert_not_contains "t-spelling resolve failure is noise-free (no archive_utils arithmetic crash)" \
+    "unbound variable" "$out"
 assert_eq "no ledger block appended by the t-spelling call" \
     "1" "$(marker_count 987652)"
 assert_dir_not_exists "no lock dir was ever created for the t-spelled key" \
@@ -277,6 +288,59 @@ assert_contains "stale reclaim warns" "Removing stale gate lock" "$out"
 assert_eq "ledger block written after reclaim" "1" "$(marker_count 987655)"
 assert_dir_not_exists "reclaimed-then-taken lock released on exit" \
     "$(lock_dir_for_id 987655)"
+
+# ============================================================
+echo "--- Test 6b: stale lock reclaimed under contention (single-winner mv) ---"
+# ============================================================
+mkdir "$(lock_dir_for_id 987657)"
+touch -t 202001010000 "$(lock_dir_for_id 987657)"
+run_gate append 987657 tests_pass pass >/dev/null 2>"$TMP/t6b_err_1.log" &
+run_gate append 987657 tests_pass pass >/dev/null 2>"$TMP/t6b_err_2.log" &
+wait
+
+if [[ "$(marker_count 987657)" != "2" ]]; then
+    echo "DIAG: stale-reclaim contention anomaly — contender stderr follows:"
+    cat "$TMP"/t6b_err_*.log
+fi
+assert_eq "2 contenders through a stale lock -> 2 ledger blocks (no lost update)" \
+    "2" "$(marker_count 987657)"
+for a in 1 2; do
+    assert_eq "reclaim-path attempt=$a present exactly once" \
+        "1" "$(grep -c "attempt=${a}\$" "$TMP/aitasks/t987657_x.md")"
+done
+assert_contains "at least one contender reclaimed the stale lock with warn" \
+    "Removing stale gate lock" "$(cat "$TMP"/t6b_err_*.log)"
+assert_dir_not_exists "stale-reclaimed lock released after both exits" \
+    "$(lock_dir_for_id 987657)"
+
+# ============================================================
+echo "--- Test 7: vanished-dir stat failure -> clean mkdir retry (the TOCTOU) ---"
+# ============================================================
+# Deterministic reproduction of the observed race: mkdir fails, -d succeeds,
+# then the lock dir vanishes before stat runs. A PATH shim intercepts stat for
+# this one lock path, removes the dir, and fails — the fixed code must retry
+# mkdir immediately instead of classifying age≈now as stale (the old
+# `|| echo "0"` fallback warned "Removing stale gate lock" here).
+REAL_STAT="$(command -v stat)"
+T7_LOCK="$(lock_dir_for_id 987658)"
+mkdir -p "$TMP/bin"
+cat > "$TMP/bin/stat" <<EOF
+#!/bin/sh
+case "\$*" in
+  *${T7_LOCK}*) rmdir "${T7_LOCK}" 2>/dev/null; exit 1 ;;
+  *) exec "$REAL_STAT" "\$@" ;;
+esac
+EOF
+chmod +x "$TMP/bin/stat"
+
+mkdir "$T7_LOCK"   # fresh mtime: only the shim can make stat fail on it
+out="$( cd "$TMP" && PATH="$TMP/bin:$PATH" TASK_DIR=aitasks \
+    "$GATE" append 987658 tests_pass pass 2>&1 )"; rc=$?
+assert_exit_zero_rc "append succeeds through the vanished-dir stat-fail path" "$rc"
+assert_not_contains "stat failure is 'lock vanished — retry', never a stale reclaim" \
+    "Removing stale gate lock" "$out"
+assert_eq "ledger block written after the clean retry" "1" "$(marker_count 987658)"
+assert_dir_not_exists "lock released on exit" "$T7_LOCK"
 
 echo ""
 echo "========================="

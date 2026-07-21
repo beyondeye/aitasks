@@ -113,22 +113,25 @@ search_archived_task() {
         pattern="(^|/)t${id}_.*\.md$"
     fi
 
-    # O(1) lookup: try .tar.zst first, then .tar.gz
+    # O(1) lookup: try .tar.zst first, then .tar.gz (empty path = non-numeric
+    # bucket id, which no numbered archive can hold — legacy fallback only)
     local zst_path gz_path tar_match
     zst_path=$(archive_path_for_id "$bucket_id" "$archived_dir")
-    if [[ -f "$zst_path" ]]; then
-        tar_match=$(_search_archive "$zst_path" "$pattern")
-        if [[ -n "$tar_match" ]]; then
-            echo "ARCHIVED_TASK_ARCHIVE:${zst_path}:${tar_match}"
-            return
+    if [[ -n "$zst_path" ]]; then
+        if [[ -f "$zst_path" ]]; then
+            tar_match=$(_search_archive "$zst_path" "$pattern")
+            if [[ -n "$tar_match" ]]; then
+                echo "ARCHIVED_TASK_ARCHIVE:${zst_path}:${tar_match}"
+                return
+            fi
         fi
-    fi
-    gz_path="${zst_path%.tar.zst}.tar.gz"
-    if [[ -f "$gz_path" ]]; then
-        tar_match=$(_search_archive "$gz_path" "$pattern")
-        if [[ -n "$tar_match" ]]; then
-            echo "ARCHIVED_TASK_ARCHIVE:${gz_path}:${tar_match}"
-            return
+        gz_path="${zst_path%.tar.zst}.tar.gz"
+        if [[ -f "$gz_path" ]]; then
+            tar_match=$(_search_archive "$gz_path" "$pattern")
+            if [[ -n "$tar_match" ]]; then
+                echo "ARCHIVED_TASK_ARCHIVE:${gz_path}:${tar_match}"
+                return
+            fi
         fi
     fi
 

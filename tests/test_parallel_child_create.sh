@@ -74,6 +74,7 @@ TASK
 # Clean up stale locks that might interfere with tests
 cleanup_locks() {
     rmdir /tmp/aitask_child_lock_100 2>/dev/null || true
+    rm -rf /tmp/aitask_child_lock_100.stale.* 2>/dev/null || true
 }
 
 # Disable strict mode for test error handling
@@ -192,6 +193,45 @@ assert_eq "Stale lock: child file created" "1" "$child_exists"
 
 cleanup_locks
 rm -rf "$TMPDIR_3"
+echo ""
+
+# --- Test 3b: Vanished-dir stat failure -> clean mkdir retry (TOCTOU) ---
+echo "--- Test 3b: Vanished lock dir during stat -> clean retry ---"
+
+cleanup_locks
+TMPDIR_3B="$(setup_test_repo)"
+
+# Deterministic reproduction of the stale-reclaim TOCTOU: mkdir fails, -d
+# succeeds, then the lock dir vanishes before stat runs. A PATH shim
+# intercepts stat for this one lock path, removes the dir, and fails — the
+# fixed code must retry mkdir immediately instead of classifying age≈now as
+# stale (the old `|| echo "0"` fallback warned "Removing stale child lock").
+REAL_STAT="$(command -v stat)"
+mkdir -p "$TMPDIR_3B/bin"
+cat > "$TMPDIR_3B/bin/stat" <<EOF
+#!/bin/sh
+case "\$*" in
+  *aitask_child_lock_100*) rmdir /tmp/aitask_child_lock_100 2>/dev/null; exit 1 ;;
+  *) exec "$REAL_STAT" "\$@" ;;
+esac
+EOF
+chmod +x "$TMPDIR_3B/bin/stat"
+
+mkdir -p /tmp/aitask_child_lock_100   # fresh mtime: only the shim fails stat
+output=$(cd "$TMPDIR_3B" && PATH="$TMPDIR_3B/bin:$PATH" \
+    ./.aitask-scripts/aitask_create.sh --batch --parent 100 \
+    --name "after_vanished_lock" --type feature --priority medium --effort low \
+    --desc "Created after vanished-lock stat failure" --commit 2>&1)
+exit_code=$?
+
+assert_eq "Vanished lock: creation succeeded" "0" "$exit_code"
+assert_not_contains "Vanished lock: no stale-reclaim warn (clean mkdir retry)" \
+    "Removing stale child lock" "$output"
+child_exists=$(ls "$TMPDIR_3B/aitasks/t100/"t100_1_*.md 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "Vanished lock: child file created" "1" "$child_exists"
+
+cleanup_locks
+rm -rf "$TMPDIR_3B"
 echo ""
 
 # --- Test 4: Lock contention with delay ---
