@@ -12,11 +12,12 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [1203]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1158
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-21 11:34
-updated_at: 2026-07-21 12:11
+updated_at: 2026-07-21 12:25
 ---
 
 The shadow agent's implementation review (`aitask-shadow` → `impl-challenge.md`)
