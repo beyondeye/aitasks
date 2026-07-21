@@ -215,3 +215,87 @@ which reads as "you forgot the installer" when in fact it exists. So:
 ## Step 9 (Post-Implementation)
 
 Merge, gate run (`risk_evaluated`), archival per the shared workflow.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-21 11:40) — pre-implementation, on the plan
+
+- **Requested by user:** three concerns on the draft plan — (1) the missing-anchor
+  failure could still be masked by the helper wrapper (`set +eu`, unconditional
+  `snapshot`, and `for fn in $(wired_installers …)` swallowing a nonzero status);
+  (2) the fix kept the old name-anywhere grep, so it was still not a true
+  call-site check; (3) no developer-facing diagnostic naming the position
+  contract.
+- **Changes made:** all three verified valid against live source and folded into
+  the plan before implementation — capture-then-check inside the subprocess plus
+  rc/stderr propagation and a `DERIVATION_FAILED` poison manifest in the wrapper;
+  a tightened command-position matcher (`calls_installer`); and
+  `list_postcleanup_installers` feeding explicit position text into the Test 2
+  and Test 6 failure messages. Integration-level anchor controls were added
+  alongside the direct helper controls.
+- **Files affected:** the plan only (this change request predates implementation).
+
+### Change Request 2 (2026-07-21 12:05) — at Step 8 review
+
+- **Requested by user:** (1) blocking — `.claude/settings.local.json` was modified
+  and must not land in a test-only commit; (2) follow-up — Test 2 still compared
+  the poisoned manifest against the full setup manifest, so an anchor loss also
+  emitted ~19 spurious `SETUP_ONLY` lines, weakening the plan's "not broad drift"
+  claim.
+- **Changes made:** (1) verified the settings diff is pre-existing (already `M` at
+  session start, unrelated permission-allowlist entries) — deliberately **not**
+  reverted, and excluded from the commit by staging `tests/` by explicit path;
+  (2) upgraded from follow-up to in-change: Test 2 now captures
+  `derive_install_manifest`'s rc and short-circuits, skipping the comparison
+  entirely on derivation failure.
+- **Files affected:** `tests/test_seed_manifest_drift.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done:** `tests/test_seed_manifest_drift.sh` only (+~290/−35); no
+  production code changed. Added the shared `WIRING_SRC` seam (anchor constant,
+  `require_anchor`, `main_body_before_cleanup` / `main_body_after_cleanup`,
+  `splice_probe_wiring`, `calls_installer`, `all_installers`,
+  `wired_installers`, `postcleanup_installers`), rewired
+  `derive_install_manifest` (new `probe_position` param, splice instead of
+  append, rc + stderr propagation, `DERIVATION_FAILED` poison manifest) and
+  `list_unwired_installers` / new `list_postcleanup_installers` (both via a
+  shared `_installer_wiring_report`), added position diagnostics to the Test 2
+  and Test 6 failure messages, and added Tests 9–11. Assertions went 28 → 44.
+
+- **Deviations from plan:** none in substance. Two additions made during
+  implementation: the Test 2 rc short-circuit (Change Request 2), and suppressing
+  the `ANCHOR_MISSING` sentinel from the post-cleanup diagnostic blocks so a
+  failed wiring check is not restated as a finding.
+
+- **Issues encountered:**
+  - *A first defect simulation gave a false pass.* The python edit that was
+    supposed to **move** `install_seed_tmux_conf` past the cleanup only
+    **added** a second call site (the original block did not match), leaving it
+    wired both pre- and post-cleanup; and `install_seed_tmux_conf` writes to
+    `.aitask-scripts/templates/`, not `aitasks/metadata/`, so it cannot move the
+    manifest at all. Redone with `install_seed_task_types` and assertion-guarded
+    string replacement (`assert s.count(old)==1`) so a non-matching edit fails
+    loudly instead of silently no-op'ing.
+  - *Subprocess exit status.* The installer loop's last command determines the
+    subprocess status, so a benign installer returning nonzero would have been
+    misreported as `DERIVATION_FAILED`. Fixed with an explicit `exit 0` after the
+    loop, leaving `exit 3` as the sole failure signal.
+
+- **Key decisions:**
+  - One shared `eval`'d source string rather than duplicating the truncation in
+    the two `bash -c` subprocesses — duplication is precisely the drift this
+    guard exists to catch.
+  - Bash prefix/suffix removal (`${body%%"$ANCHOR"*}`) rather than `sed`: no
+    escaping of the `$` and `/` in the anchor, and no BSD-vs-GNU divergence.
+  - Tightened the matcher to command position rather than merely documenting the
+    limitation. Verified all 18 current installers still match and that an
+    `info "…install_seed_x…"` mention no longer does. The failure direction is
+    loud (a missed call reports as *unwired*), never a silent pass. Residual
+    limitation is commented in the source.
+  - Verified with **independent ground truth**: the same broken `install.sh`
+    (with `install_seed_task_types` wired post-cleanup) makes the pre-fix guard
+    report *28 passed / 0 failed* and the fixed guard report 12 failures naming
+    the installer — proving the fix, not the fixture, is what catches it.
+
+- **Upstream defects identified:** None
