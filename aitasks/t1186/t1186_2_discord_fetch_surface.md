@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1149
+implemented_with: claudecode/fable5
 created_at: 2026-07-20 19:30
-updated_at: 2026-07-21 10:03
+updated_at: 2026-07-21 10:52
 ---
 
 ## Context
@@ -108,3 +109,8 @@ The new helper must ensure the guild member list is actually populated.
   the aggregate manual-verification sibling (unchunked-cache scenario on a real server,
   including a member without channel visibility being excluded).
 - `bash tests/test_chatlink_wizard.sh` and all other chatlink tests green.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-21T07:52:57Z status=pass attempt=1 type=human
