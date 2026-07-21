@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1149
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 19:30
-updated_at: 2026-07-21 11:07
+updated_at: 2026-07-21 11:17
 ---
 
 ## Context
@@ -87,3 +88,8 @@ all set by steps 1-2, so the move is safe.
 - `bash tests/test_chatlink_wizard.sh` green (headless helpers untouched).
 - Manual sanity: wizard walk shows derived numbering on every screen with no "N/7"
   drift (aggregate manual-verification sibling covers the live walkthrough).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-21T08:18:01Z status=pass attempt=1 type=human
