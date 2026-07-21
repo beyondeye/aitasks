@@ -6,6 +6,7 @@ issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
 verifies: [1194]
+anchor: 1171
 created_at: 2026-07-21 11:07
 updated_at: 2026-07-21 11:07
 ---

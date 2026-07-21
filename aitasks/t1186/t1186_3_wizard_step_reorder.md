@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1186_2]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1149
 created_at: 2026-07-20 19:30
-updated_at: 2026-07-20 19:30
+updated_at: 2026-07-21 11:07
 ---
 
 ## Context
