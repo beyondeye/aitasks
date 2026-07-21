@@ -23,7 +23,7 @@
   - No GNU-only tool flags (`readlink -f`, `stat -c`, `sed -i`, `grep -P`, `timeout`) anywhere in the test or the guard; `ensure_data_root` uses only plain `readlink`, `mkdir -p`, `rm -f`, and `git`.
   - `shellcheck -s bash` clean apart from SC1091 (unfollowed source).
 - **Residual risk (the only OS-dependent assumption):** Test 3's negative control asserts that an unguarded `mkdir -p` through a dangling symlink exits non-zero. BSD `mkdir(1)`'s `build()` does `stat()` → `ENOENT` → `mkdir()` → `EEXIST` → error, so the same failure is expected on macOS, but this was not executed on a real host.
-- **Verdict:** defer — needs a macOS/BSD host.
+- **Verdict:** skip at the interactive checkpoint — needs a macOS/BSD host. Moved to low-priority follow-up **t1206** (`aitasks/t1206_run_install_create_data_dirs_test_on_macos.md`), which carries the item plus these audit findings, rather than being dropped.
 
 ### Item 2 — Real branch-mode recovery via `ait upgrade`
 
