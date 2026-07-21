@@ -218,7 +218,7 @@ async def main():
     # ---- config wizard walk (t1149_3) ------------------------------------
     import stat
     import yaml
-    from textual.widgets import Button, Input
+    from textual.widgets import Button, Input, SelectionList
 
     wtmp = Path(tempfile.mkdtemp(prefix="chatlink-wizard-tui-test-"))
     (wtmp / "sessions").mkdir()
@@ -270,12 +270,41 @@ async def main():
                         fix_hint="re-invite the bot"),
         ]
 
+    # Allowlist picker seam spy (t1186_4): the wizard must never fetch on
+    # its own — only an explicit "Fetch from Discord" press calls this.
+    from chatlink.allowlist_fetch import AllowlistFetchResult
+    ALICE, BOB, CAROL = ("100000000000000001", "100000000000000002",
+                         "100000000000000003")
+    MODS, DEVS = "200000000000000001", "200000000000000002"
+
+    def canned(**kw):
+        base = dict(members=[(ALICE, "alice"), (BOB, "bob"),
+                             (CAROL, "carol")],
+                    roles=[(MODS, "mods"), (DEVS, "devs")])
+        base.update(kw)
+        return AllowlistFetchResult(**base)
+
+    wiz_fetch = {"n": 0, "args": None, "result": None, "raise": False}
+    fetch_block = threading.Event()
+    fetch_mode = {"block": False}
+
+    def wiz_spy_fetch(token, workspace_id, conversation_id, thread_id=None,
+                      **_kw):
+        wiz_fetch["n"] += 1
+        wiz_fetch["args"] = (token, workspace_id, conversation_id, thread_id)
+        if fetch_mode["block"]:
+            fetch_block.wait(timeout=10)
+        if wiz_fetch["raise"]:
+            raise RuntimeError("fetch exploded")
+        return wiz_fetch["result"] if wiz_fetch["result"] else canned()
+
     def make_wizard_app():
         return ChatlinkApp(
             sessions_dir=wtmp / "sessions", clock=lambda: now,
             cheap_runner=fake_cheap, expensive_runner=wiz_spy_expensive,
             wizard_config_path=config_path, token_writer=token_writer,
-            live_runner=wiz_spy_live)
+            live_runner=wiz_spy_live,
+            allowlist_fetch_runner=wiz_spy_fetch)
 
     # --- abort mid-wizard: zero writes ---
     app2 = make_wizard_app()
@@ -564,6 +593,505 @@ async def main():
         await pilot.pause()
         await app4.action_quit()
     live_mode["block"] = False
+
+    # ---- allowlist picker UI (t1186_4) ---------------------------------
+    # Per-dimension modes + live Discord pickers. The pinned invariant is
+    # that a picker's ticked set is ALWAYS `active list ∩ visible rows`
+    # with the Input as the source of truth; several cases below fail
+    # against designs that only reconcile at rebuild time.
+    check("fetch seam untouched by walks that never pressed Fetch",
+          wiz_fetch["n"] == 0)
+
+    def opt_prompts(picker):
+        return [str(picker.get_option_at_index(i).prompt)
+                for i in range(picker.option_count)]
+
+    async def goto_allowlist(app, pilot, *, workspace="111",
+                             conversation="222"):
+        """Walk the real wizard chain to the allowlist step."""
+        await pilot.press("w")
+        await pilot.pause()
+        scr = app.screen
+        scr.query_one("#wiz_provider", Input).value = "discord"
+        scr.query_one("#wiz_workspace", Input).value = workspace
+        scr.query_one("#wiz_conversation", Input).value = conversation
+        scr.query_one("#wiz_conversation", Input).focus()
+        await pilot.press("enter")            # -> token
+        await pilot.pause()
+        app.screen.query_one("#wiz_token", Input).focus()
+        await pilot.press("enter")            # keep stored token -> live
+        await pilot.pause()
+        await pilot.click("#btn_wiz_next")    # Continue -> allowlist
+        await pilot.pause()
+        return app.screen
+
+    TYPED = "900000000000000009"              # never in the fetched set
+
+    # --- picker basics, the Input<->ticks invariant, filter, mode toggle ---
+    app5 = make_wizard_app()
+    async with app5.run_test(size=(110, 60)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app5, pilot)
+        check("walk reaches the allowlist step",
+              isinstance(scr, wiz.AllowlistScreen))
+        check("fetch seam not called before pressing Fetch",
+              wiz_fetch["n"] == 0)
+
+        # One typed id that IS among the fetched rows, one that is not.
+        scr.query_one("#wiz_user_ids", Input).value = f"{ALICE}, {TYPED}"
+        await pilot.pause()
+        await pilot.click("#btn_wiz_fetch")
+        await app5.workers.wait_for_complete()
+        await pilot.pause()
+        check("fetch runner received the stored token + entered intake ids",
+              wiz_fetch["n"] == 1
+              and wiz_fetch["args"] == ("secret-token-123", "111", "222",
+                                        None))
+
+        members = scr.query_one("#wiz_member_list", SelectionList)
+        roles = scr.query_one("#wiz_role_list", SelectionList)
+        check("member rows render as '<name> (<id>)'",
+              opt_prompts(members) == [f"alice ({ALICE})", f"bob ({BOB})",
+                                       f"carol ({CAROL})"])
+        check("role rows populated from the same result",
+              opt_prompts(roles) == [f"mods ({MODS})", f"devs ({DEVS})"])
+        # INVARIANT: a typed id that is among the fetched rows starts ticked
+        # — otherwise the next selection would read it as "deselected".
+        check("typed id present in the fetched set starts selected",
+              set(members.selected) == {ALICE})
+        check("typed id outside the fetched set is left alone",
+              TYPED in scr._working["allowed_user_ids"])
+
+        # Keyboard path: highlight bob and toggle with the real binding.
+        members.focus()
+        members.highlighted = 1
+        await pilot.press("space")
+        await pilot.pause()
+        ids = scr.query_one("#wiz_user_ids", Input).value
+        check("selecting a fetched row rewrites the Input",
+              BOB in ids)
+        check("manually typed ids survive fetch + selection",
+              ALICE in ids and TYPED in ids)
+
+        # Type an id AFTER the rows were built, with NO rebuild in between,
+        # then change a selection: the typed id must survive.
+        scr.query_one("#wiz_user_ids", Input).value = f"{ids}, {CAROL}"
+        await pilot.pause()
+        check("id typed after the rebuild ticks its row",
+              CAROL in set(members.selected))
+        members.toggle(ALICE)                 # deselect
+        await pilot.pause()
+        ids = scr.query_one("#wiz_user_ids", Input).value
+        check("deselecting a visible row removes exactly that id",
+              ALICE not in ids)
+        check("id typed after the rebuild survives a later selection change",
+              CAROL in ids and BOB in ids and TYPED in ids)
+
+        # Filtering narrows rows only.
+        before_working = {k: list(v) for k, v in scr._working.items()}
+        scr.query_one("#wiz_fetch_filter", Input).value = "bob"
+        await pilot.pause()
+        check("filter narrows the visible member rows",
+              opt_prompts(members) == [f"bob ({BOB})"])
+        check("filtering mutates neither the Input nor the working lists",
+              scr.query_one("#wiz_user_ids", Input).value == ids
+              and {k: list(v) for k, v in scr._working.items()}
+              == before_working)
+        check("a selected id filtered out of view is still kept",
+              CAROL in scr._working["allowed_user_ids"])
+        # Change a VISIBLE row's state while another selected id is hidden
+        # by the filter: the hidden one must survive. This is the reason
+        # `preserved` is computed against the VISIBLE set rather than the
+        # whole fetched set — `sl.selected` only ever reports visible rows.
+        members.toggle(BOB)
+        await pilot.pause()
+        check("a hidden-but-selected id survives a selection change",
+              CAROL in scr._working["allowed_user_ids"]
+              and TYPED in scr._working["allowed_user_ids"]
+              and BOB not in scr._working["allowed_user_ids"])
+        members.toggle(BOB)                   # restore
+        await pilot.pause()
+        scr.query_one("#wiz_fetch_filter", Input).value = ""
+        await pilot.pause()
+
+        # Mode toggle after a selection.
+        allowed_before = list(scr._working["allowed_user_ids"])
+        scr.query_one("#wiz_user_mode", wiz.CycleField).cycle_next()
+        await pilot.pause()
+        check("mode toggle switches the user dimension to denylist",
+              scr._modes["user"] == "denylist")
+        check("the selection landed only in the previously active list",
+              scr._working["allowed_user_ids"] == allowed_before
+              and scr._working["denied_user_ids"] == [])
+        check("the Input now shows the incoming (denied) list",
+              scr.query_one("#wiz_user_ids", Input).value == "")
+        check("the ids label relabels with the mode",
+              "Denied user ids"
+              in str(scr.query_one("#wiz_user_ids_label").render()))
+        check("picker ticks recomputed from the newly active list",
+              set(members.selected) == set())
+
+        members.toggle(BOB)
+        await pilot.pause()
+        check("a selection after the toggle writes to the NOW-active list",
+              scr._working["denied_user_ids"] == [BOB]
+              and scr._working["allowed_user_ids"] == allowed_before)
+
+        scr.query_one("#wiz_user_mode", wiz.CycleField).cycle_next()
+        await pilot.pause()
+        check("allowed -> denied -> allowed preserves both lists exactly",
+              scr._working["allowed_user_ids"] == allowed_before
+              and scr._working["denied_user_ids"] == [BOB])
+        check("the Input is restored to the allowed list",
+              set(scr._parse_ids(
+                  scr.query_one("#wiz_user_ids", Input).value))
+              == set(allowed_before))
+        check("a populated inactive list is disclosed on the screen",
+              "denied_user_ids is kept but ignored"
+              in str(scr.query_one("#wiz_user_inactive").render()))
+
+        # Rebuild echo: Textual posts SelectedChanged for every
+        # initial_state=True option and post_message QUEUES, so drain the
+        # pump and prove no rebuild ever looked like an operator action.
+        snapshot = {k: list(v) for k, v in scr._working.items()}
+        inputs_before = {d.input_id:
+                         scr.query_one(f"#{d.input_id}", Input).value
+                         for d in wiz._DIMENSIONS}
+        scr.query_one("#wiz_fetch_filter", Input).value = "o"
+        await pilot.pause()
+        scr.query_one("#wiz_fetch_filter", Input).value = ""
+        await pilot.pause()
+        await pilot.click("#btn_wiz_fetch")
+        await app5.workers.wait_for_complete()
+        await pilot.pause()
+        await pilot.pause()
+        check("fetch/filter/toggle rebuilds never write back (lists)",
+              {k: list(v) for k, v in scr._working.items()} == snapshot)
+        check("fetch/filter/toggle rebuilds never write back (Inputs)",
+              {d.input_id: scr.query_one(f"#{d.input_id}", Input).value
+               for d in wiz._DIMENSIONS} == inputs_before)
+
+        # Enter while narrowing must not advance the step.
+        scr.query_one("#wiz_fetch_filter", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("Enter in the picker filter does not advance the step",
+              app5.screen is scr)
+
+        scr.query_one("#wiz_user_ids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("a restricted posture advances silently",
+              isinstance(app5.screen, wiz.DenyRepoScreen))
+
+        app5.screen.query_one("#wiz_repo_name", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        app5.screen.query_one("#wiz_sandbox_pids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("ceilings advance to summary",
+              isinstance(app5.screen, wiz.SummaryScreen))
+        summary = str(app5.screen.query_one("#wiz_summary").render())
+        check("summary renders one line per authorization dimension",
+              "users: allowlist:" in summary
+              and "roles: allowlist: (none)" in summary)
+        check("summary discloses the non-empty inactive list",
+              f"denied_user_ids kept but ignored: {BOB}" in summary)
+
+        edits = wiz.build_edits(app5.screen.state)
+        check("build_edits omits the transient picker cache",
+              "_fetched" not in edits)
+        check("the cache key stores a token digest, never the raw token",
+              "secret-token-123" not in str(app5.screen.state["_fetched"]))
+
+        await pilot.click("#btn_wiz_next")
+        await app5.workers.wait_for_complete()
+        await pilot.pause()
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        check("saved config round-trips both modes and all four lists",
+              data["user_authorization_mode"] == "allowlist"
+              and data["role_authorization_mode"] == "allowlist"
+              and data["allowed_user_ids"] == allowed_before
+              and data["denied_user_ids"] == [BOB]
+              and data["allowed_role_ids"] == []
+              and data["denied_role_ids"] == [])
+        check("the transient picker cache never reaches the config file",
+              "_fetched" not in data)
+        await app5.action_quit()
+
+    # --- validation: snowflake shape + dedupe ---
+    app6 = make_wizard_app()
+    async with app6.run_test(size=(110, 60)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app6, pilot)
+        scr.query_one("#wiz_user_ids", Input).value = f"12345, {ALICE}"
+        await pilot.pause()
+        scr.query_one("#wiz_user_ids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        err = str(scr.query_one("#wizard_error").render())
+        check("an invalid snowflake blocks advance and names the bad token",
+              app6.screen is scr
+              and "not valid Discord ids" in err and "12345" in err)
+        scr.query_one("#wiz_user_ids", Input).value = \
+            f"{ALICE}, {ALICE}, {BOB}"
+        await pilot.pause()
+        scr.query_one("#wiz_user_ids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("duplicate ids are deduped on accept",
+              isinstance(app6.screen, wiz.DenyRepoScreen)
+              and scr.state["allowed_user_ids"] == [ALICE, BOB])
+        await app6.action_quit()
+
+    # --- posture warnings: keyed to the exact configuration warned about ---
+    app7 = make_wizard_app()
+    async with app7.run_test(size=(110, 60)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app7, pilot)
+        scr.query_one("#wiz_user_ids", Input).value = ""
+        scr.query_one("#wiz_role_ids", Input).value = ""
+        await pilot.pause()
+
+        def err():
+            return str(scr.query_one("#wizard_error").render())
+
+        scr.query_one("#wiz_user_ids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("deny_all on both dimensions warns without advancing",
+              app7.screen is scr
+              and "deny-by-default" in err()
+              and "nobody will be able to open a bug report" in err())
+
+        # Mixed degenerate posture: roles denylist, users allowlist-but-empty.
+        scr.query_one("#wiz_role_mode", wiz.CycleField).cycle_next()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("a mixed degenerate posture re-warns with its own copy",
+              app7.screen is scr
+              and "the empty users allowlist denies everyone" in err())
+
+        # A DIFFERENT risky posture: a one-shot flag would accept silently.
+        scr.query_one("#wiz_user_mode", wiz.CycleField).cycle_next()
+        await pilot.pause()
+        # The config saved earlier carried a denied_user_ids entry that was
+        # inactive under allowlist mode; switching modes must surface it
+        # verbatim (round-tripped through a real save + reload).
+        check("switching to denylist surfaces the preserved denied list",
+              scr.query_one("#wiz_user_ids", Input).value == BOB)
+        scr.query_one("#wiz_user_ids", Input).value = ""
+        await pilot.pause()
+        scr.query_one("#wiz_user_ids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("flipping into open_members re-warns instead of advancing",
+              app7.screen is scr
+              and "any channel member will be able to open a bug report"
+              in err())
+
+        await pilot.press("enter")
+        await pilot.pause()
+        check("a second press on the SAME posture advances",
+              isinstance(app7.screen, wiz.DenyRepoScreen))
+        await app7.action_quit()
+
+    # --- Back retention, and stale-context cache invalidation ---
+    app8 = make_wizard_app()
+    async with app8.run_test(size=(110, 60)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app8, pilot)
+        # Start from a known state (the saved config prefills these), while
+        # leaving the inactive denied_user_ids entry in place — the removal
+        # below must reach BOTH of a dimension's lists.
+        scr.query_one("#wiz_user_ids", Input).value = ""
+        scr.query_one("#wiz_role_ids", Input).value = ""
+        await pilot.pause()
+        check("the saved config prefilled the inactive denied list",
+              scr._working["denied_user_ids"] == [BOB])
+        fetches_before = wiz_fetch["n"]
+        await pilot.click("#btn_wiz_fetch")
+        await app8.workers.wait_for_complete()
+        await pilot.pause()
+        scr.query_one("#wiz_member_list", SelectionList).toggle(ALICE)
+        scr.query_one("#wiz_role_list", SelectionList).toggle(MODS)
+        await pilot.pause()
+        # BOB is typed by hand but IS in the fetched set (the ambiguous
+        # case); TYPED is not fetched and is the operator's own assertion.
+        user_input = scr.query_one("#wiz_user_ids", Input)
+        user_input.value = f"{user_input.value}, {BOB}, {TYPED}"
+        await pilot.pause()
+
+        await pilot.click("#btn_wiz_back")
+        await pilot.pause()
+        check("Back from the allowlist step lands on the live step",
+              isinstance(app8.screen, wiz.LiveCheckScreen))
+        await asyncio.sleep(0.4)
+        await pilot.click("#btn_wiz_next")
+        await pilot.pause()
+        scr2 = app8.screen
+        check("Back-then-forward retains all four lists and both modes",
+              isinstance(scr2, wiz.AllowlistScreen)
+              and set(scr2._working["allowed_user_ids"])
+              == {ALICE, BOB, TYPED}
+              and scr2._working["allowed_role_ids"] == [MODS]
+              and scr2._modes == {"user": "allowlist", "role": "allowlist"})
+        check("re-entry reuses the cached rows without refetching",
+              wiz_fetch["n"] == fetches_before + 1
+              and scr2.query_one("#wiz_member_list",
+                                 SelectionList).option_count == 3)
+
+        # Change the Discord context on an earlier step.
+        for _ in range(3):                     # allowlist -> live -> token
+            await pilot.click("#btn_wiz_back")  # -> intake
+            await pilot.pause()
+            await asyncio.sleep(0.4)
+        check("Back reaches the intake step",
+              isinstance(app8.screen, wiz.IntakeChannelScreen))
+        app8.screen.query_one("#wiz_conversation", Input).value = "333"
+        app8.screen.query_one("#wiz_conversation", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        app8.screen.query_one("#wiz_token", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.click("#btn_wiz_next")
+        await pilot.pause()
+        scr3 = app8.screen
+        check("a changed intake context empties the picker",
+              isinstance(scr3, wiz.AllowlistScreen)
+              and scr3.query_one("#wiz_member_list",
+                                 SelectionList).option_count == 0)
+        notice = str(scr3.query_one("#wiz_fetch_status").render())
+        check("the stale-context notice names every removed id",
+              "intake channel or token changed" in notice
+              and ALICE in notice and BOB in notice and MODS in notice)
+        check("picker-origin ids are removed from BOTH of a dimension's "
+              "lists (a denied role from the old guild is meaningless too)",
+              ALICE not in scr3._working["allowed_user_ids"]
+              and scr3._working["denied_user_ids"] == []
+              and scr3._working["allowed_role_ids"] == [])
+        check("an id both typed AND fetched counts as picker-origin",
+              BOB not in scr3._working["allowed_user_ids"])
+        check("a manually typed id is kept across the context change",
+              scr3._working["allowed_user_ids"] == [TYPED]
+              and scr3.query_one("#wiz_user_ids", Input).value == TYPED)
+        await app8.action_quit()
+
+    # --- the removal is fail-closed, and its result is surfaced ---
+    app9 = make_wizard_app()
+    async with app9.run_test(size=(110, 60)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app9, pilot, conversation="444")
+        scr.query_one("#wiz_user_ids", Input).value = ""
+        scr.query_one("#wiz_role_ids", Input).value = ""
+        await pilot.pause()
+        await pilot.click("#btn_wiz_fetch")
+        await app9.workers.wait_for_complete()
+        await pilot.pause()
+        scr.query_one("#wiz_member_list", SelectionList).toggle(ALICE)
+        await pilot.pause()
+        check("only the picker-selected id is authorized",
+              scr._working["allowed_user_ids"] == [ALICE])
+        for _ in range(3):
+            await pilot.click("#btn_wiz_back")
+            await pilot.pause()
+            await asyncio.sleep(0.4)
+        app9.screen.query_one("#wiz_conversation", Input).value = "555"
+        app9.screen.query_one("#wiz_conversation", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        app9.screen.query_one("#wiz_token", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.click("#btn_wiz_next")
+        await pilot.pause()
+        scr4 = app9.screen
+        check("removing the only authorized id empties the allowlists",
+              scr4._working["allowed_user_ids"] == []
+              and scr4._working["allowed_role_ids"] == [])
+        scr4.query_one("#wiz_user_ids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("the degenerate result of removal is caught by the posture "
+              "warning (fail-closed, never silent)",
+              app9.screen is scr4
+              and "nobody will be able to open a bug report"
+              in str(scr4.query_one("#wizard_error").render()))
+        await app9.action_quit()
+
+    # --- advisory failures: per-stage errors, truncation, raising runner ---
+    app10 = make_wizard_app()
+    wiz_fetch["result"] = canned(roles=[],
+                                 roles_error="role fetch failed (Forbidden)",
+                                 members_truncated=True)
+    async with app10.run_test(size=(110, 60)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app10, pilot, conversation="666")
+        await pilot.click("#btn_wiz_fetch")
+        await app10.workers.wait_for_complete()
+        await pilot.pause()
+        status = str(scr.query_one("#wiz_fetch_status").render())
+        check("a per-stage error is surfaced without blanking the other "
+              "stage (partial results)",
+              "! roles: role fetch failed (Forbidden)" in status
+              and scr.query_one("#wiz_member_list",
+                                SelectionList).option_count == 3)
+        check("the truncation notice is shown",
+              "showing the first 500 members" in status)
+        await app10.action_quit()
+
+    wiz_fetch["result"] = None
+    wiz_fetch["raise"] = True
+    app11 = make_wizard_app()
+    async with app11.run_test(size=(110, 60)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app11, pilot, conversation="777")
+        await pilot.click("#btn_wiz_fetch")
+        await app11.workers.wait_for_complete()
+        await pilot.pause()
+        check("a raising fetch runner degrades to manual entry",
+              "fetch failed"
+              in str(scr.query_one("#wiz_fetch_status").render())
+              and not scr.query_one("#wiz_member_list", SelectionList).display)
+        scr.query_one("#wiz_user_ids", Input).value = ALICE
+        await pilot.pause()
+        scr.query_one("#wiz_user_ids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("a failed fetch never blocks Next",
+              isinstance(app11.screen, wiz.DenyRepoScreen))
+        await app11.action_quit()
+    wiz_fetch["raise"] = False
+
+    # --- mid-run Back: a late fetch result must not touch a dead screen ---
+    fetch_mode["block"] = True
+    app12 = make_wizard_app()
+    async with app12.run_test(size=(110, 60)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app12, pilot, conversation="888")
+        fetches_before = wiz_fetch["n"]
+        await pilot.click("#btn_wiz_fetch")
+        await pilot.pause()
+        check("the fetch progress line is shown while the worker runs",
+              "fetching members and roles"
+              in str(scr.query_one("#wiz_fetch_status").render()))
+        await pilot.click("#btn_wiz_back")      # leave mid-run
+        await pilot.pause()
+        check("Back mid-fetch reaches the live step",
+              isinstance(app12.screen, wiz.LiveCheckScreen))
+        fetch_block.set()                       # release the worker late
+        await app12.workers.wait_for_complete()
+        await pilot.pause()
+        check("a late fetch result did not disturb the dismissed screen",
+              isinstance(app12.screen, wiz.LiveCheckScreen)
+              and wiz_fetch["n"] == fetches_before + 1)
+        await pilot.press("escape")
+        await pilot.pause()
+        await app12.action_quit()
+    fetch_mode["block"] = False
 
     print(f"\nPASS: {PASS}, FAIL: 0")
 
