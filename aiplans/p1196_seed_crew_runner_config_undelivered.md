@@ -350,3 +350,29 @@ then `./.aitask-scripts/aitask_archive.sh 1196`.
 - **Files affected:** `tests/test_crew_runner_config_delivery.sh` (new),
   `tests/test_crew_runner.sh` (reverted to HEAD),
   `tests/test_setup_crew_runner_config.sh` (deleted, never committed).
+
+### Change Request 2 (2026-07-21 12:52)
+
+- **Requested by user:** `aidocs/agentcrew/agentcrew_architecture.md:248` still
+  said `tests/test_crew_runner.sh` pins the commented-template contract, but
+  Change Request 1 reverted that file to HEAD and moved the enforced contract to
+  `tests/test_crew_runner_config_delivery.sh` — leaving maintainers pointed at
+  the wrong test, in a task whose whole goal is doc/source agreement.
+
+- **Verification:** CONFIRMED. The sentence was written in the first
+  implementation pass, before the test was relocated, and was not revisited.
+  Exactly the defect class t1196 exists to fix, reintroduced by my own edit.
+
+- **Changes made:**
+  - `agentcrew_architecture.md:248` now names
+    `tests/test_crew_runner_config_delivery.sh` and states what it actually
+    asserts (real `install.sh → ait setup` flow; delivered file resolves to the
+    same values as no config file).
+  - Swept every test-file reference in all changed files and confirmed each
+    resolves to a file that exists; no references to the deleted
+    `tests/test_setup_crew_runner_config.sh` remain anywhere.
+  - Tightened the file-table row at `:438` while there: "Default runner
+    configuration template" → "Runner configuration template (all keys commented
+    out)", since the template deliberately no longer carries the default values.
+
+- **Files affected:** `aidocs/agentcrew/agentcrew_architecture.md`.
