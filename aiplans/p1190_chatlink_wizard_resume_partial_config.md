@@ -297,3 +297,53 @@ and recorded by the orchestrator), archive via
   on-disk token state; a seam mismatch could resume past a missing token ·
   severity: low · → mitigation: in-plan (Pilot test exercises the cap on a
   tokenless tree; `token_entered` cap fires independently of the reader)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-21 17:30)
+- **Requested by user:** Review finding (verified: CONFIRMED, disposition:
+  follow-up): `ChatlinkApp(sessions_dir=...)` does not control wizard draft
+  I/O — the draft always resolves through `paths.sessions_dir()`
+  (`start_wizard` calls `load_draft`/`save_draft`/`clear_draft` without a
+  `path`), so an embedded/test app with a custom session store root still
+  reads/writes the default project draft. Address in the plan as a
+  follow-up, not an in-task fix.
+- **Changes made:** Created follow-up task **t1205**
+  (`chatlink_wizard_draft_path_seam`, anchored to t1190) to thread the
+  app's resolved sessions dir into the draft path via a narrow seam
+  (`WizardSeams.draft_path` or derivation from the app's `sessions_dir`),
+  with a draft-isolation test. No code change in this task — the t1190
+  tests are unaffected because they monkeypatch `paths.project_root`,
+  which redirects the default draft path consistently with the token file.
+- **Files affected:** aitasks/t1205_chatlink_wizard_draft_path_seam.md
+  (new); this plan.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned (with the four
+  pre-approval review amendments already folded into the plan): new
+  Textual-free `chatlink/wizard_draft.py` (atomic token-free draft with
+  `token_entered` metadata, fail-closed validated load reusing
+  `config.RANGE_*`/`AUTHORIZATION_MODES`/`DENY_MESSAGE_MODES`/
+  `SANDBOX_MEMORY_RE`, fingerprint, idempotent clear);
+  `SessionsStore.list_ids()` draft exclusion; `wizard.py` docstring
+  contract amendment, `_ResumeDraftScreen`, `_resume_index` with the
+  two-condition token-step cap, per-transition draft writes in the
+  `start_wizard` driver, and the draft clear at the fully-successful
+  convergence point of `SummaryScreen._do_save`; headless suite +19
+  draft checks (100 total) and Pilot suite +~15 checks (145 total)
+  including the resume-accept/cap block, start-fresh block,
+  save-deletes-draft, drift guard, and draft hygiene for later blocks.
+- **Deviations from plan:** None material. The `list_ids` exclusion uses
+  the literal filename with a comment (no import), as planned.
+- **Issues encountered:** None — both suites passed on first run after
+  implementation; daemon and flow suites re-run green (no regression
+  from the `sessions_store` touch).
+- **Key decisions:** Draft written only from the driver's `handle()`
+  choke point (never per-screen); whole-draft fail-closed rejection on
+  any invalid value rather than per-key dropping; resume offer is a
+  modal (`_ReplaceConfirmScreen` shape) pushed before step 1, with
+  Escape = abort-and-keep-draft.
+- **Upstream defects identified:** None
+- **Deferred follow-ups:** t1205 (`chatlink_wizard_draft_path_seam`,
+  from the Step-8 review finding — custom `ChatlinkApp(sessions_dir=…)`
+  does not control wizard-draft I/O; see Post-Review Changes above).
