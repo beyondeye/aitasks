@@ -225,3 +225,58 @@ Post-implementation per task-workflow Step 9; archive via
   (`LiveCheckScreen` reads only step-1/2 state) was checked directly, and the
   downstream consumer t1186_4 already pins the exact contract names
   (`needs_seams`, derived numbering) in `aiplans/p1186/p1186_4_allowlist_picker_ui.md:15,28`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in two files.
+  `.aitask-scripts/chatlink/wizard.py`: `_WizardStep` gained `step_name` (title
+  text without numbering), `needs_seams: bool = False`, and keyword-only
+  `step_no` / `step_total`; the base `compose()` now renders
+  `f"Step {step_no}/{step_total} — {step_name}"` into `#wizard_title`. All 7
+  `step_title` literals were converted to `step_name` with their descriptive
+  text verbatim (`AllowlistScreen` wording left for t1186_4). `needs_seams =
+  True` declared on `TokenScreen` / `LiveCheckScreen` / `SummaryScreen`;
+  `make_step()` now branches on `cls.needs_seams` and derives
+  `step_no=idx + 1`, `step_total=len(_STEPS)` — the hardcoded
+  `(TokenScreen, LiveCheckScreen, SummaryScreen)` tuple is gone. `_STEPS`
+  reordered to intake → token → live check → allowlist → deny/repo → ceilings
+  → summary. Module docstring and a new `_STEPS` comment record the order and
+  the reason. `tests/test_chatlink_tui.sh`: `app2` / `app3` / `app4`
+  walkthroughs resequenced, plus two derived-numbering assertions.
+- **Deviations from plan:** None. One addition beyond the plan's "one
+  representative screen": the numbering is asserted at **two** indices
+  (TokenScreen → `Step 2/7`, AllowlistScreen → `Step 4/7`), which is what
+  actually proves the title tracks `_STEPS` position rather than a relabeled
+  per-class constant. A single assertion would pass even if the literals had
+  merely been renumbered by hand.
+- **Issues encountered:** None — both suites were green on the first run after
+  implementation. The `app4` walk got *simpler* rather than harder: with the
+  live step now third, reaching it takes two `enter`s (intake conversation →
+  token) instead of six, so the now-later user_ids / repo_name / sandbox_pids
+  presses were dropped.
+- **Key decisions:** (a) `step_no` / `step_total` default to `0` rather than
+  being required, to keep the subclass `**kwargs` pass-through
+  (`AllowlistScreen`, `TokenScreen`, …) unchanged; no call site constructs a
+  screen outside `make_step()`, so `"Step 0/0"` is unreachable today —
+  recorded as a low code-health risk with no mitigation task. (b) The
+  `needs_seams` flag preserves the old failure mode exactly: a seam-needing
+  screen that forgets the flag raises `TypeError` on push (missing positional
+  `seams`), i.e. fails loudly, never silently degrades. (c) The `PASS: 68`
+  count is pinned in Verification as the guard that resequencing did not
+  silently drop a check (baseline 66 + exactly the 2 new assertions).
+- **Verification results:** `tests/test_chatlink_tui.sh` → `PASS: 68, FAIL: 0`;
+  `tests/test_chatlink_wizard.sh` → `PASS: 76, FAIL: 0`;
+  `test_chatlink_config.sh` / `test_chatlink_preflight.sh` /
+  `test_chatlink_daemon.sh` all pass. No `verify_build` / `lint_command` is
+  configured in `project_config.yaml`.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1186_4 now needs only three things from this
+  slice: set `needs_seams = True` on `AllowlistScreen` (a one-line change —
+  `make_step()` needs no edit), change its `step_name` (never a `Step N/7`
+  literal — numbering is derived), and rely on `state["token"]` being
+  populated by the time `AllowlistScreen.body()` composes, since `TokenScreen`
+  is now step 2. If t1186_4 inserts or removes a screen, `_STEPS` is the only
+  place to edit — but the two `Step N/7` assertions in
+  `tests/test_chatlink_tui.sh` are position-sensitive by design and must be
+  updated to the new indices (that is the intended tripwire, not a bug).
+  t1186_5's checklist already names this exact step order.
