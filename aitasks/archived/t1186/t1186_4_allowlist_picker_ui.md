@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: high
 depends: [t1186_3]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1149
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 19:30
-updated_at: 2026-07-21 12:32
+updated_at: 2026-07-21 13:08
+completed_at: 2026-07-21 13:08
 ---
 
 ## Context
@@ -141,3 +142,14 @@ All other chatlink test files stay green.
 > **✅ gate:plan_approved** run=2026-07-21T09:32:31Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-21T10:08:19Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-21T10:08:42Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:95c518fdac102aa3
+
+> **✅ gate:risk_evaluated** run=2026-07-21T10:08:42Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1186_4/risk_evaluated_2026-07-21T10:08:42Z-risk_evaluated-a1.log`
