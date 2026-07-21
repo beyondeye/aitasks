@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t1186_1]
 issue_type: enhancement
@@ -114,3 +116,5 @@ The new helper must ensure the guild member list is actually populated.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-21T07:52:57Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-21T08:02:11Z status=pass attempt=1 type=human
