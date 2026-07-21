@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1149
 implemented_with: claudecode/fable5
 created_at: 2026-07-20 19:29
-updated_at: 2026-07-21 06:27
+updated_at: 2026-07-21 09:44
+completed_at: 2026-07-21 09:44
 ---
 
 ## Context
@@ -129,3 +130,14 @@ chosen over "empty allowlist dimension is inactive", whose degenerate case is fa
 > **✅ gate:plan_approved** run=2026-07-21T03:27:02Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-21T06:43:45Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-21T06:44:04Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:abb3817da1bd0a60
+
+> **✅ gate:risk_evaluated** run=2026-07-21T06:44:04Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1186_1/risk_evaluated_2026-07-21T06:44:04Z-risk_evaluated-a1.log`
