@@ -13,7 +13,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1071
 created_at: 2026-07-01 15:10
 updated_at: 2026-07-21 18:41
-boardidx: 310
+boardidx: 320
 ---
 
 Migrate the `docs_updated` gate skill to read its guide path via the shared
