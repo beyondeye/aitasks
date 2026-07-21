@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 23:15
-updated_at: 2026-07-21 06:28
+updated_at: 2026-07-21 10:38
 boardidx: 50
 ---
 
@@ -60,3 +61,8 @@ for bootstrap.
 - The guard fails when a seed pair is added to one manifest only (assert this
   with a negative control, not just the passing case).
 - `bash tests/test_setup_agent_config_seeds.sh` still passes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-21T07:38:33Z status=pass attempt=1 type=human
