@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t1186_1]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1149
 implemented_with: claudecode/fable5
 created_at: 2026-07-20 19:30
-updated_at: 2026-07-21 10:52
+updated_at: 2026-07-21 11:02
+completed_at: 2026-07-21 11:02
 ---
 
 ## Context
@@ -118,3 +119,14 @@ The new helper must ensure the guild member list is actually populated.
 > **✅ gate:plan_approved** run=2026-07-21T07:52:57Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-21T08:02:11Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-21T08:02:39Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:3e86d54ab105081f
+
+> **✅ gate:risk_evaluated** run=2026-07-21T08:02:39Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1186_2/risk_evaluated_2026-07-21T08:02:39Z-risk_evaluated-a1.log`
