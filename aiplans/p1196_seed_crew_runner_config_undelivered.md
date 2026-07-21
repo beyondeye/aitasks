@@ -281,3 +281,72 @@ and the comment-only parse returns `None`, hence the coalescing above).
 
 Standard: merge approval, `./ait gates run 1196` (declared gate: `risk_evaluated`),
 then `./.aitask-scripts/aitask_archive.sh 1196`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-21 12:35)
+
+- **Requested by user:** Two blocking review concerns.
+  1. *(tests)* Test 19 was added to `tests/test_crew_runner.sh`, but that
+     script's footer reads a file-backed `COUNTER_FILE` that the shared
+     `asserts.sh` helpers never write. It prints `FAIL:` lines and still exits
+     0, so the new content/behavior contract was not pinned in automation.
+  2. *(install flow)* `aidocs/framework/aitasks_extension_points.md` §"Test the
+     full install flow for setup helpers" requires a setup helper touching
+     `aitasks/metadata/` to be exercised through the real `install.sh → ait
+     setup` flow, not a hand-crafted seed fed to the helper in isolation.
+     Neither the new test nor t1194's drift guard (which SOURCES installer
+     functions against a fixture that still has `seed/`) covered the real
+     post-cleanup state.
+
+- **Verification of the concerns:** both CONFIRMED against source.
+  1. Reproduced directly: with a deliberately broken template,
+     `bash tests/test_crew_runner.sh` printed `FAIL:` and still exited **0**.
+     Root cause: `assert_eq` mutates shell-global `PASS`/`FAIL`, which are lost
+     across the file's `( … )` subshells — the file-based counters that existed
+     to survive subshells were orphaned by the t923 migration to shared
+     `asserts.sh`. Pre-existing (reproduced at HEAD, before this task's change).
+  2. The extension-points doc describes this exact situation verbatim: *"A
+     helper that reads from `$project_dir/seed/...` will silently fail in a
+     fresh user install even if it passes when tested against a hand-copied seed
+     file."* That is `ensure_crew_runner_config()` precisely. This doc is
+     mandated by CLAUDE.md for any `aitask_setup.sh` / install-flow edit and was
+     not read during planning — a process miss, not just a test gap.
+
+- **Changes made:**
+  - Reverted `tests/test_crew_runner.sh` to HEAD (untouched by this task). Its
+    broken exit path cannot pin anything, and fixing it properly means
+    reworking 18 other tests' subshell/counter structure — out of scope, logged
+    as an upstream defect instead.
+  - Deleted the isolated `tests/test_setup_crew_runner_config.sh`.
+  - Added `tests/test_crew_runner_config_delivery.sh` — one harness with a
+    working `[[ $FAIL -eq 0 ]]` exit path and every assertion at top level:
+    - **T1** content contract: the template declares no active
+      `interval`/`max_concurrent` (coalescing `or {}`, since a comment-only
+      document parses to `None`).
+    - **T2** the REAL install flow: builds a local tarball, runs
+      `bash install.sh --dir <scratch> --local-tarball <tb>` (~0.1s,
+      network-free), asserts the file is delivered verbatim, asserts `seed/`
+      was deleted (the seedless precondition every later leg depends on), then
+      resolves `resolve_config(None, None)` against the **actually installed**
+      file — `(30, 3)`, identical to the absent-file result — plus a negative
+      control proving an uncommented key really does win.
+    - **T3** the mandated `install.sh → ait setup` handoff, run against that
+      genuinely seedless post-install repo: the helper is a clean no-op, never
+      clobbers, survives an errexit caller, and the documented residual (with
+      `seed/` gone it *cannot* restore a deleted config) is pinned as an
+      assertion instead of prose.
+    - **T4** the source-tree path and the data-branch initializer.
+  - Corrected the T3a comment: reintroducing the bare `return` is caught by
+    **T3c**, not T3a — when the target exists, `[[ -f x ]] && return` returns
+    the successful test's status (0), so the first guard's `return 0` is
+    defensive rather than load-bearing.
+
+- **Regression proof (each failure mode reintroduced, suite must exit 1):**
+  - uncommented key in the template → 3 failures, exit 1
+  - bare `return` in `ensure_crew_runner_config` → T3c fails, exit 1
+  - `install_seed_crew_runner_config` unwired from `main()` → T2 fails, exit 1
+
+- **Files affected:** `tests/test_crew_runner_config_delivery.sh` (new),
+  `tests/test_crew_runner.sh` (reverted to HEAD),
+  `tests/test_setup_crew_runner_config.sh` (deleted, never committed).
