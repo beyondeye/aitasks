@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -72,3 +74,5 @@ Add a regression test covering install into a dir containing a dangling
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-21T07:37:52Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-21T08:05:44Z status=pass attempt=1 type=human
