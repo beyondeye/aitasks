@@ -240,13 +240,17 @@ class SessionsStore:
 
     def list_ids(self) -> list[str]:
         """All session ids with a record file (ignores ``*.tmp`` and the
-        gateway-level ``watch_cursors.json``), sorted."""
+        gateway-level ``watch_cursors.json``), sorted. The TUI roots its
+        store at the sessions dir itself, where the wizard's resumable
+        draft (``wizard_draft.DRAFT_FILENAME``) also lives — that file is
+        not a session record."""
         if not self.root.is_dir():
             return []
         return sorted(
             p.stem for p in self.root.iterdir()
             if p.suffix == ".json" and p.is_file()
             and p.name != "watch_cursors.json"
+            and p.name != "wizard_draft.json"
         )
 
     def list_records(self) -> tuple[list[SessionRecord], list[str]]:

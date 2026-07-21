@@ -12,10 +12,16 @@ rendered ``Step N/7`` numbering — screens declare only their
 :attr:`_WizardStep.step_name` and whether they
 :attr:`_WizardStep.needs_seams`.
 
-Contracts (pinned in aiplans/p1149/p1149_3_config_wizard_flow.md):
+Contracts (pinned in aiplans/p1149/p1149_3_config_wizard_flow.md; draft
+amendment t1190):
 
-- Files are written ONLY at the summary step; Back/Escape/Cancel before
-  that abort cleanly with zero writes.
+- The config file and the token file are written ONLY at the summary
+  step; Back/Escape/Cancel before that never touch either. A resumable
+  DRAFT of the non-secret step values (never the token —
+  :data:`chatlink.wizard_draft.DRAFT_STATE_KEYS`) is written to the
+  gitignored sessions dir on every step transition; the next launch
+  offers resume / start-fresh, and the draft is deleted on a fully
+  successful save or "Start fresh".
 - The config write goes through :mod:`chatlink.config_write` (merge,
   never drop); the token through the injected ``token_writer`` (default
   :func:`chatlink.paths.write_token`, 0700 dir / 0600 file). The token
@@ -51,7 +57,7 @@ except ImportError:  # entrypoint did not pre-insert .aitask-scripts/lib
     from profile_editor import CycleField
 
 from . import allowlist_fetch, config, config_write, live_check, paths, \
-    policy, preflight, preflight_render
+    policy, preflight, preflight_render, wizard_draft
 
 #: Screen-dismissal sentinels for the step chain.
 BACK = object()
@@ -1164,6 +1170,13 @@ class SummaryScreen(_WizardStep):
                             "retry (the config write already persisted)")
                 return
             self._token_written = True
+        # Fully successful save (config written; token written or none
+        # entered) — the resume draft is now obsolete. Not keyed on
+        # _token_written: keep-existing-token saves leave it False.
+        try:
+            wizard_draft.clear_draft()
+        except OSError:
+            pass
         self._render_save_state()
         self._error("")
         self.query_one("#btn_wiz_next", Button).label = "Close"
@@ -1225,14 +1238,89 @@ class SummaryScreen(_WizardStep):
                 "uncommitted/gitignored)")
 
 
+class _ResumeDraftScreen(ModalScreen):
+    """Explicit resume offer for an interrupted wizard session: a draft
+    of the entered values exists (t1190). Never silently pre-filled —
+    the user must be able to tell saved config from abandoned input."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    DEFAULT_CSS = """
+    _ResumeDraftScreen #wizard_dialog {
+        width: 76;
+        height: auto;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+    _ResumeDraftScreen #wizard_buttons { margin-top: 1; height: auto; }
+    _ResumeDraftScreen #wizard_buttons Button { margin-right: 2; }
+    """
+
+    def __init__(self, draft: dict, stale: bool):
+        super().__init__()
+        self.draft = draft
+        self.stale = stale
+
+    def compose(self) -> ComposeResult:
+        lines = ["An interrupted wizard session left a draft "
+                 f"(saved {self.draft['saved_at']}),",
+                 f"stopped at: {self.draft['step_name']}."]
+        if self.stale:
+            lines.append("")
+            lines.append("note: the saved config changed after this "
+                         "draft was written — resumed values may be "
+                         "stale.")
+        with Container(id="wizard_dialog"):
+            yield Label("\n".join(lines))
+            with Horizontal(id="wizard_buttons"):
+                yield Button("Resume draft", variant="success",
+                             id="btn_wiz_resume")
+                yield Button("Start fresh", id="btn_wiz_fresh")
+
+    @on(Button.Pressed, "#btn_wiz_resume")
+    def _on_resume(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_wiz_fresh")
+    def _on_fresh(self) -> None:
+        self.dismiss(False)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+def _resume_index(step_name: str, token_entered: bool,
+                  seams: WizardSeams) -> int:
+    """Map a draft's recorded step_name to today's ``_STEPS`` position.
+
+    An unknown name (renamed/removed step) falls back to 0. The token is
+    never drafted, so a resume past the token step is capped there when
+    the token cannot be what the user last intended: either none is
+    stored on disk (Summary would save a config with no token — a broken
+    bot, rendered only as "(missing!)"), or the interrupted session had
+    a typed token (``token_entered``) that is now lost — an uncapped
+    resume would silently keep the old on-disk token instead."""
+    idx = next((i for i, cls in enumerate(_STEPS)
+                if cls.step_name == step_name), 0)
+    token_idx = _STEPS.index(TokenScreen)
+    if idx > token_idx and (token_entered
+                            or seams.token_reader() is None):
+        return token_idx
+    return idx
+
+
 def start_wizard(app, seams: WizardSeams | None = None) -> None:
     """Chain the wizard steps on ``app`` (the running ChatlinkApp).
 
     Screens mutate a shared state dict (so Back retains entered values)
     and dismiss with ``NEXT`` / ``BACK`` / ``None`` (abort) / ``DONE``.
+    Every step transition persists a token-free draft (t1190); a
+    pre-existing draft is offered for resume before step 1.
     """
     seams = resolve_seams(seams)
     state = initial_state(seams)
+    fingerprint = wizard_draft.config_fingerprint(seams.config_path)
 
     def make_step(idx: int) -> _WizardStep:
         cls = _STEPS[idx]
@@ -1242,20 +1330,52 @@ def start_wizard(app, seams: WizardSeams | None = None) -> None:
             return cls(state, seams, **kwargs)
         return cls(state, **kwargs)
 
+    def save_draft_for(idx: int) -> None:
+        # Best-effort: a failing draft write must never block the wizard.
+        try:
+            wizard_draft.save_draft(_STEPS[idx].step_name, state,
+                                    fingerprint)
+        except Exception:
+            pass
+
     def show(idx: int) -> None:
         def handle(result) -> None:
             if result is None or result is DONE:
-                return
+                return  # abort keeps the draft; save already deleted it
             if result is BACK:
                 if idx > 0:
+                    save_draft_for(idx - 1)
                     show(idx - 1)
                 return
             if result is NEXT and idx + 1 < len(_STEPS):
+                save_draft_for(idx + 1)
                 show(idx + 1)
 
         app.push_screen(make_step(idx), callback=handle)
 
-    show(0)
+    draft = wizard_draft.load_draft()
+    if draft is None:
+        show(0)
+        return
+
+    def handle_resume(choice) -> None:
+        if choice is None:
+            return  # abort the wizard; the draft is kept
+        if not choice:
+            try:
+                wizard_draft.clear_draft()
+            except OSError:
+                pass
+            show(0)  # saved-config flow, exactly as without a draft
+            return
+        state.update(draft["state"])
+        show(_resume_index(draft["step_name"], draft["token_entered"],
+                           seams))
+
+    app.push_screen(
+        _ResumeDraftScreen(draft,
+                           stale=draft["config_fingerprint"] != fingerprint),
+        callback=handle_resume)
 
 
 #: Step order AND the source of the rendered ``Step N/7`` numbering.

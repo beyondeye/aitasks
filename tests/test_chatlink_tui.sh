@@ -8,7 +8,10 @@
 #    only chatlink module allowed to).
 # 4. Config wizard walk (t1149_3): `w` opens the step chain; per-step inline
 #    validation keeps the modal open; Back retains state; abort mid-wizard
-#    leaves config + token untouched; Save writes the merged YAML + 0600
+#    leaves config + token untouched but persists a token-free draft to the
+#    gitignored sessions dir (t1190) — relaunch offers resume/start-fresh,
+#    resume caps at the token step, a successful save deletes the draft;
+#    Save writes the merged YAML + 0600
 #    token (failure-aware: a raising token writer keeps the config write,
 #    renders the per-item FAILED state, and a later Save retries); the
 #    summary renders injected preflight results + the ./ait git commit hint.
@@ -40,6 +43,7 @@ echo "ok - chatlink_app --smoke exits 0"
 # ---- 2 + 3. Pilot render assertions + import guard --------------------------
 "$PYTHON" - "$PROJECT_DIR" <<'PYEOF'
 import asyncio
+import json
 import sys
 import tempfile
 import time
@@ -58,6 +62,7 @@ from textual.widgets import DataTable, Log, Static  # noqa: E402
 
 from chatlink import paths  # noqa: E402
 from chatlink import wizard as wiz  # noqa: E402
+from chatlink import wizard_draft  # noqa: E402
 from chatlink.audit import AUDIT_FILENAME  # noqa: E402
 from chatlink.chatlink_app import ChatlinkApp  # noqa: E402
 from chatlink.preflight import CheapChecks, CheckResult  # noqa: E402
@@ -306,7 +311,15 @@ async def main():
             live_runner=wiz_spy_live,
             allowlist_fetch_runner=wiz_spy_fetch)
 
-    # --- abort mid-wizard: zero writes ---
+    # Drift guard: the draft allowlist must track initial_state exactly
+    # (a future wizard key silently missing from drafts is a bug).
+    check("draft allowlist == initial_state keys minus the token",
+          set(wizard_draft.DRAFT_STATE_KEYS)
+          == set(wiz.initial_state(wiz.resolve_seams(
+              wiz.WizardSeams(config_path=wtmp / "no-config.yaml"))))
+          - {"token"})
+
+    # --- abort mid-wizard: config/token untouched, draft persisted ---
     app2 = make_wizard_app()
     async with app2.run_test(size=(110, 50)) as pilot:
         await pilot.pause()
@@ -321,6 +334,12 @@ async def main():
         await pilot.pause()
         check("intake advances to token",
               isinstance(app2.screen, wiz.TokenScreen))
+        app2.screen.query_one("#wiz_token", Input).value = "secret-token-123"
+        app2.screen.query_one("#wiz_token", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("token advances to live check",
+              isinstance(app2.screen, wiz.LiveCheckScreen))
         await pilot.press("escape")
         await pilot.pause()
         check("escape aborts the wizard",
@@ -328,7 +347,45 @@ async def main():
         check("abort leaves config file untouched", not config_path.exists())
         check("abort leaves token file untouched",
               not paths.token_file().exists())
+        # t1190: the abort persisted a token-free draft (the amended
+        # contract — config/token still summary-only; drafts are separate).
+        draft_file = wizard_draft.draft_path()  # under wtmp via the
+        check("abort persists a draft", draft_file.exists())  # root patch
+        draft_raw = draft_file.read_text(encoding="utf-8")
+        check("token provably absent from the draft",
+              "secret-token-123" not in draft_raw)
+        draft_data = json.loads(draft_raw)
+        check("draft carries entered values + step name + token metadata",
+              draft_data["state"]["workspace_id"] == "111"
+              and draft_data["step_name"] == wiz.LiveCheckScreen.step_name
+              and draft_data["token_entered"] is True)
         await app2.action_quit()
+
+    # --- resume offer: accept restores values, caps at the token step ---
+    app_res = make_wizard_app()
+    async with app_res.run_test(size=(110, 50)) as pilot:
+        await pilot.pause()
+        await pilot.press("w")
+        await pilot.pause()
+        check("relaunch with a draft offers resume",
+              isinstance(app_res.screen, wiz._ResumeDraftScreen))
+        check("resume offer names the recorded step",
+              wiz.LiveCheckScreen.step_name
+              in str(app_res.screen.query_one("#wizard_dialog Label")
+                     .render()))
+        await pilot.click("#btn_wiz_resume")
+        await pilot.pause()
+        # Draft recorded the live-check step with token_entered=True and
+        # no token on disk — both cap conditions hold independently.
+        check("resume caps at the token step (typed token unrecoverable)",
+              isinstance(app_res.screen, wiz.TokenScreen))
+        check("resume restores the drafted values",
+              app_res.screen.state["workspace_id"] == "111")
+        await pilot.press("escape")
+        await pilot.pause()
+        check("aborting a resumed session keeps the draft",
+              wizard_draft.draft_path().exists())
+        await app_res.action_quit()
 
     # --- full walk: validation, Back state retention, save, preflight ---
     app3 = make_wizard_app()
@@ -336,7 +393,13 @@ async def main():
         await pilot.pause()
         await pilot.press("w")
         await pilot.pause()
+        check("relaunch offers resume before the step chain",
+              isinstance(app3.screen, wiz._ResumeDraftScreen))
+        await pilot.click("#btn_wiz_fresh")
+        await pilot.pause()
         scr = app3.screen
+        check("start fresh deletes the draft",
+              not wizard_draft.draft_path().exists())
         check("wizard restarts at intake",
               isinstance(scr, wiz.IntakeChannelScreen))
 
@@ -502,6 +565,8 @@ async def main():
         check("retry completes both writes",
               "config: written" in state_text
               and "token: written" in state_text)
+        check("successful save deletes the draft",
+              not wizard_draft.draft_path().exists())
         check("token file written with 0600",
               stat.S_IMODE(paths.token_file().stat().st_mode) == 0o600)
         check("token file holds the entered value",
@@ -557,6 +622,9 @@ async def main():
     # the dismissed screen (generation + is_attached guard, t1149_5) ---
     live_mode["block"] = True
     wiz_live["n"] = 0
+    # t1190 hygiene: escape-mid-wizard leaves a draft; clear so `w`
+    # opens the step chain directly, not the resume offer.
+    wizard_draft.clear_draft()
     app4 = make_wizard_app()
     async with app4.run_test(size=(110, 50)) as pilot:
         await pilot.pause()
@@ -609,6 +677,9 @@ async def main():
     async def goto_allowlist(app, pilot, *, workspace="111",
                              conversation="222"):
         """Walk the real wizard chain to the allowlist step."""
+        # t1190 hygiene: an earlier block's escape-mid-wizard leaves a
+        # draft that would turn `w` into the resume offer.
+        wizard_draft.clear_draft()
         await pilot.press("w")
         await pilot.pause()
         scr = app.screen

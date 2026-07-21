@@ -11,7 +11,12 @@
 #     conflict (ConfigWriteError, file untouched), allow_replace.
 #   - chatlink/preflight_render.py — shared row formatter (glyphs +
 #     fix-hint shape the panel tests assert).
-#   - Import guard: neither module pulls in textual.
+#   - chatlink/wizard_draft.py (t1190) — resumable wizard draft: atomic
+#     token-free persistence (the amended contract: config/token still
+#     summary-only; drafts go to the gitignored sessions dir),
+#     fail-closed load validation, lifecycle, fingerprint, and the
+#     SessionsStore.list_ids() draft exclusion.
+#   - Import guard: none of the modules pulls in textual.
 # Run: bash tests/test_chatlink_wizard.sh
 
 set -e
@@ -32,12 +37,14 @@ from pathlib import Path
 root = Path(sys.argv[1])
 sys.path.insert(0, str(root / ".aitask-scripts"))
 
-# --- import guard: both helper modules stay Textual-free -------------------
+# --- import guard: the helper modules stay Textual-free --------------------
 import chatlink.config_write as config_write  # noqa: E402
 import chatlink.preflight_render as preflight_render  # noqa: E402
+import chatlink.wizard_draft as wizard_draft  # noqa: E402
 assert "textual" not in sys.modules, \
-    "FAIL: config_write/preflight_render must not load textual"
-print("ok - config_write + preflight_render import without textual")
+    "FAIL: config_write/preflight_render/wizard_draft must not load textual"
+print("ok - config_write + preflight_render + wizard_draft import "
+      "without textual")
 
 import yaml  # noqa: E402
 from chatlink.config import load_config  # noqa: E402
@@ -206,8 +213,132 @@ data = yaml.safe_load(cfg6.read_text(encoding="utf-8"))
 check("allow_replace replaces malformed file", data == {"sandbox_cpus": 8})
 
 # --- no stray tmp files left beside the config -----------------------------
+# (config_write's own tmp discipline; wizard drafts live in the sessions
+# dir and are covered by the t1190 section below)
 stray = [p for p in cfg1.parent.iterdir() if p.suffix == ".tmp"]
 check("no stray tmp files left behind", stray == [])
+
+# ======================================================================== #
+# t1190 — wizard_draft: token-free resumable draft
+# ======================================================================== #
+import json  # noqa: E402
+import stat  # noqa: E402
+
+draft_dir = tmp / "sessions"
+dpath = draft_dir / wizard_draft.DRAFT_FILENAME
+
+full_state = {
+    "provider": "discord", "workspace_id": "111",
+    "conversation_id": "222", "thread_id": "",
+    "allowed_user_ids": ["1", "2"], "allowed_role_ids": [],
+    "denied_user_ids": [], "denied_role_ids": ["9"],
+    "user_authorization_mode": "allowlist",
+    "role_authorization_mode": "denylist",
+    "deny_message_mode": "ignore", "repo_name": "myrepo",
+    "max_concurrent_sandboxes": 2, "intake_rate_per_user_per_hour": 3,
+    "sandbox_memory": "2g", "sandbox_cpus": 2, "sandbox_pids": 256,
+    "sandbox_wall_clock_s": 3600,
+    # secrets / transients that must NEVER reach the draft file:
+    "token": "sekrit-token-xyz",
+    "_fetched": {"key": "x"},
+}
+wizard_draft.save_draft("Discord bot token", full_state, "f" * 64,
+                        path=dpath)
+raw = dpath.read_text(encoding="utf-8")
+check("draft file written", dpath.exists())
+check("token value provably absent from the draft", "sekrit-token-xyz" not in raw)
+check("transient _fetched absent from the draft", "_fetched" not in raw)
+check("draft mode 0600",
+      stat.S_IMODE(dpath.stat().st_mode) == 0o600)
+check("no tmp left beside the draft",
+      [p for p in draft_dir.iterdir() if p.suffix == ".tmp"] == [])
+
+loaded = wizard_draft.load_draft(path=dpath)
+check("draft round-trips", loaded is not None)
+check("round-trip step_name", loaded["step_name"] == "Discord bot token")
+check("round-trip fingerprint", loaded["config_fingerprint"] == "f" * 64)
+check("token_entered metadata recorded (never the value)",
+      loaded["token_entered"] is True)
+check("round-trip all allowlisted keys",
+      set(loaded["state"]) == set(wizard_draft.DRAFT_STATE_KEYS)
+      and loaded["state"]["allowed_user_ids"] == ["1", "2"]
+      and loaded["state"]["sandbox_wall_clock_s"] == 3600)
+check("token key absent from loaded state", "token" not in loaded["state"])
+
+# unknown keys in a stored draft are dropped on load
+payload = json.loads(raw)
+payload["state"]["future_unknown"] = "x"
+dpath.write_text(json.dumps(payload), encoding="utf-8")
+loaded = wizard_draft.load_draft(path=dpath)
+check("unknown state keys dropped on load",
+      loaded is not None and "future_unknown" not in loaded["state"])
+
+# a key absent from the draft is fine (falls back to initial_state)
+payload = json.loads(raw)
+del payload["state"]["repo_name"]
+dpath.write_text(json.dumps(payload), encoding="utf-8")
+loaded = wizard_draft.load_draft(path=dpath)
+check("absent key still loads",
+      loaded is not None and "repo_name" not in loaded["state"])
+
+# --- fail-closed value validation: reject the WHOLE draft ------------------
+def tampered(key, val):
+    p = json.loads(raw)
+    p["state"][key] = val
+    dpath.write_text(json.dumps(p), encoding="utf-8")
+    return wizard_draft.load_draft(path=dpath)
+
+check("string where id-list expected rejects draft",
+      tampered("allowed_user_ids", "not-a-list") is None)
+check("bogus authorization mode rejects draft",
+      tampered("user_authorization_mode", "bogus") is None)
+check("out-of-range sandbox_cpus rejects draft",
+      tampered("sandbox_cpus", 999) is None)
+check("invalid sandbox_memory rejects draft",
+      tampered("sandbox_memory", "lots") is None)
+
+# --- envelope validation ---------------------------------------------------
+check("missing file loads as None",
+      wizard_draft.load_draft(path=draft_dir / "nope.json") is None)
+dpath.write_text("{nope", encoding="utf-8")
+check("corrupt JSON loads as None",
+      wizard_draft.load_draft(path=dpath) is None)
+payload = json.loads(raw)
+payload["version"] = 999
+dpath.write_text(json.dumps(payload), encoding="utf-8")
+check("wrong version loads as None",
+      wizard_draft.load_draft(path=dpath) is None)
+
+# --- lifecycle -------------------------------------------------------------
+dpath.write_text(raw, encoding="utf-8")
+wizard_draft.clear_draft(path=dpath)
+wizard_draft.clear_draft(path=dpath)  # idempotent
+check("clear_draft idempotent and file gone", not dpath.exists())
+
+# --- config_fingerprint ----------------------------------------------------
+check("fingerprint None for missing path",
+      wizard_draft.config_fingerprint(tmp / "no-such.yaml") is None)
+fp_file = tmp / "fp.yaml"
+fp_file.write_text("a: 1\n", encoding="utf-8")
+fp1 = wizard_draft.config_fingerprint(fp_file)
+fp_file.write_text("a: 2\n", encoding="utf-8")
+fp2 = wizard_draft.config_fingerprint(fp_file)
+check("fingerprint stable type and changes with content",
+      isinstance(fp1, str) and len(fp1) == 64 and fp1 != fp2)
+
+# --- SessionsStore.list_ids() excludes the draft ---------------------------
+# The TUI roots its store at the sessions dir where the draft lives; a
+# regression in the exclusion would render a bogus session row even
+# though every round-trip test above still passes.
+from chatlink.sessions_store import SessionRecord, SessionsStore  # noqa: E402
+store_root = tmp / "store_root"
+store = SessionsStore(store_root)
+store.save(SessionRecord(session_id="s1", initiator_id="u1",
+                         state="spawning", thread={"provider": "discord"}))
+wizard_draft.save_draft("Summary & save", full_state, None,
+                        path=store_root / wizard_draft.DRAFT_FILENAME)
+check("list_ids excludes the wizard draft file",
+      store.list_ids() == ["s1"])
 
 # ======================================================================== #
 # t1149_5 — live_check: fake-connector rows, teardown, hygiene
