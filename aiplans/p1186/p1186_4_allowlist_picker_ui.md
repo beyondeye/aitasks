@@ -612,7 +612,8 @@ Re-authored across three rounds of plan review. Every code-health risk
 identified so far is now addressed *in design* rather than left to reviewer
 vigilance; the smaller risks introduced by those fixes are listed. The user
 declined mitigation tasks for the earlier, strictly-higher risk profile; that
-decision is carried forward (no `### Planned mitigations` subsection).
+decision is carried forward, so no mitigations subsection is recorded below and
+the Step 7 / Step 8d mitigation creators correctly find nothing to create.
 
 ### Code-health risk: medium
 
@@ -673,3 +674,119 @@ decision is carried forward (no `### Planned mitigations` subsection).
   and were re-verified against the three landed siblings; real-Discord behavior
   is out of scope here and already owned by the existing MV sibling t1186_5. ·
   severity: low · → mitigation: TBD
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-21 13:05)
+
+- **Requested by user:** Reviewing the implementation, flagged that
+  `AllowlistScreen._apply_fetch` returns early on a `None` result without
+  clearing or hiding picker rows that are already visible from a prior
+  successful fetch (or restored from the Back-survivable cache). A failed
+  *refresh* therefore shows "fetch failed" while the earlier rows stay
+  rendered, ticked, and selectable, and `_commit_state` re-caches them.
+  Verified CONFIRMED; disposition: **follow-up**, not an in-task fix.
+- **Verification performed:** Reproduced directly against the built screen —
+  after a successful fetch + selection and a failing refresh, the status line
+  read `! fetch failed …` while `option_count == 1`, `display is True`, and
+  `_commit_state` re-cached the row with provenance.
+- **Scoping note (what is NOT wrong):** the retained rows always belong to the
+  *current* context — `_fetch_key` is unchanged and `_pending_key` is adopted
+  only on success — so the cache-key revalidation and picker-origin removal in
+  `_restore_cache` are unaffected. This is a staleness/clarity defect, not a
+  wrong-context authorization leak, which is why deferring it is safe.
+- **Changes made:** No code change (per the follow-up disposition). Created
+  **t1204** (`chatlink_wizard_failed_refresh_stale_picker_rows`, bug, medium/
+  low, anchored to topic root 1149) carrying the confirmed reproduction, the
+  severity scoping above, two candidate fixes (clear-on-failed-refresh vs.
+  label-the-retained-rows), and the verification plan reusing this task's
+  `wiz_spy_fetch` seam.
+- **Files affected:** `aitasks/t1204_chatlink_wizard_failed_refresh_stale_picker_rows.md`
+  (new); this plan file.
+
+## Known limitations (carried into follow-ups)
+
+- **Failed *refresh* leaves the previous rows visible** — see **t1204** above.
+  A failed *first* fetch is unaffected: the picker was never revealed, so the
+  screen correctly degrades to manual entry only (pinned by the "a raising
+  fetch runner degrades to manual entry" test).
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven planned steps landed as designed.
+  `wizard.py` gained the `allowlist_fetch_runner` seam, the six-key state
+  round-trip (`initial_state` / `build_edits`, with `build_edits` documented as
+  explicitly enumerated so transient keys cannot leak), a module-level
+  `_Dimension` table + `_active_key` / `_inactive_key` / `_fetch_key` /
+  `_authorization_lines` helpers, a rebuilt `AllowlistScreen`, and per-dimension
+  summary lines. `chatlink_app.py` gained the one init param.
+  `tests/test_chatlink_tui.sh` went from 68 to 132 assertions.
+
+- **Deviations from plan:** One mechanism changed during implementation. The
+  plan specified overriding `on_input_submitted` to stop Enter-in-filter from
+  advancing. That is **wrong on Textual**: `MessagePump._get_dispatch_methods`
+  iterates `self.__class__.__mro__` and yields the naming-convention handler
+  from *every* class that defines it, so `_WizardStep.on_input_submitted` ran in
+  addition to the override — calling `_accept()` twice per keypress. The second
+  call matched the `_warned_signature` the first had just set, so the posture
+  warning self-confirmed and the step advanced silently. Replaced with a
+  `_WizardStep._submits_on_enter(widget)` predicate hook (default `True`;
+  `AllowlistScreen` returns `False` for `#wiz_fetch_filter`), leaving the base
+  `on_input_submitted` as the single dispatch point. This is now the second
+  base-class hook added by this task, alongside `_before_back()`.
+
+- **Issues encountered:** Two test failures were *correct behaviour* rather
+  than bugs, and both became stronger assertions:
+  1. Flipping both dimensions to denylist did not reach `open_members`, because
+     the config saved earlier in the suite carried a `denied_user_ids` entry
+     that was inactive under allowlist mode. That is the inactive list
+     round-tripping through a real save + reload; the test now asserts it
+     explicitly ("switching to denylist surfaces the preserved denied list").
+  2. `app8`'s retention assertions were polluted by config prefill; it now
+     starts from an explicit state while deliberately leaving the inactive
+     `denied_user_ids` in place, so the stale-context removal is proven to
+     reach **both** of a dimension's lists.
+
+- **Key decisions:**
+  - *Validation scope* — `invalid_snowflakes` runs on the two **active** lists
+    only. Hard-blocking on a value the operator cannot see would be
+    unactionable; switching a mode brings the other list into view and into
+    validation, and the inactive-list disclosure keeps it visible meanwhile.
+  - *Stale-context handling* — on a cache-key mismatch, picker-origin ids
+    (tracked by provenance recorded at commit time) are removed from both of a
+    dimension's lists and named in the notice, while manually typed ids are
+    kept. Removal is fail-closed and its degenerate result is caught by the
+    posture warning; retention would have been silent and undetectable, since
+    a stale-but-well-formed snowflake passes every downstream check.
+  - *Posture warning* — keyed to a signature of both modes plus all four lists,
+    not a one-shot boolean, so a *different* risky posture always re-warns.
+
+- **Mutation testing (evidence the new tests are not vacuous):** each guard was
+  broken in turn and the suite re-run. Caught: bare one-shot posture flag;
+  unkeyed fetch cache; keeping stale picker-origin ids; sync-only-at-rebuild;
+  Back discarding work; filter-Enter advancing; no snowflake validation; and
+  `preserved` computed against the fetched set instead of the visible set —
+  **that last one initially passed**, revealing a genuinely missing case (change
+  a visible row's state while another selected id is hidden by the filter),
+  which was then added. Two honest caveats recorded rather than glossed:
+  - `prevent()` and the `_echo` set-comparison are *individually* redundant —
+    removing either alone passes, removing **both** is caught. Deliberate
+    defence-in-depth, now empirically characterised.
+  - The event-time mode read and the mode-toggle "parking" step are
+    **unfalsifiable** in the current design: a mode flip always rebuilds
+    synchronously, and `_sync_active` already keeps the outgoing list current.
+    Both are the task file's pinned contract and cheap insurance, but no test
+    fails without them.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:** t1186_5 (aggregate manual verification) should
+  exercise, against a real guild: the member/role fetch on an unchunked cache;
+  a member without channel visibility being excluded; the filter over a large
+  member list (and the `MAX_MEMBERS = 500` truncation notice); and the
+  stale-context path — fetch, Back, change the intake channel, forward — which
+  must empty the picker and name the removed ids. The `wiz_spy_fetch` seam and
+  `canned()` helper in `tests/test_chatlink_tui.sh` are reusable for any further
+  picker tests, including a `threading.Event` block mode for mid-run
+  navigation. Note the deferred defect in **t1204**: a failed *refresh* still
+  shows the previous rows.
