@@ -1,6 +1,11 @@
-# Default configuration for the AgentCrew runner.
-# CLI arguments override these values.
-# If this file is absent, hardcoded defaults are used (interval: 30, max_concurrent: 3).
+# Runner configuration for `ait crew runner` (the AgentCrew orchestrator).
+#
+# Both keys are commented out on purpose: with a key unset the runner uses its
+# own built-in default, so `agentcrew_runner.py` stays the single source of
+# truth for those values. Uncomment a key only to override it project-wide.
+#
+# Resolution order: CLI args (--interval / --max-concurrent) > this file >
+# built-in defaults (interval: 30, max_concurrent: 3).
 
-interval: 30          # Seconds between runner iterations
-max_concurrent: 3     # Maximum agents running simultaneously (across all types)
+# interval: 30          # Seconds between runner iterations
+# max_concurrent: 3     # Maximum agents running simultaneously (across all types)

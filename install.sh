@@ -520,6 +520,29 @@ install_seed_chatlink_config() {
     merge_seed yaml "$src" "$dest" "chatlink config: chatlink_config.yaml"
 }
 
+# --- Install AgentCrew runner config template (t1196) ---
+# Copy-if-absent rather than merge_seed: the template carries NO active keys, so
+# a --force `merge_seed yaml` would safe_dump an empty mapping and rewrite the
+# file to a bare `{}`, destroying the documentation that is its entire purpose.
+# Same shape as install_seed_doc_update_guide().
+install_seed_crew_runner_config() {
+    local src="$INSTALL_DIR/seed/crew_runner_config.yaml"
+    local dest="$INSTALL_DIR/aitasks/metadata/crew_runner_config.yaml"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/crew_runner_config.yaml in tarball — skipping crew runner config installation"
+        return
+    fi
+
+    if [[ -f "$dest" ]]; then
+        info "  Crew runner config exists (kept): crew_runner_config.yaml"
+        return
+    fi
+
+    cp "$src" "$dest"
+    info "  Installed crew runner config: crew_runner_config.yaml"
+}
+
 # --- Install starter tmux.conf template ---
 install_seed_tmux_conf() {
     local src="$INSTALL_DIR/seed/tmux.conf"
@@ -1219,6 +1242,9 @@ main() {
 
     info "Installing chatlink gateway config..."
     install_seed_chatlink_config
+
+    info "Installing crew runner config..."
+    install_seed_crew_runner_config
 
     info "Installing starter tmux.conf template..."
     install_seed_tmux_conf

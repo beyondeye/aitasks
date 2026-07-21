@@ -1606,6 +1606,37 @@ ensure_chatlink_config() {
     success "Created chatlink_config.yaml"
 }
 
+# --- AgentCrew runner config (populate-missing, t1196) ---
+# SOURCE-TREE / CLEAN-CLONE ONLY. install.sh deletes seed/ after its installers
+# run, so on a tarball-installed repo this is a no-op by construction — those
+# repos get the file from install_seed_crew_runner_config() on every
+# `ait upgrade` (aitask_upgrade.sh runs install.sh --force). This pass exists for
+# repos whose data branch was initialized before crew_runner_config.yaml joined
+# the clean-init set, where re-running `ait setup` repairs it.
+#
+# Silent when neither file is present, unlike ensure_chatlink_config: the
+# chatlink daemon refuses to start without its config, whereas the runner has
+# working built-in defaults — warning on every seedless setup run would be pure
+# noise.
+ensure_crew_runner_config() {
+    local project_dir="$SCRIPT_DIR/.."
+    local seed_config="$project_dir/seed/crew_runner_config.yaml"
+    local target_config="$project_dir/aitasks/metadata/crew_runner_config.yaml"
+
+    # Every early exit is an explicit `return 0`. A bare `return` after a failed
+    # test propagates status 1, and this runs at top level in main() under
+    # `set -euo pipefail` — the seedless (tarball) path is the COMMON case, so a
+    # bare return would abort the whole setup run for exactly the repos this
+    # helper is a deliberate no-op for. Same class of hazard as t1193.
+    [[ -f "$target_config" ]] && return 0
+    [[ -f "$seed_config" ]] || return 0
+
+    mkdir -p "$(dirname "$target_config")"
+    cp "$seed_config" "$target_config"
+    success "Created crew_runner_config.yaml"
+    return 0
+}
+
 # --- Data-branch metadata population (extracted from setup_data_branch, t1194) ---
 # Populates a freshly created data-branch metadata dir. Extracted so the
 # seed->metadata mapping is callable (and testable) on its own: together with
@@ -1629,6 +1660,7 @@ populate_data_branch_seed_metadata() {
     cp "$seed_dir/task_types.txt" "$dest_dir/" 2>/dev/null || true
     cp "$seed_dir/project_config.yaml" "$dest_dir/" 2>/dev/null || true
     cp "$seed_dir/chatlink_config.yaml" "$dest_dir/" 2>/dev/null || true
+    cp "$seed_dir/crew_runner_config.yaml" "$dest_dir/" 2>/dev/null || true
     cp "$seed_dir/doc_update_guide.md" "$dest_dir/" 2>/dev/null || true
     cp "$seed_dir/code_areas.yaml" "$dest_dir/" 2>/dev/null || true
     cp "$seed_dir/codeagent_config.json" "$dest_dir/" 2>/dev/null || true
@@ -3506,6 +3538,9 @@ main() {
     echo ""
 
     ensure_chatlink_config
+    echo ""
+
+    ensure_crew_runner_config
     echo ""
 
     ensure_agent_config_seeds

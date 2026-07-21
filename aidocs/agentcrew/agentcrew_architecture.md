@@ -236,13 +236,18 @@ The runner (`ait crew runner`) is the central orchestrator. It runs in a loop, e
 Stored in `aitasks/metadata/crew_runner_config.yaml`:
 
 ```yaml
-interval: 30          # Seconds between runner iterations
-max_concurrent: 3     # Maximum agents running simultaneously
+# interval: 30          # Seconds between runner iterations
+# max_concurrent: 3     # Maximum agents running simultaneously
 ```
 
-**Resolution order:** CLI args (`--interval`, `--max-concurrent`) > config file > hardcoded defaults (30s, 3).
+**Resolution order:** CLI args (`--interval`, `--max-concurrent`) > config file > built-in defaults (30s, 3).
 
-The `ait setup` command seeds this file from `seed/crew_runner_config.yaml`.
+`ait setup` and `install.sh` both seed this file from `seed/crew_runner_config.yaml`
+with **both keys commented out**, so `DEFAULT_INTERVAL` / `DEFAULT_MAX_CONCURRENT`
+in `agentcrew_runner.py` stay the single source of truth until a key is
+uncommented. `tests/test_crew_runner_config_delivery.sh` pins that contract — it
+runs the real `install.sh → ait setup` flow and asserts the delivered file
+resolves to the same values as no config file at all.
 
 ### Runner Flags
 
@@ -430,4 +435,4 @@ All commands route through the `ait` dispatcher:
 | `.aitask-scripts/aitask_crew_addwork.sh` | Agent registration (creates 7 files per agent) |
 | `.aitask-scripts/aitask_crew_init.sh` | Crew initialization |
 | `.aitask-scripts/aitask_crew_cleanup.sh` | Worktree and branch cleanup |
-| `seed/crew_runner_config.yaml` | Default runner configuration template |
+| `seed/crew_runner_config.yaml` | Runner configuration template (all keys commented out) |
