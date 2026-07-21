@@ -334,13 +334,74 @@ install_skills() {
     rm -rf "$INSTALL_DIR/skills"
 }
 
+# --- Prepare one data root that may be a dangling symlink ---
+# In branch mode `aitasks/` and `aiplans/` are symlinks into the .aitask-data/
+# worktree. When the target is absent the link DANGLES and `mkdir -p` through it
+# fails ("File exists") — under `set -e` that aborts the whole install. Every
+# step below create_data_dirs writes through these roots, so warn-and-skip would
+# only move the abort downstream. Repair ONLY provably-leftover state; a link
+# that looks like a real branch-mode layout is a hard error, never an unlink.
+ensure_data_root() {
+    local name="$1"
+    local root="$INSTALL_DIR/$name"
+    [[ -L "$root" && ! -e "$root" ]] || return 0
+
+    # Only the exact form setup_data_branch() writes is recognized. Anything
+    # else (absolute, ../…, custom) is user state we do not own — never touched,
+    # so no unvalidated readlink target can reach an `mkdir` or an `rm`.
+    local target
+    target="$(readlink "$root")"
+    if [[ "$target" != ".aitask-data/$name" ]]; then
+        die "$root is a dangling symlink to an unrecognized target ($target).
+     Remove or repoint it, then re-run the install."
+    fi
+
+    local data_dir="$INSTALL_DIR/.aitask-data"
+    local has_marker=false
+    [[ -d "$data_dir/.git" || -f "$data_dir/.git" ]] && has_marker=true
+
+    # Live worktree: the link is right, its target just is not materialized yet.
+    # Create the path we construct ourselves, never the readlink output.
+    if [[ "$has_marker" == true ]] \
+       && git -C "$data_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        mkdir -p "$data_dir/$name" 2>/dev/null || \
+            die "Cannot create $data_dir/$name (target of $root)"
+        return 0
+    fi
+
+    # Not live. Refuse to unlink if ANY signal says this repo really uses the
+    # data branch — a stale/corrupt marker, a registered worktree, or the branch
+    # ref itself. Deleting the link there would silently redirect framework
+    # metadata into a real, gitignored dir that is NOT the data branch.
+    if [[ "$has_marker" == true ]] \
+       || git -C "$INSTALL_DIR" worktree list --porcelain 2>/dev/null \
+            | grep -qE '^worktree .*/\.aitask-data$' \
+       || git -C "$INSTALL_DIR" show-ref --verify --quiet refs/heads/aitask-data \
+            2>/dev/null; then
+        die "$root points at the aitask-data worktree, but .aitask-data/ is missing or unusable.
+     Restore it, then re-run the install:
+       git worktree prune && git worktree add .aitask-data aitask-data"
+    fi
+
+    # No data branch anywhere: the link resolves nowhere and nothing can be
+    # written through it (e.g. a hand-built tarball that captured the repo's own
+    # gitignored symlinks). Leftover state — replace it with a real directory.
+    warn "Replacing dangling symlink $root -> $target with a real directory"
+    rm -f "$root" || \
+        die "Cannot replace dangling symlink $root — check directory permissions"
+}
+
 # --- Create data directories ---
 create_data_dirs() {
-    mkdir -p "$INSTALL_DIR/aitasks/metadata"
-    mkdir -p "$INSTALL_DIR/aitasks/metadata/profiles"
-    mkdir -p "$INSTALL_DIR/aitasks/archived"
-    mkdir -p "$INSTALL_DIR/aiplans/archived"
-    mkdir -p "$INSTALL_DIR/aireviewguides"
+    ensure_data_root aitasks
+    ensure_data_root aiplans
+
+    local d
+    for d in aitasks/metadata aitasks/metadata/profiles aitasks/archived \
+             aiplans/archived aireviewguides; do
+        mkdir -p "$INSTALL_DIR/$d" 2>/dev/null || \
+            die "Cannot create $INSTALL_DIR/$d — check for a broken symlink or permissions"
+    done
 }
 
 # --- Merge seed file into destination (preserve existing user values) ---
