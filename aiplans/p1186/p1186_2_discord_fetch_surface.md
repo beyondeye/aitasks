@@ -164,3 +164,47 @@ Post-implementation per task-workflow Step 9; archive via
   (aggregate manual-verification sibling: unchunked-cache scenario on a real
   server + member-without-visibility exclusion); feature-level drift covered by
   t1192 (existing "after" mitigation from parent decomposition)
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned, including all three
+  review-round corrections: (a) both helpers resolve the guild via
+  `channel.guild` after `_resolve_channel()` (never `_require_guild()`, which
+  would fail on the wizard's `connect(token)` default path), DM/guild-less →
+  `[]`; (b) `fetch_channel_members` uses the pinned layered fallback
+  (chunked cache → `guild.chunk()` with `Exception`-only catch →
+  `fetch_members(limit=None)` terminal → raw-cache best effort) plus the
+  `permissions_for(m).view_channel` visibility filter (include-on-absent —
+  config-time display data, not authorization); (c) 13 adapter-level SDK-free
+  checks added to `tests/test_chat_discord.sh` next to the
+  `fetch_bot_permissions` block, and 23 orchestration/validation checks to
+  `tests/test_chatlink_wizard.sh`. New `chatlink/allowlist_fetch.py` mirrors
+  every live_check contract (module-level import hygiene, injectable
+  connector, shared monotonic deadline, bounded suppressed teardown, never
+  raises, class-name-only errors via imported `live_check._exc_names`,
+  thread→parent ref scoping, per-stage isolation, `MAX_MEMBERS=500`
+  truncation, bot filtering before the cap).
+- **Deviations from plan:** None material. One robustness addition:
+  `fetch_roles` accepts `is_default` as either a method (real discord.py) or
+  a plain bool (duck-typed stubs).
+- **Issues encountered:** None — all suites green on first full run after
+  implementation (chat_discord 180, chatlink_wizard 76, chat_contract 148,
+  config/preflight/daemon/tui pass).
+- **Key decisions:** Truncation counts only human members (bots dropped
+  before the cap applies) so the picker never wastes cap slots on filtered
+  entries; `members_truncated` stays False at exactly `MAX_MEMBERS`.
+  Connection-stage failures set BOTH `members_error` and `roles_error` (the
+  wizard can render one banner); stage failures stay per-stage.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1186_4 (picker UI) consumes
+  `allowlist_fetch.run_allowlist_fetch(token, workspace_id, conversation_id,
+  thread_id, timeout=..., connector=None)` from a thread worker exactly like
+  `LiveCheckScreen` consumes `run_live_checks` (generation-token guard
+  pattern, wizard.py); `AllowlistFetchResult.members/roles` are ready-made
+  `(id, label)` option pairs; use `members_error`/`roles_error` for the
+  degrade-to-manual banner and `members_truncated` for a "showing first 500"
+  note. The manual path validates with `dedupe_ids` + `invalid_snowflakes`
+  (both headless, importable without textual/discord). Test fakes:
+  `FakeAllowAdapter`/`af_run` in test_chatlink_wizard.sh (t1186_2 section)
+  and `PickGuild`/`pick_adapter` in test_chat_discord.sh are reusable.
+  t1186_5 must verify live: unchunked-cache member fetch on a real server
+  and a member without channel visibility being excluded.
