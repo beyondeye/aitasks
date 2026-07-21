@@ -397,3 +397,77 @@ updating `DISPOSITIONS` **and** every site in `SITES`.
 
 Standard: merge approval, `./ait gates run 1200` (the task declares
 `risk_evaluated`), then `./.aitask-scripts/aitask_archive.sh 1200`.
+
+## Final Implementation Notes
+
+- **Actual work done:** All 8 planned changes landed as designed.
+  - `impl-review-angles.md`: disposition rubric now carries three values
+    (`blocking` / `follow-up` / `informational`); the `informational` definition
+    was added with an explicit "never a parking slot for a genuine defect" guard;
+    the "Accepted/deferred risks" bullet was rewritten three-way so **no branch
+    omits** (validly accepted → `informational` with the rationale named);
+    Angle S1's "do NOT re-flag" was reframed as a *classification* rule, not a
+    drop instruction; the uncertainty rule now blocks demotion to
+    `informational` on mere doubt; the anti-drop rule was made tier-general
+    (verify pass where one exists, straight to the findings list where none
+    does); `## Ordering and caps` was renamed to
+    `## Ordering, caps, and the no-silent-omission rule` with the three-way
+    partition/cut order and a broadened disclosure rule whose only sanctioned
+    silent drop is a REFUTED verdict.
+  - `impl-challenge.md`: mandatory announcement when a tier is *inferred*
+    (unqualified "adversarial review" → Default, now stated out loud with
+    Advanced named); Default tier gained the anti-drop rule; Quick gained it
+    within its hunk-only scope; new `Anti-drop rule` row (✓ all four tiers) in
+    the angle-activation table; findings presentation switched to three
+    partitions and a "Honesty is not licence to drop" paragraph; concern block
+    gained an `informational` example line and the three-value trailer rule;
+    UX-boundary note updated.
+  - `aitask-shadow/SKILL.md`, `website/content/docs/workflows/shadow-agent.md`:
+    updated to match, incl. a new user-facing "the shadow never silently hides
+    a finding" paragraph.
+  - Tests: `test_concern_parser.py` gained an `informational` round-trip;
+    new `tests/test_shadow_disposition_surfaces.py` (229 lines) guards the five
+    enumeration sites.
+- **Deviations from plan:** None in scope or approach. Two content edits were
+  *forced by the new guard* rather than pre-planned (see below).
+- **Issues encountered:**
+  1. The drift guard failed on its first run against a site the plan had not
+     enumerated: the rubric's **"Cross-checks (the categorical trap)"** bullet
+     contrasted only `blocking` vs `follow-up`. Fixed by adding an
+     `informational` branch. This is precisely the silent-contradiction class
+     the guard exists to catch, and it was caught on day one.
+  2. The first fix then failed the guard a *second* time: `informational`
+     landed ~205 normalized chars after `blocking`, outside the 160-char
+     co-occurrence window. Rather than widen the window (which would weaken the
+     guard everywhere), the bullet was restructured to lead with the three-way
+     statement. Net effect: the prose now *reads* three-way instead of merely
+     containing the word somewhere in the paragraph.
+  3. Review feedback during planning corrected two design defects before any
+     code was written — a verification `grep` that was both quoting-fragile and
+     structurally unable to see the line-wrapped enumeration (it found 1 of 5
+     sites), and the drift guard being deferred to a follow-up task when t1200
+     is itself the change adding the third value. Both were folded into the
+     plan; the guard became Change 8.
+- **Key decisions:**
+  - **Third disposition over re-scoping `follow-up`** (user choice): preserves
+    `follow-up`'s meaning of "real separable debt" instead of conflating it with
+    "reviewer thinks this is already handled".
+  - **Site-level, not file-level, drift guard:** both multi-site files would
+    pass a file-level check vacuously (one site updated, one stale).
+  - **Proximity rule over a list of stale phrasings:** the two-value enumeration
+    appears in at least three shapes; matching literals would miss the fourth.
+    The rule is "wherever `blocking` and `follow-up` co-occur, `informational`
+    must too", which is phrasing-independent.
+  - **Anchor tripwire:** each heading prefix must match exactly one line, so a
+    renamed heading fails loudly instead of silently reducing the guard to
+    checking nothing.
+  - **Default keeps its legacy methodology** (user choice): it gained only the
+    anti-drop rule. Advanced/Deep remain the answer for higher recall — tracked
+    by the `after` mitigation.
+- **Upstream defects identified:** None.
+
+### Build verification
+`aitask_skill_verify.sh`: OK (12 templates across 3 agents).
+Tests: `test_concern_parser.py` 25 pass, `test_shadow_disposition_surfaces.py`
+10 pass, `test_minimonitor_shadow_pick.py` pass, `test_shadow_spawn_config.sh`
+13/13, `test_skillrun_codex.sh` pass.
