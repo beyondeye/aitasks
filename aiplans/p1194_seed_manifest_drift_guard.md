@@ -247,7 +247,10 @@ Structure:
   `source .aitask-scripts/aitask_setup.sh --source-only`, then
   `populate_data_branch_seed_metadata "$fx/seed" "$fx/aitasks/metadata" "$fx/.aitask-scripts/gates_reference.yaml"`
   and (with `SCRIPT_DIR="$fx/.aitask-scripts"`) `ensure_agent_config_seeds`.
-- Both snapshot with `find aitasks/metadata -type f -printf '%P\n' | sort`.
+- Both snapshot with `find aitasks/metadata -type f | sed 's#^aitasks/metadata/##' | sort`.
+  (`find -printf` is GNU-only — BSD/macOS `find` has no such primary — so the
+  prefix is stripped with `sed`. Verified byte-identical to the GNU form,
+  including the nested `profiles/*.yaml` paths.)
 - `compare_manifests <fileA> <fileB>` — the oracle. Prints
   `INSTALL_ONLY:<path>` / `SETUP_ONLY:<path>` lines; returns 0 iff both empty.
 
@@ -359,3 +362,88 @@ Notes and offered as a Step 8b follow-up.
 
 ### Planned mitigations
 - timing: after | name: manual_verification_fresh_install_seed_delivery | type: manual_verification | priority: medium | effort: low | addresses: code-health — bootstrap-path change unverifiable by automated tests | desc: Run install.sh --local-tarball into a scratch project and confirm aitasks/metadata/ receives doc_update_guide.md and code_areas.yaml alongside the pre-existing seeds, then run ait setup in a clean clone and confirm the same set.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, in three parts.
+  1. `.aitask-scripts/aitask_setup.sh` — extracted the data-branch metadata
+     block out of `setup_data_branch()` into
+     `populate_data_branch_seed_metadata(seed_dir, dest_dir, gates_reference)`.
+  2. `install.sh` — added `install_seed_code_areas()` and
+     `install_seed_doc_update_guide()` (install-if-missing, never overwrite),
+     wired into `main()` between `install_seed_reviewguides` and
+     `install_seed_codeagent_config`, well before the `rm -rf "$INSTALL_DIR/seed"`.
+  3. `tests/test_seed_manifest_drift.sh` — the guard, 28 assertions, all passing.
+
+- **Deviations from plan:** Two, both from review feedback, neither changing the
+  design.
+  - The snapshot helper originally used `find -printf '%P\n'`, which is
+    GNU-only and would fail outright on macOS/BSD. Replaced with
+    `find … | sed 's#^aitasks/metadata/##' | sort`, verified byte-identical to
+    the GNU form on the real manifest (including nested `profiles/` paths).
+    `find -printf` appeared nowhere else in the repo, confirming it was against
+    convention.
+  - Test 8's single "absent seed_dir is a clean no-op" case was split into 8a /
+    8b / 8c during planning after review, because it contradicted the t1147
+    gate-registry invariant. 8b is now the explicit pin: seed absent + gate
+    reference present must still deliver `gates.yaml`.
+
+- **Issues encountered:**
+  - `set -euo pipefail` aborted the run at Test 1: `compare_manifests` returns
+    non-zero *by design* (it is the guard's verdict) and the negative controls
+    invoke it expecting failure. Relaxed to `set +eu` after the fixture setup,
+    matching `tests/test_setup_agent_config_seeds.sh`.
+  - The first patch-staging attempt failed with "patch with only garbage"
+    because the repo renders diffs with `i/`…`w/` mnemonic prefixes; regenerated
+    with `--src-prefix=a/ --dst-prefix=b/`.
+
+- **Key decisions:**
+  - **Guard scope = full install-vs-setup parity, not the four t1185 pairs.**
+    Exploration showed the two sides are not peers over one set but the two
+    mutually exclusive delivery paths for `aitasks/metadata/` (install.sh
+    deletes `seed/`; the setup paths need it). A four-pair check cannot see the
+    direction that matters — install.sh gains a seed and the setup side does
+    not.
+  - **Derive the install side from the installers `main()` actually calls**
+    (`declare -F` ∩ `declare -f main`), not merely from those that exist, plus a
+    standalone wiring assertion. An installer defined but never wired would
+    otherwise pass the guard while a real tarball install skipped the file.
+  - **Closed the two live gaps rather than allowlisting them.** `install.sh`
+    was not delivering `doc_update_guide.md` (which the `docs_updated` gate
+    resolves at runtime, after `seed/` is gone) or `code_areas.yaml`. An
+    allowlist would have been a third manifest to drift.
+  - **Never-overwrite over `merge_seed yaml` for `code_areas.yaml`.** A yaml
+    merge routes `--force` through `aitask_install_merge.py`'s `yaml.safe_dump`,
+    destroying the seed's 45-line format header while contributing no keys the
+    destination lacks.
+  - **Kept the duplication and guarded it** rather than collapsing both sides
+    onto one shared manifest: install.sh's installers select per-seed merge
+    strategies and must stay standalone for bootstrap.
+
+- **Attribution proof:** re-running the derivation against
+  `git show HEAD:install.sh` reports exactly `SETUP_ONLY:code_areas.yaml` and
+  `SETUP_ONLY:doc_update_guide.md`, confirming the guard genuinely fails
+  pre-fix and that Test 2's pass is attributable to the change rather than to a
+  vacuous comparison.
+
+- **Known limitation (follow-up):** the wiring assertion accepts an
+  `install_seed_*` call anywhere in `main()`, including *after* the
+  `rm -rf "$INSTALL_DIR/seed"` cleanup. Such an installer would pass the guard
+  (the test fixture still has `seed/`) while a real tarball install delivered
+  nothing. `declare -f main` renders the cleanup verbatim as
+  `rm -rf "$INSTALL_DIR/seed";`, so truncating `main_body` at that line is a
+  small change. Dispositioned as a follow-up task at review time, not folded in
+  here.
+
+- **Concurrency note:** a parallel session held uncommitted work in `install.sh`
+  (`ensure_data_root()` + a rewritten `create_data_dirs()`) plus untracked
+  `tests/test_install_create_data_dirs.sh` and chat/chatlink files. Only this
+  task's two `install.sh` hunks were staged, via a filtered patch applied with
+  `git apply --cached`; the staged blob was verified to contain no
+  `ensure_data_root` and to pass `bash -n`. `test_install_create_data_dirs.sh`
+  fails at `T9b` on that session's in-flight code (it asserts a "Cannot replace
+  dangling symlink" diagnostic their `install.sh` does not yet emit) — unrelated
+  to this task and left alone.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:1340-1352 — seed/crew_runner_config.yaml is delivered by neither install.sh nor the setup path, yet aidocs/agentcrew/agentcrew_architecture.md:245 states "ait setup seeds this file from seed/crew_runner_config.yaml" and .aitask-scripts/agentcrew/agentcrew_runner.py:68 reads aitasks/metadata/crew_runner_config.yaml. The drift guard cannot flag it (absent on both sides means no drift), so it needs its own fix.`
