@@ -1011,6 +1011,173 @@ async def main():
         check("fetch_bot_permissions without permissions_for → ChatError",
               "cannot inspect bot permissions" in str(exc))
 
+    # --- fetch_roles / fetch_channel_members (t1186_2) ------------------ #
+    # Config-time picker helpers. Adapters are constructed WITHOUT
+    # guild_id (the wizard's connect(token) default) — the guild must
+    # come from channel.guild, never _require_guild().
+    def role_ns(rid, name, default=False):
+        return SimpleNamespace(id=rid, name=name,
+                               is_default=lambda d=default: d)
+
+    def member_ns(uid, name, bot=False):
+        return SimpleNamespace(id=uid, display_name=name, name=name,
+                               bot=bot)
+
+    class PickGuild:
+        """Duck-typed guild recording chunk()/fetch calls."""
+        def __init__(self, members=(), chunked=False, chunk_exc=None,
+                     chunk_members=None, fetch_members_list=None,
+                     fetch_members_exc=None, roles=(),
+                     fetch_roles_list=None, fetch_roles_exc=None):
+            self.members = list(members)
+            self.chunked = chunked
+            self.roles = list(roles)
+            self.chunk_calls = 0
+            self.fetch_members_calls = 0
+            self.fetch_roles_calls = 0
+            self._chunk_exc = chunk_exc
+            self._chunk_members = chunk_members
+            self._fetch_members_list = fetch_members_list
+            self._fetch_members_exc = fetch_members_exc
+            self._fetch_roles_list = fetch_roles_list
+            self._fetch_roles_exc = fetch_roles_exc
+
+        async def chunk(self):
+            self.chunk_calls += 1
+            if self._chunk_exc:
+                raise self._chunk_exc
+            if self._chunk_members is not None:
+                self.members = list(self._chunk_members)
+
+        def fetch_members(self, limit=...):
+            self.fetch_members_calls += 1
+            assert limit is None, "must request the full member list"
+            exc, items = self._fetch_members_exc, self._fetch_members_list
+            async def gen():
+                if exc:
+                    raise exc
+                for m in items or []:
+                    yield m
+            return gen()
+
+        async def fetch_roles(self):
+            self.fetch_roles_calls += 1
+            if self._fetch_roles_exc:
+                raise self._fetch_roles_exc
+            return list(self._fetch_roles_list or [])
+
+    def pick_adapter(guild_obj, channel_cls=FakeChannel):
+        pch = channel_cls(guild_obj=guild_obj)
+        return DiscordAdapter(FakeClient(channels={200: pch}),
+                              self_id="9", sdk=make_fake_sdk()), pch
+
+    # fetch_roles: cache path (no fetch), @everyone excluded, no guild_id
+    rg = PickGuild(roles=[role_ns(1, "@everyone", default=True),
+                          role_ns(2, "mods"), role_ns(3, "devs")])
+    r_adapter, _ = pick_adapter(rg)
+    got_roles = await r_adapter.fetch_roles(CH_REF)
+    check("fetch_roles uses the roles cache and skips @everyone",
+          [(r.id, r.name, r.kind) for r in got_roles]
+          == [("2", "mods", "discord_role"), ("3", "devs", "discord_role")]
+          and rg.fetch_roles_calls == 0)
+
+    # cache empty → fetch_roles() fallback
+    rg2 = PickGuild(roles=[], fetch_roles_list=[role_ns(4, "qa")])
+    r_adapter2, _ = pick_adapter(rg2)
+    got_roles2 = await r_adapter2.fetch_roles(CH_REF)
+    check("fetch_roles falls back to fetch_roles() on empty cache",
+          [(r.id, r.name) for r in got_roles2] == [("4", "qa")]
+          and rg2.fetch_roles_calls == 1)
+
+    # fetch failure → mapped conversation error
+    rg3 = PickGuild(roles=[], fetch_roles_exc=NotFound("gone"))
+    r_adapter3, _ = pick_adapter(rg3)
+    try:
+        await r_adapter3.fetch_roles(CH_REF)
+        check("fetch_roles failure → mapped ConversationNotFound", False)
+    except ConversationNotFound:
+        check("fetch_roles failure → mapped ConversationNotFound", True)
+
+    # DM / guild-less → []
+    dm_adapter3, _ = pick_adapter(None)
+    check("fetch_roles on a guild-less channel returns []",
+          await dm_adapter3.fetch_roles(CH_REF) == [])
+
+    # fetch_channel_members: chunked guild → cache used, chunk NOT called
+    mg = PickGuild(members=[member_ns(1, "alice"),
+                            member_ns(2, "botty", bot=True)],
+                   chunked=True)
+    m_adapter, _ = pick_adapter(mg)
+    got = await m_adapter.fetch_channel_members(CH_REF)
+    check("fetch_channel_members uses the cache when guild.chunked",
+          [u.id for u in got] == ["1", "2"] and mg.chunk_calls == 0
+          and mg.fetch_members_calls == 0)
+    check("fetch_channel_members preserves the bot flag via user_to_domain",
+          [u.is_bot for u in got] == [False, True])
+
+    # unchunked + chunk() succeeds → chunked once, populated cache used
+    mg2 = PickGuild(members=[], chunked=False,
+                    chunk_members=[member_ns(3, "carol")])
+    m_adapter2, _ = pick_adapter(mg2)
+    got2 = await m_adapter2.fetch_channel_members(CH_REF)
+    check("fetch_channel_members chunks an unchunked guild",
+          [u.id for u in got2] == ["3"] and mg2.chunk_calls == 1
+          and mg2.fetch_members_calls == 0)
+
+    # chunk() raising → fetch_members(limit=None) fallback (the
+    # empty-channel.members regression case)
+    mg3 = PickGuild(members=[], chunked=False, chunk_exc=RuntimeError("no ws"),
+                    fetch_members_list=[member_ns(4, "dave")])
+    m_adapter3, _ = pick_adapter(mg3)
+    got3 = await m_adapter3.fetch_channel_members(CH_REF)
+    check("fetch_channel_members falls back to fetch_members on chunk failure",
+          [u.id for u in got3] == ["4"] and mg3.chunk_calls == 1
+          and mg3.fetch_members_calls == 1)
+
+    # chunk missing entirely → fetch_members fallback
+    mg4 = PickGuild(members=[], chunked=False,
+                    fetch_members_list=[member_ns(5, "erin")])
+    mg4.chunk = None
+    m_adapter4, _ = pick_adapter(mg4)
+    got4 = await m_adapter4.fetch_channel_members(CH_REF)
+    check("fetch_channel_members without chunk() uses fetch_members",
+          [u.id for u in got4] == ["5"] and mg4.fetch_members_calls == 1)
+
+    # fetch_members failure is terminal → mapped conversation error
+    mg5 = PickGuild(members=[], chunked=False, chunk_exc=RuntimeError("no ws"),
+                    fetch_members_exc=Forbidden("intent"))
+    m_adapter5, _ = pick_adapter(mg5)
+    try:
+        await m_adapter5.fetch_channel_members(CH_REF)
+        check("fetch_channel_members fetch failure → mapped error", False)
+    except PermissionDenied:
+        check("fetch_channel_members fetch failure → mapped error", True)
+
+    # neither chunk nor fetch_members → best-effort cache
+    mg6 = PickGuild(members=[member_ns(6, "fred")], chunked=False)
+    mg6.chunk = None
+    mg6.fetch_members = None
+    m_adapter6, _ = pick_adapter(mg6)
+    got6 = await m_adapter6.fetch_channel_members(CH_REF)
+    check("fetch_channel_members degrades to the raw cache",
+          [u.id for u in got6] == ["6"])
+
+    # visibility filter: member without view_channel excluded
+    class VisChannel(FakeChannel):
+        def permissions_for(self, member):
+            return SimpleNamespace(view_channel=member.id != 8)
+    mg7 = PickGuild(members=[member_ns(7, "greta"), member_ns(8, "hidden")],
+                    chunked=True)
+    m_adapter7, _ = pick_adapter(mg7, channel_cls=VisChannel)
+    got7 = await m_adapter7.fetch_channel_members(CH_REF)
+    check("fetch_channel_members filters members without view_channel",
+          [u.id for u in got7] == ["7"])
+
+    # DM / guild-less → []
+    dm_adapter4, _ = pick_adapter(None)
+    check("fetch_channel_members on a guild-less channel returns []",
+          await dm_adapter4.fetch_channel_members(CH_REF) == [])
+
 
 asyncio.run(main())
 assert "discord" not in sys.modules, "no test path may import the SDK"

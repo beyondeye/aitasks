@@ -420,6 +420,163 @@ check("live: stage timeout renders a timed-out visibility row",
 check("live: teardown close called on the timeout path",
       slow_adapter.closed == 1)
 
+# ======================================================================== #
+# t1186_2 — allowlist_fetch: member/role picker data source
+# ======================================================================== #
+import chatlink.allowlist_fetch as allowlist_fetch  # noqa: E402
+assert "textual" not in sys.modules, \
+    "FAIL: allowlist_fetch must not load textual"
+assert "discord" not in sys.modules, \
+    "FAIL: allowlist_fetch must not load the discord SDK"
+print("ok - allowlist_fetch imports without textual and without discord")
+
+
+def fake_user(uid, name, bot=False):
+    return SimpleNamespace(id=uid, display_name=name, is_bot=bot)
+
+
+class FakeAllowAdapter:
+    def __init__(self, members=None, roles=None, members_exc=None,
+                 roles_exc=None, members_slow=0.0):
+        self.closed = 0
+        self.members = list(members or [])
+        self.roles = list(roles or [])
+        self.members_exc = members_exc
+        self.roles_exc = roles_exc
+        self.members_slow = members_slow
+        self.member_refs = []
+        self.role_refs = []
+
+    async def fetch_channel_members(self, ref):
+        self.member_refs.append(ref)
+        if self.members_slow:
+            await asyncio.sleep(self.members_slow)
+        if self.members_exc:
+            raise self.members_exc
+        return list(self.members)
+
+    async def fetch_roles(self, ref):
+        self.role_refs.append(ref)
+        if self.roles_exc:
+            raise self.roles_exc
+        return list(self.roles)
+
+    async def close(self):
+        self.closed += 1
+
+
+def af_run(adapter=None, exc=None, slow=0.0, thread_id=None, timeout=5.0):
+    return allowlist_fetch.run_allowlist_fetch(
+        TOKEN, "100", "200", thread_id, timeout=timeout,
+        connector=connector_for(adapter, exc, slow))
+
+
+def af_hygiene(res):
+    return all(TOKEN not in (s or "")
+               for s in (res.members_error, res.roles_error))
+
+
+TWO_ROLES = [SimpleNamespace(id="31", name="mods"),
+             SimpleNamespace(id="32", name="devs")]
+
+# all-pass: shape + ordering preserved, bots filtered
+ok_af = FakeAllowAdapter(
+    members=[fake_user("1", "alice"), fake_user("2", "botty", bot=True),
+             fake_user("3", "carol")],
+    roles=TWO_ROLES)
+res = af_run(ok_af)
+check("allowlist: members are ordered (id, display_name) pairs",
+      res.members == [("1", "alice"), ("3", "carol")])
+check("allowlist: bot members are filtered out",
+      all(i != "2" for i, _ in res.members))
+check("allowlist: roles are ordered (id, name) pairs",
+      res.roles == [("31", "mods"), ("32", "devs")])
+check("allowlist: all-pass has no stage errors and no truncation",
+      res.members_error is None and res.roles_error is None
+      and res.members_truncated is False)
+check("allowlist: teardown close called on the success path",
+      ok_af.closed == 1)
+
+# truncation at the cap (bots dropped before the cap applies)
+big = [fake_user(str(i), f"u{i}") for i in range(allowlist_fetch.MAX_MEMBERS + 7)]
+res = af_run(FakeAllowAdapter(members=big, roles=TWO_ROLES))
+check("allowlist: member list truncated at MAX_MEMBERS",
+      len(res.members) == allowlist_fetch.MAX_MEMBERS
+      and res.members_truncated is True)
+res = af_run(FakeAllowAdapter(
+    members=[fake_user(str(i), f"u{i}") for i in range(allowlist_fetch.MAX_MEMBERS)],
+    roles=TWO_ROLES))
+check("allowlist: exactly-at-cap list is not marked truncated",
+      len(res.members) == allowlist_fetch.MAX_MEMBERS
+      and res.members_truncated is False)
+
+# per-stage isolation: members fail, roles still delivered
+iso1 = FakeAllowAdapter(members_exc=BoomError("no members " + TOKEN),
+                        roles=TWO_ROLES)
+res = af_run(iso1)
+check("allowlist: members failure is isolated — roles still fetched",
+      res.members == [] and "BoomError" in res.members_error
+      and res.roles == [("31", "mods"), ("32", "devs")]
+      and res.roles_error is None)
+check("allowlist: members error carries class name only (hygiene)",
+      af_hygiene(res))
+check("allowlist: teardown close called on the members-failure path",
+      iso1.closed == 1)
+
+# per-stage isolation: roles fail, members still delivered
+res = af_run(FakeAllowAdapter(members=[fake_user("1", "alice")],
+                              roles_exc=BoomError("no roles " + TOKEN)))
+check("allowlist: roles failure is isolated — members still fetched",
+      res.members == [("1", "alice")] and res.roles == []
+      and "BoomError" in res.roles_error and res.members_error is None
+      and af_hygiene(res))
+
+# connection failure → both stages errored, sanitized
+res = af_run(exc=LoginFailure("401 " + TOKEN))
+check("allowlist: rejected token errors both stages without leaking",
+      res.members_error == "token rejected by Discord"
+      and res.roles_error == "token rejected by Discord"
+      and res.members == [] and res.roles == [] and af_hygiene(res))
+res = af_run(exc=BoomError("kaboom " + TOKEN))
+check("allowlist: unexpected connect error carries class name only",
+      "BoomError" in res.members_error and "BoomError" in res.roles_error
+      and af_hygiene(res))
+
+# connect timeout → bounded, both stages errored, nothing to close
+res = af_run(slow=30.0, timeout=0.2)
+check("allowlist: connect timeout errors both stages",
+      "timed out" in res.members_error and "timed out" in res.roles_error)
+
+# stage timeout → members timed out, roles still attempted, teardown runs
+slow_af = FakeAllowAdapter(members_slow=30.0, roles=TWO_ROLES)
+res = af_run(slow_af, timeout=0.2)
+check("allowlist: member-stage timeout is isolated",
+      "timed out" in res.members_error
+      and res.roles == [("31", "mods"), ("32", "devs")])
+check("allowlist: teardown close called on the timeout path",
+      slow_af.closed == 1)
+
+# thread scoping: BOTH stages target the parent conversation ref
+th_af = FakeAllowAdapter(members=[fake_user("1", "alice")], roles=TWO_ROLES)
+af_run(th_af, thread_id="777")
+check("allowlist: member fetch targets the PARENT channel ref",
+      th_af.member_refs[0].thread_id is None
+      and th_af.member_refs[0].conversation_id == "200")
+check("allowlist: role fetch targets the PARENT channel ref",
+      th_af.role_refs[0].thread_id is None
+      and th_af.role_refs[0].conversation_id == "200")
+
+# --- validation helpers ----------------------------------------------------
+check("allowlist: dedupe_ids preserves first-seen order",
+      allowlist_fetch.dedupe_ids(["2", "1", "2", "3", "1"]) == ["2", "1", "3"])
+check("allowlist: dedupe_ids on empty input", allowlist_fetch.dedupe_ids([]) == [])
+check("allowlist: invalid_snowflakes flags non-snowflake shapes",
+      allowlist_fetch.invalid_snowflakes(
+          ["123456789012345678", "12345", "abc", "1" * 22, ""])
+      == ["12345", "abc", "1" * 22, ""])
+check("allowlist: invalid_snowflakes accepts 15- and 21-digit bounds",
+      allowlist_fetch.invalid_snowflakes(["1" * 15, "1" * 21]) == [])
+
 print(f"\nPASS: {PASS}, FAIL: 0")
 PYEOF
 

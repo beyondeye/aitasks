@@ -1235,6 +1235,103 @@ class DiscordAdapter(ChatAdapter):
         perms = perms_for(member)
         return {name: bool(getattr(perms, name, False)) for name in names}
 
+    async def fetch_roles(self, conversation: ConversationRef) -> list[Role]:
+        """All roles of the conversation's guild (config-time helper).
+
+        Discord-specific config-time helper (outside the ``ChatAdapter``
+        contract, like :meth:`fetch_bot_permissions`): resolves the
+        channel and reads ``channel.guild`` — NOT ``_require_guild()``,
+        which needs a constructor ``guild_id`` the wizard's default
+        ``connect(token)`` path never supplies. Uses the ``guild.roles``
+        cache when populated, else ``fetch_roles()`` (get-then-fetch);
+        skips ``@everyone`` (``is_default``). A guild-less channel (DM)
+        has no role model — returns ``[]`` (not applicable).
+        """
+        channel = await self._resolve_channel(conversation)
+        guild = getattr(channel, "guild", None)
+        if guild is None:
+            return []
+        roles = getattr(guild, "roles", None)
+        if not roles:
+            fetch = getattr(guild, "fetch_roles", None)
+            if callable(fetch):
+                try:
+                    roles = await fetch()
+                except Exception as exc:  # noqa: BLE001
+                    raise map_discord_error(exc, target="conversation") from exc
+        out: list[Role] = []
+        for r in roles or []:
+            # discord.py's is_default is a method; duck-typed stubs may
+            # use a plain bool — accept both.
+            flag = getattr(r, "is_default", False)
+            if flag() if callable(flag) else flag:
+                continue
+            out.append(Role(id=str(r.id), name=str(r.name), kind="discord_role"))
+        return out
+
+    async def fetch_channel_members(
+        self, conversation: ConversationRef
+    ) -> list[User]:
+        """Members who can see the conversation's channel (config-time).
+
+        Discord-specific config-time helper (outside the ``ChatAdapter``
+        contract). Unlike the runtime :meth:`fetch_participants` (which
+        reads ``channel.members`` — derived from a guild member cache
+        that is empty on a short-lived config-time connection, and whose
+        ``fetch_members`` fallback does not exist on ``TextChannel``),
+        this actively populates the guild member list, layered
+        best-effort:
+
+        1. ``guild.chunked`` → the cache is complete, use it.
+        2. ``await guild.chunk()`` (gateway chunking; needs the Server
+           Members Intent, which is mandatory and live-check-verified) —
+           any ``Exception`` falls through to 3 (never terminal while a
+           fallback remains untried; ``CancelledError`` from the caller's
+           deadline propagates).
+        3. ``guild.fetch_members(limit=None)`` (HTTP) — a failure HERE is
+           terminal and surfaces as a mapped conversation error.
+        4. Neither available → the cache as-is (best effort).
+
+        Members are then visibility-filtered with
+        ``channel.permissions_for(member).view_channel`` (the same
+        oracle :meth:`fetch_identity_claims` uses); an object without
+        ``permissions_for`` keeps everyone (config-time display data,
+        not authorization — runtime policy still checks membership).
+        A guild-less channel (DM) returns ``[]``.
+        """
+        channel = await self._resolve_channel(conversation)
+        guild = getattr(channel, "guild", None)
+        if guild is None:
+            return []
+        members = None
+        if getattr(guild, "chunked", False):
+            members = list(getattr(guild, "members", None) or [])
+        else:
+            chunk = getattr(guild, "chunk", None)
+            if callable(chunk):
+                try:
+                    await chunk()
+                    members = list(getattr(guild, "members", None) or [])
+                except Exception:  # noqa: BLE001 - fall through to fetch_members
+                    members = None
+            if members is None:
+                fetch = getattr(guild, "fetch_members", None)
+                if callable(fetch):
+                    try:
+                        members = [m async for m in fetch(limit=None)]
+                    except Exception as exc:  # noqa: BLE001
+                        raise map_discord_error(
+                            exc, target="conversation") from exc
+                else:
+                    members = list(getattr(guild, "members", None) or [])
+        perms_for = getattr(channel, "permissions_for", None)
+        if callable(perms_for):
+            members = [
+                m for m in members
+                if bool(getattr(perms_for(m), "view_channel", False))
+            ]
+        return [user_to_domain(m) for m in members]
+
     # ------------------------------------------------------------------ #
     # Reconciliation
     # ------------------------------------------------------------------ #
