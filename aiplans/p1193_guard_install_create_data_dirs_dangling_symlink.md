@@ -242,3 +242,100 @@ Step 9 (Post-Implementation) runs the normal merge / gate / archival flow;
   and the downstream dependency on these roots are all confirmed against the
   live source; scenario 11 exercises the real entry point
   (`install.sh --local-tarball`) rather than the helper in isolation.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-21 07:52)
+- **Requested by user:** The leftover-state repair logged its intent and then
+  called a raw `rm -f "$root"` under the script's global `set -e`. If removal
+  fails (unwritable install dir), the installer aborts on the bare `rm:` error
+  instead of the `die`-with-diagnostic contract the rest of the new function
+  establishes. Keep the diagnostic contract consistent.
+- **Changes made:**
+  - `install.sh` — `rm -f "$root" || die "Cannot replace dangling symlink $root
+    — check directory permissions"`. Addressed inline rather than deferred: it
+    is a one-line change inside code being written in this task, and leaving it
+    would ship an inconsistent contract.
+  - Added **scenario 9b** (unwritable install dir) pinning the new path: exits
+    non-zero, output carries the guard's diagnostic, symlink untouched. Skipped
+    under `id -u == 0`, where the permission bits do not bite.
+  - **Second defect found by 9b:** the `show-ref` branch-mode probe leaked
+    `fatal: not a git repository` when installing into a **non-git** directory
+    (a supported install target — see `test_t167_integration.sh` Scenario E).
+    Added `2>/dev/null` to match the sibling `worktree list` probe, and extended
+    scenario 2 (whose fixture is deliberately not a git repo) to capture output
+    and assert the probes stay silent.
+- **Files affected:** `install.sh`, `tests/test_install_create_data_dirs.sh`
+
+Test count after this iteration: **40 passed, 0 failed** (was 36).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. `install.sh` gained
+  `ensure_data_root()` (5-branch decision table) and a rewritten
+  `create_data_dirs()` whose `mkdir -p` batch `die`s with a diagnostic instead
+  of aborting bare under `set -e`. New `tests/test_install_create_data_dirs.sh`
+  covers 12 scenarios / 40 assertions, including the negative control (#3), a
+  case per non-destructive branch (#5-#9), and an end-to-end
+  `install.sh --local-tarball` run (#11) with dangling symlinks baked into the
+  tarball. Only `aitasks`/`aiplans` get the repair; `aireviewguides` was
+  deliberately left out (setup never symlinks it, so the framework does not own
+  its canonical target and the destructive branch would ship untested).
+
+- **Deviations from plan:** Two additions during review, both inside the new
+  code (see Post-Review Changes above): the `rm -f` failure now `die`s with a
+  diagnostic, and the `show-ref` branch-mode probe got `2>/dev/null`. Scenario
+  9b and an extension to scenario 2 were added to pin them, taking the count
+  from the planned 11 scenarios / 36 assertions to 12 / 40.
+
+- **Issues encountered:**
+  - The test initially died at scenario 3 because `source install.sh
+    --source-only` leaks the installer's file-scope `set -euo pipefail` into the
+    test shell, so the deliberately-failing `mkdir -p` aborted the run. Fixed
+    with `set +euo pipefail` after the source, mirroring
+    `tests/test_setup_agent_config_seeds.sh:67`.
+  - Scenario 9b's first version placed `2>&1` outside the command substitution,
+    so `die`'s stderr was never captured — the assertion failed while the guard
+    was actually correct. Fixing the capture then exposed the `show-ref` stderr
+    leak, which is how that second defect was found.
+  - A parallel session (t1194) was editing `install.sh` concurrently. Its hunks
+    landed in `86fcebbef` before the commit, so the final staged diff needed no
+    hunk surgery — but it was verified hunk-by-hunk (`git diff --cached
+    install.sh | grep '^@@'` ⇒ exactly one hunk) before committing, and
+    `.claude/settings.local.json` was left unstaged.
+
+- **Key decisions:**
+  - **Repair, not warn-and-skip.** Every later install step writes through these
+    roots, so a warning would only move the same `set -e` abort downstream.
+  - **Never unlink what might be a real layout.** `rm -f` requires *three*
+    independent branch-mode signals to be absent (a `.aitask-data/.git` marker,
+    a registered worktree, a local `refs/heads/aitask-data`) plus an exact match
+    on the link form `setup_data_branch()` writes. Anything else is a hard error
+    with a restore command — unlinking a live branch-mode symlink would silently
+    redirect framework metadata off the data branch.
+  - **Never materialize an unvalidated target.** The canonical-form check runs
+    first and the `mkdir -p` argument is constructed locally
+    (`$INSTALL_DIR/.aitask-data/<name>`), never `readlink` output, so absolute /
+    `..`-bearing / custom targets cannot reach an `mkdir` or an `rm`.
+  - **Live-worktree detection is the full pair** (`.git` marker **and**
+    `rev-parse --is-inside-work-tree`), matching
+    `commit_installed_data_files()`. A stale or copied marker therefore lands in
+    the hard-error branch, never in the materialize or unlink branches.
+
+- **Verification against independent ground truth:** `git show HEAD:install.sh`
+  (pre-fix) was run against the same dangling-symlink tarball and reproduced the
+  report exactly — exit 1, `mkdir: cannot create directory …: File exists`. The
+  fixed installer completes and logs the repair for both roots. Regression
+  suite: `test_install_create_data_dirs` 40/40, `test_install_tarball_download`
+  28/28, `test_install_merge` 37/37, `test_t167_integration` 17/17,
+  `test_t644_branch_mode_upgrade` 16/16, `test_seed_manifest_drift` 28/28
+  (t1194's guard, re-run because it shares the file). `shellcheck` clean on the
+  new code; the three pre-existing `install.sh` findings are on untouched lines.
+
+- **Upstream defects identified:** None. The one sibling candidate was checked
+  and cleared: `aitask_setup.sh` `setup_draft_directory()` also runs an
+  unguarded `mkdir -p "$project_dir/aitasks/new"`, but it is ordered *after*
+  `setup_data_branch()` (`aitask_setup.sh:3487` vs `:3490`), which materializes
+  the worktree and so self-heals a dangling link before that call is reached.
+  The `install.sh` shellcheck findings (SC2295, SC2043, SC1091) are style/lint
+  and out of scope.
