@@ -16,6 +16,11 @@ set -euo pipefail
 # and source-tree users do not, or vice versa. That is exactly the t1185 failure
 # mode reproduced for a new file, so this guard asserts the two manifests agree.
 #
+# The install side is also POSITION-SENSITIVE (t1197): because the cleanup in (1)
+# runs mid-main(), an installer wired after it is dead code in a real install.
+# The derivation counts only calls that precede the cleanup, so such an installer
+# is reported rather than silently accepted.
+#
 # Both manifests are DERIVED FROM LIVE SOURCE — each script is sourced with its
 # --source-only guard and its populate functions run against a throwaway
 # fixture. Nothing here hardcodes an expected file list: a hardcoded list would
@@ -65,51 +70,193 @@ snapshot() {
 # install.sh and aitask_setup.sh both define info/warn/die/success, so each
 # derivation runs in its OWN process — they are never sourced into one shell.
 
-# derive_install_manifest <fixture> [probe_fn_src] [probe_wiring]
+# WIRING_SRC — shell source eval'd inside BOTH derivation subprocesses. They are
+# separate processes, so a shared bash function is the only way to keep the two
+# wiring checks from drifting apart, which is the very failure mode this guard
+# exists to catch.
 #
-# Runs the installers main() ACTUALLY CALLS: the install_seed_* functions
-# intersected with the names appearing in `declare -f main`. `declare -f`
-# reproduces the parsed function without comments, so this is a true call-site
-# check — an installer that exists but was never wired contributes nothing,
+# Call POSITION is part of the wiring contract (t1197). main() runs
+# `rm -rf "$INSTALL_DIR/seed"` once the seed installers are done, so an installer
+# wired AFTER that line delivers nothing in a real tarball install — yet a
+# position-blind name match accepts it anyway, because the test fixture still has
+# a populated seed/ when the derivation calls the function directly. Everything
+# below therefore keys on the cleanup line as an anchor and counts only the calls
+# that precede it.
+WIRING_SRC="$(cat <<'SRC'
+# Rendered verbatim by `declare -f main` as `    rm -rf "$INSTALL_DIR/seed";`.
+# (main()'s only other `rm -rf` is the tmpdir trap, which does not match.)
+SEED_CLEANUP_ANCHOR='rm -rf "$INSTALL_DIR/seed"'
+
+# require_anchor <who> <body> — fail loudly when the anchor is gone. Falling back
+# to scanning the whole body would silently restore the position-blind match the
+# moment install.sh reworded that line.
+require_anchor() {
+    [[ "$2" == *"$SEED_CLEANUP_ANCHOR"* ]] && return 0
+    printf '%s: seed-cleanup anchor not found in main() body\n' "$1" >&2
+    return 3
+}
+
+# Plain bash prefix/suffix removal, not sed: no escaping of the `$` and `/` in
+# the anchor, and no BSD-vs-GNU divergence (aidocs/framework/sed_macos_issues.md).
+main_body_before_cleanup() {
+    require_anchor main_body_before_cleanup "$1" || return 3
+    printf '%s' "${1%%"$SEED_CLEANUP_ANCHOR"*}"
+}
+main_body_after_cleanup() {
+    require_anchor main_body_after_cleanup "$1" || return 3
+    printf '%s' "${1#*"$SEED_CLEANUP_ANCHOR"}"
+}
+
+# splice_probe_wiring <body> <wiring> <pre|post> — insert a synthetic call site on
+# the requested side of the cleanup anchor, modelling a newly wired installer.
+splice_probe_wiring() {
+    local head tail
+    require_anchor splice_probe_wiring "$1" || return 3
+    head="${1%%"$SEED_CLEANUP_ANCHOR"*}"
+    tail="${1#*"$SEED_CLEANUP_ANCHOR"}"
+    case "$3" in
+        pre)  printf '%s' "$head$2$SEED_CLEANUP_ANCHOR$tail" ;;
+        post) printf '%s' "$head$SEED_CLEANUP_ANCHOR$2$tail" ;;
+        *)    printf 'splice_probe_wiring: bad position: %s\n' "$3" >&2; return 3 ;;
+    esac
+}
+
+# calls_installer <body> <fn> — is <fn> invoked at COMMAND POSITION in <body>?
+# `declare -f` pretty-prints one command per line, so command position is a line
+# start or a spot right after `;` `&&` `||` `|` `{` `(`. A bare name match would
+# also count a mention inside a string, e.g. info "about to run install_seed_x".
+# Residual limitation, accepted: a mention inside a single-line string that
+# itself follows one of those separators still matches. Errors here fail LOUD —
+# a missed call is reported as unwired, never silently accepted.
+calls_installer() {
+    grep -qE "(^|[;&|{(])[[:space:]]*$2([^[:alnum:]_]|$)" <<< "$1"
+}
+
+all_installers() { declare -F | awk '{print $3}' | grep '^install_seed_'; }
+
+# wired_installers <body> — installers called BEFORE the seed cleanup.
+wired_installers() {
+    local pre fn
+    pre="$(main_body_before_cleanup "$1")" || return 3
+    for fn in $(all_installers); do
+        calls_installer "$pre" "$fn" && printf '%s\n' "$fn"
+    done
+    return 0
+}
+
+# postcleanup_installers <body> — installers called ONLY after the cleanup: the
+# position defect itself. Powers the developer-facing failure diagnostics.
+postcleanup_installers() {
+    local pre post fn
+    pre="$(main_body_before_cleanup "$1")" || return 3
+    post="$(main_body_after_cleanup "$1")" || return 3
+    for fn in $(all_installers); do
+        calls_installer "$pre" "$fn" && continue
+        calls_installer "$post" "$fn" && printf '%s\n' "$fn"
+    done
+    return 0
+}
+SRC
+)"
+
+# derive_install_manifest <fixture> [probe_fn_src] [probe_wiring] [probe_position]
+#
+# Runs the installers main() ACTUALLY CALLS BEFORE THE SEED CLEANUP: the
+# install_seed_* functions whose call site appears, at command position, in the
+# pre-cleanup portion of `declare -f main`. `declare -f` reproduces the parsed
+# function without comments, so this is a true call-site check — an installer
+# that exists but was never wired, or was wired too late, contributes nothing,
 # which is right, because a real tarball install would not deliver its file
 # either.
 #
 # probe_fn_src defines a synthetic installer and MUST NOT redefine main() —
 # doing so would clobber the real one and collapse the wired set to the probe
-# alone. The synthetic CALL SITE is supplied separately via probe_wiring, a
-# string appended to the real main() body, which models "real main() plus one
-# newly wired installer".
+# alone — EXCEPT in the Test 11 anchor controls, which redefine it deliberately
+# to exercise the missing-anchor path. The synthetic CALL SITE is supplied
+# separately via probe_wiring and spliced into the real main() body on the
+# probe_position side (`pre`, the default, or `post`) of the cleanup anchor,
+# modelling "real main() plus one newly wired installer".
+#
+# On failure the manifest is the poison line DERIVATION_FAILED — never an empty
+# or partial snapshot, which would read as ordinary drift — and the subprocess
+# stderr is surfaced rather than discarded.
 derive_install_manifest() {
-    local fixture="$1" probe_fn_src="${2:-}" probe_wiring="${3:-}"
+    local fixture="$1" probe_fn_src="${2:-}" probe_wiring="${3:-}" probe_position="${4:-pre}"
+    local errf="$TESTROOT/derive_err.$$" rc
     bash -c '
         set -uo pipefail
         source "$1/install.sh" --source-only
+        eval "$5"
         INSTALL_DIR="$2"
         [[ -n "$3" ]] && eval "$3"
         create_data_dirs
-        main_body="$(declare -f main)$4"
-        for fn in $(declare -F | awk "{print \$3}" | grep "^install_seed_"); do
-            grep -qE "(^|[^[:alnum:]_])${fn}([^[:alnum:]_]|$)" <<< "$main_body" || continue
-            "$fn"
-        done
-    ' _ "$PROJECT_DIR" "$fixture" "$probe_fn_src" "$probe_wiring" >/dev/null 2>&1
+        main_body="$(declare -f main)"
+        if [[ -n "$4" ]]; then
+            main_body="$(splice_probe_wiring "$main_body" "$4" "$6")" || exit 3
+        fi
+        # Capture first, then check: `for fn in $(wired_installers ...)` would
+        # swallow a nonzero status into a harmless empty loop.
+        wired="$(wired_installers "$main_body")" || exit 3
+        for fn in $wired; do "$fn"; done
+        exit 0
+    ' _ "$PROJECT_DIR" "$fixture" "$probe_fn_src" "$probe_wiring" "$WIRING_SRC" \
+      "$probe_position" >/dev/null 2>"$errf"
+    rc=$?
+    if (( rc != 0 )); then
+        echo "derive_install_manifest: derivation subprocess failed (rc=$rc)" >&2
+        cat "$errf" >&2
+        rm -f "$errf"
+        echo "DERIVATION_FAILED"
+        return "$rc"
+    fi
+    rm -f "$errf"
     snapshot "$fixture"
 }
 
-# list_unwired_installers [probe_fn_src] — every install_seed_* NOT referenced
-# in main(). Catches the case a wired-set-derived manifest cannot see on its
-# own: an installer added and paired with a setup entry but never called.
-list_unwired_installers() {
-    local probe_fn_src="${1:-}"
-    bash -c '
+# list_unwired_installers [probe_fn_src] [probe_wiring] [probe_position] — every
+# install_seed_* NOT called before the seed cleanup. Catches the two cases a
+# wired-set-derived manifest cannot see on its own: an installer added and paired
+# with a setup entry but never called, and one called too late to matter.
+list_unwired_installers() { _installer_wiring_report unwired "$@"; }
+
+# list_postcleanup_installers [...] — the subset of the above that IS called, but
+# only after the cleanup. Names the position defect in failure diagnostics.
+list_postcleanup_installers() { _installer_wiring_report postcleanup "$@"; }
+
+_installer_wiring_report() {
+    local mode="$1" probe_fn_src="${2:-}" probe_wiring="${3:-}" probe_position="${4:-pre}"
+    local errf="$TESTROOT/wiring_err.$$" out rc
+    out="$(bash -c '
         set -uo pipefail
-        source "$1/install.sh" --source-only >/dev/null 2>&1
-        [[ -n "$2" ]] && eval "$2"
+        source "$2/install.sh" --source-only >/dev/null 2>&1
+        eval "$5"
+        [[ -n "$3" ]] && eval "$3"
         main_body="$(declare -f main)"
-        for fn in $(declare -F | awk "{print \$3}" | grep "^install_seed_"); do
-            grep -qE "(^|[^[:alnum:]_])${fn}([^[:alnum:]_]|$)" <<< "$main_body" || echo "$fn"
-        done
-    ' _ "$PROJECT_DIR" "$probe_fn_src" 2>/dev/null | sort
+        if [[ -n "$4" ]]; then
+            main_body="$(splice_probe_wiring "$main_body" "$4" "$6")" || exit 3
+        fi
+        if [[ "$1" == postcleanup ]]; then
+            postcleanup_installers "$main_body" || exit 3
+        else
+            wired="$(wired_installers "$main_body")" || exit 3
+            for fn in $(all_installers); do
+                grep -qx "$fn" <<< "$wired" || echo "$fn"
+            done
+        fi
+        exit 0
+    ' _ "$mode" "$PROJECT_DIR" "$probe_fn_src" "$probe_wiring" "$WIRING_SRC" \
+      "$probe_position" 2>"$errf")"
+    rc=$?
+    if (( rc != 0 )); then
+        echo "_installer_wiring_report($mode): subprocess failed (rc=$rc)" >&2
+        cat "$errf" >&2
+        rm -f "$errf"
+        echo "ANCHOR_MISSING"
+        return 0
+    fi
+    rm -f "$errf"
+    [[ -z "$out" ]] && return 0
+    sort <<< "$out"
 }
 
 # derive_setup_manifest <fixture> — the source-tree side: the data-branch
@@ -166,11 +313,21 @@ echo ""
 # --- Test 2: live parity (the guard) ---
 echo "--- Test 2: install.sh and the setup path deliver the same metadata set ---"
 derive_install_manifest "$(make_fixture live_i)" > "$TESTROOT/m_install"
+install_rc=$?
 derive_setup_manifest   "$(make_fixture live_s)" > "$TESTROOT/m_setup"
 
-drift="$(compare_manifests "$TESTROOT/m_install" "$TESTROOT/m_setup")" || true
 TOTAL=$((TOTAL + 1))
-if [[ -z "$drift" ]]; then
+if (( install_rc != 0 )); then
+    # The install-side derivation itself failed, so there is no manifest to
+    # compare. Report that, and do NOT run the comparison: a poisoned manifest
+    # against the full setup manifest would dress one broken derivation up as
+    # dozens of unrelated SETUP_ONLY findings and bury the real diagnostic.
+    echo "  FAIL: T2: install-side derivation failed (rc=$install_rc) — see the"
+    echo "    diagnostic above; drift comparison skipped (no manifest to compare)."
+    echo "    Most likely the seed-cleanup anchor moved or was reworded: the guard"
+    echo "    keys on the literal 'rm -rf \"\$INSTALL_DIR/seed\"' line in main()."
+    FAIL=$((FAIL + 1))
+elif drift="$(compare_manifests "$TESTROOT/m_install" "$TESTROOT/m_setup")"; then
     echo "  PASS: T2: no drift between the two delivery paths"
     PASS=$((PASS + 1))
 else
@@ -181,6 +338,13 @@ else
     echo "      or ensure_agent_config_seeds()"
     echo "    SETUP_ONLY   => add an install_seed_*() to install.sh AND call it"
     echo "      from main() before the 'rm -rf \$INSTALL_DIR/seed'"
+    echo "      ...or it IS defined and called, but AFTER that cleanup, which"
+    echo "      delivers nothing in a real install. Called post-cleanup:"
+    # ANCHOR_MISSING means the wiring check itself could not run — its own
+    # diagnostic was already printed to stderr; do not restate it as a finding.
+    pc2="$(list_postcleanup_installers)"
+    [[ "$pc2" == ANCHOR_MISSING ]] && pc2=""
+    echo "        ${pc2:-(none)}"
     FAIL=$((FAIL + 1))
 fi
 
@@ -240,17 +404,25 @@ done
 
 echo ""
 
-# --- Test 6: every installer that exists is wired into main() ---
-echo "--- Test 6: no install_seed_* is defined but never called ---"
+# --- Test 6: every installer that exists is wired into main(), in time ---
+echo "--- Test 6: every install_seed_* is called before the seed cleanup ---"
 unwired="$(list_unwired_installers)"
 TOTAL=$((TOTAL + 1))
 if [[ -z "$unwired" ]]; then
     echo "  PASS: T6: all install_seed_* functions are wired into main()"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL: T6: install_seed_* defined but never called from main():"
+    echo "  FAIL: T6: install_seed_* not called from main() before the cleanup:"
     while IFS= read -r line; do echo "    $line"; done <<< "$unwired"
-    echo "    Define install_seed_<x>() AND call it from main(), before the"
+    # ANCHOR_MISSING means the wiring check itself could not run — its own
+    # diagnostic was already printed to stderr; do not restate it as a finding.
+    pc6="$(list_postcleanup_installers)"
+    if [[ -n "$pc6" && "$pc6" != ANCHOR_MISSING ]]; then
+        echo "    Of these, called only AFTER 'rm -rf \$INSTALL_DIR/seed' — too"
+        echo "    late to deliver anything in a real install:"
+        while IFS= read -r line; do echo "      $line"; done <<< "$pc6"
+    fi
+    echo "    Define install_seed_<x>() AND call it from main(), BEFORE the"
     echo "    'rm -rf \$INSTALL_DIR/seed' cleanup."
     FAIL=$((FAIL + 1))
 fi
@@ -299,6 +471,88 @@ run_populate "$D8C/metadata" "$TESTROOT/definitely-absent-seed" \
 assert_eq "T8c: exits 0 with both absent" "0" "$?"
 assert_file_not_exists "T8c: no gate registry fabricated" "$D8C/metadata/gates.yaml"
 assert_file_not_exists "T8c: no seed metadata fabricated" "$D8C/metadata/task_types.txt"
+
+echo ""
+
+# --- Test 9: call POSITION decides the manifest (t1197) ---
+# One probe, two wiring positions, opposite verdicts. The setup side needs no
+# synthetic code: the real *_instructions.seed.md glob in
+# populate_data_branch_seed_metadata already delivers the probe seed, so
+# $TESTROOT/m_setup_probe (built in Test 4) is the matching setup manifest.
+echo "--- Test 9: negative control — post-cleanup wiring is caught (t1197) ---"
+# shellcheck disable=SC2016  # deliberate: the probe body is eval'd in the
+# derivation subprocess, where INSTALL_DIR is set — it must NOT expand here.
+POS_PROBE_FN='install_seed_postcleanup_probe() { cp "$INSTALL_DIR/seed/probe_instructions.seed.md" "$INSTALL_DIR/aitasks/metadata/probe_instructions.seed.md"; }'
+POS_PROBE_CALL=$'\n    install_seed_postcleanup_probe\n'
+
+FX9A="$(make_fixture pos_pre)"
+printf '# probe\n' > "$FX9A/seed/probe_instructions.seed.md"
+derive_install_manifest "$FX9A" "$POS_PROBE_FN" "$POS_PROBE_CALL" pre > "$TESTROOT/m_install_pos_pre"
+
+FX9B="$(make_fixture pos_post)"
+printf '# probe\n' > "$FX9B/seed/probe_instructions.seed.md"
+derive_install_manifest "$FX9B" "$POS_PROBE_FN" "$POS_PROBE_CALL" post > "$TESTROOT/m_install_pos_post"
+
+drift9_pre="$(compare_manifests "$TESTROOT/m_install_pos_pre" "$TESTROOT/m_setup_probe")" || true
+assert_eq "T9: pre-cleanup wiring still counts (truncation did not cut too early)" \
+    "" "$drift9_pre"
+
+drift9_post="$(compare_manifests "$TESTROOT/m_install_pos_post" "$TESTROOT/m_setup_probe")" || true
+assert_eq "T9: post-cleanup wiring is reported as drift, and is the only drift" \
+    "SETUP_ONLY:probe_instructions.seed.md" "$drift9_post"
+assert_contains "T9: real installers still contributed (post leg)" \
+    "codex_config.seed.toml" "$(cat "$TESTROOT/m_install_pos_post")"
+
+echo ""
+
+# --- Test 10: the wiring surface honours position too (t1197) ---
+echo "--- Test 10: negative control — list_unwired_installers sees position ---"
+assert_eq "T10: pre-cleanup wiring is not reported as unwired" \
+    "" "$(list_unwired_installers "$POS_PROBE_FN" "$POS_PROBE_CALL" pre)"
+assert_eq "T10: post-cleanup wiring is reported, and nothing else" \
+    "install_seed_postcleanup_probe" \
+    "$(list_unwired_installers "$POS_PROBE_FN" "$POS_PROBE_CALL" post)"
+assert_eq "T10: ...and is named as a POSITION defect, not a missing call" \
+    "install_seed_postcleanup_probe" \
+    "$(list_postcleanup_installers "$POS_PROBE_FN" "$POS_PROBE_CALL" post)"
+
+# A name mentioned only inside a pre-cleanup string is not a call site.
+assert_eq "T10: a string mention is not a call site" \
+    "install_seed_mention_probe" \
+    "$(list_unwired_installers 'install_seed_mention_probe() { :; }' \
+        $'\n    info "about to run install_seed_mention_probe";\n' pre)"
+
+echo ""
+
+# --- Test 11: a missing cleanup anchor fails loudly (t1197) ---
+# The direct helper controls alone are not enough: a wrapper that ignores the
+# subprocess status would still degrade into an empty or broad drift result
+# instead of a diagnostic — which is exactly what a reworded cleanup line would
+# cause. So both real guard paths are driven end to end as well.
+echo "--- Test 11: missing seed-cleanup anchor fails loudly (t1197) ---"
+ANCHORLESS_MAIN='main() { install_seed_task_types; }'
+
+out11a="$(bash -c 'eval "$1"; main_body_before_cleanup "$2"' _ "$WIRING_SRC" "$ANCHORLESS_MAIN" 2>&1)"
+rc11a=$?
+assert_eq "T11a: main_body_before_cleanup exits 3 without the anchor" "3" "$rc11a"
+assert_contains "T11a: ...and names the missing anchor" "anchor not found" "$out11a"
+
+out11b="$(bash -c 'eval "$1"; splice_probe_wiring "$2" "x" pre' _ "$WIRING_SRC" "$ANCHORLESS_MAIN" 2>&1)"
+rc11b=$?
+assert_eq "T11b: splice_probe_wiring exits 3 without the anchor" "3" "$rc11b"
+assert_contains "T11b: ...and names the missing anchor" "anchor not found" "$out11b"
+
+out11c="$(derive_install_manifest "$(make_fixture anchorless)" "$ANCHORLESS_MAIN" 2>&1)"
+rc11c=$?
+assert_eq "T11c: derive_install_manifest propagates the failure" "3" "$rc11c"
+assert_contains "T11c: ...poisons the manifest instead of snapshotting" \
+    "DERIVATION_FAILED" "$out11c"
+assert_contains "T11c: ...and surfaces the diagnostic" "anchor not found" "$out11c"
+
+out11d="$(list_unwired_installers "$ANCHORLESS_MAIN" 2>&1)"
+assert_contains "T11d: list_unwired_installers reports ANCHOR_MISSING" \
+    "ANCHOR_MISSING" "$out11d"
+assert_contains "T11d: ...and surfaces the diagnostic" "anchor not found" "$out11d"
 
 echo ""
 echo "========================================="
