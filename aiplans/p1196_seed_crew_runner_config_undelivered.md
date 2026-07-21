@@ -453,7 +453,16 @@ then `./.aitask-scripts/aitask_archive.sh 1196`.
 - **Upstream defects identified:**
   - `tests/test_crew_runner.sh:762 — footer reads a file-backed COUNTER_FILE that
     no assertion writes, so the suite prints "FAIL:" lines and still exits 0;
-    all 19 tests are unenforced in CI.` The file initialises `COUNTER_FILE` with
+    all 19 tests are unenforced in CI.` **Scope is wider than this one file:** 11
+    test files pair a `COUNTER_FILE` footer with the shared `asserts.sh` helpers
+    and under-report to varying degrees — measured, `tests/test_crew_groups.sh`
+    reports **0 passed, 0 failed, 0 total** against 23 assertions in the file,
+    `tests/test_crew_init.sh` reports 3 of 22, and `tests/test_crew_status.sh`
+    reports 5 of 52. Affected: `test_crew_runner.sh`, `test_crew_groups.sh`,
+    `test_crew_init.sh`, `test_crew_status.sh`, `test_crew_report.sh`,
+    `test_crew_setmode.sh`, `test_crew_addwork_output_instructions.sh`,
+    `test_crew_template_includes.sh`, `test_agentcrew_pythonpath.sh`,
+    `test_brainstorm_cli.sh`, `test_launch_mode_field.sh`. The file initialises `COUNTER_FILE` with
     `_inc_pass`/`_inc_fail` helpers, but every assertion goes through the shared
     `tests/lib/asserts.sh` helpers, which mutate shell-global `PASS`/`FAIL`/
     `TOTAL` — values that are additionally lost across the file's `( … )`
