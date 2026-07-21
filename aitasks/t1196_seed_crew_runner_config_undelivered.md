@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-21 11:03
-updated_at: 2026-07-21 11:59
+updated_at: 2026-07-21 13:14
 ---
 
 ## Origin
@@ -63,3 +64,8 @@ Decide which is correct and make source and docs agree:
   removing `seed/crew_runner_config.yaml`.
 
 Verify the runner's behavior when the file is absent before choosing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-21T10:15:23Z status=pass attempt=1 type=human
