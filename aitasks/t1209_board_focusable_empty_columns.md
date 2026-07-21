@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_board, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-21 19:16
-updated_at: 2026-07-21 19:16
+updated_at: 2026-07-21 19:21
 ---
 
 In `ait board`, a column with no task cards cannot be focused. Because the
