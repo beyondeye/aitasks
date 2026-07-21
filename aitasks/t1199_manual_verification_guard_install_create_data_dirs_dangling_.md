@@ -12,7 +12,7 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [1193]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-21 11:07
-updated_at: 2026-07-21 11:12
+updated_at: 2026-07-21 11:36
 ---
 
 ## Manual Verification Task
@@ -27,7 +27,7 @@ archived; Defer is allowed but creates a carry-over task.
 
 ## Verification Checklist
 
-- [ ] Run `bash tests/test_install_create_data_dirs.sh` on macOS — the guard uses plain `readlink` (no `-f`) and `grep -qE`, both BSD-safe by inspection but never executed on a BSD box. Expect 40 passed, 0 failed.
-- [ ] Real branch-mode recovery: on an actual branch-mode project, `rm -rf .aitask-data`, then run `ait upgrade`. Expect the hard error naming `git worktree prune && git worktree add .aitask-data aitask-data`, and `aitasks`/`aiplans` still symlinks (no real directory created in their place).
-- [ ] Fresh install into a non-git directory containing a dangling canonical `aitasks -> .aitask-data/aitasks` symlink. Expect the "Replacing dangling symlink" warning, a completed install, and NO `fatal: not a git repository` noise in the output.
-- [ ] Install a genuine release tarball (not hand-built) into a fresh dir and confirm the guard is a no-op — the `aitasks`/`aiplans` symlinks are gitignored, so a real `git archive` release should never carry them.
+- [defer] Run `bash tests/test_install_create_data_dirs.sh` on macOS — DEFER 2026-07-21 11:36 auto: requires a macOS/BSD host; Linux cannot execute the BSD compatibility test
+- [defer] Real branch-mode recovery: on an actual branch-mode project, `rm -rf .aitask-data`, then run `ait upgrade`. Expect the hard error naming `git worktree prune && git worktree add .aitask-data aitask-data`, and `aitasks`/`aiplans` still symlinks (no real directory created in their place). — DEFER 2026-07-21 11:36 auto: isolated branch-mode guard emitted the expected recovery command and preserved symlink; literal ait upgrade requires an installed branch-mode project
+- [x] Fresh install into a non-git directory containing a dangling canonical `aitasks -> .aitask-data/aitasks` symlink. Expect the "Replacing dangling symlink" warning, a completed install, and NO `fatal: not a git repository` noise in the output. — PASS 2026-07-21 11:36 auto: genuine v0.28.0 tarball installed in fresh non-git temp dir; warning emitted, exit 0, no git noise
+- [x] Install a genuine release tarball (not hand-built) into a fresh dir and confirm the guard is a no-op — PASS 2026-07-21 11:36 auto: v0.28.0 release tarball (840 entries) contains no aitasks/aiplans symlink entries
