@@ -101,7 +101,10 @@ main() {
 
     # Step 3: extract failing item text via the parser
     local item_line
-    item_line=$("$SCRIPT_DIR/aitask_verification_parse.sh" parse "$from_file" \
+    # --strip-annotations makes the parser drop any prior " — STATE ..." suffix
+    # using its own anchored rule, so the item's prose (em-dashes included)
+    # reaches the follow-up description intact (t1208).
+    item_line=$("$SCRIPT_DIR/aitask_verification_parse.sh" parse --strip-annotations "$from_file" \
         | awk -F: -v idx="$ITEM_INDEX" '$1 == "ITEM" && $2 == idx { print; exit }')
     if [[ -z "$item_line" ]]; then
         echo "ERROR:item $ITEM_INDEX not found in $from_file"
@@ -110,8 +113,6 @@ main() {
     # parse output: ITEM:<idx>:<state>:<line>:<text>  -> everything after 4th colon
     local item_text
     item_text=$(echo "$item_line" | cut -d: -f5-)
-    # Strip any existing " — STATE ..." annotation from a prior set.
-    item_text="${item_text%% — *}"
 
     # Step 4: resolve origin
     local origin

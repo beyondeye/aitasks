@@ -94,10 +94,12 @@ seed_origin_commit() {
     git rev-parse --short HEAD
 }
 
-# write_mv_task <path> <verifies_list_literal> writes a manual-verification
-# task file with one unchecked checklist item.
+# write_mv_task <path> <verifies_list_literal> [item_line] writes a
+# manual-verification task file with one checklist item. item_line defaults to
+# a plain unchecked item; pass it to exercise annotated / em-dash prose.
 write_mv_task() {
     local path="$1" verifies_literal="$2"
+    local item_line="${3:-- [ ] Button opens the modal cleanly}"
     mkdir -p "$(dirname "$path")"
     {
         printf '%s\n' "---"
@@ -112,7 +114,7 @@ write_mv_task() {
         printf '%s\n' "updated_at: 2026-01-01 10:00"
         printf '%s\n' "---"
         printf '\n## Verification Checklist\n\n'
-        printf -- '- [ ] Button opens the modal cleanly\n'
+        printf '%s\n' "$item_line"
     } > "$path"
 }
 
@@ -155,6 +157,47 @@ test_happy_path_single_verifies() {
         assert_contains "bug task references touched file" "src/origin_42.py" "$body"
         assert_contains "bug task depends on origin" "depends: [42]" "$body"
         assert_contains "bug task type is bug" "issue_type: bug" "$body"
+    fi
+
+    teardown
+}
+
+test_em_dash_item_text_preserved() {
+    echo "=== Test: item prose with an em-dash survives into the bug task (t1208) ==="
+    setup_project
+
+    seed_origin_commit 42 > /dev/null
+    # Prose em-dash + a prior FAIL annotation: the description must keep the
+    # whole sentence and drop only the annotation.
+    write_mv_task aitasks/t99_manual.md "[42]" \
+        '- [fail] Advanced is the recommended tier — a user must never infer it from the output. — FAIL 2026-01-01 10:00 auto: regressed'
+    git add -A && git commit -m "seed mv task" --quiet
+
+    local out rc
+    out=$(bash .aitask-scripts/aitask_verification_followup.sh --from 99 --item 1 2>&1) && rc=0 || rc=$?
+    assert_eq "em-dash case exit 0" "0" "$rc"
+
+    local new_path
+    new_path=$(followup_path_from_output "$out")
+    if [[ -z "$new_path" || ! -f "$new_path" ]]; then
+        FAIL=$((FAIL + 1))
+        TOTAL=$((TOTAL + 1))
+        echo "FAIL: bug task path not resolvable or file missing"
+        echo "  out: $out"
+    else
+        local body
+        body=$(cat "$new_path")
+        assert_contains "prose before the em-dash kept" \
+            "Advanced is the recommended tier" "$body"
+        assert_contains "prose AFTER the em-dash kept" \
+            "a user must never infer it from the output." "$body"
+        TOTAL=$((TOTAL + 1))
+        if grep -q 'FAIL 2026-01-01 10:00' "$new_path"; then
+            FAIL=$((FAIL + 1))
+            echo "FAIL: annotation leaked into the bug task description"
+        else
+            PASS=$((PASS + 1))
+        fi
     fi
 
     teardown
@@ -311,6 +354,7 @@ teardown_all() {
 trap teardown_all EXIT
 
 test_happy_path_single_verifies
+test_em_dash_item_text_preserved
 test_ambiguous_origin
 test_explicit_origin_resolves_ambiguity
 test_backref_appended_to_existing_notes

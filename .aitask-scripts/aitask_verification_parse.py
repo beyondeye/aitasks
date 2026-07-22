@@ -34,6 +34,14 @@ ITEM_RE = re.compile(r"^([ \t]*)- \[([ x]|fail|skip|defer)\][ \t]+(.*)$")
 H2_RE = re.compile(r"^## ")
 SUFFIX_SPLIT = " \u2014 "
 
+# Shape of an annotation body as written by ``cmd_set``: "PASS 2026-07-21 17:43"
+# optionally followed by a note. Derived from VALID_SET_STATES so the matcher
+# cannot drift from the states ``cmd_set`` is able to write.
+_STATE_ALT = "|".join(sorted(s.upper() for s in VALID_SET_STATES))
+ANNOTATION_RE = re.compile(
+    rf"^(?:{_STATE_ALT}) \d{{4}}-\d{{2}}-\d{{2}} \d{{2}}:\d{{2}}(?: |$)"
+)
+
 
 def _die(msg: str, code: int = 1) -> None:
     print(f"error: {msg}", file=sys.stderr)
@@ -116,8 +124,28 @@ def _locate_section(body: List[str]) -> Optional[Tuple[int, int]]:
 
 
 def _strip_annotation(text: str) -> str:
-    if SUFFIX_SPLIT in text:
-        return text.split(SUFFIX_SPLIT, 1)[0].rstrip()
+    """Strip a trailing ``" — STATE YYYY-MM-DD HH:MM [note]"`` annotation.
+
+    The delimiter is anchored to the annotation *shape* and scanned from the
+    right, so item prose containing its own em-dash survives (t1208 — splitting
+    on the first delimiter silently destroyed everything after it). ``cmd_set``
+    neutralizes the delimiter inside notes, so for anything it writes the
+    rightmost match is the real boundary.
+
+    Two cases stay undecidable from the line alone and are accepted:
+
+    1. Prose that itself ends with an annotation-shaped segment is
+       indistinguishable from a real annotation and will be stripped.
+    2. A line written before this fix, whose note carries an unsanitized
+       delimiter, sheds only its last annotation layer. Stripping repeatedly
+       would clean those but is equivalent to matching leftmost, which destroys
+       legitimate prose — the very defect this exists to prevent.
+    """
+    idx = text.rfind(SUFFIX_SPLIT)
+    while idx != -1:
+        if ANNOTATION_RE.match(text[idx + len(SUFFIX_SPLIT) :]):
+            return text[:idx].rstrip()
+        idx = text.rfind(SUFFIX_SPLIT, 0, idx)
     return text
 
 
@@ -182,6 +210,8 @@ def cmd_parse(args: argparse.Namespace) -> int:
     items = _iter_items(body)
     for idx, state, body_line, text in items:
         file_line = fm_lines + body_line + 1
+        if args.strip_annotations:
+            text = _strip_annotation(text)
         print(f"ITEM:{idx}:{state}:{file_line}:{text}")
     return 0
 
@@ -240,7 +270,11 @@ def cmd_set(args: argparse.Namespace) -> int:
     text = m.group(3)
     new_text = _strip_annotation(text).rstrip()
     stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    note = f" {args.note}" if args.note else ""
+    # Notes are free-form. A note containing the delimiter would plant a second
+    # annotation-shaped segment and make the boundary undecidable on the next
+    # set, so neutralize it at write time (t1208).
+    note_text = (args.note or "").replace(SUFFIX_SPLIT, " -- ")
+    note = f" {note_text}" if note_text else ""
     annotation = f"{SUFFIX_SPLIT}{state.upper()} {stamp}{note}"
     new_marker = MARKER_BY_STATE[state]
     new_line = f"{indent}- [{new_marker}] {new_text}{annotation}"
@@ -288,6 +322,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_parse = sub.add_parser("parse", help="emit ITEM:<idx>:<state>:<line>:<text> per item")
     p_parse.add_argument("task_file")
+    p_parse.add_argument(
+        "--strip-annotations",
+        action="store_true",
+        help="emit item text with any trailing ' — STATE ...' annotation removed",
+    )
     p_parse.set_defaults(func=cmd_parse)
 
     p_set = sub.add_parser("set", help="mutate a single item's state (with optional note)")

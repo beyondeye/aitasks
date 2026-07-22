@@ -153,6 +153,41 @@ class TestSectionHeaderFilter(unittest.TestCase):
             self.assertEqual(len(lines), 2)
             self.assertNotIn("group header:", "\n".join(lines))
 
+    def test_header_with_em_dash_in_prose_is_recognized(self):
+        # The header's own prose contains an em-dash. Splitting on the first
+        # delimiter dropped the trailing ":" and demoted it to a leaf, which
+        # silently renumbered every item below it (t1208).
+        body = (
+            "## Verification Checklist\n\n"
+            "- [ ] group — the tuple case:\n"
+            "  - [ ] child a\n"
+            "  - [ ] child b\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            path = _make_file(Path(d), body, FM)
+            rc, out = _run(["parse", str(path)])
+            self.assertEqual(rc, 0)
+            lines = _item_lines(out)
+            self.assertEqual(len(lines), 2)
+            self.assertNotIn("the tuple case:", "\n".join(lines))
+            self.assertIn("child a", lines[0])
+            self.assertIn("child b", lines[1])
+
+    def test_annotated_header_with_em_dash_in_prose_is_recognized(self):
+        body = (
+            "## Verification Checklist\n\n"
+            "- [x] group — the tuple case: — PASS 2026-04-21 08:00\n"
+            "  - [x] child a — PASS 2026-04-21 08:01\n"
+            "  - [x] child b — PASS 2026-04-21 08:02\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            path = _make_file(Path(d), body, FM)
+            rc, out = _run(["parse", str(path)])
+            self.assertEqual(rc, 0)
+            lines = _item_lines(out)
+            self.assertEqual(len(lines), 2)
+            self.assertNotIn("the tuple case:", "\n".join(lines))
+
     def test_summary_counts_exclude_headers(self):
         body = (
             "## Verification Checklist\n\n"

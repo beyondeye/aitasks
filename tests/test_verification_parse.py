@@ -316,6 +316,176 @@ class TestSetSubcommand(unittest.TestCase):
             self.assertEqual(len(lines), 5)
 
 
+class TestStripAnnotation(unittest.TestCase):
+    """Direct unit tests for the annotation-boundary rule (t1208).
+
+    The helper strips only a trailing ``" — STATE YYYY-MM-DD HH:MM [note]"``
+    suffix, matched from the right — not the first em-dash it sees.
+    """
+
+    def test_plain_text_unchanged(self):
+        self.assertEqual(vp._strip_annotation("plain text"), "plain text")
+
+    def test_bare_annotation_stripped(self):
+        self.assertEqual(
+            vp._strip_annotation("item — PASS 2026-07-21 17:43"), "item"
+        )
+
+    def test_annotation_with_note_stripped(self):
+        self.assertEqual(
+            vp._strip_annotation("item — SKIP 2026-07-21 17:43 not applicable"),
+            "item",
+        )
+
+    def test_em_dash_in_prose_preserved(self):
+        self.assertEqual(
+            vp._strip_annotation(
+                "prose — with dash — PASS 2026-07-21 17:43 note"
+            ),
+            "prose — with dash",
+        )
+
+    def test_annotation_shaped_prose_without_stamp_is_not_an_annotation(self):
+        text = "item — PASS but no timestamp"
+        self.assertEqual(vp._strip_annotation(text), text)
+
+    def test_every_writable_state_is_recognized(self):
+        # Guards the VALID_SET_STATES-derived alternation: any state cmd_set can
+        # write must also be strippable.
+        for state in sorted(vp.VALID_SET_STATES):
+            with self.subTest(state=state):
+                self.assertEqual(
+                    vp._strip_annotation(
+                        f"item — {state.upper()} 2026-07-21 17:43"
+                    ),
+                    "item",
+                )
+
+    def test_rightmost_annotation_wins_over_quoted_one(self):
+        # Prose quoting an annotation must survive; the real (last-appended)
+        # annotation is the one removed.
+        self.assertEqual(
+            vp._strip_annotation(
+                "see — PASS 2026-01-01 10:00 in docs "
+                "— FAIL 2026-07-21 18:00 n"
+            ),
+            "see — PASS 2026-01-01 10:00 in docs",
+        )
+
+    def test_legacy_unsanitized_note_sheds_only_one_layer(self):
+        # Pins accepted residual (2): a line written before the note-sanitizing
+        # fix keeps one stale layer rather than having its prose destroyed.
+        self.assertEqual(
+            vp._strip_annotation(
+                "item — PASS 2026-07-21 17:43 note "
+                "— FAIL 2026-01-01 10:00 x"
+            ),
+            "item — PASS 2026-07-21 17:43 note",
+        )
+
+
+class TestEmDashProse(unittest.TestCase):
+    """Regression tests for the t1202 live truncation (t1208)."""
+
+    # Verbatim from t1202's checklist — the item that lost everything after the
+    # em-dash on its first `set`.
+    T1202_ITEM = (
+        "Advanced is the recommended tier; say 'advanced review' for it. "
+        "— A user must never have to infer the tier from the output."
+    )
+
+    def _seeded(self, d):
+        body = f"## Verification Checklist\n\n- [ ] {self.T1202_ITEM}\n"
+        return _make_file(Path(d), body, FM)
+
+    def test_em_dash_in_prose_survives_set(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._seeded(d)
+            rc, _ = _run(["set", str(path), "1", "pass"])
+            self.assertEqual(rc, 0)
+            line = [ln for ln in path.read_text(encoding="utf-8").splitlines()
+                    if ln.startswith("- [x]")][0]
+            self.assertIn(self.T1202_ITEM, line)
+            # One em-dash from the prose + one annotation separator.
+            self.assertEqual(line.count("—"), 2)
+            self.assertRegex(line, r"— PASS \d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
+
+    def test_reset_with_em_dash_prose_replaces_annotation(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._seeded(d)
+            _run(["set", str(path), "1", "pass", "--note", "note_alpha"])
+            _run(["set", str(path), "1", "fail", "--note", "note_beta"])
+            line = [ln for ln in path.read_text(encoding="utf-8").splitlines()
+                    if ln.startswith("- [fail]")][0]
+            self.assertIn(self.T1202_ITEM, line)
+            self.assertEqual(line.count("—"), 2)
+            annotation = line.rsplit(" — ", 1)[1]
+            self.assertIn("FAIL", annotation)
+            self.assertIn("note_beta", annotation)
+            self.assertNotIn("note_alpha", annotation)
+            self.assertNotIn("PASS", annotation)
+
+    def test_note_delimiter_neutralized(self):
+        # A note carrying the delimiter must not be able to shadow the real
+        # annotation boundary on the next set.
+        with tempfile.TemporaryDirectory() as d:
+            body = "## Verification Checklist\n\n- [ ] item\n"
+            path = _make_file(Path(d), body, FM)
+            _run([
+                "set", str(path), "1", "pass",
+                "--note", "note says — FAIL 2026-01-01 10:00 from docs",
+            ])
+            line = [ln for ln in path.read_text(encoding="utf-8").splitlines()
+                    if ln.startswith("- [x]")][0]
+            self.assertEqual(line.count("—"), 1)
+            self.assertIn("note says -- FAIL 2026-01-01 10:00 from docs", line)
+
+            _run(["set", str(path), "1", "fail"])
+            line = [ln for ln in path.read_text(encoding="utf-8").splitlines()
+                    if ln.startswith("- [fail]")][0]
+            self.assertEqual(line.count("—"), 1)
+            self.assertNotIn("PASS", line)
+            self.assertNotIn("note says", line)
+            self.assertRegex(
+                line, r"^- \[fail\] item — FAIL \d{4}-\d{2}-\d{2} \d{2}:\d{2}$"
+            )
+
+    def test_annotation_shaped_prose_is_stripped_on_first_set(self):
+        # Pins accepted residual (1): prose that itself ends with an
+        # annotation-shaped segment is indistinguishable from a real one.
+        with tempfile.TemporaryDirectory() as d:
+            body = (
+                "## Verification Checklist\n\n"
+                "- [ ] docs quote — PASS 2026-01-01 10:00\n"
+            )
+            path = _make_file(Path(d), body, FM)
+            _run(["set", str(path), "1", "pass"])
+            line = [ln for ln in path.read_text(encoding="utf-8").splitlines()
+                    if ln.startswith("- [x]")][0]
+            self.assertRegex(
+                line,
+                r"^- \[x\] docs quote — PASS \d{4}-\d{2}-\d{2} \d{2}:\d{2}$",
+            )
+
+    def test_parse_strip_annotations_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._seeded(d)
+            _run(["set", str(path), "1", "pass", "--note", "auto: ok"])
+
+            rc, out = _run(["parse", str(path)])
+            self.assertEqual(rc, 0)
+            raw = [ln for ln in out.splitlines() if ln.startswith("ITEM:")][0]
+            self.assertIn(self.T1202_ITEM, raw)
+            self.assertIn("PASS", raw)
+
+            rc, out = _run(["parse", str(path), "--strip-annotations"])
+            self.assertEqual(rc, 0)
+            stripped = [ln for ln in out.splitlines() if ln.startswith("ITEM:")][0]
+            self.assertTrue(stripped.endswith(self.T1202_ITEM))
+            self.assertNotIn("PASS", stripped)
+            self.assertNotIn("auto: ok", stripped)
+
+
 class TestSeedSubcommand(unittest.TestCase):
     def test_creates_section_from_items_file(self):
         with tempfile.TemporaryDirectory() as d:
