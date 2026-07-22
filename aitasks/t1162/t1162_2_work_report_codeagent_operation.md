@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1162
+implemented_with: claudecode/fable5
 created_at: 2026-07-22 10:45
-updated_at: 2026-07-22 16:44
+updated_at: 2026-07-22 18:51
 ---
 
 ## Context
@@ -37,3 +38,8 @@ Second child of t1162. Registers `work-report` as a configurable read-only code-
 
 - Extend `tests/test_codeagent.sh` (or add `tests/test_codeagent_work_report.sh`): dry-run invoke for each of the 3 agents with `--columns now,next --tasks 12,34` passed through verbatim into the slash command; assert the codex command contains no plan-mode flag; assert `resolve work-report` returns the same agent string as `resolve explain` BOTH under the seeded config (both `claudecode/sonnet4_6`) AND in a no-config environment (both fall to `DEFAULT_AGENT_STRING`).
 - `bash tests/test_codeagent.sh`; `./.aitask-scripts/aitask_audit_wrappers.sh` clean for the new helper; `shellcheck .aitask-scripts/aitask_codeagent.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-22T15:51:15Z status=pass attempt=1 type=human
