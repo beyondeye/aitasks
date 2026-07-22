@@ -1,0 +1,317 @@
+{
+  "schema_version": "1.0.0",
+  "trail_id": "trail-gate-framework-landing",
+  "title": "Gate framework landing order",
+  "owner": "aitasks#635",
+  "scope": {
+    "kind": "topic",
+    "initiating_task": "aitasks#635",
+    "topics": ["aitasks#635"],
+    "selection_note": "Invoked from the gate-framework topic root to sequence the remaining children and the blockers discovered outside the topic. ILLUSTRATIVE FIXTURE: derived from a real manual analysis, but ids, timestamps, and digests are frozen synthetic values, not live board state."
+  },
+  "generation": {
+    "generated_at": "2026-07-10T14:00:00Z",
+    "generator": {
+      "agent_string": "claudecode/fable5",
+      "skill": "aitask-trail"
+    },
+    "project_revision": { "aitasks": "129844393" },
+    "input_digest": "a7b8c9d0e1f2031425364758697a8b9c",
+    "inputs": [
+      { "ref": "aitasks#635", "kind": "task_file" },
+      { "ref": "aitasks#635_29", "kind": "task_file" },
+      { "ref": "aitasks#635_30", "kind": "task_file" },
+      { "ref": "aitasks#635_33", "kind": "task_file" },
+      { "ref": "aitasks#1147", "kind": "task_file" },
+      { "ref": "aitasks#1181", "kind": "task_file" },
+      { "ref": "tests python suite run 2026-07-10", "kind": "other" },
+      { "ref": "board state snapshot", "kind": "board_state" }
+    ]
+  },
+  "freshness": {
+    "state": "stale",
+    "checked_at": "2026-07-12T08:00:00Z",
+    "drift_reasons": [
+      {
+        "code": "task_completed",
+        "task": "aitasks#1147",
+        "detail": "t1147 (dirty in-flight conflict) archived on 2026-07-11; wave 1 is now partially satisfied."
+      },
+      {
+        "code": "new_related_task",
+        "task": "aitasks#1181",
+        "detail": "A follow-up hardening task appeared for the risk gate after this trail was generated."
+      }
+    ],
+    "refresh_recommended_because": "Wave 1's conflict-clearing is partly done and a new risk-gate follow-up exists; the remaining wave boundaries are likely still valid but entry membership is not."
+  },
+  "narrative": {
+    "problem_statement": "The gate framework spans many children plus blockers that live outside the topic (a red Python suite, stale task premises, shared skill-file collision surfaces, missing model defaults). What order lands the framework safely?",
+    "recommendation_summary": "Clear dirty/in-flight conflicts first so no wave lands on top of uncommitted foreign work. Then fix the red baseline — proving the engine against a failing suite proves nothing. Only then prove the orchestrator engine itself, land the procedure-backed gates that depend on it, and serialize the UI surfaces that would otherwise collide on shared skill files. Everything else is long tail and must not block.",
+    "method_note": "Read the topic's open children, the gate registry, the current test-suite result, and board state. Baseline-suite redness was observed from an actual run; premise staleness was verified against current source, not the tasks' original claims.",
+    "caveats": [
+      "Wave boundaries after wave 3 are advisory; the DAG only records hard dependencies inside wave 4.",
+      "The long-tail exclusions were reviewed once; new children created after generation are not covered."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1-clear-conflicts",
+      "ordinal": 1,
+      "title": "Clear dirty and in-flight conflicts",
+      "purpose": "Ensure no gate-framework change lands interleaved with uncommitted or half-merged foreign work on the same surfaces.",
+      "why_now": "Conflict-clearing is cheap now and exponentially messier after multiple waves have stacked on the dirty state.",
+      "consequence_of_delay": "Every later wave inherits merge ambiguity; bisecting a regression through interleaved foreign hunks becomes guesswork.",
+      "entries": [
+        {
+          "entry_id": "e-1147",
+          "task": "aitasks#1147",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "high",
+            "effort": "medium",
+            "depends": []
+          },
+          "rationale": "In-flight work holding uncommitted changes on the gate materialization path; nothing in the framework can merge cleanly under it.",
+          "expected_outcome": "A clean, committed baseline on the gate materialization surface.",
+          "why_order_matters": "Landing engine work on top of its uncommitted hunks would force a manual disentangle later.",
+          "confidence": "high",
+          "evidence_refs": ["ev-dirty-worktree"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-fix-baseline",
+      "ordinal": 2,
+      "title": "Fix the red baseline",
+      "purpose": "Restore a green Python suite so subsequent engine verification is meaningful.",
+      "why_now": "A red suite makes every later 'gates pass' claim unfalsifiable — failures cannot be attributed.",
+      "consequence_of_delay": "Engine-proving in wave 3 would produce unattributable failures and false confidence.",
+      "entries": [
+        {
+          "entry_id": "e-suite-fix",
+          "task": "aitasks#1183",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": []
+          },
+          "rationale": "The Python suite is red for reasons unrelated to the gate engine; until it is green, gate verification results are noise.",
+          "expected_outcome": "Green baseline suite; gate runs become attributable.",
+          "confidence": "high",
+          "evidence_refs": ["ev-red-suite"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-prove-engine",
+      "ordinal": 3,
+      "title": "Prove the orchestrator engine",
+      "purpose": "Demonstrate the headless gate orchestrator end-to-end before anything depends on its verdicts.",
+      "why_now": "Procedure gates and UI surfaces in later waves consume engine verdicts; proving the engine late would invalidate their acceptance.",
+      "entries": [
+        {
+          "entry_id": "e-635-29",
+          "task": "aitasks#635_29",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": ["aitasks#635_14"]
+          },
+          "rationale": "The engine-proving core: dispatch, retry budgets, and ledger recording under real verifier processes.",
+          "expected_outcome": "A demonstrated engine run with recorded ledger entries for pass/fail/error paths.",
+          "why_order_matters": "Its verdict semantics are the contract every wave-4 gate implements against.",
+          "confidence": "medium",
+          "caveats": ["The task premise predates the ledger format change and was re-verified against current source before inclusion."],
+          "evidence_refs": ["ev-premise-check"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-procedure-gates",
+      "ordinal": 4,
+      "title": "Land procedure-backed gates",
+      "purpose": "Convert the remaining human procedures into checker gates on top of the proven engine.",
+      "why_now": "They hard-depend on engine semantics proven in wave 3.",
+      "entries": [
+        {
+          "entry_id": "e-635-33",
+          "task": "aitasks#635_33",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": ["aitasks#635_29"]
+          },
+          "rationale": "The derived active-gates tuple work; recorded dependency on the engine core makes its position a fact, not a preference.",
+          "expected_outcome": "Claim-time materialization of enforced gate sets.",
+          "confidence": "high",
+          "evidence_refs": ["ev-dag-635-33"]
+        },
+        {
+          "entry_id": "e-1181",
+          "task": "aitasks#1181",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": []
+          },
+          "rationale": "Risk-gate output format hardening; it consumes wave-3 engine semantics but has no recorded dependency — position is advisory.",
+          "expected_outcome": "Risk gate verifier robust to the H3 output format.",
+          "confidence": "medium",
+          "evidence_refs": ["ev-risk-gate"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w5-serialize-ui",
+      "ordinal": 5,
+      "title": "Serialize conflicting UI surfaces",
+      "purpose": "Land the board/TUI gate surfaces one at a time because they edit the same skill and board files.",
+      "why_now": "After the gates exist, their UI can land; in parallel it would collide on shared files.",
+      "consequence_of_delay": "None functionally — but attempting these in parallel instead of serially produces repeated merge conflicts on skill sources.",
+      "entries": [
+        {
+          "entry_id": "e-635-30",
+          "task": "aitasks#635_30",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": []
+          },
+          "rationale": "Gate-status board surface. Functionally independent, but it edits the same board action/binding region as the other in-flight board feature, so it is sequenced, not parallelized.",
+          "expected_outcome": "Board gate-status display landing in a conflict-free window.",
+          "why_order_matters": "Timing only; no functional ordering constraint.",
+          "confidence": "high",
+          "evidence_refs": ["ev-shared-board-surface"]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "aitasks#635_14", "to": "aitasks#635_29", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends in t635_29 frontmatter." },
+    { "from": "aitasks#635_29", "to": "aitasks#635_33", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends in t635_33 frontmatter." },
+    { "from": "aitasks#1183", "to": "aitasks#635_29", "type": "advisory_precedes", "provenance": "advisory", "note": "Green baseline before engine proof." },
+    { "from": "aitasks#635_30", "to": "aitasks#635_33", "type": "coordinates_with", "provenance": "fact", "note": "Shared board-surface files." }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-red-suite",
+      "kind": "baseline_risk",
+      "statement": "The Python test suite is red for causes outside the gate topic. Any gate-engine acceptance run before it is fixed produces unattributable failures.",
+      "affects": ["aitasks#635_29"],
+      "evidence_refs": ["ev-red-suite"]
+    },
+    {
+      "observation_id": "obs-stale-premise",
+      "kind": "stale_premise",
+      "statement": "One engine child's description assumes the pre-change ledger format; its premise was re-verified against current source and the task is included with a caveat rather than taken at face value.",
+      "affects": ["aitasks#635_29"],
+      "evidence_refs": ["ev-premise-check"]
+    },
+    {
+      "observation_id": "obs-skill-collision",
+      "kind": "shared_surface_collision",
+      "statement": "Two UI children and one non-topic board feature edit the same skill/board files; wave 5 exists to serialize them rather than to express any functional dependency.",
+      "affects": ["aitasks#635_30"],
+      "evidence_refs": ["ev-shared-board-surface"]
+    },
+    {
+      "observation_id": "obs-missing-model-defaults",
+      "kind": "environment",
+      "statement": "The codeagent per-operation defaults config lacks entries for the new gate operations; without them, launches silently fall back to the heavy default model.",
+      "affects": [],
+      "evidence_refs": ["ev-model-defaults"]
+    }
+  ],
+  "exclusions": [
+    {
+      "task": "aitasks#635_31",
+      "reason_code": "non_blocking",
+      "reason": "Agent/model + TUI split-out; valuable but consumes, rather than gates, the framework core."
+    },
+    {
+      "task": "aitasks#635_32",
+      "reason_code": "non_blocking",
+      "reason": "Remote-mode variant; explicitly deferred behind the core landing."
+    },
+    {
+      "task": "aitasks#891_5",
+      "reason_code": "unrelated",
+      "reason": "Manual-verification remainder of a different effort; shares no files or dependencies with the gate framework."
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-dirty-worktree",
+      "source_type": "board_state",
+      "ref": "in-flight lane snapshot 2026-07-10",
+      "observed_at": "2026-07-10T13:30:00Z",
+      "summary": "t1147 held Implementing with uncommitted changes on the gate materialization path."
+    },
+    {
+      "evidence_id": "ev-red-suite",
+      "source_type": "test_run",
+      "ref": "python -m unittest discover, 2026-07-10",
+      "observed_at": "2026-07-10T13:40:00Z",
+      "summary": "Suite red with failures in modules unrelated to the gate engine."
+    },
+    {
+      "evidence_id": "ev-premise-check",
+      "source_type": "task_file",
+      "ref": "aitasks#635_29",
+      "observed_at": "2026-07-10T13:45:00Z",
+      "summary": "Task text predates the ledger format change; premises re-verified against current source."
+    },
+    {
+      "evidence_id": "ev-dag-635-33",
+      "source_type": "task_file",
+      "ref": "aitasks#635_33",
+      "observed_at": "2026-07-10T13:50:00Z",
+      "summary": "Frontmatter records depends on t635_29."
+    },
+    {
+      "evidence_id": "ev-risk-gate",
+      "source_type": "task_file",
+      "ref": "aitasks#1181",
+      "observed_at": "2026-07-10T13:52:00Z",
+      "summary": "Risk-gate hardening follow-up; no recorded dependency on the engine core."
+    },
+    {
+      "evidence_id": "ev-shared-board-surface",
+      "source_type": "task_file",
+      "ref": "aitasks#635_30",
+      "observed_at": "2026-07-10T13:55:00Z",
+      "summary": "Key-files list overlaps the board bindings/action region touched by another in-flight feature."
+    },
+    {
+      "evidence_id": "ev-model-defaults",
+      "source_type": "command_output",
+      "ref": "diff of codeagent_config.json defaults vs new operations",
+      "observed_at": "2026-07-10T13:58:00Z",
+      "summary": "No .defaults entries for the new gate operations in seed or live config."
+    }
+  ]
+}

@@ -1,0 +1,234 @@
+{
+  "schema_version": "1.0.0",
+  "trail_id": "trail-shadow-review-loop",
+  "title": "Shadow review-loop landing order",
+  "owner": "aitasks#1208",
+  "scope": {
+    "kind": "topic",
+    "initiating_task": "aitasks#1208",
+    "topics": ["aitasks#986"],
+    "selection_note": "Invoked from the shadow topic root while triaging why the shadow review loop kept mis-parsing verification annotations. ILLUSTRATIVE FIXTURE: derived from a real manual analysis, but ids, timestamps, and digests are frozen synthetic values, not live board state."
+  },
+  "generation": {
+    "generated_at": "2026-07-18T09:30:00Z",
+    "generator": {
+      "agent_string": "claudecode/fable5",
+      "skill": "aitask-trail"
+    },
+    "project_revision": { "aitasks": "e2c8e4e18" },
+    "input_digest": "3f9c0a1b2d4e5f60718293a4b5c6d7e8",
+    "inputs": [
+      { "ref": "aitasks#1208", "kind": "task_file" },
+      { "ref": "aitasks#1187", "kind": "task_file" },
+      { "ref": "aitasks#1053", "kind": "task_file" },
+      { "ref": "aitasks#1159", "kind": "task_file" },
+      { "ref": "aitasks#1118_4", "kind": "task_file" },
+      { "ref": "aiplans/p1208_anchor_verification_annotation_strip.md", "kind": "plan_file" }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-07-18T09:30:00Z",
+    "drift_reasons": []
+  },
+  "narrative": {
+    "problem_statement": "The shadow review loop has four open tasks plus one overlapping change in another topic. Which of them actually block resuming reliable shadow reviews, and in what order should they land?",
+    "recommendation_summary": "Land t1208 first — it is the only true parser blocker; every review pass through the loop mis-strips annotations until it lands. Then take t1187 (a cheap, contained destructive-verification bug) while context is warm. Verify the live foundation with t1053 before investing in t1159. t1118_4 does not block anything but edits the same helper, so coordinate timing rather than serializing the whole effort behind it. The remaining shadow tasks are advisory-UX work and should not gate this sequence.",
+    "method_note": "Read the five task files, the p1208 plan, and the failing capture transcript. The t1053 'live foundation check' claim was verified against the capture helper's current source; runtime behavior itself was NOT re-executed for this analysis.",
+    "caveats": [
+      "Ordering between t1053 and t1159 is a recommendation, not a recorded dependency; the DAG allows either order."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1-unblock-parser",
+      "ordinal": 1,
+      "title": "Unblock the parser",
+      "purpose": "Remove the one defect that corrupts every downstream review pass. Nothing else in this trail can be validated while annotation stripping is wrong.",
+      "why_now": "Every day the parser bug stands, shadow review output stays untrustworthy and the other fixes cannot be verified against clean captures.",
+      "consequence_of_delay": "All later verification work would run against corrupted annotations and likely need to be redone.",
+      "entries": [
+        {
+          "entry_id": "e-1208",
+          "task": "aitasks#1208",
+          "topic": "aitasks#986",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "low",
+            "depends": []
+          },
+          "rationale": "The annotation-strip anchor bug is the single true blocker: it corrupts parsed verification output for every review pass, so no downstream fix can even be validated until it lands.",
+          "expected_outcome": "Clean annotation boundaries in captured output; downstream tasks become verifiable.",
+          "why_order_matters": "Verifying any later fix against a corrupted parse would produce false conclusions.",
+          "confidence": "high",
+          "evidence_refs": ["ev-capture-transcript", "ev-t1208-plan"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-cheap-fixes",
+      "ordinal": 2,
+      "title": "Cheap contained fixes",
+      "purpose": "Bank the low-effort destructive-verification bug fix while the parser context is still loaded.",
+      "why_now": "t1187 touches the same verification path just fixed in wave 1; doing it immediately reuses the loaded context and re-tests the same surface once.",
+      "entries": [
+        {
+          "entry_id": "e-1187",
+          "task": "aitasks#1187",
+          "topic": "aitasks#986",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": []
+          },
+          "rationale": "A destructive verification step deletes evidence on failure. Cheap to fix, and it is preferred before the foundation check because a destroyed capture would mask exactly the failures t1053 is meant to observe.",
+          "expected_outcome": "Failed verifications retain their evidence for diagnosis.",
+          "why_order_matters": "Mild preference only — the DAG does not require it, but running t1053 first risks losing one diagnostic capture.",
+          "confidence": "high",
+          "evidence_refs": ["ev-t1187-task"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-foundation-then-loop",
+      "ordinal": 3,
+      "title": "Prove the foundation, then extend the loop",
+      "purpose": "Confirm the live capture foundation actually behaves before building the review-loop extension on top of it, and time the shared-helper edit against the neighboring topic's change.",
+      "why_now": "With clean parsing and preserved evidence, a live foundation check is finally meaningful.",
+      "consequence_of_delay": "t1159 built on an unverified foundation risks rework if t1053 finds the capture path wanting.",
+      "entries": [
+        {
+          "entry_id": "e-1053",
+          "task": "aitasks#1053",
+          "topic": "aitasks#986",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": []
+          },
+          "rationale": "A live check that the capture foundation works end-to-end. It gates confidence in, not the mechanics of, the t1159 extension.",
+          "expected_outcome": "Documented pass/fail evidence for the capture foundation under real tmux conditions.",
+          "confidence": "medium",
+          "caveats": ["Requires a live tmux session; cannot be fully verified by automated tests."],
+          "evidence_refs": ["ev-t1053-task"]
+        },
+        {
+          "entry_id": "e-1159",
+          "task": "aitasks#1159",
+          "topic": "aitasks#986",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": []
+          },
+          "rationale": "The review-loop extension is the payoff of the sequence but the most expensive item; it should consume a verified foundation, not assumptions.",
+          "expected_outcome": "The extended review loop running on a proven capture path.",
+          "why_order_matters": "Building it before t1053 risks discovering foundation gaps mid-implementation.",
+          "confidence": "medium",
+          "evidence_refs": ["ev-t1159-task"]
+        },
+        {
+          "entry_id": "e-1118-4",
+          "task": "aitasks#1118_4",
+          "topic": "aitasks#1118",
+          "position": 3,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": []
+          },
+          "rationale": "Not a member of the shadow effort and blocks nothing here, but it edits the same capture helper file as t1159. Included solely so the two edits are timed, not interleaved.",
+          "expected_outcome": "No functional contribution to this trail; a clean, conflict-free merge window for t1159.",
+          "why_order_matters": "If t1118_4 merges mid-t1159, the shared helper conflict lands on whoever merges second.",
+          "confidence": "high",
+          "evidence_refs": ["ev-shared-helper"]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "aitasks#1208", "to": "aitasks#1187", "type": "advisory_precedes", "provenance": "advisory", "note": "Context reuse; not a recorded dependency." },
+    { "from": "aitasks#1187", "to": "aitasks#1053", "type": "advisory_precedes", "provenance": "advisory", "note": "Preserve evidence before the live check." },
+    { "from": "aitasks#1053", "to": "aitasks#1159", "type": "advisory_precedes", "provenance": "advisory", "note": "Verify foundation before building on it." },
+    { "from": "aitasks#1118_4", "to": "aitasks#1159", "type": "coordinates_with", "provenance": "fact", "note": "Both edit the shared capture helper." }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-shared-helper",
+      "kind": "shared_surface_collision",
+      "statement": "t1118_4 (a different topic, already Implementing) and t1159 both modify the shared capture helper. This is a merge-timing concern only; neither is a functional prerequisite of the other.",
+      "affects": ["aitasks#1118_4", "aitasks#1159"],
+      "evidence_refs": ["ev-shared-helper"]
+    }
+  ],
+  "exclusions": [
+    {
+      "task": "aitasks#986_2",
+      "reason_code": "deferred_by_user",
+      "reason": "Shadow phase-gating was explicitly postponed; it neither blocks nor is unblocked by this sequence."
+    },
+    {
+      "task": "aitasks#1118",
+      "reason_code": "unrelated",
+      "reason": "The parent effort of t1118_4 has no file or dependency overlap with the shadow loop; only its one child needs coordination."
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-capture-transcript",
+      "source_type": "command_output",
+      "ref": "tmux capture of shadow review pass, 2026-07-18",
+      "observed_at": "2026-07-18T09:05:00Z",
+      "summary": "Annotation block boundaries mis-stripped in every captured review pass."
+    },
+    {
+      "evidence_id": "ev-t1208-plan",
+      "source_type": "plan_file",
+      "ref": "aiplans/p1208_anchor_verification_annotation_strip.md",
+      "observed_at": "2026-07-18T09:10:00Z",
+      "summary": "Plan localizes the strip anchor defect to a single boundary condition."
+    },
+    {
+      "evidence_id": "ev-t1187-task",
+      "source_type": "task_file",
+      "ref": "aitasks#1187",
+      "observed_at": "2026-07-18T09:12:00Z",
+      "summary": "Verification step deletes its capture on failure; fix is a contained guard."
+    },
+    {
+      "evidence_id": "ev-t1053-task",
+      "source_type": "task_file",
+      "ref": "aitasks#1053",
+      "observed_at": "2026-07-18T09:15:00Z",
+      "summary": "Foundation check requires a live tmux session; no automated proxy exists."
+    },
+    {
+      "evidence_id": "ev-t1159-task",
+      "source_type": "task_file",
+      "ref": "aitasks#1159",
+      "observed_at": "2026-07-18T09:18:00Z",
+      "summary": "Review-loop extension assumes a working capture foundation."
+    },
+    {
+      "evidence_id": "ev-shared-helper",
+      "source_type": "task_file",
+      "ref": "aitasks#1118_4",
+      "observed_at": "2026-07-18T09:20:00Z",
+      "summary": "t1118_4 key-files list names the same capture helper t1159 plans to edit."
+    }
+  ]
+}

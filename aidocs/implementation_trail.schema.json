@@ -1,0 +1,416 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitasks.dev/schemas/implementation_trail-1.0.0.json",
+  "title": "Implementation Trail",
+  "description": "Versioned, machine-readable record of a preferred implementation ordering (waves) for a selected task/topic scope, with first-class narrative rationale. One trail artifact is the single source of truth; Markdown/TUI views are deterministic projections of this document and are never persisted as a second source.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "trail_id",
+    "title",
+    "owner",
+    "scope",
+    "generation",
+    "freshness",
+    "narrative",
+    "waves",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this schema the document conforms to. Consumers MUST reject documents whose major version they do not understand.",
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "trail_id": {
+      "description": "Stable identity of the trail across refreshes. Immutable once created; artifact content versions of the same handle share this id.",
+      "type": "string",
+      "pattern": "^trail-[a-z0-9][a-z0-9_-]{2,63}$"
+    },
+    "title": {
+      "description": "Short human title of the trail (e.g. 'Gate framework landing order').",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "owner": {
+      "description": "The task that owns the artifact handle (the artifact substrate supports only task-owned artifacts). For cross-topic / ad-hoc trails this owner is explicitly user-selected at creation.",
+      "$ref": "#/$defs/task_ref"
+    },
+    "scope": {
+      "description": "What the trail covers and how that scope was selected.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "topics"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["task", "topic", "multi_topic", "ad_hoc"]
+        },
+        "initiating_task": {
+          "description": "Task from which the trail was invoked, when different from owner.",
+          "$ref": "#/$defs/task_ref"
+        },
+        "topics": {
+          "description": "Canonical topic-group keys (root task ids) intersected by this trail. Trail membership NEVER redefines a task's canonical topic: `anchor` stays the one group key, and this list is a projection, not an assignment.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/task_ref" },
+          "uniqueItems": true
+        },
+        "selection_note": {
+          "description": "Narrative: how/why this scope (and, for ad_hoc/multi_topic, this owner) was chosen.",
+          "type": "string"
+        }
+      }
+    },
+    "generation": {
+      "description": "Provenance of this trail version: who generated it, from what repository state, and over which inputs. The input digest is the anchor of staleness detection.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generated_at", "generator", "input_digest", "inputs"],
+      "properties": {
+        "generated_at": { "$ref": "#/$defs/timestamp" },
+        "generator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["agent_string"],
+          "properties": {
+            "agent_string": {
+              "description": "Code agent/model that produced the analysis, e.g. 'claudecode/fable5'.",
+              "type": "string"
+            },
+            "skill": {
+              "description": "Skill (and optional refresh subskill) that produced this version.",
+              "type": "string"
+            }
+          }
+        },
+        "project_revision": {
+          "description": "Source revision(s) the analysis observed, keyed by logical project name (e.g. {\"aitasks\": \"9692ff5dc\"}).",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "input_digest": {
+          "description": "Digest over the normalized input snapshot (member/observed task frontmatter subset: status, depends, gates, boardcol/boardidx presence, plan-file identity). Recompute-and-compare is the staleness primitive; the normalization procedure is versioned with the schema so digests are comparable only within a schema version.",
+          "type": "string",
+          "pattern": "^[a-f0-9]{12,64}$"
+        },
+        "inputs": {
+          "description": "The tasks/files whose normalized state fed the digest — presence-tracked so a deleted input is itself detectable drift.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ref", "kind"],
+            "properties": {
+              "ref": { "type": "string", "minLength": 1 },
+              "kind": {
+                "type": "string",
+                "enum": ["task_file", "plan_file", "board_state", "gate_ledger", "other"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "freshness": {
+      "description": "Last computed staleness verdict. Consumers recompute the input digest on demand and record named drift reasons here; timestamps and board repaints alone are never drift.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "checked_at"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["current", "stale", "unknown"]
+        },
+        "checked_at": { "$ref": "#/$defs/timestamp" },
+        "drift_reasons": {
+          "description": "Named, structured reasons the trail no longer matches reality (empty when state=current). A refresh consumes these to make the re-analysis targeted, not a blind re-read.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "detail"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "task_completed",
+                  "task_archived",
+                  "task_deleted",
+                  "task_folded",
+                  "status_changed",
+                  "dependency_changed",
+                  "gate_state_changed",
+                  "plan_changed",
+                  "new_related_task",
+                  "premise_invalidated",
+                  "input_missing",
+                  "other"
+                ]
+              },
+              "task": { "$ref": "#/$defs/task_ref" },
+              "detail": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "refresh_recommended_because": {
+          "description": "Narrative: why a refresh is (or is not yet) worth running, in terms a human triaging the board can act on.",
+          "type": "string"
+        }
+      }
+    },
+    "narrative": {
+      "description": "First-class prose analysis. A trail is an explained recommendation, not a bare ranked list: this section carries the overall reasoning, and every wave/entry carries its own. Projections (Markdown/TUI) render these fields verbatim.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["problem_statement", "recommendation_summary"],
+      "properties": {
+        "problem_statement": {
+          "description": "What question this trail answers and why now.",
+          "type": "string",
+          "minLength": 1
+        },
+        "recommendation_summary": {
+          "description": "The headline answer: which tasks should land next, in what waves, and the one-paragraph why.",
+          "type": "string",
+          "minLength": 1
+        },
+        "method_note": {
+          "description": "How the analysis was performed and its limits (what was read, what was NOT verified).",
+          "type": "string"
+        },
+        "caveats": {
+          "description": "Global caveats separating observed facts from agent judgment.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "waves": {
+      "description": "Ordered landing waves. Order within the array is presentation order; `ordinal` is the authoritative sequence and MUST be strictly increasing.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/wave" }
+    },
+    "relations": {
+      "description": "Typed directed edges between referenced tasks. `provenance: fact` edges mirror real recorded constraints (e.g. `depends`); `provenance: advisory` edges are the trail's recommendation only and MUST NOT be written back to task metadata by the analysis.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to", "type", "provenance"],
+        "properties": {
+          "from": { "$ref": "#/$defs/task_ref" },
+          "to": { "$ref": "#/$defs/task_ref" },
+          "type": {
+            "type": "string",
+            "enum": ["hard_depends", "advisory_precedes", "coordinates_with", "verifies", "informs"]
+          },
+          "provenance": { "type": "string", "enum": ["fact", "advisory"] },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "observations": {
+      "description": "Findings that shape the ordering but are not themselves trail members — broken baselines, in-flight conflicting work, stale premises, environment risks. Observed facts, each backed by evidence.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["observation_id", "kind", "statement", "evidence_refs"],
+        "properties": {
+          "observation_id": { "$ref": "#/$defs/local_id" },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "baseline_risk",
+              "in_flight_conflict",
+              "stale_premise",
+              "shared_surface_collision",
+              "external_dependency",
+              "environment",
+              "other"
+            ]
+          },
+          "statement": {
+            "description": "Narrative: what was observed and why it matters for the ordering.",
+            "type": "string",
+            "minLength": 1
+          },
+          "affects": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/task_ref" }
+          },
+          "evidence_refs": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/$defs/local_id" }
+          }
+        }
+      }
+    },
+    "exclusions": {
+      "description": "Work that was considered and deliberately left out of the ordering, with the narrative reason it does not block. Prevents re-litigating the same candidates on every refresh.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task", "reason_code", "reason"],
+        "properties": {
+          "task": { "$ref": "#/$defs/task_ref" },
+          "reason_code": {
+            "type": "string",
+            "enum": ["unrelated", "non_blocking", "already_landed", "superseded_scope", "deferred_by_user", "other"]
+          },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "evidence": {
+      "description": "Snapshot of the observations' sources. Evidence records identify where a fact came from; they carry identifiers and concise summaries, never copied task/plan bodies (tasks stay the single source of their own descriptions).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidence_id", "source_type", "ref", "observed_at", "summary"],
+        "properties": {
+          "evidence_id": { "$ref": "#/$defs/local_id" },
+          "source_type": {
+            "type": "string",
+            "enum": ["task_file", "plan_file", "gate_ledger", "board_state", "command_output", "test_run", "conversation", "external"]
+          },
+          "ref": {
+            "description": "Locator for the source (path, task ref, command line). Not a content copy.",
+            "type": "string",
+            "minLength": 1
+          },
+          "observed_at": { "$ref": "#/$defs/timestamp" },
+          "summary": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "rendering_hints": {
+      "description": "Advisory presentation preferences (e.g. preferred badge glyphs, collapse defaults). Renderers may ignore them; hints never duplicate canonical content.",
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "description": "UTC ISO-8601 timestamp, e.g. 2026-07-22T09:14:00Z.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2})?Z$"
+    },
+    "local_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{1,63}$"
+    },
+    "task_ref": {
+      "description": "Project-qualified task reference using the cross-repo notation (aidocs/framework/cross_repo_references.md): '<project>#<id>' where <project> is a logical registry name and <id> is a bare task id ('835' or '835_3', no 't' prefix — the canonical stored form; the tolerated 't' input form is normalized on write). The same shape refers to local and registered cross-repo tasks; the local project uses its own logical name.",
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+#[0-9]+(_[0-9]+)?$"
+    },
+    "wave": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wave_id", "ordinal", "title", "purpose", "entries"],
+      "properties": {
+        "wave_id": { "$ref": "#/$defs/local_id" },
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "purpose": {
+          "description": "Narrative: what this wave achieves as a unit and why it forms a boundary (what it unblocks or de-risks for later waves).",
+          "type": "string",
+          "minLength": 1
+        },
+        "why_now": {
+          "description": "Narrative: why this wave should run at this position rather than earlier/later.",
+          "type": "string"
+        },
+        "consequence_of_delay": {
+          "description": "Narrative: what it costs to postpone this wave (rework, blocked work, decaying context).",
+          "type": "string"
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/entry" }
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry_id", "task", "topic", "position", "classification", "snapshot", "rationale", "confidence"],
+      "properties": {
+        "entry_id": { "$ref": "#/$defs/local_id" },
+        "task": { "$ref": "#/$defs/task_ref" },
+        "topic": {
+          "description": "The task's canonical topic-group key (its anchor root) at generation time. Recorded for projection only; the trail never reassigns it.",
+          "$ref": "#/$defs/task_ref"
+        },
+        "position": {
+          "description": "1-based order within the wave; strictly increasing per wave.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "classification": {
+          "type": "string",
+          "enum": [
+            "hard_prerequisite",
+            "preferred_predecessor",
+            "core",
+            "coordination_only",
+            "optional"
+          ]
+        },
+        "snapshot": {
+          "description": "Point-in-time copy of the task's ordering-relevant metadata at generation. Display convenience + drift anchor; the task file remains the source of truth.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": { "type": "string" },
+            "priority": { "type": "string", "enum": ["high", "medium", "low"] },
+            "effort": { "type": "string", "enum": ["high", "medium", "low"] },
+            "boardcol": { "type": "string" },
+            "depends": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/task_ref" }
+            },
+            "gates_pending": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "rationale": {
+          "description": "Narrative: why this task is in the trail, at this position — the motivation, not a restatement of the task title.",
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_outcome": {
+          "description": "Narrative: what landing this task is expected to produce/unblock.",
+          "type": "string"
+        },
+        "why_order_matters": {
+          "description": "Narrative: what specifically breaks or degrades if this entry is taken out of order (empty when order is a mild preference).",
+          "type": "string"
+        },
+        "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+        "caveats": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/local_id" }
+        }
+      }
+    }
+  }
+}

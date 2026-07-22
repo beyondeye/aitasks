@@ -1,0 +1,111 @@
+{
+  "schema_version": "1.0.0",
+  "trail_id": "trail-release-hardening",
+  "title": "Release hardening (cross-topic)",
+  "owner": "aitasks#1187",
+  "scope": {
+    "kind": "multi_topic",
+    "initiating_task": "aitasks#1187",
+    "topics": ["aitasks#986", "aitasks#635"],
+    "selection_note": "SYNTHETIC FIXTURE for the cross-topic / multiple-trails case. An ad-hoc release-hardening pass spanning two topics; because the artifact substrate supports only task-owned handles, the user explicitly selected t1187 as the owning task at creation. Ids, timestamps, and digests are frozen synthetic values."
+  },
+  "generation": {
+    "generated_at": "2026-07-19T10:00:00Z",
+    "generator": {
+      "agent_string": "claudecode/fable5",
+      "skill": "aitask-trail"
+    },
+    "project_revision": { "aitasks": "15bdeed47" },
+    "input_digest": "0123456789abcdef0123456789abcdef",
+    "inputs": [
+      { "ref": "aitasks#1187", "kind": "task_file" },
+      { "ref": "aitasks#1183", "kind": "task_file" },
+      { "ref": "board state snapshot", "kind": "board_state" }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-07-19T10:00:00Z",
+    "drift_reasons": []
+  },
+  "narrative": {
+    "problem_statement": "Before the next release, which correctness fixes across the shadow and gate topics must land, regardless of each topic's own internal sequencing?",
+    "recommendation_summary": "Two tasks qualify: the destructive-verification bug (t1187, shadow topic) and the red-suite fix (t1183, gate topic). Both also appear in their own topics' trails — this trail exists to give the release cut a single checklist. Each task keeps its one canonical topic; this trail merely references them.",
+    "method_note": "Membership was selected by scanning both topics' open bugs for release-blocking severity; each task's canonical topic was read from its anchor resolution, not reassigned.",
+    "caveats": [
+      "This trail intentionally overlaps trail-shadow-review-loop (t1187) and trail-gate-framework-landing (t1183). The board shows wave badges for exactly one selected trail at a time; overlap is data, not a display conflict."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1-release-blockers",
+      "ordinal": 1,
+      "title": "Release blockers",
+      "purpose": "The minimal cross-topic set that must land before the release cut.",
+      "why_now": "Both are user-visible correctness defects; the release date, not topic sequencing, drives their urgency here.",
+      "entries": [
+        {
+          "entry_id": "e-1187-release",
+          "task": "aitasks#1187",
+          "topic": "aitasks#986",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": []
+          },
+          "rationale": "Same task that appears in the shadow topic's own trail; for the release it is simply a must-fix correctness bug. Its canonical topic remains the shadow root — this trail references, never re-anchors.",
+          "expected_outcome": "Failed verifications keep their evidence in the released version.",
+          "confidence": "high",
+          "evidence_refs": ["ev-1187"]
+        },
+        {
+          "entry_id": "e-1183-release",
+          "task": "aitasks#1183",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": []
+          },
+          "rationale": "The red baseline suite must be green before a release can be cut with any confidence; it belongs to the gate topic but blocks the release globally.",
+          "expected_outcome": "Green suite at the release tag.",
+          "confidence": "high",
+          "evidence_refs": ["ev-1183"]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "aitasks#1183", "to": "aitasks#1187", "type": "informs", "provenance": "advisory", "note": "A green suite makes the t1187 fix verifiable in CI; no ordering required." }
+  ],
+  "observations": [],
+  "exclusions": [
+    {
+      "task": "aitasks#1159",
+      "reason_code": "non_blocking",
+      "reason": "Feature work, not a correctness fix; explicitly out of the release-blocking set even though its topic contributes a member."
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-1187",
+      "source_type": "task_file",
+      "ref": "aitasks#1187",
+      "observed_at": "2026-07-19T09:50:00Z",
+      "summary": "Destructive-verification bug; release-blocking severity, low effort."
+    },
+    {
+      "evidence_id": "ev-1183",
+      "source_type": "test_run",
+      "ref": "python -m unittest discover, 2026-07-19",
+      "observed_at": "2026-07-19T09:55:00Z",
+      "summary": "Baseline suite still red; blocks any confident release cut."
+    }
+  ]
+}
