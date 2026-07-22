@@ -3,16 +3,15 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [skills, ui, reporting, artifacts, planning, brainstorming]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-22 10:14
-updated_at: 2026-07-22 10:25
+updated_at: 2026-07-22 11:02
 ---
 
 ## Context
@@ -31,6 +30,15 @@ This information is valuable, expensive to reconstruct, and currently ephemeral.
 Design a profile-aware aitask skill and persistent machine-readable artifact that derives, explains, versions, and refreshes the preferred implementation trail for a selected task, topic, or explicitly chosen scope. Define how the trail integrates with the board's By-Topic view and with the manager-facing work-report flow in t1162, then decompose the approved design into implementable tasks.
 
 This task is for design, decisions, and decomposition. Do not implement the complete skill, board UI, or report integration in this task.
+
+## Re-entry requirement
+
+The initial planning session was aborted after saving
+`aiplans/p1210_brainstorm_durable_implementation_trail_skill_and_board_repo.md`.
+The plan is not approved and must be verified again before implementation. On
+the next pick, use `--profile default` or another profile with
+`plan_preference: verify`; the `fast` profile's normal `use_current` behavior is
+not sufficient for this re-entry.
 
 ## Core design requirements
 

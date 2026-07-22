@@ -3,6 +3,7 @@ Task: t1210_brainstorm_durable_implementation_trail_skill_and_board_repo.md
 Worktree: /home/ddt/Work/aitasks (current checkout; fast profile)
 Branch: main
 Base branch: main
+plan_verified: []
 ---
 
 # Plan: t1210 — Durable implementation-trail skill and board/report integration
@@ -17,6 +18,16 @@ the artifact engine, a profile-aware skill, `ait board`, and manager reporting.
 The user chose to keep this as one integrated design task. The implementation
 decomposition will therefore be a copy-ready deliverable in the design document;
 this task will not create live child tasks before the architecture is approved.
+
+## Re-entry requirement
+
+This initial planning session was explicitly aborted after saving the plan. The
+plan is **not approved** and must be verified again on the next pick before any
+implementation starts. Because the `fast` profile normally uses an existing
+parent plan as-is, re-pick t1210 with `--profile default` (or another profile
+whose `plan_preference` is `verify`) and take the verify-plan path. Do not treat
+the existence of this file as approval; no `plan_approved` checkpoint was
+recorded in this session.
 
 ### Grounding established during exploration
 
