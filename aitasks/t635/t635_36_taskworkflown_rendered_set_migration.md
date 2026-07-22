@@ -115,3 +115,8 @@ The one unshipped hypothesis — the Step-9b final-response gate — is salvaged
 
 - **t1218** — salvages the Step-9b final-response gate from this fork.
 - **t1215** — its `task-workflown` example is removed by this task.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:review_approved** run=2026-07-22T15:46:03Z status=pass attempt=1 type=human
