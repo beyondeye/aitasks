@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1202
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-21 18:09
-updated_at: 2026-07-22 10:07
+updated_at: 2026-07-22 11:10
+completed_at: 2026-07-22 11:10
 boardcol: bug_fixes
 boardidx: 40
 ---
@@ -99,3 +100,14 @@ that suffix, leaving item prose untouched. Exact form is the implementer's call.
 > **✅ gate:plan_approved** run=2026-07-22T07:07:47Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-22T08:06:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-22T08:10:02Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c2b2addc0ee8c585
+
+> **✅ gate:risk_evaluated** run=2026-07-22T08:10:02Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1208/risk_evaluated_2026-07-22T08:10:02Z-risk_evaluated-a1.log`
