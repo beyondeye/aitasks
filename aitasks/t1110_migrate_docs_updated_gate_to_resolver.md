@@ -67,3 +67,5 @@ companion resolver. Do not advertise the scalar helper as covering the list fiel
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-21T16:08:09Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-22T07:33:41Z status=pass attempt=1 type=human
