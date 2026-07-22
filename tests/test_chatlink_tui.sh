@@ -1112,6 +1112,12 @@ async def main():
                                 SelectionList).option_count == 3)
         check("the truncation notice is shown",
               "showing the first 500 members" in status)
+        # t1204 negative control: roles had no PRIOR rows, so a first-fetch
+        # stage failure must not claim staleness for anything.
+        check("a first-fetch stage failure never claims staleness",
+              "showing the EARLIER" not in status
+              and not scr.query_one("#wiz_role_list",
+                                    SelectionList).has_class("stale"))
         await app10.action_quit()
 
     wiz_fetch["result"] = None
@@ -1123,10 +1129,15 @@ async def main():
         await pilot.click("#btn_wiz_fetch")
         await app11.workers.wait_for_complete()
         await pilot.pause()
+        status = str(scr.query_one("#wiz_fetch_status").render())
         check("a raising fetch runner degrades to manual entry",
-              "fetch failed"
-              in str(scr.query_one("#wiz_fetch_status").render())
+              "fetch failed" in status
+              and "enter ids manually above" in status
               and not scr.query_one("#wiz_member_list", SelectionList).display)
+        # t1204 negative control: nothing was ever revealed, so there is no
+        # earlier fetch to qualify — the two failure copies must not merge.
+        check("a first-fetch failure never claims an EARLIER fetch",
+              "EARLIER" not in status and scr._fetch_key is None)
         scr.query_one("#wiz_user_ids", Input).value = ALICE
         await pilot.pause()
         scr.query_one("#wiz_user_ids", Input).focus()
@@ -1136,6 +1147,201 @@ async def main():
               isinstance(app11.screen, wiz.DenyRepoScreen))
         await app11.action_quit()
     wiz_fetch["raise"] = False
+
+    # ---- failed-refresh staleness (t1204) -------------------------------
+    # `run_allowlist_fetch` NEVER raises: production failures arrive as
+    # per-stage members_error/roles_error on a RETURNED result, so the
+    # raising-runner case above is the exceptional shape, not the common
+    # one. Both must classify identically, per dimension.
+    OUTAGE = dict(members=[], roles=[],
+                  members_error="connection failed (OSError)",
+                  roles_error="connection failed (OSError)")
+
+    async def back_then_forward(app, pilot):
+        """allowlist -> live -> allowlist, returning the NEW screen."""
+        await pilot.click("#btn_wiz_back")
+        await pilot.pause()
+        await asyncio.sleep(0.4)
+        await pilot.click("#btn_wiz_next")
+        await pilot.pause()
+        return app.screen
+
+    async def press_fetch(app, pilot):
+        """Press Fetch and settle. The sleep steps past the Button's ~0.3s
+        active-effect window, which swallows a same-instant second click —
+        a Pilot artifact (see the token-retry note above), and these blocks
+        press Fetch repeatedly on one screen."""
+        await asyncio.sleep(0.4)
+        await pilot.click("#btn_wiz_fetch")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+    # --- A: FIRST fetch where every stage failed (the outage shape) ---
+    wiz_fetch["result"] = canned(**OUTAGE)
+    app11b = make_wizard_app()
+    async with app11b.run_test(size=(110, 60)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app11b, pilot, conversation="779")
+        await press_fetch(app11b, pilot)
+        status = str(scr.query_one("#wiz_fetch_status").render())
+        check("an all-stages-failed FIRST fetch degrades to manual entry "
+              "(not an empty picker presented as a clean result)",
+              "! members: connection failed (OSError)" in status
+              and "enter ids manually above" in status
+              and scr._fetch_key is None
+              and not scr.query_one("#wiz_member_list",
+                                    SelectionList).display)
+        scr.query_one("#wiz_user_ids", Input).value = ALICE
+        await pilot.pause()
+        scr2 = await back_then_forward(app11b, pilot)
+        check("a produced-nothing first fetch caches nothing to resurrect",
+              isinstance(scr2, wiz.AllowlistScreen)
+              and "_fetched" not in scr2.state
+              and scr2._fetch_key is None
+              and not scr2.query_one("#wiz_member_list",
+                                     SelectionList).display)
+        scr2.query_one("#wiz_user_ids", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        check("an all-stages-failed fetch never blocks Next",
+              isinstance(app11b.screen, wiz.DenyRepoScreen))
+        await app11b.action_quit()
+
+    # --- A2: produced-nothing REFRESH after a legitimately empty fetch ---
+    # The only route by which a produced-nothing run finds _fetch_key already
+    # set — it must clear the cache, not just the key.
+    wiz_fetch["result"] = canned(members=[], roles=[])
+    app11c = make_wizard_app()
+    async with app11c.run_test(size=(110, 60)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app11c, pilot, conversation="781")
+        await press_fetch(app11c, pilot)
+        check("a fetch that legitimately returns no rows still reveals",
+              "fetched 0 member(s) and 0 role(s)"
+              in str(scr.query_one("#wiz_fetch_status").render())
+              and scr._fetch_key is not None
+              and scr.query_one("#wiz_member_list", SelectionList).display)
+        scr2 = await back_then_forward(app11c, pilot)
+        check("the empty-but-successful fetch round-trips through the cache",
+              "_fetched" in scr2.state and scr2._fetch_key is not None)
+
+        wiz_fetch["result"] = canned(**OUTAGE)
+        await press_fetch(app11c, pilot)
+        check("a produced-nothing refresh clears BOTH the key and the cache",
+              scr2._fetch_key is None
+              and "_fetched" not in scr2.state
+              and not scr2.query_one("#wiz_member_list",
+                                     SelectionList).display)
+        scr3 = await back_then_forward(app11c, pilot)
+        check("the cleared cache cannot resurrect an empty picker with a "
+              "blank status line",
+              scr3._fetch_key is None
+              and not scr3.query_one("#wiz_member_list",
+                                     SelectionList).display)
+        await app11c.action_quit()
+
+    # --- B: PARTIAL refresh failure marks only the failed dimension ---
+    wiz_fetch["result"] = None            # canned() default: 3 members, 2 roles
+    app11d = make_wizard_app()
+    async with app11d.run_test(size=(110, 80)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app11d, pilot, conversation="783")
+        scr.query_one("#wiz_user_ids", Input).value = ""
+        scr.query_one("#wiz_role_ids", Input).value = ""
+        await pilot.pause()
+        await press_fetch(app11d, pilot)
+        members = scr.query_one("#wiz_member_list", SelectionList)
+        roles = scr.query_one("#wiz_role_list", SelectionList)
+        members.toggle(ALICE)
+        roles.toggle(MODS)
+        await pilot.pause()
+        fresh_border = members.styles.border_top
+        check("a successful fetch marks nothing stale",
+              scr._stale == {"user": False, "role": False}
+              and not members.has_class("stale")
+              and not roles.has_class("stale"))
+
+        wiz_fetch["result"] = canned(
+            roles=[], roles_error="role fetch failed (Forbidden)")
+        await press_fetch(app11d, pilot)
+        status = str(scr.query_one("#wiz_fetch_status").render())
+        check("a failed stage keeps ITS rows and marks only that dimension",
+              scr._stale == {"user": False, "role": True}
+              and roles.option_count == 2 and roles.has_class("stale")
+              and members.option_count == 3
+              and not members.has_class("stale")
+              and scr._working["allowed_role_ids"] == [MODS]
+              and scr._working["allowed_user_ids"] == [ALICE])
+        check("the status names the failed stage AND the earlier rows",
+              "! roles: role fetch failed (Forbidden)" in status
+              and "showing the EARLIER fetch for: roles" in status)
+        # Render-level: prove the CSS rule actually resolved (a class alone
+        # would pass even if `.stale` lost to the base specificity), and
+        # that the border title really reaches the screen.
+        svg = (app11d.export_screenshot()
+               .replace("&#160;", " ").replace("\u00a0", " "))
+        check("the stale marking renders (warning border + border title)",
+              roles.styles.border_top != fresh_border
+              and members.styles.border_top == fresh_border
+              and "previous fetch" in svg and "may be out of date" in svg)
+        await app11d.action_quit()
+
+    # --- C: TOTAL refresh failure retains both, and survives Back ---
+    wiz_fetch["result"] = None
+    app11e = make_wizard_app()
+    async with app11e.run_test(size=(110, 60)) as pilot:
+        await pilot.pause()
+        scr = await goto_allowlist(app11e, pilot, conversation="785")
+        scr.query_one("#wiz_user_ids", Input).value = ""
+        scr.query_one("#wiz_role_ids", Input).value = ""
+        await pilot.pause()
+        await press_fetch(app11e, pilot)
+        scr.query_one("#wiz_member_list", SelectionList).toggle(ALICE)
+        await pilot.pause()
+
+        wiz_fetch["result"] = canned(**OUTAGE)
+        await press_fetch(app11e, pilot)
+        check("a total refresh failure retains both dimensions' rows "
+              "instead of wiping them",
+              scr._stale == {"user": True, "role": True}
+              and scr.query_one("#wiz_member_list",
+                                SelectionList).option_count == 3
+              and scr.query_one("#wiz_role_list",
+                                SelectionList).option_count == 2
+              and scr._working["allowed_user_ids"] == [ALICE])
+
+        scr2 = await back_then_forward(app11e, pilot)
+        check("staleness rides in the cache — re-entry never re-presents "
+              "the rows as current",
+              scr2._stale == {"user": True, "role": True}
+              and scr2.query_one("#wiz_member_list",
+                                 SelectionList).option_count == 3
+              and scr2.query_one("#wiz_member_list",
+                                 SelectionList).has_class("stale")
+              and "showing the EARLIER fetch for: users, roles"
+              in str(scr2.query_one("#wiz_fetch_status").render()))
+
+        # A raising runner on a refresh classifies exactly like the outage.
+        wiz_fetch["result"] = None
+        wiz_fetch["raise"] = True
+        await press_fetch(app11e, pilot)
+        status = str(scr2.query_one("#wiz_fetch_status").render())
+        check("a raising runner on a REFRESH marks stale, never wipes",
+              "! fetch failed" in status
+              and "showing the EARLIER fetch for: users, roles" in status
+              and scr2.query_one("#wiz_member_list",
+                                 SelectionList).option_count == 3)
+
+        wiz_fetch["raise"] = False
+        await press_fetch(app11e, pilot)
+        members2 = scr2.query_one("#wiz_member_list", SelectionList)
+        check("a successful refetch clears the stale marking everywhere",
+              scr2._stale == {"user": False, "role": False}
+              and not members2.has_class("stale")
+              and not members2.border_title
+              and "fetched 3 member(s) and 2 role(s)"
+              in str(scr2.query_one("#wiz_fetch_status").render()))
+        await app11e.action_quit()
 
     # --- mid-run Back: a late fetch result must not touch a dead screen ---
     fetch_mode["block"] = True

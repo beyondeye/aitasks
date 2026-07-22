@@ -141,6 +141,23 @@ def _fetch_key(state: dict, token: str) -> tuple:
     )
 
 
+#: Border title on a picker whose rows predate a failed refresh (t1204).
+_STALE_BORDER_TITLE = "! previous fetch — may be out of date"
+
+
+def _stale_line(dim_keys) -> str:
+    """Status copy qualifying rows that predate a failed refresh (t1204).
+
+    Deliberately distinct from the manual-entry failure copy: that one
+    offers manual entry INSTEAD of rows, while this one qualifies rows the
+    operator can still see and tick.
+    """
+    return ('! showing the EARLIER fetch for: '
+            f'{", ".join(f"{key}s" for key in dim_keys)} — those rows may be '
+            'out of date (a member may have left, a role may have been '
+            'deleted). Press "Fetch from Discord" to retry.')
+
+
 def _authorization_lines(state: dict) -> list[str]:
     """Summary lines: one per dimension, mode + its ACTIVE ids.
 
@@ -418,6 +435,19 @@ class AllowlistScreen(_WizardStep):
     every failure path (offline, no token, non-Discord provider, failed
     fetch) and a failed fetch never blocks Next.
 
+    **Failure classification (t1204).** ``run_allowlist_fetch`` never raises
+    — it reports production failures as per-stage ``members_error`` /
+    ``roles_error`` on a returned result, and only a broken never-raises
+    contract arrives as ``None``. Both shapes normalise to one per-stage
+    table in :meth:`_apply_fetch`, and the two stages fail independently,
+    so staleness is tracked PER DIMENSION. A stage that fails over rows the
+    operator can already see keeps them (a live fetch plus a multi-select is
+    expensive to redo) but marks them, and the marking rides in the
+    Back-survivable cache so re-entry can never re-present them as current.
+    A run that answered for no dimension and had nothing to keep produced
+    nothing at all: it drops back to manual entry and clears the cache
+    rather than caching an empty picker as a clean success.
+
     **Pinned invariant:** at every moment a picker's ticked set is exactly
     ``active list ∩ visible rows``, and the ``Input`` is the single source of
     truth for the active list. All four mutation paths (typing, selecting,
@@ -436,6 +466,7 @@ class AllowlistScreen(_WizardStep):
         margin-top: 1;
         border: round $primary;
     }
+    AllowlistScreen SelectionList.stale { border: round $warning; }
     AllowlistScreen #wiz_fetch_status { height: auto; }
     AllowlistScreen .wizard-note { height: auto; color: $warning; }
     """
@@ -450,6 +481,8 @@ class AllowlistScreen(_WizardStep):
         #: What a rebuild-originated SelectedChanged looks like, per
         #: dimension — see :meth:`_rebuild_list`.
         self._echo: dict[str, set] = {dim.key: set() for dim in _DIMENSIONS}
+        #: Per dimension: do the visible rows predate a failed refresh?
+        self._stale: dict[str, bool] = {dim.key: False for dim in _DIMENSIONS}
         self._fetch_key = None
         self._pending_key = None
         self._fetch_running = False
@@ -486,7 +519,13 @@ class AllowlistScreen(_WizardStep):
             for dim, rows in (("user", cached["members"]),
                               ("role", cached["roles"])):
                 self._fetched[dim] = [tuple(row) for row in rows]
-            return ""
+            # Staleness rides WITH the rows (t1204): rows a failed refresh
+            # already qualified must never come back looking current.
+            stale = cached.get("stale") or {}
+            self._stale = {dim.key: bool(stale.get(dim.key))
+                           for dim in _DIMENSIONS}
+            marked = [key for key, on in self._stale.items() if on]
+            return _stale_line(marked) if marked else ""
         del self.state["_fetched"]
         removed: list[str] = []
         for dim in _DIMENSIONS:
@@ -565,6 +604,22 @@ class AllowlistScreen(_WizardStep):
         for dim in _DIMENSIONS:
             self.query_one(f"#{dim.list_id}", SelectionList).display = True
             self._rebuild_list(dim)
+        self._render_stale()
+
+    def _hide_picker(self) -> None:
+        """Inverse of :meth:`_reveal_picker` — back to manual entry only."""
+        self.query_one("#wiz_fetch_filter", Input).display = False
+        for dim in _DIMENSIONS:
+            self.query_one(f"#{dim.list_id}", SelectionList).display = False
+        self._render_stale()
+
+    def _render_stale(self) -> None:
+        """Mark/unmark each picker as predating a failed refresh (t1204)."""
+        for dim in _DIMENSIONS:
+            picker = self.query_one(f"#{dim.list_id}", SelectionList)
+            picker.set_class(self._stale[dim.key], "stale")
+            picker.border_title = (_STALE_BORDER_TITLE
+                                   if self._stale[dim.key] else "")
 
     # ------------------------- list <-> widgets ------------------------ #
 
@@ -742,26 +797,75 @@ class AllowlistScreen(_WizardStep):
             return  # superseded run, or the screen was already dismissed
         self._fetch_running = False
         status = self.query_one("#wiz_fetch_status", Static)
+        # Normalise both failure shapes to ONE per-stage table. A returned
+        # result reports production failures (no connection, rejected token,
+        # missing permission) as per-stage error strings; a raised one
+        # arrives as None because the worker swallowed it. An errored stage
+        # always carries zero rows, so an error means "this run produced
+        # nothing usable for this dimension" either way.
         if result is None:
-            status.update("! fetch failed — enter ids manually above "
-                          "(Next still works)")
-            return
-        self._fetch_key = self._pending_key
-        self._fetched["user"] = list(result.members)
-        self._fetched["role"] = list(result.roles)
+            errors = {dim.key: "fetch failed" for dim in _DIMENSIONS}
+            rows = {dim.key: [] for dim in _DIMENSIONS}
+        else:
+            errors = {"user": result.members_error,
+                      "role": result.roles_error}
+            rows = {"user": list(result.members), "role": list(result.roles)}
+
+        usable: list[str] = []      # dimensions THIS run answered for
+        kept: list[str] = []        # failed stages whose old rows we keep
+        for dim in _DIMENSIONS:
+            if not errors[dim.key]:
+                self._fetched[dim.key] = rows[dim.key]
+                self._stale[dim.key] = False
+                usable.append(dim.key)
+            elif self._fetched[dim.key]:
+                # The stage failed but this dimension already had rows: keep
+                # them (a live fetch plus a multi-select is expensive to
+                # redo) and mark them — never present them as current.
+                self._stale[dim.key] = True
+                kept.append(dim.key)
+            else:
+                self._stale[dim.key] = False   # nothing to be stale about
+
         lines = []
-        if result.members_error:
-            lines.append(f"! members: {result.members_error}")
-        if result.roles_error:
-            lines.append(f"! roles: {result.roles_error}")
-        if result.members_truncated:
-            lines.append(f"showing the first {allowlist_fetch.MAX_MEMBERS} "
-                         "members — use the filter to narrow")
+        if result is None:
+            lines.append("! fetch failed")
+        else:
+            if result.members_error:
+                lines.append(f"! members: {result.members_error}")
+            if result.roles_error:
+                lines.append(f"! roles: {result.roles_error}")
+            if result.members_truncated:
+                lines.append(f"showing the first {allowlist_fetch.MAX_MEMBERS}"
+                             " members — use the filter to narrow")
+
+        if not usable and not kept:
+            # The run answered for no dimension and left nothing to qualify.
+            # Drop all the way back to manual entry: an empty picker cached
+            # as a successful fetch comes back after a Back/forward round
+            # trip with no notice at all (_restore_cache's matching-key
+            # branch returns "" and on_mount re-reveals). Clearing
+            # _fetch_key alone is not enough — _commit_state early-returns
+            # on a None key WITHOUT deleting an entry a previous commit
+            # already wrote, and _restore_cache deletes only on a key
+            # MISmatch, so the entry has to be dropped here. The operator's
+            # own ids are untouched: the context has not changed, so unlike
+            # _restore_cache there is nothing to invalidate.
+            self._fetch_key = None
+            self.state.pop("_fetched", None)
+            self._hide_picker()
+            lines.append("enter ids manually above — Next still works")
+            status.update("\n".join(lines))
+            return
+
+        if kept:
+            lines.append(_stale_line(kept))
         if not lines:
             lines.append(f"fetched {len(result.members)} member(s) and "
                          f"{len(result.roles)} role(s)")
         lines.append("manual entry always works — the id boxes stay editable")
         status.update("\n".join(lines))
+        self._fetch_key = self._pending_key
         self._reveal_picker()
 
     # ----------------------------- accept ------------------------------ #
@@ -785,6 +889,11 @@ class AllowlistScreen(_WizardStep):
             "key": self._fetch_key,
             "members": list(self._fetched["user"]),
             "roles": list(self._fetched["role"]),
+            # Rows a failed refresh qualified are still cached — discarding
+            # a multi-select over a network blip is the worse trade — but
+            # never as CURRENT: the marking travels with them so
+            # _restore_cache re-renders the notice and the border (t1204).
+            "stale": dict(self._stale),
             # Provenance: which of the operator's ids came from THESE rows.
             # Only these are dropped if the context later changes — typed
             # ids are their own assertion (see :meth:`_restore_cache`).
