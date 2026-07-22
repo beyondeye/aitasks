@@ -97,3 +97,5 @@ that suffix, leaving item prose untouched. Exact form is the implementer's call.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-22T07:07:47Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-22T08:06:52Z status=pass attempt=1 type=human
