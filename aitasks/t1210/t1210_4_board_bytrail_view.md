@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: [t1210_3]
+depends: [t1210_3, t1162_4]
 issue_type: feature
 status: Ready
 labels: [aitask_board, tui]
