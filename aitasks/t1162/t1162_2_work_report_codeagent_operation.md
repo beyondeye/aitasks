@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1162_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [reporting]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1162
 created_at: 2026-07-22 10:45
-updated_at: 2026-07-22 10:45
+updated_at: 2026-07-22 16:44
 ---
 
 ## Context
