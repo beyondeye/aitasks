@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [python, task-planning]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-07-22 16:15
-updated_at: 2026-07-22 16:15
+updated_at: 2026-07-22 16:24
 ---
 
 ## Context
