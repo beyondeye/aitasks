@@ -269,6 +269,23 @@ trails, and the implementation decomposition.
 - Run Step 9 gate verification and archival. This current-branch profile has no
   feature branch to merge.
 
+## Implementation Progress (2026-07-22 session)
+
+All seven plan steps executed:
+
+1. ✅ RFC authored at `aidocs/implementation_trail_design.md` (16 sections incl. wireframes, lifecycle table, decomposition).
+2. ✅ Schema at `aidocs/implementation_trail.schema.json` (Draft 2020-12, root `additionalProperties: false`, narrative-first).
+3. ✅ Three fixtures in `aidocs/implementation_trail_examples/` (shadow_review_loop, gate_framework — stale-state demo, cross_topic_multiple_trails).
+4. ✅ Design-contract test `tests/test_implementation_trail_design.py` — 23 checks, all green; failing negative control verified (broken wave ordinal → exit 1; restored → exit 0).
+5. ✅ Traceability pass performed via three parallel exploration passes (artifact CLI/manifest, board view/launch/move seams, t1162 plan + cross-repo notation); findings recorded in RFC §16.
+6. ✅ Verification commands green (unittest, json.tool on all files, `git diff --check`, coverage greps).
+
+**Deviations from the plan's architecture hypotheses** (the plan explicitly allowed revision; these were interactive user decisions during this session):
+
+- Hypothesis 4 revised: **dedicated By-Trail view ships in v1** (not overlay-first; overlay is now documented-only).
+- Hypothesis 8 revised: **t1162 integration is passive** — trail-view move-to-column commands (`m`/`M`) feed ordinary board columns that the work report reads unchanged; enrichment and `--trail` report modes are documented-only.
+- Added requirement (user): trails are **dynamic** — input-digest drift detection plus a targeted refresh subskill are core v1 (RFC §8), and narrative rationale is first-class in the schema (pinned by test).
+
 ## Risk
 
 ### Code-health risk: low
@@ -299,3 +316,46 @@ trails, and the implementation decomposition.
 All identified risks are mitigated inside this design/validation task and its
 sequenced implementation decomposition; no separate before/after risk-mitigation
 task is proposed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Full design package delivered: RFC
+  `aidocs/implementation_trail_design.md` (16 sections: journeys, domain
+  invariants, artifact representation on the `ait artifact` substrate,
+  analysis algorithm, drift/refresh model, By-Trail board view with
+  move-to-column commands, lifecycle/concurrency table, security model,
+  alternatives, decomposition, wireframes, traceability record); JSON Schema
+  `aidocs/implementation_trail.schema.json`; three fixtures under
+  `aidocs/implementation_trail_examples/`; design-contract test
+  `tests/test_implementation_trail_design.py` (23 checks, green, with a
+  verified failing negative control). The decomposition was materialized as
+  live children t1210_1..t1210_7 (schema lib → gatherer/drift → skill →
+  board view [depends also on t1162_4] → move commands → docs → aggregate
+  manual verification), created with self-contained descriptions referencing
+  the RFC.
+- **Deviations from plan:** Three architecture hypotheses were revised by
+  interactive user decisions (recorded in the Implementation Progress section
+  above and RFC §13): dedicated By-Trail view in v1 (not overlay-first),
+  passive t1162 integration via trail-view column moves (not report
+  enrichment), and dynamic trails (digest drift + refresh subskill) elevated
+  to a core requirement with narrative rationale made first-class in the
+  schema. The plan's "copy-ready decomposition only" deliverable was extended
+  by user choice into live child tasks under t1210.
+- **Issues encountered:** The session began under the `fast` profile despite
+  the task's re-entry note recommending a verify-capable profile; the user
+  explicitly chose to proceed with `fast` after the trade-off was surfaced,
+  and the plan was reviewed interactively (all 8 decision questions asked)
+  rather than via the verify path. Working tree contained concurrent t1162_1
+  changes (board files, work_report_gather helpers); commits staged only this
+  task's new files.
+- **Key decisions:** JSON-canonical artifact with narrative-first schema;
+  explicit `art:trail-<slug>` handles (default derivation would collide for
+  multi-trail owners); no-CAS finding on the artifact CLI handled with a
+  bounded pre-write re-read guard and a conditional CAS follow-up in the
+  D-list; every v1 exclusion carries a create-now/conditional/documented-only
+  disposition; T4/T5 serialized after t1162_4 (shared board surface). The
+  unrelated skill-renderer error-message improvement discovered earlier in
+  this session was filed separately as t1215 (not a defect seeded by this
+  task's work).
+- **Upstream defects identified:** None
+
