@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
+implemented_with: claudecode/fable5
 created_at: 2026-07-22 16:15
-updated_at: 2026-07-22 16:24
+updated_at: 2026-07-22 16:55
 ---
 
 ## Context
@@ -67,3 +70,8 @@ schema library every later slice (gatherer, skill, board view) consumes.
 - Negative control: each guarded rule demonstrably fails (exit 1) on a
   mutated fixture copy (mutate copies under the test tmpdir, never the
   aidocs fixtures).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-22T13:55:28Z status=pass attempt=1 type=human
