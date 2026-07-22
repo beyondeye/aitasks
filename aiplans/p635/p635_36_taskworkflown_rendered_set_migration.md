@@ -414,3 +414,141 @@ task-workflown half — do not leave a memory naming a deleted path.
 
 ### Planned mitigations
 - timing: after | name: pickn_retirement_reference_sweep_verify | type: manual_verification | priority: medium | effort: low | addresses: code-health "upgrade path leaves zombie wrappers" + "prune helper deletes a live skill" + "prune helper deletes the user's own work" | desc: On a real upgraded project, run ait upgrade and confirm /aitask-pickn is absent from every agent's skill listing (Claude, Codex, OpenCode) while /aitask-pick still resolves and renders; confirm no aitask-pickn/task-workflown AUTHORING or wrapper dirs remain under .claude, .agents, .opencode or aitasks/metadata/{codex,opencode}_skills, while any rendered *-<profile>- closure dirs are reported as KEPT rather than deleted; confirm ait settings shows no pickn row under default_profiles. Then repeat on a project where a retired wrapper AND a rendered closure SKILL.md were hand-edited beforehand: confirm both survive byte-identical, the KEPT warning with its manual cleanup command appears in the upgrade summary, and the upgrade still exits 0. Finally run the helper with --prune-rendered and confirm the closures go while task-workflow-*- / aitask-pick-*- neighbours are untouched.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-22 18:40)
+- **Requested by user:** One review concern, raised as informational
+  (`aitask_prune_retired_skills.sh:210`): default upgrades intentionally retain
+  every matching rendered closure because its content cannot be proven
+  framework-owned, so only the explicit `--prune-rendered` path removes it. That
+  leaves inert, gitignored stale directories until a user cleans them up. The
+  user verified the rationale holds — deleting a normal-shaped closure could
+  destroy a hand-edited `SKILL.md` — and dispositioned it as informational.
+- **Changes made:** **None — no code change required.** Verified the behavior is
+  already the documented, tested contract rather than an oversight:
+  (a) the rationale is stated in full at the exact cited location and in the
+  manifest header; (b) `tests/test_prune_retired_skills.sh` pins it with a
+  normal-shaped closure carrying a hand-edited `SKILL.md` surviving
+  byte-identical, plus a `--prune-rendered` case; (c) the accepted cost is
+  already recorded as a code-health risk bullet in this plan ("Accepted cost:
+  upgraded projects keep inert, gitignored stale closure dirs until the user
+  runs the printed cleanup command"); and (d) the residual cleanup burden is
+  bounded by the closing warning, which emits a named `rm -rf <path>` line for
+  every kept closure — confirmed live:
+
+  ```
+  Warning: 1 retired skill path(s) were KEPT, not deleted:
+      .claude/skills/aitask-pickn-fast-  (rendered-closure-not-verifiable)
+    These are safe to leave in place. If you do not need them:
+      rm -rf .claude/skills/aitask-pickn-fast-
+  ```
+
+  Recorded here so the archived plan carries the review trail for the
+  deliberate trade-off.
+- **Files affected:** none (documentation of the disposition only).
+
+## Final Implementation Notes
+
+- **Actual work done:** Retired the pickn / task-workflown staging experiment
+  end-to-end. Deleted 40 tracked files (the 35-file `task-workflown` closure,
+  the `aitask-pickn` stubs in all three agent trees, the OpenCode command, both
+  fork tests, and `aidocs/framework/pickn_workflown_experiment.md`). Added the
+  upgrade migration the deletion requires: `aitask_prune_retired_skills.sh` +
+  `retired_skills_manifest.txt` (8 retired paths, 2 rendered stems, 64 shipped
+  blob hashes), wired into `install.sh` and `aitask_setup.sh`, with a 62-assert
+  upgrade fixture. Removed `default_profiles.pickn` from `project_config.yaml`,
+  redirected the t1215 cross-reference, and extended the `<skill>n` staging
+  convention in `skill_authoring_conventions.md` with its missing half (retire
+  the copy; retiring means pruning installed projects, not just the source).
+  The one unshipped experiment hypothesis was salvaged as **t1218** and
+  committed *before* any deletion.
+
+- **Deviations from plan:**
+  1. **CHANGELOG entry skipped.** v0.28.0 is already shipped and the file has no
+     `Unreleased` section — entries are generated per release by
+     `/aitask-changelog` from commits and archived plans. A manual entry would
+     have misattributed this change to a released version.
+  2. **Staging wiring is simpler than planned.** The plan mirrored the
+     `cached_pycache` one-time-cleanup pattern to stage the deletions. Verified
+     unnecessary: `git ls-files --modified` already reports deleted files and
+     `git add` stages them, and that is exactly how `commit_framework_files()`
+     and `commit_installed_data_files()` discover changes. The helper therefore
+     never touches the git index at all — a cleaner seam — and the fixture
+     asserts the assumption directly.
+  3. **Manifest is 64 blobs, not the planned 98.** The 98 figure counted
+     per-path duplicates; 64 is the deduped set. Verified complete: every blob
+     the retired paths had at HEAD is present.
+  4. **Rule 1's hazard was mis-stated in the plan, and the negative control
+     caught it.** The plan claimed `aitask-pickn*` could eat `aitask-pick`; it
+     cannot — a longer prefix can never swallow a shorter name. The control
+     failed for exactly that reason. The real hazard is a retired stem that is a
+     **prefix of a live one** (retiring `aitask-pick` while `aitask-pickn`
+     lives), which the next retirement can easily hit. The control was rebuilt
+     around an inverted-stem manifest and now proves both directions: the real
+     helper spares the live longer-named render, the globbing mutation destroys
+     it. Helper and manifest comments were corrected to state the rule
+     accurately.
+  5. Review disposition — see Post-Review Changes 1 (informational, no code
+     change).
+
+- **Issues encountered:**
+  - The first negative controls silently died on startup: the broken helper
+    copies lived in a bare temp dir, so `source "$SCRIPT_DIR/lib/..."` failed
+    under `set -e` and they did nothing. The test *reported* failure (correctly)
+    but for the wrong reason. Fixed by staging the controls in a dir with
+    symlinked `lib/` and manifest, **and** asserting each control exits 0 — a
+    control that crashes proves nothing.
+  - Diffing the fork against production HEAD was misleading on its own (the fork
+    is mostly *behind*, not diverged). The audit needed a second axis — diffing
+    against the fork's creation base `1a8dcce6a^` — to separate "production
+    moved on" from "the experiment changed something".
+
+- **Key decisions:**
+  - **Ownership by content hash, not by path.** An exact retired path is not
+    proof the framework owns the file; a user may have customized the skill or
+    parked their own at that name. Deleting those on upgrade is unrecoverable
+    for untracked files. Directories are all-or-nothing so a partial delete
+    cannot leave a broken half-skill.
+  - **Rendered closures are never auto-deleted.** Their content is a function of
+    the user's own profiles and the template needed to re-render for comparison
+    is exactly what this task deletes, so ownership is unprovable. A shape check
+    ("only .md, SKILL.md present") is *not* ownership-aware — a hand-edited
+    SKILL.md keeps that shape. Deletion is opt-in via `--prune-rendered`;
+    upgrades report and keep. Accepted cost: inert gitignored stale dirs, each
+    named with an `rm -rf` line in the warning.
+  - **Idempotence means no additional removals, not silence.** `PRUNED:` lines
+    are one-shot events; `KEPT:` lines are a standing report and must repeat, or
+    a project would lose its cleanup instruction on the next upgrade.
+  - **A flat SHA set rather than per-path** — it also covers the
+    `aitasks/metadata/{codex,opencode}_skills/` staging copies, which are
+    byte-for-byte `cp`s of the agent-tree wrappers.
+  - **Salvage before deletion, in a separate commit on the data branch.** Task
+    files and source live on different branches, so the two cannot be atomic;
+    creating t1218 first means the idea survives an interruption at any point.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/settings/settings_app.py:233-236,2517-2527` — `default_profiles`
+    keys absent from `VALID_PROFILE_SKILLS` are **silently dropped** whenever
+    project settings are saved: `save_project_settings()` rebuilds the whole
+    block from the rendered `ConfigRow`s, which are generated only from that
+    allow-list. `pickn` sat in `project_config.yaml` in exactly that state (this
+    task removed it), but the silent-drop behavior is generic and still present
+    for any key the schema does not know — a user hand-adding a
+    `default_profiles` entry loses it on the next settings save, with no warning.
+
+- **Notes for sibling tasks:**
+  - `aitask_prune_retired_skills.sh` + `retired_skills_manifest.txt` are the
+    reusable mechanism for **any** future skill retirement: append `DIR` / `FILE`
+    / `STEM` records and regenerate the SHA set with the command in the manifest
+    header. Do not hand-roll a second pruner.
+  - The additive-copy blind spot is general: `install_skills()`,
+    `setup_codex()` and `setup_opencode()` never remove anything. Any t635
+    sibling that deletes or renames a shipped skill/wrapper must add a manifest
+    entry, or upgraded projects keep the old surface.
+  - `install.sh` and `aitask_setup.sh` intentionally duplicate the framework
+    path list (`install.sh` runs stand-alone via `curl|bash` and cannot source a
+    shared helper) — the prune call is wired into both for the same reason.
+  - t635_33's carve-out is now answered: the `task-workflown` lane it deferred
+    no longer exists, so there is no second tree to keep in sync with the
+    `rendered_set` model. Only t635_35 (remote/web lane) remains from that pair.
