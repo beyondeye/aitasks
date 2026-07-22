@@ -1087,6 +1087,22 @@ class CollapsedColumnPlaceholder(Static):
         self.styles.background = None
 
 
+class EmptyColumnPlaceholder(Static):
+    """A focusable placeholder inside columns that show no cards.
+
+    Covers a column with no tasks at all *and* one whose cards are all hidden
+    by the active filter/search: either way there is no TaskCard to anchor
+    focus on, so column-scoped actions (reorder, collapse) would be
+    unreachable. `apply_filter` owns the show/hide decision.
+    """
+
+    can_focus = True
+
+    def __init__(self, col_id: str):
+        super().__init__("(empty)", classes="empty-placeholder")
+        self.column_id = col_id
+
+
 class ColumnHeader(Static):
     """A composite column header with title, collapse toggle, and edit button."""
 
@@ -1665,6 +1681,13 @@ class KanbanColumn(VerticalScroll):
             yield CollapsedColumnPlaceholder(self.col_id)
         else:
             tasks = self.manager.get_column_tasks(self.col_id)
+            # Always composed so a column emptied by the filter has a focus
+            # anchor too; seeded with the right display so there is no
+            # one-frame flash before apply_filter runs.
+            placeholder = EmptyColumnPlaceholder(self.col_id)
+            if tasks:
+                placeholder.styles.display = "none"
+            yield placeholder
             for task in tasks:
                 yield TaskCard(task, self.manager, column_id=self.col_id)
                 # Render children if parent is expanded
@@ -4466,6 +4489,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     .col-header-count { text-align: center; width: 100%; color: $text-muted; }
     .collapsed-placeholder { height: 1; width: 100%; text-align: center; color: $text-muted; }
     .collapsed-placeholder:focus { background: $primary 30%; }
+    .empty-placeholder { height: 1; width: 100%; text-align: center; color: $text-muted; }
+    .empty-placeholder:focus { background: $primary 30%; }
     #dep_picker_dialog {
         width: 60%;
         height: auto;
@@ -4833,7 +4858,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._auto_expand_locked()
         self.refresh_board(refocus_filename=refocus, refresh_locks=True)
 
-    def refresh_board(self, refocus_filename: str = "", refresh_locks: bool = False):
+    def refresh_board(self, refocus_filename: str = "", refresh_locks: bool = False,
+                      refocus_col_id: str = ""):
+        # Default the column fallback to whatever holds focus right now, so every
+        # caller (manual `r`, the auto-refresh tick, view switches) preserves an
+        # empty / collapsed column without opting in. Must be read HERE: the
+        # teardown below removes the focused widget, and Textual drops focus with it.
+        refocus_col_id = refocus_col_id or self._get_focused_col_id() or ""
         self.manager.refresh_git_status()
         if refresh_locks:
             self.manager.refresh_lock_map()
@@ -4851,8 +4882,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             for group in ("human", "agent", "blocked"):
                 container.mount(InFlightColumn(group, grouped[group], self.manager))
             self.call_after_refresh(self.apply_filter)
-            if refocus_filename:
-                self.call_after_refresh(self._refocus_card, refocus_filename)
+            self._queue_refocus(refocus_filename, refocus_col_id)
             return
 
         if self.base_filter == "bytopic":
@@ -4862,8 +4892,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     all_tasks, self._topic_sort_mode()):
                 container.mount(TopicColumn(label, members, self.manager))
             self.call_after_refresh(self.apply_filter)
-            if refocus_filename:
-                self.call_after_refresh(self._refocus_card, refocus_filename)
+            self._queue_refocus(refocus_filename, refocus_col_id)
             return
 
         # 1. Unordered/Backlog Column (Dynamic)
@@ -4890,15 +4919,28 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # no-op and every card stays visible.
         self.call_after_refresh(self.apply_filter)
 
-        # Restore focus to the card matching refocus_filename
-        if refocus_filename:
-            self.call_after_refresh(self._refocus_card, refocus_filename)
+        # Restore focus by task filename, else by column identity
+        self._queue_refocus(refocus_filename, refocus_col_id)
 
-    def _refocus_card(self, filename: str):
+    def _refocus_card(self, filename: str, fallback_col_id: str = ""):
+        """Focus the card for `filename`; fall back to its column if it is gone.
+
+        A refresh can drop the card entirely (task archived/deleted) or hide it
+        (filtered out), in which case focus would otherwise be lost.
+        """
         for card in self.query(TaskCard):
-            if card.task_data.filename == filename:
+            if card.task_data.filename == filename and card.styles.display != "none":
                 card.focus()
                 return
+        if fallback_col_id:
+            self._refocus_column(fallback_col_id)
+
+    def _queue_refocus(self, refocus_filename: str = "", refocus_col_id: str = ""):
+        """Queue a post-refresh focus restore: by task filename, else by column."""
+        if refocus_filename:
+            self.call_after_refresh(self._refocus_card, refocus_filename, refocus_col_id)
+        elif refocus_col_id:
+            self.call_after_refresh(self._refocus_column, refocus_col_id)
 
     def _recompose_column(self, col_widget: KanbanColumn):
         """Replace a column's children in-place using textual.compose.
@@ -4911,8 +4953,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         new_children = _compose_widgets(col_widget)
         col_widget.mount_all(new_children)
 
-    def refresh_column(self, col_id: str, refocus_filename: str = ""):
+    def refresh_column(self, col_id: str, refocus_filename: str = "",
+                       refocus_col_id: str = ""):
         """Re-render a single column's contents without layout changes."""
+        # See refresh_board: read the focused column before the recompose.
+        refocus_col_id = refocus_col_id or self._get_focused_col_id() or ""
         old_col = None
         for col in self.query(KanbanColumn):
             if col.col_id == col_id:
@@ -4922,14 +4967,14 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if old_col is None:
             # Column not on screen — check if it should appear
             if col_id == "unordered" and self.manager.get_column_tasks("unordered"):
-                self.refresh_board(refocus_filename=refocus_filename)
+                self.refresh_board(refocus_filename=refocus_filename,
+                                   refocus_col_id=refocus_col_id)
             return
 
         # Check if unordered column should disappear
         if col_id == "unordered" and not self.manager.get_column_tasks("unordered"):
             old_col.remove()
-            if refocus_filename:
-                self.call_after_refresh(self._refocus_card, refocus_filename)
+            self._queue_refocus(refocus_filename, refocus_col_id)
             return
 
         self._recompose_column(old_col)
@@ -4937,17 +4982,20 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Defer (see refresh_board for rationale): _recompose_column remounts
         # cards, so applying the filter synchronously here would race compose.
         self.call_after_refresh(self.apply_filter)
-        if refocus_filename:
-            self.call_after_refresh(self._refocus_card, refocus_filename)
+        self._queue_refocus(refocus_filename, refocus_col_id)
 
-    def refresh_columns(self, col_ids: set, refocus_filename: str = ""):
+    def refresh_columns(self, col_ids: set, refocus_filename: str = "",
+                        refocus_col_id: str = ""):
         """Re-render multiple columns. Falls back to full refresh for structural changes."""
+        # See refresh_board: read the focused column before the recompose.
+        refocus_col_id = refocus_col_id or self._get_focused_col_id() or ""
         # Check if unordered needs structural add/remove
         if "unordered" in col_ids:
             has_widget = any(c.col_id == "unordered" for c in self.query(KanbanColumn))
             has_tasks = bool(self.manager.get_column_tasks("unordered"))
             if has_widget != has_tasks:
-                self.refresh_board(refocus_filename=refocus_filename)
+                self.refresh_board(refocus_filename=refocus_filename,
+                                   refocus_col_id=refocus_col_id)
                 return
 
         for col_id in col_ids:
@@ -4959,8 +5007,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Defer (see refresh_board for rationale): _recompose_column remounts
         # cards, so applying the filter synchronously here would race compose.
         self.call_after_refresh(self.apply_filter)
-        if refocus_filename:
-            self.call_after_refresh(self._refocus_card, refocus_filename)
+        self._queue_refocus(refocus_filename, refocus_col_id)
 
     @on(Input.Changed, "#search_box")
     def on_search(self, event: Input.Changed):
@@ -4986,6 +5033,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             type_set = self._type_visible_set()
             visible = type_set if visible is None else visible & type_set
 
+        cols_with_visible = set()
         for card in self.query(TaskCard):
             v = True
             if visible is not None and card.task_data.filename not in visible:
@@ -4994,7 +5042,31 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 search_content = f"{card.task_data.filename} {card.task_data.metadata}".lower()
                 if self.search_filter not in search_content:
                     v = False
-            card.styles.display = "block" if v else "none"
+            display = "block" if v else "none"
+            card.styles.display = display
+            # An expanded child card lives inside a `.child-wrapper` Horizontal
+            # that also holds the "↳" connector Static; hiding only the card
+            # would leave a bare connector row behind.
+            wrapper = card.parent
+            if (card.is_child and isinstance(wrapper, Horizontal)
+                    and wrapper.has_class("child-wrapper")):
+                wrapper.styles.display = display
+            if v:
+                cols_with_visible.add(card.column_id)
+
+        # A column showing no cards falls back to its focusable placeholder.
+        for placeholder in self.query(EmptyColumnPlaceholder):
+            placeholder.styles.display = (
+                "none" if placeholder.column_id in cols_with_visible else "block"
+            )
+
+        # Focus must never rest on a widget this pass just hid. Textual does not
+        # move it for us: Screen.set_focus gates on `visible` (the visibility
+        # rule), not on `display`.
+        focused = self.screen.focused if self.screen else None
+        if (isinstance(focused, (TaskCard, EmptyColumnPlaceholder))
+                and focused.styles.display == "none"):
+            self._refocus_column(focused.column_id)
 
     def _is_busy(self, filename: str, task) -> bool:
         """A task is busy when status==Implementing OR present in lock_map."""
@@ -5306,14 +5378,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             else:
                 self.screen.dismiss()
             return
-        cards = list(self.query(TaskCard))
-        if cards:
-            cards[0].focus()
-            return
-        # Fall back to first collapsed column placeholder
-        placeholders = list(self.query(CollapsedColumnPlaceholder))
-        if placeholders:
-            placeholders[0].focus()
+        # Leftmost column that has a focus anchor (card or placeholder).
+        for col_id in self._get_visible_col_ids():
+            target = self._column_focus_target(col_id)
+            if target is not None:
+                target.focus()
+                return
 
     def _focused_card(self):
         """Return the currently focused TaskCard, or None."""
@@ -5323,6 +5393,47 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _get_column_cards(self, col_id: str) -> list:
         """Return TaskCard widgets belonging to a column, in DOM order."""
         return [c for c in self.query(TaskCard) if c.column_id == col_id]
+
+    def _visible_column_cards(self, col_id: str) -> list:
+        """`_get_column_cards` filtered to cards the active filter left visible."""
+        return [c for c in self._get_column_cards(col_id)
+                if c.styles.display != "none"]
+
+    def _focused_placeholder(self):
+        """Return the focused column placeholder (collapsed or empty), or None."""
+        focused = self.screen.focused if self.screen else None
+        if isinstance(focused, (CollapsedColumnPlaceholder, EmptyColumnPlaceholder)):
+            return focused
+        return None
+
+    def _column_placeholder(self, col_id: str):
+        """Return a column's placeholder widget (collapsed or empty), or None."""
+        for cls in (CollapsedColumnPlaceholder, EmptyColumnPlaceholder):
+            for widget in self.query(cls):
+                if widget.column_id == col_id:
+                    return widget
+        return None
+
+    def _column_focus_target(self, col_id: str, preferred_pos: int = 0):
+        """Return the widget to focus when entering `col_id`, or None.
+
+        Every board column owns exactly one focus anchor: a placeholder when it
+        shows no cards, otherwise a card. The `display` checks are load-bearing —
+        `Widget.focus()` does not refuse a hidden widget.
+        """
+        placeholder = self._column_placeholder(col_id)
+        if placeholder is not None and placeholder.styles.display != "none":
+            return placeholder
+        cards = self._visible_column_cards(col_id)
+        if cards:
+            return cards[min(preferred_pos, len(cards) - 1)]
+        return None
+
+    def _refocus_column(self, col_id: str):
+        """Restore focus to a column by identity (used after a refresh)."""
+        target = self._column_focus_target(col_id)
+        if target is not None:
+            target.focus()
 
     def _get_visible_col_ids(self) -> list:
         """Return ordered list of column IDs currently on the board."""
@@ -5340,12 +5451,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         focused = self._focused_card()
         if not focused:
-            # If on a collapsed placeholder, up/down is a no-op
-            if self._focused_collapsed_placeholder():
+            # If on a column placeholder, up/down is a no-op
+            if self._focused_placeholder():
                 return
             self.action_focus_board()
             return
-        cards = self._get_column_cards(focused.column_id)
+        cards = self._visible_column_cards(focused.column_id)
         idx = next((i for i, c in enumerate(cards) if c is focused), -1)
         if idx > 0:
             cards[idx - 1].focus()
@@ -5356,11 +5467,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         focused = self._focused_card()
         if not focused:
-            if self._focused_collapsed_placeholder():
+            if self._focused_placeholder():
                 return
             self.action_focus_board()
             return
-        cards = self._get_column_cards(focused.column_id)
+        cards = self._visible_column_cards(focused.column_id)
         idx = next((i for i, c in enumerate(cards) if c is focused), -1)
         if idx < len(cards) - 1:
             cards[idx + 1].focus()
@@ -5393,7 +5504,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         focused = self._focused_card()
         if focused:
             return focused.column_id
-        placeholder = self._focused_collapsed_placeholder()
+        placeholder = self._focused_placeholder()
         if placeholder:
             return placeholder.column_id
         return None
@@ -5408,23 +5519,15 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         cur_idx = col_ids.index(cur_col)
         focused = self._focused_card()
-        # Find the next column with focusable content
+        # Try to land on the same vertical position in the target column.
+        old_cards = self._visible_column_cards(cur_col)
+        old_pos = next((i for i, c in enumerate(old_cards) if c is focused), 0) if focused else 0
+        # Find the next column with a focus anchor
         new_idx = cur_idx + direction
         while 0 <= new_idx < len(col_ids):
-            target_col_id = col_ids[new_idx]
-            # Check for collapsed column placeholder
-            placeholders = [p for p in self.query(CollapsedColumnPlaceholder)
-                           if p.column_id == target_col_id]
-            if placeholders:
-                placeholders[0].focus()
-                return
-            target_cards = self._get_column_cards(target_col_id)
-            if target_cards:
-                # Try to land on the same vertical position
-                old_cards = self._get_column_cards(cur_col)
-                old_pos = next((i for i, c in enumerate(old_cards) if c is focused), 0) if focused else 0
-                target_pos = min(old_pos, len(target_cards) - 1)
-                target_cards[target_pos].focus()
+            target = self._column_focus_target(col_ids[new_idx], old_pos)
+            if target is not None:
+                target.focus()
                 return
             new_idx += direction
 
@@ -5578,9 +5681,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             task = self.manager.task_datas.get(filename) or self.manager.child_task_datas.get(filename)
             new_col = task.board_col if task else old_col
             if new_col != old_col:
-                self.refresh_columns({old_col, new_col}, refocus_filename=filename)
+                self.refresh_columns({old_col, new_col}, refocus_filename=filename,
+                                     refocus_col_id=new_col)
             else:
-                self.refresh_column(old_col, refocus_filename=filename)
+                self.refresh_column(old_col, refocus_filename=filename,
+                                    refocus_col_id=old_col)
         else:
             # Nested/cardless action (e.g. revert/lock/unlock from a dependency
             # detail): the task may be filtered/off-board, so rebuild the whole
@@ -6053,7 +6158,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         else:
             self.expanded_tasks.add(fn)
         col_id = focused.column_id
-        self.refresh_column(col_id, refocus_filename=fn)
+        self.refresh_column(col_id, refocus_filename=fn, refocus_col_id=col_id)
 
     def action_toggle_children(self):
         self._toggle_expand()
@@ -6095,7 +6200,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.manager.normalize_indices(current_col_id)
             self.manager.normalize_indices(new_col)
             self.manager.refresh_git_status()
-            self.refresh_columns({current_col_id, new_col}, refocus_filename=filename)
+            self.refresh_columns({current_col_id, new_col}, refocus_filename=filename,
+                                 refocus_col_id=new_col)
 
     def action_move_task_up(self):
         self._move_task_vertical(-1)
@@ -6169,9 +6275,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     self._swap_adjacent_cards(col_widget, target_card, focused)
                 else:  # moving down: focused was above, target below
                     self._swap_adjacent_cards(col_widget, focused, target_card)
-                self.call_after_refresh(self._refocus_card, filename)
+                self.call_after_refresh(self._refocus_card, filename, col_id)
             else:
-                self.refresh_column(col_id, refocus_filename=filename)
+                self.refresh_column(col_id, refocus_filename=filename,
+                                    refocus_col_id=col_id)
 
     def action_move_task_top(self):
         self._move_task_to_extreme(-1)
@@ -6204,7 +6311,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         focused.task_data.reload_and_save_board_fields()
         self.manager.normalize_indices(col_id)
         self.manager.refresh_git_status()
-        self.refresh_column(col_id, refocus_filename=filename)
+        self.refresh_column(col_id, refocus_filename=filename, refocus_col_id=col_id)
 
     # --- Column Reordering ---
 
@@ -6215,23 +6322,25 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._shift_column(-1)
 
     def _shift_column(self, direction):
-        focused = self._focused_card()
-        if not focused: return
-
-        filename = focused.task_data.filename
-        col_id = focused.task_data.board_col
-        if col_id == "unordered": return
+        # Resolve by column identity, not by focused card: an empty,
+        # filter-emptied, or collapsed column has no card to resolve through.
+        col_id = self._get_focused_col_id()
+        if not col_id or col_id == "unordered": return
 
         order = self.manager.column_order
         if col_id not in order: return
 
         idx = order.index(col_id)
         new_idx = idx + direction
+        if not (0 <= new_idx < len(order)): return
 
-        if 0 <= new_idx < len(order):
-            order[idx], order[new_idx] = order[new_idx], order[idx]
-            self.manager.save_metadata()
-            self.refresh_board(refocus_filename=filename)
+        focused = self._focused_card()
+        filename = focused.task_data.filename if focused else ""
+
+        order[idx], order[new_idx] = order[new_idx], order[idx]
+        self.manager.save_metadata()
+        self.refresh_board(refocus_filename=filename,
+                           refocus_col_id="" if filename else col_id)
 
     # --- Column Customization ---
 
@@ -6296,36 +6405,27 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def toggle_column_collapse(self, col_id: str):
         """Toggle collapse/expand state for a column."""
-        is_now_collapsed = not self.manager.is_column_collapsed(col_id)
-        self.manager.toggle_column_collapsed(col_id)
         focused = self._focused_card()
-        refocus = ""
-        if focused and focused.column_id == col_id and is_now_collapsed:
-            # Card is in the column being collapsed — no refocus target
-            pass
-        elif focused:
+        focused_col = self._get_focused_col_id()
+        self.manager.toggle_column_collapsed(col_id)
+        refocus, refocus_col = "", ""
+        if focused and focused.column_id != col_id:
             refocus = focused.task_data.filename
-        self.refresh_board(refocus_filename=refocus)
-
-    def _focused_collapsed_placeholder(self):
-        """Return the focused CollapsedColumnPlaceholder, or None."""
-        results = self.query("CollapsedColumnPlaceholder:focus")
-        return results.first() if results else None
+        elif focused_col == col_id:
+            # Focus was inside the toggled column, whose cards vanish (collapse)
+            # or appear (expand) — re-anchor by column identity.
+            refocus_col = col_id
+        self.refresh_board(refocus_filename=refocus, refocus_col_id=refocus_col)
 
     def action_toggle_column_collapsed(self):
-        """Toggle collapse for the column of the currently focused task (Shift+X)."""
+        """Toggle collapse for the currently focused column (Shift+X)."""
         if self._modal_is_active():
             return
-        focused = self._focused_card()
-        if focused:
-            self.toggle_column_collapse(focused.column_id)
+        col_id = self._get_focused_col_id()
+        if col_id:
+            self.toggle_column_collapse(col_id)
             return
-        # Check if a collapsed column placeholder is focused
-        placeholder = self._focused_collapsed_placeholder()
-        if placeholder:
-            self.toggle_column_collapse(placeholder.column_id)
-            return
-        self.notify("No task selected", severity="warning")
+        self.notify("No column selected", severity="warning")
 
     def action_collapse_column(self):
         """Open column picker to collapse a column (command palette)."""
