@@ -391,7 +391,7 @@ task-workflown half — do not leave a memory naming a deleted path.
   `/aitask-pickn` in upgraded projects · severity: medium · → mitigation: the
   location list is derived from the actual fan-out
   (`release.yml:42-96` → `install.sh` / `aitask_setup.sh` copy loops), not from
-  memory, and the fixture test populates all of them; pickn_retirement_reference_sweep_verify (after)
+  memory, and the fixture test populates all of them; pickn_retirement_reference_sweep_verify (after) → t1220
 - **Staged deletions not committed on upgrade.** `commit_framework_files` stages
   only untracked+modified · severity: medium · → mitigation: reuse the existing
   `cached_pycache` one-time-cleanup pattern that already solves exactly this
@@ -413,7 +413,7 @@ task-workflown half — do not leave a memory naming a deleted path.
   convention it amends — a source-level fix, not a memory
 
 ### Planned mitigations
-- timing: after | name: pickn_retirement_reference_sweep_verify | type: manual_verification | priority: medium | effort: low | addresses: code-health "upgrade path leaves zombie wrappers" + "prune helper deletes a live skill" + "prune helper deletes the user's own work" | desc: On a real upgraded project, run ait upgrade and confirm /aitask-pickn is absent from every agent's skill listing (Claude, Codex, OpenCode) while /aitask-pick still resolves and renders; confirm no aitask-pickn/task-workflown AUTHORING or wrapper dirs remain under .claude, .agents, .opencode or aitasks/metadata/{codex,opencode}_skills, while any rendered *-<profile>- closure dirs are reported as KEPT rather than deleted; confirm ait settings shows no pickn row under default_profiles. Then repeat on a project where a retired wrapper AND a rendered closure SKILL.md were hand-edited beforehand: confirm both survive byte-identical, the KEPT warning with its manual cleanup command appears in the upgrade summary, and the upgrade still exits 0. Finally run the helper with --prune-rendered and confirm the closures go while task-workflow-*- / aitask-pick-*- neighbours are untouched.
+- timing: after | created: t1220 | name: pickn_retirement_reference_sweep_verify | type: manual_verification | priority: medium | effort: low | addresses: code-health "upgrade path leaves zombie wrappers" + "prune helper deletes a live skill" + "prune helper deletes the user's own work" | desc: On a real upgraded project, run ait upgrade and confirm /aitask-pickn is absent from every agent's skill listing (Claude, Codex, OpenCode) while /aitask-pick still resolves and renders; confirm no aitask-pickn/task-workflown AUTHORING or wrapper dirs remain under .claude, .agents, .opencode or aitasks/metadata/{codex,opencode}_skills, while any rendered *-<profile>- closure dirs are reported as KEPT rather than deleted; confirm ait settings shows no pickn row under default_profiles. Then repeat on a project where a retired wrapper AND a rendered closure SKILL.md were hand-edited beforehand: confirm both survive byte-identical, the KEPT warning with its manual cleanup command appears in the upgrade summary, and the upgrade still exits 0. Finally run the helper with --prune-rendered and confirm the closures go while task-workflow-*- / aitask-pick-*- neighbours are untouched.
 
 ## Post-Review Changes
 
