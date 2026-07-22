@@ -98,3 +98,5 @@ Extend `tests/test_chatlink_tui.sh` (the t1186_4 picker section already has the
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-22T08:06:50Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-22T08:31:02Z status=pass attempt=1 type=human
