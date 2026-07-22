@@ -135,6 +135,30 @@ commit delete the originals, `mv` the staged files in, and string-replace
 `<name>n` → `<name>`. The original stays functional throughout. Low-traffic
 skills with no in-session dependency may be replaced directly.
 
+**A staging copy is short-lived — swap it in or delete it, in the same effort.**
+The `n` fork is a scaffold, not a place to park an idea. Nothing renders it in
+CI against the live profile set, nothing dispatches to it, and every framework
+change that touches the real skill silently passes it by, so it rots invisibly.
+The pickn / task-workflown sandbox (t928) is the worked example: t635_14 removed
+the `profile.risk_evaluation` profile key that the fork's 8 render conditions
+were keyed on, so for months the fork rendered *no* risk machinery under any
+profile; its own regression test failed 7 asserts the whole time with nobody
+looking; and an unrelated task (t635_33) had to copy a file into the fork purely
+to keep its file-parity assertion green. It was retired in t635_36 having
+shipped three of its four hypotheses through the normal path instead.
+
+**Retiring a staged (or any) skill means pruning installed projects, not just
+deleting the source.** `install_skills()` in `install.sh` and
+`setup_codex()` / `setup_opencode()` in `aitask_setup.sh` install wrappers with
+additive `mkdir -p` + `cp` loops; none of them removes a destination that
+disappeared upstream, and `ait upgrade` just re-runs `install.sh`. A source-only
+deletion therefore leaves every upgraded project with a discoverable slash
+command whose authoring template is gone. Add the retired surfaces to
+`.aitask-scripts/retired_skills_manifest.txt`; `aitask_prune_retired_skills.sh`
+(wired into both install paths) removes them — but only where the on-disk
+content hashes to a version the framework actually shipped, so a user's own
+customization at that path is preserved and reported rather than deleted.
+
 ## Use recognizable name-suffix conventions for generated artifact dirs
 
 When a feature generates rendered artifact directories alongside authoring ones

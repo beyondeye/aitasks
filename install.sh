@@ -786,6 +786,44 @@ install_opencode_staging() {
     fi
 }
 
+# --- Prune retired skill surfaces (upgrade migration) ---
+# install_skills(), setup_codex() and setup_opencode() are additive
+# `mkdir -p` + `cp` loops — none of them removes a wrapper that DISAPPEARED
+# upstream. Without this step an upgraded project keeps a discoverable slash
+# command whose authoring template no longer exists.
+#
+# The helper decides ownership by CONTENT HASH, so a user-modified or
+# user-authored file at a retired path is preserved and reported, never
+# deleted; its stderr warning flows straight through to the user.
+#
+# Its deletions need no special staging here: commit_framework_files() and
+# commit_installed_data_files() both discover changes with
+# `git ls-files --modified`, which reports deleted files.
+prune_retired_skills() {
+    local helper="$INSTALL_DIR/.aitask-scripts/aitask_prune_retired_skills.sh"
+    [[ -f "$helper" ]] || return 0
+
+    local out pruned kept
+    if ! out="$(bash "$helper" --dir "$INSTALL_DIR")"; then
+        warn "  Retired-skill prune failed — nothing was removed."
+        return 0
+    fi
+
+    pruned="$(printf '%s\n' "$out" | grep -c '^PRUNED:')" || pruned=0
+    kept="$(printf '%s\n' "$out" | grep -c '^KEPT:')" || kept=0
+
+    if [[ "$pruned" -gt 0 ]]; then
+        info "  Removed $pruned retired skill path(s):"
+        printf '%s\n' "$out" | grep '^PRUNED:' | sed 's/^PRUNED:/    /'
+    fi
+    if [[ "$kept" -gt 0 ]]; then
+        info "  Kept $kept retired path(s) — see the warning above for cleanup."
+    fi
+    if [[ "$pruned" -eq 0 && "$kept" -eq 0 ]]; then
+        info "  No retired skill surfaces present."
+    fi
+}
+
 # --- Store Codex CLI config and instructions seeds ---
 install_seed_codex_config() {
     local src dest
@@ -1287,6 +1325,9 @@ main() {
 
     info "Storing OpenCode config seeds..."
     install_seed_opencode_config
+
+    info "Pruning retired skill surfaces..."
+    prune_retired_skills
 
     # Clean up seed directory after all seed installers have run
     rm -rf "$INSTALL_DIR/seed"

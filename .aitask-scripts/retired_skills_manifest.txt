@@ -1,0 +1,121 @@
+# retired_skills_manifest.txt — ownership data for aitask_prune_retired_skills.sh
+#
+# Retired skill surfaces that installed projects must stop carrying, plus the
+# set of git blob hashes the framework ever SHIPPED at those paths.
+#
+# WHY HASHES: install_skills() / setup_codex() / setup_opencode() are additive
+# `cp` loops — they never remove a wrapper that disappeared upstream, so an
+# upgraded project keeps the retired files. But an exact path is NOT proof of
+# framework ownership: a user may have customized the skill, kept their own
+# unrelated skill at that name, or edited an untracked staging wrapper. The
+# pruner therefore deletes a file ONLY when `git hash-object <file>` appears in
+# the SHA set below; anything else is preserved and reported. Release tarballs
+# copy files verbatim and this repo has no .gitattributes (no CRLF/text filter),
+# so an installed copy hashes identically to the blob it came from.
+#
+# The SHA set is FLAT (not keyed by path) on purpose: it also covers the staging
+# copies under aitasks/metadata/{codex,opencode}_skills/, which are byte-for-byte
+# `cp`s of the agent-tree wrappers.
+#
+# RECORD TYPES (tab-separated):
+#   DIR <path>    retired directory   — removed all-or-nothing (every file must
+#                                       match a SHA and no extra file present)
+#   FILE <path>   retired single file — removed when its hash matches
+#   STEM <name>   rendered-closure stem — matched EXACTLY against
+#                 <root>/<stem>-<profile>[-<agent>]- dirs. Never prefix-globbed:
+#                 the required hyphen after the stem is what stops a retired
+#                 stem that is a PREFIX of a live skill from swallowing that
+#                 skill's renders (retiring `aitask-pick` must not delete
+#                 `aitask-pickn-fast-`).
+#                 Closures are NEVER removed by an upgrade (their content is a
+#                 function of the user's own profiles, so ownership cannot be
+#                 proven); they are reported, and removed only under the
+#                 explicit --prune-rendered flag.
+#
+# REGENERATE (run from the repo root; the prefixes are the authoring surfaces
+# that were deleted — history still holds every version they shipped in):
+#
+#   PFX=".claude/skills/aitask-pickn .claude/skills/task-workflown \
+#        .agents/skills/aitask-pickn .opencode/skills/aitask-pickn \
+#        .opencode/commands/aitask-pickn.md"
+#   git log --all --pretty=format:%H -- $PFX | while read -r c; do
+#       git ls-tree -r "$c" -- $PFX 2>/dev/null | awk '{print $3}'
+#   done | sort -u
+#
+# Retired by t635_36 (pickn / task-workflown staging experiment, created t928).
+
+DIR	.claude/skills/aitask-pickn
+DIR	.claude/skills/task-workflown
+DIR	.agents/skills/aitask-pickn
+DIR	.opencode/skills/aitask-pickn
+DIR	aitasks/metadata/codex_skills/aitask-pickn
+DIR	aitasks/metadata/opencode_skills/aitask-pickn
+FILE	.opencode/commands/aitask-pickn.md
+FILE	aitasks/metadata/opencode_commands/aitask-pickn.md
+STEM	aitask-pickn
+STEM	task-workflown
+
+SHA	028f1e563a38efaa44d70f44a963b7443717c7b1
+SHA	084b2b26a13a233680ee67ceb3fa04db5cb2f089
+SHA	0ee8ac9c6e16c2d5188620ec0f99291c6d7ceaba
+SHA	0f2dd96b3f9abe1afc9f3da91788f4affd3728dc
+SHA	0fc664462f982cb54b9ee80ccee44ead4ebf48a8
+SHA	1035c3db42658cba974420d1ef4fcf9f09fd9b0e
+SHA	12941a3fbafdec66ef5105df31e7f93e30306051
+SHA	1534eab2d266e90a5f4266db80fef5eddc18a6ac
+SHA	1c9f4cb5a7907e1cb8a928b6b2ddfe0e44776491
+SHA	1da74084b593d2497689d2fe1435901fafbeec54
+SHA	1e7531f3e9afc745eab444377e34e73ec79be401
+SHA	1fc0d77c35b23ad3cabf15606b61223c18c111d9
+SHA	2006d7fb0bac402230598e1c6d82b770f530ed9f
+SHA	21b6a1634c62ca1ca09812b7fef0db8ed18d99e0
+SHA	237019e4c24deb824a8b343348aac5f74fab72ed
+SHA	245bcbb4c691378db56d08ad19ffe454da01cea5
+SHA	2fe7e879fed47bc8acaf0ecd1c855a91fdc8b9cb
+SHA	4babec373dc174f5e825dd771da3e9ade4cc8fdf
+SHA	4c632c804843b2227e36b5069eb37e73357ac636
+SHA	4fa62f7ae1d7ee281415c1fc9f5f17c40df2ee1c
+SHA	51b7be6497e32b086503cad8b51dd9b95a6fefb6
+SHA	53f7842f92f000a1d4f125fdf34ded1a2f2d5f03
+SHA	590cc37304722fdc06b0db3d00d86a16161ff39d
+SHA	5a4dd1ec2320e15061e7745ea5af47767dbd9fa6
+SHA	5ad2955fd527cf25aeeea1ab9495565e90d8b6a7
+SHA	5da29bb274cd4a19b1b82722434dae08904c9da0
+SHA	6824a1597cd6c982dc56a88eff88571345ca149a
+SHA	68971e760af9d5434f2131aaca5abebb68655325
+SHA	68f5385707532f73f5233eb3fdeec03dfc113c9f
+SHA	690ff53b8ecd4356aeb9cdc730147f2be6389ec0
+SHA	6a97396b00833dbe956b037bbc5aa0fcdd43e017
+SHA	6e78579d07aa3e323fbbd5b314b4d629fef5e0ae
+SHA	7298e0486d10cc29c3c74ad44b3b31a2998c082c
+SHA	78b6daf8080524228d20bca41b72d54b315b955d
+SHA	86e7493b6aec262be4f1824b838e7f57fc2b67f5
+SHA	898e8c14c6edbe942d368803b3c7f896e6ac1ce2
+SHA	8c45c4be9fdb6593e47f0f53e0691005aeb5be50
+SHA	8c755853eb3d113d7809b9347ebc86b678dda40d
+SHA	8df74fca078334d00d82b53ed2a6f37be44e9618
+SHA	954b3d42d10e9deb6697afc67c4670c1ef8011dd
+SHA	95e6a06645849552a5c648ba243aa003d97ac997
+SHA	9930cc5c4f33c624d49dc35d62402f9c95f0834b
+SHA	9e0f023107734cc2e7163ab816009dd19c631657
+SHA	a6094cfe2d3ec24431e26210401d1fde78a8bca5
+SHA	a68826ea5b2a39a429d1c8883a6ed57e432352b3
+SHA	a7131c4c845a2beab7483c30d27b2adfb331f134
+SHA	a879475ca31e12841f190f54e2a7344e71cdbec1
+SHA	b0f52cbd8d7847558fc20891ef098f656dccce41
+SHA	b11de0d96f4f8ac0a76571f25aa6abc0cdc8af7b
+SHA	b8aaf9fd14cd36712a5826f6ab136d22e2eaec4c
+SHA	bb2f2320f787fdbe089a75344a67047066ce2a2e
+SHA	bc62d720bd06f8689e78ec5029489ad6d1844e64
+SHA	bd6cce08b2f3556eae3ce34ee3042d7f46fccabf
+SHA	c2ef29e5865673e3dc7f93f93a13e99a028d3419
+SHA	c5837e464de0439556ddc9580272e63c9c3de3ac
+SHA	ccef6ffa6b94c4a7826ebdf37b48ce5261ac46a7
+SHA	d284ec57dcf1eb0fe775fa81beb066d6a00ddfcd
+SHA	d7d34fca1f7b8b8fbda411f57e6ee4c4b492169a
+SHA	e040762cdc8e028e5baf495519ab6a3d3aa38852
+SHA	e32fcc34c81fd042c9045551eb7e4f32459fb085
+SHA	e862f46db8094e72fdb2bb4226a8aea990665816
+SHA	f69eeda3b40932e0d6bd7fbc6466d307c57d1024
+SHA	f6e2c5b3645beb78fabc55f743dabc6d169a13dc
+SHA	faf967ed3bf7181d03f7e8b8e1db31b911803456

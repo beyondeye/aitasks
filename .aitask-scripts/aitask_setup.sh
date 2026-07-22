@@ -2354,6 +2354,39 @@ setup_code_agents() {
         echo ""
         setup_opencode
     fi
+
+    # Runs after every agent's wrappers are (re)installed: the install loops are
+    # additive and never remove a wrapper the framework retired upstream. The
+    # helper decides ownership by content hash, so anything the user modified or
+    # authored at a retired path is preserved and reported, never deleted.
+    prune_retired_skills "$project_dir"
+}
+
+# --- Prune retired skill surfaces (see install.sh prune_retired_skills) ---
+# Kept deliberately small and non-fatal: a prune failure must never abort
+# `ait setup`, whose job is to repair an installation.
+prune_retired_skills() {
+    local project_dir="$1"
+    local helper="$SCRIPT_DIR/aitask_prune_retired_skills.sh"
+    [[ -f "$helper" ]] || return 0
+
+    local out pruned kept
+    if ! out="$(bash "$helper" --dir "$project_dir")"; then
+        warn "Retired-skill prune failed — nothing was removed."
+        return 0
+    fi
+
+    pruned="$(printf '%s\n' "$out" | grep -c '^PRUNED:')" || pruned=0
+    kept="$(printf '%s\n' "$out" | grep -c '^KEPT:')" || kept=0
+
+    if [[ "$pruned" -gt 0 ]]; then
+        echo ""
+        info "Removed $pruned retired skill path(s):"
+        printf '%s\n' "$out" | grep '^PRUNED:' | sed 's/^PRUNED:/    /'
+    fi
+    if [[ "$kept" -gt 0 ]]; then
+        info "Kept $kept retired path(s) — see the warning above for cleanup."
+    fi
 }
 
 # --- Review guides setup ---
