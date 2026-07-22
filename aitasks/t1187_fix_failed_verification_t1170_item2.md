@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: [1167]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1158
 created_at: 2026-07-20 18:08
-updated_at: 2026-07-20 18:08
-boardidx: 20
+updated_at: 2026-07-22 12:36
 boardcol: bug_fixes
+boardidx: 20
 ---
 
 ## Failed verification item from t1167
