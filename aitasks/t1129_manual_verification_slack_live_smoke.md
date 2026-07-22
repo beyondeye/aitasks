@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: ['1074_3']
 created_at: 2026-07-05 12:39
 updated_at: 2026-07-05 12:39
-boardidx: 40
+boardidx: 60
 boardcol: tests
 ---
 
