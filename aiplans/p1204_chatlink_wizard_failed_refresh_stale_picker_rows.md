@@ -476,3 +476,76 @@ allowlist-test hunks. Never `git add` the whole file blind, and never stash.
 Merge (current-branch profile: no worktree to clean up), run the declared
 `risk_evaluated` gate via `./ait gates run 1204`, then archive with
 `./.aitask-scripts/aitask_archive.sh 1204`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, no design deviations.
+  `.aitask-scripts/chatlink/wizard.py` (+137): `_STALE_BORDER_TITLE` /
+  `_stale_line()` module helpers; `AllowlistScreen._stale` per-dimension dict
+  initialised in `__init__`, adopted in `_restore_cache` and written back in
+  `_commit_state` (`"stale"` cache key); `_render_stale()` and `_hide_picker()`
+  helpers (both `_reveal_picker` and `_hide_picker` end in `_render_stale()`);
+  `_apply_fetch` restructured to normalise `None` and per-stage-error results
+  into one `errors`/`rows` table driving `usable`/`kept`; the produced-nothing
+  branch clears `_fetch_key`, pops `state["_fetched"]` and hides the pickers;
+  `AllowlistScreen SelectionList.stale { border: round $warning; }` CSS rule;
+  class docstring extended with the failure-classification contract.
+  `tests/test_chatlink_tui.sh` (+210): four new blocks (A first-fetch total
+  failure, A2 produced-nothing refresh after an empty success, B partial
+  refresh failure + render proof, C total refresh failure + cache round-trip +
+  recovery) and two negative controls added to the existing `app10` / `app11`
+  blocks.
+
+- **Deviations from plan:** None substantive. Two mechanical adjustments:
+  (1) the plan's Block A/B/C sketch clicked `#btn_wiz_fetch` directly; the
+  blocks press it through a new local `press_fetch()` helper instead — see
+  "Issues encountered". (2) The `usable` list is built inside the same loop as
+  `kept` rather than as a separate comprehension.
+
+- **Issues encountered:**
+  - *Repeated Fetch presses were silently swallowed.* Block B initially failed
+    with the picker still showing the FIRST fetch's rows. Root cause was not
+    the new logic but a Pilot artifact this suite already documents at the
+    token-retry site: a Button's ~0.3s active-effect window swallows a
+    same-instant second click. These blocks are the first to press one button
+    repeatedly on a single screen, so the artifact had never bitten before.
+    Fixed by adding a local `press_fetch(app, pilot)` helper that sleeps 0.4s,
+    clicks, waits for workers and pauses; all nine repeat presses in the new
+    blocks route through it.
+  - *SVG screenshot matching needs NBSP normalisation.* `app.export_screenshot()`
+    encodes spaces as `&#160;` / U+00A0, so a raw substring match on the border
+    title fails even though the title is visibly rendered. Verified during
+    planning and handled with an explicit two-step `.replace()`; the source
+    uses the `" "` escape rather than a literal invisible character.
+
+- **Key decisions:**
+  - *Retain-and-mark over clear-on-failure* (user-confirmed at planning): a
+    transient network blip must not discard an expensive multi-select.
+  - *Per-dimension staleness, not per-screen*: members and roles are
+    independent fetch stages, so a screen-wide flag would necessarily mislabel
+    one of them on a partial failure.
+  - *"Produced nothing" is the real predicate*, not "the runner raised".
+    `run_allowlist_fetch` is contractually non-raising, so classifying on
+    `result is None` alone would have left every production failure unfixed.
+  - *Clearing `_fetch_key` is not sufficient on its own* — `_commit_state`
+    early-returns on a `None` key **without** deleting a previously written
+    entry, and `_restore_cache` deletes only on a key MISmatch, so the
+    produced-nothing branch pops `state["_fetched"]` explicitly.
+  - *Render-level verification over attribute-only checks*: the tests assert
+    resolved `styles.border_top` differs between a stale and a fresh picker
+    (proving CSS specificity resolved) and that the border title reaches the
+    exported screenshot — a `has_class()` assertion alone would pass even if
+    `.stale` lost to the base rule.
+
+- **Upstream defects identified:** None
+
+- **Verification results:** `tests/test_chatlink_tui.sh` 162 pass / 0 fail;
+  `tests/test_chatlink_wizard.sh` 100 pass / 0 fail. Harness fail-path proven:
+  negating `roles.styles.border_top != fresh_border` makes the suite exit 1.
+
+- **Concurrency outcome:** The t1190 wizard-draft work that was uncommitted
+  alongside this task landed independently as `15bdeed47` while this task was
+  in flight. Verified by `git log -S` that neither `_stale_line` nor
+  `_STALE_BORDER_TITLE` appears in any of the four commits main advanced by,
+  and that every remaining working-tree hunk in `wizard.py` falls inside
+  `AllowlistScreen`. No cross-contamination in either direction.
