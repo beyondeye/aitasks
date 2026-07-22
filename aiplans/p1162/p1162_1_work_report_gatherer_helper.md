@@ -423,7 +423,7 @@ finishing, temporarily corrupt one expectation and confirm the suite prints
   `stats/stats_data.py` (D3), inverting the layer direction — `lib/` is the
   shared base layer and would now depend on two higher-level packages, so
   moving or renaming either module silently breaks the gatherer ·
-  severity: medium · → mitigation: promote_task_yaml_to_lib
+  severity: medium · → mitigation: t1217 (promote_task_yaml_to_lib)
 - D2 modifies `TaskManager.get_column_tasks`, a load-bearing board path, so the
   change reaches the live TUI and not just the new helper. Blast radius is one
   sort key and the effect is strictly more deterministic, but tied cards visibly
@@ -448,7 +448,7 @@ finishing, temporarily corrupt one expectation and confirm the suite prints
   and by `--velocity-window` · severity: low · → mitigation: none (accepted)
 
 ### Planned mitigations
-- timing: after | name: promote_task_yaml_to_lib | type: refactor | priority: medium | effort: low | addresses: code-health — lib/→board/ import inversion | desc: Move board/task_yaml.py to lib/task_yaml.py and update its importers (board/aitask_board.py, board/aitask_merge.py, lib/work_report_gather.py) so the shared base layer no longer depends on board/.
+- timing: after | created: t1217 | name: promote_task_yaml_to_lib | type: refactor | priority: medium | effort: low | addresses: code-health — lib/→board/ import inversion | desc: Move board/task_yaml.py to lib/task_yaml.py and update its importers (board/aitask_board.py, board/aitask_merge.py, lib/work_report_gather.py) so the shared base layer no longer depends on board/.
 
 ## Post-Review Changes
 
