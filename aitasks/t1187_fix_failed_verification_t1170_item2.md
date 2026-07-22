@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1158
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 18:08
-updated_at: 2026-07-22 12:36
+updated_at: 2026-07-22 18:40
 boardcol: bug_fixes
 boardidx: 20
 ---
@@ -40,3 +41,8 @@ boardidx: 20
 ### Next steps
 
 Reproduce the failure locally (see the commits and files above, and the origin archived plan for implementation context), identify the offending change, and fix. This task was auto-generated from a manual-verification failure in t1170 item #2.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-22T15:40:57Z status=pass attempt=1 type=human
