@@ -457,3 +457,98 @@ archival.
   `_get_focused_col_id()`); the residual risk is that focus *rendering* in a
   real terminal does not read as clearly as the tests assert, which manual TUI
   verification covers · severity: low · → mitigation: TBD
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-22 08:20)
+- **Requested by user:** `action_refresh_board()` still called
+  `refresh_board(refocus_filename=..., refresh_locks=True)` without a
+  `refocus_col_id`, so pressing `r` (or the `_auto_refresh_tick`) with the
+  `zz_empty` placeholder focused dropped focus entirely
+  (`_get_focused_col_id() == None`) — the exact state this task exists to make
+  usable. Verified and reproduced by the user; disposition blocking.
+- **Changes made:** Fixed structurally rather than per-caller. There are 20+
+  `refresh_board(...)` call sites; patching only `action_refresh_board` would
+  have left `action_sync_remote`, the view-filter switches, the bare
+  `refresh_board()` after column delete/edit, and every future caller with the
+  same hole. Instead `refresh_board`, `refresh_column`, and `refresh_columns`
+  each default the fallback at entry:
+  `refocus_col_id = refocus_col_id or self._get_focused_col_id() or ""`.
+  Placement is load-bearing — the capture must precede
+  `container.remove_children()` / `_recompose_column`, because Textual drops
+  focus when the focused widget leaves the DOM; reading it later (e.g. inside
+  `_queue_refocus`) would always see `None`. Added test case 11,
+  `test_full_refresh_preserves_the_focused_empty_column`, driving the real
+  `action_refresh_board()` entry point for both the empty and the collapsed
+  placeholder (with `load_tasks` stubbed so the synthetic layout survives the
+  reload). Negative control with only the three capture lines disabled:
+  exactly 1 failure, the new case — confirming it pins this fix specifically
+  and that the capture is independent of the rest of the change.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `tests/test_board_empty_column_focus.py`
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. Added `EmptyColumnPlaceholder`
+  (focusable, `(empty)`, CSS-only focus styling), always composed in expanded
+  columns and seeded hidden when the column has cards. `apply_filter` now owns
+  placeholder visibility, hides `.child-wrapper` alongside hidden child cards,
+  and moves focus off any widget it just hid. Added the focus seam
+  (`_focused_placeholder`, `_column_placeholder`, `_visible_column_cards`,
+  `_column_focus_target`, `_refocus_column`) and removed
+  `_focused_collapsed_placeholder` — all four of its call sites wanted "either
+  placeholder". `_shift_column` and `action_toggle_column_collapsed` now
+  resolve via `_get_focused_col_id()`. `refocus_col_id` threaded through all
+  three refresh helpers plus their six partial-refresh call sites, with
+  `_refocus_card` falling back to the column when the card is gone or hidden.
+  New `tests/test_board_empty_column_focus.py` with 11 Pilot cases over a
+  deterministic `Left(2) | Empty(0) | Right(2)` fixture.
+
+- **Deviations from plan:** One addition, from review (see Post-Review Changes):
+  the three refresh helpers default `refocus_col_id` from the currently focused
+  column instead of relying on each caller to pass it.
+
+- **Issues encountered:**
+  - The first "prove the harness can fail" run only produced an `ImportError`
+    (`EmptyColumnPlaceholder` does not exist at HEAD), which pins nothing about
+    behaviour. Rebuilt the negative control as *old source + a stub widget +
+    the compose yield*, so the behavioural assertions could actually run
+    against the old navigation/reorder code: 8 of 10 cases failed. Only case 1
+    (the widget exists) and case 9 (the Textual `displayed_children` invariant)
+    passed, which is the intended asymmetry.
+  - `unittest discover -p 'test_board_*.py'` exceeds 2 minutes in aggregate
+    (each Pilot app boots against the live repo); the files were run
+    individually instead. Not a defect, just a runtime characteristic.
+  - `action_refresh_board` calls `manager.load_tasks()`, which re-globs
+    `aitasks/*.md` and would destroy the synthetic fixture layout; case 11
+    stubs `load_tasks` so the real entry point can still be exercised.
+
+- **Key decisions:**
+  - **Textual semantics, verified not assumed** (Textual 8.2.7):
+    `Screen.focus_chain` walks `displayed_children`, which filters on
+    `display`, so tab traversal already skips a hidden placeholder — but
+    `Screen.set_focus` gates on `Widget.focusable` → `visible` (the
+    `visibility` rule), **not** `display`. A direct `.focus()` on a hidden
+    widget therefore succeeds. Every `display != "none"` guard in the focus
+    helpers is load-bearing, and case 9 pins the `focus_chain` half so a future
+    Textual bump surfaces here.
+  - `_shift_column` resolving through `_get_focused_col_id()` (i.e. the card's
+    rendered `column_id`) rather than the old `focused.task_data.board_col` is
+    also *more correct for child cards*: a child's own `boardcol` is usually
+    unset (`unordered`), while it renders inside its parent's column.
+  - `toggle_column_collapse` now re-anchors by column when focus was inside the
+    toggled column; previously collapsing the column you were in dropped focus
+    entirely.
+  - Deterministic test fixture over live board state: asserting against "the
+    last populated column" would make the suite hostage to whatever the repo's
+    board looks like on a given branch. Environmental needs are explicit
+    `skipTest` messages (≥4 parent tasks; ≥1 parent with children for case 7).
+  - Hiding `.child-wrapper` with its card fixes a pre-existing leak (a bare
+    `↳` connector row surviving its hidden card) that the new placeholder would
+    have made conspicuous.
+
+- **Upstream defects identified:** None
+
+- **Manual verification still outstanding:** the plan's `./ait board` pass
+  (arrow onto an empty column, `ctrl+arrow` reorder, `X` collapse toggle,
+  no-match search) has not been driven interactively.
