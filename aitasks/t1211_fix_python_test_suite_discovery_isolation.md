@@ -3,11 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-22 11:08
-updated_at: 2026-07-22 11:08
+updated_at: 2026-07-22 11:47
+boardcol: bug_fixes
+boardidx: 40
 ---
 
 ## Origin

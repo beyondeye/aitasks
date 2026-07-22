@@ -8,6 +8,7 @@ labels: [claudeskills, bash_scripts]
 gates: [risk_evaluated]
 created_at: 2026-07-22 11:37
 updated_at: 2026-07-22 11:37
+boardidx: 30
 ---
 
 ## Context

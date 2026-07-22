@@ -14,7 +14,7 @@ children_to_implement: [t1186_5]
 anchor: 1149
 created_at: 2026-07-20 18:06
 updated_at: 2026-07-21 13:08
-boardidx: 50
+boardidx: 70
 ---
 
 ## Goal

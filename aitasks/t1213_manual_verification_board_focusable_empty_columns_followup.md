@@ -8,6 +8,8 @@ labels: [verification, manual]
 verifies: [1209]
 created_at: 2026-07-22 11:23
 updated_at: 2026-07-22 11:23
+boardidx: 100
+boardcol: tests
 ---
 
 ## Manual Verification Task
