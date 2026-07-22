@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-19 08:27
-updated_at: 2026-07-22 12:37
+updated_at: 2026-07-22 16:40
 ---
 
 ## Context
@@ -61,3 +62,8 @@ pickn + `fast`.
 - Render-content assertions: pickn-rendered `fast` variant contains the risk producer;
   `default` variant omits it; materialize-active present in all variants.
 - `aitask_skill_verify.sh` passes; goldens committed in the same change.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-22T13:40:47Z status=pass attempt=1 type=human
