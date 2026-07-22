@@ -22,6 +22,7 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from archive_iter import iter_all_archived_markdown  # noqa: E402
+from config_utils import task_dir as _config_task_dir  # noqa: E402
 
 # Shared gate-ledger parser (t635_8). Content-level primitives only — the active
 # scan must never open a path (it operates on the content it already read), so it
@@ -32,7 +33,10 @@ from gate_ledger import (  # noqa: E402
     has_gate_markers,
 )
 
-TASK_DIR = Path("aitasks")
+# Honor the framework-wide TASK_DIR override via the canonical resolver rather
+# than hardcoding "aitasks": a caller that scans one task tree for membership
+# must not silently read a different tree's archive for completion history.
+TASK_DIR = _config_task_dir()
 ARCHIVE_DIR = TASK_DIR / "archived"
 TASK_TYPES_FILE = TASK_DIR / "metadata" / "task_types.txt"
 
@@ -40,10 +44,11 @@ TASK_TYPES_FILE = TASK_DIR / "metadata" / "task_types.txt"
 def _paths_for(project_root: Optional[Path]) -> Tuple[Path, Path, Path]:
     """Resolve (task_dir, archive_dir, metadata_dir) for an optional project root.
 
-    `project_root=None` reuses the module-level constants, preserving the
-    cwd-relative behavior every existing caller already depends on. A non-None
-    `project_root` rebases all three paths under it (used by the multi-session
-    TUI to scan a different project's archive).
+    `project_root=None` reuses the module-level constants, which follow
+    `TASK_DIR` (defaulting to the cwd-relative `aitasks` every existing caller
+    already depends on). A non-None `project_root` rebases all three paths
+    under it (used by the multi-session TUI to scan a different project's
+    archive), where the `aitasks` layout is the cross-project convention.
     """
     if project_root is None:
         return TASK_DIR, ARCHIVE_DIR, TASK_DIR / "metadata"

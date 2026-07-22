@@ -53,7 +53,7 @@ from textual.command import Provider, Hit, Hits, DiscoveryHit
 from task_yaml import (
     _TaskSafeLoader, _FlowListDumper, _normalize_task_ids,
     FRONTMATTER_RE, BOARD_KEYS,
-    parse_frontmatter, serialize_frontmatter,
+    normalize_board_idx, parse_frontmatter, serialize_frontmatter,
 )
 
 # --- Configuration & Constants ---
@@ -666,9 +666,16 @@ class TaskManager:
         return child_task.filepath.parent.name
 
     def get_column_tasks(self, col_id: str) -> list[Task]:
-        # Filter tasks by column and sort by index
+        # Filter tasks by column and sort by index. Two guarantees beyond the
+        # raw board_idx: normalize_board_idx() makes a hand-quoted "10" sort
+        # numerically (and stops a quoted/int mix raising TypeError), and
+        # filename breaks ties — load_tasks() fills task_datas in glob order,
+        # so sorting on the index alone left ties in directory-enumeration
+        # order, which is not durable between two processes reading the same
+        # tree. work_report_gather.py imports the same key so a board-reviewed
+        # task sequence still validates when the gatherer re-derives it.
         tasks = [t for t in self.task_datas.values() if t.board_col == col_id]
-        return sorted(tasks, key=lambda t: t.board_idx)
+        return sorted(tasks, key=lambda t: (normalize_board_idx(t.board_idx), t.filename))
 
     def refresh_git_status(self):
         """Query git for modified files in aitasks/ directory."""

@@ -46,6 +46,30 @@ BOARD_KEYS = ("boardcol", "boardidx")
 FRONTMATTER_RE = re.compile(r'\A---\n(.*?)\n---\n(.*)', re.DOTALL)
 
 
+def normalize_board_idx(raw):
+    """Coerce a ``boardidx`` frontmatter value into a sortable int.
+
+    Single source of truth for board-column ordering, shared by the board
+    itself and lib/work_report_gather.py so the two can never disagree about
+    where a card sits.
+
+    Sorting on the raw YAML value was unsafe in two ways: a hand-quoted
+    ``boardidx: "10"`` sorted lexically (so "10" preceded "2"), and mixing a
+    quoted value with a plain int raised ``TypeError: '<' not supported
+    between instances of 'str' and 'int'`` — crashing the board. An index is
+    numeric by intent, so quoted digits are coerced and anything genuinely
+    non-numeric sorts first as 0.
+    """
+    if isinstance(raw, bool):
+        return 0
+    if isinstance(raw, int):
+        return raw
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return 0
+
+
 # --- Helper Functions ---
 
 def _normalize_task_id(item):
@@ -69,8 +93,15 @@ def _normalize_task_ids(ids_list):
 
     Plain numbers (parent refs like 16, 77) are left as-is (preserving int type).
     Entries already prefixed (t85_2) pass through unchanged.
+
+    A non-list value (hand-edited ``children_to_implement: oops``, a mapping,
+    an int) passes through untouched rather than being iterated: comprehending
+    over a str yielded a list of its characters and over a dict a list of its
+    keys, so callers saw a plausible-looking list and silently counted 4
+    "children" for the string "oops". Malformed input stays malformed and
+    type-honest, and consumers can detect it.
     """
-    if not ids_list:
+    if not ids_list or not isinstance(ids_list, list):
         return ids_list
     return [_normalize_task_id(item) for item in ids_list]
 
