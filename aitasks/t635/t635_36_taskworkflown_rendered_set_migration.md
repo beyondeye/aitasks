@@ -1,14 +1,15 @@
 ---
 priority: medium
 effort: low
-depends: [635_33]
+depends: [t635_33]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [gates, task_workflow, execution_profiles]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-19 08:27
-updated_at: 2026-07-19 08:27
+updated_at: 2026-07-22 12:37
 ---
 
 ## Context
