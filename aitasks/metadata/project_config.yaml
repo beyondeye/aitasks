@@ -16,7 +16,6 @@ doc_update:
 default_profiles:
   explore: fast
   pick: fast
-  pickn: fast
 tmux:
   monitor:
     refresh_seconds: 3

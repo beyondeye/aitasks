@@ -1,8 +1,10 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: [t635_33]
-issue_type: refactor
+issue_type: chore
 status: Implementing
 labels: [gates, task_workflow, execution_profiles]
 gates: [risk_evaluated]
@@ -14,56 +16,102 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 635
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-19 08:27
-updated_at: 2026-07-22 16:40
+updated_at: 2026-07-22 16:42
 ---
 
 ## Context
 
-t635_33 landed the `rendered_set` model: skill templates gate risk-producer machinery with
-`{% if 'risk_evaluated' in rendered_set %}` where `rendered_set` is injected into the
-render context by `lib/skill_template.py` (key-presence: `profile.rendered_gates` if the
-key is present — even `[]` — else `profile.default_gates`, else `[]`). Runtime enforcement
-follows the persisted `active_gates` tuple materialized at claim. See
-`aiplans/p635/p635_33_gate_activation_render_time.md` (archived under
-`aiplans/archived/p635/` after t635_33 completes).
+> **Re-scoped 2026-07-22.** This task was filed as "migrate `task-workflown`'s
+> stale `{% if profile.risk_evaluation %}` blocks to the `rendered_set` model"
+> (the carve-out from t635_33). Planning showed that extending the fork was the
+> wrong move, and the task was redirected to **retire the experiment** instead.
+> The filename still carries the original slug — renaming a task mid-flight
+> breaks the lock/plan pairing, so it was deliberately kept. `issue_type` moved
+> `refactor` → `chore`.
 
-The **divergent `task-workflown` / `aitask-pickn` tree was carved out** of t635_33: it
-still contains ~8 stale `{% if profile.risk_evaluation %}` blocks keyed on the RETIRED
-`risk_evaluation` profile toggle (removed in t635_14). This is a **latent t1147**: under a
-profile whose `default_gates` includes `risk_evaluated` (e.g. `fast`), the pickn-rendered
-workflow renders NO risk producer (the stale conditional is false — `risk_evaluation` is
-absent from profiles) while the Step-9 orchestrator still enforces the declared gate —
-a declared-but-unproduced gate blocks archival. Safe today ONLY because nobody runs
-pickn + `fast`.
+`aitask-pickn` + `task-workflown` are the t928 "hardening sandbox": parallel
+copies of `aitask-pick` / `task-workflow` created to test stricter fail-closed
+gates without touching production. They are retired here.
+
+**Why retire rather than migrate:**
+
+1. **No production callers.** `grep -rn 'pickn\|workflown'` over
+   `.aitask-scripts/`, `ait`, `install.sh`, `seed/`, `website/` → zero hits. The
+   board and minimonitor agent launchers emit `/aitask-pick`.
+2. **Silently rotted.** t635_14 removed the `profile.risk_evaluation` profile
+   key; the fork still keyed 8 blocks on it, so it rendered **no** risk
+   machinery under any profile ever since, and
+   `tests/test_skill_render_task_workflown.sh` failed 7 asserts undetected.
+   t635_33 had to copy `gate-cli.md` into the fork purely to keep its
+   file-parity assert green.
+3. **Superseded.** Three of the experiment's four hypotheses shipped to
+   production independently — the `## Risk` + `### Code-health risk` /
+   `### Goal-achievement risk` plan format, the `risk_code_health` /
+   `risk_goal_achievement` frontmatter writes, and archive-time verification of
+   both are exactly what `.aitask-scripts/aitask_gate_risk.sh` checks, enforced
+   by `aitask_archive.sh gate_guard`.
+4. **Extending it makes it worse.** The fork has no gate machinery at all; the
+   Step-4 `materialize-active` the original scope asked for would have persisted
+   `active_gates: [risk_evaluated]` with nothing able to record a pass, blocking
+   archival forever.
+
+The one unshipped hypothesis — the Step-9b final-response gate — is salvaged as
+**t1218**, created and committed before any deletion.
 
 ## Scope
 
-1. Migrate every `{% if profile.risk_evaluation %}` block in the `task-workflown` /
-   `aitask-pickn` sources to the t635_33 model:
-   - render-time machinery gates → `{% if 'risk_evaluated' in rendered_set %}`
-   - runtime gate checks → the `aitask_gate.sh active <id> risk_evaluated` decision verb
-   - the Step-7 inline backfill (if the tree still has it) → the Step-4
-     `materialize-active` call (always rendered, never Jinja-omitted)
-2. Align the tree's Step-4 ownership step with task-workflow's (materialize-active +
-   optional `active-gates-status` staleness notice).
-3. Rerender + regenerate the tree's goldens; `aitask_skill_verify.sh` clean.
+1. **Delete the fork** (40 tracked files): `.claude/skills/aitask-pickn/`,
+   `.claude/skills/task-workflown/`, `.agents/skills/aitask-pickn/`,
+   `.opencode/skills/aitask-pickn/`, `.opencode/commands/aitask-pickn.md`,
+   `tests/test_skill_render_aitask_pickn.sh`,
+   `tests/test_skill_render_task_workflown.sh`,
+   `aidocs/framework/pickn_workflown_experiment.md`.
+2. **Upgrade migration.** `install_skills` / `setup_codex` / `setup_opencode`
+   are additive copy loops — they never remove a wrapper that vanished
+   upstream, so an upgraded project would keep a discoverable `/aitask-pickn`
+   in eight locations. Add `.aitask-scripts/aitask_prune_retired_skills.sh`:
+   table-driven, exact-name matching (never prefix-glob — `aitask-pickn` sits
+   one character from `aitask-pick`), and **content-hash ownership** against a
+   committed `retired_skills_manifest.txt` so a user-modified or user-authored
+   file at a retired path is preserved and warned about, never deleted.
+   Directories are all-or-nothing. Rendered `*-<profile>-` closures are never
+   deleted by an upgrade (their content depends on the user's own profiles, so
+   ownership cannot be proven) — they are reported, with an opt-in
+   `--prune-rendered` flag for explicit user-initiated cleanup. Wire into
+   `install.sh` and `aitask_setup.sh`.
+3. **Remove the config entry point:** `default_profiles.pickn` from
+   `aitasks/metadata/project_config.yaml` (never in `VALID_PROFILE_SKILLS`).
+4. **Redirect cross-references:** keep the `<skill>n` staging convention in
+   `aidocs/framework/skill_authoring_conventions.md` but add the missing half —
+   a staging copy is short-lived, and retiring it means pruning installed
+   projects, not just deleting the source. Drop the dangling `task-workflown`
+   example from t1215. CHANGELOG entry.
 
 ## Key files
 
-- `.claude/skills/task-workflown/` and `.claude/skills/aitask-pickn/` sources (grep for
-  `profile.risk_evaluation` — expect ~8 hits)
-- `tests/golden/` entries for the pickn/task-workflown tree
-- Reference implementation: `.claude/skills/task-workflow/{SKILL.md,planning.md}` after
-  t635_33 (the migrated blocks)
+- `.claude/skills/{aitask-pickn,task-workflown}/`, `.agents/skills/aitask-pickn/`,
+  `.opencode/{skills/aitask-pickn,commands/aitask-pickn.md}`
+- `.aitask-scripts/aitask_prune_retired_skills.sh` +
+  `.aitask-scripts/retired_skills_manifest.txt` (new)
+- `install.sh`, `.aitask-scripts/aitask_setup.sh`
+- `tests/test_prune_retired_skills.sh` (new)
+- `aidocs/framework/skill_authoring_conventions.md`, `CHANGELOG.md`
 
 ## Verification
 
-- `grep -r 'profile\.risk_evaluation' .claude/skills/` → zero hits in the pickn tree.
-- Render-content assertions: pickn-rendered `fast` variant contains the risk producer;
-  `default` variant omits it; materialize-active present in all variants.
-- `aitask_skill_verify.sh` passes; goldens committed in the same change.
+- Repo-wide `grep -rn 'pickn\|workflown'` leaves only: CHANGELOG history, the
+  quoted commit subject in `tests/fixtures/skills/README.md`, the staging
+  convention in `skill_authoring_conventions.md`, the t777 history note in
+  `stub-skill-pattern.md`, the prune helper's tables + test, t1218, and this
+  task's own files.
+- `aitask_skill_verify.sh` passes; its `.j2` discovery drops by exactly one.
+- `tests/test_prune_retired_skills.sh` green — including the preserve-and-warn
+  cases (modified tracked, custom untracked, modified staging wrapper, mixed
+  directory, hand-edited rendered `SKILL.md`), the live-neighbour negative
+  control, and an idempotent re-run that removes nothing further.
+- Surviving skill-render + install/setup suites green.
 
-## Gate Runs
-<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+## Coordination
 
-> **✅ gate:plan_approved** run=2026-07-22T13:40:47Z status=pass attempt=1 type=human
+- **t1218** — salvages the Step-9b final-response gate from this fork.
+- **t1215** — its `task-workflown` example is removed by this task.

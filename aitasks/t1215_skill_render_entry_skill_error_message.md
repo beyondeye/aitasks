@@ -32,7 +32,7 @@ Improve the error path in `aitask_skill_render.sh` so the not-an-entry-skill cas
 
 ## Notes / boundaries
 
-- Do not add a direct-render mode for dependency skills; the closure walk from a caller remains the only sanctioned render path (hand-maintained forks like `task-workflown` are out of scope — see the rerender-misses-task-workflown note).
+- Do not add a direct-render mode for dependency skills; the closure walk from a caller remains the only sanctioned render path. (The `task-workflown` fork that used to illustrate this was retired in t635_36 — the rule stands on its own.)
 - Follow `aidocs/framework/shell_conventions.md` for any edits under `.aitask-scripts/`.
 - Add/extend a test that asserts both messages (dependency-skill case and truly-unknown-skill case), following the existing bash test conventions in `tests/`.
 
