@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1202
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-21 18:09
-updated_at: 2026-07-21 18:59
+updated_at: 2026-07-22 10:07
 boardcol: bug_fixes
 boardidx: 40
 ---
@@ -81,3 +82,8 @@ that suffix, leaving item prose untouched. Exact form is the implementer's call.
 
 **Found by:** t1202 auto-verification (see `aiplans/p1202_manual_verification_auto.md`,
 "Upstream defect identified").
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-22T07:07:47Z status=pass attempt=1 type=human
