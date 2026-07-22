@@ -140,6 +140,14 @@ spanning this repo (applink server + protocol docs) and `aitasks_mobile`
 
 ## Related (not folded)
 
+- t1216 (monitor shadow pane view + concern picker) — the **desktop** counterpart:
+  brings shadow display, shadow interaction, and the concern picker to
+  `ait monitor`. Not a fold and not a dependency in either direction, but the two
+  share the same foundation: shadow panes are dropped by
+  `monitor_core._parse_list_panes` and must stay dropped for desktop agent-list /
+  kill / sibling semantics, while being exposed as a distinct category to their
+  respective consumers. Whichever lands first should leave the shadow-exposure
+  seam reusable by the other rather than solving it locally.
 - t1011 (applink workflow launch policy) — adjacent server-side launching work;
   explicitly NOT a dependency (see above).
 - t1017 (shadow steerability), t996 (shadow resize own pane) — shadow-skill
