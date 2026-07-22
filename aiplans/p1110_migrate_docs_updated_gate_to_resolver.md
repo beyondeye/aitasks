@@ -114,6 +114,47 @@ Step 9 (task-workflow): merge N/A (current branch), gates run
 (`risk_evaluated` is orchestrator-recorded), archive via
 `./.aitask-scripts/aitask_archive.sh 1110`.
 
+## Final Implementation Notes
+- **Actual work done:** Exactly as planned. Rewrote Step 1 of
+  `.claude/skills/aitask-gate-docs-updated/SKILL.md` to resolve the guide via
+  `./.aitask-scripts/aitask_resolve_config_path.sh doc_update.guide
+  aitasks/metadata/doc_update_guide.md` (run from the repo root), preserving the
+  fallback chain (configured → seeded default → empty/failure = best-effort
+  generic + per-change user confirmation) and keeping the "Do NOT read seed/"
+  warning. Added Cases 5 and 6 to `tests/test_resolve_config_path_cli.sh`:
+  Case 5 proves CLI-level resolution of nested `doc_update.guide` with a quoted
+  value + inline comment (the case the old grep failed); Case 6 pins that the
+  skill consumes the resolver and no longer contains `grep -A3 '^doc_update:'`.
+- **Deviations from plan:** One post-review wording change (Change Request 1):
+  the `extra_guides` sentence now frames the field as unchanged/out-of-scope
+  instead of instructing a direct YAML read.
+- **Issues encountered:** During negative-control verification, a
+  `git checkout --` cleanup reverted the skill file to HEAD, wiping the
+  in-progress edit along with the temporarily reintroduced grep line; the edit
+  was re-applied and all tests re-run green (15/15). Both negative controls
+  confirmed the suite exits 1 when the guards are violated.
+- **Key decisions:** Placed the drift guard in
+  `tests/test_resolve_config_path_cli.sh` (alongside the existing Case 4 guard
+  for `generate.md`) rather than a new test file, so all resolver-consumer
+  guards live in one suite. The migration is Claude-tree only — no Codex/
+  OpenCode ports exist yet (tracked in t635_23), and the skill is static (no
+  `.j2`/goldens), so no rerender was needed.
+- **Upstream defects identified:** None
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-22 09:05)
+- **Requested by user:** The revised Step 1 still told agents to read
+  `doc_update.extra_guides` directly from `project_config.yaml` — pointing
+  future agents at another ad-hoc YAML parse of the same config block the task
+  is migrating away from. Reword as unchanged/out-of-scope until a list-capable
+  resolver exists (disposition: follow-up).
+- **Changes made:** Reworded the `extra_guides` sentence in the skill's Step 1
+  to state the field is unchanged by this migration, is a list value out of
+  scope for the scalar resolver, and is read as before until a list-capable
+  companion resolver exists. Tests re-run: 15/15 pass.
+- **Files affected:** `.claude/skills/aitask-gate-docs-updated/SKILL.md`
+
 ## Risk
 
 ### Code-health risk: low
