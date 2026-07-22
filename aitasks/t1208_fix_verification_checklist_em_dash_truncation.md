@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -79,6 +81,14 @@ that suffix, leaving item prose untouched. Exact form is the implementer's call.
 - [ ] Regression test in `tests/` covering both cases above, plus a
       section-header bullet containing an em-dash.
 - [ ] `_is_section_header` still classifies correctly.
+- [ ] `aitask_verification_followup.sh` reuses the same anchored strip (via
+      `parse --strip-annotations`) instead of its own `${var%% — *}`, and a
+      failing item whose prose contains an em-dash keeps its full text in the
+      generated follow-up task description. *(Added during planning — the same
+      defect exists on that second surface; see the plan's "Context".)*
+- [ ] A `--note` containing the annotation delimiter cannot shadow the real
+      annotation boundary on a subsequent `set` (no stale annotation text left
+      behind as prose). *(Added during planning — surfaced in plan review.)*
 
 **Found by:** t1202 auto-verification (see `aiplans/p1202_manual_verification_auto.md`,
 "Upstream defect identified").
