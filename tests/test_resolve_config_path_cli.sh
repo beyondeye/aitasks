@@ -13,6 +13,10 @@
 #      (so a broken Python env can never abort the caller).
 #   4. generate.md actually CONSUMES the resolver (not merely mentions a guide),
 #      and the old hard-coded sole-source phrasing is gone.
+#   5. Nested doc_update.guide with a quoted value + inline comment resolves
+#      through the CLI (t1110 — the exact case the docs-gate's old grep failed).
+#   6. The docs-updated gate skill consumes the resolver and no longer carries
+#      the inline grep read (t1110).
 #
 # Runs inside throwaway temp repos (copies of the script + config_utils.py) so
 # the real repo is never touched.
@@ -31,6 +35,7 @@ TOTAL=0
 REAL_HELPER="$PROJECT_DIR/.aitask-scripts/aitask_resolve_config_path.sh"
 REAL_LIB="$PROJECT_DIR/.aitask-scripts/lib/config_utils.py"
 GENERATE_MD="$PROJECT_DIR/.claude/skills/aitask-learn-skill/generate.md"
+DOCS_GATE_MD="$PROJECT_DIR/.claude/skills/aitask-gate-docs-updated/SKILL.md"
 
 TMPDIRS=()
 cleanup() {
@@ -116,6 +121,26 @@ assert_contains "generate.md invokes the resolver" "aitask_resolve_config_path.s
 assert_contains "generate.md names the config key" "learn_skill_authoring_guide" "$gen"
 assert_not_contains "old hard-coded sole-source phrasing removed" \
     "By default, read the best-practices guide" "$gen"
+
+# ============================================================
+# Case 5 - nested doc_update.guide, quoted value + inline comment (t1110)
+# ============================================================
+repo="$(make_repo)"
+mkdir -p "$repo/custom"
+echo guide > "$repo/custom/guide.md"
+printf 'doc_update:\n  guide: "custom/guide.md"  # note\n' > "$repo/aitasks/metadata/project_config.yaml"
+out="$(cd "$repo" && ./.aitask-scripts/aitask_resolve_config_path.sh doc_update.guide aitasks/metadata/doc_update_guide.md)"
+assert_eq "nested key, quoted + commented value -> configured path" "custom/guide.md" "$out"
+
+# ============================================================
+# Case 6 - docs-updated gate skill consumes the resolver (real file)
+# ============================================================
+assert_file_exists "docs-updated SKILL.md present" "$DOCS_GATE_MD"
+gate="$(cat "$DOCS_GATE_MD")"
+assert_contains "docs-updated skill invokes the resolver" "aitask_resolve_config_path.sh" "$gate"
+assert_contains "docs-updated skill names the config key" "doc_update.guide" "$gate"
+assert_not_contains "old inline grep read removed" \
+    "grep -A3 '^doc_update:'" "$gate"
 
 # ============================================================
 # Summary

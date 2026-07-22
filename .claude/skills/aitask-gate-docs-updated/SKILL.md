@@ -46,22 +46,30 @@ doc-relevant surface at all → `skip`.
 
 ### 1. Load the doc-update spec
 
-Read `aitasks/metadata/project_config.yaml` `doc_update.guide` and read the guide
-it names — the project's **configured** doc-update spec (default
-`aitasks/metadata/doc_update_guide.md`; on a fresh install this is the generic
-guide the setup flow installed there, which the project then customizes). It is the
-source of truth for doc roots, the change-kind→doc-area map, and writing
-conventions. Also read any `doc_update.extra_guides`.
+Resolve the project's **configured** doc-update spec by running, **from the
+repository root**:
 
 ```bash
-# read the pointer, e.g.:
-grep -A3 '^doc_update:' aitasks/metadata/project_config.yaml
+./.aitask-scripts/aitask_resolve_config_path.sh doc_update.guide \
+  aitasks/metadata/doc_update_guide.md
 ```
 
+It prints the effective guide path — the `doc_update.guide` value from
+`aitasks/metadata/project_config.yaml` if it names a readable file, otherwise
+the seeded default `aitasks/metadata/doc_update_guide.md` (on a fresh install
+this is the generic guide the setup flow installed there, which the project
+then customizes). **Read and apply that file** — it is the source of truth for
+doc roots, the change-kind→doc-area map, and writing conventions. The
+`doc_update.extra_guides` field is **unchanged by this migration**: it is a
+**list** value, out of scope for the scalar resolver above — if the project has
+it set, read the guides it lists as before, until a list-capable companion
+resolver exists.
+
 **Do NOT read `seed/doc_update_guide.md` at runtime** — `seed/` is removed after
-install; it is only the install-time source of the default guide. If no guide is
-configured or present, proceed with a best-effort generic method and confirm every
-proposed doc change with the user.
+install; it is only the install-time source of the default guide. **If the
+command prints an empty line OR fails for any reason** (no guide configured or
+present on disk, or the helper cannot run), proceed with a best-effort generic
+method and confirm every proposed doc change with the user.
 
 ### 2. Gather the change surface (to inform, not to gate)
 
