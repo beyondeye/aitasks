@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: [t635_33]
 issue_type: chore
-status: Implementing
+status: Done
 labels: [gates, task_workflow, execution_profiles]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -18,6 +18,7 @@ anchor: 635
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-19 08:27
 updated_at: 2026-07-22 18:48
+completed_at: 2026-07-22 18:48
 ---
 
 ## Context
@@ -121,3 +122,14 @@ The one unshipped hypothesis — the Step-9b final-response gate — is salvaged
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:review_approved** run=2026-07-22T15:46:03Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-22T15:48:30Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1081034f24427096
+
+> **✅ gate:risk_evaluated** run=2026-07-22T15:48:30Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/635_36/risk_evaluated_2026-07-22T15:48:30Z-risk_evaluated-a1.log`
