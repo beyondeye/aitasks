@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1149
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-21 13:04
-updated_at: 2026-07-21 17:35
+updated_at: 2026-07-22 11:06
 boardidx: 30
 ---
 
@@ -90,3 +91,8 @@ Extend `tests/test_chatlink_tui.sh` (the t1186_4 picker section already has the
   advances (existing assertions must stay green);
 - whichever option is chosen, `_commit_state` must not silently re-cache rows
   the UI has declared stale.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-22T08:06:50Z status=pass attempt=1 type=human
