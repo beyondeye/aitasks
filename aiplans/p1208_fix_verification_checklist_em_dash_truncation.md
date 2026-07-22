@@ -271,3 +271,84 @@ in-flight edits).
 
 5. Step 9 (Post-Implementation): merge approval, `ait gates run 1208` for the
    `risk_evaluated` gate, then archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, both halves of the fix.
+  `_strip_annotation` in `.aitask-scripts/aitask_verification_parse.py` now
+  matches the annotation *shape* via `ANNOTATION_RE` — built from
+  `VALID_SET_STATES` so it cannot drift from what `cmd_set` can write — and
+  scans right-to-left, returning the prose before the last ` — ` that actually
+  begins an annotation. `cmd_set` neutralizes `" — "` → `" -- "` inside the
+  note at write time. A `parse --strip-annotations` flag was added (default
+  output unchanged), and `.aitask-scripts/aitask_verification_followup.sh` now
+  uses it instead of its own `${item_text%% — *}`, so the strip rule is
+  single-sourced. Tests: +13 in `tests/test_verification_parse.py`
+  (`TestStripAnnotation` unit cases and `TestEmDashProse` `set`-level cases
+  built on the verbatim t1202 items), +2 in
+  `tests/test_verification_section_headers.py`, +1 case in
+  `tests/test_verification_followup.sh` (`write_mv_task` gained an optional
+  third arg for the item line; existing callers unchanged).
+
+- **Deviations from plan:** None in substance. Two acceptance criteria were
+  added to the task file before implementing (the followup surface and the
+  note-shadowing guarantee), each marked as added during planning.
+
+- **Issues encountered:** Plan review caught a real hole in the first draft:
+  the rightmost-match rule alone still mis-set the boundary when a *note*
+  contained annotation-shaped text — `item — PASS <s> note says — FAIL <s2>
+  from docs` stripped at the note's `— FAIL` and left the stale `PASS …` text
+  as prose, i.e. annotation stacking despite the stated guarantee. Verified by
+  reproduction, then closed structurally with the note sanitization above,
+  which is why the fix has two halves rather than one.
+
+- **Key decisions:**
+  - *Rightmost, not leftmost, valid match.* Leftmost (equivalently: strip
+    repeatedly) would fully clean legacy stacked lines but destroys prose that
+    merely quotes an annotation — the exact defect being fixed. Prose
+    preservation wins; the trade is documented in the helper's docstring.
+  - *Two residual ambiguities are accepted and pinned by tests* rather than
+    silently tolerated: (1) prose that itself ends with an annotation-shaped
+    segment is stripped on first `set`
+    (`test_annotation_shaped_prose_is_stripped_on_first_set`); (2) a line
+    written by the old code with an unsanitized note sheds only its last layer
+    (`test_legacy_unsanitized_note_sheds_only_one_layer`).
+  - *A `--strip-annotations` flag over a bash reimplementation*, so the two
+    surfaces cannot drift apart again — which is how this defect reached two
+    files in the first place.
+  - *Note text is no longer byte-verbatim* (only the delimiter sequence is
+    rewritten). No skill or website doc claims verbatim storage, so no doc
+    change was needed.
+
+- **Verification performed:** `test_verification_parse` +
+  `test_verification_section_headers` → 54 pass, exit 0, with every new test
+  name confirmed present in the `-v` listing (a test that is not collected
+  pins nothing). `tests/test_verification_followup.sh` → 32/32. Both negative
+  controls fire: reverting `_strip_annotation` to the old one-liner produces 9
+  failures and exit 1; reverting the followup line produces 1 failure and exit
+  1 — so each guarded regression genuinely makes the suite fail. End-to-end on
+  a scratch file seeded with the two real t1202 items: after `set 2 pass` then
+  `set 2 fail`, the prose is byte-identical to the seed and exactly one
+  annotation remains. Related shell suites all green
+  (`test_archive_verification_gate` 34/34, `test_create_manual_verification`
+  12/12, `test_verification_followup_anchor` 10/10, `test_archive_carryover`
+  13/13, `test_gate_guarded_archival` 31/31,
+  `test_create_manual_verification_gates` 42/42). `shellcheck` reports only
+  pre-existing info-level findings (SC1091/SC2012/SC2016) on untouched lines.
+
+- **Build verification:** The full Python suite (`bash
+  tests/run_all_python_tests.sh`, 1791 tests) reports 4 failures + 1 error,
+  all in TUI switcher / agent-command modules. `test_tui_switcher_agent_launch`
+  passes standalone (14/14), and a 320-test subset covering those modules also
+  passes — the failures need the full discovery set, so they are a test
+  isolation / module-identity artifact, not a product regression. Judged
+  unrelated to this task: nothing under `.aitask-scripts/board/` or
+  `.aitask-scripts/lib/` imports `aitask_verification_parse`, and this change
+  added no new test *modules*, so discovery order is unchanged. Noted as an
+  upstream defect below rather than fixed here. **Caveat, stated plainly:**
+  pre-existence was inferred from those facts, not proven by a pristine
+  full-suite run.
+
+- **Upstream defects identified:**
+  - `tests/run_all_python_tests.sh:26 — full-suite unittest discovery yields 4 failures + 1 error in TUI switcher / agent-command tests (e.g. tests/test_tui_switcher_agent_launch.py:250, "AgentCommandScreen() is not an instance of <class 'agent_command_screen.AgentCommandScreen'>") that pass in isolation; a module imported under two identities during discovery breaks isinstance checks, making the aggregate suite unusable as a gate.`
+  - `tests/test_gate_orchestrator_registry.py:203 — calls sys.exit() at import time, so unittest discovery reports it as a collection ERROR and the aggregate run exits non-zero regardless of the code under test.`
