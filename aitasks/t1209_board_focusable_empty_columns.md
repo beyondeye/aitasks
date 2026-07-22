@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-21 19:16
-updated_at: 2026-07-21 19:21
+updated_at: 2026-07-22 10:52
 ---
 
 In `ait board`, a column with no task cards cannot be focused. Because the
@@ -81,3 +82,8 @@ All in `.aitask-scripts/board/aitask_board.py`:
   board test style (`tests/test_board_footer_visibility.py`,
   `tests/test_board_detail_arrow_nav.py`), covering: focusing an empty column,
   moving it in both directions, and the boundary cases (leftmost/rightmost).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-22T07:52:17Z status=pass attempt=1 type=human
