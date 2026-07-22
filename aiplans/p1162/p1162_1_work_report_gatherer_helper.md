@@ -65,8 +65,8 @@ COLUMN:<col_id>|<title>
 TASK:<col_id>|<task_id>|<boardidx>|<status>|<priority>|<effort>|<pending_children>|<remaining_items>|<task_file_path>
 VELOCITY_MODEL:<model_id>|<window_days>|<start_date>|<end_date>|<model_label>
 VELOCITY:<bucket_id>|<observed_units>|<completed_count>|<avg_per_unit>|<bucket_label>
-PROJECTION:<remaining_total>|<projected_date>|<days_ahead>
-PROJECTION:<remaining_total>|none|insufficient_data
+PROJECTION:<remaining_total>|<projected_date>|<days_ahead>|<basis_completions>|<caveat>
+PROJECTION:<remaining_total>|none|insufficient_data|<basis_completions>|<caveat>
 ERROR:unknown_column:<id>
 ERROR:unknown_task:<id>
 ERROR:task_not_in_selected_columns:<id>
@@ -449,6 +449,136 @@ finishing, temporarily corrupt one expectation and confirm the suite prints
 
 ### Planned mitigations
 - timing: after | name: promote_task_yaml_to_lib | type: refactor | priority: medium | effort: low | addresses: code-health — lib/→board/ import inversion | desc: Move board/task_yaml.py to lib/task_yaml.py and update its importers (board/aitask_board.py, board/aitask_merge.py, lib/work_report_gather.py) so the shared base layer no longer depends on board/.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-22) — five blocking review concerns
+
+All five were reproduced against the board as ground truth before any code
+changed; each fix carries its own negative control (revert the fix, watch the
+new assertion fail) because the first tie-break test in this task passed
+against a deliberately broken implementation.
+
+1. **Unguarded `parse_frontmatter` (high).** `Task.load()` swallows parse
+   errors and leaves the task metadata-empty, so the board silently omits a
+   malformed card; the gatherer let the `yaml` exception escape and aborted the
+   whole run with no protocol output. *Fix:* wrap the call, treat a failure as
+   empty metadata → the existing phantom-stub filter drops it. *Verified:* a
+   `bad: [unclosed` fixture now exits 0, drops the bad task, keeps the healthy
+   one. *NC:* removing the guard → 3 failures.
+2. **Empty board config invented defaults (high).** `config.get("columns") or
+   DEFAULT_COLUMNS` turned a deliberately empty board into the stock
+   Now/Next/Backlog board, while `TaskManager.load_metadata` preserves `[]`.
+   *Fix:* `.get(key, default)`. *Verified:* board reports `columns=[]`;
+   `--list-columns` now emits nothing and `--columns now` returns
+   `ERROR:unknown_column:now`. *NC:* restoring `or` → 4 failures.
+3. **`boardidx` coercion diverged from the board (high).** The gatherer coerced
+   to int while the board sorted the raw value: with quoted `"10"`/`"2"` the
+   board ordered lexically and the gatherer numerically, and a quoted/int
+   **mix crashed the board** with `TypeError`. *Fix:* one shared
+   `normalize_board_idx()` in `board/task_yaml.py`, imported by both; the
+   gatherer's private `_coerce_board_idx` is gone. *Verified:* new quoted and
+   mixed fixtures plus an equivalence run. *NC:* board back to the raw key →
+   the oracle reproduces the `TypeError`.
+4. **Velocity could read a different project's archive (high).**
+   `_stats_project_root()` fell back to cwd-relative `./aitasks` whenever
+   `TASK_DIR`'s basename was not `aitasks`, blending membership from one tree
+   with history from another. *Fix:* extend the seam — `stats_data.TASK_DIR`
+   now resolves through `config_utils.task_dir()` like the rest of the
+   framework, and the gatherer passes `project_root=None`; the helper is
+   deleted. *Verified:* a `mytasks/` tree beside a foreign `./aitasks/` archive
+   counts 0 foreign completions and 3 of its own. *NC:* hardcoding `aitasks`
+   again → 5+ failures.
+5. **Projection was a default output with no confidence floor (high).** Task
+   counts cannot estimate a large mixed-effort selection — they ignore size
+   (the `effort` field the rows already carry), blockers and capacity — yet one
+   in-window completion was enough to emit a date. *Fix (user chose "opt-in +
+   floor"):* `PROJECTION` is emitted only under `--project`; refused below
+   `PROJECTION_MIN_COMPLETIONS = 10`; and the line gained
+   `<basis_completions>` plus a fixed `<caveat>` token
+   (`unweighted_task_counts`) that consumers MUST surface. *Verified:* floor
+   boundary tested at 9 (refused) and 10 (allowed); default run emits no
+   `PROJECTION`. *NC:* removing the floor / the opt-in gate → 2 failures each.
+
+Contract propagation for the new `PROJECTION` shape and the board-parity rules
+was applied to the parent plan, `t1162_1`, `t1162_3` and `p1162_3` in the same
+commit. Suite grew 82 → 103 assertions.
+
+## Final Implementation Notes
+
+- **Actual work done:** Shipped `aitask_work_report_gather.sh` +
+  `lib/work_report_gather.py` (the gatherer), `tests/lib/work_report_equiv.py`
+  (board equivalence oracle) and `tests/test_work_report_gather.sh`
+  (103 assertions). Velocity sits behind a `VelocityModel` seam with two
+  shipped estimators (`dow` default, `flat`). Three existing modules changed:
+  `board/aitask_board.py` (shared ordering key), `board/task_yaml.py`
+  (`normalize_board_idx`, non-list guard) and `stats/stats_data.py`
+  (`TASK_DIR` via the canonical resolver). Contract changes propagated to the
+  parent plan, `t1162_1`, `t1162_3` and `p1162_3`.
+- **Deviations from plan:** (a) `--now` narrowed to date-only — `collect_stats`
+  subtracts `date` objects and `datetime - date` raises. (b) Velocity model
+  replaced wholesale mid-task at the user's request: per-weekday buckets and a
+  gatherer-computed projection instead of a 7/30-day blended rate; then the
+  projection became opt-in with a confidence floor after review. (c) Board
+  equivalence moved *into* this task rather than being deferred to t1162_4.
+  (d) `boardidx` coercion became a shared board helper instead of a private
+  gatherer function, after review showed the two implementations diverged.
+- **Issues encountered:**
+  - The first tie-break test **passed against a deliberately broken
+    implementation** — `sorted(glob.glob(...))` was incidentally supplying
+    filename order, so the assertion pinned nothing. Removed the incidental
+    sort (matching the board's unsorted glob), widened the fixture to six tied
+    files, and re-ran the negative control. Every subsequent fix in this task
+    got the same treatment: revert the fix, confirm the new assertion fails.
+  - `_normalize_task_ids` silently shredded non-list values, so the D10 type
+    policy was unimplementable until it was fixed at the source.
+  - Five blocking review concerns, all reproduced against the board before
+    fixing — see Post-Review Changes.
+- **Key decisions:**
+  - Reuse `board/task_yaml.py` (`parse_frontmatter`, `BOARD_KEYS`,
+    `normalize_board_idx`) rather than mirroring the board's rules, so
+    equivalence holds by construction. Cost: a `lib/` → `board/` import
+    direction, recorded as the `promote_task_yaml_to_lib` mitigation.
+  - Velocity models supply *rates* (`rate_for(day)`), never policy — the walk,
+    the ≤ 0 stop, the 3650-day bound and the `insufficient_data` rule all live
+    in the caller. Two estimators ship so swappability is demonstrated by a
+    real second implementation rather than asserted.
+  - Delimiter safety is enforced per field class rather than assumed, because
+    `col_id` and the enum fields both originate in user-editable files.
+  - The projection names its own limitation in-band (`<caveat>` +
+    `<basis_completions>`) so a consumer cannot render it as a commitment.
+- **Upstream defects identified:** three pre-existing defects surfaced during
+  diagnosis. All three were **fixed in this task** (each was load-bearing for a
+  pinned behavior here), so no follow-up task is needed:
+  - `.aitask-scripts/board/task_yaml.py:67-75 — _normalize_task_ids
+    list-comprehended any value, turning children_to_implement: oops into
+    ['o','o','p','s'] and a mapping into its key list; callers saw a
+    plausible-looking list built from garbage. (fixed in this task)`
+  - `.aitask-scripts/board/aitask_board.py:668-678 — get_column_tasks sorted
+    the raw boardidx, so a quoted "10" ordered before "2" and a quoted/int mix
+    raised TypeError and crashed the board. (fixed in this task)`
+  - `.aitask-scripts/stats/stats_data.py:35 — TASK_DIR was hardcoded to
+    Path("aitasks"), making stats_data the one framework module that ignored
+    the documented TASK_DIR override; any caller scanning a non-default tree
+    silently got a different project's archive. (fixed in this task)`
+- **Notes for sibling tasks:**
+  - **t1162_3 (skill):** velocity rows are a default output, the projection is
+    **not** — invoke with `--project` only when the user asks for a forecast,
+    and always surface `<caveat>` and `<basis_completions>`. Render buckets
+    generically (`<bucket_label>`/`<avg_per_unit>`/`<observed_units>`); the
+    model is selectable, so never hardcode weekday semantics. Parse with
+    maxsplit — the free-text field is always last, and `PROJECTION:` has none.
+  - **t1162_4 (board `w`):** membership/order equivalence is already asserted
+    here against `TaskManager.get_column_tasks`; the board and gatherer share
+    the ordering key via `task_yaml.normalize_board_idx`, so build the `w`
+    flow's `--tasks` sequence straight from `get_column_tasks` output and it
+    will validate. The higher-level flow oracle is still yours.
+  - **t1162_2 (whitelisting):** the helper is
+    `.aitask-scripts/aitask_work_report_gather.sh`; it is internal, with no
+    `ait` subcommand.
+  - Any future estimator is one class plus one `VELOCITY_MODELS` entry. The
+    `effort` field is already in every `TASK:` row and is the obvious input for
+    an effort-weighted model — the current models are deliberately blind to it.
 
 ## Step 9 reference
 

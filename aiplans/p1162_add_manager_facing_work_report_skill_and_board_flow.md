@@ -92,7 +92,10 @@ outcomes; status via lines):
 ```
 COLUMN:<col_id>|<title>
 TASK:<col_id>|<task_id>|<boardidx>|<status>|<priority>|<effort>|<pending_children>|<remaining_items>|<task_file_path>
-VELOCITY:<window_days>|<completed_count>|<avg_per_day>
+VELOCITY_MODEL:<model_id>|<window_days>|<start_date>|<end_date>|<model_label>
+VELOCITY:<bucket_id>|<observed_units>|<completed_count>|<avg_per_unit>|<bucket_label>
+PROJECTION:<remaining_total>|<projected_date>|<days_ahead>|<basis_completions>|<caveat>
+PROJECTION:<remaining_total>|none|insufficient_data|<basis_completions>|<caveat>
 ERROR:unknown_column:<id>
 ERROR:unknown_task:<id>
 ERROR:task_not_in_selected_columns:<id>
@@ -100,12 +103,25 @@ ERROR:task_order_changed:<canonical_csv>
 NO_TASKS
 ```
 
-- **Parsing rule (PINNED — no escaping needed):** each record has exactly ONE
+- **Parsing rule (PINNED — no escaping needed):** each record has at most ONE
   free-text field and it is always LAST (`<title>` in `COLUMN:`,
-  `<task_file_path>` in `TASK:`); consumers split on `|` with
-  `maxsplit = fixed_field_count`, so pipes in column titles or paths survive
-  intact. Round-trip tests cover a pipe-bearing column title and task path.
-  All other fields are pipe-free by construction (ids, enums, numbers).
+  `<task_file_path>` in `TASK:`, `<model_label>` in `VELOCITY_MODEL:`,
+  `<bucket_label>` in `VELOCITY:`; `PROJECTION:` has none); consumers split on
+  `|` with `maxsplit = fixed_field_count`, so pipes in column titles or paths
+  survive intact. Round-trip tests cover a pipe-bearing column title and task
+  path.
+- **Fixed fields are pipe-free by ENFORCEMENT, not by assumption (PINNED,
+  amended by t1162_1):** `col_id` originates in user-editable
+  `board_config.json` and `status`/`priority`/`effort` in user-editable YAML,
+  so any of them can contain `|`, CR or LF. Policy: a record-breaking
+  character in a `--columns`/`--tasks` argument is a **usage error** (nonzero
+  exit); in a `col_id` it is an **infrastructure error** (nonzero exit +
+  stderr diagnostic — an identity field that must round-trip cannot be
+  represented); in `status`/`priority`/`effort` the value is **coerced to the
+  literal `invalid`** so one malformed task cannot block the whole report; in
+  the free-text last fields `|` is legal but CR/LF collapse to a single space
+  so line framing survives. Numeric/derived fields are pipe-free by
+  construction.
 - `pending_children` = length of the task's `children_to_implement` (0 for a
   leaf task) — the "N of M subtasks" input.
 - `remaining_items` = **remaining-work semantics, defined independently of
@@ -114,6 +130,33 @@ NO_TASKS
   a leaf task → 0 if `status: Done` else 1. Inclusion in the report is
   unchanged (no status filter — Done-but-unarchived items still appear);
   only the projection's work-item count uses `remaining_items`.
+- **`children_to_implement` type policy (PINNED, amended by t1162_1):** a list
+  → `len(list)`; a bare `children_to_implement:` (YAML `None`) → treated as an
+  empty list (0); **any other type** (str, int, mapping) → the key is ignored
+  and the task falls back to the *leaf* rule, with a warning on stderr. Without
+  this, `len("t1_2")` would silently report 4 children and `len(None)` would
+  crash.
+- **Board membership/order equivalence (PINNED, amended by t1162_1):** column
+  order is `(normalize_board_idx(boardidx), filename)` in the board AND the
+  gatherer, sharing one implementation in `board/task_yaml.py`. Two prior
+  hazards: sorting the raw `boardidx` made a hand-quoted `"10"` sort lexically
+  before `"2"` and raised `TypeError` when a quoted value met a plain int
+  (crashing the board), and stable-sorting on the index alone left ties in
+  directory-enumeration order — not durable between two processes, and enough
+  to make a board-reviewed `--tasks` sequence spuriously trip
+  `ERROR:task_order_changed`. t1162_1 owns both halves and asserts equivalence
+  against `TaskManager.get_column_tasks` directly; t1162_4's equivalence test
+  remains the higher-level board-flow oracle.
+- **Board-parity edges the gatherer must reproduce, not re-derive (PINNED,
+  added by t1162_1):** a task whose frontmatter fails to parse is **dropped**,
+  never fatal (`Task.load()` swallows the error and the board simply omits the
+  card); an explicitly empty `columns`/`column_order` stays **empty** rather
+  than falling back to the stock Now/Next/Backlog board the user never sees
+  (`.get(key, default)`, not `or default`).
+- **Completion history follows `TASK_DIR` (PINNED, added by t1162_1):**
+  `stats_data` resolves its archive through the shared `config_utils.task_dir()`
+  resolver instead of a hardcoded `aitasks`, so membership and velocity can
+  never be read from two different task trees.
 - **`--tasks` order is significant (PINNED):** the csv carries the
   board-reviewed sequence. After validation, the gatherer compares the given
   sequence (post-dedup) against the current canonical order (board
@@ -123,14 +166,57 @@ NO_TASKS
   silently change report priority order. The board `w` flow composes
   `--tasks` in exactly the displayed grouped order; the skill's interactive
   path passes the gatherer's own emitted order (always consistent).
-- `VELOCITY:` lines (emitted after `COLUMN:`/`TASK:` lines on every successful
-  gather, windows 7 and 30 days): completion throughput computed from archived
-  tasks' `completed_at` timestamps by **reusing the canonical stats collection
-  seam** (`.aitask-scripts/stats/stats_data.py` — import from
-  `work_report_gather.py`; do NOT parse `aitask_stats.sh` human-text output
-  and do NOT reimplement the archive scan). Counts include archived children
-  (same unit as `pending_children`-based work items). `avg_per_day` rounded to
-  2 decimals; zero history ⇒ `VELOCITY:<w>|0|0`.
+- **Velocity + projection (PINNED, REPLACED by t1162_1 — supersedes the former
+  `VELOCITY:<window_days>|<completed_count>|<avg_per_day>` 7/30-day blended
+  rate, which could not express a work rhythm that differs by weekday):**
+  emitted after `COLUMN:`/`TASK:` lines on every successful gather.
+  Completion history is computed by **reusing the canonical stats collection
+  seam** (`.aitask-scripts/stats/stats_data.py` — import `collect_stats` from
+  `work_report_gather.py` and read its `daily_counts`; do NOT parse
+  `aitask_stats.sh` human-text output and do NOT reimplement the archive
+  scan). Counts include archived children (same unit as `remaining_items`).
+  - **Window:** the `W` calendar days ending at `--now` inclusive; `W` defaults
+    to **90**, overridable with `--velocity-window <days>`.
+  - **Default `dow` model:** one `VELOCITY:` row per ISO weekday (Mon..Sun,
+    `bucket_id` `1`..`7`), where `observed_units` counts how many dates of that
+    weekday fall in the window — **including days with zero completions**, so
+    the denominator reflects observation, not activity — and
+    `avg_per_unit = completed_count / observed_units`. All seven rows are
+    always emitted.
+  - **`PROJECTION:` — OPT-IN, never a default output (PINNED).** Emitted only
+    under `--project`. The models count *tasks*, so a projected date is blind
+    to task size (the `effort` field the `TASK:` rows already carry), blockers
+    and capacity: it extrapolates past throughput and is **not** a delivery
+    estimate. Two fields exist to keep that visible — `<basis_completions>`
+    (how many completions the estimate rests on) and `<caveat>`, a fixed token
+    (`unweighted_task_counts`) naming the limitation, which consumers MUST
+    surface wherever they render a projection.
+    `remaining_total` = Σ `remaining_items` over the emitted `TASK:` rows; the
+    gatherer walks forward from `--now` **inclusive** subtracting each day's
+    modelled rate, and the first day the remainder reaches ≤ 0 is
+    `<projected_date>` (`days_ahead` = day offset). Worked example: Sunday
+    `--now`, 25 remaining, Sun avg 10 / Mon avg 20 → Sunday leaves 15, Monday
+    leaves −5 → projected Monday, `days_ahead` 1.
+    `remaining_total` 0 → `PROJECTION:0|<now>|0|…`. Refused with
+    `none|insufficient_data` when every bucket average is 0, when the walk
+    exceeds the **3650-day** bound, or when the window holds fewer than
+    **10 completions** — a confidence floor, because a single in-window
+    completion is otherwise enough to manufacture a confident-looking date.
+    The walk is computed in the gatherer, not the skill, so it is deterministic
+    and unit-tested rather than LLM arithmetic.
+  - **The estimator is a swappable seam (PINNED):** a model implements
+    `estimate(daily_counts, now, window_days) -> VelocityEstimate` exposing
+    generic `buckets` plus `rate_for(day) -> float`. `rate_for` is the only
+    thing the projection walk consumes and the walk lives in the caller, so a
+    model supplies *rates*, never *policy* (it never decides the bound, the
+    stop condition, or the `insufficient_data` rule); emission renders
+    `buckets` verbatim. Swapping a model is one class plus one
+    `VELOCITY_MODELS` registry entry, selected by `--velocity-model <id>`.
+    **Two models ship** so swappability is demonstrated, not asserted: `dow`
+    (default) and `flat` (the former blended rate — a single `all` bucket over
+    the window). Consumers MUST render `VELOCITY:` rows generically (per
+    bucket: label, average, observed units) and MUST NOT hardcode weekday
+    semantics.
 
 - CLI modes:
   - `--list-columns` — **enumeration mode**: emits only `COLUMN:` lines for
@@ -171,10 +257,19 @@ NO_TASKS
   (pipe-bearing column title and task path parsed intact via the
   last-field/maxsplit rule), **remaining-work semantics** (Done leaf → 0,
   fully-finished parent family `[]` → 0, pending parent → child count,
-  active leaf → 1), **phantom-stub exclusion**, and **velocity**: fixture
-  archived tasks with `completed_at` inside/outside the 7/30-day windows
-  (frozen "now" seam for determinism), `pending_children` counts, and the
-  zero-history `VELOCITY:<w>|0|0` case.
+  active leaf → 1), **phantom-stub exclusion**, **delimiter-safety enforcement**
+  (one block per fixed-field class), **`children_to_implement` type policy**
+  (`None` / str / dict), **board equivalence** against
+  `TaskManager.get_column_tasks` including a deliberate `boardidx` tie, and
+  **velocity + projection**: fixture archived tasks with `completed_at` inside
+  and outside the window (frozen date-only `--now` seam for determinism), a
+  zero-completion weekday still counted in `observed_units`, the worked
+  projection example (Sunday `--now`, 25 remaining, Sun 10 / Mon 20 →
+  `PROJECTION:25|<monday>|1`), the `remaining_total 0` and zero-history
+  (`insufficient_data`) cases, the 3650-day bound at- and over-bound, and the
+  **model-seam blocks** — the same fixture tree under `--velocity-model flat`
+  changes only the velocity rows and projection while every `COLUMN:`/`TASK:`
+  line stays byte-identical.
 
 ### t1162_2 — `work-report` code-agent operation + dry-run tests + whitelisting
 
@@ -249,13 +344,23 @@ NO_TASKS
      gatherer's remaining-work field — Done leaves and fully-finished parent
      families contribute 0, so included-but-finished items never inflate the
      estimate; if the sum is 0, say the selection is effectively complete and
-     omit the projection); throughput = `avg_per_day` (prefer
-     the 30-day window; mention the 7-day figure when it diverges notably);
-     projected days ≈ work items ÷ avg_per_day, compared against the chosen
-     horizon (e.g. "≈ N days at the recent pace of X tasks/day — roughly
-     fits / exceeds this week"). If velocity is 0 (no history), state
-     "insufficient completion history for a projection" and omit the section
-     — never fabricate a rate.
+     omit the projection). **A projection is opt-in and must be asked for** —
+     the gatherer emits nothing unless invoked with `--project`, so the skill
+     requests it only when the user wants a forecast. When present, **the
+     gatherer computed it**: read
+     `PROJECTION:<remaining_total>|<projected_date>|<days_ahead>|<basis_completions>|<caveat>`
+     and report it; do NOT recompute it, and do NOT do date arithmetic
+     in-prompt. Compare `<projected_date>` against the chosen horizon (e.g.
+     "≈ N days at the recent pace — roughly fits / exceeds this week") and
+     **always surface the caveat**: the figure counts tasks, so it ignores task
+     size, blockers and capacity — an extrapolation of past throughput, never a
+     commitment or a delivery estimate. Quote `<basis_completions>` so the
+     reader can judge how much history it rests on. Render the `VELOCITY:` rows
+     **generically** (per bucket: `<bucket_label>`, `<avg_per_unit>`,
+     `<observed_units>`) — the estimator is selectable (`--velocity-model`), so
+     do NOT hardcode weekday semantics. On
+     `PROJECTION:<n>|none|insufficient_data|…`, state "insufficient completion
+     history for a projection" and omit the section — never fabricate a rate.
   7. Present in-session for review/editing (iterate on feedback). Do NOT write
      a report file.
   8. Satisfaction Feedback Procedure with `skill_name: work-report`.

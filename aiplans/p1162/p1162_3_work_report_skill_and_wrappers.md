@@ -79,15 +79,26 @@ task's wording).
    - Short focus summary (2-3 sentences).
    - Column-grouped priorities in gatherer order: per task — outcome
      (what will be delivered, benefit-level), current status, `t<id>`.
-   - **Completion projection** (data-derived; AC amendment approved during
-     planning): work items = Σ `remaining_items` from `TASK:` lines. Sum 0 →
-     say the selection is effectively complete and omit the projection.
-     Otherwise: rate = 30-day `avg_per_day` (mention the 7-day figure when it
-     diverges notably); projected ≈ items ÷ rate days, compared against the
-     horizon ("≈ N days at the recent pace of X tasks/day — roughly fits /
-     exceeds this week"). Label as a projection from historical throughput,
-     never a commitment. ⚠ If velocity is 0: state "insufficient completion
-     history for a projection" and omit the section — never fabricate a rate.
+   - **Observed throughput** (default): render the `VELOCITY:` rows
+     **generically** (per bucket: `<bucket_label>`, `<avg_per_unit>`,
+     `<observed_units>`) — the estimator is selectable via `--velocity-model`,
+     so do NOT hardcode weekday semantics; quote `<observed_units>` so the
+     reader can judge confidence.
+   - **Completion projection** (AC amendment approved during planning, REVISED
+     by t1162_1): **opt-in — the user must ask for a forecast.** Only then
+     re-invoke the gatherer with `--project` and read
+     `PROJECTION:<remaining_total>|<projected_date>|<days_ahead>|<basis_completions>|<caveat>`.
+     **The gatherer computes it** — report it as-is; do NOT recompute it and do
+     NOT do date arithmetic in-prompt. `remaining_total` 0 → say the selection
+     is effectively complete and omit the projection. Otherwise compare
+     `<projected_date>` against the horizon ("≈ N days at the recent pace —
+     roughly fits / exceeds this week"), quote `<basis_completions>`, and
+     **always surface `<caveat>`**: the figure counts tasks, so it ignores task
+     size, blockers and capacity — an extrapolation of past throughput, never a
+     commitment or a delivery estimate.
+     ⚠ `PROJECTION:<n>|none|insufficient_data|…` → state "insufficient
+     completion history for a projection" and omit the section — never
+     fabricate a rate.
    - Blockers / manager-asks section (only real blockers from `depends` /
      task content — nothing invented).
    - Include exactly the selected tasks; no invented dates, estimates,
