@@ -75,3 +75,5 @@ schema library every later slice (gatherer, skill, board view) consumes.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-22T13:55:28Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-22T15:50:21Z status=pass attempt=1 type=human
