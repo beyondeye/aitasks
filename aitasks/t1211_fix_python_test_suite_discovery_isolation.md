@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-22 11:08
-updated_at: 2026-07-22 11:48
+updated_at: 2026-07-22 18:43
 boardcol: bug_fixes
 boardidx: 40
 ---
@@ -82,3 +83,8 @@ exactly the check most likely to be skipped.
 - [ ] A deliberately failing assertion in any collected test makes the runner exit 1.
 - [ ] `tests/test_gate_orchestrator_registry.py` is importable under discovery and still works when run directly.
 - [ ] The root cause of the duplicate `agent_command_screen` identity is identified and fixed, not worked around by skipping the affected tests.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-22T15:44:01Z status=pass attempt=1 type=human
