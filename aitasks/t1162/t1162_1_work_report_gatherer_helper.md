@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1162
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-22 10:45
-updated_at: 2026-07-22 11:16
+updated_at: 2026-07-22 14:16
 ---
 
 ## Context
@@ -53,3 +54,8 @@ NO_TASKS
 ## Verification
 
 `bash tests/test_work_report_gather.sh` covering: ordering, multi-column grouping, subsets, `t` prefixes, invalid/moved/missing tasks, Unsorted dynamics, duplicates, empty selections; stale-selection (archived/deleted → unknown_task; moved → task_not_in_selected_columns; reordered → task_order_changed); `--list-columns` with/without Unsorted tasks; protocol round-trips (pipe-bearing title and path); remaining-work semantics (Done leaf → 0, `[]` parent → 0, pending parent → count, active leaf → 1); phantom-stub exclusion; velocity windows with frozen now + zero history. Also `shellcheck .aitask-scripts/aitask_work_report_gather.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-22T11:16:54Z status=pass attempt=1 type=human
