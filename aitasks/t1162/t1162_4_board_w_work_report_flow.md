@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1162
+implemented_with: claudecode/fable5
 created_at: 2026-07-22 10:46
-updated_at: 2026-07-23 17:28
+updated_at: 2026-07-23 18:18
 ---
 
 ## Context
@@ -35,3 +36,8 @@ Fourth child of t1162. Adds the contextual `w` (Work Report) action to the board
 
 - Pilot/unit tests (models: `tests/test_board_footer_visibility.py`, `test_board_view_filter.py`, `test_agent_command_dialog_*.py`): footer visibility per view + focus state (hidden in inflight/bytopic and with no focused column; visible with focused card and with collapsed placeholder), defaults (focused column checked; all tasks checked), full-column behavior under active search/filter, cancellation at each modal, empty selections notify without launch, stable ordering, exact launch arguments, shortcut registration (`bash tests/test_shortcuts_registry_coverage.sh`).
 - Round-trip equivalence test (membership-contract oracle): shared fixture tree (Unsorted tasks, boardidx ties, archived tasks, parent with children, missing boardcol, phantom layout stub with boardcol/boardidx-only frontmatter) — assert the exact `--columns`/`--tasks` args the board flow would launch, fed through `aitask_work_report_gather.sh`, reproduce the same membership AND order the board modal displayed (`TaskManager.get_column_tasks` per column). Pins the two implementations against drift (archived/child/phantom exclusion, default boardcol, status filtering, tie-breaks, Unsorted).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-23T15:19:03Z status=pass attempt=1 type=human
