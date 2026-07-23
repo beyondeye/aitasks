@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1162_2]
 issue_type: feature
@@ -29,7 +31,7 @@ Third child of t1162. Adds the canonical `/aitask-work-report` skill (plain stat
 
 ## Skill workflow (PINNED contracts)
 
-1. Parse args: `--columns <csv>`, `--tasks <csv>` optional.
+1. Parse args: `--columns <csv>`, `--tasks <csv>` optional; also optional `--velocity-model <id>` / `--velocity-window <days>`, forwarded verbatim to every gatherer invocation (AC amendment from t1162_3 planning: the estimator is pinned as selectable, so the flags must be forwardable; absent → gatherer defaults).
 2. No args → interactive: column discovery ONLY via `./.aitask-scripts/aitask_work_report_gather.sh --list-columns` (emits `unordered` first when Unsorted has tasks — the dynamic column is always offered); AskUserQuestion multiSelect for columns; then run the gatherer with chosen columns and present the ordered task list for exclusions (multiSelect, paginate past the 4-option limit). With explicit `--tasks` → validate via gatherer and SKIP membership prompts (board already reviewed the selection).
 3. Fail-closed gatherer parsing (PINNED): after ANY gatherer run, one or more `ERROR:` lines or `NO_TASKS` → the skill MUST stop before drafting — present every error verbatim and offer via AskUserQuestion: re-select interactively / abort. It never drafts from a partial or silently-corrected selection — the report must contain exactly the validated selected tasks.
 4. Horizon question on EVERY run: Today / This week / custom label (via Other free text). Labels the report only — never changes membership.
