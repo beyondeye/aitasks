@@ -15,7 +15,7 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-22 11:08
-updated_at: 2026-07-22 18:44
+updated_at: 2026-07-23 16:42
 boardcol: bug_fixes
 boardidx: 40
 ---
