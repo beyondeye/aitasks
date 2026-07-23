@@ -3,7 +3,7 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: []
 active_gates: []
 active_gates_filtered: []
@@ -13,7 +13,8 @@ verifies: [t1037_1, t1037_2, t1037_3, t1037_4]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1037
 created_at: 2026-06-22 16:47
-updated_at: 2026-07-23 16:37
+updated_at: 2026-07-23 16:38
+completed_at: 2026-07-23 16:38
 boardcol: tests
 boardidx: 80
 ---
