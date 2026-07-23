@@ -51,3 +51,5 @@ Third child of t1162. Adds the canonical `/aitask-work-report` skill (plain stat
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-23T12:55:30Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-23T14:18:10Z status=pass attempt=1 type=human
