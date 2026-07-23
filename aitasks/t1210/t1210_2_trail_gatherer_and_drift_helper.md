@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: medium
 effort: high
 depends: [t1210_1]
 issue_type: feature
@@ -64,7 +66,9 @@ are the spec.
 3. Polling never mutates: `drift` reads only; it must not rewrite the artifact
    or any staleness stamp (negative control test).
 4. Unit tests over synthetic task fixtures: digest stability (boardidx change
-   → no drift), each drift code producible, deleted input → `input_missing`,
+   → no drift), each gatherer-emittable drift code (`GATHERER_DRIFT_CODES`)
+   producible — `premise_invalidated` is authored by the refresh agent (T3),
+   never the deterministic helper — deleted input → `input_missing`,
    presence-tracked inputs.
 
 ## Verification
