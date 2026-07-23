@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1162
+implemented_with: claudecode/fable5
 created_at: 2026-07-22 10:45
-updated_at: 2026-07-23 14:56
+updated_at: 2026-07-23 15:55
 ---
 
 ## Context
@@ -43,3 +44,8 @@ Third child of t1162. Adds the canonical `/aitask-work-report` skill (plain stat
 - `tests/test_work_report_skill_contract.sh`: asserts the canonical SKILL.md contains the load-bearing markers — the fail-closed `ERROR:`/`NO_TASKS` hard-stop section, the "never drafts from a partial or silently-corrected selection" sentence, the `--list-columns` discovery requirement, the no-report-file rule, the "insufficient completion history" fallback — and that all 3 wrapper files point at the canonical path. Dropping any marker fails the test.
 - `./.aitask-scripts/aitask_skill_verify.sh` passes.
 - Skill listed by the audit: `./.aitask-scripts/aitask_audit_wrappers.sh` (wrapper coverage for the new skill).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-23T12:55:30Z status=pass attempt=1 type=human
