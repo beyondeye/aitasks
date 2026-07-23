@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tui, project_groups, ait_settings, auto-update]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-23 17:09
-updated_at: 2026-07-23 17:09
+updated_at: 2026-07-23 17:18
 ---
 
 ## Goal
