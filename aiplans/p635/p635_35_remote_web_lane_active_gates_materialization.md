@@ -364,10 +364,10 @@ Plus a gate-guard note on the Step 5 archive call (mirroring pickrem Step
 - The full remote/web lane cannot be exercised end-to-end in automated tests
   (needs a live Claude Web session / headless pickrem run); the web handoff
   chain is now unit-tested via the helper seam, but the live lane remains
-  manual · severity: low · → mitigation: remote_lane_gate_live_verify
+  manual · severity: low · → mitigation: t1224 (remote_lane_gate_live_verify)
 
 ### Planned mitigations
-- timing: after | name: remote_lane_gate_live_verify | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement lane e2e coverage | desc: Live remote-lane verification — run /aitask-pickrem on a throwaway task with literal gates: [risk_evaluated]; confirm the tuple materializes as [] at claim, the task archives without a manual gate append, and a pickweb marker round-trips its profile field through aitask-web-merge materialization.
+- timing: after | name: remote_lane_gate_live_verify (created: t1224) | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement lane e2e coverage | desc: Live remote-lane verification — run /aitask-pickrem on a throwaway task with literal gates: [risk_evaluated]; confirm the tuple materializes as [] at claim, the task archives without a manual gate append, and a pickweb marker round-trips its profile field through aitask-web-merge materialization.
 
 ## Post-Review Changes
 
