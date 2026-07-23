@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
@@ -12,7 +14,7 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-23 17:09
-updated_at: 2026-07-23 17:18
+updated_at: 2026-07-23 18:28
 ---
 
 ## Goal
@@ -236,3 +238,8 @@ Resolution order (`aidocs/framework/model_reference_locations.md:55-68`):
   destination repo's `models_<agent>.json` is refused with a distinct reason.
 - TUI render-level: tab presence, per-tab `check_action` gating, and single-repo
   (`< 2` repos) regression — layout and behavior unchanged.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-23T15:28:57Z status=pass attempt=1 type=human
