@@ -368,3 +368,145 @@ Plus a gate-guard note on the Step 5 archive call (mirroring pickrem Step
 
 ### Planned mitigations
 - timing: after | name: remote_lane_gate_live_verify | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement lane e2e coverage | desc: Live remote-lane verification — run /aitask-pickrem on a throwaway task with literal gates: [risk_evaluated]; confirm the tuple materializes as [] at claim, the task archives without a manual gate append, and a pickweb marker round-trips its profile field through aitask-web-merge materialization.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-23 18:20)
+- **Requested by user:** Four review concerns, all confirmed: (1, high)
+  `_profile_filename` used `Path.resolve()`, which follows a
+  `profiles/local/foo.yaml` symlink to its target before the `local/` parent
+  check — the renderer then baked `foo.yaml` instead of `local/foo.yaml`, so
+  materialization could read the shipped profile instead of the local
+  override (the exact ceiling mismatch the change exists to prevent);
+  additionally `_main_walk` / `_main_walk_verify` pre-resolve the profile
+  path before it ever reaches the helper. (2, medium) The new materialize
+  procedures were inlined into `aitask-pickrem/SKILL.md.j2` and
+  `aitask-web-merge/SKILL.md` despite the skill-authoring convention that
+  substantial new procedures live in their own file with a thin caller
+  reference. (3, medium) `cmd_materialize` captured only stdout from
+  `materialize-active`, but the failure diagnostic goes to stderr — so
+  `WEBMAT_FAIL:<rc>:<output>` usually ended with an empty reason and the
+  interactive retry prompt could not say what failed. (4, low) the render
+  test wrote a FIXED `local/zzt63535.yaml` fixture unconditionally (could
+  overwrite a same-named user file) and its glob cleanup could remove
+  matching user artifacts.
+- **Changes made:** (1) `_profile_filename` now normalizes lexically only
+  (`os.path.normpath`, never `resolve()`), and the provenance filename is
+  derived from the ORIGINAL CLI argument in `_main_legacy`, `_main_walk`,
+  and `_main_walk_verify` before any `resolve()`, then threaded through a
+  new `walk_closure(profile_filename=...)` parameter (library callers keep a
+  derive-from-`profile_yaml` fallback). New regression: a symlinked
+  `local/<name>sym.yaml` fixture renders `local/<name>sym.yaml`, not the
+  target's name. (2) Extracted both procedures into their own files with
+  thin caller references: `.claude/skills/aitask-pickrem/materialize-active.md`
+  (Jinja `{{ profile_filename }}`, part of the rendered closure across all
+  3 agent roots) and `.claude/skills/aitask-web-merge/materialize-gates.md`;
+  render tests updated to assert the procedure files and the SKILL
+  references. (3) `cmd_materialize` captures stderr separately: success
+  passes advisory WARNs through to its own stderr; failure appends the
+  stderr diagnostic to the `WEBMAT_FAIL` line — with a test asserting the
+  reason is non-empty. (4) The fixture name is now unique per run
+  (`zzt63535_$$_$RANDOM`), the test refuses to run if the path already
+  exists, and `local/` dir removal only happens when the test created it.
+- **Files affected:** `.aitask-scripts/lib/skill_template.py`,
+  `.aitask-scripts/aitask_web_merge.sh`,
+  `.claude/skills/aitask-pickrem/SKILL.md.j2`,
+  new `.claude/skills/aitask-pickrem/materialize-active.md`,
+  `.claude/skills/aitask-web-merge/SKILL.md`,
+  new `.claude/skills/aitask-web-merge/materialize-gates.md`,
+  `tests/test_skill_render_aitask_pickrem.sh`,
+  `tests/test_skill_render_aitask_pickweb.sh`,
+  `tests/test_web_merge_materialize.sh` (61 asserts), rendered `-remote-`
+  trees (+ new `materialize-active.md` closure files) and both goldens.
+
+### Change Request 2 (2026-07-23 18:35)
+- **Requested by user:** (medium) The symlinked-local-profile regression was
+  tested only through the direct renderer CLI; the production
+  `aitask_skill_render.sh` walk test still used a regular local file — but
+  the original bug lived in the walk path AFTER its `resolve()`, so the
+  suite would not catch a regression that moves `profile_filename`
+  derivation after the resolve again.
+- **Changes made:** Added walk-path symlink coverage (Test 10 Path B2): a
+  base `profiles/<name>.yaml` plus `local/<name>.yaml` symlinked to it — the
+  scanner's same-filename merge selects the local/ layer, so
+  `aitask_skill_render.sh --profile <name>` renders from the symlink — and
+  the rendered `materialize-active.md` must retain
+  `local/<name>.yaml` in the baked path. Verified as a live negative
+  control: temporarily reintroducing the resolve-first derivation in
+  `_main_walk` makes exactly this assert fail; the restored fix passes.
+  Fixture names remain unique-per-run with refuse-to-overwrite checks and
+  exact-path cleanup.
+- **Files affected:** `tests/test_skill_render_aitask_pickrem.sh` (67
+  asserts now).
+
+## Final Implementation Notes
+- **Actual work done:** Landed the full plan: `profile_filename` render-context
+  variable in `lib/skill_template.py` (lexical derivation from the original
+  CLI argument in all three entry points, threaded via a new
+  `walk_closure(profile_filename=...)` parameter); pickrem Step-5
+  materialization as its own procedure file
+  (`.claude/skills/aitask-pickrem/materialize-active.md`, thin caller
+  reference, task-workflow Step-4 status handling, abort-on-failure) plus a
+  `rendered_gates` schema-table row; pickweb completion-marker provenance
+  fields (`profile` + `profile_filename`) with the deferral documented;
+  `aitask_web_merge.sh materialize <task_id> <marker_json>` validating
+  helper (strict fail-closed marker validation: filename pattern, in-dir
+  realpath containment, YAML-name↔marker cross-check, partial/non-string
+  rejection; separate stderr capture so WEBMAT_FAIL carries the real
+  diagnostic; WEBMAT_OK/SKIP/INVALID/FAIL protocol); web-merge Step-5
+  materialization procedure file (`materialize-gates.md`) running after the
+  merge and hard-stopping before archival on any failure, plus a
+  GATE_PENDING backstop on the archive call; `rendered_gates: []` in live
+  remote.yaml and the seed copy (which also gained the missing
+  `headless: true`); rerendered `-remote-` trees across the 3 agent roots
+  (new `materialize-active.md` closure files committed) and both goldens.
+  Tests: new `tests/test_web_merge_materialize.sh` (61 asserts — valid /
+  supersede-prior-tuple / legacy-skip / 10-case invalid matrix /
+  local-profile / failure-clears-stale + non-empty diagnostic); pickrem
+  render test +Tests 9-10 (per-profile procedure render, local/ + SYMLINKED
+  local/ threading through BOTH the direct CLI and the production
+  scanner+walk path); pickweb render test +Tests 10-11 (marker provenance,
+  producer/consumer drift guards, seed/live profile parity); gate test
+  +remote-lane negative control against the real remote.yaml (99/99).
+- **Deviations from plan:** (1) The pickweb lane uses the completion-marker
+  routing (as the plan decided — the task's "same call" wording was
+  explicitly conditioned on this variant); pickweb itself renders NO
+  materialize call, pinned by test. (2) Two review rounds (see Post-Review
+  Changes): symlink-safe lexical provenance derivation + original-argument
+  threading, procedure-file extraction per the authoring convention,
+  stderr-carrying WEBMAT_FAIL, unique/refuse-overwrite test fixtures, and
+  walk-path symlink regression coverage verified by a live negative control.
+  (3) The `active_gates_profile` stamp for local/ profiles is path-derived
+  (`local/<stem>`, t635_33 `_profile_stamp_name`) — the web-merge helper's
+  name cross-check validates the YAML `name:` against the marker's `profile`
+  field instead (file identity and declared name are both pinned).
+- **Issues encountered:** bash command substitution strips NUL, so the
+  helper's non-string JSON sentinel uses `\x01`; the initial local-profile
+  test expectation assumed the YAML name is stamped (it is the path-derived
+  scanner-style name); pre-commit "matches HEAD" freshness asserts in both
+  render tests fail by design until this change is committed.
+- **Key decisions:** file-identity provenance (marker records BOTH `profile`
+  and `profile_filename`; merge-time resolution uses EXACTLY the recorded
+  filename — no name-based re-resolution); content drift between web start
+  and merge is deliberately accepted (t635_33 claim-time-snapshot
+  governance), file identity is not; materialization in web-merge runs AFTER
+  a successful merge and before archival (a pre-merge write could stamp
+  gate-suppressing state onto an unlanded task); every materialization
+  failure stops the branch (the helper's clear-on-fail is best-effort);
+  legacy markers skip (never guess), but validation failures on a present
+  field always stop; `profile_filename` derivation is lexical-only —
+  `Path.resolve()` would follow local/ symlinks and drop the override
+  provenance.
+- **Upstream defects identified:** seed/profiles/remote.yaml:1 — pre-existing:
+  the seed copy was missing `headless: true` (present in the live profile),
+  so a seeded project's remote profile would not be discovered as a
+  prerender profile by aitask_skill_verify.sh; fixed in this task (seed
+  parity now pinned by test), no follow-up needed.
+- **Notes for sibling tasks:** the `profile_filename` render-context variable
+  is available to every skill template (scanner-style, `local/`-aware,
+  symlink-safe); reuse it wherever a prerendered lane needs a baked profile
+  path. The `aitask_web_merge.sh materialize` verb is the canonical
+  web-marker → tuple bridge; t635_23 (codex/opencode gate wrappers) and
+  t635_16 (remote projection) should route any web-lane gate work through
+  it rather than re-parsing markers. The remote lane's declared ceiling is
+  now explicit (`rendered_gates: []` in remote.yaml both live and seed).
