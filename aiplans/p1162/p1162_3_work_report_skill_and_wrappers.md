@@ -271,6 +271,143 @@ FAIL and exits 1, then revert.
   from the proven aitask-pick Step 2c pattern, with an explicit
   empty-discovery exit · severity: low · → mitigation: none needed
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-23 15:10) — three blocking review concerns
+
+All three verified before changing anything (the Codex gap was confirmed by
+diffing the two tool-mapping files: `.agents/skills/codex_tool_mapping.md`
+has no multi-select adaptation for `request_user_input`, while
+`.opencode/skills/opencode_tool_mapping.md` explicitly maps `multiple` ↔
+`multiSelect`).
+
+1. **Codex multi-select gap (high).** The canonical skill required
+   `multiSelect: true` prompts, which Codex cannot render. *Fix:* an
+   agent-neutral "Agents without native multi-select" fallback in the
+   canonical SKILL.md — present the full candidate list as numbered text,
+   collect ONE free-text comma-separated id list (columns: include; tasks:
+   exclude, empty = none), normalize, and pass through the gatherer so any
+   typo/unknown id fails closed. Explicitly forbids per-item yes/no
+   emulation. The Codex wrapper now points at this fallback.
+2. **Pagination protocol underspecified (medium).** *Fix:* a named
+   "Paginated multi-select protocol" shared by both prompts: accumulator
+   retained across pages; a response selecting items + "Show more" records
+   the items AND advances; loop ends on a response without "Show more" or
+   at the last page; unreached pages keep default state (columns: not
+   included; tasks: not excluded); final result applied in canonical
+   gatherer order. Task prompt re-phrased as select-to-EXCLUDE, matching
+   the tool's options-start-unselected semantics.
+3. **Discovery run had no defined hard stop (medium).** *Fix:* Step 1 now
+   validates the `--list-columns` run first (Step 2 in list mode: non-zero
+   exit, `ERROR:` line, or malformed record → hard stop; only `COLUMN:`
+   records are well-formed in list mode); zero rows is the intentional
+   empty-board case only after a clean run. Step 2 condition 3 documents
+   the list-mode variant.
+
+- **Files affected:** `.claude/skills/aitask-work-report/SKILL.md`,
+  `.agents/skills/aitask-work-report/SKILL.md`,
+  `tests/test_work_report_skill_contract.sh` (4 new markers: list-mode
+  discovery validation, pagination accumulator, multi-select fallback
+  presence + its comma-list contract). Suite grew 22 → 26 assertions.
+
+### Change Request 2 (2026-07-23 15:20) — fallback id handling was branch-blind
+
+- **Requested by user:** The no-multi-select fallback stripped optional `t`
+  prefixes from a list that can contain *column* ids — the live board
+  exposes `COLUMN:tests`, which would become `ests` — and routed both
+  branches "as in point 5" (the `--tasks` re-run), which is wrong for the
+  column-selection call. Verified: CONFIRMED (the `tests` column id exists
+  in the current board config).
+- **Changes made:** the fallback now has two explicit branches: column
+  selection preserves ids exactly as typed (trim only, NO prefix stripping)
+  and invokes `--columns <selected-columns>` (point 4); task exclusion
+  strips the optional `t` on task ids ONLY, removes exclusions, and re-runs
+  `--tasks <canonical-survivors>` (point 5). Both branches remain
+  gatherer-validated. Two new guard-test markers pin the per-branch rules
+  (suite 26 → 28 assertions).
+- **Files affected:** `.claude/skills/aitask-work-report/SKILL.md`,
+  `tests/test_work_report_skill_contract.sh`.
+
+### Change Request 3 (2026-07-23 15:28) — exclusion typos silently vanished
+
+- **Requested by user:** In the fallback task-exclusion branch, exclusions
+  were subtracted from the validated selection before any check, so an
+  unknown exclusion id (e.g. `9999`) was a no-op — the survivors still
+  validated and the report drafted, contradicting the fail-closed claim.
+  Verified: CONFIRMED (set subtraction cannot reject a non-member).
+- **Changes made:** every normalized exclusion is now membership-validated
+  against the displayed validated task-id set BEFORE subtraction; unknown
+  ids or tokens that normalize to nothing hard-stop through the Step 2
+  re-select/abort prompt. The closing fail-closed sentence now names which
+  mechanism checks each id class (gatherer for columns and the final task
+  list, pre-subtraction membership check for exclusions). New guard marker
+  "Validate every exclusion BEFORE subtracting" (suite 28 → 29 assertions).
+- **Files affected:** `.claude/skills/aitask-work-report/SKILL.md`,
+  `tests/test_work_report_skill_contract.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Shipped the canonical
+  `.claude/skills/aitask-work-report/SKILL.md` (pinned gatherer record
+  schemas; 3-condition fail-closed validation incl. non-zero exit and
+  malformed records, with a list-mode variant for `--list-columns`;
+  empty-discovery exit; paginated multi-select protocol with a cross-page
+  accumulator; a no-multi-select fallback with per-branch id handling and
+  pre-subtraction exclusion validation; opt-in `--project` projection with
+  Today-only fits/exceeds judgement; no report file; satisfaction feedback
+  with `skill_name: work-report`), the three wrappers
+  (`.agents/skills/aitask-work-report/SKILL.md`,
+  `.opencode/skills/aitask-work-report/SKILL.md`,
+  `.opencode/commands/aitask-work-report.md`, all pointing at the canonical
+  path), and `tests/test_work_report_skill_contract.sh` (29 assertions).
+  Applied the planned AC amendment (velocity flags forwarded) to the task
+  file via `./ait git`.
+- **Deviations from plan:** None structural. Three review rounds after the
+  initial build hardened the interactive contracts beyond the approved
+  plan's text — see Post-Review Changes 1–3 (Codex no-multi-select
+  fallback with per-branch id rules, pagination accumulator protocol,
+  list-mode discovery validation, pre-subtraction exclusion validation).
+  One marker phrase had to be re-wrapped in the source so the guard grep
+  could see it (the wrapped-prose caveat firing exactly as the plan warned).
+- **Issues encountered:** First test run failed on two markers — one needle
+  had a stray backtick, and "insufficient completion history for a
+  projection" was line-wrapped in the SKILL.md prose; fixed the needle and
+  unwrapped the source line. Harness self-check performed: corrupting one
+  marker makes the suite print FAIL and exit 1; reverted and re-verified.
+- **Key decisions:**
+  - The gatherer record schemas are pinned verbatim inside the SKILL.md and
+    the guard test greps the two order-sensitive schema lines (`TASK:`,
+    `VELOCITY:`), so field order cannot silently drift while prose markers
+    still pass.
+  - Fail-closed is three-conditioned (exit status first, then
+    `ERROR:`/`NO_TASKS`, then missing/malformed output) because the
+    gatherer's `_die()` path emits stderr only — an `ERROR:`-only rule
+    would draft from absent input.
+  - The no-multi-select fallback collects ONE free-text comma list per
+    prompt (never per-item yes/no), handles column ids verbatim (a `tests`
+    column id must not lose its `t`), and validates exclusions against the
+    displayed set BEFORE subtracting so typos hard-stop.
+  - A fits/exceeds judgement exists only for the "Today" horizon (a direct
+    `<days_ahead>` field read); "This week" would require prompt-side date
+    arithmetic, which stays forbidden.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t1162_4 (board `w`):** launch with explicit `--columns`/`--tasks` —
+    the skill then skips all membership prompts and only gatherer-validates.
+    The skill also accepts optional `--velocity-model`/`--velocity-window`
+    passthrough (AC amendment); the board does not need to send them.
+  - **t1162_5 (docs):** the user-facing contract to document: interactive
+    column/task selection, horizon labels (Today / This week / custom),
+    default throughput section, opt-in projection with caveat, no report
+    file ever written. The canonical SKILL.md is the source; the guard
+    test's marker list enumerates every load-bearing sentence.
+  - Wrapper edits must keep the literal canonical path
+    `.claude/skills/aitask-work-report/SKILL.md` — the guard test checks
+    all three files for it.
+  - When editing the canonical SKILL.md, run
+    `bash tests/test_work_report_skill_contract.sh` before committing —
+    marker phrases must not be line-wrapped apart.
+
 ## Step 9 reference
 
 Post-implementation: merge/cleanup + archival per task-workflow Step 9.
