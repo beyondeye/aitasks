@@ -7,7 +7,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "work-report": 0
       },
       "verifiedstats": {}
     },
@@ -18,7 +19,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "work-report": 0
       },
       "verifiedstats": {}
     },
@@ -29,7 +31,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "work-report": 0
       },
       "verifiedstats": {}
     },
@@ -47,7 +50,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "work-report": 0
       },
       "verifiedstats": {}
     },
@@ -58,7 +62,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "work-report": 0
       },
       "verifiedstats": {}
     },
@@ -69,7 +74,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "work-report": 0
       },
       "verifiedstats": {}
     },
@@ -80,7 +86,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "work-report": 0
       },
       "verifiedstats": {}
     },
@@ -91,7 +98,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "work-report": 0
       },
       "verifiedstats": {}
     }

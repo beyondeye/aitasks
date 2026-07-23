@@ -99,6 +99,7 @@
       "Bash(./.aitask-scripts/aitask_syncer.sh:*)",
       "Bash(./.aitask-scripts/aitask_update.sh:*)",
       "Bash(./.aitask-scripts/aitask_web_merge.sh:*)",
+      "Bash(./.aitask-scripts/aitask_work_report_gather.sh:*)",
       "Bash(./.aitask-scripts/aitask_zip_old.sh:*)",
       "Bash(source .aitask-scripts/lib/repo_fetch.sh:*)"
     ]

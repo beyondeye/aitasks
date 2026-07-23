@@ -88,6 +88,7 @@
       "./.aitask-scripts/aitask_syncer.sh *": "allow",
       "./.aitask-scripts/aitask_update.sh *": "allow",
       "./.aitask-scripts/aitask_web_merge.sh *": "allow",
+      "./.aitask-scripts/aitask_work_report_gather.sh *": "allow",
       "./.aitask-scripts/aitask_zip_old.sh *": "allow",
       "source .aitask-scripts/lib/repo_fetch.sh *": "allow",
       "ls *": "allow",

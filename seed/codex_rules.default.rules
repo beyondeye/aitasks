@@ -73,4 +73,5 @@ prefix_rule(pattern = ["./.aitask-scripts/aitask_verification_followup.sh"], dec
 prefix_rule(pattern = ["./.aitask-scripts/aitask_verification_parse.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_verified_update.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_web_merge.sh"], decision = "allow", justification = "Aitasks helper script")
+prefix_rule(pattern = ["./.aitask-scripts/aitask_work_report_gather.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_zip_old.sh"], decision = "allow", justification = "Aitasks helper script")
