@@ -6,11 +6,33 @@
       "notes": "Flagship GPT-5.6 model with the strongest capability for complex coding, computer use, research, and cybersecurity",
       "verified": {
         "batch-review": 0,
-        "pick": 0,
+        "pick": 100,
         "explain": 0,
         "work-report": 0
       },
-      "verifiedstats": {},
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      },
       "usagestats": {
         "pick": {
           "all_time": {
