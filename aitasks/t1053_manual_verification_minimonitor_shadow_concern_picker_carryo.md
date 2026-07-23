@@ -3,14 +3,15 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: []
 verifies: [t1037_1, t1037_2, t1037_3, t1037_4]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1037
 created_at: 2026-06-22 16:47
-updated_at: 2026-06-22 16:47
-boardidx: 80
+updated_at: 2026-07-23 16:06
 boardcol: tests
+boardidx: 80
 ---
 
 Carry-over of deferred manual-verification items from t1037_5. Re-pick this task to continue the remaining checklist.
