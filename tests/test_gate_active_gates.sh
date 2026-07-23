@@ -625,6 +625,26 @@ EOF
     assert_contains "negctl(e): archive decision unaffected" "archive=NO_GATES" "$pyout"
 }
 
+# --- remote-lane negative control against the REAL shipped profile ---------
+
+test_remote_lane_real_profile() {
+    # t635_35: the shipped remote.yaml declares an explicit rendered_gates: []
+    # ceiling. A task with a literal gates: declaration materialized under the
+    # REAL profile (not a fixture) gets the load-bearing empty tuple and
+    # archives with no manual gate append — the t635_33 negative control
+    # exercised through the remote lane's actual configuration.
+    local d; d="$(new_fixture)"
+    cp "$PROJECT_DIR/aitasks/metadata/profiles/remote.yaml" \
+        "$d/aitasks/metadata/profiles/remote.yaml"
+    write_task "$d" 9 "[risk_evaluated]"
+    assert_eq "remote lane: real remote.yaml filters to empty" "MATERIALIZED:(empty)" \
+        "$(run_gate "$d" materialize-active 9 --profile aitasks/metadata/profiles/remote.yaml 2>/dev/null)"
+    assert_eq "remote lane: empty tuple persisted" "active_gates: []" \
+        "$(task_field "$d" 9 active_gates)"
+    assert_eq "remote lane: archive-ready NO_GATES (no manual append)" "NO_GATES" \
+        "$(run_gate "$d" archive-ready 9)"
+}
+
 # --- Run ---
 test_materialize_basic
 test_materialize_error_paths
@@ -637,6 +657,7 @@ test_active_gates_status
 test_tuple_atomicity_and_corruption
 test_tuple_durability
 test_negative_control_enforcers
+test_remote_lane_real_profile
 
 for dir in "${CLEANUP_DIRS[@]}"; do rm -rf "$dir"; done
 

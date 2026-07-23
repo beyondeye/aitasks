@@ -7,7 +7,7 @@ description: Merge completed Claude Web branches to main and archive task data.
 
 This skill runs **locally** after `aitask-pickweb` completes on Claude Code Web. It detects remote branches with completed task executions, merges code to main (excluding `.aitask-data-updated/`), copies the plan to aitask-data, archives the task, and cleans up.
 
-**Workflow:** scan → select → pull → merge → copy plan → archive → push → cleanup
+**Workflow:** scan → select → pull → merge → copy plan → materialize active gates → archive → push → cleanup
 
 ## Workflow
 
@@ -123,7 +123,14 @@ mkdir -p <target_directory>
 ./ait git commit -m "ait: Add web-completed plan for t<task_id>"
 ```
 
-### Step 5: Apply Agent Attribution and Archive Task
+### Step 5: Materialize Active Gates, Apply Agent Attribution, and Archive Task
+
+**Materialize the active-gates tuple (before attribution/archival):** Execute
+the **Active-Gates Materialization Procedure** (see `materialize-gates.md`).
+It validates the marker's `profile` / `profile_filename` provenance, runs the
+`aitask_web_merge.sh materialize` helper, and defines the status handling —
+on `WEBMAT_INVALID` / `WEBMAT_FAIL` it stops before archival (Retry / Abort
+this branch). Continue below only when it returns with a continue outcome.
 
 **If `implemented_with` is present in the completion marker JSON:**
 
@@ -136,6 +143,13 @@ mkdir -p <target_directory>
 ```bash
 ./.aitask-scripts/aitask_archive.sh <task_id>
 ```
+
+**Gate-guard backstop (handle BEFORE parsing success output):** if the
+archive script exits non-zero and prints `GATE_PENDING:<csv>`, the archival
+did **not** happen — do NOT treat it as success. Surface the pending gates:
+a reviewer satisfies them (`ait gate pass <task_id> <gate>` for human gates,
+`ait gates run <task_id>` for machine gates), then re-runs `aitask-web-merge`
+to complete the archival. **Never self-signal** a human gate.
 
 **Parse structured output and handle each line:**
 
@@ -219,7 +233,7 @@ If "Skip": do nothing.
 ## Notes
 
 - This skill is **interactive** (uses `AskUserQuestion`) — designed for local execution, not Claude Web
-- The helper script `aitask_web_merge.sh` handles branch detection; this SKILL.md handles merge/archive orchestration
+- The helper script `aitask_web_merge.sh` handles branch detection and the `materialize` provenance-validation mode; this SKILL.md handles merge/archive orchestration
 - `.aitask-data-updated/` is intentionally NOT gitignored — it's committed on the web branch and explicitly removed during merge
 - The `--no-ff --no-commit` merge approach avoids `--amend` while keeping the merge commit clean
 - `aitask_archive.sh` handles all archival mechanics (metadata update, file moves, lock release, parent auto-archival, git commit)

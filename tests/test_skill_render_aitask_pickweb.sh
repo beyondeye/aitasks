@@ -243,6 +243,61 @@ assert_not_contains "OpenCode skill-stub has no legacy 'Source of Truth' phrase"
 assert_not_contains "OpenCode skill-stub does not redirect to .claude/skills/aitask-pickweb/SKILL.md" \
     ".claude/skills/aitask-pickweb/SKILL.md" "$(cat "$OPENCODE_SKILL_STUB")"
 
+# === Test 10: completion-marker profile provenance + web-merge consumer contract (t635_35) ===
+#
+# pickweb never materializes in-session (no task-metadata writes on the web
+# branch); it records profile provenance in the completion marker and the
+# local aitask-web-merge skill materializes via the validating helper. This
+# test pins BOTH sides of that producer/consumer contract.
+
+echo "=== Test 10: marker profile provenance + web-merge consumer contract ==="
+rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$PROFILE.yaml" claude 2>&1)"
+assert_contains "remote/claude: marker records profile name" \
+    '"profile": "remote"' "$rendered"
+assert_contains "remote/claude: marker records profile filename" \
+    '"profile_filename": "remote.yaml"' "$rendered"
+# Routing decision pinned: pickweb itself must NOT call materialize-active
+assert_not_contains "remote/claude: no in-session materialize-active call" \
+    "materialize-active" "$rendered"
+
+# Consumer side: the static web-merge skill dispatches its materialization
+# procedure file, which runs the validating helper.
+WEB_MERGE_SKILL=".claude/skills/aitask-web-merge/SKILL.md"
+WEB_MERGE_PROC=".claude/skills/aitask-web-merge/materialize-gates.md"
+web_merge_body="$(cat "$WEB_MERGE_SKILL")"
+web_merge_proc="$(cat "$WEB_MERGE_PROC")"
+assert_contains "web-merge: Step 5 references materialize-gates.md" \
+    "materialize-gates.md" "$web_merge_body"
+assert_contains "web-merge proc: dispatches aitask_web_merge.sh materialize" \
+    "aitask_web_merge.sh materialize" "$web_merge_proc"
+assert_contains "web-merge proc: consumes marker profile_filename provenance" \
+    "profile_filename" "$web_merge_proc"
+assert_contains "web-merge proc: hard-stops before archival on materialize failure" \
+    "WEBMAT_FAIL" "$web_merge_proc"
+# Helper side: the subcommand exists and delegates to the canonical materializer
+HELPER=".aitask-scripts/aitask_web_merge.sh"
+helper_body="$(cat "$HELPER")"
+assert_contains "helper: materialize subcommand present" \
+    "cmd_materialize" "$helper_body"
+assert_contains "helper: delegates to aitask_gate.sh materialize-active" \
+    "materialize-active" "$helper_body"
+
+# === Test 11: seed/live remote profile parity for prerender discovery (t635_35) ===
+#
+# aitask_skill_verify.sh discovers prerender profiles via `headless: true`,
+# and the remote lane's declared gate ceiling is `rendered_gates: []`. Both
+# keys must exist in the LIVE profile and the SEED copy, or a seeded project
+# silently loses prerender verification / the declared ceiling.
+
+echo "=== Test 11: seed/live remote.yaml carry headless + rendered_gates keys ==="
+for prof_file in "aitasks/metadata/profiles/remote.yaml" "seed/profiles/remote.yaml"; do
+    body="$(cat "$prof_file")"
+    assert_contains "$prof_file: headless: true present" \
+        "headless: true" "$body"
+    assert_contains "$prof_file: explicit rendered_gates: [] present" \
+        "rendered_gates: []" "$body"
+done
+
 # === Summary ===
 
 echo ""

@@ -161,6 +161,8 @@ If neither check triggers, proceed to Step 5.
 
   If the script fails entirely (non-zero exit without structured output), display the error and abort.
 
+- **Materialize the active-gates tuple (ALWAYS runs — never profile-omitted):** With ownership held, execute the **Active-Gates Materialization** step (see `materialize-active.md`). It persists the task's enforced gate set under this profile and defines the status handling; on a nonzero exit it triggers the **Abort Procedure** (do NOT proceed to Step 6).
+
 ### Step 6: Environment Setup
 
 Remote mode always works on the current branch. No worktree or branch management.
@@ -527,6 +529,7 @@ The remote skill uses the standard profile format from `aitasks/metadata/profile
 | `default_email` | string | — | `"first"` or email address | Step 5 email assignment |
 | `plan_preference` | string | `use_current` | `"use_current"`, `"verify"`, `"create_new"` | Step 7.0 existing plan handling |
 | `post_plan_action` | string | `start_implementation` | `"start_implementation"` | Step 7 checkpoint |
+| `rendered_gates` | list | falls back to `default_gates` | gate names, or `[]` | Render-time gate ceiling (key-presence semantics: an explicit `[]` renders no gate machinery and does NOT fall back to `default_gates`). The shipped `remote` profile sets `[]`; Step 5 always materializes the enforced `active_gates` tuple under this ceiling |
 | `enableFeedbackQuestions` | bool | `false` | `true`, `false` | Defined in the shared schema but not used here because remote mode has no feedback prompt |
 
 **Remote-specific fields** (only recognized by this skill):

@@ -196,7 +196,7 @@ Display: "Profile: proceeding to implementation". Proceed to Step 6.
 
 ### Step 6: Implement
 
-**Note:** aitask-pickweb intentionally skips ownership/locking — all lock acquisition, status updates, and archival are deferred to `aitask-web-merge`, which runs locally after the Claude Web session completes. No pre-implementation ownership guard is needed here.
+**Note:** aitask-pickweb intentionally skips ownership/locking — all lock acquisition, status updates, active-gates materialization, and archival are deferred to `aitask-web-merge`, which runs locally after the Claude Web session completes (the completion marker's `profile` / `profile_filename` fields carry the provenance it needs). No pre-implementation ownership guard is needed here.
 
 **Record implementing agent:** Execute the **Agent Attribution Procedure** (see `.agents/skills/task-workflow-remote-codex-/agent-attribution.md`) to detect which code agent and model is implementing this task. Since pickweb does not call `aitask_update.sh`, store the agent string in memory for inclusion in the completion marker JSON (Step 8).
 
@@ -293,10 +293,14 @@ mkdir -p .aitask-data-updated
   "parent_id": <"parent_num"|null>,
   "issue_type": "<issue_type from frontmatter>",
   "implemented_with": "<agent_string from Step 6>",
+  "profile": "remote",
+  "profile_filename": "remote.yaml",
   "completed_at": "<YYYY-MM-DD HH:MM>",
   "branch": "<current branch name>"
 }
 ```
+
+The `profile` / `profile_filename` pair records which execution profile governed this web session (baked at render time). `aitask-web-merge` uses it to materialize the task's enforced `active_gates` tuple locally before archival — pickweb itself never writes task metadata, so the tuple write is deferred exactly like agent attribution.
 
 Stage and commit the marker:
 ```bash

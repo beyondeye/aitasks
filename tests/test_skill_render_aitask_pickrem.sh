@@ -218,6 +218,108 @@ for agent in "${AGENTS[@]}"; do
     fi
 done
 
+# === Test 9: materialize-active procedure rendered per profile (t635_35) ===
+#
+# The claim-time materialization lives in its own procedure file
+# (materialize-active.md, referenced from the SKILL Step 5). It is
+# unconditional (never Jinja-gated), so its render must carry the call for
+# EVERY profile, each with its own baked profile file path (there is no
+# runtime `active_profile_filename` in prerendered lanes).
+
+echo "=== Test 9: materialize-active procedure rendered per profile (all profiles) ==="
+MAT_PROC=".claude/skills/aitask-pickrem/materialize-active.md"
+for prof in default fast remote; do
+    rendered="$($RENDER "$MAT_PROC" "$PROFILES_DIR/$prof.yaml" claude 2>&1)"
+    assert_contains "$prof: materialize-active call present with baked profile path" \
+        "aitask_gate.sh materialize-active <task_num> --profile aitasks/metadata/profiles/$prof.yaml" \
+        "$rendered"
+done
+rendered="$($RENDER "$MAT_PROC" "$PROFILES_DIR/remote.yaml" claude 2>&1)"
+assert_contains "remote: materialize failure routes to Abort Procedure" \
+    "active-gates materialization failed" "$rendered"
+# The entry-point SKILL references the procedure from its ownership step.
+rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/remote.yaml" claude 2>&1)"
+assert_contains "remote: SKILL Step 5 references materialize-active.md" \
+    "materialize-active.md" "$rendered"
+
+# === Test 10: profile_filename threading — local/ override, BOTH render paths (t635_35) ===
+#
+# A profile living at aitasks/metadata/profiles/local/<name>.yaml must bake
+# `local/<name>.yaml` into the rendered call — including when the local file
+# is a SYMLINK (lexical derivation; Path.resolve() would follow the link and
+# silently drop the local/ provenance). Exercised through the direct renderer
+# CLI AND the production aitask_skill_render.sh (scanner + walk_render) path
+# so neither can regress silently. Fixture names are unique per run and never
+# overwrite an existing file (a user's real local profile must survive).
+
+echo "=== Test 10: profile_filename threads local/ overrides through both render paths ==="
+LOCAL_PROF_NAME="zzt63535_$$_$RANDOM"
+LOCAL_SYM_NAME="${LOCAL_PROF_NAME}sym"
+SYMWALK_NAME="${LOCAL_PROF_NAME}w"
+LOCAL_PROF_DIR="$PROFILES_DIR/local"
+LOCAL_PROF_FILE="$LOCAL_PROF_DIR/$LOCAL_PROF_NAME.yaml"
+LOCAL_SYM_FILE="$LOCAL_PROF_DIR/$LOCAL_SYM_NAME.yaml"
+SYMWALK_BASE_FILE="$PROFILES_DIR/$SYMWALK_NAME.yaml"
+SYMWALK_LINK_FILE="$LOCAL_PROF_DIR/$SYMWALK_NAME.yaml"
+LOCAL_DIR_CREATED=0
+cleanup_local_prof() {
+    rm -f "$LOCAL_PROF_FILE" "$LOCAL_SYM_FILE" "$SYMWALK_BASE_FILE" "$SYMWALK_LINK_FILE"
+    [[ "$LOCAL_DIR_CREATED" == "1" ]] && rmdir "$LOCAL_PROF_DIR" 2>/dev/null || true
+    rm -rf .claude/skills/*-"$LOCAL_PROF_NAME"-* 2>/dev/null || true
+    rm -rf .claude/skills/*-"$SYMWALK_NAME"-* 2>/dev/null || true
+}
+if [[ -e "$LOCAL_PROF_FILE" || -e "$LOCAL_SYM_FILE" || -e "$SYMWALK_BASE_FILE" || -e "$SYMWALK_LINK_FILE" ]]; then
+    TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
+    echo "FAIL: fixture path already exists — refusing to overwrite: $LOCAL_PROF_FILE"
+else
+    trap cleanup_local_prof EXIT
+    [[ -d "$LOCAL_PROF_DIR" ]] || LOCAL_DIR_CREATED=1
+    mkdir -p "$LOCAL_PROF_DIR"
+    sed "s/^name: remote$/name: $LOCAL_PROF_NAME/" "$PROFILES_DIR/remote.yaml" > "$LOCAL_PROF_FILE"
+
+    # Path A: direct renderer CLI (procedure file carries the call)
+    rendered="$($RENDER "$MAT_PROC" "$LOCAL_PROF_FILE" claude 2>&1)"
+    assert_contains "direct CLI: local/ profile bakes local/<name>.yaml" \
+        "--profile aitasks/metadata/profiles/local/$LOCAL_PROF_NAME.yaml" "$rendered"
+
+    # Path A2: SYMLINKED local profile keeps its local/ provenance
+    ln -s "../remote.yaml" "$LOCAL_SYM_FILE"
+    rendered="$($RENDER "$MAT_PROC" "$LOCAL_SYM_FILE" claude 2>&1)"
+    assert_contains "direct CLI: symlinked local/ profile keeps local/ provenance" \
+        "--profile aitasks/metadata/profiles/local/$LOCAL_SYM_NAME.yaml" "$rendered"
+
+    # Path B: production scanner + walk_render path (aitask_skill_render.sh);
+    # the procedure file is part of the rendered closure.
+    if ./.aitask-scripts/aitask_skill_render.sh aitask-pickrem --profile "$LOCAL_PROF_NAME" --agent claude --force >/dev/null 2>&1; then
+        walk_out="$(cat ".claude/skills/aitask-pickrem-$LOCAL_PROF_NAME-/materialize-active.md")"
+        assert_contains "walk path: local/ profile bakes local/<name>.yaml" \
+            "--profile aitasks/metadata/profiles/local/$LOCAL_PROF_NAME.yaml" "$walk_out"
+    else
+        TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
+        echo "FAIL: aitask_skill_render.sh could not render local/ fixture profile"
+    fi
+
+    # Path B2: SYMLINKED local profile through the PRODUCTION walk path —
+    # where the original bug lived (the walk CLI resolves the profile path
+    # before rendering; deriving provenance after that resolve emitted the
+    # target's name). Fixture: a base profiles/<name>.yaml plus a
+    # local/<name>.yaml symlink to it; the scanner's same-filename merge
+    # selects the local/ layer, so aitask_skill_render.sh renders from the
+    # symlink and the baked path must retain local/<name>.yaml.
+    sed "s/^name: remote$/name: $SYMWALK_NAME/" "$PROFILES_DIR/remote.yaml" > "$SYMWALK_BASE_FILE"
+    ln -s "../$SYMWALK_NAME.yaml" "$SYMWALK_LINK_FILE"
+    if ./.aitask-scripts/aitask_skill_render.sh aitask-pickrem --profile "$SYMWALK_NAME" --agent claude --force >/dev/null 2>&1; then
+        walk_out="$(cat ".claude/skills/aitask-pickrem-$SYMWALK_NAME-/materialize-active.md")"
+        assert_contains "walk path: SYMLINKED local/ profile keeps local/ provenance" \
+            "--profile aitasks/metadata/profiles/local/$SYMWALK_NAME.yaml" "$walk_out"
+    else
+        TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
+        echo "FAIL: aitask_skill_render.sh could not render symlinked local/ fixture profile"
+    fi
+    cleanup_local_prof
+    trap - EXIT
+fi
+
 # === Summary ===
 
 echo ""

@@ -107,7 +107,8 @@ TEMPLATE_DEP_RES = [
 ]
 
 
-def render_skill(template_path: Path, profile: dict[str, Any], agent_name: str) -> str:
+def render_skill(template_path: Path, profile: dict[str, Any], agent_name: str,
+                 profile_filename: str | None = None) -> str:
     import minijinja
 
     env = minijinja.Environment(
@@ -128,9 +129,20 @@ def render_skill(template_path: Path, profile: dict[str, Any], agent_name: str) 
         rendered_set = profile["rendered_gates"] or []
     else:
         rendered_set = profile.get("default_gates") or []
+    # profile_filename (t635_35): the scanner-style filename of the profile
+    # YAML actually used for this render (`remote.yaml` / `local/remote.yaml`),
+    # for templates that must bake a profile file path (headless prerenders
+    # have no runtime `active_profile_filename`). Omitted (not defaulted) when
+    # unknown so strict-undefined fails loudly if a template needs it.
+    context: dict[str, Any] = {
+        "profile": profile,
+        "agent": agent_name,
+        "rendered_set": rendered_set,
+    }
+    if profile_filename is not None:
+        context["profile_filename"] = profile_filename
     try:
-        return env.render_str(template_source, profile=profile, agent=agent_name,
-                              rendered_set=rendered_set)
+        return env.render_str(template_source, **context)
     except minijinja.TemplateError as e:
         raise RuntimeError(
             f"Template '{template_path}' render failed: {e}. "
@@ -326,6 +338,7 @@ def walk_closure(
     repo_root: Path,
     write: bool,
     force: bool,
+    profile_filename: str | None = None,
 ) -> list:
     """BFS over dep closure starting at entry_template. Renders every
     reachable .md / .md.j2 source through minijinja, rewrites references in
@@ -337,6 +350,11 @@ def walk_closure(
     skill = _skill_name_from_source(entry_template, repo_root)
     if skill is None:
         raise ValueError(f"Entry template not under <agent_root>/skills/: {entry_template}")
+    # Fallback for library callers; CLI entry points pass the filename derived
+    # from the ORIGINAL argument (profile_yaml here is already resolved, so
+    # deriving from it would lose symlinked local/ provenance).
+    if profile_filename is None:
+        profile_filename = _profile_filename(profile_yaml)
     target_root = AGENT_ROOTS[agent]
     entry_target = repo_root / target_root / _render_dir_name(skill, profile_name, agent) / "SKILL.md"
 
@@ -356,7 +374,8 @@ def walk_closure(
         include_deps |= _resolve_template_deps(src, raw_source)
 
         try:
-            raw = render_skill(src, profile, agent)
+            raw = render_skill(src, profile, agent,
+                               profile_filename=profile_filename)
         except Exception as e:
             raise RuntimeError(f"Render failed for source '{src}': {e}") from e
 
@@ -436,6 +455,22 @@ def _profile_name(profile: dict, profile_yaml: Path) -> str:
     return profile_yaml.stem
 
 
+def _profile_filename(profile_yaml: Path) -> str:
+    """Scanner-style profile filename relative to the profiles dir:
+    `local/<basename>` for a local/ override, else `<basename>` — the same
+    shape as task-workflow's runtime `active_profile_filename`.
+
+    Lexical normalization ONLY (os.path.normpath) — never Path.resolve():
+    resolving would follow a profiles/local/foo.yaml symlink to its target
+    and emit `foo.yaml` instead of `local/foo.yaml`, silently dropping the
+    local-override provenance this variable exists to preserve. Callers must
+    pass the path as given on the CLI, not a pre-resolved one."""
+    p = Path(os.path.normpath(str(profile_yaml)))
+    if p.parent.name == "local":
+        return f"local/{p.name}"
+    return p.name
+
+
 def _main_legacy(argv: list) -> int:
     if len(argv) != 3:
         sys.stderr.write(
@@ -446,7 +481,8 @@ def _main_legacy(argv: list) -> int:
     profile_yaml = Path(argv[1])
     agent = argv[2]
     profile = _load_profile(profile_yaml)
-    sys.stdout.write(render_skill(template, profile, agent))
+    sys.stdout.write(render_skill(template, profile, agent,
+                                  profile_filename=_profile_filename(profile_yaml)))
     return 0
 
 
@@ -466,6 +502,9 @@ def _main_walk(argv: list, write: bool) -> int:
         )
         return 2
     entry = Path(positional[0]).resolve()
+    # Derive the provenance filename from the ORIGINAL CLI argument before
+    # resolve() can follow a local/ symlink to its target (t635_35).
+    profile_filename = _profile_filename(Path(positional[1]))
     profile_yaml = Path(positional[1]).resolve()
     agent = positional[2]
     repo_root = Path(positional[3]).resolve()
@@ -484,6 +523,7 @@ def _main_walk(argv: list, write: bool) -> int:
             repo_root,
             write=write,
             force=force,
+            profile_filename=profile_filename,
         )
     except Exception as e:
         sys.stderr.write(f"skill_template walk error: {e}\n")
@@ -510,6 +550,8 @@ def _main_walk_verify(argv: list) -> int:
         )
         return 2
     entry = Path(argv[0]).resolve()
+    # Original-argument derivation — see _main_walk (t635_35).
+    profile_filename = _profile_filename(Path(argv[1]))
     profile_yaml = Path(argv[1]).resolve()
     agent = argv[2]
     repo_root = Path(argv[3]).resolve()
@@ -528,6 +570,7 @@ def _main_walk_verify(argv: list) -> int:
             repo_root,
             write=False,
             force=False,
+            profile_filename=profile_filename,
         )
     except Exception as e:
         sys.stderr.write(f"skill_template walk error: {e}\n")
