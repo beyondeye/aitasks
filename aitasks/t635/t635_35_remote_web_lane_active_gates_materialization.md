@@ -1,14 +1,15 @@
 ---
 priority: medium
 effort: medium
-depends: [635_33]
+depends: [t635_33]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [gates, task_workflow, execution_profiles]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-19 08:27
-updated_at: 2026-07-19 08:27
+updated_at: 2026-07-23 16:07
 ---
 
 ## Context
