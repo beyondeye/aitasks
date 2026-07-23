@@ -32,3 +32,20 @@ def parse(text):
     if not text:
         return []
     return [(m.group(1), m.group(2)) for m in _NOTATION_RE.finditer(text)]
+
+
+def parse_ref(text):
+    """Parse *text* as exactly one canonical cross-repo reference.
+
+    Anchored twin of :func:`parse` for callers that hold a single ref
+    (e.g. a trail input ``ref`` field) rather than free text. Returns the
+    ``(project_name, task_id)`` tuple (``t`` prefix tolerated and
+    stripped), or ``None`` when *text* is not a whole-string match of the
+    canonical notation.
+    """
+    if not text:
+        return None
+    m = _NOTATION_RE.fullmatch(text.strip())
+    if m is None:
+        return None
+    return (m.group(1), m.group(2))
