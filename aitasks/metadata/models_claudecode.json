@@ -13,7 +13,8 @@
         "revert": 100,
         "test_414_flags": 90,
         "qa": 100,
-        "wrap": 100
+        "wrap": 100,
+        "work-report": 80
       },
       "verifiedstats": {
         "pick": {
@@ -147,7 +148,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 80,
-        "explain": 80
+        "explain": 80,
+        "work-report": 80
       },
       "verifiedstats": {}
     },
@@ -158,7 +160,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "work-report": 0
       },
       "verifiedstats": {}
     },
@@ -169,7 +172,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "work-report": 0
       },
       "verifiedstats": {}
     },
@@ -180,7 +184,8 @@
       "verified": {
         "batch-review": 0,
         "pick": 0,
-        "explain": 0
+        "explain": 0,
+        "work-report": 0
       },
       "verifiedstats": {}
     },

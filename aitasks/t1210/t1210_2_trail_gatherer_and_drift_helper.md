@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1210_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [bash_scripts, python, task-planning]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-07-22 16:15
-updated_at: 2026-07-22 16:15
+updated_at: 2026-07-23 13:29
 ---
 
 ## Context
