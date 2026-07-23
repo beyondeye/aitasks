@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
+implemented_with: claudecode/fable5
 created_at: 2026-07-22 16:15
-updated_at: 2026-07-23 13:29
+updated_at: 2026-07-23 17:24
 ---
 
 ## Context
@@ -73,3 +74,8 @@ are the spec.
 - Negative controls: boardidx-only change yields CURRENT; drift run leaves the
   trail file byte-identical.
 - `shellcheck .aitask-scripts/aitask_trail_gather.sh` clean.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-23T14:24:15Z status=pass attempt=1 type=human
