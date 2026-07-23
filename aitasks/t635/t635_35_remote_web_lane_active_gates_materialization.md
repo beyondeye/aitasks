@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t635_33]
 issue_type: enhancement
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/fable5
 created_at: 2026-07-19 08:27
-updated_at: 2026-07-23 16:07
+updated_at: 2026-07-23 17:26
 ---
 
 ## Context
@@ -73,3 +76,8 @@ This task closes the gap so the lanes are consistent.
   `active_gates: []` and archives without a manual gate append (the t635_33
   negative-control, exercised through the remote lane).
 - `aitask_skill_verify.sh` passes; goldens committed in the same change.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-23T14:26:48Z status=pass attempt=1 type=human
