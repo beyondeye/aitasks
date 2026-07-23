@@ -208,6 +208,59 @@ and `project_config.yaml` into a mktemp repo, `git init`; skip if no `jq`.
   sites, resolution chain, touchpoint formats re-checked this session) ·
   severity: low · → mitigation: none needed
 
+## Final Implementation Notes
+
+- **Actual work done:** Exactly as planned. `work-report` registered in
+  `SUPPORTED_OPERATIONS` with arms for all three agents (claudecode slash
+  command, codex default-mode skill composer, opencode `--prompt`), the D1
+  whitespace guard before per-agent dispatch, and the help-text enumeration
+  updated. `"work-report"` added to `_FRESH_WINDOW_OPERATIONS`.
+  `"work-report": "claudecode/sonnet4_6"` seeded in both codeagent configs.
+  All 6 models files gained `verified["work-report"]` mirroring each model's
+  `explain` score (jq transform; models with empty `verified` untouched).
+  Gatherer helper whitelisted in all 5 touchpoints;
+  `audit-helper-whitelist aitask_work_report_gather.sh` reports no `MISSING:`.
+  New `tests/test_codeagent_work_report.sh`: 28 assertions.
+- **Deviations from plan:** (a) The dry-run verbatim-args assertions match the
+  `%q`-escaped form (`/aitask-work-report\ --columns\ now\,next\ …`) because
+  `cmd_invoke` prints the command with `printf ' %q'` — this is stronger, as it
+  pins the whole slash command as ONE argument with ordered args. (b) The
+  opencode test model is `openai_gpt_5_4`, not the file's first entry —
+  `get_cli_model_id` refuses models whose `status` is not `active`.
+- **Issues encountered:** First test run failed on the `%q` escaping (fixed as
+  above); second run died silently at Test 3 because the chosen opencode model
+  was `status: unavailable` and `set -e` aborted on the failing command
+  substitution — switched to an `active` model. Harness self-check performed:
+  corrupting one expectation makes the suite print FAIL and exit 1.
+- **Key decisions:** Whitespace in work-report passthrough args is rejected
+  fail-closed before per-agent dispatch (identity fields can't round-trip
+  through the whitespace-joined slash-command text; board-generated column IDs
+  are slug-safe by construction, so only hand-edited configs can trip it).
+  Guard is work-report-only — other operations' behavior unchanged. Verified-
+  score parity (work-report mirrors explain) is pinned as a repo-level test
+  block, not just applied once.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_codeagent.sh:500-521 — codex skill-launch composer's
+    inner case silently yields an empty prompt for any operation without an
+    explicit arm (the outer `*` catches it, `local prompt` starts empty), so a
+    future operation added to SUPPORTED_OPERATIONS but not to this inner case
+    composes a broken command with no error. Same flattening hazard
+    (`${args[*]}` / `"$*"`) exists for every skill-launch operation (pick,
+    explain, qa, shadow, learn) — whitespace in any arg splits undetectably;
+    only work-report now guards against it.`
+- **Notes for sibling tasks:**
+  - **t1162_3 (skill):** the operation launches `/aitask-work-report <args>`;
+    args arrive as flat text — parse `--columns`/`--tasks` as whitespace-
+    delimited tokens. Column IDs/task IDs are guaranteed whitespace-free (the
+    dispatcher refuses otherwise). Re-run the full
+    `aitask_audit_wrappers.sh` once the skill references
+    `aitask_work_report_gather.sh` so discovery-phase coverage is confirmed.
+  - **t1162_4 (board `w`):** resolve the launch through
+    `aitask_codeagent.sh --dry-run invoke work-report --columns … --tasks …`;
+    the operation is in `_FRESH_WINDOW_OPERATIONS`, so the agent-command
+    dialog opens a fresh window. Default model resolves to
+    `claudecode/sonnet4_6` via the seeded config.
+
 ## Step 9 reference
 
 Post-implementation: merge/cleanup + archival per task-workflow Step 9.
