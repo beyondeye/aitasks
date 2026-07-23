@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: [t1162_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [reporting]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1162
 implemented_with: claudecode/fable5
 created_at: 2026-07-22 10:45
-updated_at: 2026-07-22 18:51
+updated_at: 2026-07-23 14:24
+completed_at: 2026-07-23 14:24
 ---
 
 ## Context
@@ -47,3 +48,14 @@ Second child of t1162. Registers `work-report` as a configurable read-only code-
 > **✅ gate:plan_approved** run=2026-07-22T15:51:15Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-23T11:01:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-23T11:24:23Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1d50c498bb4a8f5c
+
+> **✅ gate:risk_evaluated** run=2026-07-23T11:24:23Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1162_2/risk_evaluated_2026-07-23T11:24:23Z-risk_evaluated-a1.log`
