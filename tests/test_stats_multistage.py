@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import unittest
 from datetime import date
 from pathlib import Path
 
@@ -220,6 +221,19 @@ def main() -> int:
     print(f"Results: {PASS}/{TOTAL} passed, {FAIL} failed")
     print("==========================")
     return 1 if FAIL else 0
+
+
+class ScriptChecksTest(unittest.TestCase):
+    """Collects this file's script-style checks under unittest discovery (t1211).
+
+    ``assert_eq`` tallies into ``FAIL`` instead of raising, so the assertion is
+    on ``main()``'s return code; the per-check detail is printed to stdout.
+    ``main()`` owns its own tempdir setup, so the wrapper delegates rather than
+    duplicating the driver.
+    """
+
+    def test_all_checks_pass(self):
+        self.assertEqual(main(), 0, "script checks failed — see stdout above")
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sys
 import time
+import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".aitask-scripts"))
@@ -170,7 +171,7 @@ def test_all_patterns_flattens_per_agent_groups() -> None:
     assert "codex_yes_proceed" in names
 
 
-if __name__ == "__main__":
+def main() -> int:
     tests = [
         ("test_awaiting_input_detected_for_matching_prompt",
          test_awaiting_input_detected_for_matching_prompt),
@@ -201,5 +202,21 @@ if __name__ == "__main__":
     print()
     if failures:
         print(f"FAIL: {failures}/{len(tests)} tests failed")
-        sys.exit(1)
+        return 1
     print(f"PASS: all {len(tests)} tests passed")
+    return 0
+
+
+class ScriptChecksTest(unittest.TestCase):
+    """Collects this file's script-style checks under unittest discovery (t1211).
+
+    ``main()`` catches each check's AssertionError to print a per-check tally,
+    so the assertion here is on its return code; detail goes to stdout.
+    """
+
+    def test_all_checks_pass(self):
+        self.assertEqual(main(), 0, "script checks failed — see stdout above")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

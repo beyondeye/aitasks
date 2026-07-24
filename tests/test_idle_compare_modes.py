@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 import time
+import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".aitask-scripts"))
@@ -113,10 +114,26 @@ def test_set_compare_mode_clears_last_content() -> None:
     assert pane.pane_id not in mon._last_content
 
 
-if __name__ == "__main__":
+def main() -> int:
     test_default_mode_ignores_animated_color()
     test_raw_mode_preserves_legacy_behavior()
     test_visible_text_change_resets_idle()
     test_cycle_compare_mode_sequence()
     test_set_compare_mode_clears_last_content()
     print("PASS")
+    return 0
+
+
+class ScriptChecksTest(unittest.TestCase):
+    """Collects this file's script-style checks under unittest discovery (t1211).
+
+    These checks use bare ``assert``, so a failure propagates out of ``main()``
+    as an AssertionError with a full traceback — ``main()`` only ever returns 0.
+    """
+
+    def test_all_checks_pass(self):
+        self.assertEqual(main(), 0, "script checks failed — see stdout above")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

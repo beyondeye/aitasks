@@ -22,6 +22,7 @@ Run: bash tests/run_all_python_tests.sh
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import sys
@@ -187,6 +188,133 @@ class TuiSwitcherScopeTests(unittest.TestCase):
             if scope == "shared.tui_switcher"
         }
         self.assertEqual(actions, self._QUICK_JUMPS)
+
+
+class ModuleIdentityTests(unittest.TestCase):
+    """t1211: a sweep must never rebind a canonical ``sys.modules`` entry.
+
+    The sweep re-executes each manifest module's body. If it did so under the
+    module's *canonical* name, ``sys.modules[name]`` would be replaced by a fresh
+    module object and its classes would gain a second identity — so anything
+    holding the pre-sweep class fails ``isinstance`` against the post-sweep one.
+    That is a live-process bug (``ShortcutsMixin.action_open_shortcuts_editor``
+    sweeps inside running TUIs, and ``shared.*`` always matches) and it also made
+    ``tests/test_tui_switcher_agent_launch.py`` fail under full-suite discovery
+    while passing in isolation. ``_load_and_register`` therefore execs under
+    ``_PROBE_PREFIX + module_name``.
+
+    **Do not "simplify" this by reusing an already-imported module instead of
+    re-executing it.** The re-exec is what re-fires module-level / class-body
+    registrations (``shared.tui_switcher``, ``brainstorm.dag``) after
+    ``keybinding_registry._reset_for_tests()``; a reuse implementation makes
+    ``ManifestDriftTests`` and ``TuiSwitcherScopeTests`` above fail. Both
+    properties are required, and each is pinned by a different test here.
+    """
+
+    _CANONICAL = "agent_command_screen"
+
+    def setUp(self) -> None:
+        keybinding_registry._reset_for_tests()
+
+    def tearDown(self) -> None:
+        keybinding_registry._reset_for_tests()
+
+    def _identity(self) -> tuple[object, object]:
+        """(module object, class object) currently bound to the canonical name."""
+        module = sys.modules[self._CANONICAL]
+        return module, module.AgentCommandScreen
+
+    def test_full_sweep_preserves_canonical_module_identity(self):
+        import agent_command_screen  # noqa: F401 — ensure it is canonically imported
+
+        before = self._identity()
+        shortcut_scopes.register_all_known_bindings()
+        self.assertEqual(
+            self._identity(), before,
+            "register_all_known_bindings() rebound sys.modules"
+            f"[{self._CANONICAL!r}] — its classes now have a second identity",
+        )
+
+    def test_filtered_sweep_preserves_canonical_module_identity(self):
+        # The in-TUI `?` editor path: shared.* is always scope-relevant, so a
+        # board editor loads agent_command_screen too.
+        import agent_command_screen  # noqa: F401
+
+        before = self._identity()
+        shortcut_scopes.register_scope_bindings("board")
+        self.assertEqual(
+            self._identity(), before,
+            "register_scope_bindings('board') rebound sys.modules"
+            f"[{self._CANONICAL!r}]",
+        )
+
+    def test_repeated_sweeps_preserve_canonical_module_identity(self):
+        """The probe key is fixed, so later sweeps overwrite the probe entry.
+
+        A live TUI can sweep many times (``_subscopes_registered`` guards per
+        *instance*, not per process), so identity must hold after **every** call,
+        not just the first.
+        """
+        import agent_command_screen  # noqa: F401
+
+        before = self._identity()
+        probe_key = shortcut_scopes._PROBE_PREFIX + self._CANONICAL
+        probe_objects = []
+
+        for round_no in range(1, 4):
+            for label, sweep in (
+                ("register_all_known_bindings", lambda: shortcut_scopes.register_all_known_bindings()),
+                ("register_scope_bindings('board')", lambda: shortcut_scopes.register_scope_bindings("board")),
+                ("register_scope_bindings('codebrowser')", lambda: shortcut_scopes.register_scope_bindings("codebrowser")),
+            ):
+                failed = sweep()
+                self.assertEqual(failed, [], f"round {round_no} {label}: import failures {failed}")
+                self.assertEqual(
+                    self._identity(), before,
+                    f"round {round_no}: {label} rebound sys.modules[{self._CANONICAL!r}]",
+                )
+            probe_objects.append(sys.modules[probe_key])
+
+        # Distinguish expected probe churn from the bug: the probe entry IS
+        # replaced every round, the canonical entry is not. Without this the
+        # assertions above could pass on a build that never loaded anything.
+        self.assertEqual(
+            len({id(o) for o in probe_objects}), len(probe_objects),
+            "probe entry was not re-executed on later sweeps",
+        )
+        self.assertNotIn(
+            id(before[0]), {id(o) for o in probe_objects},
+            "probe entry must never be the canonical module object",
+        )
+
+    def test_canonical_name_load_is_detected(self):
+        """Negative control: the identity assertions above must be falsifiable.
+
+        Reproduce the pre-fix behaviour (exec under the canonical name) directly
+        and assert the same comparison *does* catch it. Without this, an
+        ``assertEqual`` on two reads of an untouched entry would pass forever
+        even if the sweep stopped loading modules altogether.
+        """
+        import agent_command_screen  # noqa: F401
+
+        before = self._identity()
+        path = shortcut_scopes._SCRIPTS_DIR / "lib" / "agent_command_screen.py"
+        try:
+            spec = importlib.util.spec_from_file_location(self._CANONICAL, path)
+            assert spec is not None and spec.loader is not None
+            clobber = importlib.util.module_from_spec(spec)
+            sys.modules[self._CANONICAL] = clobber
+            spec.loader.exec_module(clobber)
+            self.assertNotEqual(
+                self._identity(), before,
+                "a canonical-name re-exec went undetected — the identity "
+                "assertions in this class are vacuous",
+            )
+        finally:
+            # Undo only our own mutation; never `git checkout --` here.
+            sys.modules[self._CANONICAL] = before[0]
+
+        self.assertEqual(self._identity(), before, "negative control failed to restore state")
 
 
 if __name__ == "__main__":

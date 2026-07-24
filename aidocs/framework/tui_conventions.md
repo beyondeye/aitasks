@@ -407,6 +407,26 @@ How to apply when you add a new scope:
   reads class attributes without instantiating, so do not add heavy
   instantiation there.
 
+**Import semantics of the sweep — do not "optimize" either half.** Each sweep
+*re-executes* the manifest module's body, and does so under a **private probe
+name** (`_shortcut_scopes_probe_<module_name>`) rather than the module's
+canonical name. Both properties are load-bearing:
+
+- *Re-exec rather than reuse an already-imported module.* Module-level and
+  class-body registrations (`shared.tui_switcher`, `brainstorm.dag`) only fire
+  during an import, and `keybinding_registry` can be reset between sweeps — a
+  reuse implementation silently loses those scopes.
+- *Probe name rather than the canonical one.* Executing under the canonical name
+  would rebind `sys.modules[<name>]` to a fresh module object, giving its classes
+  a **second identity**, so anything still holding the pre-sweep class (a mounted
+  TUI screen, a test module's top-level import) fails `isinstance` against the
+  post-sweep one. The `?` editor sweeps inside running TUIs, so this bites live
+  processes, not just tests.
+
+`ModuleIdentityTests` in `tests/test_shortcut_scopes.py` pins the canonical-entry
+invariant (including across repeated sweeps, with a negative control proving the
+check is falsifiable); the drift guard above pins the re-exec half.
+
 The in-TUI `?` editor uses the same manifest, *filtered*: it calls
 `shortcut_scopes.register_scope_bindings(scope)` (from
 `ShortcutsMixin.action_open_shortcuts_editor`) so the active TUI's modal

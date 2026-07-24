@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import unittest
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -102,6 +103,17 @@ def main() -> int:
     print(f"\n{PASS}/{TOTAL} passed"
           + (f", {FAIL} FAILED" if FAIL else ""))
     return 1 if FAIL else 0
+
+
+class ScriptChecksTest(unittest.TestCase):
+    """Collects this file's script-style checks under unittest discovery (t1211).
+
+    ``assert_eq`` / ``assert_true`` tally into ``FAIL`` instead of raising, so
+    the assertion is on ``main()``'s return code; detail goes to stdout.
+    """
+
+    def test_all_checks_pass(self):
+        self.assertEqual(main(), 0, "script checks failed — see stdout above")
 
 
 if __name__ == "__main__":

@@ -3658,8 +3658,9 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _populate_shortcuts_tab(self):
         # Register every TUI's bindings (this is a settings-only process, so
         # other Apps are never instantiated to register themselves). The sweep
-        # re-executes module bodies, so run it once — _DEFAULTS persists for the
-        # process lifetime. Fail-soft.
+        # re-executes module bodies (under a private probe name, so canonical
+        # sys.modules entries are untouched), so run it once — _DEFAULTS
+        # persists for the process lifetime. Fail-soft.
         if not self._shortcuts_swept:
             try:
                 shortcut_scopes.register_all_known_bindings()

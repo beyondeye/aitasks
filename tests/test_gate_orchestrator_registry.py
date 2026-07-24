@@ -14,6 +14,7 @@ Run: python3 tests/test_gate_orchestrator_registry.py
 import os
 import sys
 import tempfile
+import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", ".aitask-scripts", "lib"))
@@ -195,9 +196,28 @@ def test_is_stuck():
           go.is_stuck(one, "AAA"))
 
 
-for fn in (test_registry_keys, test_compute_unlocked_linear, test_compute_unlocked_dag,
-           test_compute_unlocked_budget, test_skip_satisfies_archive_and_deps, test_is_stuck):
-    fn()
+_CHECKS = (test_registry_keys, test_compute_unlocked_linear, test_compute_unlocked_dag,
+           test_compute_unlocked_budget, test_skip_satisfies_archive_and_deps, test_is_stuck)
 
-print(f"\nResults: {PASS} passed, {FAIL} failed")
-sys.exit(1 if FAIL else 0)
+
+def main() -> int:
+    for fn in _CHECKS:
+        fn()
+
+    print(f"\nResults: {PASS} passed, {FAIL} failed")
+    return 1 if FAIL else 0
+
+
+class ScriptChecksTest(unittest.TestCase):
+    """Collects this file's script-style checks under unittest discovery (t1211).
+
+    ``check()`` tallies into ``FAIL`` instead of raising, so the assertion is on
+    ``main()``'s return code; the per-check detail is printed to stdout.
+    """
+
+    def test_all_checks_pass(self):
+        self.assertEqual(main(), 0, "script checks failed — see stdout above")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -63,6 +63,11 @@ KNOWN_BINDING_SOURCES: list[tuple[str, str, tuple[str, ...]]] = [
     ("tui_switcher", "lib/tui_switcher.py", ("shared", "shared.tui_switcher")),  # module- + class-body register
 ]
 
+# Manifest modules are executed under this prefix instead of their canonical
+# name, so a sweep never rebinds `sys.modules[<canonical>]`. See
+# `_load_and_register` for why that matters (t1211).
+_PROBE_PREFIX = "_shortcut_scopes_probe_"
+
 
 def _ensure_import_paths() -> None:
     """Put the dirs each TUI module imports its siblings from on ``sys.path``.
@@ -92,10 +97,32 @@ def _load_and_register(module_name: str, rel_path: str, failed: list[str]) -> No
     the ``shared`` TUI-switcher binding) fire during the import itself. Fail-soft:
     a module that cannot be imported is appended to ``failed`` and logged, never
     raising. ``register_app_bindings`` is idempotent, so repeat calls are safe.
+
+    **The module body is re-executed on every sweep, under a private probe name**
+    (``_shortcut_scopes_probe_<module_name>``). Both halves of that are
+    load-bearing (t1211):
+
+    * *Re-exec, not reuse.* ``keybinding_registry`` can be reset between sweeps
+      (``_reset_for_tests``), and module-level / class-body registrations only
+      re-fire on a fresh exec — reusing an already-imported module silently
+      loses ``shared.tui_switcher`` and ``brainstorm.dag``.
+    * *Probe name, not the canonical one.* Executing under ``module_name`` would
+      rebind ``sys.modules[module_name]`` to a fresh module object, giving its
+      classes a **second identity**: anything holding the pre-sweep class (a live
+      TUI screen, a test module's top-level import) then fails ``isinstance``
+      against the post-sweep one. The ``?`` shortcut editor sweeps inside running
+      TUIs, so this is a live-process concern, not just a test artifact.
+
+    Same sandboxing idiom as ``_load_board_module`` in
+    ``tests/test_board_archived_relation_lookup.py``. The probe entry is left in
+    ``sys.modules`` (popping it risks breaking later lazy ``__module__``
+    resolution); its key is fixed, so repeat sweeps overwrite it rather than
+    accumulating copies.
     """
     path = _SCRIPTS_DIR / rel_path
+    probe_name = _PROBE_PREFIX + module_name
     try:
-        spec = importlib.util.spec_from_file_location(module_name, path)
+        spec = importlib.util.spec_from_file_location(probe_name, path)
         if spec is None or spec.loader is None:
             raise ImportError(f"no loader for {path}")
         module = importlib.util.module_from_spec(spec)
@@ -106,12 +133,14 @@ def _load_and_register(module_name: str, rel_path: str, failed: list[str]) -> No
         # `sys.modules.get(cls.__module__).__dict__`. Without this entry the
         # lookup returns None and the import dies with
         # "AttributeError: 'NoneType' object has no attribute '__dict__'".
-        # Manifest names are unique, so there is no collision; popped on failure
+        # Probe names are unique, so there is no collision; popped on failure
         # so a half-initialized module is never left registered.
-        sys.modules[module_name] = module
+        sys.modules[probe_name] = module
         spec.loader.exec_module(module)
     except Exception as exc:  # noqa: BLE001 — degrade gracefully
-        sys.modules.pop(module_name, None)
+        sys.modules.pop(probe_name, None)
+        # Report the CANONICAL name — that is the manifest/caller-facing
+        # identifier (the drift guard names it back to the user).
         failed.append(module_name)
         sys.stderr.write(
             f"shortcut_scopes: could not load {module_name} "
@@ -120,12 +149,13 @@ def _load_and_register(module_name: str, rel_path: str, failed: list[str]) -> No
         return
 
     # Register the bindings of every ShortcutsMixin class DEFINED in this
-    # module (filter on __module__ so imported base classes are ignored).
+    # module (filter on __module__ — the probe name, since that is what the
+    # module was executed as — so imported base classes are ignored).
     # Classes that register at class body (no _shortcuts_scope attr, e.g.
     # brainstorm.dag) are already handled by the exec_module above and are
     # skipped here by the truthy-_shortcuts_scope guard.
     for _name, cls in inspect.getmembers(module, inspect.isclass):
-        if getattr(cls, "__module__", None) != module_name:
+        if getattr(cls, "__module__", None) != probe_name:
             continue
         scope = getattr(cls, "_shortcuts_scope", "")
         bindings = getattr(cls, "BINDINGS", None)
