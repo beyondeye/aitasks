@@ -69,6 +69,7 @@ class BoardFooterVisibilityTests(unittest.TestCase):
                 app._focused_card = lambda: SimpleNamespace(
                     task_data=task,
                     is_child=False,
+                    column_id="now",
                 )
 
                 for action in (
