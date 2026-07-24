@@ -289,3 +289,70 @@ Step 9 (Post-Implementation) handles merge approval, gate orchestration
 
 ### Planned mitigations
 - timing: after | name: guard_no_zero_collection_test_files | type: test | priority: medium | effort: low | addresses: goal-achievement — AC 2's negative control is manual / defect-2 class | desc: Add a discovery guard asserting every tests/test_*.py contributes at least one collected test, so a script-style or import-guarded file can never again silently drop out of the aggregate suite. Implementation constraint (measured during t1211 planning, carry into the task body): the guard must inspect discovery EXTERNALLY — run `unittest discover` in a subprocess and count collected tests per module — not from an in-process TestCase that imports its siblings, which is circular and re-triggers import-time side effects. It must also assert there are no `unittest.loader._FailedTest` entries: an import-failing module is attributed to the `unittest.loader` module, not its own name, so a broken file would otherwise still register a passing "test". Baseline at t1211 completion is an EMPTY zero-collection set across all 135 `tests/test_*.py` files, so no exclusion list is needed on day one — if one becomes necessary later it must be an explicit, commented allowlist, not a silent skip. Finally, `run_all_python_tests.sh` prefers pytest when installed and falls back to unittest; the two branches name modules differently, so the guard must state which branch it validates.
+
+## Final Implementation Notes
+
+- **Actual work done:** All three fixes landed as planned.
+  1. `shortcut_scopes.py` — added `_PROBE_PREFIX = "_shortcut_scopes_probe_"`; `_load_and_register`
+     now execs each manifest module under `probe_name`, using it for
+     `spec_from_file_location`, the pre-`exec_module` `sys.modules` registration, the
+     failure-path `pop`, and the `cls.__module__` class filter. `failed.append()` and the
+     stderr message stay keyed on the **canonical** name. Docstring extended with the
+     two-part invariant (re-exec is required; canonical rebinding is forbidden) and why.
+  2. Six script-style test files brought into discovery with a uniform
+     `main() -> int` + `ScriptChecksTest.test_all_checks_pass` wrapper that delegates to
+     the same `main()` the `__main__` path uses (driver never duplicated).
+     `test_gate_orchestrator_registry.py` needed the module-level driver + `sys.exit`
+     extracted into `main()` — that is what removed the collection ERROR.
+  3. `ModuleIdentityTests` in `tests/test_shortcut_scopes.py`: full-sweep and
+     filtered-sweep (`?`-editor path) identity assertions, a repeated-sweep test
+     (3 rounds × 3 sweeps, checked after every call) that also distinguishes expected
+     probe churn from canonical churn, and a negative control that reproduces a
+     canonical-name re-exec and asserts the check catches it.
+  Docs: `aidocs/framework/tui_conventions.md` gained an "Import semantics of the sweep"
+  paragraph; `settings_app.py:3659` comment corrected to mention the probe name.
+
+- **Deviations from plan:**
+  - The task was implemented in a session that **crashed** (PID 151619 on omg16); this
+    session reclaimed the in-flight lock (`RECLAIM_CRASH`) and resumed at
+    `resume_point = IMPLEMENT` rather than planning from scratch.
+  - Verification step 2 expected 20/20 on the AC4 pair; the actual count is **24/24**,
+    because `ModuleIdentityTests` adds 4 cases to `test_shortcut_scopes`. Not a
+    regression — the plan's figure predated Fix 3 being written.
+
+- **Issues encountered:** The crashed session died **mid-negative-control**: it had
+  restored the module-level driver + `sys.exit(1 if FAIL else 0)` in
+  `test_gate_orchestrator_registry.py` (Verification step 6) and never reverted it, leaving
+  the block tagged `# NEGCTRL t1211 — remove this block` in the working tree. That
+  re-introduced the exact collection ERROR Fix 2 exists to remove, so the task looked
+  implemented but its headline AC was still failing. Removed it on resume. This is the
+  concrete argument for running the *final* full-suite confirmation **after** every
+  negative control has been reverted, not before.
+
+- **Key decisions:**
+  - For the AC4 root-cause negative control, temporarily setting `_PROBE_PREFIX = ""`
+    (so `probe_name == module_name`) reproduces the pre-fix behaviour exactly with a
+    **one-line, trivially reversible** edit, instead of reverting four call sites.
+  - Negative-control state was restored by undoing only the specific mutation — never
+    `git checkout --`, which would have wiped concurrent sessions' uncommitted work in
+    this shared checkout.
+  - The live TUI smoke (Verification step 7) is interactive and was **not** run in this
+    session; queued as a manual-verification follow-up instead of being silently skipped.
+
+- **Verification results:**
+  - AC1 — `bash tests/run_all_python_tests.sh`: **1988 tests, OK, exit 0** (was
+    `FAILED (failures=4, errors=1)`). Re-confirmed green after all negative controls
+    were reverted.
+  - AC2 — harness can fail, **both shapes**: breaking a counter-style check
+    (`test_gate_orchestrator_registry.py`) → harness exit 1; breaking a bare-assert check
+    (`test_idle_compare_modes.py`) → harness exit 1 with the AssertionError attributed to
+    `test_idle_compare_modes.ScriptChecksTest.test_all_checks_pass`. The same run showed
+    all **6** `ScriptChecksTest` cases collected, confirming no wrapped file dropped out.
+  - AC3 — all 6 files still exit 0 when run directly; restoring the module-level
+    `sys.exit` makes harness-identical discovery report `FAILED (errors=1)` /
+    `SystemExit: 0` again.
+  - AC4 — targeted pair 24/24 OK; with `_PROBE_PREFIX` neutralised the run fails with
+    **7** failures (the 4 original `assertIsInstance` failures plus 3 `ModuleIdentityTests`),
+    proving both the fix and the new tests are load-bearing.
+
+- **Upstream defects identified:** None
