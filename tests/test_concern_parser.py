@@ -21,6 +21,7 @@ sys.path.insert(
 from concern_parser import (  # noqa: E402
     Concern,
     DEFAULT_PREAMBLE,
+    block_head_truncated,
     build_clipboard_payload,
     contains_any_concern_block,
     has_concern_block,
@@ -481,6 +482,164 @@ class TestSplitMarkerJoin(unittest.TestCase):
                 )
             ],
         )
+
+
+class TestBlockHeadTruncated(unittest.TestCase):
+    """The capture window starting *inside* a block (t1187).
+
+    Both runtime entry points key off the LAST opening fence, so a window that
+    clipped the opening fence reads exactly like "the shadow raised nothing" —
+    a silent false negative. ``block_head_truncated`` names that shape so the UI
+    can report a too-shallow capture instead of staying quiet.
+
+    Five of the seven cases must stay ``False``: the predicate's whole value is
+    that it does NOT cry wolf on ordinary captures.
+    """
+
+    ITEMS = (
+        "- [high | Step 7 guard] The guard double-commits the lock.\n"
+        "- [medium | parser] Multi-block accumulation is undefined.\n"
+    )
+
+    def test_orphan_close_is_truncation(self):
+        text = self.ITEMS + CLOSE + "\n"
+        self.assertTrue(block_head_truncated(text))
+
+    def test_detection_is_not_recovery(self):
+        """Detecting the clip must NOT start parsing the untrusted head region.
+
+        The text above an orphan closing fence can be a shadow doc read into the
+        pane, carrying literal example markers (the t1123 hazard) — so the two
+        runtime entry points stay silent and the caller re-captures deeper.
+        """
+        text = self.ITEMS + CLOSE + "\n"
+        self.assertEqual(parse_concerns(text), [])
+        self.assertFalse(has_concern_block(text))
+
+    def test_complete_block_is_not_truncation(self):
+        self.assertFalse(block_head_truncated(block(self.ITEMS.strip())))
+
+    def test_no_fences_at_all_is_not_truncation(self):
+        """Negative control: a genuinely concern-free pane is not a clip."""
+        self.assertFalse(block_head_truncated("just some agent output\n"))
+
+    def test_streaming_block_is_not_truncation(self):
+        """An opening fence with no close yet is mid-stream, not clipped."""
+        self.assertFalse(block_head_truncated(OPEN + "\n" + self.ITEMS))
+
+    def test_complete_then_streaming_is_not_truncation(self):
+        text = block(self.ITEMS.strip()) + "\n" + OPEN + "\n- [low | x] newer\n"
+        self.assertFalse(block_head_truncated(text))
+
+    def test_clipped_older_plus_streaming_newer_is_not_truncation(self):
+        """The false positive an ordering-based variant produces.
+
+        "First closing fence has no opening fence before it" is true here — the
+        older block WAS clipped — but the newest review is simply still
+        streaming and will complete normally. Warning the user to deepen the
+        capture window would be noise, so this must read False.
+        """
+        text = (
+            self.ITEMS + CLOSE + "\nprose\n"
+            + OPEN + "\n- [low | x] a newer, still-streaming review\n"
+        )
+        self.assertFalse(block_head_truncated(text))
+
+    def test_clipped_older_plus_complete_newer_is_not_truncation(self):
+        """Same family: the newest block is intact, so the runtime parses fine."""
+        text = (
+            self.ITEMS + CLOSE + "\n"
+            + block("- [low | x] a newer, complete review")
+        )
+        self.assertFalse(block_head_truncated(text))
+        self.assertTrue(has_concern_block(text))
+
+
+def _states_short_region_rule(text: str) -> bool:
+    """True when a producer doc states the short-region rule.
+
+    Whitespace is collapsed first: these are hand-wrapped markdown files, so
+    either phrase can straddle a line break (both did, in two of the four
+    producers) and a raw substring test would report a false violation.
+
+    Module-level so the drift guard's negative control can exercise it on
+    synthetic text without mutating repo files.
+    """
+    flat = " ".join(text.split())
+    return "≤ ~30 chars" in flat and "never a full repo path" in flat
+
+
+class TestProducerShortRegionRule(unittest.TestCase):
+    """Every concern-block producer must state the short-region rule (t1187).
+
+    ``concern-format.md`` calls the ≤ ~30-char region rule the **primary
+    defense** against the split-marker hazard — keeping the region short means
+    the ``[priority | region]`` bracket never wraps at all, so nothing relies on
+    the parser's bounded rejoin (t1167). The rule used to live in
+    ``impl-challenge.md`` only, leaving all three *plan-review* producers free to
+    emit a long full-path region — exactly the shape that broke live.
+
+    The rule is inlined in each producer rather than linked: these are prompt
+    files read at runtime, and an extra file read is a rule the agent may skip.
+    This guard is what makes that duplication safe.
+    """
+
+    SHADOW_DIR = os.path.join(
+        os.path.dirname(__file__), "..", ".claude", "skills", "aitask-shadow"
+    )
+    # Any doc instructing an agent to emit the block carries this phrase.
+    PRODUCER_MARKER = "load-bearing for minimonitor's parser"
+    KNOWN_PRODUCERS = [
+        "impl-challenge.md",
+        "plan-assumptions.md",
+        "plan-challenge.md",
+        "plan-diagnose-errors.md",
+    ]
+
+    def _producers(self):
+        import glob
+
+        found = {}
+        for path in sorted(glob.glob(os.path.join(self.SHADOW_DIR, "*.md"))):
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            if self.PRODUCER_MARKER in text:
+                found[os.path.basename(path)] = text
+        return found
+
+    def test_producer_set_is_the_known_set(self):
+        """Guards the enumeration itself, so a new producer cannot slip past."""
+        self.assertEqual(sorted(self._producers()), self.KNOWN_PRODUCERS)
+
+    def test_every_producer_states_the_short_region_rule(self):
+        offenders = [
+            name
+            for name, text in self._producers().items()
+            if not _states_short_region_rule(text)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "producer doc(s) do not state the short-region rule, so the agent "
+            "may emit a full-path region whose bracket hard-wraps and becomes "
+            "unparseable to minimonitor: " + ", ".join(offenders),
+        )
+
+    def test_guard_flags_a_producer_missing_the_rule(self):
+        """Negative control: prove the guard can fail.
+
+        Exercises the predicate on synthetic text rather than editing a repo
+        file, so nothing has to be restored afterwards.
+        """
+        without = (
+            "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+            "- `region` names the plan section / axis the concern targets.\n"
+        )
+        self.assertFalse(_states_short_region_rule(without))
+        with_rule = without + (
+            "  MUST stay short (≤ ~30 chars), never a full repo path.\n"
+        )
+        self.assertTrue(_states_short_region_rule(with_rule))
 
 
 if __name__ == "__main__":

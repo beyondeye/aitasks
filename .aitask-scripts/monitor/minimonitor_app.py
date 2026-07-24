@@ -43,7 +43,8 @@ from monitor.monitor_shared import (  # noqa: E402
     format_state_dot,
 )
 from monitor.concern_parser import (  # noqa: E402
-    build_clipboard_payload, has_concern_block, parse_concerns,
+    block_head_truncated, build_clipboard_payload, has_concern_block,
+    parse_concerns,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
@@ -84,6 +85,21 @@ class MiniPaneCard(Static, can_focus=True):
 # Keeps the picker hotkey and the refresh-tick auto-offer from ever blocking the
 # Textual event loop on a stalled tmux / helper (t1037_4).
 _SHADOW_CAPTURE_TIMEOUT = 3.0
+
+# One-shot deeper window for the EXPLICIT concern-picker hotkey when the default
+# plan-review depth still clipped the block's opening fence (t1187). Only the
+# user-initiated 'c' path pays for it, and only once per press — the per-tick
+# auto-offer never retries.
+_SHADOW_DEEP_RETRY_LINES = 1500
+
+# Shown when a concern block is present but its opening fence fell outside the
+# capture window. Distinguishes a too-shallow capture from a genuinely
+# concern-free shadow, which used to read identically ("no concerns") — the
+# silent false negative behind t1187.
+_SHADOW_TRUNCATED_MSG = (
+    "Shadow's concern block is cut off above the capture window "
+    "— increase SHADOW_PLAN_CAPTURE_LINES"
+)
 
 
 def _pane_id_sort_key(pane_id: str) -> int:
@@ -264,6 +280,10 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Auto-offer de-dup (t1037_4): last forwarded concern payload per shadow
         # pane id, so a re-detected *unchanged* block does not re-fire the hint.
         self._last_concern_block_payload: dict[str, str] = {}
+        # Shadow panes already warned that their concern block was clipped at the
+        # head by the capture window (t1187). Warn once per episode, not every
+        # tick; cleared for a pane as soon as a complete block is seen on it.
+        self._truncation_warned: set[str] = set()
         # Shadow-feedback freshness (t1104). Tri-state: None = unknown (never
         # resolved, or a transient capture/hash failure — do NOT clear a prior
         # warning on such a failure), False = current, True = stale.
@@ -1287,20 +1307,36 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return None
         return match_shadow_pane(out, followed_pane_id)
 
-    async def _capture_shadow_text(self, shadow_pane: str) -> str | None:
+    async def _capture_shadow_text(
+        self, shadow_pane: str, *, lines: int | None = None
+    ) -> str | None:
         """Capture a shadow pane as clean, wrap-joined text, or ``None`` on failure.
 
         Reuses ``aitask_shadow_capture.sh`` (the shadow skill's own capture path,
         now ``-J``-joined per the parser's capture-join contract) so cleaning never
         diverges. Async with a hard timeout: a stalled tmux / helper degrades to
         ``None`` rather than hanging the UI (t1037_4).
+
+        Always passes ``--deep``: what we are reading here IS plan-review output
+        (the shadow's concern list plus its fully-framed machine block), which is
+        exactly why the plan sub-procedures use that depth. At the narrow widths
+        a shadow pane runs at, the 200-line default can start *inside* the block
+        and clip its opening fence — which both parser entry points report as
+        "no concerns" (t1187).
+
+        ``lines`` overrides the deep depth for one call (``SHADOW_PLAN_CAPTURE_
+        LINES``), used by the explicit picker hotkey's single deeper retry.
         """
         script = _SCRIPT_DIR / "aitask_shadow_capture.sh"
+        env = None
+        if lines is not None:
+            env = dict(os.environ, SHADOW_PLAN_CAPTURE_LINES=str(lines))
         try:
             proc = await asyncio.create_subprocess_exec(
-                str(script), shadow_pane,
+                str(script), "--deep", shadow_pane,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
+                env=env,
             )
         except OSError:
             return None
@@ -1419,6 +1455,19 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify("Could not read the shadow pane", severity="warning")
             return
         concerns = parse_concerns(text)
+        if not concerns and block_head_truncated(text):
+            # The block is there but the window started inside it. This is the
+            # explicit user action, so pay for ONE much deeper re-capture rather
+            # than reporting a false "no concerns" (t1187).
+            deeper = await self._capture_shadow_text(
+                shadow_pane, lines=_SHADOW_DEEP_RETRY_LINES
+            )
+            if deeper is not None:
+                text = deeper
+                concerns = parse_concerns(text)
+            if not concerns:
+                self.notify(_SHADOW_TRUNCATED_MSG, severity="warning")
+                return
         if not concerns:
             self.notify("No concerns detected on the shadow pane")
             return
@@ -1477,8 +1526,20 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self._shadow_freshness_tick % 2 == 1:
             await self._update_shadow_freshness(shadow_pane, snap.pane.pane_id)
         text = await self._capture_shadow_text(shadow_pane)
-        if text is None or not has_concern_block(text):
+        if text is None:
             return
+        if not has_concern_block(text):
+            # A block whose opening fence fell outside the window looks exactly
+            # like "no concerns" to the strict predicate. Say so once per pane
+            # instead of staying silent (t1187) — the user can then deepen the
+            # window or press 'c', which retries deeper on its own.
+            if block_head_truncated(text):
+                if shadow_pane not in self._truncation_warned:
+                    self._truncation_warned.add(shadow_pane)
+                    self.notify(_SHADOW_TRUNCATED_MSG, severity="warning")
+            return
+        # A complete block arrived: re-arm the warning for this pane.
+        self._truncation_warned.discard(shadow_pane)
         concerns = parse_concerns(text)
         if not concerns:
             return

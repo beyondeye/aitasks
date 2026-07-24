@@ -31,7 +31,12 @@ detection stage (that idea is deferred — see "Phase detection" below).
    recapture with `--deep` (the script's `SHADOW_PLAN_CAPTURE_LINES`, default
    400) because a whole plan can exceed the 200-line default and be truncated to
    its tail; ordinary reads (explain-output, help-answer-prompt,
-   diagnose-errors) stay at the default depth to stay cheap.
+   diagnose-errors) stay at the default depth to stay cheap. Minimonitor's own
+   capture of the *shadow* pane (the concern picker and its auto-offer) also
+   uses `--deep`, for the same reason from the other side: what it is reading is
+   plan-review output, and at the narrow width a shadow pane runs at, the
+   200-line window can start inside the concern block and clip its opening
+   fence (t1187).
 2. **Context-fetch** — `.aitask-scripts/aitask_shadow_context.sh <task_id>`
    resolves the followed agent's task file and most-recent plan, emitting
    `TASK_FILE:` / `PLAN_FILE:` lines (`--siblings` adds `SIBLING:` lines). For

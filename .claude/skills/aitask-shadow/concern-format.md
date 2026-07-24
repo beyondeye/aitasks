@@ -55,7 +55,10 @@ the parser-safety guard in `tests/test_concern_parser.py`.
   paths go in the body). This rule is the **primary defense** against the
   split-marker hazard below, and it remains in force: keeping the region short
   means the bracket never wraps at all, so the region stays exact and nothing
-  relies on the parser's recovery envelope.
+  relies on the parser's recovery envelope. **Every** producer listed under
+  "Where it lives" states this rule inline, and
+  `tests/test_concern_parser.py::TestProducerShortRegionRule` fails the build if
+  one of them drops it or a new producer appears without it.
 
   **Split-marker hazard and its bounded recovery.** Some agent TUIs (e.g. Codex
   CLI's markdown renderer) hard-wrap long output rows with **literal newlines**
@@ -95,6 +98,24 @@ capture handed to the parser **must be wrap-joined** — capture with
 newlines the parser sees are real, agent-emitted breaks. The minimonitor capture
 path (t1037_4) owns this; if it routes through `aitask_shadow_capture.sh`, that
 helper must join wrapped lines.
+
+### Capture-window contract
+
+A pane capture is a bounded *window*, so the block can also be lost by being
+older than the window rather than by being malformed. Two rules follow:
+
+- Minimonitor captures the shadow pane at **plan-review depth** (`--deep`,
+  `SHADOW_PLAN_CAPTURE_LINES`, default 400). What it must find is plan-review
+  output — the human-readable list plus this fully-framed block — and at the
+  narrow widths a shadow pane runs at, the ordinary 200-line depth can start
+  inside the block.
+- When the window still starts *inside* a block, both parser entry points key
+  off the last opening fence and so report nothing. `block_head_truncated(text)`
+  detects that shape (a closing fence with **no** opening fence anywhere in the
+  capture) and the UI reports it as a **truncated block**, never as "no
+  concerns". It is a detector only: the text above an orphan closing fence is
+  untrusted, so it is never parsed into forwardable concerns — the explicit
+  picker hotkey re-captures once with a much deeper window instead.
 
 ### Multi-block policy
 

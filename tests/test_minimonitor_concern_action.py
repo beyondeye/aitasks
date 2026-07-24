@@ -45,6 +45,14 @@ _UNCLOSED_BLOCK = (
     "===AITASK-CONCERNS===\n"
     "- [high | Step 7 guard] The guard double-commits the lock.\n"
 )
+# The capture window started INSIDE a block: items and the closing fence made it
+# in, the opening fence did not. Reads as "no concerns" to both parser entry
+# points, which is the silent false negative t1187 fixes.
+_HEAD_TRUNCATED = (
+    "- [high | Step 7 guard] The guard double-commits the lock.\n"
+    "- [medium | parser] Multi-block accumulation is undefined.\n"
+    "===END-CONCERNS===\n"
+)
 
 
 def _async_return(value):
@@ -77,6 +85,7 @@ def _mk_app(monitor=None):
     app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
     app._monitor = monitor
     app._last_concern_block_payload = {}
+    app._truncation_warned = set()
     app.spy_notify: list = []
     app.spy_pushed: list = []
     app.spy_clipboard: list = []
@@ -167,6 +176,107 @@ class ActionPickConcernsTests(unittest.TestCase):
         self.assertEqual(app.spy_pushed, [])
         self.assertEqual(app.spy_clipboard, [])
 
+    def test_retries_deeper_on_truncated_head(self):
+        """A clipped opening fence buys ONE much deeper re-capture (t1187)."""
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        captures: list = []
+
+        async def _capture(pane, *, lines=None):
+            captures.append(lines)
+            return _CLOSED_BLOCK if lines else _HEAD_TRUNCATED
+
+        app._capture_shadow_text = _capture
+        asyncio.run(app.action_pick_concerns())
+
+        # Second call asked for the deeper window; the block was recovered.
+        self.assertEqual(captures, [None, mm._SHADOW_DEEP_RETRY_LINES])
+        self.assertEqual(len(app.spy_pushed), 1)
+        self.assertEqual(len(app.spy_pushed[0][0]._concerns), 2)
+
+    def test_warns_when_deeper_retry_still_truncated(self):
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        captures: list = []
+
+        async def _capture(pane, *, lines=None):
+            captures.append(lines)
+            return _HEAD_TRUNCATED
+
+        app._capture_shadow_text = _capture
+        asyncio.run(app.action_pick_concerns())
+
+        self.assertEqual(captures, [None, mm._SHADOW_DEEP_RETRY_LINES])
+        self.assertEqual(app.spy_pushed, [])  # no modal on an unusable block
+        self.assertEqual(
+            app.spy_notify, [(mm._SHADOW_TRUNCATED_MSG, "warning")]
+        )
+
+    def test_genuinely_no_block_keeps_the_plain_message(self):
+        """Negative control: absence must not be reported as truncation."""
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        captures: list = []
+
+        async def _capture(pane, *, lines=None):
+            captures.append(lines)
+            return "just some agent output\n"
+
+        app._capture_shadow_text = _capture
+        asyncio.run(app.action_pick_concerns())
+
+        self.assertEqual(captures, [None])  # no pointless deeper re-capture
+        self.assertEqual(app.spy_notify, [("No concerns detected on the shadow pane", "information")])
+
+
+class CaptureArgvTests(unittest.TestCase):
+    """What ``_capture_shadow_text`` actually runs (t1187).
+
+    Every other test in this file stubs the method out, so nothing sees the real
+    CLI invocation — and the whole t1187 capture fix lives in that argv.
+    """
+
+    def _run_capture(self, **kwargs):
+        recorded: dict = {}
+
+        class _FakeProc:
+            returncode = 0
+
+            async def communicate(self):
+                return (b"captured text", b"")
+
+        async def _fake_exec(*argv, **kw):
+            recorded["argv"] = list(argv)
+            recorded["env"] = kw.get("env")
+            return _FakeProc()
+
+        app = _mk_app()
+        orig = asyncio.create_subprocess_exec
+        asyncio.create_subprocess_exec = _fake_exec
+        try:
+            out = asyncio.run(app._capture_shadow_text("%5", **kwargs))
+        finally:
+            asyncio.create_subprocess_exec = orig
+        return out, recorded
+
+    def test_uses_plan_review_depth(self):
+        out, rec = self._run_capture()
+        self.assertEqual(out, "captured text")
+        self.assertEqual(rec["argv"][1:], ["--deep", "%5"])
+        self.assertTrue(rec["argv"][0].endswith("aitask_shadow_capture.sh"))
+        # No override => inherit the ambient environment.
+        self.assertIsNone(rec["env"])
+
+    def test_lines_override_sets_plan_capture_lines(self):
+        _, rec = self._run_capture(lines=mm._SHADOW_DEEP_RETRY_LINES)
+        # The deeper retry changes the depth, never the target or the flag.
+        self.assertEqual(rec["argv"][1:], ["--deep", "%5"])
+        self.assertEqual(
+            rec["env"]["SHADOW_PLAN_CAPTURE_LINES"],
+            str(mm._SHADOW_DEEP_RETRY_LINES),
+        )
+        self.assertIn("PATH", rec["env"])  # inherited, not replaced
+
 
 class LaunchShadowGuardTests(unittest.TestCase):
     def test_refuses_duplicate_shadow_via_sync_reader(self):
@@ -235,6 +345,41 @@ class AutoOfferTests(unittest.TestCase):
         app = self._app(_CLOSED_BLOCK, async_list="%1\t\n%6\t%2")  # no shadow
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(app.spy_notify, [])
+
+    def test_truncated_head_warns_once_per_pane(self):
+        """A clipped block is reported, not swallowed — but only once (t1187).
+
+        The auto-offer never retries deeper (it runs every tick); it names the
+        capture window so the user can deepen it or press 'c', which does retry.
+        """
+        app = self._app(_HEAD_TRUNCATED)
+        asyncio.run(app._maybe_offer_concerns())
+        asyncio.run(app._maybe_offer_concerns())  # still truncated, second tick
+        self.assertEqual(
+            app.spy_notify, [(mm._SHADOW_TRUNCATED_MSG, "warning")]
+        )
+        self.assertEqual(app._truncation_warned, {"%5"})
+
+    def test_complete_block_rearms_the_truncation_warning(self):
+        app = self._app(_HEAD_TRUNCATED)
+        asyncio.run(app._maybe_offer_concerns())
+        # A complete block arrives: normal hint, and the pane is re-armed.
+        app._capture_shadow_text = _async_return(_CLOSED_BLOCK)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(app._truncation_warned, set())
+        # Truncated again later -> warns again rather than staying silent.
+        app._capture_shadow_text = _async_return(_HEAD_TRUNCATED)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(
+            [m for m, _ in app.spy_notify].count(mm._SHADOW_TRUNCATED_MSG), 2
+        )
+
+    def test_no_block_at_all_stays_silent(self):
+        """Negative control: silence is still correct when there is no block."""
+        app = self._app("just some agent output\n")
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(app.spy_notify, [])
+        self.assertEqual(app._truncation_warned, set())
 
     def test_no_shadow_clears_stale_banner(self):
         app = self._app(_CLOSED_BLOCK, async_list="%1\t\n%6\t%2")  # no shadow

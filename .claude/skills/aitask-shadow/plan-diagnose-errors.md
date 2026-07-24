@@ -68,7 +68,12 @@ pane — never the followed pane.
      carries it, so the parser can't mistake wrapped text for a new item).
    - `priority` is one of `high`, `medium`, `low`.
    - `region` names the offending skill / helper (a script name, a skill step,
-     etc.).
+     etc.) — and MUST stay **short** (≤ ~30 chars): use a bare script name or a
+     `basename.ext:LINE` locus, never a full repo path (put the full path in
+     the body instead). The whole `[priority | region]` marker must survive on
+     ONE rendered row: some agent TUIs hard-wrap long lines with literal
+     newlines that even a wrap-joined capture cannot rejoin, and a wrap
+     *inside the bracket* makes the item unparseable to minimonitor.
    - `body` carries the **full framing** — what failed, *why it bites* (the error
      and the likely cause), and the concrete file to look at. Match the substance
      of the corresponding prose item; do **not** compress it to a bare one-liner.

@@ -260,6 +260,36 @@ def has_concern_block(text: str) -> bool:
     return bool(_parse_items(region)) if region is not None else False
 
 
+def block_head_truncated(text: str) -> bool:
+    """True when the capture window clipped the opening fence of the block.
+
+    A closing fence with **no opening fence anywhere in the capture** means the
+    window starts inside a block: the shadow did emit concerns, but the capture
+    is too shallow to see where they began. Both runtime entry points key off
+    the last opening fence, so this is otherwise indistinguishable from "no
+    concerns at all" — a silent false negative (t1187).
+
+    Scoped to the **newest** block, matching the last-block-wins semantics of
+    :func:`_last_block_region`: if any opening fence is present, the newest
+    block's head is by definition intact and the runtime can parse it, so an
+    *older* clipped block is not the user's problem and must not raise a
+    capture-window warning. (An ordering variant — "the first closing fence has
+    no opening fence before it" — is wrong: it fires when an older block was
+    clipped and a newer review is merely still streaming.)
+
+    Deliberately a *detector*, not a recovery: the text above an orphan closing
+    fence is untrusted (a shadow doc read into the pane can carry literal
+    ``- [priority | region]`` example lines — the t1123 hazard), so it is never
+    parsed into forwardable concerns. Callers re-capture deeper instead.
+
+    Known blind spot: a block clipped at the head that is *also* still
+    streaming (no closing fence captured yet) is indistinguishable from a pane
+    with no block at all and reads ``False``. Accepted — the caller's deeper
+    capture window is the defense there.
+    """
+    return _CLOSE in text and _OPEN not in text
+
+
 def build_clipboard_payload(
     concerns: list[Concern], preamble: str = DEFAULT_PREAMBLE
 ) -> str:

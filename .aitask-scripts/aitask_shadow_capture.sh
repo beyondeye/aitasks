@@ -14,9 +14,11 @@
 #
 #   <pane_id>   tmux pane id (e.g. %5) or any target the gateway can address.
 #   --deep      Capture SHADOW_PLAN_CAPTURE_LINES (default 400) scrollback lines
-#               instead of the default SHADOW_CAPTURE_LINES (200). For the shadow's
-#               plan-review sub-procedures, whose long plans the 200-line window
-#               can truncate. No effect with - (stdin has no scrollback).
+#               instead of the default SHADOW_CAPTURE_LINES (200). The plan-review
+#               depth: used by the shadow's plan-review sub-procedures, whose long
+#               plans the 200-line window can truncate, and by minimonitor's
+#               capture of the shadow pane for the concern picker, whose block is
+#               itself plan-review-sized. No effect with - (stdin has no scrollback).
 #   -           Read a raw capture from stdin instead of tmux, clean it, emit it.
 #               (Useful for piping a pre-captured buffer; also the test seam.)
 #
@@ -49,9 +51,13 @@ SHADOW_CAPTURE_LINES="${SHADOW_CAPTURE_LINES:-200}"
 # whole plan; when the plan is only on screen (e.g. awaiting approval, not yet
 # externalized) the 200-line default can truncate earlier constraints,
 # decisions, or risk notes. Those procedures opt in with --deep, which selects
-# this depth. Ordinary shadow reads (explain-output, help-answer-prompt,
-# diagnose-errors) stay at SHADOW_CAPTURE_LINES to stay cheap. Env-overridable,
-# mirroring SHADOW_CAPTURE_LINES.
+# this depth. Minimonitor's capture of the SHADOW pane for the concern picker
+# opts in too: the shadow's concern block is plan-review-sized output, and at
+# the narrow width a shadow pane runs at, the 200-line window can start inside
+# the block and clip its opening fence (t1187). Ordinary shadow reads
+# (explain-output, help-answer-prompt, diagnose-errors) stay at
+# SHADOW_CAPTURE_LINES to stay cheap. Env-overridable, mirroring
+# SHADOW_CAPTURE_LINES.
 SHADOW_PLAN_CAPTURE_LINES="${SHADOW_PLAN_CAPTURE_LINES:-400}"
 
 show_help() {
@@ -65,9 +71,11 @@ Capture a followed agent's tmux pane as clean, escape-free text on stdout.
 Arguments:
   <pane_id>   tmux pane id (e.g. %5) of the agent being shadowed
   --deep      capture SHADOW_PLAN_CAPTURE_LINES (default 400) scrollback lines
-              instead of the default SHADOW_CAPTURE_LINES (200); for the shadow's
-              plan-review sub-procedures, whose long plans the 200-line default
-              can truncate. Has no effect with - (stdin has no scrollback).
+              instead of the default SHADOW_CAPTURE_LINES (200); the plan-review
+              depth, used by the shadow's plan-review sub-procedures (whose long
+              plans the 200-line default can truncate) and by minimonitor's
+              shadow-pane capture for the concern picker. Has no effect with -
+              (stdin has no scrollback).
   -           read raw capture from stdin instead of tmux
 
 When run inside a shadow pane capturing its bound followed agent, this also

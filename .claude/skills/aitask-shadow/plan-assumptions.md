@@ -79,7 +79,12 @@ agent's pane.
    - `priority` is one of `high`, `medium`, `low` (mapped as above).
    - `region` names the assumption category (`environment/tooling`,
      `data/inputs`, `behavior of other code`, `sequencing`, `intent/scope`) or a
-     named plan region.
+     named plan region — and MUST stay **short** (≤ ~30 chars): use a category
+     or a `basename.ext:LINE` locus, never a full repo path (put the full path
+     in the body instead). The whole `[priority | region]` marker must survive
+     on ONE rendered row: some agent TUIs hard-wrap long lines with literal
+     newlines that even a wrap-joined capture cannot rejoin, and a wrap
+     *inside the bracket* makes the item unparseable to minimonitor.
    - `body` carries the **full framing** — the assumption, *why it is dangerous*
      (what silently goes wrong if it's false), and enough context for the
      receiving agent to choose **how** to confirm or harden it. Match the

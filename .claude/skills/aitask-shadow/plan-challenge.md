@@ -75,7 +75,13 @@ agent's pane.
    - `priority` is one of `high`, `medium`, `low` — reuse the severity you
      assigned in Step 3.
    - `region` names the plan section / axis the concern targets (a step name,
-     `verification`, `blast radius`, …).
+     `verification`, `blast radius`, …) — and MUST stay **short** (≤ ~30
+     chars): use an axis label or a `basename.ext:LINE` locus, never a full
+     repo path (put the full path in the body instead). The whole
+     `[priority | region]` marker must survive on ONE rendered row: some agent
+     TUIs hard-wrap long lines with literal newlines that even a wrap-joined
+     capture cannot rejoin, and a wrap *inside the bracket* makes the item
+     unparseable to minimonitor.
    - `body` carries the **full framing** of the concern — the problem, *why it
      bites* (the triggering scenario), and enough context for the receiving
      agent to choose **how** to address it. Match the **substance** of the
