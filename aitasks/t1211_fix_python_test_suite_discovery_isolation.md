@@ -12,10 +12,11 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [1229]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-22 11:08
-updated_at: 2026-07-24 06:12
+updated_at: 2026-07-24 10:56
 boardcol: bug_fixes
 boardidx: 40
 ---
@@ -90,3 +91,5 @@ exactly the check most likely to be skipped.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-22T15:44:01Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-24T07:52:45Z status=pass attempt=1 type=human
