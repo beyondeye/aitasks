@@ -617,18 +617,18 @@
         },
         "wrap": {
           "all_time": {
-            "runs": 1
+            "runs": 2
           },
           "prev_month": {
-            "period": "",
-            "runs": 0
-          },
-          "month": {
             "period": "2026-06",
             "runs": 1
           },
+          "month": {
+            "period": "2026-07",
+            "runs": 1
+          },
           "week": {
-            "period": "2026-W25",
+            "period": "2026-W30",
             "runs": 1
           }
         },
