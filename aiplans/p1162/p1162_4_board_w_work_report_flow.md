@@ -130,14 +130,18 @@ uncommitted foreign hunks (t1210_2 topic-semantics extraction to
    `[now] t123 name`), value task id, `initial_state=True` (ALL checked).
    Enter confirms → dismiss ordered list of (col_id, task_id) preserving the
    DISPLAYED order restricted to still-selected ids; Escape cancels (None).
-5. **`run_work_report(cols_csv, tasks_csv)`** (new `@work(exclusive=True)`
-   worker, modeled on `run_codeagent_operation` :6021-6038 — the dedicated
-   column-scoped direct-run path; `run_aitask_pick` is filename-bound and
-   NOT reusable): argv `[str(CODEAGENT_SCRIPT), "invoke", "work-report",
-   "--columns", cols_csv, "--tasks", tasks_csv]`; `find_terminal()` →
-   `spawn_in_terminal`, else `self.suspend()` + `subprocess.call` with the
-   error notification; then `self.manager.load_tasks()` +
-   `self.refresh_board()` (no filename to refocus — column-scoped).
+5. **`run_work_report(full_command)`** (new `@work(exclusive=True)` worker —
+   the dedicated column-scoped direct-run path; `run_aitask_pick` is
+   filename-bound and NOT reusable): takes the full **shell command string**
+   and dispatches `["sh", "-c", full_command]` (the tui_switcher "run"
+   pattern, `lib/tui_switcher.py:1188-1194`) — NOT rebuilt default wrapper
+   args, because `AgentCommandScreen.run_terminal` stores user command edits
+   into `screen.full_command` and the agent/profile controls regenerate it;
+   rebuilding argv here would silently discard those overrides.
+   `find_terminal()` → `spawn_in_terminal`, else `self.suspend()` +
+   `subprocess.call` with the error notification; then
+   `self.manager.load_tasks()` + `self.refresh_board()` (no filename to
+   refocus — column-scoped).
 6. **`action_work_report`:** orchestrate: `focused_col =
    self._get_focused_col_id()` → push column screen → on result push task
    screen → on result compose
@@ -166,11 +170,15 @@ uncommitted foreign hunks (t1210_2 topic-semantics extraction to
    The `if full_cmd:` guard mirrors `action_pick_task` :5719-5745 —
    `resolve_dry_run_command` returns `None` on wrapper/config/timeout
    failure, and constructing `AgentCommandScreen` from `None` would show a
-   broken dialog; the fallback launches the reviewed selection directly.
-   Result callback (work-report variant of :5733-5742): `"run"` →
-   `self.run_work_report(cols_csv, tasks_csv)` (NOT `run_aitask_pick` —
-   there is no task filename); `TmuxLaunchConfig` → `launch_in_tmux` +
-   `maybe_spawn_minimonitor` when `new_window`; then `refresh_board()`.
+   broken dialog; the fallback launches the reviewed selection directly via
+   `run_work_report(shlex.join([str(CODEAGENT_SCRIPT), "invoke",
+   "work-report", *op_args]))` (no dialog exists, so the wrapper default IS
+   the current command). Result callback (work-report variant of
+   :5733-5742): `"run"` → `self.run_work_report(screen.full_command)` (the
+   dialog's stored/regenerated command — NOT `run_aitask_pick`, there is no
+   task filename, and NOT rebuilt default args, which would discard in-dialog
+   edits and agent/profile overrides); `TmuxLaunchConfig` → `launch_in_tmux`
+   + `maybe_spawn_minimonitor` when `new_window`; then `refresh_board()`.
 
 ## Tests
 
@@ -206,15 +214,16 @@ verified: `test_board_footer_visibility.py` (chdir REPO_ROOT + real
    `--columns`/`--tasks` csvs match the displayed grouped order after
    exclusions (spy on `resolve_dry_run_command`/`push_screen` args per the
    construction-spy canon — never exit codes).
-7b. **Direct-run path ("Run" result):** invoke the AgentCommandScreen
-   callback with `"run"` and assert `run_work_report` launches with argv
-   `[CODEAGENT_SCRIPT, "invoke", "work-report", "--columns", <csv>,
-   "--tasks", <csv>]` (spy `spawn_in_terminal`/`subprocess.call`) — and
-   that `run_aitask_pick` is never touched.
+7b. **Direct-run path ("Run" result):** after pushing the dialog, simulate a
+   stored in-dialog command override (mutate `screen.full_command`), invoke
+   the callback with `"run"`, and assert `run_work_report` is dispatched
+   with the OVERRIDDEN command (not rebuilt default args) and
+   `run_aitask_pick` is never touched. Separately assert the worker shells
+   out `["sh", "-c", <command>]` verbatim (spy `spawn_in_terminal`).
 7c. **Dry-run resolution failure:** patch `resolve_dry_run_command` to
    return `None` → no `AgentCommandScreen` is pushed and the flow falls back
-   to `run_work_report` with the same reviewed args (no broken dialog, no
-   silent drop of the selection).
+   to `run_work_report` with the shlex-joined wrapper default carrying the
+   same reviewed args (no broken dialog, no silent drop of the selection).
 8. **Round-trip equivalence (flow-level oracle):** shared fixture tree with
    Unsorted tasks, `boardidx` ties, archived tasks, a parent with children, a
    task missing `boardcol`, and a phantom layout stub (frontmatter with ONLY
@@ -264,6 +273,91 @@ verified: `test_board_footer_visibility.py` (chdir REPO_ROOT + real
 
 No standalone before/after mitigation tasks are warranted — every identified
 risk is already mitigated inside this task's own test plan.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-23 18:40)
+- **Requested by user:** [high | blocking] The "run" result callback called
+  `run_work_report(cols_csv, tasks_csv)`, rebuilding default wrapper args —
+  but `AgentCommandScreen.run_terminal()` stores user command edits into
+  `screen.full_command` before dismissing, and the dialog's agent/profile
+  controls regenerate that command. Run-in-terminal therefore silently
+  discarded in-dialog overrides that the tmux path honored. Dispatch the
+  actual dialog command, and replace the canonical-argv test with
+  overridden-command coverage.
+- **Changes made:** `run_work_report` now takes the full shell command
+  string and dispatches `["sh", "-c", full_command]` (mirroring the
+  tui_switcher "run" path); the callback passes `screen.full_command`; the
+  dry-run-failure fallback composes the wrapper default with `shlex.join`
+  (added `import shlex`). Tests: `test_run_result_dispatches_dialog_command_
+  not_pick` now mutates `screen.full_command` to simulate a stored override
+  and asserts it is what gets dispatched; the fallback test pins the
+  shlex-joined default; the worker test pins the `sh -c` dispatch. The same
+  discard flaw exists pre-existing in the pick/brainstorm/resume/create
+  "run" branches — recorded as an upstream defect, out of scope here.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `tests/test_board_work_report.py`, this plan (steps 5-6, tests 7b/7c).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned in
+  `.aitask-scripts/board/aitask_board.py` (+257 lines, purely additive):
+  `Binding("w", "work_report", "Work Report")`; the `check_action` arm hiding
+  `w` in `inflight`/`bytopic` and when `_get_focused_col_id()` is `None`;
+  two `ModalScreen`s (`WorkReportColumnSelectScreen`,
+  `WorkReportTaskSelectScreen`) modeled on `IssueTypeFilterScreen`;
+  `_work_report_columns()` (renderable configured intersection, Unsorted
+  first when non-empty); `action_work_report()` orchestration; the
+  `_launch_work_report()` resolve/dialog/fallback surface; and the
+  `run_work_report()` `@work(exclusive=True)` direct-run worker. Tests:
+  `tests/test_board_work_report.py` (23 tests), the flow-level round-trip
+  oracle `tests/test_board_work_report_roundtrip.sh` +
+  `tests/lib/work_report_flow_equiv.py`.
+- **Deviations from plan:** The single `action_work_report` of the plan was
+  split into `action_work_report` (columns → tasks orchestration via dismiss
+  callbacks) and `_launch_work_report` (dry-run resolve → `AgentCommandScreen`
+  or direct-run fallback) — cleaner and independently spy-testable.
+  `AgentCommandScreen` is constructed with `project_root=Path(".")` (a valid
+  keyword the plan's corrected param list omitted). Column title for Unsorted
+  is `"Unsorted / Inbox"`; task labels use the `[{col_id}] {task_num}
+  {task_name}` prefix fallback (SelectionList has no section headers); task
+  ids derive from `TaskCard._parse_filename(...).lstrip("t")`.
+- **Issues encountered:** The originating session (PID 318672 on omg16)
+  crashed mid-task after `plan_approved` was recorded but before Step-8
+  commit, leaving the +257-line board change and the three test files
+  uncommitted. Resumed via gate-ledger re-entry (`resume-point` = `IMPLEMENT`):
+  reclaimed the lock (`RECLAIM_CRASH`), re-attributed to `claudecode/opus4_8`,
+  and re-ran the full verification — all green (23 board-work-report tests,
+  round-trip, `test_shortcuts_registry_coverage.sh`, all 14 existing
+  `test_board_*.py` suites). No code changes were needed on resume.
+- **Key decisions:** The `"run"` result callback dispatches
+  `screen.full_command` (the dialog's stored/regenerated command), never
+  rebuilt default args — honoring in-dialog edits and agent/profile overrides
+  (Change Request 1). The direct-run worker shells `["sh", "-c", full_command]`
+  (tui_switcher "run" pattern). The dry-run-failure fallback composes the
+  wrapper default via `shlex.join` so the reviewed selection is never dropped.
+- **Upstream defects identified:**
+  `.aitask-scripts/board/aitask_board.py:5696,5866 — the pick "run" result
+  callbacks (and the brainstorm :6006, resume :6179, create :6308 branches)
+  call run_aitask_pick/rebuild default wrapper args instead of dispatching the
+  dialog's stored screen.full_command, silently discarding in-dialog command
+  edits and agent/profile overrides. This is the same flaw fixed for
+  work-report here (Change Request 1); pre-existing and out of scope for
+  t1162_4.`
+- **Notes for sibling tasks:**
+  - t1162_5 (documentation) should document the board `w` action and — worth
+    calling out, the user asked during review — **how to customize the
+    work-report code-agent default**: `aitasks/metadata/codeagent_config.json`
+    → `defaults."work-report"` (project, committed) or
+    `codeagent_config.local.json` (user override, wins), editable via
+    `ait settings` → "Agent defaults", plus the per-launch/per-project picker
+    in the `AgentCommandScreen`.
+  - t1162_6 is the aggregate manual-verification sibling; the manual smoke
+    (`ait board` → focus column → `w` → adjust → launch dialog shows the exact
+    command) is covered there.
+  - The board `--tasks` csv is composed in the displayed grouped order — the
+    gatherer's `task_order_changed` check defends exactly this sequence; never
+    re-sort it.
 
 ## Step 9 reference
 
