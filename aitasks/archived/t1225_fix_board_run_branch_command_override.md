@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1162
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-24 10:28
-updated_at: 2026-07-24 14:45
+updated_at: 2026-07-24 16:13
+completed_at: 2026-07-24 16:13
 ---
 
 ## Origin
@@ -65,3 +66,14 @@ construction-spy tests mirroring t1162_4's
 > **✅ gate:plan_approved** run=2026-07-24T11:45:21Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-24T13:11:45Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-24T13:13:06Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a152f0cf96be613e
+
+> **✅ gate:risk_evaluated** run=2026-07-24T13:13:06Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1225/risk_evaluated_2026-07-24T13:13:06Z-risk_evaluated-a1.log`
