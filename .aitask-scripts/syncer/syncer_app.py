@@ -62,7 +62,14 @@ from textual import work  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Vertical, VerticalScroll  # noqa: E402
-from textual.widgets import DataTable, Footer, Header, Static  # noqa: E402
+from textual.widgets import (  # noqa: E402
+    DataTable,
+    Footer,
+    Header,
+    Static,
+    TabbedContent,
+    TabPane,
+)
 from textual.worker import get_current_worker  # noqa: E402
 
 
@@ -74,6 +81,18 @@ GIT_TIMEOUT_SECONDS = 30
 FAILURE_TAIL_LINES = 30
 
 TRACKED_REFS = ("main", "aitask-data")
+
+# Actions that only make sense on the Branches tab. Gated off every other tab
+# by SyncerApp.check_action. `q`, the TUI switcher (`j`) and the shortcuts
+# editor (`?`) stay available everywhere.
+BRANCH_TAB_ACTIONS = (
+    "sync_data",
+    "pull",
+    "push",
+    "refresh",
+    "toggle_fetch",
+    "agent_resolve",
+)
 
 # Empty pending-refresh slot sentinel (a pending fetch key may legitimately be
 # None, so the slot needs a distinct "unset" marker).
@@ -322,6 +341,9 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
     Screen {
         layout: vertical;
     }
+    TabPane {
+        padding: 0 1;
+    }
     #branches {
         height: auto;
         max-height: 14;
@@ -382,22 +404,41 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._last_failure: SyncFailureContext | None = None
 
     def compose(self) -> ComposeResult:
+        # Widget ids (#branches, #detail_scroll, #detail) are unchanged by the
+        # tab wrap so every existing query_one() call site keeps resolving.
+        # Textual ignores TabbedContent's positional titles when TabPane
+        # children are composed, so the TabPane title is the single source of
+        # truth (same convention as settings_app).
         yield Header()
-        with Vertical():
-            table = DataTable(id="branches", cursor_type="row", zebra_stripes=True)
-            if self.multi_repo:
-                table.add_column("Project", key="project")
-            table.add_column("Branch", key="branch")
-            table.add_column("Status", key="status")
-            table.add_column("Ahead", key="ahead")
-            table.add_column("Behind", key="behind")
-            if self.multi_repo:
-                table.add_column("Fetched", key="last")
-            else:
-                table.add_column("Last refresh", key="last")
-            yield table
-            with VerticalScroll(id="detail_scroll"):
-                yield Static("Loading…", id="detail")
+        with TabbedContent():
+            with TabPane("Branches", id="tab_branches"):
+                with Vertical():
+                    table = DataTable(
+                        id="branches", cursor_type="row", zebra_stripes=True
+                    )
+                    if self.multi_repo:
+                        table.add_column("Project", key="project")
+                    table.add_column("Branch", key="branch")
+                    table.add_column("Status", key="status")
+                    table.add_column("Ahead", key="ahead")
+                    table.add_column("Behind", key="behind")
+                    if self.multi_repo:
+                        table.add_column("Fetched", key="last")
+                    else:
+                        table.add_column("Last refresh", key="last")
+                    yield table
+                    with VerticalScroll(id="detail_scroll"):
+                        yield Static("Loading…", id="detail")
+            # Placeholder panes: the ids are established here so t1223_3 /
+            # t1223_5 fill them without re-shaping compose().
+            with TabPane("Versions", id="tab_versions"):
+                yield Static(
+                    "Framework versions — coming soon.", id="versions_placeholder"
+                )
+            with TabPane("Settings", id="tab_settings"):
+                yield Static(
+                    "Cross-repo settings — coming soon.", id="settings_placeholder"
+                )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -410,6 +451,10 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 )
             else:
                 table.add_row(row.ref_name, "loading…", "", "", "", key=row.row_key)
+        # Without this the tab bar (ContentTabs) takes boot focus and ↑/↓ no
+        # longer moves the branch cursor on open. Tab reaches the detail pane,
+        # a second Tab the bar, where ←/→ switch tabs.
+        table.focus()
         self.set_interval(self._interval, self._tick_refresh)
         if self.multi_repo:
             self.set_interval(AGE_TICK_SECONDS, self._update_age_cells)
@@ -423,11 +468,41 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
             parts.insert(0, f"repos={len(self.sessions)}")
         self.sub_title = "  ".join(parts)
 
+    def _active_tab(self) -> str:
+        """Id of the active TabPane, degrading to Branches pre-mount.
+
+        ``check_action`` runs before mount (and in unit tests without a running
+        app), where the TabbedContent query raises. Falling back to the Branches
+        pane keeps those calls from crashing; the fail-open direction is covered
+        by the tab-gating tests in ``tests/test_syncer_rows.py``.
+        """
+        try:
+            return self.query_one(TabbedContent).active
+        except Exception:
+            return "tab_branches"
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        # Tab gate first: a Branches-only action is not part of another tab's
+        # vocabulary, so `False` drops it from the footer entirely. The row gate
+        # below keeps `None` (dimmed) — same tab, just a non-applicable row.
+        if action in BRANCH_TAB_ACTIONS:
+            if self._active_tab() != "tab_branches":
+                return False
         if action in ("sync_data", "pull", "push"):
             if not action_allowed_for_ref(action, self._selected_row().ref_name):
                 return None
         return True
+
+    def on_tabbed_content_tab_activated(
+        self, event: TabbedContent.TabActivated
+    ) -> None:
+        """Re-evaluate bindings after a tab switch.
+
+        ←/→ on the tab bar changes no focus, so Textual never fires its
+        focus-change bindings refresh — without this the footer keeps
+        advertising the Branches keys that check_action has just made inert.
+        """
+        self.refresh_bindings()
 
     def _set_busy(self, busy: bool) -> None:
         try:
