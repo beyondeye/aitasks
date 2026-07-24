@@ -3,9 +3,10 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_monitor, testing, tmux]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-24 18:08
 updated_at: 2026-07-24 18:08
 ---
