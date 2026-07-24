@@ -117,3 +117,23 @@ coverage.
   attached device/emulator was visible from the shell. Do not archive t1088 until
   the idle-pane, active-pane, stale subscribed pane, and unsubscribed pane manual
   scenarios are verified on a paired mobile device.
+
+### Re-entry 2026-07-24 (aborted — manual verification not possible)
+
+- Task was re-entered after the prior session crashed (host `omg16`, PID 766425,
+  lock reclaimed via `RECLAIM_CRASH`). Resume point was `IMPLEMENT`.
+- **Server automated verification re-run and PASSED again**, with more checks
+  than the prior session recorded:
+  - `bash tests/test_applink_content.sh` — ALL PASSED (115 checks; was 103).
+  - `bash tests/test_applink_router.sh` — ALL PASSED (182 checks; was 172).
+  - `bash tests/test_applink_pusher.sh` — ALL PASSED (130 checks; was 104).
+  - `bash tests/test_applink_headless_live.sh` — ALL PASSED.
+- **Manual phone verification again not performed:** no paired device available
+  at the time of this session. Aborted at the user's request before any
+  scenario was run; task reverted to `Ready`.
+- **Remaining work for the next pick is ONLY the manual phone scenarios** —
+  the readiness gate and all automated server/mobile verification are done.
+  Scenarios ③ (stale subscribed pane → token, no render) and ④ (unsubscribed
+  pane → `not_subscribed`) are additionally covered by the automated server
+  suite; the genuinely phone-only checks are ① idle-pane contiguity and
+  ② active-pane best-effort/no-corruption.
