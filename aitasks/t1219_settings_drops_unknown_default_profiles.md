@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_settings, execution_profiles]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-22 18:47
-updated_at: 2026-07-22 18:47
+updated_at: 2026-07-24 10:41
 ---
 
 ## Origin
