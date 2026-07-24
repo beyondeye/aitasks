@@ -338,3 +338,43 @@ explicitly instead of "No concerns detected".
 Current-branch profile — no worktree/branch cleanup. Run the gate orchestrator
 (`risk_evaluated` is the materialized active gate), then archive via
 `./.aitask-scripts/aitask_archive.sh 1187`.
+
+## Final Implementation Notes
+
+- **Actual work done:** All of §1–5 landed exactly as planned. §1 added the pure
+  `block_head_truncated()` detector to `concern_parser.py`; §2 made
+  `_capture_shadow_text` always pass `--deep`, added the one-shot
+  `_SHADOW_DEEP_RETRY_LINES=1500` deeper retry on the explicit `c` hotkey, and
+  the once-per-pane truncation warning (deduped via `self._truncation_warned`,
+  re-armed on a complete block) in the per-tick auto-offer; §3 stated the
+  short-region rule inline in the three plan-review producers; §4 updated
+  `concern-format.md` (capture-window contract), `shadow_agent.md`, and the
+  `aitask_shadow_capture.sh` header/help; §5 added `TestBlockHeadTruncated` (7
+  cases, 5 must stay `False`), `TestProducerShortRegionRule` (enumeration +
+  per-file assertion + negative control), the prod-argv/retry/warn tests in
+  `test_minimonitor_concern_action.py`, and the new live-tmux
+  `test_minimonitor_concern_smoke.py`.
+- **Deviations from plan:** None. Message strings, env-var names
+  (`SHADOW_PLAN_CAPTURE_LINES`), retry-line constant, and every test name match
+  the plan.
+- **Issues encountered:** This task was implemented across a session boundary —
+  the prior session on this host crashed mid-implementation (reclaimed via
+  `RECLAIM_CRASH`, gate-ledger re-entry at `resume_point=IMPLEMENT` with
+  `plan_approved` already `pass`). The resuming session verified every planned
+  change was on disk and ran the full verification suite. No merge/lock
+  anomalies; the working tree also carried unrelated concurrent-session edits,
+  which were left untouched — only the 11 t1187 files were staged.
+- **Key decisions:** `block_head_truncated` is scoped to the *newest* block
+  (last-block-wins, mirroring `_last_block_region`) and is a detector, not a
+  recovery — the untrusted head text above an orphan closing fence is never
+  parsed (t1123 hazard). The `find`-ordering variant was rejected and is pinned
+  as a `False` case in the tests.
+- **Upstream defects identified:** None.
+- **Verification result:** `test_concern_parser` (36), `test_minimonitor_concern_action`
+  (33), live-tmux `test_minimonitor_concern_smoke` (2), `test_shadow_capture.sh`
+  (19/19), shellcheck (only benign SC1091 info), `aitask_skill_verify.sh` (OK),
+  and the full runner (`run_all_python_tests.sh`) all passed — 1988 tests, 0
+  failures (the pre-existing `test_tui_switcher_agent_launch` failures the plan
+  anticipated did not appear in this run). Live acceptance (the `e` launch,
+  Codex renderer at ~55 cols, refresh timing) remains the deferred live-only
+  signal per the plan.
