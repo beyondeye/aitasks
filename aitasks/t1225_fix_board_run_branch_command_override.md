@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1162
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-24 10:28
-updated_at: 2026-07-24 11:58
+updated_at: 2026-07-24 14:45
 ---
 
 ## Origin
@@ -55,3 +56,8 @@ wrapper args. Where a filename-scoped refocus/reload is still wanted (pick),
 preserve that side effect while dispatching the stored command. Add
 construction-spy tests mirroring t1162_4's
 `test_run_result_dispatches_dialog_command_not_pick`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-24T11:45:21Z status=pass attempt=1 type=human
