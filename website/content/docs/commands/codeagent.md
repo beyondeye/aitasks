@@ -53,8 +53,12 @@ Each operation maps to a different use case with its own default model:
 | `pick` | Picking and implementing tasks | `claudecode/opus4_8` |
 | `explain` | Explaining or documenting code | `claudecode/sonnet4_6` |
 | `explore` | Exploring the codebase | `claudecode/opus4_8` |
+| `explore-relay` | Chat-relayed exploration for bug-report intake (Claude Code only) | `claudecode/opus4_8` |
+| `work-report` | Drafting a manager-facing work report from board columns | `claudecode/sonnet4_6` |
 | `batch-review` | Batch code review | `claudecode/sonnet4_6` |
 | `qa` | Test coverage analysis | `claudecode/sonnet4_6` |
+| `shadow` | Advisory companion agent for a followed session | `claudecode/opus4_8` |
+| `learn` | Learning a new skill from source material | `claudecode/opus4_8` |
 | `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet4_6` |
 
 ### Subcommands
@@ -266,6 +270,8 @@ It also feeds `ait codeagent coauthor`, which the task workflow uses to build re
 The code agent wrapper is integrated into both TUI applications:
 
 - **Board TUI** (`ait board`) -- When you pick a task from the board (press **Enter** on a task card, then select "Pick"), the board invokes `ait codeagent invoke task-pick <task_num>` instead of hardcoding a specific agent. This means the board respects your configured agent/model for the `task-pick` operation.
+
+- **Board TUI — work reports** -- Pressing **W** on the board resolves the `work-report` operation through the wrapper and launches `/aitask-work-report` with the columns and tasks you reviewed. See [Board TUI — How to Generate a Work Report]({{< relref "/docs/tuis/board/how-to#how-to-generate-a-work-report" >}}).
 
 - **Code Browser** (`ait codebrowser`) -- When you launch the explain action on a file, the code browser resolves the `explain` operation through the wrapper to determine which agent binary to use. It performs a pre-flight check to verify the binary is in PATH and shows a user-friendly error if not found.
 

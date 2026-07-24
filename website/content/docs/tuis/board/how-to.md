@@ -221,6 +221,28 @@ The [code agent wrapper]({{< relref "/docs/commands/codeagent" >}}) resolves whi
 
 The "Pick" button is disabled for tasks with status "Done" or "Folded".
 
+### How to Generate a Work Report
+
+A work report summarizes what you are working on for someone who does not read the board — built from the columns you select, in the order the board already holds them.
+
+**Generating the report:**
+
+1. Focus any card in the column you want to report on, or the column's placeholder if it is collapsed or empty
+2. Press **W**
+3. In the column picker, check every column the report should cover — the focused column is already checked. Press **Space** to toggle, **Enter** to confirm, **Esc** to cancel
+4. In the task picker, all tasks start checked. Deselect anything to exclude from the report, then press **Enter**
+5. The agent command dialog opens with the reviewed selection filled in. Launch it, or adjust the agent, model, or profile first
+
+The task picker always lists the full contents of each selected column, even when a search or view filter is currently narrowing the board — so a report never silently omits work just because it is filtered out of view. Ordering follows each column's board order and is preserved in the report.
+
+The **W** key is column-scoped: it appears in the persistent kanban views whenever a focused card or column placeholder identifies a column, and is hidden in the In-Flight and By-Topic views, which show derived lanes rather than columns. If you confirm a selection with no columns or no tasks in it, the board shows a notification instead of launching.
+
+**Choosing the agent:** the `work-report` operation resolves through the [code agent wrapper]({{< relref "/docs/commands/codeagent" >}}). Change its default by editing `defaults."work-report"` in `aitasks/metadata/codeagent_config.json` (shared with the project) or `codeagent_config.local.json` (your personal override, which takes precedence), or from the Agent Defaults tab in `ait settings`. The launch dialog also lets you override the agent and model for a single run.
+
+> **Note:** To rebind **W** itself, press **?** on the board to open the shortcut editor, or use the Shortcuts tab in `ait settings`. Overrides are saved to `aitasks/metadata/userconfig.yaml` under `shortcuts.board.work_report` — not to `board_config.json`, which holds only column definitions.
+
+For the full workflow, including how to read the completion projection, see [Work Report]({{< relref "/docs/workflows/work-report" >}}).
+
 ### How to Lock and Unlock Tasks
 
 Task locks are a lightweight reservation mechanism that signals to other users and AI agents that you intend to work on a task. Locks do not change task metadata — they are stored on the `aitask-locks` branch and fetched on every board refresh (manual **r**, auto-refresh, or after lock/unlock operations).

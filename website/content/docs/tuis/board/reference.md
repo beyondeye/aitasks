@@ -48,6 +48,7 @@ depth: [advanced]
 | `c` | Commit focused modified task | Board (shown when task is modified) |
 | `C` | Commit all modified tasks | Board (shown when any task is modified) |
 | `p` | Pick the focused task (start implementation) | Board (context-dependent — shown when task is pickable) |
+| `w` | Draft a work report from selected columns | Board (context-dependent — column-scoped; hidden in In-Flight and By-Topic views) |
 | `b` | Launch brainstorm for the focused task | Board (context-dependent — shown when task is brainstormable) |
 | `g` | Resume the focused In-Flight task directly | In-Flight row |
 | `s` | Sign off a pending human gate | In-Flight row with pending human gate |
