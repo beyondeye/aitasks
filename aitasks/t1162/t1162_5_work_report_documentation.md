@@ -42,6 +42,31 @@ Fifth child of t1162. Documents the work-report feature across the website: skil
 - All new internal links resolve (relref/link check during build).
 - Skill/workflow index entries render (grep the built site or verify page front matter).
 
+## AC amendments (agreed during implementation)
+
+Three scope decisions confirmed with the user at planning time; the original
+acceptance criteria above are superseded on these points:
+
+1. **Corrected feature description.** The "Content requirements" above describe
+   the completion projection as using "historical throughput, 7/30-day
+   windows". That is drifted — it describes a design replaced during t1162_1.
+   The landed behavior is a selectable estimator (`dow` per-weekday averages by
+   default, `flat` as the alternative) over a 90-day default window, and the
+   projection is **opt-in**, not a default section. The docs document the
+   landed behavior.
+2. **Backfill the whole operations table.** `website/content/docs/commands/codeagent.md`
+   was missing `explore-relay`, `shadow`, and `learn` in addition to
+   `work-report`. All four rows are added, so the table matches
+   `SUPPORTED_OPERATIONS` in `.aitask-scripts/aitask_codeagent.sh`.
+3. **Ship a doc-list drift guard.** `tests/test_website_doc_lists.sh` asserts
+   that every supported code-agent operation has a row in `codeagent.md`, and
+   that every `aitask-*` skill page is linked from `skills/_index.md`. This
+   also closes a pre-existing gap (`/aitask-add-model` had no index row).
+
+A fourth item was folded in from t1162_4's notes-for-siblings: document how to
+customize the work-report code-agent default and how to rebind the board `w`
+key.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
