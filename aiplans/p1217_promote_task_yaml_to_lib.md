@@ -364,6 +364,56 @@ was clean when I started" is not evidence that a file is uncontaminated at
 commit time. Concurrent sessions can dirty a path mid-task, so the pre-commit
 audit must read the diff of every path being staged.
 
+## Final Implementation Notes
+
+- **Actual work done:** `git mv .aitask-scripts/board/task_yaml.py
+  .aitask-scripts/lib/task_yaml.py`, then updated all **7** importers (the plan's
+  re-audit found one more than the task file listed — `lib/trail_gather.py`,
+  added after filing). Removed 4 now-dead `board/` `sys.path` inserts from
+  `monitor/` (`monitor_core`, `monitor_app`, `minimonitor_app`,
+  `monitor_shared`), swapped `board`→`lib` in `diffviewer/plan_loader.py`,
+  dropped the `board` insert in `codebrowser/history_data.py`, narrowed
+  `lib/work_report_gather.py`'s loop to `("stats",)` and `lib/trail_gather.py`'s
+  to `_LIB_DIR` only. Relocated `board/aitask_board.py`'s `task_yaml` import up
+  into its `lib/` import group. Fixed 3 test bootstraps and 2 stale comments
+  (`lib/shortcut_scopes.py` docstring example, `lib/yaml_utils.sh` path).
+  Added `tests/test_no_lib_to_tui_import.sh` (10 assertions) freezing the
+  layering. Net: 17 files, +40/−36 plus the 189-line new guard.
+- **Deviations from plan:** None in scope or approach. The only deviation was in
+  *how* the commit was staged — see Post-Review Changes above.
+- **Issues encountered:**
+  1. `board/aitask_merge.py` imported `task_yaml` at line 30 but only inserted
+     `lib/` at line 34. Post-move that import resolves against nothing. Moving it
+     below the insert was the one non-mechanical edit; it is what keeps
+     `aitask_sync.sh:221` (`PYTHONPATH=board` only) and `tests/test_aitask_merge.py`
+     (inserts only `board/`) working unchanged. Verified explicitly by running
+     the merge tool under that exact production argv.
+  2. `tests/run_all_python_tests.sh` exports **both** `board/` and `lib/` on
+     `PYTHONPATH`, so the suite cannot detect a broken per-file `sys.path`
+     bootstrap. Defeated by re-running the touched tests under
+     `env -u PYTHONPATH` (163 tests) plus entry-module import assertions on
+     CPython and PyPy. Structural fix deferred to the
+     `pythonpath_isolated_python_test_lane` mitigation.
+  3. A concurrent session landed the t1225 `run_dialog_command` refactor into
+     `aitask_board.py` mid-task, requiring a selective index (see Post-Review
+     Changes). All prior verification had run against the worktree; it was
+     re-run against the materialized index tree to validate the actual commit
+     content.
+- **Key decisions:**
+  - Guard scope is **`sys.path` insertion of a sibling package dir**, documented
+    as not covering dynamic/`importlib` loading — a documented boundary, matching
+    `tests/test_no_raw_tmux.sh`'s style, rather than an overclaiming guard.
+  - The remaining `lib/work_report_gather.py → stats/` inversion is
+    **allowlisted with its reason**, not silently excluded, so it stays visible;
+    repaying it empties the allowlist (tracked as `repay_lib_stats_inversion`).
+  - Every assertion was proven able to fail before being trusted: the guard was
+    run against a real injected violation (exit 1), and the import block against
+    a bogus module (exit 1). Both mutations were undone by reversing the edit,
+    never `git checkout --`, because the checkout would have discarded the
+    concurrent session's uncommitted work.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** n/a (not a child task).
+
 ## Step 9 (Post-Implementation)
 
 Standard: merge approval, `ait gates run 1217` (this task declares
