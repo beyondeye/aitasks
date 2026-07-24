@@ -5,6 +5,10 @@ depends: [1211]
 issue_type: manual_verification
 status: Implementing
 labels: [verification, manual]
+active_gates: []
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [1211]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-24 10:55
