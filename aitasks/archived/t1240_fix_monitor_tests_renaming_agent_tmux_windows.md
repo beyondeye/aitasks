@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitor, testing, tmux]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-07-24 18:08
-updated_at: 2026-07-24 18:13
+updated_at: 2026-07-24 18:20
+completed_at: 2026-07-24 18:20
 ---
 
 ## Problem
@@ -81,3 +82,14 @@ cannot help when test-mounted monitor instances inherit an agent pane's env.
 > **✅ gate:plan_approved** run=2026-07-24T15:13:50Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-24T15:19:47Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-24T15:20:52Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:915cba7e421fce7b
+
+> **✅ gate:risk_evaluated** run=2026-07-24T15:20:52Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1240/risk_evaluated_2026-07-24T15:20:52Z-risk_evaluated-a1.log`
