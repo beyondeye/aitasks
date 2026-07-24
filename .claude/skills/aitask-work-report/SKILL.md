@@ -255,6 +255,15 @@ Present the draft in-session for review and editing; iterate on feedback
 until the user is satisfied. Do NOT write a report file (no dated file, no
 repository file) — the draft lives in the session only.
 
+**Finalization (before Step 7):** when the user signals they are satisfied
+("finalize", "good", "ship it", etc.), **re-render the COMPLETE report as a
+single consolidated block** — every iterated edit and any opt-in projection
+integrated inline — and present that as the final version *before* moving to
+Step 7. Never advance to the satisfaction prompt while the latest full report
+exists only as separate deltas across earlier turns (e.g. a projection or a
+correction shown on its own): the reader must see one whole, current report,
+not a stitch of fragments.
+
 ### Step 7: Satisfaction Feedback
 
 Execute the Satisfaction Feedback Procedure
