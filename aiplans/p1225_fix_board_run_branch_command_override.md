@@ -222,3 +222,60 @@ command, not the default `aitask_codeagent.sh invoke pick <n>`. Repeat for `n`
 Standard: merge approval, `ait gates run 1225` (the `risk_evaluated` gate is the
 task's enforced active set), archival via
 `./.aitask-scripts/aitask_archive.sh 1225`, push.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. In
+  `.aitask-scripts/board/aitask_board.py`: added the `CODEAGENT_FAILURE_NOTICE`
+  module constant; generalized `run_work_report` into
+  `run_dialog_command(full_command, refocus_filename="", error_notice=CODEAGENT_FAILURE_NOTICE)`;
+  routed all six dialog "run" branches through it (pick from task detail,
+  pick from board, brainstorm, resume, create, work-report + its
+  dry-run-failure fallback); deleted the now-unreferenced
+  `_run_create_in_terminal` / `_run_brainstorm_in_terminal` workers; replaced
+  the two remaining duplicated failure-notice literals in `run_aitask_pick` /
+  `run_codeagent_operation` with the constant. Added
+  `tests/test_board_dialog_run_dispatch.py` (15 tests) and renamed the three
+  `run_work_report` references in `tests/test_board_work_report.py`.
+- **Deviations from plan:** `refocus_filename` defaults to `""` rather than
+  `None`. `refresh_board` already declares `refocus_filename: str = ""` and
+  `_queue_refocus` only tests it for truthiness, so `""` is behaviorally
+  identical to `None` while keeping the type contract consistent with the
+  surrounding code. The corresponding worker test asserts
+  `refresh_board(refocus_filename="")` for the no-filename (column-scoped)
+  case.
+- **Issues encountered:**
+  - The board dialogs for `create` and `brainstorm` launch TUI scripts, not a
+    code agent, and their pre-existing per-branch workers deliberately did *not*
+    notify on a non-zero exit (an ordinary cancel/quit). Routing them through a
+    shared worker that always notified would have introduced a spurious "Code
+    agent invocation failed" toast, so the worker takes `error_notice` and those
+    two branches pass `None`. Pinned by
+    `test_suspend_path_stays_silent_when_notice_suppressed`.
+  - Another session has unrelated uncommitted edits in this checkout, including
+    a `task_yaml` import-move hunk in `aitask_board.py`. The Step-8 commit was
+    hunk-scoped (`git diff` → filtered patch → `git apply --cached`) so only
+    this task's hunks were staged; the foreign hunk was left in the worktree
+    untouched.
+- **Key decisions:**
+  - One generic worker rather than threading a `full_command` parameter through
+    each existing per-branch worker: the branch-specific workers existed only to
+    rebuild default argv, which is precisely the behavior being removed, so they
+    became dead code and were deleted.
+  - The `else:` fallbacks that fire when `resolve_dry_run_command` returns
+    `None` (`aitask_board.py:5709, 5881, 6196`) were deliberately left alone —
+    no dialog was shown there, so there is no stored command and rebuilding
+    wrapper argv is correct. `run_aitask_pick` / `run_codeagent_operation` stay
+    for those paths, and two negative-control tests pin that they still fire.
+  - Test coverage was extended beyond the plan's first draft (user review
+    request) to assert the no-terminal `suspend()` branch's full side-effect set
+    — `subprocess.call(["sh", "-c", cmd])`, `manager.load_tasks()`, and
+    `refresh_board(refocus_filename=…)`. That branch is reachable neither by the
+    construction spies nor by a live manual check (which runs with a real
+    terminal available), so a regression there would otherwise pass everything.
+  - Harness-can-fail was proven by two targeted reverts (board-pick branch → 1
+    failure; suspend-path side effects dropped → 4 failures), each restored with
+    an inverse `Edit` rather than `git checkout --`, which would have wiped the
+    concurrent session's uncommitted work.
+- **Upstream defects identified:** None
+
