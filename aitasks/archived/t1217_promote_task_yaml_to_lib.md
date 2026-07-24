@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [reporting]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1162
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-22 16:21
-updated_at: 2026-07-24 15:18
+updated_at: 2026-07-24 15:19
+completed_at: 2026-07-24 15:19
 ---
 
 ## Origin
@@ -72,3 +73,14 @@ Land this **after t1162 completes**. Verified at filing time: no remaining t1162
 > **✅ gate:plan_approved** run=2026-07-24T10:59:08Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-24T12:16:03Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-24T12:18:53Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:5ff053cf63df232a
+
+> **✅ gate:risk_evaluated** run=2026-07-24T12:18:53Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1217/risk_evaluated_2026-07-24T12:18:53Z-risk_evaluated-a1.log`
