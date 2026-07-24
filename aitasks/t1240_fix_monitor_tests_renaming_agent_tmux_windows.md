@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/fable5
 created_at: 2026-07-24 18:08
-updated_at: 2026-07-24 18:08
+updated_at: 2026-07-24 18:13
 ---
 
 ## Problem
@@ -71,3 +72,8 @@ cannot help when test-mounted monitor instances inherit an agent pane's env.
 - The real `ait monitor` launch path still renames its own window to `monitor`
   (pinned to its own `$TMUX_PANE`), preserving TUI-switcher discovery.
 - A guard/regression test pins the no-rename-under-test behavior.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-24T15:13:50Z status=pass attempt=1 type=human
