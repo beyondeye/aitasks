@@ -210,7 +210,7 @@ class WorkReportLaunchTests(WorkReportTestBase):
         # stored (run_terminal calls _store_command before dismissing "run").
         screen.full_command = "opencode run --model x '/aitask-work-report …'"
         callback("run")
-        app.run_work_report.assert_called_once_with(
+        app.run_dialog_command.assert_called_once_with(
             "opencode run --model x '/aitask-work-report …'")
         app.run_aitask_pick.assert_not_called()
 
@@ -224,7 +224,7 @@ class WorkReportLaunchTests(WorkReportTestBase):
                              return_value=None) as ras:
             ab.KanbanApp._launch_work_report(app, "now,next", "5,9")
         app.push_screen.assert_not_called()
-        app.run_work_report.assert_called_once_with(shlex.join([
+        app.run_dialog_command.assert_called_once_with(shlex.join([
             str(ab.CODEAGENT_SCRIPT), "invoke", "work-report",
             "--columns", "now,next", "--tasks", "5,9",
         ]))
@@ -237,7 +237,7 @@ class WorkReportLaunchTests(WorkReportTestBase):
         app = MagicMock()
         with patch.object(ab, "find_terminal", return_value="footerm"), \
                 patch.object(ab, "spawn_in_terminal") as spawn:
-            coro = ab.KanbanApp.run_work_report.__wrapped__(
+            coro = ab.KanbanApp.run_dialog_command.__wrapped__(
                 app, "claude --model y '/aitask-work-report --columns now'")
             asyncio.run(coro)
         spawn.assert_called_once_with("footerm", [

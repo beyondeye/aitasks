@@ -70,6 +70,9 @@ CODEAGENT_SCRIPT = Path(".aitask-scripts") / "aitask_codeagent.sh"
 CREATE_SCRIPT = Path(".aitask-scripts") / "aitask_create.sh"
 BRAINSTORM_TUI_SCRIPT = Path(".aitask-scripts") / "aitask_brainstorm_tui.sh"
 GATES_REGISTRY_FILE = TASKS_DIR / "metadata" / "gates.yaml"
+CODEAGENT_FAILURE_NOTICE = (
+    "Code agent invocation failed — check model configuration"
+)
 
 
 @dataclass
@@ -5693,7 +5696,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     )
                     def on_pick_result(pick_result):
                         if pick_result == "run":
-                            self.run_aitask_pick(task_data.filename)
+                            self.run_dialog_command(
+                                screen.full_command,
+                                refocus_filename=task_data.filename)
                         elif isinstance(pick_result, TmuxLaunchConfig):
                             _, err = launch_in_tmux(screen.full_command, pick_result)
                             if err:
@@ -5863,7 +5868,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             )
             def on_pick_result(pick_result):
                 if pick_result == "run":
-                    self.run_aitask_pick(focused.task_data.filename)
+                    self.run_dialog_command(
+                        screen.full_command,
+                        refocus_filename=focused.task_data.filename)
                 elif isinstance(pick_result, TmuxLaunchConfig):
                     _, err = launch_in_tmux(screen.full_command, pick_result)
                     if err:
@@ -5946,7 +5953,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # Wrapper/config/timeout failure — never build a dialog around a
             # missing command; launch the reviewed selection directly instead.
             self.notify("Could not resolve agent command — launching directly")
-            self.run_work_report(shlex.join(
+            self.run_dialog_command(shlex.join(
                 [str(CODEAGENT_SCRIPT), "invoke", "work-report", *op_args]))
             return
         prompt_str = f"/aitask-work-report --columns {cols_csv} --tasks {tasks_csv}"
@@ -5963,12 +5970,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         def on_work_report_result(result):
             if result == "run":
-                # Column-scoped: no task filename exists, so run_aitask_pick
-                # does not apply. Dispatch the dialog's CURRENT command —
-                # run_terminal stores user edits into screen.full_command and
-                # the agent/profile controls regenerate it, so rebuilding
-                # default wrapper args here would silently discard them.
-                self.run_work_report(screen.full_command)
+                # Column-scoped: no task filename exists, so no refocus.
+                self.run_dialog_command(screen.full_command)
             elif isinstance(result, TmuxLaunchConfig):
                 _, err = launch_in_tmux(screen.full_command, result)
                 if err:
@@ -6003,7 +6006,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         )
         def on_brainstorm_result(brainstorm_result):
             if brainstorm_result == "run":
-                self._run_brainstorm_in_terminal(num, filename)
+                # Not a code agent: a non-zero exit is an ordinary TUI quit,
+                # so no failure notice.
+                self.run_dialog_command(
+                    screen.full_command, refocus_filename=filename,
+                    error_notice=None)
             elif isinstance(brainstorm_result, TmuxLaunchConfig):
                 _, err = launch_in_tmux(screen.full_command, brainstorm_result)
                 if err:
@@ -6176,7 +6183,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             )
             def on_resume_result(resume_result):
                 if resume_result == "run":
-                    self.run_codeagent_operation("resume", focused.task_data.filename)
+                    self.run_dialog_command(
+                        screen.full_command,
+                        refocus_filename=focused.task_data.filename)
                 elif isinstance(resume_result, TmuxLaunchConfig):
                     _, err = launch_in_tmux(screen.full_command, resume_result)
                     if err:
@@ -6248,7 +6257,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             with self.suspend():
                 ret = subprocess.call([wrapper, "invoke", "pick", num])
             if ret != 0:
-                self.notify("Code agent invocation failed — check model configuration", severity="error")
+                self.notify(CODEAGENT_FAILURE_NOTICE, severity="error")
             self.manager.load_tasks()
             self.refresh_board(refocus_filename=filename)
 
@@ -6267,19 +6276,30 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             with self.suspend():
                 ret = subprocess.call([wrapper, "invoke", operation, num])
             if ret != 0:
-                self.notify("Code agent invocation failed — check model configuration", severity="error")
+                self.notify(CODEAGENT_FAILURE_NOTICE, severity="error")
             self.manager.load_tasks()
             self.refresh_board(refocus_filename=filename)
 
     @work(exclusive=True)
-    async def run_work_report(self, full_command: str):
-        """Launch a work-report command directly (column-scoped — no task file).
+    async def run_dialog_command(
+        self,
+        full_command: str,
+        refocus_filename: str = "",
+        error_notice: str | None = CODEAGENT_FAILURE_NOTICE,
+    ):
+        """Dispatch an agent-command dialog's stored ``full_command`` verbatim.
 
-        Takes the full shell command string (the agent-command dialog's
-        possibly edited / agent-overridden ``full_command``, or the shlex-built
-        wrapper default on the dry-run-failure fallback) so dialog state is
-        never silently discarded — the ``["sh", "-c", ...]`` dispatch mirrors
-        the tui_switcher "run" path.
+        Every AgentCommandScreen "run" (run-in-terminal) branch routes here:
+        ``run_terminal`` stores user edits into ``screen.full_command`` and the
+        agent/profile controls regenerate it, so rebuilding default wrapper
+        args at the call site would silently discard them (t1225). The
+        ``["sh", "-c", ...]`` dispatch mirrors the tui_switcher "run" path.
+
+        ``refocus_filename`` keeps each branch's historical post-run refresh
+        (empty for the column-scoped work-report launch, which has no task
+        file). ``error_notice`` is None for the non-agent TUI launches (create
+        / brainstorm), whose non-zero exit is an ordinary cancel, not a
+        failure.
         """
         args = ["sh", "-c", full_command]
         terminal = find_terminal()
@@ -6288,10 +6308,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         else:
             with self.suspend():
                 ret = subprocess.call(args)
-            if ret != 0:
-                self.notify("Code agent invocation failed — check model configuration", severity="error")
+            if ret != 0 and error_notice:
+                self.notify(error_notice, severity="error")
             self.manager.load_tasks()
-            self.refresh_board()
+            self.refresh_board(refocus_filename=refocus_filename)
 
     def action_create_task(self):
         """Open create task dialog with terminal/tmux options."""
@@ -6305,7 +6325,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         )
         def on_create_result(create_result):
             if create_result == "run":
-                self._run_create_in_terminal()
+                # Not a code agent: a non-zero exit is an ordinary cancel of
+                # `ait create`, so no failure notice.
+                self.run_dialog_command(
+                    screen.full_command, error_notice=None)
             elif isinstance(create_result, TmuxLaunchConfig):
                 _, err = launch_in_tmux(screen.full_command, create_result)
                 if err:
@@ -6322,31 +6345,6 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.manager.load_tasks()
             self.refresh_board()
         self.push_screen(screen, on_create_result)
-
-    @work(exclusive=True)
-    async def _run_create_in_terminal(self):
-        """Launch aitask_create.sh in a terminal or via suspend."""
-        terminal = find_terminal()
-        if terminal:
-            spawn_in_terminal(terminal, [str(CREATE_SCRIPT)])
-        else:
-            with self.suspend():
-                subprocess.call([str(CREATE_SCRIPT)])
-            self.manager.load_tasks()
-            self.refresh_board()
-
-    @work(exclusive=True)
-    async def _run_brainstorm_in_terminal(self, task_num: str, filename: str):
-        """Launch brainstorm TUI in a terminal or via suspend."""
-        terminal = find_terminal()
-        brainstorm_cmd = str(BRAINSTORM_TUI_SCRIPT)
-        if terminal:
-            spawn_in_terminal(terminal, [brainstorm_cmd, task_num])
-        else:
-            with self.suspend():
-                subprocess.call([brainstorm_cmd, task_num])
-            self.manager.load_tasks()
-            self.refresh_board(refocus_filename=filename)
 
     # --- Expand/Collapse Children ---
 
