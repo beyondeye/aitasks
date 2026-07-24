@@ -166,6 +166,86 @@ in-scope work in this change.
   `.claude/skills/aitask-work-report/SKILL.md`, `lib/work_report_gather.py`,
   and `board/aitask_board.py` — no drifted claims.
 
+## Final Implementation Notes
+
+- **Actual work done:** Two new website pages
+  (`skills/aitask-work-report.md` weight 62, `workflows/work-report.md`
+  weight 86), five edited pages (`skills/_index.md`, `workflows/_index.md`,
+  `tuis/board/reference.md`, `tuis/board/how-to.md`,
+  `commands/codeagent.md`), and one new guard suite
+  (`tests/test_website_doc_lists.sh`, 40 assertions). The three AC amendments
+  were recorded in the task file and committed with `./ait git` before the
+  code commit.
+- **Deviations from plan:** None structural. Two doc values were corrected
+  mid-implementation after checking the configs instead of trusting the first
+  draft: `shadow` defaults to `claudecode/opus4_8` (not `sonnet4_6`), and
+  `explore-relay` has **no** `defaults` entry in either
+  `seed/codeagent_config.json` or the live config, so it resolves through the
+  `DEFAULT_AGENT_STRING` fallback (`claudecode/opus4_8`) — documented as such
+  and marked Claude-Code-only, matching the agent gate in
+  `aitask_codeagent.sh`.
+- **Issues encountered:**
+  - The verify pass caught the central hazard the plan was written to avoid:
+    the task text and original plan described the projection as using
+    "historical throughput, 7/30-day windows" and listed it as a default
+    report section. Both are drifted — t1162_1 replaced that design with a
+    `VelocityModel` seam (`dow` per-weekday default, `flat` alternative) over
+    a 90-day default window, and t1162_3 made the projection opt-in behind
+    `--project` with a 10-completion floor. Documenting the task text verbatim
+    would have shipped confidently-wrong user-facing docs.
+  - Post-`--minify` greps for the new anchors returned nothing at first and
+    looked like unresolved links; the pages were in fact built correctly (the
+    minifier strips the attribute quoting the greps assumed). Re-checked with
+    quote-agnostic patterns and confirmed every href/anchor pair resolves,
+    including the cross-section
+    `/docs/tuis/board/how-to/#how-to-generate-a-work-report`.
+  - Harness self-check performed on the new guard: three negative controls
+    (drop the `work-report` operations row; drop the `/aitask-work-report`
+    skills-index row; reformat `SUPPORTED_OPERATIONS` to multi-line) each make
+    the suite print FAIL and exit 1. Restores were done from scratchpad
+    backups rather than `git checkout --`, which would have wiped the
+    uncommitted docs; `git diff --stat` confirmed `aitask_codeagent.sh` came
+    back byte-identical.
+- **Key decisions:**
+  - The guard asserts **containment, not equality** — every canonical entry
+    must be documented, but extra doc rows are allowed (`Verified Scores` is a
+    concept page, not a skill). Equality would have made the tables
+    un-editable.
+  - The `SUPPORTED_OPERATIONS` sed carries an explicit tripwire assertion.
+    Without it, any reformatting of that array yields an empty operation list
+    and every containment check passes vacuously — the guard would silently
+    stop guarding. The third negative control exists specifically to prove the
+    tripwire fires.
+  - Backfilling `/aitask-add-model` into the skills index was required, not
+    incidental: the guard is repo-wide, so the pre-existing gap would have
+    made the new test fail on arrival.
+  - Only the 8 task-owned paths were staged. A concurrent session was
+    committing in the same checkout throughout (the working tree went from 12
+    modified files at session start to 2), so `git add -A` would have
+    swept up foreign work.
+- **Upstream defects identified:**
+  - `tests/test_codeagent_work_report.sh:139-152 — the verified-score parity
+    block asserts "work-report mirrors explain, or is absent", but the
+    satisfaction-feedback score updater writes per-operation scores
+    independently; aitasks/metadata/models_claudecode.json now has opus4_8
+    with work-report: 100 and no explain key, so the suite fails 1/28 on a
+    clean tree. Pre-existing, unrelated to this task, and reproducible before
+    any change here — the invariant is unmaintainable once real feedback
+    accumulates.`
+- **Notes for sibling tasks:**
+  - **t1162_6 (aggregate manual verification):** the board `w` smoke test is
+    owned there. Two doc claims are worth eyeballing live because they were
+    verified by reading source rather than by running the TUI: that the task
+    picker really does show full column contents while a search filter is
+    active, and that the three empty-selection notifications read as
+    documented.
+  - The canonical SKILL.md remains the source of truth for skill behavior;
+    `tests/test_work_report_skill_contract.sh` enumerates its load-bearing
+    sentences and is the fastest way to see what must stay true.
+  - `tests/test_website_doc_lists.sh` now fails the moment a new code-agent
+    operation or skill page lands without its doc row — expect it to fire on
+    the next operation added, and add the row rather than relaxing the guard.
+
 ## Step 9 reference
 
 Post-implementation: merge/cleanup + archival per task-workflow Step 9. This is
