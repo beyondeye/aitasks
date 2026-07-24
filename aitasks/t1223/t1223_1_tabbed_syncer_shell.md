@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1223
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-23 18:29
-updated_at: 2026-07-24 14:42
+updated_at: 2026-07-24 14:43
 ---
 
 ## Context
@@ -109,24 +111,58 @@ Related anchors:
    immediately rather than being dead code.
 
 3. **Make `check_action` tab-aware.** Current body (`:426-430`) gates only on the
-   selected row's ref. Add a tab check *first*, so `s`/`u`/`p`/`r`/`f` are
+   selected row's ref. Add a tab check *first*, so `s`/`u`/`p`/`r`/`f`/`a` are
    inert when a non-Branches tab is active:
 
    ```python
+   BRANCH_TAB_ACTIONS = (
+       "sync_data", "pull", "push", "refresh", "toggle_fetch", "agent_resolve",
+   )
+
    def check_action(self, action, parameters):
-       if action in ("sync_data", "pull", "push", "refresh", "toggle_fetch"):
+       if action in BRANCH_TAB_ACTIONS:
            if self._active_tab() != "tab_branches":
-               return None
+               return False
        if action in ("sync_data", "pull", "push"):
            if not action_allowed_for_ref(action, self._selected_row().ref_name):
                return None
        return True
    ```
 
+   Two amendments to the original sketch, both made during planning:
+   - `agent_resolve` (`a`, `show=False`) is a Branches-domain action and is
+     gated with the rest.
+   - The tab gate returns **`False`**, not `None`. In Textual 8.2.7
+     `Screen.active_bindings` drops a binding only on `is False`; `None` yields
+     `enabled=False`, i.e. kept-but-dimmed. A Branches-only action is not part
+     of another tab's vocabulary, so it should disappear from the footer there —
+     which is what "the other tabs swallow those keys" below means. The **ref**
+     check keeps `None` (dimmed): same tab, just a non-applicable row.
+
    Add a small `_active_tab()` helper that returns the `TabbedContent.active` id
    and degrades to `"tab_branches"` if the query fails (so unit tests and any
    pre-mount call cannot crash). `q`, `j` (switcher) and `?` (shortcuts) stay
    available on every tab.
+
+3b. **Refresh bindings on tab activation.** Switching tabs with ←/→ changes no
+   focus, so Textual never fires its focus-change bindings refresh and the
+   footer keeps advertising the now-inert Branches keys. Add:
+
+   ```python
+   def on_tabbed_content_tab_activated(self, event) -> None:
+       self.refresh_bindings()
+   ```
+
+   Leave the existing `on_data_table_row_highlighted` (`:653-655`) **untouched**
+   — it already calls both `_refresh_detail()` and `refresh_bindings()`, and
+   row-gating dim states are correct today.
+
+3c. **Keep the branch table focused at boot.** Wrapping the table in
+   `TabbedContent` hands boot focus to the tab bar, so ↑/↓ would no longer move
+   the branch cursor on open. Call `table.focus()` at the end of `on_mount()`.
+   Reaching the tab bar then costs two `Tab` presses (detail pane first); that
+   is accepted — `#detail_scroll` is focusable today and that focus is what
+   scrolls a long detail pane.
 
 4. **Refresh/worker safety.** `_set_busy` (`:437-441`) and `_update_table`
    (`:551-571`) already wrap their `query_one` in try/except or resolve by id —
@@ -144,7 +180,7 @@ Related anchors:
 ## Verification steps
 
 ```bash
-bash tests/test_syncer_rows.py     # existing 381 lines must pass untouched
+python3 tests/test_syncer_rows.py  # existing 381 lines must pass untouched
 python3 -c "import sys; sys.path.insert(0,'.aitask-scripts/syncer'); import syncer_app"
 ```
 
@@ -158,10 +194,12 @@ genuinely needed; see `aidocs/framework/tui_conventions.md` on asserting
    on start.
 2. **Per-tab gating (positive)** — with `tab_branches` active and an
    `aitask-data` row selected, `check_action("sync_data", ())` is truthy.
-3. **Per-tab gating (negative control)** — with `tab_versions` active,
-   `check_action("sync_data", ())` / `("pull", ())` / `("push", ())` all return
-   `None`, **even when the selected row would otherwise allow them**. This is the
-   load-bearing assertion: it must fail if the tab check is removed.
+3. **Per-tab gating (negative control)** — with `tab_versions` active, every
+   action in `BRANCH_TAB_ACTIONS` returns `False`, **even when the selected row
+   would otherwise allow it**. This is the load-bearing assertion: it must fail
+   if the tab check is removed. Exercise both cursor rows — `pull`/`push` are
+   ref-denied on the `aitask-data` row and `sync_data` on `main`, so a
+   single-row test would let a removed tab check survive on the other.
 4. **Ref gating unchanged** — on `tab_branches`, `sync_data` is still `None` for a
    `main` row and `pull`/`push` still `None` for an `aitask-data` row.
 5. **Single-repo regression** — with `<2` discovered sessions, `multi_repo` is
@@ -169,17 +207,39 @@ genuinely needed; see `aidocs/framework/tui_conventions.md` on asserting
    (`single_repo_rows()`), and all three actions behave exactly as before.
 6. **Widget ids preserved** — `query_one("#branches", DataTable)` and
    `query_one("#detail", Static)` both resolve after the refactor.
+7. **Boot focus** — `app.focused` is the `#branches` table and `down` moves the
+   cursor (fails if `table.focus()` is dropped).
+8. **Footer drops the Branches keys on tab activation** — drive the switch with
+   real ←/→ keypresses, not by assigning `TabbedContent.active`: focusing the
+   tab bar is itself a focus change that refreshes bindings for free, so an
+   assignment-based helper passes even with the handler deleted.
+9. **Footer/detail still follow the row cursor** — regression coverage for the
+   existing `on_data_table_row_highlighted`; assert both the re-dim and that
+   `#detail` repoints, so trimming either half of that handler fails.
 
-Manual smoke: `ait syncer` in this repo — tabs render, Branches works exactly as
-before (`s`/`u`/`p`/`r`/`f`), the other two tabs show placeholders and swallow
-those keys, `j` and `?` work from every tab.
+Manual smoke: `ait syncer` in this repo — tabs render; ↑/↓ moves the branch
+cursor immediately on open; Branches works exactly as before (`s`/`u`/`p`/`r`/`f`),
+with the footer re-dimming `s`/`u`/`p` and the detail pane following the cursor;
+one `Tab` reaches the detail pane and a second the tab bar, where ←/→ switch
+tabs; the other two tabs show placeholders, the Branches keys are **gone** from
+the footer there and pressing them does nothing; `j` and `?` work from every tab.
 
 ## Notes for sibling tasks
 
 - `tab_versions` / `tab_settings` ids are established here; t1223_3 and t1223_5
   fill them and must not re-shape `compose()`.
 - `_active_tab()` is the seam for any further per-tab gating — extend
-  `check_action`'s action tuple rather than adding parallel checks.
+  `BRANCH_TAB_ACTIONS` (or add a sibling tuple) rather than adding parallel
+  checks.
+- Any tab-switch **keybinding** a sibling adds must use the
+  `brainstorm_app._select_tab` pattern (`brainstorm_app.py:2704-2722`): assigning
+  `TabbedContent.active` while a widget inside the current pane holds focus is
+  silently reverted by Textual, so hand focus to the tab bar when the tab
+  actually changes.
+- Tests that switch tabs must do it with real ←/→ keypresses on a focused tab
+  bar (`activate_tab` in `tests/test_syncer_rows.py`). Assigning `active`
+  directly makes footer assertions pass vacuously, because focusing the bar is
+  itself a focus change that refreshes bindings.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->

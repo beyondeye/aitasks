@@ -220,6 +220,46 @@ verify `git diff --cached` contains only my hunks before committing.
   labels could silently drop it without failing anything else. · severity: low
   · → mitigation: TBD (covered by test case 5)
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-24 11:05)
+
+- **Requested by user:** The unknown-key hint assumes every YAML mapping key is
+  a string. `sorted(set(dp_values) - VALID_PROFILE_SKILLS)` raises `TypeError`
+  for a config holding both an unquoted numeric key (`42:`, parsed as `int`)
+  and a string unknown key; a lone numeric key sorts fine but then reaches
+  `', '.join(unknown)` and raises there. Opening the Project Config tab would
+  crash instead of preserving and showing hand-authored unknown entries.
+  Normalize keys for display/sorting only, keep the original mapping for save,
+  and add a regression case. Disposition: blocking.
+
+- **Verified:** Valid, both failure modes reproduced. One mechanism
+  correction: the *set difference* is safe (`{42, 'x'} - {'pick'}` needs no
+  ordering) — `sorted()` raises on the mixed case and `join()` on the
+  lone-numeric case. The crash outcome is as described. Reachable from plain
+  hand-authored YAML: `42:` → `int`, `true:` → `bool`, `null:` → `None`, all of
+  which `aitask_skill_resolve_profile.sh` still greps successfully.
+
+- **Changes made:** `_populate_project_tab()` now builds the hint with
+  `sorted(str(k) for k in dp_values if k not in VALID_PROFILE_SKILLS)` — the
+  membership test is type-safe for any hashable key, and `str()` is applied
+  for **display only**, so `dp_values` (and therefore the mapping seeded into
+  `save_project_settings`) keeps each key's original YAML type. Two regression
+  classes added to the test file: `NonStringKeyTests` (mixed `int` + `str`
+  unknown keys — asserts the hint lists both **and** that `dp[42] == "fast"`
+  survives the save with its int type intact) and `LoneNonStringKeyTests` (the
+  join-only path). Both were confirmed to fail with the exact reported
+  `TypeError`s before the fix and to pass after.
+
+- **Files affected:** `.aitask-scripts/settings/settings_app.py`,
+  `tests/test_settings_default_profiles_unknown_keys.py` (now 9 tests).
+
+- **Not changed (recorded as an upstream defect instead):** a non-string
+  *value* for a **known** key (`pick: 42`) crashes the save with
+  `AttributeError: 'int' object has no attribute 'strip'`. Confirmed
+  pre-existing by re-running the probe with this task's changes stashed —
+  it fails identically. Out of scope for the key-side concern raised here.
+
 ## Step 9 (Post-Implementation)
 
 Standard: merge approval (working on current branch — no worktree to merge or
