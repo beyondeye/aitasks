@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1162
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-22 16:21
-updated_at: 2026-07-24 10:40
+updated_at: 2026-07-24 13:59
 ---
 
 ## Origin
@@ -61,3 +64,8 @@ Land this **after t1162 completes**. Verified at filing time: no remaining t1162
 - **Regression coverage for the three newly-identified consumers** — codebrowser, diffviewer and monitor import this parser and are easy to miss: run their test files, and smoke-launch each TUI (`ait codebrowser`, `ait monitor`) to confirm the import resolves at runtime, not just under test
 - `grep -rn "from task_yaml import\|import task_yaml" .aitask-scripts/ tests/` — every hit resolves via `lib`, none via a `board/` sys.path insert
 - `grep -rn "board" .aitask-scripts/*/[a-z]*.py | grep sys.path` — no package inserts `board/` solely to reach `task_yaml`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-24T10:59:08Z status=pass attempt=1 type=human
