@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, python]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ risk_mitigation_tasks: [1229]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-22 11:08
-updated_at: 2026-07-24 10:56
+updated_at: 2026-07-24 10:57
+completed_at: 2026-07-24 10:57
 boardcol: bug_fixes
 boardidx: 40
 ---
@@ -93,3 +94,14 @@ exactly the check most likely to be skipped.
 > **✅ gate:plan_approved** run=2026-07-22T15:44:01Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-24T07:52:45Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-24T07:57:12Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f2493192b4ae6491
+
+> **✅ gate:risk_evaluated** run=2026-07-24T07:57:12Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1211/risk_evaluated_2026-07-24T07:57:12Z-risk_evaluated-a1.log`
