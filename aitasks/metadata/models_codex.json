@@ -8,7 +8,8 @@
         "batch-review": 0,
         "pick": 100,
         "explain": 0,
-        "work-report": 0
+        "work-report": 0,
+        "trail": 0
       },
       "verifiedstats": {
         "pick": {
@@ -62,7 +63,8 @@
         "pick": 100,
         "explain": 0,
         "explore": 100,
-        "work-report": 0
+        "work-report": 0,
+        "trail": 0
       },
       "verifiedstats": {
         "explore": {
@@ -153,7 +155,8 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
-        "work-report": 0
+        "work-report": 0,
+        "trail": 0
       },
       "verifiedstats": {}
     },
@@ -271,7 +274,8 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
-        "work-report": 0
+        "work-report": 0,
+        "trail": 0
       },
       "verifiedstats": {}
     },
@@ -283,7 +287,8 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
-        "work-report": 0
+        "work-report": 0,
+        "trail": 0
       },
       "verifiedstats": {}
     },
@@ -295,7 +300,8 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
-        "work-report": 0
+        "work-report": 0,
+        "trail": 0
       },
       "verifiedstats": {}
     },
@@ -307,7 +313,8 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
-        "work-report": 0
+        "work-report": 0,
+        "trail": 0
       },
       "verifiedstats": {}
     },
@@ -319,7 +326,8 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
-        "work-report": 0
+        "work-report": 0,
+        "trail": 0
       },
       "verifiedstats": {}
     }

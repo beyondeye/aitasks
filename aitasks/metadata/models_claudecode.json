@@ -14,7 +14,8 @@
         "test_414_flags": 90,
         "qa": 100,
         "wrap": 100,
-        "work-report": 80
+        "work-report": 80,
+        "trail": 80
       },
       "verifiedstats": {
         "pick": {
@@ -149,7 +150,8 @@
         "batch-review": 0,
         "pick": 80,
         "explain": 80,
-        "work-report": 80
+        "work-report": 80,
+        "trail": 80
       },
       "verifiedstats": {}
     },
@@ -161,7 +163,8 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
-        "work-report": 0
+        "work-report": 0,
+        "trail": 0
       },
       "verifiedstats": {}
     },
@@ -173,7 +176,8 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
-        "work-report": 0
+        "work-report": 0,
+        "trail": 0
       },
       "verifiedstats": {}
     },
@@ -185,7 +189,8 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
-        "work-report": 0
+        "work-report": 0,
+        "trail": 0
       },
       "verifiedstats": {}
     },

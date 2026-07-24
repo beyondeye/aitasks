@@ -15,6 +15,7 @@
     "brainstorm-module_decomposer": "claudecode/opus4_8",
     "brainstorm-module_merger": "claudecode/opus4_8",
     "brainstorm-module_syncer": "claudecode/opus4_8",
-    "work-report": "claudecode/sonnet4_6"
+    "work-report": "claudecode/sonnet4_6",
+    "trail": "claudecode/opus4_8"
   }
 }
