@@ -304,3 +304,85 @@ Manual smoke: `ait syncer` in this repo —
 ## Out of scope
 
 Any version or settings content (t1223_3 / t1223_5) and any new keybinding.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned shape, in two files.
+  `.aitask-scripts/syncer/syncer_app.py` (+107/−16): `compose()` wraps the
+  branches table + detail scroll in `TabbedContent → TabPane("Branches",
+  id="tab_branches")` and adds `tab_versions` / `tab_settings` placeholder panes
+  (`#versions_placeholder`, `#settings_placeholder`); widget ids `#branches`,
+  `#detail_scroll`, `#detail` are unchanged so all six pre-existing `query_one`
+  call sites keep resolving. Added module-level `BRANCH_TAB_ACTIONS`, the
+  `_active_tab()` helper (fail-open to `"tab_branches"`), a tab gate at the top
+  of `check_action` returning `False`, `on_tabbed_content_tab_activated` →
+  `refresh_bindings()`, `table.focus()` at the end of `on_mount()`, and a
+  `TabPane { padding: 0 1; }` CSS rule. `tests/test_syncer_rows.py` (+313): a new
+  `TabbedShellTests` section (13 tests, 39 → 52) with `footer_state()`,
+  `detail_text()` and `activate_tab()` helpers; the pre-existing 381 lines are
+  untouched. The task file was updated for the two AC deviations recorded during
+  planning (`return False` for the tab gate + `agent_resolve` in the gated set;
+  `bash` → `python3` in the verification command).
+
+- **Deviations from plan:** None in the shipped code. One test-design deviation:
+  the `activate_tab()` helper was planned as "focus the tab bar, then assign
+  `TabbedContent.active`". That assignment form is **vacuous** for the footer
+  assertion — focusing the bar is itself a focus change, which triggers
+  Textual's own bindings refresh, so the test passed with
+  `on_tabbed_content_tab_activated` deleted. Rewrote the helper to focus the bar
+  and then drive real ←/→ keypresses, which is the actual user flow (arrows move
+  `active` without moving focus). Only then did the negative control bite.
+
+- **Issues encountered:**
+  1. *(planning)* An early draft claimed a pre-existing footer-staleness bug in
+     row gating and proposed a handler body that would have dropped
+     `_refresh_detail()`. That came from probing a hand-built replica of the
+     widget tree rather than the real class — the replica simply lacked the
+     handler. The user caught it. Re-verified by booting the real `SyncerApp`
+     under `run_test()`: row gating works correctly today. Test 11 (with its
+     `#detail` assertion) now pins that behavior, and the falsifiability run
+     confirmed it fails if either half of the handler is trimmed.
+  2. Textual dispatches `on_mount` for **every** class in the MRO, so a probe
+     subclass must not call `super().on_mount()` (doing so double-seeds the
+     DataTable and raises `DuplicateKey`). Cost one debugging cycle; irrelevant
+     to the shipped code, which edits `on_mount` in place.
+  3. The repo worktree carries many unrelated modified files from a concurrent
+     session, and that session had a rename (`board/task_yaml.py → lib/`)
+     staged. Committed with a pathspec-limited `git commit -- <paths>` so the
+     shared index was not swept into this task's commit.
+
+- **Key decisions:**
+  - **`False` for the tab gate, `None` for the ref gate.** Verified in Textual
+    8.2.7 that `Screen.active_bindings` drops a binding only on `is False`;
+    `None` yields `enabled=False` (kept-but-dimmed). A Branches-only action is
+    not part of another tab's vocabulary, so it is removed there; a
+    non-applicable *row* on the same tab stays dimmed. Tests 4 and 5 assert the
+    two halves separately so the split cannot silently collapse.
+  - **`table.focus()` in `on_mount`.** The tab wrap otherwise hands boot focus
+    to `ContentTabs` and ↑/↓ stops driving the branch cursor. Plain `focus()` is
+    sufficient — `call_after_refresh` was measured and is not needed.
+  - **Accepted the two-`Tab` route to the tab bar.** `#detail_scroll` is
+    focusable pre-refactor and that focus is what scrolls a long detail pane, so
+    removing it from the focus chain to shorten the route would be a regression,
+    not a simplification. Test 12 pins it.
+  - **Footer assertions keyed by action, not key**, so a user's shortcut remap
+    cannot break them (`check_action` is likewise dispatched by action name).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - `tab_versions` / `tab_settings` ids are established; fill them without
+    re-shaping `compose()`.
+  - Extend `BRANCH_TAB_ACTIONS` (or add a sibling tuple) for further per-tab
+    gating rather than adding parallel checks in `check_action`.
+  - Any tab-switch **keybinding** must use the `brainstorm_app._select_tab`
+    pattern (`brainstorm_app.py:2704-2722`): assigning `TabbedContent.active`
+    while a widget inside the current pane holds focus is silently reverted by
+    Textual, so hand focus to the tab bar when the tab actually changes.
+  - Any new tab-scoped binding needs `refresh_bindings()` on activation to reach
+    the footer — the handler added here already covers tab switches, but a
+    binding whose availability depends on something *other* than the active tab
+    will need its own refresh trigger.
+  - Reuse `activate_tab()` / `footer_state()` from `tests/test_syncer_rows.py`;
+    do **not** switch tabs by assigning `active` in a test that asserts on the
+    footer (see "Deviations" above).
