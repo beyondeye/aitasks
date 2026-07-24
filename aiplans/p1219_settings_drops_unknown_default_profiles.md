@@ -260,6 +260,74 @@ verify `git diff --cached` contains only my hunks before committing.
   pre-existing by re-running the probe with this task's changes stashed —
   it fails identically. Out of scope for the key-side concern raised here.
 
+## Final Implementation Notes
+
+- **Actual work done:** As planned, in `.aitask-scripts/settings/settings_app.py`:
+  (1) `save_project_settings()` seeds `dp` from
+  `self.config_mgr.project_config.get("default_profiles")` (copied via `dict()`,
+  guarded with `isinstance`) instead of `{}`, with an explicit
+  `dp.pop(row.row_key, None)` on the blank-row branch; (2) `_populate_project_tab()`
+  mounts a read-only `Label` listing unrecognized keys; (3) the
+  `PROJECT_CONFIG_SCHEMA["default_profiles"]` `detail` text now states that other
+  keys are shown read-only and preserved. New test
+  `tests/test_settings_default_profiles_unknown_keys.py` (9 tests) drives the real
+  `SettingsApp` save path.
+
+- **Deviations from plan:**
+  - `Label` has no `.renderable` attribute in this Textual version; the
+    render-level assertions use `str(lbl.render())` (returns `textual.content.Content`,
+    whose `str()` is the markup-stripped plain text).
+  - Added `test_no_hint_when_every_key_is_known` beyond the five planned cases —
+    a negative control proving the hint is conditional, not unconditional.
+  - Added two classes after review (see Post-Review Changes): `NonStringKeyTests`
+    and `LoneNonStringKeyTests`.
+  - The planned "staging caution" became moot mid-task: the concurrent session
+    committed its `settings_app.py` hunk (commits `26af930bb`, `592a96fee` landed
+    on main during implementation), so `git diff` on the file showed only this
+    task's hunks. `tests/test_board_footer_visibility.py` remained another
+    session's uncommitted work and was deliberately not staged.
+
+- **Issues encountered:**
+  - Review surfaced a real defect in the new hint code: YAML mapping keys need
+    not be strings (`42:` → `int`, `true:` → `bool`), and
+    `sorted(set(dp_values) - VALID_PROFILE_SKILLS)` raises `TypeError` on a mixed
+    `int`/`str` set, while a lone non-string key reaches `', '.join(...)` and
+    raises there. Fixed by `sorted(str(k) for k in dp_values if k not in
+    VALID_PROFILE_SKILLS)` — type-safe membership test, `str()` for display only,
+    so the saved mapping keeps each key's original type. Note the set difference
+    itself was never the problem (it needs no ordering).
+  - Both negative controls were run to prove the suite can fail: reverting the
+    seeding hunk → 3 failures / exit 1; neutering the hint → 1 failure / exit 1;
+    the two non-string-key tests failed with the exact reported `TypeError`s
+    before their fix. Restored each time by undoing the edit, never by
+    `git checkout --` (the file carried another session's work at the time).
+
+- **Key decisions:**
+  - The unknown-key surface is a plain `Label`, not a `ConfigRow`. `_safe_id()`
+    only maps `.`, ` `, `-` → `_`, so rendering arbitrary YAML keys as widgets
+    risks a Textual `DuplicateIds` crash (unknown `pr_import` vs known
+    `pr-import`) or an outright invalid id — either would take down the whole
+    Project tab. A `Label` carries no id and is inherently read-only, which is
+    what the task asked for.
+  - No pure-function extraction: the existing
+    `tests/test_settings_learn_skill_guide.py` already proves this save path by
+    mounting the real app, so the regression test follows that shape rather than
+    introducing a new seam.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/settings/settings_app.py:2530-2545` — a non-string *value*
+    for a *known* `default_profiles` key (e.g. `pick: 42`, valid YAML) makes
+    `save_project_settings()` raise `AttributeError: 'int' object has no
+    attribute 'strip'` at `(row.raw_value or "").strip()`, because
+    `_populate_project_tab` passes `raw_value=profile_name` uncoerced. Confirmed
+    pre-existing by re-running the probe with this task's changes stashed.
+  - `.aitask-scripts/settings/settings_app.py:2925-2937` — `save_tmux_settings()`
+    merges with `existing_tmux.update(tmux_data)`, and a cleared key is simply
+    absent from `tmux_data` rather than removed. So blanking one tmux setting
+    while another remains set silently retains the cleared key's old value; the
+    key is only dropped when *every* tmux row is blank. Inverse of the
+    `default_profiles` bug fixed here, in the sibling save path.
+
 ## Step 9 (Post-Implementation)
 
 Standard: merge approval (working on current branch — no worktree to merge or
