@@ -323,6 +323,47 @@ confusion while debugging).
 - timing: after | name: repay_lib_stats_inversion | type: refactor | priority: medium | effort: medium | addresses: goal-achievement — lib/work_report_gather.py keeps its stats/ sys.path insert, so the lib/ layer direction is only partly restored | desc: Relocate the shared stats_data surface (DAY_NAMES, collect_stats) to the base layer, drop the last sibling-package sys.path insert from lib/, and tighten tests/test_no_lib_to_tui_import.sh's allowlist to empty
 - timing: after | name: pythonpath_isolated_python_test_lane | type: test | priority: medium | effort: low | addresses: code-health — run_all_python_tests.sh exports both board/ and lib/ on PYTHONPATH, so a broken per-file sys.path bootstrap passes the suite and fails only at TUI runtime | desc: Add an isolated-import lane to the Python test runner (or stop exporting sibling package dirs) so per-file sys.path bootstraps are exercised as shipped, making the masking structurally impossible instead of relying on a manual env -u PYTHONPATH check
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-24 11:30)
+
+- **Requested by user:** `.aitask-scripts/board/aitask_board.py` had picked up
+  the **t1225** `run_dialog_command` refactor from a concurrent session while
+  t1217 was in flight (t1225 is still `Implementing` and its plan/tests own
+  those callback and worker changes). Staging that path wholesale would
+  contaminate the t1217 commit with another task's implementation. Requested a
+  selective index containing only the import-relocation hunk, verified via
+  `git diff --cached`. Verdict: CONFIRMED, blocking.
+- **Changes made:** No source edits. Corrected the *staging* method:
+  - Re-audited every candidate path by **diff content**, not by whether it was
+    dirty at session start — that heuristic was what missed this, since
+    `aitask_board.py` was clean at session start and became contaminated
+    mid-session. The other 14 modified files were confirmed 1-hunk and
+    entirely t1217.
+  - Built a two-hunk patch from `git diff` (header + the import add/remove
+    hunks only) and applied it with `git apply --cached`; staged the remaining
+    paths explicitly by name.
+  - Verified the **index**, not the worktree: `git diff --cached` on
+    `aitask_board.py` shows only the import move; a token grep over the whole
+    staged diff for `run_dialog_command` / `CODEAGENT_FAILURE_NOTICE` /
+    `refocus_filename` / `error_notice` / the two removed helpers returns
+    nothing; and the t1225 work remains intact and unstaged in the worktree
+    (47 insertions / 49 deletions still pending for that task).
+  - **Validated the commit content itself** rather than the worktree that had
+    been tested up to that point: materialized the exact index tree with
+    `git checkout-index -a --prefix=…` and re-ran all eight entry-module
+    imports, the PyPy `aitask_board` import, the `PYTHONPATH=board`
+    `aitask_merge --help` check, and the new guard against that tree — all
+    green. The staged `aitask_board.py` blob compiles, contains exactly one
+    `from task_yaml import`, and still carries the pre-t1225 helpers.
+- **Files affected:** none (staging-only change). Staged set: the 16 t1217
+  paths plus the new `tests/test_no_lib_to_tui_import.sh`.
+
+**Lesson for the Final Implementation Notes:** in a shared checkout, "this file
+was clean when I started" is not evidence that a file is uncontaminated at
+commit time. Concurrent sessions can dirty a path mid-task, so the pre-commit
+audit must read the diff of every path being staged.
+
 ## Step 9 (Post-Implementation)
 
 Standard: merge approval, `ait gates run 1217` (this task declares
