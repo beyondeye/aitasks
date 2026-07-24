@@ -15,7 +15,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1158
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 18:08
-updated_at: 2026-07-24 06:10
+updated_at: 2026-07-24 06:37
 boardcol: bug_fixes
 boardidx: 20
 ---
@@ -48,3 +48,5 @@ Reproduce the failure locally (see the commits and files above, and the origin a
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-22T15:40:57Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-24T07:35:02Z status=pass attempt=1 type=human
