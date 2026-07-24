@@ -6,6 +6,7 @@ import sys
 import yaml
 import json
 import glob
+import shlex
 import subprocess
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -3126,6 +3127,126 @@ class IssueTypeFilterScreen(ModalScreen):
             event.stop()
 
 
+class WorkReportColumnSelectScreen(ModalScreen):
+    """Modal dialog to multi-select which board columns feed a work report."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, columns: list, initial: str | None):
+        """``columns``: ordered (col_id, title) pairs; ``initial``: pre-checked col_id."""
+        super().__init__()
+        self.columns = list(columns)
+        self.initial = initial
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label(
+                "Work report columns — [dim]space to toggle, Enter to confirm, Esc to cancel[/]",
+                id="dep_picker_title",
+            )
+            yield SelectionList[str](
+                *(
+                    Selection(title, value=col_id,
+                              initial_state=(col_id == self.initial))
+                    for col_id, title in self.columns
+                ),
+                id="work_report_column_list",
+            )
+            with Horizontal(id="detail_buttons"):
+                yield Button("Confirm", variant="primary", id="btn_wr_cols_save")
+                yield Button("Cancel", variant="default", id="btn_wr_cols_cancel")
+
+    def on_mount(self):
+        self.query_one("#work_report_column_list", SelectionList).focus()
+
+    def _selected(self) -> list:
+        sl = self.query_one("#work_report_column_list", SelectionList)
+        checked = set(sl.selected)
+        return [col_id for col_id, _ in self.columns if col_id in checked]
+
+    @on(Button.Pressed, "#btn_wr_cols_save")
+    def _btn_save(self):
+        self.dismiss(self._selected())
+
+    @on(Button.Pressed, "#btn_wr_cols_cancel")
+    def _btn_cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+    def on_key(self, event):
+        # SelectionList uses space for toggle and consumes it. Enter is free,
+        # so treat it as "confirm selection".
+        if event.key == "enter":
+            self.dismiss(self._selected())
+            event.stop()
+
+
+class WorkReportTaskSelectScreen(ModalScreen):
+    """Modal dialog to review/exclude the tasks feeding a work report.
+
+    ``tasks``: ordered (col_id, task_id, label) triples grouped by column in
+    board order. The displayed sequence IS the reviewed order the launch must
+    preserve — confirm dismisses the still-selected (col_id, task_id) pairs in
+    exactly that order.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, tasks: list):
+        super().__init__()
+        self.tasks = list(tasks)
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label(
+                "Work report tasks — [dim]space to toggle, Enter to confirm, Esc to cancel[/]",
+                id="dep_picker_title",
+            )
+            yield SelectionList[str](
+                *(
+                    Selection(label, value=task_id, initial_state=True)
+                    for _, task_id, label in self.tasks
+                ),
+                id="work_report_task_list",
+            )
+            with Horizontal(id="detail_buttons"):
+                yield Button("Confirm", variant="primary", id="btn_wr_tasks_save")
+                yield Button("Cancel", variant="default", id="btn_wr_tasks_cancel")
+
+    def on_mount(self):
+        self.query_one("#work_report_task_list", SelectionList).focus()
+
+    def _selected(self) -> list:
+        sl = self.query_one("#work_report_task_list", SelectionList)
+        checked = set(sl.selected)
+        return [(col_id, task_id) for col_id, task_id, _ in self.tasks
+                if task_id in checked]
+
+    @on(Button.Pressed, "#btn_wr_tasks_save")
+    def _btn_save(self):
+        self.dismiss(self._selected())
+
+    @on(Button.Pressed, "#btn_wr_tasks_cancel")
+    def _btn_cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+    def on_key(self, event):
+        # SelectionList uses space for toggle and consumes it. Enter is free,
+        # so treat it as "confirm selection".
+        if event.key == "enter":
+            self.dismiss(self._selected())
+            event.stop()
+
+
 class LockEmailScreen(ModalScreen):
     """Modal dialog to enter email for locking a task."""
 
@@ -4602,6 +4723,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("n", "create_task", "New Task"),
         # Pick task (shown conditionally via check_action)
         Binding("p", "pick_task", "Pick"),
+        # Work report (shown conditionally via check_action)
+        Binding("w", "work_report", "Work Report"),
         # Brainstorm task (shown conditionally via check_action)
         Binding("b", "brainstorm_task", "Brainstorm"),
         # Open cross-repo reference (shown conditionally via check_action)
@@ -4720,6 +4843,15 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         elif action == "pick_task":
             focused = self._focused_card()
             if not focused:
+                return False
+        elif action == "work_report":
+            # Work Report is column-scoped: only in persistent kanban views
+            # (In-Flight / By-Topic render derived, non-column lanes), and only
+            # when a focused card or column placeholder (collapsed OR empty)
+            # identifies a column.
+            if self.base_filter in ("inflight", "bytopic"):
+                return False
+            if self._get_focused_col_id() is None:
                 return False
         elif action == "brainstorm_task":
             focused = self._focused_card()
@@ -5744,6 +5876,109 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         else:
             self.run_aitask_pick(focused.task_data.filename)
 
+    def _work_report_columns(self) -> list:
+        """Ordered (col_id, title) options for the work-report column picker.
+
+        Mirrors the renderer's intersection (see refresh_board): Unsorted
+        first when it has tasks, then only the column_order ids that have a
+        columns definition — a stale order entry is not on the board and the
+        gatherer would reject it as unknown_column.
+        """
+        cols = []
+        if self.manager.get_column_tasks("unordered"):
+            cols.append(("unordered", "Unsorted / Inbox"))
+        for col_id in self.manager.column_order:
+            conf = next((c for c in self.manager.columns if c["id"] == col_id), None)
+            if conf:
+                cols.append((conf["id"], conf["title"]))
+        return cols
+
+    def action_work_report(self):
+        """Open the work-report flow: columns → tasks → agent command dialog."""
+        if self._modal_is_active():
+            return
+        focused_col = self._get_focused_col_id()
+        if not focused_col:
+            return
+        columns = self._work_report_columns()
+
+        def on_columns(col_ids):
+            if col_ids is None:
+                return  # Escape — cancelled cleanly
+            if not col_ids:
+                self.notify("No columns selected")
+                return
+            # Full column contents regardless of search/board filters —
+            # get_column_tasks reads task_datas directly, in board order.
+            entries = []
+            for col_id in col_ids:
+                for task in self.manager.get_column_tasks(col_id):
+                    task_num, task_name = TaskCard._parse_filename(task.filename)
+                    if not task_num:
+                        continue
+                    entries.append((col_id, task_num.lstrip("t"),
+                                    f"[{col_id}] {task_num} {task_name}"))
+            if not entries:
+                self.notify("No tasks in the selected columns")
+                return
+
+            def on_tasks(selected):
+                if selected is None:
+                    return  # Escape — cancelled cleanly
+                if not selected:
+                    self.notify("No tasks selected")
+                    return
+                # The displayed grouped order is the reviewed sequence the
+                # gatherer's task_order_changed check defends — never re-sort.
+                cols_csv = ",".join(col_ids)
+                tasks_csv = ",".join(task_id for _, task_id in selected)
+                self._launch_work_report(cols_csv, tasks_csv)
+
+            self.push_screen(WorkReportTaskSelectScreen(entries), on_tasks)
+
+        self.push_screen(
+            WorkReportColumnSelectScreen(columns, focused_col), on_columns)
+
+    def _launch_work_report(self, cols_csv: str, tasks_csv: str):
+        """Resolve and launch /aitask-work-report with the reviewed selection."""
+        op_args = ["--columns", cols_csv, "--tasks", tasks_csv]
+        full_cmd = resolve_dry_run_command(Path("."), "work-report", *op_args)
+        if not full_cmd:
+            # Wrapper/config/timeout failure — never build a dialog around a
+            # missing command; launch the reviewed selection directly instead.
+            self.notify("Could not resolve agent command — launching directly")
+            self.run_work_report(shlex.join(
+                [str(CODEAGENT_SCRIPT), "invoke", "work-report", *op_args]))
+            return
+        prompt_str = f"/aitask-work-report --columns {cols_csv} --tasks {tasks_csv}"
+        agent_string = resolve_agent_string(Path("."), "work-report")
+        screen = AgentCommandScreen(
+            "Work Report", full_cmd, prompt_str,
+            default_window_name="agent-work-report",
+            project_root=Path("."),
+            operation="work-report",
+            operation_args=op_args,
+            default_agent_string=agent_string,
+            skill_name="work-report",
+        )
+
+        def on_work_report_result(result):
+            if result == "run":
+                # Column-scoped: no task filename exists, so run_aitask_pick
+                # does not apply. Dispatch the dialog's CURRENT command —
+                # run_terminal stores user edits into screen.full_command and
+                # the agent/profile controls regenerate it, so rebuilding
+                # default wrapper args here would silently discard them.
+                self.run_work_report(screen.full_command)
+            elif isinstance(result, TmuxLaunchConfig):
+                _, err = launch_in_tmux(screen.full_command, result)
+                if err:
+                    self.notify(err, severity="error")
+                elif result.new_window:
+                    maybe_spawn_minimonitor(result.session, result.window)
+            self.refresh_board()
+        self.push_screen(screen, on_work_report_result)
+
     def _launch_brainstorm(self, num: str, filename: str):
         """Launch brainstorm, switching to existing tmux window if found."""
         window_name = f"brainstorm-{num}"
@@ -6036,6 +6271,28 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.notify("Code agent invocation failed — check model configuration", severity="error")
             self.manager.load_tasks()
             self.refresh_board(refocus_filename=filename)
+
+    @work(exclusive=True)
+    async def run_work_report(self, full_command: str):
+        """Launch a work-report command directly (column-scoped — no task file).
+
+        Takes the full shell command string (the agent-command dialog's
+        possibly edited / agent-overridden ``full_command``, or the shlex-built
+        wrapper default on the dry-run-failure fallback) so dialog state is
+        never silently discarded — the ``["sh", "-c", ...]`` dispatch mirrors
+        the tui_switcher "run" path.
+        """
+        args = ["sh", "-c", full_command]
+        terminal = find_terminal()
+        if terminal:
+            spawn_in_terminal(terminal, args)
+        else:
+            with self.suspend():
+                ret = subprocess.call(args)
+            if ret != 0:
+                self.notify("Code agent invocation failed — check model configuration", severity="error")
+            self.manager.load_tasks()
+            self.refresh_board()
 
     def action_create_task(self):
         """Open create task dialog with terminal/tmux options."""
