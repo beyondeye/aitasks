@@ -134,3 +134,10 @@ aidocs/framework TUI docs do not document the mount-time rename).
   in-task (live repro matched the reported symptom exactly; sibling-repo
   installs verified to carry the pinned-rename fix; verification re-runs the
   repro end-to-end)
+
+## Final Implementation Notes
+- **Actual work done:** Implemented exactly as planned: `rename_window: bool = False` constructor flag on `MonitorApp` (with explanatory comment), `on_mount` rename block gated on `self._rename_window`, `main()` passes `rename_window=True` (single production call site). Scrubbed `TMUX`/`TMUX_PANE` at module load in the five affected test files. Added `tests/test_monitor_rename_gate.py` with the three planned tests (guard, production pin, fail-safe pin), patching `monitor_app.subprocess.run` and neutralizing `_start_monitoring` so mounts are inert.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Negative control verified: temporarily ungating the rename made the guard suite exit 1 (then restored). The production smoke window (scratch `ait monitor`) had to be killed by index because it had renamed itself to `monitor` (expected behavior).
+- **Key decisions:** Guard test clears then re-injects a fake tmux env via `mock.patch.dict(..., clear=True)` so results are identical inside and outside a real tmux session; assertions filter recorded argvs for `rename-window` so unrelated mount-time subprocess calls can never cause false failures.
+- **Upstream defects identified:** None
