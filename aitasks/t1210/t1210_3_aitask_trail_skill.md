@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
+implemented_with: claudecode/fable5
 created_at: 2026-07-22 16:16
-updated_at: 2026-07-24 11:06
+updated_at: 2026-07-24 12:42
 ---
 
 ## Context
@@ -76,3 +77,8 @@ confirmed artifact write. RFC §3 (journeys J1–J6), §7 (analysis steps 3–6)
 - End-to-end smoke on a throwaway task: create → `ait artifact ls <task>`
   shows the handle; refresh after a member status change produces v2
   (`ait artifact versions`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-24T09:42:08Z status=pass attempt=1 type=human
