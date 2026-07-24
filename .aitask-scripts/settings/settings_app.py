@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
+from rich.markup import escape
 
 # Add .aitask-scripts/lib to path for config_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
@@ -226,6 +227,8 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
         "detail": (
             "Maps skill names to profile names (without .yaml). "
             "Valid skills: pick, fold, review, pr-import, revert, explore, pickrem, pickweb, qa. "
+            "Any other key is shown read-only and preserved on save (the profile "
+            "resolver reads it, so it must not be dropped) — edit it in the YAML. "
             "Users can override in userconfig.yaml. The --profile argument overrides both."
         ),
     },
@@ -2472,6 +2475,26 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         id=f"project_dp_{_safe_id(skill)}_{rc}",
                         raw_value=profile_name,
                     ))
+                # Keys the schema does not know about are preserved on save but
+                # have no editable row — surface them so they are not invisible.
+                # A plain Label (no widget id) is deliberate: _safe_id() only
+                # maps ". -" to "_", so rendering arbitrary YAML keys as
+                # ConfigRows risks an id collision (unknown "pr_import" vs known
+                # "pr-import") or an invalid id, either of which crashes the tab.
+                # str() per key before sorting/joining: YAML mapping keys need
+                # not be strings (an unquoted `42:` parses to int, `true:` to
+                # bool), and a mixed int/str set is unsortable. This normalizes
+                # for DISPLAY only — dp_values, and so the saved mapping, keeps
+                # each key's original type.
+                unknown = sorted(
+                    str(k) for k in dp_values if k not in VALID_PROFILE_SKILLS
+                )
+                if unknown:
+                    container.mount(Label(
+                        "      [dim]preserved, not editable here "
+                        f"(unrecognized skill): {escape(', '.join(unknown))}[/dim]",
+                        classes="section-hint",
+                    ))
                 continue
             raw_value = self.config_mgr.project_config.get(key)
             formatted = _format_yaml_value(raw_value)
@@ -2514,14 +2537,25 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         data = dict(self.config_mgr.project_config)
 
-        # Collect default_profiles from individual skill rows
-        dp = {}
+        # Collect default_profiles from individual skill rows. Seed from the
+        # existing config so keys with no rendered row (skills absent from
+        # VALID_PROFILE_SKILLS — hand-authored YAML, or a skill whose profile
+        # key landed before the schema knew about it) are preserved instead of
+        # silently dropped; the rendered rows overwrite only their own keys.
+        # dict() copies: `data` above is a shallow copy of project_config, so
+        # mutating the fetched sub-dict in place would mutate the loaded config.
+        existing_dp = self.config_mgr.project_config.get("default_profiles")
+        dp = dict(existing_dp) if isinstance(existing_dp, dict) else {}
         for row in rows:
             if not row.id or not row.id.startswith("project_dp_"):
                 continue
             val = (row.raw_value or "").strip()
             if val:
                 dp[row.row_key] = val
+            else:
+                # Blanking a rendered row clears that key — with the map now
+                # pre-seeded, this removal must be explicit.
+                dp.pop(row.row_key, None)
         if dp:
             data["default_profiles"] = dp
         else:
