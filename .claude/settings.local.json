@@ -115,6 +115,8 @@
       "Bash(./.aitask-scripts/aitask_gate.sh:*)",
       "Bash(./ait git:*)",
       "Bash(./.aitask-scripts/aitask_init_data.sh:*)",
+      "Bash(./.aitask-scripts/aitask_artifact.sh:*)",
+      "Bash(./.aitask-scripts/aitask_trail_gather.sh:*)",
       "Bash(./.aitask-scripts/aitask_web_merge.sh:*)",
       "Bash(./.aitask-scripts/aitask_work_report_gather.sh:*)",
       "Bash(./.aitask-scripts/aitask_scan_profiles.sh:*)",

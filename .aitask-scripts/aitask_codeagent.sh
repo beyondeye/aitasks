@@ -10,11 +10,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/terminal_compat.sh
+# shellcheck source=lib/terminal_compat.sh disable=SC1091
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
-# shellcheck source=lib/task_utils.sh
+# shellcheck source=lib/task_utils.sh disable=SC1091
 source "$SCRIPT_DIR/lib/task_utils.sh"
-# shellcheck source=lib/agent_string.sh
+# shellcheck source=lib/agent_string.sh disable=SC1091
 source "$SCRIPT_DIR/lib/agent_string.sh"
 
 # --- Constants ---
@@ -23,7 +23,7 @@ source "$SCRIPT_DIR/lib/agent_string.sh"
 # come from lib/agent_string.sh.
 
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
-SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw shadow learn work-report)
+SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw shadow learn work-report trail)
 
 # --- Global flags (set by argument parser) ---
 
@@ -418,15 +418,16 @@ build_invoke_command() {
         die "explore-relay is not yet supported for $PARSED_AGENT (Claude Code only; port tracked as a follow-up task)"
     fi
 
-    # work-report passes identity fields (column IDs, task IDs) through a
-    # whitespace-joined slash-command string; an arg containing whitespace
-    # would split undetectably, so refuse it outright. Checked before
-    # per-agent dispatch and under --dry-run so refusals are unit-testable.
-    if [[ "$operation" == "work-report" ]]; then
+    # work-report and trail pass identity fields (column IDs, task IDs,
+    # artifact handles, topic csv) through a whitespace-joined slash-command
+    # string; an arg containing whitespace would split undetectably, so
+    # refuse it outright. Checked before per-agent dispatch and under
+    # --dry-run so refusals are unit-testable.
+    if [[ "$operation" == "work-report" || "$operation" == "trail" ]]; then
         local wr_arg
         for wr_arg in "${args[@]}"; do
             if [[ "$wr_arg" =~ [[:space:]] ]]; then
-                die "work-report argument contains whitespace — slash-command text cannot preserve argument boundaries: '$wr_arg'"
+                die "$operation argument contains whitespace — slash-command text cannot preserve argument boundaries: '$wr_arg'"
             fi
         done
     fi
@@ -467,6 +468,10 @@ build_invoke_command() {
                 work-report)
                     # claude --model <id> "/aitask-work-report <args>"
                     CMD+=("/aitask-work-report ${args[*]}")
+                    ;;
+                trail)
+                    # claude --model <id> "/aitask-trail <args>"
+                    CMD+=("/aitask-trail ${args[*]}")
                     ;;
                 batch-review)
                     # Interactive by default (no billing surcharge); opt into
@@ -533,6 +538,7 @@ build_invoke_command() {
                         shadow)  prompt=$(build_skill_prompt "\$aitask-shadow" "${args[@]}") ;;
                         learn)   prompt=$(build_skill_prompt "\$aitask-learn-skill" "${args[@]}") ;;
                         work-report) prompt=$(build_skill_prompt "\$aitask-work-report" "${args[@]}") ;;
+                        trail)   prompt=$(build_skill_prompt "\$aitask-trail" "${args[@]}") ;;
                     esac
                     CMD=("$binary" "$model_flag" "$cli_id" "$prompt")
                     ;;
@@ -560,6 +566,9 @@ build_invoke_command() {
                     ;;
                 work-report)
                     CMD+=("--prompt" "/aitask-work-report ${args[*]}")
+                    ;;
+                trail)
+                    CMD+=("--prompt" "/aitask-trail ${args[*]}")
                     ;;
                 batch-review|raw)
                     CMD+=("${args[@]}")
@@ -627,7 +636,7 @@ Options:
   -h, --help             Show this help
 
 Operations: pick, explain, batch-review, qa, explore, explore-relay, raw,
-            shadow, learn, work-report
+            shadow, learn, work-report, trail
   explore-relay: chat-native explore spawned by the chatlink gateway
   (claudecode only). Requires --headless plus CHATLINK_RELAY_DIR and
   CHATLINK_BUG_REPORT_FILE in the environment.

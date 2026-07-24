@@ -62,7 +62,7 @@ _NEW_SESSION_SENTINEL = "__new_session__"
 _NEW_WINDOW_SENTINEL = "__new_window__"
 _FRESH_WINDOW_PREFIXES = ("agent-", "create-")
 _FRESH_WINDOW_OPERATIONS = frozenset(
-    {"pick", "raw", "explain", "qa", "resume", "syncfix", "work-report"}
+    {"pick", "raw", "explain", "qa", "resume", "syncfix", "work-report", "trail"}
 )
 
 _PROFILES_DIR = Path("aitasks/metadata/profiles")
