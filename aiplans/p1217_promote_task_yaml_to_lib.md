@@ -292,7 +292,7 @@ confusion while debugging).
   the thinnest-covered consumers · severity: medium · → mitigation: in-task —
   the `env -u PYTHONPATH` direct-invocation pytest run and the entry-module
   import assertions (CPython + PyPy) in Verification exist specifically to
-  defeat this masking · → mitigation: pythonpath_isolated_python_test_lane
+  defeat this masking · → mitigation: t1236
 - `board/aitask_merge.py` breaks under its **production** argv if the import is
   not reordered below the `lib/` insert: `aitask_sync.sh:221` invokes it with
   `PYTHONPATH="$SCRIPT_DIR/board"` and nothing else, a path no existing test
@@ -317,11 +317,11 @@ confusion while debugging).
   `sys.path` insert, so the `lib/` layer direction is repaid for `board/` but
   **not fully restored**. This is out of scope for t1217 and is surfaced (not
   hidden) via the guard's allowlist entry · severity: low · → mitigation:
-  repay_lib_stats_inversion
+  t1235
 
 ### Planned mitigations
-- timing: after | name: repay_lib_stats_inversion | type: refactor | priority: medium | effort: medium | addresses: goal-achievement — lib/work_report_gather.py keeps its stats/ sys.path insert, so the lib/ layer direction is only partly restored | desc: Relocate the shared stats_data surface (DAY_NAMES, collect_stats) to the base layer, drop the last sibling-package sys.path insert from lib/, and tighten tests/test_no_lib_to_tui_import.sh's allowlist to empty
-- timing: after | name: pythonpath_isolated_python_test_lane | type: test | priority: medium | effort: low | addresses: code-health — run_all_python_tests.sh exports both board/ and lib/ on PYTHONPATH, so a broken per-file sys.path bootstrap passes the suite and fails only at TUI runtime | desc: Add an isolated-import lane to the Python test runner (or stop exporting sibling package dirs) so per-file sys.path bootstraps are exercised as shipped, making the masking structurally impossible instead of relying on a manual env -u PYTHONPATH check
+- timing: after | name: t1235 (repay_lib_stats_inversion) | type: refactor | priority: medium | effort: medium | addresses: goal-achievement — lib/work_report_gather.py keeps its stats/ sys.path insert, so the lib/ layer direction is only partly restored | desc: Relocate the shared stats_data surface (DAY_NAMES, collect_stats) to the base layer, drop the last sibling-package sys.path insert from lib/, and tighten tests/test_no_lib_to_tui_import.sh's allowlist to empty
+- timing: after | name: t1236 (pythonpath_isolated_python_test_lane) | type: test | priority: medium | effort: low | addresses: code-health — run_all_python_tests.sh exports both board/ and lib/ on PYTHONPATH, so a broken per-file sys.path bootstrap passes the suite and fails only at TUI runtime | desc: Add an isolated-import lane to the Python test runner (or stop exporting sibling package dirs) so per-file sys.path bootstraps are exercised as shipped, making the masking structurally impossible instead of relying on a manual env -u PYTHONPATH check
 
 ## Post-Review Changes
 
