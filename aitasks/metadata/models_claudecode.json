@@ -432,7 +432,8 @@
         "explore": 100,
         "changelog": 100,
         "wrap": 100,
-        "resume": 100
+        "resume": 100,
+        "work-report": 100
       },
       "verifiedstats": {
         "pick": {
@@ -536,6 +537,27 @@
           },
           "week": {
             "period": "2026-W27",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "work-report": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W30",
             "runs": 1,
             "score_sum": 100
           }
