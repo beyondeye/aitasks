@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: high
 depends: [t1162_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ui, reporting]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1162
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-22 10:46
-updated_at: 2026-07-24 06:36
+updated_at: 2026-07-24 10:29
+completed_at: 2026-07-24 10:29
 ---
 
 ## Context
@@ -45,3 +46,14 @@ Fourth child of t1162. Adds the contextual `w` (Work Report) action to the board
 > **✅ gate:plan_approved** run=2026-07-23T15:19:03Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-24T04:50:26Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-24T07:29:19Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:770f714a56c4bc35
+
+> **✅ gate:risk_evaluated** run=2026-07-24T07:29:19Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1162_4/risk_evaluated_2026-07-24T07:29:19Z-risk_evaluated-a1.log`
