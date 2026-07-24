@@ -7,6 +7,7 @@ tmux response does not block Textual's event-loop thread.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -15,6 +16,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
+
+# Belt-and-braces for t1240: MonitorApp only renames its tmux window when
+# constructed with rename_window=True (production launcher), but scrub the
+# ambient tmux env too so on_mount takes the deterministic not-inside-tmux
+# path regardless of where the suite runs.
+os.environ.pop("TMUX", None)
+os.environ.pop("TMUX_PANE", None)
 
 import monitor.monitor_core as monitor_core  # noqa: E402
 from agent_launch_utils import AitasksSession  # noqa: E402

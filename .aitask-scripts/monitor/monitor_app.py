@@ -421,9 +421,16 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         expected_session: str | None = None,
         multi_session: bool = True,
         compare_mode_default: str = "stripped",
+        rename_window: bool = False,
     ) -> None:
         super().__init__()
         self.current_tui_name = "monitor"
+        # Only the production launcher (main()) passes rename_window=True.
+        # Test mounts keep the default False so on_mount can never rename a
+        # window on the live tmux server — a test run inside an agent's pane
+        # inherits that pane's $TMUX_PANE and would relabel the agent's own
+        # window as "monitor" (t1240).
+        self._rename_window = rename_window
         self._session = session
         self._expected_session = expected_session
         self._refresh_seconds = refresh_seconds
@@ -488,13 +495,16 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         # Rename the tmux window so the TUI switcher can find us. This runs
         # before `_start_monitoring()` constructs `self._monitor`, so it must
-        # use raw subprocess rather than `self._monitor.tmux_run`.
-        try:
-            rename_argv = _rename_window_argv(os.environ.get("TMUX_PANE"))
-            if rename_argv:
-                subprocess.run(rename_argv, capture_output=True, timeout=5)
-        except Exception:
-            pass
+        # use raw subprocess rather than `self._monitor.tmux_run`. Gated on
+        # the constructor's rename_window flag (production launcher only) so
+        # test mounts never rename a live window (t1240).
+        if self._rename_window:
+            try:
+                rename_argv = _rename_window_argv(os.environ.get("TMUX_PANE"))
+                if rename_argv:
+                    subprocess.run(rename_argv, capture_output=True, timeout=5)
+            except Exception:
+                pass
 
         # Check if session name matches expected config. In multi-session
         # mode the attached session name is effectively "whichever aitasks
@@ -2051,6 +2061,7 @@ def main() -> None:
         tui_names=config.get("tui_names"),
         expected_session=expected_session,
         compare_mode_default=config.get("compare_mode_default", "stripped"),
+        rename_window=True,
     )
     app.run()
 
