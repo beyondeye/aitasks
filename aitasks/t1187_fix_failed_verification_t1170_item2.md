@@ -15,7 +15,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1158
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-20 18:08
-updated_at: 2026-07-22 18:41
+updated_at: 2026-07-24 06:10
 boardcol: bug_fixes
 boardidx: 20
 ---
