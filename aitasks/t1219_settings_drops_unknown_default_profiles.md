@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-22 18:47
-updated_at: 2026-07-24 10:41
+updated_at: 2026-07-24 12:11
 ---
 
 ## Origin
@@ -83,3 +84,8 @@ shape as `tests/test_profile_editor_rendered_gates.py`.
 Consider auditing the other `PROJECT_CONFIG_SCHEMA`-driven blocks in
 `save_project_settings()` for the same rebuild-from-rows pattern; this footgun
 is likely not unique to `default_profiles`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-24T09:11:33Z status=pass attempt=1 type=human
