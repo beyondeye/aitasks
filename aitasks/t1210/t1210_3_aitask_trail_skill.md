@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t1210_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [claudeskills, codeagent, task-planning]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-07-22 16:16
-updated_at: 2026-07-22 16:16
+updated_at: 2026-07-24 11:06
 ---
 
 ## Context
