@@ -19,7 +19,7 @@ _AIT_YAML_UTILS_LOADED=1
 # all whitespace). Bracket depth is tracked, so a wrap of any length folds
 # back to one line.
 #
-# PyYAML's yaml.dump (used by the board via task_yaml.py) wraps a flow list
+# PyYAML's yaml.dump (used by the board via lib/task_yaml.py) wraps a flow list
 # once it exceeds ~80 columns. The line-by-line frontmatter parsers below
 # match each physical line against a key regex, so unjoined continuation
 # lines are silently dropped — this filter must run before that matching.

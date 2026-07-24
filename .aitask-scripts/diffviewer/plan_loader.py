@@ -4,8 +4,8 @@ from __future__ import annotations
 import os
 import sys
 
-# Import task_yaml from board directory
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'board'))
+# Import task_yaml from the shared base layer (moved from board/ in t1217)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 from task_yaml import parse_frontmatter
 
 

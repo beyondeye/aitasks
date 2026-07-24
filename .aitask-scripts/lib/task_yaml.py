@@ -1,6 +1,11 @@
 """Shared YAML utilities for aitask frontmatter parsing and serialization.
 
-Extracted from aitask_board.py for reuse by aitask_merge.py and other tools.
+Base-layer module: the single parser/serializer for task-file frontmatter,
+used by the board, the merge tool, the report/trail gatherers and the
+codebrowser / diffviewer / monitor TUIs. It originated as an extraction from
+aitask_board.py and lived under ``board/`` for that historical reason; it sits
+in ``lib/`` because every layer above depends on it and it depends on none of
+them (t1217). ``tests/test_no_lib_to_tui_import.sh`` freezes that direction.
 """
 from __future__ import annotations
 

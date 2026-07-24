@@ -75,8 +75,9 @@ def _ensure_import_paths() -> None:
     Always includes lib + the `.aitask-scripts` root (the latter for
     namespace-package imports like ``brainstorm.brainstorm_dag``). Every
     manifest module's own directory is added too, so a module importing a
-    sibling by bare name (e.g. ``aitask_board`` → ``task_yaml`` in ``board/``)
-    resolves. The TUI dirs have no colliding module basenames, so this is safe.
+    sibling by bare name (e.g. ``codebrowser_app`` → ``history_data`` in
+    ``codebrowser/``) resolves. The TUI dirs have no colliding module
+    basenames, so this is safe.
     """
     dirs = {_LIB_DIR, _SCRIPTS_DIR}
     for _module_name, rel_path, _scopes in KNOWN_BINDING_SOURCES:

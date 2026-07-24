@@ -32,9 +32,9 @@ from pathlib import Path
 from typing import Optional
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent
-# `lib/` holds the gateway + launch/registry helpers; `board/` holds task_yaml
-# (the frontmatter parser used by TaskInfoCache). Both are needed here.
-for _extra_path in (_SCRIPTS_DIR / "lib", _SCRIPTS_DIR / "board"):
+# `lib/` holds the gateway + launch/registry helpers and task_yaml (the
+# frontmatter parser used by TaskInfoCache, moved there in t1217).
+for _extra_path in (_SCRIPTS_DIR / "lib",):
     if str(_extra_path) not in sys.path:
         sys.path.insert(0, str(_extra_path))
 from tui_registry import BRAINSTORM_PREFIX, TUI_NAMES  # noqa: E402

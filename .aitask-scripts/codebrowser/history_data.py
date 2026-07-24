@@ -13,8 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-# Import from sibling directories
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "board"))
+# Import from the shared base layer (task_yaml moved to lib/ in t1217)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 
 from task_yaml import parse_frontmatter

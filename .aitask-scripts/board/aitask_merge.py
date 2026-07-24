@@ -27,12 +27,14 @@ import re
 import sys
 from pathlib import Path
 
-from task_yaml import parse_frontmatter, serialize_frontmatter, BOARD_KEYS
-
-# The canonical gate-ledger parser lives under lib/ (t635_8 owns it — do not fork).
-# Mirror the lib/ import idiom used by board/aitask_board.py so this works both
-# under PYTHONPATH=board (sync) and when a test imports this module directly.
+# Both the frontmatter parser (t1217) and the canonical gate-ledger parser
+# (t635_8 owns it — do not fork) live under lib/. Mirror the lib/ import idiom
+# used by board/aitask_board.py so this works both under PYTHONPATH=board (the
+# argv aitask_sync.sh uses) and when a test imports this module directly.
+# These imports MUST stay below the insert — task_yaml is no longer a
+# same-package sibling.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from task_yaml import parse_frontmatter, serialize_frontmatter, BOARD_KEYS  # noqa: E402
 import gate_ledger  # noqa: E402  -- stdlib-only; sys.path set up just above
 
 # ---------------------------------------------------------------------------

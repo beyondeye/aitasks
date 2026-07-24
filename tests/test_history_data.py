@@ -14,10 +14,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-# Add codebrowser, board, and lib to path
+# Add codebrowser and lib to path (task_yaml moved to lib/ in t1217)
 _scripts = Path(__file__).resolve().parents[1] / ".aitask-scripts"
 sys.path.insert(0, str(_scripts / "codebrowser"))
-sys.path.insert(0, str(_scripts / "board"))
 sys.path.insert(0, str(_scripts / "lib"))
 
 from history_data import (

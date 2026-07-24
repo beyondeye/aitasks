@@ -32,7 +32,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = REPO_ROOT / ".aitask-scripts"
-sys.path.insert(0, str(SCRIPTS_DIR / "board"))
 sys.path.insert(0, str(SCRIPTS_DIR / "lib"))
 
 import trail_gather  # noqa: E402

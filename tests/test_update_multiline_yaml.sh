@@ -203,7 +203,7 @@ assert_contains "read_yaml_field: continuation entry present" \
 if "$PY" -c 'import yaml' >/dev/null 2>&1; then
     board_out=$("$PY" - "$PROJECT_DIR" <<'PYEOF'
 import sys
-sys.path.insert(0, sys.argv[1] + "/.aitask-scripts/board")
+sys.path.insert(0, sys.argv[1] + "/.aitask-scripts/lib")
 import task_yaml
 ids = [f"t1_{i}" for i in range(1, 40)]
 out = task_yaml.serialize_frontmatter(

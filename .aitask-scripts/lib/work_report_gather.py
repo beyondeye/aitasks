@@ -43,9 +43,12 @@ from typing import Callable
 
 # Make the sibling script packages importable however this module is invoked
 # (via the .sh wrapper or directly from a test). Mirrors the bootstrap in
-# stats/stats_data.py. `lib/` is already sys.path[0] when run as a script.
+# stats/stats_data.py. `lib/` is already sys.path[0] when run as a script, so
+# task_yaml needs no insert (t1217 moved it there). `stats` is the one
+# remaining upward reach — see the allowlist in
+# tests/test_no_lib_to_tui_import.sh.
 _SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _sub in ("board", "stats"):
+for _sub in ("stats",):
     _sub_dir = os.path.join(_SCRIPTS_DIR, _sub)
     if _sub_dir not in sys.path:
         sys.path.insert(0, _sub_dir)

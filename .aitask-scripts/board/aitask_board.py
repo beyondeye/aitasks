@@ -39,6 +39,11 @@ from cross_repo_notation import parse as parse_cross_repo_notation
 from task_levels import LEVELS_ASCENDING
 from archive_iter import find_archived_markdown_by_id
 import gate_ledger
+from task_yaml import (
+    _TaskSafeLoader, _FlowListDumper, _normalize_task_ids,
+    FRONTMATTER_RE, BOARD_KEYS,
+    normalize_board_idx, parse_frontmatter, serialize_frontmatter,
+)
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
@@ -50,12 +55,6 @@ from textual.message import Message
 from textual import on, work
 from textual.compose import compose as _compose_widgets
 from textual.command import Provider, Hit, Hits, DiscoveryHit
-
-from task_yaml import (
-    _TaskSafeLoader, _FlowListDumper, _normalize_task_ids,
-    FRONTMATTER_RE, BOARD_KEYS,
-    normalize_board_idx, parse_frontmatter, serialize_frontmatter,
-)
 
 # --- Configuration & Constants ---
 

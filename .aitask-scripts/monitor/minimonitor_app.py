@@ -23,7 +23,6 @@ from pathlib import Path
 _SCRIPT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_SCRIPT_DIR))
 sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
-sys.path.insert(0, str(_SCRIPT_DIR / "board"))
 
 from monitor.tmux_monitor import (  # noqa: E402
     PaneCategory,

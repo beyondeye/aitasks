@@ -13,7 +13,6 @@ from pathlib import Path
 _SCRIPT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_SCRIPT_DIR))
 sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
-sys.path.insert(0, str(_SCRIPT_DIR / "board"))
 
 # `PaneSnapshot` + the task-context symbols moved to monitor_core (t822_6);
 # re-exported here so `from monitor.monitor_shared import TaskInfo, …` keeps

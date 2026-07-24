@@ -116,13 +116,13 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Make the sibling script packages importable however this module is invoked
-# (via the .sh wrapper or directly from a test). Mirrors work_report_gather.
+# Make lib/ importable however this module is invoked (via the .sh wrapper or
+# directly from a test). Every module imported below now lives in lib/ —
+# task_yaml moved there in t1217 — so this reaches into no sibling package.
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _SCRIPTS_DIR = os.path.dirname(_LIB_DIR)
-for _sub in (_LIB_DIR, os.path.join(_SCRIPTS_DIR, "board")):
-    if _sub not in sys.path:
-        sys.path.insert(0, _sub)
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
 
 import yaml  # noqa: E402
 
