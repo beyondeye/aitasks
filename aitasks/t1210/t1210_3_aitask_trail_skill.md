@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: high
 depends: [t1210_2]
 issue_type: feature
@@ -82,3 +84,5 @@ confirmed artifact write. RFC §3 (journeys J1–J6), §7 (analysis steps 3–6)
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-24T09:42:08Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-24T11:54:45Z status=pass attempt=1 type=human
