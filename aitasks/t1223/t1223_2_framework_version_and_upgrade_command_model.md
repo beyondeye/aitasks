@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1223
+implemented_with: claudecode/fable5
 created_at: 2026-07-23 18:30
-updated_at: 2026-07-25 22:13
+updated_at: 2026-07-25 23:47
 ---
 
 ## Context
@@ -177,3 +178,8 @@ Required tests:
 - The wrapper-side revalidation in t1223_3 is **independent** of
   `build_handoff_request`'s validation — do not skip it because this module
   already validated.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-25T20:47:57Z status=pass attempt=1 type=human
