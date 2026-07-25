@@ -179,16 +179,28 @@ framework processes.
   every syncer row: `is_live=False` (registry-synthesized) short-circuits to
   `idle` with no tmux calls.
 - For a live target, enumerate its windows with `get_tmux_windows(session)`
-  (`:267`) and classify: a window whose name is in `KNOWN_TUIS`
-  (`tui_switcher.py:155`) or starts with a companion/agent prefix
-  (`agent-` / `create-`, `agent_launch_utils.py:1393`) marks the target **busy**.
+  (`:267`) and classify: a window whose name is in `tui_registry.TUI_NAMES`
+  (`tui_registry.py:38` — the authoritative full set, incl. `brainstorm`,
+  `minimonitor`, `git`) or starts with a companion/per-task prefix
+  (`agent-` / `create-`, `agent_launch_utils.py:1393`, plus
+  `tui_registry.BRAINSTORM_PREFIX`) marks the target **busy**. *(Amended in
+  t1223_2: originally `tui_switcher.KNOWN_TUIS`, which is tuple-shaped and
+  only the switcher subset — it missed live framework TUIs.)*
 - `detect_target_activity(session, windows)` is a **pure** function returning
-  `idle` or `busy:<window names>`; window enumeration is the impure part, wired
+  `idle`, `busy:<window names>`, or `unknown:tui-registry-unavailable`
+  (fail-closed: a classifier/import failure can widen refusal, never report a
+  possibly-busy target idle); window enumeration is the impure part, wired
   in the TUI layer.
-- On `busy`, the action refuses and names the offending windows so the user knows
-  exactly what to close. There is no override flag — re-check after closing them.
-  The gate keys on *detected framework windows*, not on mere session existence,
-  so a session holding only plain shells does not block a legitimate upgrade.
+- On `busy` (or `unknown`), the action refuses and names the offending windows
+  (or the unknown reason) so the user knows exactly what to close. *(Amended in
+  t1223_2, user-directed:)* the refusal MAY be escalated through an explicit
+  **destructive force confirmation** — non-default option, Cancel focused,
+  which re-enumerates windows immediately before launch, aborts if the fresh
+  result differs from what was shown, lists the detected windows verbatim, and
+  never persists a "don't ask again" state. Only a literal `idle` permits an
+  un-forced upgrade. The gate keys on *detected framework windows*, not on
+  mere session existence, so a session holding only plain shells does not
+  block a legitimate upgrade.
 - **Declared bound (best-effort, stated honestly):** this detects framework TUIs
   and agent panes in the target's tmux session. It cannot detect an `ait` command
   running in an unrelated terminal, a detached process, or another machine

@@ -268,3 +268,70 @@ profile), gates run (`risk_evaluated` active), archival.
 
 Any tmux enumeration or spawning, any UI, and the force-override *behavior*
 (t1223_3 — spec updated here, implemented there).
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned shape, two new files, zero existing
+  code files touched. `.aitask-scripts/lib/framework_version.py` (256 lines):
+  `read_installed_version`, `resolve_latest_version` (Popen +
+  `start_new_session=True`, process-group SIGKILL on timeout, explicit
+  `helper=`/`repo=` test seams, output validated against the numeric arm of
+  `VERSION_RE`), `version_status` (zero-padded semver tuples),
+  `is_self_target` (realpath both sides, str fallback on OSError),
+  `detect_target_activity` (three-state fail-closed; busy set =
+  `tui_registry.TUI_NAMES` + `agent-`/`create-`/`BRAINSTORM_PREFIX` prefixes,
+  imported lazily inside the call), `build_upgrade_command`
+  (validate-before-interpolate, `shlex.quote`, load-bearing `&&`, returns
+  parts), `build_handoff_request` (exactly `{root, version}`),
+  `write_handoff_request` (mkstemp in target dir + `os.replace`, temp
+  unlinked on any failure). `tests/test_framework_version.py` (391 lines,
+  42 tests) covers all 10 required groups plus the five review-driven
+  additions. Spec edits in the same change: t1223_2 Contract C + tests 5/6
+  AC amendments, parent-plan Contract C amendment (widened set, three-state,
+  force-override), t1223_3 force-override dialog contract.
+
+- **Deviations from plan:** One cosmetic: `VERSION_RE` is the raw string the
+  task file pins (not pre-compiled as the plan draft said); matching uses
+  `re.fullmatch`, which also hardens against the `$`-before-trailing-newline
+  acceptance `re.match` would have had. Everything else landed as planned.
+
+- **Issues encountered:**
+  1. Falsifiability mutation 5 (plain `proc.kill()` instead of the
+     process-group kill) made the timeout test hang ~60s before failing —
+     the orphaned `sleep` grandchild held the stderr pipe open, which is a
+     live demonstration of exactly the orphan hazard the review flagged.
+  2. The worktree carried unrelated concurrent-session changes
+     (`aitask_board.py`, board tests, `t1210_4` task edit on the data
+     branch); commits were pathspec-limited to this task's files only.
+
+- **Key decisions:**
+  - **Fail-closed `unknown` state** (review-driven): on `tui_registry` import
+    failure, prefix hits still return `busy`, but unclassifiable windows
+    return `unknown:tui-registry-unavailable` — never `idle`. Consumers gate
+    un-forced upgrades on literal `idle`.
+  - **Shell-aware quoting assertions:** tests tokenize the whole command with
+    `shlex.split` and split the token list on the standalone `&&` token —
+    never the raw string, which a quoted root containing ` && ` defeats.
+    Backed by executed-quoting tests running stub `ait` binaries from roots
+    named with each special character.
+  - **Process-group kill** covers the unbounded `git ls-remote` in
+    `github_release.sh:94` that a plain child kill would orphan.
+  - All five falsifiability mutations were run individually; each made the
+    suite fail, and the restored suite is green (42/42).
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - t1223_3: only a literal `"idle"` from `detect_target_activity` permits an
+    un-forced upgrade; `busy:<names>` and `unknown:<reason>` both refuse. The
+    force-override dialog contract (fresh re-check before launch, verbatim
+    window list, Cancel-focused destructive confirm, no persisted opt-out,
+    never bypasses the self-target rule) is pinned in t1223_3's task file.
+  - `resolve_latest_version` accepts keyword-only `helper=`/`repo=` seams;
+    production callers use the defaults (module-adjacent `github_release.sh`,
+    `beyondeye/aitasks`).
+  - `write_handoff_request` does NOT create the target directory — the
+    wrapper owns and pre-creates the private handoff dir (Contract B).
+  - Reuse `TempDirTestCase.make_root()` and `NASTY_ROOTS` from
+    `tests/test_framework_version.py` for any further command-construction
+    tests.
