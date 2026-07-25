@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
+implemented_with: claudecode/fable5
 created_at: 2026-07-22 16:16
-updated_at: 2026-07-25 22:15
+updated_at: 2026-07-25 23:33
 ---
 
 ## Context
@@ -82,3 +83,8 @@ task's premises against the then-current `aitask_board.py`.
 - Pilot tests for view switch, selection modal, and launch-arg construction
   (construction spy on AgentCommandScreen args, not exit codes).
 - Negative control: drift check leaves the artifact byte-identical.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-25T20:33:38Z status=pass attempt=1 type=human
