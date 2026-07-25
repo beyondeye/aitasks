@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_board, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1209
 implemented_with: claudecode/opus5
 created_at: 2026-07-22 11:19
-updated_at: 2026-07-26 00:24
+updated_at: 2026-07-26 00:31
+completed_at: 2026-07-26 00:31
 boardidx: 20
 ---
 
@@ -64,3 +65,14 @@ already has a fixture that renders a collapsed column (case 5).
 > **✅ gate:plan_approved** run=2026-07-25T21:24:14Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-25T21:29:21Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-25T21:31:01Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d2794c613e8418e1
+
+> **✅ gate:risk_evaluated** run=2026-07-25T21:31:01Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1212/risk_evaluated_2026-07-25T21:31:01Z-risk_evaluated-a1.log`
