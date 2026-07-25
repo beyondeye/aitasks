@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1162
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-24 14:55
-updated_at: 2026-07-25 22:14
+updated_at: 2026-07-26 00:10
 ---
 
 ## Origin
@@ -31,3 +32,8 @@ t1210_3's verification battery ran `bash tests/test_codeagent_work_report.sh` as
 ## Suggested fix
 
 Decide which side owns the invariant: either relax the parity assertions in `tests/test_codeagent_work_report.sh` / `tests/test_codeagent_trail.sh` to tolerate live verifiedstats-accumulated scores (e.g. only assert parity in the seed files), or make the verified-score accumulator refrain from creating `verified` entries for operations whose parity partner (`explain`) is absent on that model.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-25T21:10:06Z status=pass attempt=1 type=human
