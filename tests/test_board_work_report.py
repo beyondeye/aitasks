@@ -368,7 +368,7 @@ class WorkReportFooterVisibilityTests(WorkReportTestBase):
                 self.assertNotIn("work_report", self._footer_actions(app))
                 # Derived views hide it even with a column identified.
                 app._get_focused_col_id = lambda: "now"
-                for view in ("inflight", "bytopic"):
+                for view in ("inflight", "bytopic", "bytrail"):
                     app.base_filter = view
                     self.assertIs(
                         app.check_action("work_report", None), False)

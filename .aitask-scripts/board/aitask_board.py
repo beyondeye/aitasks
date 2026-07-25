@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from rich.markup import escape
+from rich.text import Text
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for, task_dir
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal, spawn_in_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
@@ -36,9 +37,11 @@ from sync_action_runner import (
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 from shortcuts_mixin import ShortcutsMixin, get_label
 from cross_repo_notation import parse as parse_cross_repo_notation
+from cross_repo_notation import parse_ref as parse_cross_repo_ref
 from task_levels import LEVELS_ASCENDING
-from archive_iter import find_archived_markdown_by_id
+from archive_iter import find_archived_markdown_by_id, iter_archived_frontmatter
 import gate_ledger
+import trail_schema
 from task_yaml import (
     _TaskSafeLoader, _FlowListDumper, _normalize_task_ids,
     FRONTMATTER_RE, BOARD_KEYS,
@@ -430,6 +433,322 @@ def group_tasks_by_topic(tasks, sort_mode="recency"):
     """
     topic_lanes, ungrouped = _build_topic_lanes(tasks)
     return _assemble_topic_lanes(topic_lanes, ungrouped, sort_mode)
+
+
+# --- Implementation trails (By-Trail view, t1210_4) ---
+# Pure, import-testable core for the board's by-trail view (RFC §9 in
+# aidocs/implementation_trail_design.md). The board renders trail projections
+# READ-ONLY: it only ever spawns the read verbs (trail_gather drift,
+# artifact get/versions) — every trail write happens in the launched
+# /aitask-trail skill after its own confirmation (RFC §9.3).
+
+TRAIL_ARTIFACT_KIND = "implementation_trail"
+ARTIFACT_SCRIPT = Path(".aitask-scripts") / "aitask_artifact.sh"
+TRAIL_GATHER_SCRIPT = Path(".aitask-scripts") / "aitask_trail_gather.sh"
+
+# Classification glyphs (RFC §15 wireframe pins ◆ hard prereq / ● core; the
+# remaining enum members get distinct glyphs here). Landed entries additionally
+# render ✔ + strike-through. Pinned by tests/test_board_bytrail_view.py.
+TRAIL_CLASSIFICATION_GLYPHS = {
+    "hard_prerequisite": "◆",
+    "preferred_predecessor": "▲",
+    "core": "●",
+    "coordination_only": "⇄",
+    "optional": "○",
+}
+
+_TRAIL_GHOST_LABELS = {
+    "cross_repo": "cross-repo member",
+    "archived": "archived",
+    "missing": "missing",
+}
+
+
+@dataclass
+class TrailInfo:
+    """One discovered trail (selection-modal row). ``load_error`` non-empty ⇒
+    the blob failed to resolve or validate — fail-closed error card (§9.2),
+    with ``versions`` as the read-only fallback listing."""
+    handle: str
+    owner_id: str            # bare local id of the winning owner ("635", "635_2")
+    owner_archived: bool
+    owner_folded: bool
+    name: str = ""           # advisory frontmatter name
+    doc: dict | None = None
+    load_error: str = ""
+    versions: list = field(default_factory=list)
+
+
+@dataclass
+class TrailEntryView:
+    """A wave entry resolved against live board state."""
+    entry: dict
+    task: "Task | None"      # live local task, when active
+    ghost_kind: str          # "" | "cross_repo" | "archived" | "missing"
+    landed: bool             # live/archived status == Done → strike-through
+
+
+@dataclass
+class TrailWaveLane:
+    wave: dict
+    entries: list
+
+
+def load_local_project_name(config_path: Path | None = None) -> str:
+    """Read ``project.name`` from project_config.yaml ('' when unavailable).
+
+    A missing name never crashes the view — refs just resolve as
+    unresolvable (cross-repo) ghosts and the banner notes the problem."""
+    path = config_path or (TASKS_DIR / "metadata" / "project_config.yaml")
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return ""
+    project = data.get("project") if isinstance(data, dict) else None
+    if isinstance(project, dict) and project.get("name"):
+        return str(project["name"])
+    return ""
+
+
+def trail_ref_to_local_id(ref, local_project: str):
+    """Map a canonical ``<project>#<id>`` task ref to a bare local id, or None
+    when the ref is foreign / unparseable / the local project name is unknown."""
+    parsed = parse_cross_repo_ref(str(ref or ""))
+    if not parsed:
+        return None
+    project, task_id = parsed
+    if not local_project or project != local_project:
+        return None
+    return task_id
+
+
+def build_trail_lanes(doc, tasks_by_id, local_project, archived_lookup):
+    """Project a validated trail document onto live board state.
+
+    Returns ``TrailWaveLane``s with waves in ``ordinal`` order and entries in
+    ``position`` order (RFC §9.1). Each entry resolves to a live task, or to a
+    ghost (``cross_repo`` / ``archived`` / ``missing``); ``landed`` is derived
+    from live/archived status == Done — the trail snapshot is never trusted
+    over the task file (schema: "the task file remains the source of truth")."""
+    lanes = []
+    for wave in sorted(doc.get("waves") or [],
+                       key=lambda w: w.get("ordinal", 0)):
+        views = []
+        for entry in sorted(wave.get("entries") or [],
+                            key=lambda e: e.get("position", 0)):
+            local_id = trail_ref_to_local_id(entry.get("task"), local_project)
+            if local_id is None:
+                views.append(TrailEntryView(entry, None, "cross_repo", False))
+                continue
+            task = tasks_by_id.get(local_id)
+            if task is not None:
+                landed = task.metadata.get("status") == "Done"
+                views.append(TrailEntryView(entry, task, "", landed))
+                continue
+            archived_task = archived_lookup(local_id)
+            if archived_task is not None:
+                landed = archived_task.metadata.get("status") == "Done"
+                views.append(TrailEntryView(entry, None, "archived", landed))
+            else:
+                views.append(TrailEntryView(entry, None, "missing", False))
+        lanes.append(TrailWaveLane(wave, views))
+    return lanes
+
+
+def trail_entry_refs(doc) -> set:
+    """All entry task refs of a trail document (overlap computation)."""
+    refs = set()
+    for wave in doc.get("waves") or []:
+        for entry in wave.get("entries") or []:
+            ref = entry.get("task")
+            if ref:
+                refs.add(str(ref))
+    return refs
+
+
+def compute_trail_overlaps(infos):
+    """Per-handle "also in" notes (§9.2): ``{handle: [(task_ref, other_title)]}``
+    for every entry ref shared with another discovered trail."""
+    members = {}
+    titles = {}
+    for info in infos:
+        if not info.doc:
+            continue
+        members[info.handle] = trail_entry_refs(info.doc)
+        titles[info.handle] = str(info.doc.get("title") or info.handle)
+    overlaps = {}
+    for handle, refs in members.items():
+        notes = []
+        for other, other_refs in members.items():
+            if other == handle:
+                continue
+            for ref in sorted(refs & other_refs):
+                notes.append((ref, titles[other]))
+        overlaps[handle] = notes
+    return overlaps
+
+
+def _trail_owner_rank(info: TrailInfo):
+    """Dedup precedence for one handle listed by several owners (a fold copies
+    the handle to the primary without stripping the folded task's entry):
+    active non-folded > active folded > archived; tie → lowest owner id."""
+    if info.owner_archived:
+        state = 2
+    elif info.owner_folded:
+        state = 1
+    else:
+        state = 0
+    return (state, _task_id_sort_key(info.owner_id or "999999999"))
+
+
+def dedupe_trail_records(records):
+    """Collapse discovery records to one ``TrailInfo`` per handle using
+    ``_trail_owner_rank`` (first-seen order preserved for equal handles)."""
+    best = {}
+    order = []
+    for rec in records:
+        cur = best.get(rec.handle)
+        if cur is None:
+            best[rec.handle] = rec
+            order.append(rec.handle)
+        elif _trail_owner_rank(rec) < _trail_owner_rank(cur):
+            best[rec.handle] = rec
+    return [best[h] for h in order]
+
+
+def _iter_trail_frontmatter_records(manager):
+    """Yield raw ``TrailInfo`` records from active + archived task frontmatter
+    (`artifacts:` entries with kind == implementation_trail). Discovery is
+    frontmatter-driven — the artifact manifest stores no kind (RFC §5)."""
+    active = (list(manager.task_datas.values())
+              + list(manager.child_task_datas.values()))
+    for task in active:
+        meta = task.metadata
+        for rec in meta.get("artifacts") or []:
+            if (isinstance(rec, dict) and rec.get("handle")
+                    and rec.get("kind") == TRAIL_ARTIFACT_KIND):
+                folded = bool(meta.get("folded_into")) or \
+                    meta.get("status") == "Folded"
+                yield TrailInfo(
+                    handle=str(rec["handle"]),
+                    owner_id=task_own_id(task) or "",
+                    owner_archived=False,
+                    owner_folded=folded,
+                    name=str(rec.get("name") or ""),
+                )
+
+    def _parse_meta(text):
+        result = parse_frontmatter(text)
+        return result[0] if result else None
+
+    for filename, meta in iter_archived_frontmatter(
+            TASKS_DIR / "archived", _parse_meta):
+        if not isinstance(meta, dict):
+            continue
+        for rec in meta.get("artifacts") or []:
+            if (isinstance(rec, dict) and rec.get("handle")
+                    and rec.get("kind") == TRAIL_ARTIFACT_KIND):
+                task_num, _name = parse_task_filename(filename)
+                folded = bool(meta.get("folded_into")) or \
+                    meta.get("status") == "Folded"
+                yield TrailInfo(
+                    handle=str(rec["handle"]),
+                    owner_id=(task_num or "").lstrip("t"),
+                    owner_archived=True,
+                    owner_folded=folded,
+                    name=str(rec.get("name") or ""),
+                )
+
+
+def _trail_versions(handle: str) -> list:
+    """Read-only ``ait artifact versions`` listing (§9.2 fallback). Best-effort."""
+    try:
+        result = subprocess.run(
+            [str(ARTIFACT_SCRIPT), "versions", handle],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode == 0:
+            return [ln.rstrip() for ln in result.stdout.splitlines()
+                    if ln.strip()]
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return []
+
+
+def load_trail_blob(handle: str):
+    """Fetch + validate a trail blob. Returns ``(doc, error, versions)``.
+
+    Fail-closed (RFC §12): a get failure or schema-invalid document yields
+    ``doc=None`` with a non-empty ``error`` and the versions fallback — never
+    a partial document. Read-only: only ``get``/``versions`` are spawned."""
+    import tempfile
+    doc = None
+    error = ""
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(prefix="ait_trail_", suffix=".json")
+        os.close(fd)
+        result = subprocess.run(
+            [str(ARTIFACT_SCRIPT), "get", handle, "--out", tmp_path],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            diag = (result.stderr or result.stdout).strip().splitlines()
+            error = f"artifact unresolved: {diag[-1] if diag else handle}"
+        else:
+            try:
+                doc = trail_schema.load_trail(tmp_path)
+            except trail_schema.TrailValidationError as exc:
+                error = f"invalid trail document: {len(exc.issues)} issue(s)"
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        error = f"artifact unresolved: {exc}"
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    versions = _trail_versions(handle) if error else []
+    return doc, error, versions
+
+
+def discover_trails(manager):
+    """Frontmatter-driven trail discovery, deduped by handle, blobs loaded and
+    validated (fail-closed into ``load_error``). Subprocess-heavy — call from
+    a thread worker, never the UI thread."""
+    infos = dedupe_trail_records(_iter_trail_frontmatter_records(manager))
+    for info in infos:
+        info.doc, info.load_error, info.versions = load_trail_blob(info.handle)
+    return infos
+
+
+def run_trail_drift(handle: str):
+    """Run the read-only drift verb; returns ``(verdict, reasons)``.
+
+    ``verdict``: first stdout token — ``CURRENT`` / ``STALE`` /
+    ``ERROR:<kind>:<id>`` — or ``UNAVAILABLE:<why>`` for infra failures.
+    ``reasons``: parsed ``DRIFT:<code>|<task_ref or ->|<detail>`` triples.
+    Passive observation (RFC §8.2): results update rendered badges only;
+    the artifact is never written."""
+    try:
+        result = subprocess.run(
+            [str(TRAIL_GATHER_SCRIPT), "drift", "--trail", handle],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        return f"UNAVAILABLE:{type(exc).__name__}", []
+    lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
+    if result.returncode != 0 or not lines:
+        return "UNAVAILABLE:infra", []
+    verdict = lines[0].strip()
+    reasons = []
+    for ln in lines[1:]:
+        if ln.startswith("DRIFT:"):
+            parts = ln[len("DRIFT:"):].split("|", 2)
+            while len(parts) < 3:
+                parts.append("")
+            reasons.append((parts[0], parts[1], parts[2]))
+    return verdict, reasons
 
 
 class TaskManager:
@@ -1119,6 +1438,7 @@ class ViewSelector(Static):
         ("view_free", "Free", "free"),
         ("view_inflight", "In-Flight", "inflight"),
         ("view_bytopic", "By-Topic", "bytopic"),
+        ("view_bytrail", "By-Trail", "bytrail"),
     ]
     ADDONS = [
         ("view_git", "Git", "git"),
@@ -1185,7 +1505,8 @@ class ViewSelector(Static):
         x = event.x - 1
         for start, end, target in self._click_targets:
             if start <= x < end:
-                if target in ("all", "locked", "free", "inflight", "bytopic"):
+                if target in ("all", "locked", "free", "inflight", "bytopic",
+                              "bytrail"):
                     self.app._set_base_filter(target)
                 elif target == "git":
                     self.app._toggle_git_filter()
@@ -1463,6 +1784,150 @@ class TopicColumn(VerticalScroll):
         self.styles.margin = (0, 1)
 
 
+class _GhostTaskStub:
+    """Minimal Task stand-in carried by TrailGhostCard.
+
+    Satisfies every accessor the board's focus/refocus/search seams touch
+    (filename, filepath, metadata, archived) without ever matching a real
+    task. Defensive completeness only — the primary safety is the explicit
+    check_action ghost guard that hides all task-only actions."""
+
+    def __init__(self, ref: str):
+        slug = re.sub(r"[^0-9A-Za-z._#-]+", "-", str(ref)) or "unknown"
+        self.filename = f"trail-ghost-{slug}.md"
+        self.filepath = Path(self.filename)
+        self.metadata: dict = {}
+        self.content = ""
+        self.archived = False
+
+
+def _trail_badge_text(entry: dict) -> str:
+    """Literal badge line for a trail entry card: glyph, classification,
+    confidence. Rendered with markup=False (literal UI text)."""
+    classification = str(entry.get("classification") or "?")
+    glyph = TRAIL_CLASSIFICATION_GLYPHS.get(classification, "·")
+    confidence = str(entry.get("confidence") or "?")
+    return f"{glyph} {classification} · conf: {confidence}"
+
+
+class TrailTaskCard(TaskCard):
+    """Card for a live local task inside a By-Trail wave column (RFC §9.1)."""
+
+    def __init__(self, view: TrailEntryView, wave: dict,
+                 manager: "TaskManager", column_id: str):
+        super().__init__(view.task, manager,
+                         is_child=("_" in (task_own_id(view.task) or "")),
+                         column_id=column_id)
+        self.trail_entry = view.entry
+        self.trail_view = view
+        self.trail_wave = wave
+        self.is_ghost = False
+
+    def compose(self):
+        task_num, task_name = self._parse_filename(self.task_data.filename)
+        title = Text()
+        if self.trail_view.landed:
+            title.append("✔ ")
+            title.append(f"{task_num} {task_name}".strip(), style="strike")
+        else:
+            title.append(f"{task_num} {task_name}".strip())
+        yield Label(title, classes="task-title")
+        yield Label(_trail_badge_text(self.trail_entry),
+                    classes="task-info trail-badges", markup=False)
+        status = self.task_data.metadata.get("status", "")
+        if status:
+            yield Label(f"📋 {status}", classes="task-info")
+        # markup=False: bracketed shortcut hints are literal UI text.
+        yield Label("[enter details] [r refresh] [s select]",
+                    classes="task-info trail-ops", markup=False)
+
+    def on_click(self, event):
+        # No expand-children double-click in By-Trail (the base handler calls
+        # action_toggle_children directly, bypassing its check_action gate).
+        self.focus()
+        if event.chain == 2:
+            self.app.action_view_details()
+
+
+class TrailGhostCard(TaskCard):
+    """Read-only ghost card for archived / missing / cross-repo trail members
+    (RFC §9.1: no move actions; §9.2 ghost rows).
+
+    Subclasses TaskCard so every focus/nav/refocus seam (which queries
+    TaskCard) reaches ghosts unchanged; carries a synthetic task stub whose
+    filename is the stable refocus key. check_action hides all task-only
+    actions when a ghost is focused."""
+
+    def __init__(self, view: TrailEntryView, wave: dict, column_id: str):
+        stub = _GhostTaskStub(view.entry.get("task", ""))
+        super().__init__(stub, None, is_child=False, column_id=column_id)
+        self.trail_entry = view.entry
+        self.trail_view = view
+        self.trail_wave = wave
+        self.is_ghost = True
+
+    def compose(self):
+        ref = str(self.trail_entry.get("task") or "?")
+        title = Text()
+        if self.trail_view.landed:
+            title.append("✔ ")
+            title.append(ref, style="strike")
+        else:
+            title.append(ref)
+        yield Label(title, classes="task-title")
+        kind = _TRAIL_GHOST_LABELS.get(self.trail_view.ghost_kind,
+                                       self.trail_view.ghost_kind)
+        yield Label(f"👻 {kind} — read-only", classes="task-info")
+        yield Label(_trail_badge_text(self.trail_entry),
+                    classes="task-info trail-badges", markup=False)
+
+    def _priority_border_color(self):
+        return "gray"
+
+    def _idle_border_style(self):
+        return "dashed"
+
+    def on_click(self, event):
+        self.focus()
+        if event.chain == 2:
+            self.app.action_view_details()
+
+
+class TrailColumn(VerticalScroll):
+    """A wave column in the By-Trail view (RFC §9.1): ``W<ordinal> · <title>``
+    header over TrailTaskCards / TrailGhostCards in position order.
+
+    Non-reorderable. Carries ``self.wave`` and per-card ``trail_entry`` /
+    ``is_ghost`` as the seams for the t1210_5 move commands."""
+
+    def __init__(self, lane: TrailWaveLane, manager: "TaskManager"):
+        super().__init__()
+        self.lane = lane
+        self.wave = lane.wave
+        self.manager = manager
+        self.col_id = f"trail-w{self.wave.get('ordinal', 0)}"
+
+    def compose(self):
+        title = f"W{self.wave.get('ordinal', '?')} · {self.wave.get('title', '')}"
+        header = ColumnHeader(self.col_id, title, len(self.lane.entries),
+                              is_collapsed=False, editable=False)
+        header.styles.width = "100%"
+        header.styles.text_align = "center"
+        yield header
+        for view in self.lane.entries:
+            if view.task is not None:
+                yield TrailTaskCard(view, self.wave, self.manager,
+                                    column_id=self.col_id)
+            else:
+                yield TrailGhostCard(view, self.wave, column_id=self.col_id)
+
+    def on_mount(self):
+        self.styles.width = 44
+        self.styles.min_width = 34
+        self.styles.border = ("round", "#8BE9FD")
+        self.styles.margin = (0, 1)
+
+
 class TopicSortModeItem(Static):
     """One selectable row in the by-topic sort picker. A click moves the
     selection but does NOT apply it — the screen owns arrow keys and the Confirm
@@ -1608,6 +2073,207 @@ class GateChoiceScreen(ModalScreen):
 
     @on(Button.Pressed, "#btn_dep_cancel")
     def cancel_button(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
+def _trail_stored_freshness(info: TrailInfo) -> str:
+    """Selection-modal freshness badge from the trail's *stored* verdict (the
+    live drift check runs only for the active trail)."""
+    if info.load_error:
+        return "✗ unreadable"
+    doc = info.doc or {}
+    freshness = doc.get("freshness") or {}
+    state = str(freshness.get("state") or "unknown")
+    if state == "stale":
+        return f"⚠ stale ({len(freshness.get('drift_reasons') or [])})"
+    if state == "current":
+        return "✓ current"
+    return "? unknown"
+
+
+class TrailSelectItem(Static):
+    """Focusable row for one discovered trail (title · owner · scope ·
+    freshness · updated, with "also in" overlap sub-lines per §9.2)."""
+
+    can_focus = True
+
+    def __init__(self, info: TrailInfo, overlap_notes: list):
+        doc = info.doc or {}
+        title = str(doc.get("title") or info.name or info.handle)
+        owner = f"owner t{info.owner_id}" if info.owner_id else "owner ?"
+        if info.owner_archived:
+            owner += " (archived)"
+        scope = str((doc.get("scope") or {}).get("kind") or "?")
+        updated = str((doc.get("generation") or {}).get("generated_at") or "?")
+        text = Text()
+        text.append(f"{title}   ")
+        text.append(f"{owner} · {scope} · {_trail_stored_freshness(info)} "
+                    f"· {updated}", style="dim")
+        for ref, other_title in overlap_notes:
+            text.append(f"\n  └ also references: {ref} ({other_title})",
+                        style="dim italic")
+        super().__init__(text)
+        self.info = info
+
+    def on_focus(self):
+        self.add_class("dep-item-focused")
+
+    def on_blur(self):
+        self.remove_class("dep-item-focused")
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self.screen.dismiss(self.info.handle)
+
+    def on_click(self, event):
+        self.screen.dismiss(self.info.handle)
+
+
+class TrailSelectScreen(ModalScreen):
+    """Trail selection modal (RFC §9.1): dismisses the chosen handle or None."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, infos: list, overlaps: dict):
+        super().__init__()
+        self.infos = infos
+        self.overlaps = overlaps
+
+    def compose(self):
+        with Container(id="dep_picker_dialog"):
+            yield Label(
+                "Select trail — [dim]Enter to activate, Esc to cancel[/]",
+                id="dep_picker_title",
+            )
+            for info in self.infos:
+                yield TrailSelectItem(info, self.overlaps.get(info.handle, []))
+            yield Button("Cancel", id="btn_dep_cancel")
+
+    def on_mount(self):
+        items = list(self.query(TrailSelectItem))
+        if items:
+            items[0].focus()
+
+    @on(Button.Pressed, "#btn_dep_cancel")
+    def cancel_button(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
+class TrailDetailScreen(ModalScreen):
+    """Full narrative projection of a trail (RFC §9.1 detail modal): entry
+    focus, wave context, trail narrative, observations, exclusions, evidence,
+    and current drift reasons when stale. Read-only prose, not tooltips."""
+
+    DEFAULT_CSS = """
+    TrailDetailScreen {
+        align: center middle;
+    }
+    #trail_detail_dialog {
+        width: 80%;
+        height: 80%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #trail_detail_body {
+        height: 1fr;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Close", show=False),
+    ]
+
+    def __init__(self, doc: dict, drift_reasons: list,
+                 entry: dict | None = None, wave: dict | None = None):
+        super().__init__()
+        self.doc = doc or {}
+        self.drift_reasons = drift_reasons or []
+        self.entry = entry
+        self.wave = wave
+
+    def _sections(self) -> Text:
+        text = Text()
+
+        def head(label):
+            if text.plain:
+                text.append("\n\n")
+            text.append(label, style="bold underline")
+            text.append("\n")
+
+        def line(label, value):
+            if value in (None, "", [], {}):
+                return
+            text.append(f"{label}: ", style="bold")
+            if isinstance(value, list):
+                value = "; ".join(str(v) for v in value)
+            text.append(f"{value}\n")
+
+        if self.entry is not None:
+            head(f"Entry {self.entry.get('task', '?')}")
+            line("classification", self.entry.get("classification"))
+            line("confidence", self.entry.get("confidence"))
+            line("rationale", self.entry.get("rationale"))
+            line("expected outcome", self.entry.get("expected_outcome"))
+            line("why order matters", self.entry.get("why_order_matters"))
+            line("caveats", self.entry.get("caveats"))
+            line("evidence", self.entry.get("evidence_refs"))
+        if self.wave is not None:
+            head(f"Wave W{self.wave.get('ordinal', '?')} · "
+                 f"{self.wave.get('title', '')}")
+            line("purpose", self.wave.get("purpose"))
+            line("why now", self.wave.get("why_now"))
+            line("consequence of delay", self.wave.get("consequence_of_delay"))
+
+        narrative = self.doc.get("narrative") or {}
+        head(f"Trail: {self.doc.get('title', '?')}")
+        line("problem", narrative.get("problem_statement"))
+        line("recommendation", narrative.get("recommendation_summary"))
+        line("method note", narrative.get("method_note"))
+        line("caveats", narrative.get("caveats"))
+
+        if self.drift_reasons:
+            head(f"Drift reasons ({len(self.drift_reasons)})")
+            for code, task_ref, detail in self.drift_reasons:
+                where = f" {task_ref}" if task_ref and task_ref != "-" else ""
+                text.append(f"• {code}{where}: {detail}\n")
+
+        for obs in self.doc.get("observations") or []:
+            head(f"Observation: {obs.get('kind', '?')}")
+            line("statement", obs.get("statement"))
+            line("affects", obs.get("affects"))
+        exclusions = self.doc.get("exclusions") or []
+        if exclusions:
+            head("Exclusions")
+            for exc in exclusions:
+                text.append(f"• {exc.get('task', '?')} "
+                            f"[{exc.get('reason_code', '?')}] "
+                            f"{exc.get('reason', '')}\n")
+        evidence = self.doc.get("evidence") or []
+        if evidence:
+            head("Evidence")
+            for ev in evidence:
+                text.append(f"• {ev.get('evidence_id', '?')} "
+                            f"({ev.get('source_type', '?')}): "
+                            f"{ev.get('summary', '')}\n")
+        return text
+
+    def compose(self):
+        with Container(id="trail_detail_dialog"):
+            with VerticalScroll(id="trail_detail_body"):
+                yield Static(self._sections())
+            yield Button("Close", id="btn_trail_detail_close")
+
+    @on(Button.Pressed, "#btn_trail_detail_close")
+    def close_button(self):
         self.dismiss(None)
 
     def action_cancel(self):
@@ -4729,6 +5395,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("w", "work_report", "Work Report"),
         # Brainstorm task (shown conditionally via check_action)
         Binding("b", "brainstorm_task", "Brainstorm"),
+        # Implementation-trail create/refresh launch (shown via check_action)
+        Binding("T", "trail_task", "Trail"),
         # Open cross-repo reference (shown conditionally via check_action)
         Binding("#", "open_cross_repo", "Cross-repo"),
         # Expand/Collapse children (shown conditionally via check_action)
@@ -4746,6 +5414,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("f", "view_free", "Free", show=False),
         Binding("i", "view_inflight", "In-Flight", show=False),
         Binding("y", "view_bytopic", "By-Topic", show=False),
+        Binding("z", "view_bytrail", "By-Trail", show=False),
         Binding("g", "view_git", "Git", show=False),
         Binding("t", "view_type", "Type", show=False),
     ]
@@ -4755,12 +5424,26 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.current_tui_name = "board"
         self.manager = TaskManager()
         self.search_filter = ""
-        self.base_filter = "all"          # "all" | "locked" | "free" | "inflight" | "bytopic"
+        self.base_filter = "all"          # "all" | "locked" | "free" | "inflight" | "bytopic" | "bytrail"
         self.git_filter_active = False
         self.type_filter_active = False
         self._view_auto_expanded: set = set()
         self.expanded_tasks: set = set()
         self._auto_refresh_timer = None
+        # --- By-Trail view state (session-only, never persisted; t1210_4) ---
+        self.active_trail_handle: str | None = None
+        self._trail_infos: list | None = None    # discovery cache
+        self._trail_doc: dict | None = None      # active trail document
+        self._trail_error: str = ""              # fail-closed load error
+        self._trail_versions_fallback: list = []
+        self._trail_drift: tuple | None = None   # (verdict, reasons) | None
+        self._trail_owner_id: str = ""           # active trail's owner task
+        self._trail_owner_archived = False       # §9.2 archived-owner banner
+        # Supersession token: bumped on EVERY re-entry point (enter/leave the
+        # view, trail selection, selection-modal reopen). Worker callbacks
+        # discard results carrying a stale token.
+        self._trail_gen = 0
+        self._local_project: str | None = None   # lazy project-name cache
 
     def check_action(self, action: str, parameters) -> bool | None:
         """Control visibility of conditional actions in the footer bar."""
@@ -4821,6 +5504,19 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if type(self.screen).__name__ == "TopicSortModeScreen":
             if action in ("nav_up", "nav_down"):
                 return False
+        # Ghost trail cards are read-only projections (RFC §9.1): hide every
+        # task-only action while one is focused. This is the primary safety —
+        # the gates below reach into task_data (is_modified reads .filepath,
+        # open_cross_repo reads metadata), and a ghost's synthetic stub must
+        # never feed them. view_details stays visible (trail detail modal).
+        if action in ("commit_selected", "toggle_children", "pick_task",
+                      "brainstorm_task", "open_cross_repo", "trail_task",
+                      "work_report",
+                      "move_task_right", "move_task_left", "move_task_up",
+                      "move_task_down", "move_task_top", "move_task_bottom"):
+            focused = self._focused_card()
+            if focused is not None and getattr(focused, "is_ghost", False):
+                return False
         if action == "commit_selected":
             focused = self._focused_card()
             if not focused or not self.manager.is_modified(focused.task_data):
@@ -4829,10 +5525,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if not self.manager.get_modified_tasks():
                 return False
         elif action == "toggle_children":
-            # The In-Flight and By-Topic views render every relevant card
-            # (including children) directly — there is nothing to expand/collapse
-            # — so hide the action there.
-            if self.base_filter in ("inflight", "bytopic"):
+            # The In-Flight, By-Topic and By-Trail views render every relevant
+            # card (including children) directly — there is nothing to
+            # expand/collapse — so hide the action there.
+            if self.base_filter in ("inflight", "bytopic", "bytrail"):
                 return False
             focused = self._focused_card()
             if not focused:
@@ -4848,10 +5544,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 return False
         elif action == "work_report":
             # Work Report is column-scoped: only in persistent kanban views
-            # (In-Flight / By-Topic render derived, non-column lanes), and only
-            # when a focused card or column placeholder (collapsed OR empty)
-            # identifies a column.
-            if self.base_filter in ("inflight", "bytopic"):
+            # (In-Flight / By-Topic / By-Trail render derived, non-column
+            # lanes), and only when a focused card or column placeholder
+            # (collapsed OR empty) identifies a column.
+            if self.base_filter in ("inflight", "bytopic", "bytrail"):
                 return False
             if self._get_focused_col_id() is None:
                 return False
@@ -4867,15 +5563,25 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         "move_task_top", "move_task_bottom"):
             # NOTE: Textual's Footer hides a binding only when check_action returns
             # False; None leaves it *shown but greyed*. Task movement only applies
-            # to the persistent kanban columns — the In-Flight and By-Topic views
-            # render derived, non-reorderable lanes — so return False to hide it.
-            if self.base_filter in ("inflight", "bytopic"):
+            # to the persistent kanban columns — the In-Flight, By-Topic and
+            # By-Trail views render derived, non-reorderable lanes — so return
+            # False to hide it. (By-Trail move-to-column commands are t1210_5.)
+            if self.base_filter in ("inflight", "bytopic", "bytrail"):
                 return False
             focused = self._focused_card()
             if focused and focused.is_child:
                 return False  # Hide movement actions for child cards
         elif action in ("move_col_right", "move_col_left", "toggle_column_collapsed"):
-            if self.base_filter in ("inflight", "bytopic"):
+            if self.base_filter in ("inflight", "bytopic", "bytrail"):
+                return False
+        elif action == "trail_task":
+            # Trail create/refresh launch: needs a focused task card in a view
+            # where the card identifies a scope (normal views: the task itself;
+            # By-Topic: the focused card's lane root). Hidden in In-Flight and
+            # in By-Trail itself (there `r` is the refresh launch).
+            if self.base_filter in ("inflight", "bytrail"):
+                return False
+            if not self._focused_card():
                 return False
         elif action == "sort_topic":
             # Lane sort order only applies to the by-topic swimlane view. Return
@@ -4925,16 +5631,56 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._auto_refresh_timer = None
 
     def _auto_refresh_tick(self):
-        """Called by the timer. Refresh only if no modal is active."""
+        """Called by the timer. Refresh only if no modal is active.
+
+        Routes to the passive data path — never action_refresh_board, whose
+        By-Trail branch opens an agent-launch dialog (keyboard-only)."""
         if self._modal_is_active():
             return
         if self.manager.settings.get("sync_on_refresh", False) and DATA_WORKTREE.exists():
             self._run_sync(show_notification=False)
         else:
-            self.action_refresh_board()
+            self._refresh_board_data()
 
     def _update_subtitle(self):
-        """Update app subtitle to show auto-refresh status."""
+        """Update the app subtitle (delegates to the single composer)."""
+        self._refresh_subtitle()
+
+    def _refresh_subtitle(self):
+        """Single writer for the app subtitle (t1210_4).
+
+        By-Trail with a selected trail → the trail banner (title + freshness
+        suffix); every other state → the auto-refresh status. All subtitle
+        updates (view switches, drift callbacks, settings changes) route
+        through here, so leaving By-Trail restores the auto-refresh text."""
+        if self.base_filter == "bytrail" and self.active_trail_handle:
+            if self._trail_error:
+                self.sub_title = (f"By-Trail: {self.active_trail_handle} — "
+                                  f"trail unavailable")
+            elif self._trail_doc:
+                title = str(self._trail_doc.get("title")
+                            or self.active_trail_handle)
+                if self._trail_drift is None:
+                    suffix = " (⟳ checking freshness…)"
+                else:
+                    verdict, reasons = self._trail_drift
+                    if verdict == "STALE":
+                        suffix = f" (⚠ stale: {max(len(reasons), 1)})"
+                    elif verdict == "CURRENT":
+                        suffix = ""
+                    else:
+                        kind = verdict.split(":", 2)[1] if ":" in verdict else verdict
+                        suffix = f" (drift unavailable: {kind})"
+                # §9.2: an archived trail owner is noted on the banner.
+                owner_note = ""
+                if self._trail_owner_archived:
+                    owner = (f"t{self._trail_owner_id}"
+                             if self._trail_owner_id else "task")
+                    owner_note = f" · owner {owner} archived"
+                self.sub_title = f'By-Trail: "{title}"{suffix}{owner_note}'
+            else:
+                self.sub_title = f"By-Trail: {self.active_trail_handle}"
+            return
         minutes = self.manager.auto_refresh_minutes
         sync = self.manager.settings.get("sync_on_refresh", False)
         if minutes > 0:
@@ -4943,14 +5689,30 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         else:
             self.sub_title = "Auto-refresh: off"
 
-    def action_refresh_board(self):
-        """Reload task files from disk and refresh the board."""
+    def _refresh_board_data(self):
+        """Reload task files from disk and refresh the board.
+
+        The passive data path shared by the `r` key (outside By-Trail), the
+        auto-refresh timer, and programmatic callers — never opens dialogs."""
         focused = self._focused_card()
         refocus = focused.task_data.filename if focused else ""
         self.manager.load_tasks()
         if self.base_filter == "locked":
             self._auto_expand_locked()
         self.refresh_board(refocus_filename=refocus, refresh_locks=True)
+
+    def action_refresh_board(self):
+        """`r`: refresh board data — except in By-Trail with an active trail,
+        where it launches /aitask-trail --refresh <handle> (RFC §9.3).
+        Keyboard-only: the auto-refresh timer calls _refresh_board_data."""
+        if self.base_filter == "bytrail" and self.active_trail_handle:
+            handle_id = self.active_trail_handle
+            if handle_id.startswith("art:"):
+                handle_id = handle_id[len("art:"):]
+            self._launch_trail(["--refresh", self.active_trail_handle],
+                               handle_id)
+            return
+        self._refresh_board_data()
 
     def refresh_board(self, refocus_filename: str = "", refresh_locks: bool = False,
                       refocus_col_id: str = ""):
@@ -4985,6 +5747,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             for label, members in self.manager.grouped_topic_lanes(
                     all_tasks, self._topic_sort_mode()):
                 container.mount(TopicColumn(label, members, self.manager))
+            self.call_after_refresh(self.apply_filter)
+            self._queue_refocus(refocus_filename, refocus_col_id)
+            return
+
+        if self.base_filter == "bytrail":
+            self._render_bytrail(container)
             self.call_after_refresh(self.apply_filter)
             self._queue_refocus(refocus_filename, refocus_col_id)
             return
@@ -5110,7 +5878,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def apply_filter(self):
         """Apply base filter ∩ active add-ons ∩ search to all cards."""
-        if self.base_filter in ("inflight", "bytopic"):
+        if self.base_filter in ("inflight", "bytopic", "bytrail"):
             visible = None
         elif self.base_filter == "locked":
             visible = self._locked_visible_set()
@@ -5280,6 +6048,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def action_view_bytopic(self):
         self._set_base_filter("bytopic")
 
+    def action_view_bytrail(self):
+        self._set_base_filter("bytrail")
+
     def _topic_sort_mode(self) -> str:
         """The persisted by-topic lane sort mode, validated against the known
         set (unknown/missing → 'recency')."""
@@ -5371,6 +6142,19 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.manager.load_tasks()
             refresh_locks = True
 
+        # By-Trail supersession token: entering AND leaving are re-entry
+        # points — in-flight discovery/drift results from the previous
+        # generation must not mutate the new view's state.
+        if name == "bytrail" or old == "bytrail":
+            self._trail_gen += 1
+        if name == "bytrail":
+            if self.active_trail_handle is None:
+                # Entering with no active trail opens the selection flow
+                # (RFC §9.1) once the empty-state board has rendered.
+                self.call_after_refresh(self._open_trail_select)
+            elif self._trail_doc is not None and not self._trail_error:
+                self._start_trail_drift()
+
         self._refresh_selector()
         self._update_search_placeholder()
 
@@ -5378,6 +6162,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         focused = self._focused_card()
         refocus = focused.task_data.filename if focused else ""
         self.refresh_board(refocus_filename=refocus, refresh_locks=refresh_locks)
+        self._refresh_subtitle()
 
     def _toggle_git_filter(self):
         """Flip the git add-on. No board re-render needed."""
@@ -5421,6 +6206,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             base = "Search free tasks"
         elif self.base_filter == "bytopic":
             base = f"Search topics · sort: {self._topic_sort_mode()}"
+        elif self.base_filter == "bytrail":
+            base = "Search trail entries"
         else:
             base = "Search tasks..."
         addons = []
@@ -5433,7 +6220,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self.base_filter == "all" and not addons:
             base += " (Tab to focus, Esc to return to board)"
         else:
-            base += " (a/l/f/i/y to switch base)"
+            base += " (a/l/f/i/y/z to switch base)"
         return base
 
     def _update_search_placeholder(self):
@@ -5533,7 +6320,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """Return ordered list of column IDs currently on the board."""
         cols = (list(self.query(KanbanColumn))
                 + list(self.query(InFlightColumn))
-                + list(self.query(TopicColumn)))
+                + list(self.query(TopicColumn))
+                + list(self.query(TrailColumn)))
         return [col.col_id for col in cols]
 
     def _modal_is_active(self):
@@ -5629,8 +6417,18 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def action_view_details(self):
         focused = self._focused_card()
-        if focused:
-            self.open_task_detail(focused.task_data, source_card=focused)
+        if not focused:
+            return
+        # By-Trail cards (live and ghost) open the trail detail projection,
+        # not the task editor (RFC §9.1). Duck-typed on trail_entry.
+        entry = getattr(focused, "trail_entry", None)
+        if entry is not None:
+            reasons = self._trail_drift[1] if self._trail_drift else []
+            self.push_screen(TrailDetailScreen(
+                self._trail_doc or {}, reasons, entry=entry,
+                wave=getattr(focused, "trail_wave", None)))
+            return
+        self.open_task_detail(focused.task_data, source_card=focused)
 
     def open_task_detail(self, task, read_only=None, source_card=None):
         """Push a TaskDetailScreen wired to the shared result handler.
@@ -5981,6 +6779,226 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.refresh_board()
         self.push_screen(screen, on_work_report_result)
 
+    # --- By-Trail view (t1210_4) ---
+    # Read-only in-process: rendering, selection, detail and drift checks all
+    # run here; every trail WRITE happens in the launched /aitask-trail skill.
+
+    def _get_local_project(self) -> str:
+        """Lazily cached project name for canonical-ref resolution."""
+        if self._local_project is None:
+            self._local_project = load_local_project_name()
+        return self._local_project
+
+    def _render_bytrail(self, container):
+        """Mount the By-Trail content per the §9.2 state matrix."""
+        if not self.active_trail_handle:
+            hint = ("No trail selected — press s to choose one, or create a "
+                    "trail with T on a task card (or /aitask-trail).")
+            if self._trail_infos is not None and not self._trail_infos:
+                hint = ("No implementation trails found — create one with T "
+                        "on a task card (or /aitask-trail).")
+            container.mount(Static(Text(hint), classes="trail-empty"))
+            self._refresh_subtitle()
+            return
+        if self._trail_error:
+            # Missing blob / corrupt manifest / schema-invalid document:
+            # fail closed — an error card, never a partial render (§9.2/§12).
+            lines = [f"Trail {self.active_trail_handle} could not be loaded "
+                     f"(fail-closed):",
+                     f"  {self._trail_error}"]
+            if self._trail_versions_fallback:
+                lines.append("")
+                lines.append("Recorded versions (ait artifact versions "
+                             f"{self.active_trail_handle}):")
+                lines.extend(f"  {v}" for v in self._trail_versions_fallback)
+            lines.append("")
+            lines.append("Press s to select another trail.")
+            container.mount(Static(Text("\n".join(lines)),
+                                   classes="trail-error"))
+            self._refresh_subtitle()
+            return
+        if not self._trail_doc:
+            container.mount(Static(Text("Loading trail…"),
+                                   classes="trail-empty"))
+            self._refresh_subtitle()
+            return
+        if not self._get_local_project():
+            container.mount(Static(Text(
+                "Warning: project name unavailable "
+                "(aitasks/metadata/project_config.yaml) — all trail members "
+                "render as unresolvable ghosts."), classes="trail-error"))
+        for lane in self._build_active_trail_lanes():
+            container.mount(TrailColumn(lane, self.manager))
+        self._refresh_subtitle()
+
+    def _build_active_trail_lanes(self):
+        """Project the active trail onto the live By-Topic task universe."""
+        all_tasks = (list(self.manager.task_datas.values())
+                     + list(self.manager.child_task_datas.values()))
+        tasks_by_id = {}
+        for task in all_tasks:
+            own = task_own_id(task)
+            if own:
+                tasks_by_id.setdefault(own, task)
+        return build_trail_lanes(
+            self._trail_doc, tasks_by_id, self._get_local_project(),
+            self.manager.find_task_including_archived)
+
+    def _open_trail_select(self, rescan: bool = False):
+        """Open the trail-selection modal, running discovery when needed."""
+        if self._modal_is_active():
+            return
+        self._trail_gen += 1
+        if rescan or self._trail_infos is None:
+            # Persistent busy affordance for the archive scan + blob loads.
+            overlay = LoadingOverlay("Scanning for trails…")
+            self.push_screen(overlay)
+            self._trail_discovery_worker(self._trail_gen, overlay)
+        else:
+            self._open_trail_select_from_cache()
+
+    @work(thread=True)
+    def _trail_discovery_worker(self, gen: int, overlay):
+        """Discovery + blob loads off the UI thread (subprocess-heavy)."""
+        infos = discover_trails(self.manager)
+        self.app.call_from_thread(self._on_trail_discovery, gen, infos, overlay)
+
+    def _on_trail_discovery(self, gen: int, infos: list, overlay):
+        # Pop OUR overlay first (even for superseded results — each scan owns
+        # its own overlay instance, so a stale callback can never pop a newer
+        # scan's overlay).
+        if overlay is not None and self.screen is overlay:
+            self.pop_screen()
+        # Supersession guard: discard when the view moved on mid-scan.
+        if gen != self._trail_gen or self.base_filter != "bytrail":
+            return
+        self._trail_infos = infos
+        self._open_trail_select_from_cache()
+
+    def _open_trail_select_from_cache(self):
+        infos = self._trail_infos or []
+        if not infos:
+            self.notify("No implementation trails found — create one with T "
+                        "on a task card (or /aitask-trail).")
+            if self.base_filter == "bytrail":
+                self.refresh_board()
+            return
+
+        def on_select(handle):
+            if handle is None:
+                return
+            self._activate_trail(handle)
+
+        self.push_screen(
+            TrailSelectScreen(infos, compute_trail_overlaps(infos)), on_select)
+
+    def _activate_trail(self, handle: str):
+        """Make ``handle`` the session's active trail and render it."""
+        self._trail_gen += 1
+        self.active_trail_handle = handle
+        info = next((i for i in (self._trail_infos or [])
+                     if i.handle == handle), None)
+        self._trail_doc = info.doc if info else None
+        self._trail_error = info.load_error if info else ""
+        self._trail_versions_fallback = list(info.versions) if info else []
+        self._trail_owner_id = info.owner_id if info else ""
+        self._trail_owner_archived = bool(info.owner_archived) if info else False
+        self._trail_drift = None
+        self.refresh_board()
+        if self._trail_doc is not None and not self._trail_error:
+            self._start_trail_drift()
+        self._refresh_subtitle()
+
+    def _start_trail_drift(self):
+        """Kick the read-only drift check for the active trail (view entry /
+        activation). Updates rendered badges only — never the artifact."""
+        if not self.active_trail_handle or self._trail_doc is None:
+            return
+        self._trail_drift = None
+        self._trail_drift_worker(self._trail_gen, self.active_trail_handle)
+
+    @work(thread=True)
+    def _trail_drift_worker(self, gen: int, handle: str):
+        verdict, reasons = run_trail_drift(handle)
+        self.app.call_from_thread(
+            self._on_trail_drift, gen, handle, verdict, reasons)
+
+    def _on_trail_drift(self, gen: int, handle: str, verdict: str,
+                        reasons: list):
+        # Supersession guard: a slow drift check must not clobber a newer
+        # selection or a different view (stale token → discard).
+        if (gen != self._trail_gen or self.base_filter != "bytrail"
+                or handle != self.active_trail_handle):
+            return
+        self._trail_drift = (verdict, reasons)
+        self._refresh_subtitle()
+
+    def action_trail_task(self):
+        """`T`: launch /aitask-trail for the focused task (By-Topic: the
+        focused card's lane root — RFC §9.3 J2/J3)."""
+        if self._modal_is_active():
+            return
+        if self.base_filter in ("inflight", "bytrail"):
+            return
+        focused = self._focused_card()
+        if not focused or getattr(focused, "is_ghost", False):
+            return
+        task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
+        if not task_num:
+            return
+        target = task_num.lstrip("t")
+        if self.base_filter == "bytopic":
+            all_tasks = (list(self.manager.task_datas.values())
+                         + list(self.manager.child_task_datas.values()))
+            tasks_by_id = {}
+            for task in all_tasks:
+                own = task_own_id(task)
+                if own:
+                    tasks_by_id.setdefault(own, task)
+            root = topic_key(focused.task_data, tasks_by_id)
+            if root:
+                target = str(root)
+        self._launch_trail([target], target)
+
+    def _launch_trail(self, op_args: list, window_suffix: str):
+        """Resolve and launch /aitask-trail (create or refresh).
+
+        Mirrors _launch_work_report. The launched skill owns every artifact
+        write (after its own confirmation); the board only builds the launch.
+        Args are whitespace-free ids/handles (the codeagent guard refuses
+        otherwise)."""
+        full_cmd = resolve_dry_run_command(Path("."), "trail", *op_args)
+        if not full_cmd:
+            self.notify("Could not resolve agent command — launching directly")
+            self.run_dialog_command(shlex.join(
+                [str(CODEAGENT_SCRIPT), "invoke", "trail", *op_args]))
+            return
+        prompt_str = "/aitask-trail " + " ".join(op_args)
+        agent_string = resolve_agent_string(Path("."), "trail")
+        suffix = re.sub(r"[^0-9A-Za-z_.-]+", "-",
+                        str(window_suffix)).strip("-") or "trail"
+        screen = AgentCommandScreen(
+            "Implementation Trail", full_cmd, prompt_str,
+            default_window_name=f"agent-trail-{suffix}",
+            project_root=Path("."),
+            operation="trail",
+            operation_args=list(op_args),
+            default_agent_string=agent_string,
+            skill_name="trail",
+        )
+
+        def on_trail_result(result):
+            if result == "run":
+                self.run_dialog_command(screen.full_command)
+            elif isinstance(result, TmuxLaunchConfig):
+                _, err = launch_in_tmux(screen.full_command, result)
+                if err:
+                    self.notify(err, severity="error")
+                elif result.new_window:
+                    maybe_spawn_minimonitor(result.session, result.window)
+            self.refresh_board()
+        self.push_screen(screen, on_trail_result)
+
     def _launch_brainstorm(self, num: str, filename: str):
         """Launch brainstorm, switching to existing tmux window if found."""
         window_name = f"brainstorm-{num}"
@@ -6054,6 +7072,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         if self.base_filter == "inflight" and isinstance(self._focused_card(), InFlightTaskCard):
             self._record_focused_human_gate("pass")
+            return
+        if self.base_filter == "bytrail":
+            # `s` in By-Trail is the trail-selection key (RFC §15 footer);
+            # re-opening rescans discovery.
+            self._open_trail_select(rescan=True)
             return
         self.push_screen(LoadingOverlay("Syncing with remote..."))
         self._run_sync(show_notification=True, show_overlay=True)
