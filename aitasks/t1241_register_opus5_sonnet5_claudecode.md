@@ -100,3 +100,5 @@ string / default and must be reviewed & updated by hand:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-25T20:19:05Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-25T20:24:31Z status=pass attempt=1 type=human
