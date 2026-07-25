@@ -1012,7 +1012,26 @@
       "cli_id": "claude-opus-5",
       "notes": "Most capable model, 1M context default, complex reasoning + agentic coding, adaptive thinking",
       "verified": {},
-      "verifiedstats": {}
+      "verifiedstats": {},
+      "usagestats": {
+        "explore": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 1
+          }
+        }
+      }
     },
     {
       "name": "sonnet5",
