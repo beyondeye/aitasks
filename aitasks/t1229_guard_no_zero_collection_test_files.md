@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: test
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1211
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-24 10:56
-updated_at: 2026-07-25 22:13
+updated_at: 2026-07-25 23:32
 ---
 
 ## Origin
@@ -65,3 +68,8 @@ task body, do not re-derive):
 - [ ] The guard passes on the current tree with no exclusion list.
 - [ ] The guard documents which `run_all_python_tests.sh` branch (pytest vs unittest) it validates.
 - [ ] A negative control proves the guard is falsifiable (e.g. temporarily re-guarding a file to zero collection makes it fail).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-25T20:32:15Z status=pass attempt=1 type=human
