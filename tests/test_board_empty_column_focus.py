@@ -35,6 +35,8 @@ class BoardEmptyColumnFocusTests(unittest.TestCase):
     def setUpClass(cls):
         cls._orig_cwd = os.getcwd()
         os.chdir(REPO_ROOT)
+        from textual.color import Color  # noqa: E402
+
         from aitask_board import (  # noqa: E402
             CollapsedColumnPlaceholder,
             EmptyColumnPlaceholder,
@@ -46,6 +48,7 @@ class BoardEmptyColumnFocusTests(unittest.TestCase):
         cls.TaskCard = TaskCard
         cls.EmptyColumnPlaceholder = EmptyColumnPlaceholder
         cls.CollapsedColumnPlaceholder = CollapsedColumnPlaceholder
+        cls.Color = Color
 
     @classmethod
     def tearDownClass(cls):
@@ -358,6 +361,47 @@ class BoardEmptyColumnFocusTests(unittest.TestCase):
                 self.assertEqual(hidden, [],
                                  "tab traversal must not reach a hidden placeholder")
                 self.assertIn(self._placeholder(app, "zz_empty"), chain)
+
+        self._run(go())
+
+    def test_collapsed_placeholder_focus_uses_the_accent_shade(self):
+        """Case 12: the collapsed placeholder highlights in the accent (t1212).
+
+        An inline ``#444444`` background used to dead-letter the widget's own
+        ``.collapsed-placeholder:focus`` rule, so a collapsed column
+        highlighted gray while an empty column beside it highlighted in the
+        theme accent.
+        """
+
+        async def go():
+            app = self.KanbanApp()
+            self._synthetic_board(app)
+            app.manager.settings["collapsed_columns"] = ["zz_left"]
+            async with app.run_test(size=(160, 48)) as pilot:
+                await self._settle(pilot)
+                collapsed = [w for w in app.query(self.CollapsedColumnPlaceholder)
+                             if w.column_id == "zz_left"][0]
+                idle = collapsed.styles.background
+
+                collapsed.focus()
+                await self._settle(pilot)
+                focused = collapsed.styles.background
+                self.assertNotEqual(
+                    focused, self.Color.parse("#444444"),
+                    "focus must not fall back to the inline gray override")
+
+                # Ground truth: the sibling placeholder, styled by the
+                # equivalent `.empty-placeholder:focus` rule, is what "the
+                # accent shade" means.
+                empty = self._placeholder(app, "zz_empty")
+                empty.focus()
+                await self._settle(pilot)
+                self.assertEqual(
+                    focused, empty.styles.background,
+                    "both placeholders must share one focus shade")
+                self.assertEqual(
+                    collapsed.styles.background, idle,
+                    "blurring must restore the idle background")
 
         self._run(go())
 

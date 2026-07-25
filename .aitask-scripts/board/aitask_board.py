@@ -1376,12 +1376,6 @@ class CollapsedColumnPlaceholder(Static):
         super().__init__("···", classes="collapsed-placeholder")
         self.column_id = col_id
 
-    def on_focus(self):
-        self.styles.background = "#444444"
-
-    def on_blur(self):
-        self.styles.background = None
-
 
 class EmptyColumnPlaceholder(Static):
     """A focusable placeholder inside columns that show no cards.
