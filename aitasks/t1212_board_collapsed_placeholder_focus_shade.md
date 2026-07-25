@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1209
+implemented_with: claudecode/opus5
 created_at: 2026-07-22 11:19
-updated_at: 2026-07-26 00:14
+updated_at: 2026-07-26 00:24
 boardidx: 20
 ---
 
@@ -54,3 +55,8 @@ existing `.collapsed-placeholder:focus` CSS rule apply, matching how
 Pilot check that the focused collapsed placeholder resolves to the accent
 background rather than `#444444` — `tests/test_board_empty_column_focus.py`
 already has a fixture that renders a collapsed column (case 5).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-25T21:24:14Z status=pass attempt=1 type=human
