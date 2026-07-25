@@ -236,3 +236,50 @@ mitigation for t1211's recorded risk.
 
 Step 9 (Post-Implementation) handles merge approval, the `risk_evaluated` gate
 orchestration, and archival.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-25) — identity-based _FailedTest detection
+- **Requested by reviewer:** The probe detected import failures with
+  `type(test).__name__ == "_FailedTest"`, which misclassifies a *legitimate*
+  `unittest.TestCase` subclass named `_FailedTest` as a broken import (and
+  reports its file as zero-collection). Confirmed with a synthetic valid module.
+- **Changes made:** Switched the probe to identity-based detection —
+  `isinstance(test, unittest.loader._FailedTest)` (added `import unittest.loader`).
+  Added a committed fixture `test_lookalike.py` (a valid `TestCase` named
+  `_FailedTest`) to `GuardFalsifiabilityTests`, asserting it is collected
+  (`counts["test_lookalike"] >= 1`) and NOT in `failed` — pinning the fix so a
+  regression to name-based matching fails the guard.
+- **Files affected:** `tests/test_no_zero_collection.py`.
+- **Re-verified:** guard passes (incl. the new fixture); both live-tree negative
+  controls (zero-collection, import-failure) still fail the guard as required.
+
+## Final Implementation Notes
+- **Actual work done:** Added `tests/test_no_zero_collection.py` as planned — a
+  `unittest` guard that shells out to a per-file discovery probe (one subprocess,
+  ~0.5 s over 142 files) writing its result to an isolated file channel.
+  `NoZeroCollectionTests` asserts every `tests/test_*.py` collects ≥1 test and
+  none fail to import; `GuardFalsifiabilityTests` is a committed negative control
+  with fixtures pinning each behavior (zero-collection, import-failure, per-file
+  attribution via a pure re-export wrapper, isolated stdout channel, and
+  identity-based `_FailedTest` detection). Empty `ZERO_COLLECTION_ALLOWLIST`.
+- **Deviations from plan:** None to the design. One post-review refinement (see
+  Post-Review Changes §1): import-failure detection uses
+  `isinstance(test, unittest.loader._FailedTest)` rather than a name check, so a
+  legitimate `TestCase` named `_FailedTest` is not misclassified; a `test_lookalike`
+  fixture pins it.
+- **Issues encountered:** None. Working tree also carried unrelated
+  concurrent-session changes (`.aitask-scripts/board/aitask_board.py`,
+  `.claude/settings.local.json`, untracked `.antigravitycli/`, `.opencode/`,
+  `aidocs/slack/`) — deliberately NOT staged; only `tests/test_no_zero_collection.py`
+  was committed for this task.
+- **Key decisions:** Per-file discovery (pattern = exact filename) to attribute
+  by file not class-origin; result-file IPC channel to survive import-time stdout
+  noise; identity-based sentinel detection. Each hardening property has its own
+  committed discriminating fixture.
+- **Verification results:** guard passes via `unittest` and direct run; full
+  aggregate suite `bash tests/run_all_python_tests.sh` = **2031 tests, OK, exit 0**
+  with all 3 guard cases collected; both live-tree negative controls
+  (injected zero-collection file, injected import-failing file) fail the guard as
+  required, then removed with no leftovers.
+- **Upstream defects identified:** None
