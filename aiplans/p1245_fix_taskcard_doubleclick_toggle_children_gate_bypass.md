@@ -166,3 +166,55 @@ parent → children expand as before.
 Standard: commit code (`bug: … (t1245)`) + plan via `./ait git`, then merge
 approval, gate run, and archival per `task-workflow` Step 9. No worktree/branch
 cleanup (profile `fast` works on the current branch).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Three hunks in
+  `.aitask-scripts/board/aitask_board.py` (+18/−4): the `check_action` re-assert
+  inside `action_toggle_children` (`:7400`), the gate consult in
+  `TaskCard.on_click` (`:1652`), and the corrected `TrailTaskCard.on_click`
+  comment (`:1843`). New `tests/test_board_toggle_children_gate.py` with the
+  three planned tests (By-Topic double-click no-op + fall-through, direct-action
+  no-op, `all`-view positive control).
+- **Deviations from plan:** None.
+- **Issues encountered:**
+  - `tests/run_all_python_tests.sh` falls back to `unittest discover` in this
+    environment (no pytest installed). `unittest`'s `-k` accepts a single
+    pattern but **not** `a or b` — running several suites at once needs
+    `python -m unittest tests.test_x tests.test_y …` with `PYTHONPATH` set to
+    `.aitask-scripts/board:.aitask-scripts/lib`, not a compound `-k`.
+  - Pilot double-clicks are geometry-sensitive: the tests filter candidate cards
+    through `screen.region.contains_region(card.region)` so a partly off-screen
+    card can never absorb the synthesized click and produce a false pass.
+- **Key decisions:**
+  - The gate predicate is **not** duplicated. Both call sites consult
+    `check_action("toggle_children", None)`, keeping it the single source of
+    truth (the file's existing convention — `action_sort_topic`,
+    `action_trail_task` — re-checks `base_filter` inline; consulting
+    `check_action` is the same idea without a copied predicate).
+  - `is not True` (rather than falsy) mirrors Textual's binding dispatch, where
+    `None` means "shown but disabled" ⇒ not runnable.
+  - The `TrailTaskCard` / `TrailGhostCard` `on_click` overrides were **kept**,
+    not deleted as now-redundant: `TrailGhostCard` carries `manager=None`, so
+    never reaching the base's `get_child_tasks_for_parent` is a real safety
+    property, and the overrides state By-Trail's behavior explicitly.
+  - Test fixtures patch `manager.get_child_tasks_for_parent` to synthesize the
+    "collapsed parent with children" shape, so the By-Topic assertions do not
+    depend on what the live repo happens to contain.
+- **Harness-can-fail proof (both runs executed):** removing the
+  `action_toggle_children` guard → `test_action_toggle_children_is_noop_in_derived_view`
+  fails, suite exits 1; restoring it and removing the `on_click` gate →
+  `test_bytopic_double_click_does_not_expand` fails, suite exits 1. The
+  positive control passed in both runs, proving the click machinery works and
+  the "unchanged" assertions are not vacuous. Both guards were restored and the
+  full run re-verified: **66 tests, exit 0** across
+  `test_board_toggle_children_gate`, `test_board_topic_view`,
+  `test_board_bytrail_view`, `test_board_footer_visibility`,
+  `test_board_inflight_view`, `test_board_view_filter`,
+  `test_board_empty_column_focus`.
+- **Scope note (beyond the task report):** the bypass was live in **In-Flight**
+  as well as By-Topic — `InFlightTaskCard` (`:1670`) subclasses `TaskCard`
+  without overriding `on_click`. The `check_action` fix covers all three derived
+  views, since the gate keys on
+  `base_filter in ("inflight", "bytopic", "bytrail")`.
+- **Upstream defects identified:** None
