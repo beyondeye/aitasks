@@ -63,8 +63,8 @@ rule.)
 
 | File | Line | Context | Tag |
 |---|---|---|---|
-| `.aitask-scripts/lib/agent_string.sh` | 26 | `DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus4_7_1m}"` — fallback when no config resolves (parameter-expansion default so callers can override). Patched by `aitask_add_model.sh promote-default-agent-string`, which preserves the `${...:-...}` shape. | `needed_for_promote` (claudecode-only) |
-| `.aitask-scripts/aitask_codeagent.sh` | ~540 | Resolution-chain help note `4. Hardcoded default: claudecode/opus4_7_1m` — mirrors the value in `lib/agent_string.sh`; patched alongside it by the same subcommand. | `needed_for_promote` (claudecode-only) |
+| `.aitask-scripts/lib/agent_string.sh` | 26 | `DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus5}"` — fallback when no config resolves (parameter-expansion default so callers can override). Patched by `aitask_add_model.sh promote-default-agent-string`, which preserves the `${...:-...}` shape. | `needed_for_promote` (claudecode-only) |
+| `.aitask-scripts/aitask_codeagent.sh` | ~540 | Resolution-chain help note `4. Hardcoded default: claudecode/opus5` — mirrors the value in `lib/agent_string.sh`; patched alongside it by the same subcommand. | `needed_for_promote` (claudecode-only) |
 | `.aitask-scripts/brainstorm/brainstorm_crew.py` | 44–50 | `BRAINSTORM_AGENT_TYPES` dict: resource defaults only (agent_string removed — now read exclusively from codeagent_config.json) | `covered_by_refresh` (via config) |
 
 ### 4. Help text and examples in scripts (format illustrations)

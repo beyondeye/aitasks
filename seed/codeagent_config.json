@@ -1,14 +1,14 @@
 {
   "defaults": {
-    "pick": "claudecode/opus4_8",
+    "pick": "claudecode/opus5",
     "explain": "claudecode/sonnet4_6",
     "work-report": "claudecode/sonnet4_6",
     "batch-review": "claudecode/sonnet4_6",
     "qa": "claudecode/sonnet4_6",
     "raw": "claudecode/sonnet4_6",
-    "explore": "claudecode/opus4_8",
-    "shadow": "claudecode/opus4_8",
-    "learn": "claudecode/opus4_8",
-    "trail": "claudecode/opus4_8"
+    "explore": "claudecode/opus5",
+    "shadow": "claudecode/opus5",
+    "learn": "claudecode/opus5",
+    "trail": "claudecode/opus5"
   }
 }

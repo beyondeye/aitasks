@@ -50,15 +50,15 @@ Each operation maps to a different use case with its own default model:
 
 | Operation | Description | Default |
 |-----------|-------------|---------|
-| `pick` | Picking and implementing tasks | `claudecode/opus4_8` |
+| `pick` | Picking and implementing tasks | `claudecode/opus5` |
 | `explain` | Explaining or documenting code | `claudecode/sonnet4_6` |
-| `explore` | Exploring the codebase | `claudecode/opus4_8` |
-| `explore-relay` | Chat-relayed exploration for bug-report intake (Claude Code only) | `claudecode/opus4_8` |
+| `explore` | Exploring the codebase | `claudecode/opus5` |
+| `explore-relay` | Chat-relayed exploration for bug-report intake (Claude Code only) | `claudecode/opus5` |
 | `work-report` | Drafting a manager-facing work report from board columns | `claudecode/sonnet4_6` |
 | `batch-review` | Batch code review | `claudecode/sonnet4_6` |
 | `qa` | Test coverage analysis | `claudecode/sonnet4_6` |
-| `shadow` | Advisory companion agent for a followed session | `claudecode/opus4_8` |
-| `learn` | Learning a new skill from source material | `claudecode/opus4_8` |
+| `shadow` | Advisory companion agent for a followed session | `codex/gpt5_6_terra` |
+| `learn` | Learning a new skill from source material | `claudecode/opus5` |
 | `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet4_6` |
 
 ### Subcommands
@@ -106,10 +106,10 @@ ait codeagent resolve pick
 
 Output:
 ```
-AGENT_STRING:claudecode/opus4_7_1m
+AGENT_STRING:claudecode/opus5
 AGENT:claudecode
-MODEL:opus4_7_1m
-CLI_ID:claude-opus-4-7[1m]
+MODEL:opus5
+CLI_ID:claude-opus-5
 BINARY:claude
 MODEL_FLAG:--model
 ```
@@ -171,7 +171,7 @@ The agent/model for each operation is resolved through a 4-level chain (highest 
 1. **`--agent-string` flag** -- CLI override for a single invocation
 2. **Per-user config** -- `aitasks/metadata/codeagent_config.local.json` (gitignored)
 3. **Per-project config** -- `aitasks/metadata/codeagent_config.json` (git-tracked)
-4. **Hardcoded default** -- `claudecode/opus4_8`
+4. **Hardcoded default** -- `claudecode/opus5`
 
 #### Project config (`codeagent_config.json`)
 
@@ -180,7 +180,7 @@ Shared across the team, checked into git. Sets the default agent/model for each 
 ```json
 {
   "defaults": {
-    "pick": "claudecode/opus4_7_1m",
+    "pick": "claudecode/opus5",
     "explain": "claudecode/sonnet4_6",
     "batch-review": "claudecode/sonnet4_6",
     "raw": "claudecode/sonnet4_6"

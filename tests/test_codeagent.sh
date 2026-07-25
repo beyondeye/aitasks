@@ -106,13 +106,13 @@ assert_contains_ci "list-models codex shows gpt-5.6-sol cli_id" "CLI_ID:gpt-5.6-
 echo "--- Test 4: list-models invalid agent ---"
 assert_exit_nonzero "list-models with invalid agent" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' list-models notanagent"
 
-# Test 5: resolve pick returns claudecode/opus4_8 (current default)
+# Test 5: resolve pick returns claudecode/opus5 (current default)
 echo "--- Test 5: resolve pick ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve pick 2>&1)
-assert_contains_ci "resolve returns opus4_8 for pick" "AGENT_STRING:claudecode/opus4_8" "$output"
+assert_contains_ci "resolve returns opus5 for pick" "AGENT_STRING:claudecode/opus5" "$output"
 assert_contains_ci "resolve returns agent" "AGENT:claudecode" "$output"
-assert_contains_ci "resolve returns model" "MODEL:opus4_8" "$output"
-assert_contains_ci "resolve returns cli_id" "CLI_ID:claude-opus-4-8" "$output"
+assert_contains_ci "resolve returns model" "MODEL:opus5" "$output"
+assert_contains_ci "resolve returns cli_id" "CLI_ID:claude-opus-5" "$output"
 
 # Test 6: resolve with --agent-string override
 echo "--- Test 6: resolve with --agent-string override ---"
@@ -161,7 +161,7 @@ echo "--- Test 11: --dry-run invoke ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke pick 42 2>&1)
 assert_contains_ci "dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
 assert_contains_ci "dry-run contains claude" "claude" "$output"
-assert_contains_ci "dry-run contains model flag" "claude-opus-4-8" "$output"
+assert_contains_ci "dry-run contains model flag" "claude-opus-5" "$output"
 assert_contains_ci "dry-run contains aitask-pick" "aitask-pick" "$output"
 assert_contains_ci "dry-run contains task number" "42" "$output"
 
