@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [testing, python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1211
 created_at: 2026-07-24 10:56
-updated_at: 2026-07-24 10:56
+updated_at: 2026-07-25 22:13
 ---
 
 ## Origin
