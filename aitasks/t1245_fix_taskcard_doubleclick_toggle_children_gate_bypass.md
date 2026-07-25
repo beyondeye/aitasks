@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-07-26 00:19
-updated_at: 2026-07-26 00:26
+updated_at: 2026-07-26 00:43
 ---
 
 ## Origin
@@ -44,3 +45,8 @@ def on_click(self, event):
 ## Suggested fix
 
 Guard the double-click branch on the same predicate `check_action` uses (or call `check_action("toggle_children", None)` before dispatching); alternatively add the derived-view guard inside `action_toggle_children` itself so every dispatch surface is covered. Add a Pilot regression: double-click a collapsed parent in By-Topic → `expanded_tasks` unchanged.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-25T21:44:05Z status=pass attempt=1 type=human
