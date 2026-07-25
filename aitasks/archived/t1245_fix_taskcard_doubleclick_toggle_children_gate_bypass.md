@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_board, tui]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-07-26 00:19
-updated_at: 2026-07-26 00:44
+updated_at: 2026-07-26 01:00
+completed_at: 2026-07-26 01:00
 ---
 
 ## Origin
@@ -54,3 +55,14 @@ Guard the double-click branch on the same predicate `check_action` uses (or call
 > **✅ gate:plan_approved** run=2026-07-25T21:44:05Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-25T21:57:18Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-25T22:00:02Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:8c5d728f572ae13b
+
+> **✅ gate:risk_evaluated** run=2026-07-25T22:00:02Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1245/risk_evaluated_2026-07-25T22:00:02Z-risk_evaluated-a1.log`
