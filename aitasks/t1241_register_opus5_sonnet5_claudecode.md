@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [backend]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-25 23:10
-updated_at: 2026-07-25 23:10
+updated_at: 2026-07-25 23:11
 ---
 
 Register **Opus 5** and **Sonnet 5** in the `claudecode` code-agent model
