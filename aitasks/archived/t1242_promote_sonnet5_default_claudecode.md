@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Done
 labels: [backend]
 created_at: 2026-07-25 23:29
-updated_at: 2026-07-25 23:29
+updated_at: 2026-07-25 23:30
+completed_at: 2026-07-25 23:30
 ---
 
 Follow-up to t1241. Promote `claudecode/sonnet5` (registered in t1241) to the
