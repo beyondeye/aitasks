@@ -90,3 +90,5 @@ task's premises against the then-current `aitask_board.py`.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-25T20:33:38Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-25T21:17:07Z status=pass attempt=1 type=human
