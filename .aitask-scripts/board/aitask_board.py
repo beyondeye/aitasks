@@ -1652,8 +1652,13 @@ class TaskCard(Static):
     def on_click(self, event):
         self.focus()
         if event.chain == 2:
-            # Collapsed parent with children → expand instead of opening details
-            if not self.is_child:
+            # Collapsed parent with children → expand instead of opening
+            # details, but only where toggle_children is actually available:
+            # check_action hides it in the derived views (In-Flight / By-Topic /
+            # By-Trail render children directly), and the mouse path must honor
+            # the same gate. Gated off → fall through to the detail modal.
+            if not self.is_child and \
+                    self.app.check_action("toggle_children", None) is True:
                 task_num, _ = TaskCard._parse_filename(self.task_data.filename)
                 children = self.manager.get_child_tasks_for_parent(task_num)
                 if children and self.task_data.filename not in self.app.expanded_tasks:
@@ -1836,8 +1841,9 @@ class TrailTaskCard(TaskCard):
                     classes="task-info trail-ops", markup=False)
 
     def on_click(self, event):
-        # No expand-children double-click in By-Trail (the base handler calls
-        # action_toggle_children directly, bypassing its check_action gate).
+        # No expand-children double-click in By-Trail. The base handler now
+        # consults check_action (which hides toggle_children here), so this
+        # override only states that behavior explicitly.
         self.focus()
         if event.chain == 2:
             self.app.action_view_details()
@@ -7392,6 +7398,14 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.refresh_column(col_id, refocus_filename=fn, refocus_col_id=col_id)
 
     def action_toggle_children(self):
+        # Every dispatch surface routes through here — the footer/keyboard
+        # binding (which Textual already gates) and TaskCard's double-click.
+        # Re-assert the gate so no caller can bypass the derived-view exclusion
+        # (In-Flight / By-Topic / By-Trail render children directly, so there is
+        # nothing to expand there). `is not True` matches Textual's binding
+        # dispatch: None means "shown but disabled", i.e. not runnable.
+        if self.check_action("toggle_children", None) is not True:
+            return
         self._toggle_expand()
 
     # --- Task Movement ---
