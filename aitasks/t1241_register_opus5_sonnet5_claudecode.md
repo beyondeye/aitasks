@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
@@ -11,8 +13,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus4_8
 created_at: 2026-07-25 23:10
-updated_at: 2026-07-25 23:11
+updated_at: 2026-07-25 23:19
 ---
 
 Register **Opus 5** and **Sonnet 5** in the `claudecode` code-agent model
@@ -92,3 +95,8 @@ string / default and must be reviewed & updated by hand:
 - `codex` and `opencode` agents (opencode is provider-gated / CLI-discovered).
 - Porting to other code-agent trees is a no-op unless an agent-specific surface
   changes; suggest a separate follow-up only if needed.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-25T20:19:05Z status=pass attempt=1 type=human
