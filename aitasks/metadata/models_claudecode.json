@@ -1006,6 +1006,20 @@
           }
         }
       }
+    },
+    {
+      "name": "opus5",
+      "cli_id": "claude-opus-5",
+      "notes": "Most capable model, 1M context default, complex reasoning + agentic coding, adaptive thinking",
+      "verified": {},
+      "verifiedstats": {}
+    },
+    {
+      "name": "sonnet5",
+      "cli_id": "claude-sonnet-5",
+      "notes": "Best speed/intelligence balance, adaptive thinking, 1M context",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
