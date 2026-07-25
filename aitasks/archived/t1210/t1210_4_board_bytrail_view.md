@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: [t1210_3, t1162_4]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_board, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 implemented_with: claudecode/fable5
 created_at: 2026-07-22 16:16
-updated_at: 2026-07-25 23:33
+updated_at: 2026-07-26 00:19
+completed_at: 2026-07-26 00:19
 ---
 
 ## Context
@@ -92,3 +93,14 @@ task's premises against the then-current `aitask_board.py`.
 > **✅ gate:plan_approved** run=2026-07-25T20:33:38Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-25T21:17:07Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-25T21:19:37Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:7f8814511a27f88f
+
+> **✅ gate:risk_evaluated** run=2026-07-25T21:19:37Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1210_4/risk_evaluated_2026-07-25T21:19:37Z-risk_evaluated-a1.log`
