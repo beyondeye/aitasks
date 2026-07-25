@@ -192,3 +192,42 @@ Standard: review/approval (Step 8), then merge approval + `ait gates run 1241`
 - Correctness of cli_ids (`claude-opus-5`, `claude-sonnet-5`) — taken from the
   known model roster; `ait codeagent resolve`/`list-models` spot-check confirms
   they resolve. · severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** Registered `opus5` (`claude-opus-5`, single entry, 1M
+  default) and `sonnet5` (`claude-sonnet-5`) in live + seed
+  `models_claudecode.json` via `aitask_add_model.sh add-json`. Promoted `opus5`
+  to default for the live-`opus4_8` op set (`pick`, `explore`, `learn`, `trail`,
+  5× `brainstorm-*`) via `promote-config`; did a seed-only manual edit for
+  `shadow` (seed was opus4_8 → opus5; live left at `codex/gpt5_6_terra` per user
+  decision). Bumped `DEFAULT_AGENT_STRING`→`claudecode/opus5` via
+  `promote-default-agent-string`. Updated the manual-review surface (two tests,
+  three docs).
+- **Deviations from plan:**
+  - Two extra default-sensitive assertions in `tests/test_codeagent.sh` needed
+    updating beyond the plan's list: Test 5's `CLI_ID:claude-opus-5` (line 115)
+    and Test 11's dry-run model-flag assertion (line 164, `claude-opus-5`). Both
+    resolve the `pick` default, which moved to opus5.
+  - `website/.../codeagent.md`: went beyond the planned pick/explore/learn rows
+    and corrected the **pre-existing** staleness there against verified
+    `ait codeagent resolve` output — `shadow`→`codex/gpt5_6_terra` (doc had
+    opus4_8; live is codex) and `explore-relay`→`opus5` (has no config entry, so
+    it now resolves through the bumped DEFAULT_AGENT_STRING fallback). Also
+    refreshed the `resolve pick` example output block (was opus4_7_1m) since it
+    shows a real command's deterministic output.
+  - `aidocs/framework/model_reference_locations.md`: updated only the two §3
+    "hardcoded source-code defaults" rows (the load-bearing current-default
+    claim, opus4_7_1m→opus5). Left §1's line-numbered registry inventory as-is:
+    it is an explicit point-in-time snapshot from t579_1 whose line numbers
+    already diverge from the current file, so a partial "mention opus5/sonnet5"
+    edit would add inconsistency rather than remove it.
+- **Issues encountered:** `promote-config` sets each listed op unconditionally
+  in BOTH files, so passing `shadow` in `--ops` would have clobbered live's
+  deliberate `codex/gpt5_6_terra`. Handled structurally by excluding `shadow`
+  from the helper `--ops` and doing a seed-only edit.
+- **Key decisions:** Single `opus5` entry (no `opus5_1m`) — Opus 5's plain
+  cli_id `claude-opus-5` already carries 1M context. `sonnet5` is add-only (not
+  promoted); no op currently defaults to a Sonnet-5-eligible slot per the task.
+- **Upstream defects identified:** None. (The website-doc `shadow`/`explore-relay`
+  staleness was pre-existing but fixed in-place here, not a separate defect.)
