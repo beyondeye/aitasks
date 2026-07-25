@@ -149,3 +149,55 @@ value must come back from CSS alone.
 
 Merge, run the gate orchestrator (`risk_evaluated`), and archive per the shared
 workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned two-file change, no deviations.
+  - `.aitask-scripts/board/aitask_board.py` — deleted
+    `CollapsedColumnPlaceholder.on_focus` / `on_blur` (6 lines), leaving the
+    class at `can_focus` + `__init__`, structurally identical to
+    `EmptyColumnPlaceholder`. The pre-existing
+    `.collapsed-placeholder:focus { background: $primary 30%; }` rule now
+    applies; no CSS was touched.
+  - `tests/test_board_empty_column_focus.py` — added case 12
+    (`test_collapsed_placeholder_focus_uses_the_accent_shade`, +44 lines) and
+    resolved `textual.color.Color` in `setUpClass` as `cls.Color`, matching the
+    file's existing deferred-import convention.
+- **Deviations from plan:** None.
+- **Issues encountered:**
+  - The line numbers cited in the task body (1083-1087 / 4467-4468) had drifted;
+    the real sites were 1379-1383 and 5240. Located by symbol, not line.
+  - `tests/run_all_python_tests.sh` cannot run a single file: the ait venv has
+    no pytest, so the script falls back to `unittest discover`, which rejects a
+    file path as a start directory (`ImportError: Start directory is not
+    importable`). Single-test runs go through
+    `source .aitask-scripts/lib/python_resolve.sh; "$(require_ait_python)" -m
+    unittest tests.<module>.<Class>.<test>` with `PYTHONPATH` set to the
+    board + lib dirs, mirroring what the runner exports.
+- **Key decisions:**
+  - **Ground truth for "the accent shade" is the sibling widget.** The test
+    asserts the focused collapsed background equals the focused
+    `EmptyColumnPlaceholder` background rather than hard-coding
+    `Color(1, 120, 212, a=0.3)`, so it keeps holding if the theme's `$primary`
+    changes. It is paired with an explicit `assertNotEqual(..., "#444444")`
+    so the specific regression — the inline gray winning over CSS — is named.
+  - **`widget.styles` is the right seam.** Textual's `RenderStyles` returns the
+    inline value when one is set and the CSS-resolved value otherwise, so a
+    single property read distinguishes the two worlds. Verified empirically on
+    the real `KanbanApp` via a Pilot probe before writing the plan (pre-fix:
+    `Color(68, 68, 68)`; post-fix: `Color(1, 120, 212, a=0.3)`).
+  - **The third assertion covers the `on_blur` deletion:** after focus moves to
+    the empty placeholder, the collapsed one must return to its captured idle
+    value (`Color(0, 0, 0, a=0)`) from CSS alone, since nothing resets it now.
+- **Verification performed:**
+  - Negative control: the new case was written and run **before** the fix and
+    failed on the intended assertion
+    (`AssertionError: Color(68, 68, 68) == Color(68, 68, 68) : focus must not
+    fall back to the inline gray override`), proving the test discriminates.
+  - After the fix: `tests/test_board_empty_column_focus.py` 12/12 OK (cases 5
+    and 11 both focus the collapsed placeholder and still pass);
+    `tests/test_board_work_report.py` 23/23 OK (the only other suite
+    referencing `CollapsedColumnPlaceholder`).
+  - Independent re-probe of the real app confirms both placeholders resolve to
+    `Color(1, 120, 212, a=0.3)` focused and transparent on blur.
+- **Upstream defects identified:** None.
