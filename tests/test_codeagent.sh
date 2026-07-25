@@ -359,7 +359,7 @@ assert_contains_ci "help shows resolution chain" "Resolution chain" "$output"
 # Test 28: resolve explain uses sonnet
 echo "--- Test 28: resolve explain uses sonnet ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve explain 2>&1)
-assert_contains_ci "resolve explain returns sonnet4_6" "AGENT_STRING:claudecode/sonnet4_6" "$output"
+assert_contains_ci "resolve explain returns sonnet5" "AGENT_STRING:claudecode/sonnet5" "$output"
 
 # Test 29: resolve with unknown operation
 echo "--- Test 29: resolve unknown operation ---"

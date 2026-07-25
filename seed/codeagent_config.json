@@ -1,11 +1,11 @@
 {
   "defaults": {
     "pick": "claudecode/opus5",
-    "explain": "claudecode/sonnet4_6",
-    "work-report": "claudecode/sonnet4_6",
-    "batch-review": "claudecode/sonnet4_6",
-    "qa": "claudecode/sonnet4_6",
-    "raw": "claudecode/sonnet4_6",
+    "explain": "claudecode/sonnet5",
+    "work-report": "claudecode/sonnet5",
+    "batch-review": "claudecode/sonnet5",
+    "qa": "claudecode/sonnet5",
+    "raw": "claudecode/sonnet5",
     "explore": "claudecode/opus5",
     "shadow": "claudecode/opus5",
     "learn": "claudecode/opus5",

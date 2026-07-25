@@ -302,9 +302,9 @@ class TestGetAgentTypes(unittest.TestCase):
 
     FULL_DEFAULTS = {
         "brainstorm-explorer": "claudecode/opus5",
-        "brainstorm-comparator": "claudecode/sonnet4_6",
+        "brainstorm-comparator": "claudecode/sonnet5",
         "brainstorm-synthesizer": "claudecode/opus5",
-        "brainstorm-initializer": "claudecode/sonnet4_6",
+        "brainstorm-initializer": "claudecode/sonnet5",
         "brainstorm-module_decomposer": "claudecode/opus5",
         "brainstorm-module_merger": "claudecode/opus5",
         "brainstorm-module_syncer": "claudecode/opus5",
@@ -345,7 +345,7 @@ class TestGetAgentTypes(unittest.TestCase):
         self._write_full_config({"brainstorm-explorer": "codex/gpt5_4"})
         result = get_agent_types(config_root=Path(self.tmpdir))
         self.assertEqual(result["explorer"]["agent_string"], "codex/gpt5_4")
-        self.assertEqual(result["comparator"]["agent_string"], "claudecode/sonnet4_6")
+        self.assertEqual(result["comparator"]["agent_string"], "claudecode/sonnet5")
 
     def test_local_overrides_project(self):
         """Local config overrides project config for brainstorm agents."""

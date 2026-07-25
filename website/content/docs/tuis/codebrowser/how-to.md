@@ -196,7 +196,7 @@ You can run QA analysis on any completed task directly from the history screen:
 4. A terminal opens with the `/aitask-qa` skill pre-loaded for the selected task
 5. If no terminal is detected, the codebrowser suspends and runs QA in the current terminal
 
-The QA agent uses the model configured for the `qa` operation in `ait settings` (Agent Defaults tab). By default, this is `claudecode/sonnet4_6`.
+The QA agent uses the model configured for the `qa` operation in `ait settings` (Agent Defaults tab). By default, this is `claudecode/sonnet5`.
 
 ### tmux integration
 

@@ -51,15 +51,15 @@ Each operation maps to a different use case with its own default model:
 | Operation | Description | Default |
 |-----------|-------------|---------|
 | `pick` | Picking and implementing tasks | `claudecode/opus5` |
-| `explain` | Explaining or documenting code | `claudecode/sonnet4_6` |
+| `explain` | Explaining or documenting code | `claudecode/sonnet5` |
 | `explore` | Exploring the codebase | `claudecode/opus5` |
 | `explore-relay` | Chat-relayed exploration for bug-report intake (Claude Code only) | `claudecode/opus5` |
-| `work-report` | Drafting a manager-facing work report from board columns | `claudecode/sonnet4_6` |
-| `batch-review` | Batch code review | `claudecode/sonnet4_6` |
-| `qa` | Test coverage analysis | `claudecode/sonnet4_6` |
+| `work-report` | Drafting a manager-facing work report from board columns | `claudecode/sonnet5` |
+| `batch-review` | Batch code review | `claudecode/sonnet5` |
+| `qa` | Test coverage analysis | `claudecode/sonnet5` |
 | `shadow` | Advisory companion agent for a followed session | `codex/gpt5_6_terra` |
 | `learn` | Learning a new skill from source material | `claudecode/opus5` |
-| `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet4_6` |
+| `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet5` |
 
 ### Subcommands
 
@@ -181,9 +181,9 @@ Shared across the team, checked into git. Sets the default agent/model for each 
 {
   "defaults": {
     "pick": "claudecode/opus5",
-    "explain": "claudecode/sonnet4_6",
-    "batch-review": "claudecode/sonnet4_6",
-    "raw": "claudecode/sonnet4_6"
+    "explain": "claudecode/sonnet5",
+    "batch-review": "claudecode/sonnet5",
+    "raw": "claudecode/sonnet5"
   }
 }
 ```
