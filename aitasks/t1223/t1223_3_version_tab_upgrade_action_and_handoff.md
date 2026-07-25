@@ -80,11 +80,26 @@ Bound to a new key on the Versions tab, gated through `check_action` +
 
 1. Prompt for target version: `latest` or a pinned value (free text, validated by
    `framework_version.VERSION_RE`; reject in the dialog, don't pass it on).
-2. **Active-target gate (contract C).** If `session.is_live` is `False` →
-   `idle`, make **no tmux call**. Otherwise call `get_tmux_windows(session)` and
-   pass the result to `detect_target_activity()`. On `busy:<names>` → **refuse**,
-   showing the offending window names. No override flag; the user closes them and
-   re-tries.
+2. **Active-target gate (contract C, as amended in t1223_2).** If
+   `session.is_live` is `False` → `idle`, make **no tmux call**. Otherwise call
+   `get_tmux_windows(session)` and pass the result to
+   `detect_target_activity()`. Only a literal `idle` proceeds un-forced. On
+   `busy:<names>` **or** `unknown:<reason>` → **refuse**, showing the offending
+   window names (or the unknown reason). The refusal dialog additionally offers
+   a **force-override** (user-directed, t1223_2 planning), specified exactly:
+   - a separate **destructive confirmation** step, never the same dialog's
+     default action; default focus = Cancel;
+   - before launching, **re-enumerate** windows and re-run
+     `detect_target_activity()` — if the fresh result differs from what the
+     dialog displayed, **abort the force** and re-show the refusal with the
+     new state;
+   - the confirmation body lists the freshly-detected window names (or the
+     `unknown` reason) verbatim;
+   - the confirming option is labeled
+     "Force upgrade anyway — I accept the listed windows may break";
+   - no "don't ask again" state is ever persisted.
+   The force-override applies only to this gate; the self-target rule
+   (contract A, step 3) is never force-bypassable.
 3. **Self-target (contract A).** If `is_self_target(root, Path.cwd())`, do **not**
    spawn. Write the handoff request and `app.exit()` (see §3). If the wrapper
    path env var is absent, **refuse** with "relaunch via `ait syncer`, or run

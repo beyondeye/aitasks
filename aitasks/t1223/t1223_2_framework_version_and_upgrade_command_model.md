@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1223_1]
 issue_type: feature
@@ -81,8 +83,10 @@ def is_self_target(root: str | Path, cwd: str | Path) -> bool:
     AitasksSession.key semantics. Falls back to str() on OSError."""
 
 def detect_target_activity(session: str, windows: list[tuple[str, str]]) -> str:
-    """'idle' or 'busy:<comma-separated window names>'. PURE — the caller does
-    the tmux enumeration."""
+    """'idle' | 'busy:<comma-separated window names>' |
+    'unknown:tui-registry-unavailable'. PURE — the caller does the tmux
+    enumeration. Fail-closed: classifier failure yields 'unknown', never
+    'idle'."""
 
 def build_upgrade_command(root: str | Path, version: str) -> tuple[str, list[str]]:
     """(command_string, [quoted_ait_path, version]). Raises ValueError on a
@@ -109,14 +113,26 @@ So `&&` chaining works and quoting is entirely our responsibility.
   load-bearing** — a failed upgrade must not be followed by `setup`.
 - Return the parts alongside the string so tests assert structure, not text.
 
-### Contract C — activity detection (binding)
+### Contract C — activity detection (binding; amended during t1223_2 planning)
 
 A window marks the target **busy** when its name is in
-`tui_switcher.KNOWN_TUIS` **or** starts with `agent-` or `create-`. Everything
-else (plain shells, editors) is ignored. Import `KNOWN_TUIS` lazily/defensively
-so a `tui_switcher` import failure degrades to prefix-matching rather than
-crashing. The caller passes `is_live=False` sessions straight to `idle` without
-ever calling this.
+`tui_registry.TUI_NAMES` **or** starts with `agent-`, `create-`, or
+`tui_registry.BRAINSTORM_PREFIX` (`brainstorm-`). Everything else (plain
+shells, editors) is ignored. Import the registry names lazily/defensively; on
+import failure, prefix matching still runs and a hit still returns `busy`, but
+with no prefix hit the result is `unknown:tui-registry-unavailable` — **never**
+`idle` (fail-closed: a classifier failure can widen refusal, never narrow it).
+Only a literal `idle` permits an un-forced upgrade. The caller passes
+`is_live=False` sessions straight to `idle` without ever calling this.
+
+> **AC deviations (explicit, user-confirmed 2026-07-25):** the original
+> contract named `tui_switcher.KNOWN_TUIS` — but that is a list of
+> `(name, label, command)` tuples (a literal membership check never matches)
+> and only the *switcher subset*: it misses `brainstorm`, `minimonitor`,
+> `git`, and `brainstorm-<N>` windows, which are live framework TUIs. The
+> two-state return was also amended to three-state after review found the
+> import-failure degradation was fail-open (a live `board` window would have
+> read `idle`).
 
 **Declared bound:** this only sees the target's tmux session. An `ait` process in
 an unrelated terminal, a detached process, or another machine sharing the
@@ -150,13 +166,20 @@ Required tests:
 4. `is_self_target` — same path; symlinked path resolving to the same realpath
    (**must be True**); different path; trailing-slash variant.
 5. `detect_target_activity` **truth table**: no windows ⇒ idle; only plain shell
-   names ⇒ idle; a `KNOWN_TUIS` name (e.g. `board`) ⇒ busy naming it; an
-   `agent-syncfix-pull` window ⇒ busy; a `create-…` window ⇒ busy; mixed ⇒ busy
-   listing only the offending names.
+   names ⇒ idle; a registry TUI name (e.g. `board`) ⇒ busy naming it; an
+   `agent-syncfix-pull` window ⇒ busy; a `create-…` window ⇒ busy; the widened
+   names `brainstorm`, `minimonitor`, `git`, `brainstorm-42` ⇒ busy; mixed ⇒
+   busy listing only the offending names. **Fail-closed:** with the registry
+   import forced to fail, a prefix hit is still busy, and unclassifiable
+   windows yield `unknown:…`, never `idle` (negative control).
 6. `build_upgrade_command` **quoting** — roots containing a space, `$`, `;`,
-   `&&`, a single quote, a double quote, and a backtick each produce a command
-   that a shell parses as the intended two invocations (assert via
-   `shlex.split` on each `&&` side, not string equality).
+   ` && `, a single quote, a double quote, and a backtick each produce a
+   command that a shell parses as the intended two invocations. Assert
+   shell-aware: `shlex.split` the **whole** command, split the token list on
+   the standalone `&&` token, compare both argvs structurally — never split
+   the raw string on `&&` (a quoted path containing ` && ` defeats that).
+   Additionally execute the built command with a stub `ait` in roots whose
+   directory names contain those characters (see test 8).
 7. `build_upgrade_command` **rejects** `""`, `"; rm -rf /"`, `"1.2.3; ls"`,
    `"$(id)"`, `"v1.2.3"` — each raises `ValueError`. Accepts `latest`, `1.2`,
    `0.28.0`.
@@ -175,6 +198,9 @@ Required tests:
 
 - t1223_3 must call `detect_target_activity` with windows it enumerated itself,
   and must short-circuit on `is_live=False` before making any tmux call.
+- Only a literal `idle` permits an un-forced upgrade: `busy:<names>` and
+  `unknown:<reason>` both refuse, with the destructive force-override specified
+  in t1223_3's task file (fresh re-check before launch, Cancel-focused).
 - The wrapper-side revalidation in t1223_3 is **independent** of
   `build_handoff_request`'s validation — do not skip it because this module
   already validated.
