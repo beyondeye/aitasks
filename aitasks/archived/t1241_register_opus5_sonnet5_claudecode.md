@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [backend]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus4_8
 created_at: 2026-07-25 23:10
-updated_at: 2026-07-25 23:19
+updated_at: 2026-07-25 23:26
+completed_at: 2026-07-25 23:26
 ---
 
 Register **Opus 5** and **Sonnet 5** in the `claudecode` code-agent model
@@ -102,3 +103,14 @@ string / default and must be reviewed & updated by hand:
 > **✅ gate:plan_approved** run=2026-07-25T20:19:05Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-25T20:24:31Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-25T20:26:10Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:cc6cf61c5a4940a2
+
+> **✅ gate:risk_evaluated** run=2026-07-25T20:26:10Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1241/risk_evaluated_2026-07-25T20:26:10Z-risk_evaluated-a1.log`
