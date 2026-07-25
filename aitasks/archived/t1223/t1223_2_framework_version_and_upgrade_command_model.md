@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1223_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [auto-update]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1223
 implemented_with: claudecode/fable5
 created_at: 2026-07-23 18:30
-updated_at: 2026-07-25 23:47
+updated_at: 2026-07-26 00:15
+completed_at: 2026-07-26 00:15
 ---
 
 ## Context
@@ -211,3 +212,14 @@ Required tests:
 > **✅ gate:plan_approved** run=2026-07-25T20:47:57Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-25T21:12:47Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-25T21:15:48Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c664bef0416064b1
+
+> **✅ gate:risk_evaluated** run=2026-07-25T21:15:48Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1223_2/risk_evaluated_2026-07-25T21:15:48Z-risk_evaluated-a1.log`
