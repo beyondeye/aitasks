@@ -5,6 +5,10 @@ depends: []
 issue_type: enhancement
 status: Implementing
 labels: [workflow, git, profiles]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-24 15:03
 updated_at: 2026-07-26 10:15
