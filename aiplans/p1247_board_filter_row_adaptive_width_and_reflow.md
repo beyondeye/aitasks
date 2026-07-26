@@ -219,14 +219,14 @@ to its own line instead of eating the filters; click each segment.
 - The reflow threshold (`FILTER_SEARCH_MIN_WIDTH = 30`) is a UX judgement, not a
   correctness invariant, and adds a fourth uncentralized narrow-terminal
   breakpoint to the repo · severity: low · → mitigation:
-  centralize_tui_narrow_breakpoint
+  centralize_tui_narrow_breakpoint (**t1251**)
 - Terminals narrower than the selector itself still clip (documented limit
   above); a user on a very narrow terminal may consider the bug unfixed ·
-  severity: low · → mitigation: board_selector_wrap_2d_hittest
+  severity: low · → mitigation: board_selector_wrap_2d_hittest (**t1250**)
 
 ### Planned mitigations
-- timing: after | name: board_selector_wrap_2d_hittest | type: enhancement | priority: medium | effort: medium | addresses: goal-achievement — selector still clips below ~90 cols | desc: Make ViewSelector._click_targets 2-D (row + column, honour event.y) so the filter row can wrap instead of clipping on very narrow terminals.
-- timing: after | name: centralize_tui_narrow_breakpoint | type: refactor | priority: low | effort: low | addresses: goal-achievement — narrow-terminal breakpoint drift | desc: Hoist the inline narrow-terminal breakpoints (codebrowser_app.py 120/80, code_viewer.py 80, board FILTER_SEARCH_MIN_WIDTH) into one shared lib constant.
+- timing: after | name: board_selector_wrap_2d_hittest | type: enhancement | priority: medium | effort: medium | addresses: goal-achievement — selector still clips below ~90 cols | desc: Make ViewSelector._click_targets 2-D (row + column, honour event.y) so the filter row can wrap instead of clipping on very narrow terminals. | created: t1250
+- timing: after | name: centralize_tui_narrow_breakpoint | type: refactor | priority: low | effort: low | addresses: goal-achievement — narrow-terminal breakpoint drift | desc: Hoist the inline narrow-terminal breakpoints (codebrowser_app.py 120/80, code_viewer.py 80, board FILTER_SEARCH_MIN_WIDTH) into one shared lib constant. | created: t1251
 
 ## Step 9 (Post-Implementation)
 
