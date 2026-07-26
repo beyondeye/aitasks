@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, tmux, python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-26 11:33
-updated_at: 2026-07-26 11:33
+updated_at: 2026-07-26 12:02
 ---
 
 ## Symptom
