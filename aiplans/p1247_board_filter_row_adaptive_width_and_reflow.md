@@ -234,3 +234,79 @@ Standard cleanup, archival, and merge per `task-workflow` Step 9. No worktree wa
 created (profile `fast`, `create_worktree: false`) — work is on the current
 branch, so the merge sub-step is a no-op and archival runs via
 `./.aitask-scripts/aitask_archive.sh 1247`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned in
+  `.aitask-scripts/board/aitask_board.py` (+87/−11) plus a new 12-test suite
+  `tests/test_board_filter_row_layout.py` (285 lines).
+  - `ViewSelector._build()` extracted as the single layout pass returning
+    `(markup, targets, width)`; `render()` and the new pure `content_width()`
+    both consume it. Segment widths switched from `len()` to
+    `rich.cells.cell_len`.
+  - CSS: `#view_col` `width: 78` → `auto`, `#view_selector` gained
+    `width: auto`, and `#filter_area.narrow { layout: vertical }` +
+    `#filter_area.narrow #view_col { width: 100% }` added for the reflow.
+  - `KanbanApp.FILTER_SEARCH_MIN_WIDTH = 30`, `_apply_filter_reflow()` and
+    `on_resize()` added — the board's first resize handling. Called from
+    `on_mount` and `_refresh_selector`.
+  - `_compute_search_placeholder` now derives the key hint from
+    `ViewSelector.BASES` + `resolve_key` instead of the literal
+    `"(a/l/f/i/y/z to switch base)"`.
+
+- **Deviations from plan:**
+  1. **Dropped the planned `#search_box { min-width: 30 }`.** It duplicated
+     `FILTER_SEARCH_MIN_WIDTH`, recreating the very two-sources-of-truth defect
+     this task exists to remove. The reflow threshold already guarantees the
+     floor (search box gets exactly 30 cells at the boundary, verified), so the
+     constant is now the sole source of truth. Compensated by strengthening
+     `test_reflow_threshold_tracks_the_selector_width` into an at-bound /
+     over-bound assertion on the search-box allocation.
+  2. **Kept the flagged adjacent placeholder fix** (plan §4, explicitly offered
+     as droppable). Output is byte-identical today (`a/l/f/i/y/z`) and follows
+     the table automatically afterwards — verified by injecting an extra base
+     and observing `a/l/f/i/y/z/g`.
+
+- **Issues encountered:**
+  - The planned blocker "`#type_filter_summary` blocks a naive `width: auto`"
+    was **disproved by probing the real widget** during planning: the summary
+    carries no width rule so it does not contribute to auto-width. `#view_col`
+    measured 90 cells both with an empty summary and with a deliberately
+    over-long `types: …` string. No `max-width` / wrap / relocation was needed.
+    The task file's implementation note was corrected in place, and
+    `test_long_type_summary_does_not_widen_the_column` now guards it.
+  - `~/.aitask/venv/bin/python` has no `pytest`; the suite runs under
+    `-m unittest` (which is `run_all_python_tests.sh`'s documented fallback).
+  - Measured widths are easy to misread: `widget.size.width` is the *content*
+    box while `outer_size.width` / `region.width` is the allocation. For the
+    search `Input` they differ by 6 (2 border + 4 padding). The tests assert on
+    `region` / `outer_size`.
+
+- **Key decisions:**
+  - **Derive, don't bump.** The row width is computed from the rendered selector
+    rather than hardcoded, so the class of bug (hand-bumped on every filter
+    addition: 26 → 36 → 48 → 62 → 78, missed for By-Trail) cannot recur.
+  - **One arithmetic site.** Layout width and click hit-testing come from the
+    same `_build()` pass — a desync would misroute filter clicks silently.
+  - **Correctness separated from UX tuning.** The no-truncation invariant is
+    threshold-independent; only the reflow breakpoint depends on
+    `FILTER_SEARCH_MIN_WIDTH`. Tests pin the invariant, not the magic number.
+  - **Accepted limit:** below ~90 columns the selector still clips. Wrapping it
+    would break `on_click`, whose `_click_targets` are 1-D column offsets and
+    which ignores `event.y`. Deferred to the confirmed follow-up
+    `board_selector_wrap_2d_hittest`.
+
+- **Verification performed:**
+  - New suite: 12/12 pass.
+  - **Harness proven able to fail:** reverting *only* `width: auto` → `78` makes
+    exactly the 5 truncation guards fail with exit 1
+    (`78 not greater than or equal to 90`), while the pure-unit and reflow tests
+    correctly stay green (they pin different properties). Restored via a
+    targeted edit — not `git checkout` — and re-verified green.
+  - All board suites after the final change: 63/63 pass.
+  - Full python suite: 2111 tests, OK.
+  - Measured against the real `KanbanApp`: truncation 0 at 160/130/120/119/100/80
+    columns (was 12 cells lost); reflow threshold lands exactly at 120.
+
+- **Upstream defects identified:** None
+

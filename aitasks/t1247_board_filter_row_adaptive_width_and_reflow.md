@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -107,11 +109,16 @@ itself.
 
 ## Implementation notes / constraints
 
-- **`#type_filter_summary` blocks a naive `width: auto`.** It lives inside
-  `#view_col` and renders `types: bug, enhancement, documentation, …`
-  (`_refresh_type_filter_summary`, `:6017-6029`), which can be far wider than the
-  selector and would then drive the container's auto-width. It needs a
-  `max-width`, wrapping, or to move out of `#view_col`. Cover the many-types case.
+- ~~**`#type_filter_summary` blocks a naive `width: auto`.**~~ **DISPROVED
+  during planning (t1247).** The concern was that the summary, sharing
+  `#view_col` and rendering `types: bug, enhancement, documentation, …`
+  (`_refresh_type_filter_summary`, `:6017-6029`), would drive the container's
+  auto-width. Probing the real widget shows it does **not**: the summary carries
+  no width rule, so it does not contribute to auto-width — `#view_col` measured
+  90 cells both with an empty summary and with a deliberately over-long
+  `types: …` string. No `max-width`, wrapping, or relocation is needed. The
+  many-types case is still covered by a regression test
+  (`test_long_type_summary_does_not_widen_the_column`) to keep it that way.
 - **Textual 8.2.7 `Horizontal` has no flex-wrap.** Reflow must be implemented as
   an `on_resize` / `events.Resize` handler toggling a CSS class that flips
   `#filter_area` to `layout: vertical` below a threshold.
