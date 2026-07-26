@@ -473,7 +473,7 @@ Closes the pre-existing gap. No existing page mentions the feature.
   CAS, and concurrent-first-write negative controls
 - A ninth tab in a shipped 3907-line single-file Textual app, whose save path
   destroys the seeded comments in `project_config.yaml` · severity: low · →
-  mitigation: settings_yaml_comment_preservation
+  mitigation: t1260 (settings_yaml_comment_preservation)
 - Store identity is a second small ledger (branch marker + data-branch record)
   that must stay consistent with the manifests, and its creation is racy across
   clones · severity: medium · → mitigation: covered in-task by the R4 guard
@@ -483,16 +483,16 @@ Closes the pre-existing gap. No existing page mentions the feature.
 
 - The task says "artifact/attachment blob store", but `ait attach` hard-rejects
   non-local backends, so v1 delivers artifacts only · severity: medium · →
-  mitigation: attach_non_local_backend_support
+  mitigation: t1258 (attach_non_local_backend_support)
 - Push-gated publish (R1) makes a reachable remote a hard requirement for
   `gitbranch` writes, so an offline user cannot create artifacts on this backend ·
-  severity: medium · → mitigation: artifact_branch_offline_write_queue
+  severity: medium · → mitigation: t1259 (artifact_branch_offline_write_queue)
 
 ### Planned mitigations
 
-- timing: after | name: attach_non_local_backend_support | type: feature | priority: medium | effort: high | addresses: goal-achievement — v1 delivers artifacts only | desc: Extend `ait attach` (add path, gc blocking set, meta-ledger relpaths) to non-local backends so attachments can also live on the artifact branch.
-- timing: after | name: artifact_branch_offline_write_queue | type: enhancement | priority: low | effort: medium | addresses: goal-achievement — push-gated publish blocks offline writes | desc: Let a gitbranch write commit locally while offline and defer publication, with an explicit pending-push state and a re-push path, so an unreachable remote does not block artifact creation outright.
-- timing: after | name: settings_yaml_comment_preservation | type: enhancement | priority: medium | effort: medium | addresses: code-health — settings saves erase seeded config comments | desc: Replace save_yaml_config's yaml.safe_dump with a comment-preserving round-tripper so settings saves stop wiping the documentation blocks in project_config.yaml.
+- timing: after | name: attach_non_local_backend_support | task: t1258 | type: feature | priority: medium | effort: high | addresses: goal-achievement — v1 delivers artifacts only | desc: Extend `ait attach` (add path, gc blocking set, meta-ledger relpaths) to non-local backends so attachments can also live on the artifact branch.
+- timing: after | name: artifact_branch_offline_write_queue | task: t1259 | type: enhancement | priority: low | effort: medium | addresses: goal-achievement — push-gated publish blocks offline writes | desc: Let a gitbranch write commit locally while offline and defer publication, with an explicit pending-push state and a re-push path, so an unreachable remote does not block artifact creation outright.
+- timing: after | name: settings_yaml_comment_preservation | task: t1260 | type: enhancement | priority: medium | effort: medium | addresses: code-health — settings saves erase seeded config comments | desc: Replace save_yaml_config's yaml.safe_dump with a comment-preserving round-tripper so settings saves stop wiping the documentation blocks in project_config.yaml.
 
 **Change from the confirmed set:** `artifact_branch_push_durability` was
 confirmed while `put` warned and continued on push failure. Review made push

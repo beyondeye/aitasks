@@ -3,18 +3,18 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [task_attachments, ait_settings]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [1258, 1259, 1260]
 children_to_implement: [t1231_1, t1231_2, t1231_3]
-assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 created_at: 2026-07-24 14:42
-updated_at: 2026-07-26 22:58
+updated_at: 2026-07-26 23:00
 ---
 
 ## Context

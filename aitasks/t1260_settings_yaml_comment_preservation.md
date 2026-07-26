@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [1231]
 issue_type: enhancement
 status: Ready
 labels: [ait_settings]

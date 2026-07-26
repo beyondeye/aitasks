@@ -1,14 +1,14 @@
 ---
 priority: low
 effort: medium
-depends: []
+depends: [1231]
 issue_type: enhancement
 status: Ready
 labels: [task_attachments]
 gates: [risk_evaluated]
 anchor: 1065
 created_at: 2026-07-26 22:59
-updated_at: 2026-07-26 22:59
+updated_at: 2026-07-26 23:00
 ---
 
 ## Origin
