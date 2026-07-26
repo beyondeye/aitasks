@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from rich.cells import cell_len
 from rich.markup import escape
 from rich.text import Text
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for, task_dir
@@ -36,6 +37,7 @@ from sync_action_runner import (
 )
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 from shortcuts_mixin import ShortcutsMixin, get_label
+from keybinding_registry import resolve_key
 from cross_repo_notation import parse as parse_cross_repo_notation
 from cross_repo_notation import parse_ref as parse_cross_repo_ref
 from task_levels import LEVELS_ASCENDING
@@ -1451,7 +1453,16 @@ class ViewSelector(Static):
         # ids ("git"/"type"). Drives on_click() hit-testing.
         self._click_targets: list[tuple[int, int, str]] = []
 
-    def render(self) -> str:
+    def _build(self) -> tuple[str, list[tuple[int, int, str]], int]:
+        """Lay out the selector once: markup, click targets, and total width.
+
+        Single source of truth — ``render()`` takes the markup and targets,
+        ``content_width()`` takes the width. Keeping both on one pass is what
+        stops the layout from drifting away from click hit-testing (t1247).
+
+        Widths are counted in terminal *cells* (``cell_len``), not codepoints,
+        so a future wide glyph in a label cannot desync the two consumers.
+        """
         parts: list[str] = []
         targets: list[tuple[int, int, str]] = []
         col = 0
@@ -1464,14 +1475,15 @@ class ViewSelector(Static):
         for i, (action_id, label, base_id) in enumerate(self.BASES):
             if i > 0:
                 parts.append(f"[dim]{self.BASE_SEP}[/]")
-                col += len(self.BASE_SEP)
+                col += cell_len(self.BASE_SEP)
             seg_text = get_label("board", action_id, label, style="leading")
+            seg_w = cell_len(seg_text)
             if self.active_base == base_id:
                 parts.append(f"[bold cyan]{seg_text}[/]")
             else:
                 parts.append(f"[dim]{seg_text}[/]")
-            targets.append((col, col + len(seg_text), base_id))
-            col += len(seg_text)
+            targets.append((col, col + seg_w, base_id))
+            col += seg_w
 
         # Closing bracket (dim). Rich only requires escaping `[` (with `\[`),
         # not `]` — emit it literally.
@@ -1481,18 +1493,33 @@ class ViewSelector(Static):
         # Add-on toggle segments.
         for action_id, label, addon_id in self.ADDONS:
             parts.append(f"[dim]{self.ADDON_GAP}[/]")
-            col += len(self.ADDON_GAP)
+            col += cell_len(self.ADDON_GAP)
             seg_text = get_label("board", action_id, label, style="leading")
+            seg_w = cell_len(seg_text)
             active = (addon_id == "git" and self.git_on) or (addon_id == "type" and self.type_on)
             if active:
                 parts.append(f"[bold cyan]{seg_text}[/]")
             else:
                 parts.append(f"[dim]{seg_text}[/]")
-            targets.append((col, col + len(seg_text), addon_id))
-            col += len(seg_text)
+            targets.append((col, col + seg_w, addon_id))
+            col += seg_w
 
+        return "".join(parts), targets, col
+
+    def content_width(self) -> int:
+        """Rendered width in terminal cells.
+
+        Pure — needs no running app, so the board can size `#view_col` from it
+        and tests can assert on it directly. Grows automatically when a base
+        filter is added or a shortcut is rebound to a longer leading form,
+        which is what keeps the filter row from being truncated (t1247).
+        """
+        return self._build()[2]
+
+    def render(self) -> str:
+        markup, targets, _ = self._build()
         self._click_targets = targets
-        return "".join(parts)
+        return markup
 
     def on_click(self, event):
         # CSS padding 0 1 shifts content by 1 column on the left.
@@ -5160,6 +5187,13 @@ class KanbanCommandProvider(Provider):
 class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     _shortcuts_scope = "board"
 
+    # Minimum column allocation for the search box before the filter row
+    # reflows. Includes the Input's own chrome (2 border + 4 padding), so ~24
+    # cells of text remain visible. Sole source of truth for that floor — it is
+    # enforced by the reflow threshold in _apply_filter_reflow, deliberately not
+    # duplicated as a CSS `min-width` (t1247).
+    FILTER_SEARCH_MIN_WIDTH = 30
+
     CSS = """
     Screen { align: center middle; }
     #detail_dialog {
@@ -5223,10 +5257,17 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     .child-wrapper { height: auto; }
     .child-wrapper TaskCard { width: 1fr; }
     .child-connector { width: auto; height: auto; padding: 0; margin: 1 0 0 0; color: $text-muted; }
+    /* Filter row. #view_col is sized from the ViewSelector's own rendered
+       width (auto), never a hardcoded column count — a fixed number silently
+       truncates the row whenever a base filter is added or a key is rebound
+       (t1247). `.narrow` reflows the search box onto its own line instead of
+       letting it squeeze the filters. */
     #filter_area { dock: top; height: auto; margin: 0 0 1 0; }
-    #view_col { width: 78; height: auto; }
+    #filter_area.narrow { layout: vertical; }
+    #view_col { width: auto; height: auto; }
+    #filter_area.narrow #view_col { width: 100%; }
     #view_label { height: 1; padding: 0 1; color: $text-muted; }
-    #view_selector { height: 1; padding: 0 1; }
+    #view_selector { height: 1; padding: 0 1; width: auto; }
     .type-filter-summary { height: auto; padding: 0 1; color: $text-muted; }
     .type-filter-summary.hidden { display: none; }
     Input { width: 1fr; }
@@ -5614,6 +5655,32 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.refresh_board(refresh_locks=True)
         self._start_auto_refresh_timer()
         self._update_subtitle()
+        self._apply_filter_reflow()
+
+    def _apply_filter_reflow(self, width: int | None = None):
+        """Reflow the filter row when the terminal is too narrow for both parts.
+
+        The filter segments are never truncated (`#view_col` is auto-width); the
+        search box is what yields, dropping onto its own line below the
+        threshold. The threshold is derived from the ViewSelector's own rendered
+        width, so adding a base filter or rebinding a key moves it automatically
+        (t1247).
+        """
+        try:
+            selector = self.query_one("#view_selector", ViewSelector)
+            area = self.query_one("#filter_area")
+        except Exception:
+            return
+        width = self.size.width if width is None else width
+        if width <= 0:
+            # Pre-layout size; on_resize will fire again with the real width.
+            return
+        # +2 for #view_selector's `padding: 0 1`.
+        needed = selector.content_width() + 2 + self.FILTER_SEARCH_MIN_WIDTH
+        area.set_class(width < needed, "narrow")
+
+    def on_resize(self, event):
+        self._apply_filter_reflow(event.size.width)
 
     def _start_auto_refresh_timer(self):
         """Start or restart the auto-refresh timer based on current settings."""
@@ -6196,6 +6263,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         selector.git_on = self.git_filter_active
         selector.type_on = self.type_filter_active
         selector.refresh()
+        # Label widths can change under a shortcut rebind — re-evaluate the
+        # reflow threshold against the selector's current width (t1247).
+        self._apply_filter_reflow()
 
     def _compute_search_placeholder(self) -> str:
         if self.base_filter == "inflight":
@@ -6220,7 +6290,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self.base_filter == "all" and not addons:
             base += " (Tab to focus, Esc to return to board)"
         else:
-            base += " (a/l/f/i/y/z to switch base)"
+            # Derived from the same table the selector renders, so a rebind or a
+            # new base filter can't leave this hint stale (t1247).
+            keys = "/".join(
+                k for k in (resolve_key("board", action_id)
+                            for action_id, _, _ in ViewSelector.BASES) if k
+            )
+            base += f" ({keys} to switch base)" if keys else " (see filter row to switch base)"
         return base
 
     def _update_search_placeholder(self):
