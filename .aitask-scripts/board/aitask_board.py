@@ -1671,7 +1671,13 @@ class TaskCard(Static):
 
     def on_focus(self):
         self.styles.border = ("double", "cyan")
-        self.scroll_visible()
+        # Synchronous and unanimated on purpose (t1248). Textual's defaults
+        # (animate=True, immediate=False) defer this through call_after_refresh
+        # and animate it, so it can land *behind* wheel events the user has
+        # already produced and leave scroll_target_y pointing somewhere
+        # scroll_y is not. The wheel handler computes its next position from
+        # scroll_target_y, so that divergence rewinds the column.
+        self.scroll_visible(animate=False, immediate=True)
 
     def on_blur(self):
         self.styles.border = (self._idle_border_style(), self._priority_border_color())
@@ -6356,6 +6362,100 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return [c for c in self._get_column_cards(col_id)
                 if c.styles.display != "none"]
 
+    def _column_widgets(self) -> list:
+        """Every board column widget currently mounted, in board order.
+
+        Single source for the column-class union so `_get_visible_col_ids` and
+        `_column_widget` cannot drift apart when a new column class is added.
+        """
+        return (list(self.query(KanbanColumn))
+                + list(self.query(InFlightColumn))
+                + list(self.query(TopicColumn))
+                + list(self.query(TrailColumn)))
+
+    def _column_widget(self, col_id: str):
+        """Return the scroll container for `col_id`, or None.
+
+        Resolved by identity rather than by walking a card's DOM ancestry: an
+        expanded child card sits inside a `Horizontal(classes="child-wrapper")`,
+        and `VerticalScroll` is also used for modal bodies, so a parent walk
+        would bake in assumptions this does not.
+        """
+        return next((c for c in self._column_widgets() if c.col_id == col_id), None)
+
+    @staticmethod
+    def _rows_inside(viewport, region) -> bool:
+        """True when `region`'s rows lie wholly within `viewport`'s rows.
+
+        Vertical axis only, and deliberately so: `scrollable_content_region`
+        shrinks by one column on the right the moment the vertical scrollbar
+        appears, and a `width: 1fr` child card can round a cell wide, so testing
+        x yields permanent false negatives. The columns scroll vertically, so
+        horizontal containment carries no information here.
+        """
+        return viewport.y <= region.y and region.bottom <= viewport.bottom
+
+    def _card_fully_visible(self, card) -> bool:
+        """True when `card` lies wholly inside its column's viewport (t1248).
+
+        Fails OPEN (True) for an unlaid-out card or column, so a pre-layout or
+        hidden card never triggers a re-anchor.
+        """
+        column = self._column_widget(card.column_id)
+        if column is None:
+            return True
+        viewport = column.scrollable_content_region
+        region = card.region
+        if not region.area or not viewport.area:
+            return True
+        return self._rows_inside(viewport, region)
+
+    def _viewport_anchor(self, cards: list, focused):
+        """The card to re-anchor focus onto when `focused` scrolled out of view.
+
+        Candidates are the cards fully inside the viewport; when there are NONE
+        — a pane too short to show one whole card — fall back to the cards
+        merely overlapping it. Without that fallback there would be no anchor,
+        the caller would step from the off-screen index, and the snap-back this
+        exists to prevent would return.
+
+        The side the focus fell off picks the end, not the key direction: with
+        focus above the viewport an `up` key must still land on the topmost
+        visible card, not the bottom one. Returns None when the side cannot be
+        determined or no candidate exists.
+        """
+        column = self._column_widget(focused.column_id)
+        if column is None:
+            return None
+        viewport = column.scrollable_content_region
+        focus_region = focused.region
+        if not focus_region.area or not viewport.area:
+            return None
+        laid_out = [c for c in cards if c.region.area]
+        inside = [c for c in laid_out if self._rows_inside(viewport, c.region)]
+        candidates = inside or [c for c in laid_out if c.region.overlaps(viewport)]
+        if not candidates:
+            return None
+        return candidates[0] if focus_region.y < viewport.y else candidates[-1]
+
+    def _reanchor_to_viewport(self, focused, cards) -> bool:
+        """Pull the cursor back to what is on screen; True when focus moved.
+
+        When the viewport has scrolled away from the focused card, one nav key
+        brings the cursor to the viewport instead of dragging the view back to
+        the cursor. Returns False — so the caller steps normally — when the card
+        is already visible, when the anchor resolves to the focused card itself
+        (a card taller than the viewport), or when no anchor exists, so a nav
+        key is never a dead end.
+        """
+        if self._card_fully_visible(focused):
+            return False
+        anchor = self._viewport_anchor(cards, focused)
+        if anchor is None or anchor is focused:
+            return False
+        anchor.focus()
+        return True
+
     def _focused_placeholder(self):
         """Return the focused column placeholder (collapsed or empty), or None."""
         focused = self.screen.focused if self.screen else None
@@ -6394,11 +6494,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _get_visible_col_ids(self) -> list:
         """Return ordered list of column IDs currently on the board."""
-        cols = (list(self.query(KanbanColumn))
-                + list(self.query(InFlightColumn))
-                + list(self.query(TopicColumn))
-                + list(self.query(TrailColumn)))
-        return [col.col_id for col in cols]
+        return [col.col_id for col in self._column_widgets()]
 
     def _modal_is_active(self):
         return isinstance(self.screen, ModalScreen)
@@ -6415,6 +6511,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.action_focus_board()
             return
         cards = self._visible_column_cards(focused.column_id)
+        if self._reanchor_to_viewport(focused, cards):
+            return
         idx = next((i for i, c in enumerate(cards) if c is focused), -1)
         if idx > 0:
             cards[idx - 1].focus()
@@ -6430,6 +6528,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.action_focus_board()
             return
         cards = self._visible_column_cards(focused.column_id)
+        if self._reanchor_to_viewport(focused, cards):
+            return
         idx = next((i for i, c in enumerate(cards) if c is focused), -1)
         if idx < len(cards) - 1:
             cards[idx + 1].focus()
@@ -6477,9 +6577,15 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         cur_idx = col_ids.index(cur_col)
         focused = self._focused_card()
-        # Try to land on the same vertical position in the target column.
+        # Try to land on the same vertical position in the target column —
+        # measured from what is ON SCREEN. After a wheel scroll the focused card
+        # can be far off-screen, and carrying its index across would teleport the
+        # target column to a position the user never looked at (t1248).
         old_cards = self._visible_column_cards(cur_col)
-        old_pos = next((i for i, c in enumerate(old_cards) if c is focused), 0) if focused else 0
+        source = focused
+        if source is not None and not self._card_fully_visible(source):
+            source = self._viewport_anchor(old_cards, source) or source
+        old_pos = next((i for i, c in enumerate(old_cards) if c is source), 0) if source else 0
         # Find the next column with a focus anchor
         new_idx = cur_idx + direction
         while 0 <= new_idx < len(col_ids):
