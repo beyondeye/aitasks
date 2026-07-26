@@ -130,11 +130,23 @@ assert_exit_nonzero "codex whitespace arg refused" \
 assert_exit_zero "whitespace-free args pass the guard" \
     bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' --dry-run invoke work-report --columns now,next"
 
-# Test 7: verified-score parity — work-report mirrors explain in every
-# models file (seed + live), and is absent where explain is absent.
-echo "--- Test 7: verified-score parity across models files ---"
-for f in "$PROJECT_DIR"/seed/models_*.json \
-         "$PROJECT_DIR"/aitasks/metadata/models_*.json; do
+# Test 7: verified-score parity — work-report's SEED verified score mirrors
+# explain's, and is absent where explain is absent. This is a SEED-AUTHORING
+# baseline convention on the verified SCORES only: at seed time work-report had no
+# independent measured history, so its baseline score was seeded by copying
+# explain's. It is DECOUPLED from model resolution — work-report has its own
+# independently-editable codeagent_config key (it just happens to be currently
+# configured to resolve identically to explain, spot-checked for claudecode by
+# Test 4/seeded and Test 5/no-config-fallback). Parity is asserted over
+# seed/models_*.json ONLY — NOT the live aitasks/metadata/models_*.json — because
+# live satisfaction feedback (aitask_verified_update.sh) accumulates INDEPENDENT
+# per-skill scores, so strict work-report == explain equality cannot hold on live
+# files by design (a real work-report run persists its own measured average, even
+# on a model with no explain key). The accumulator-side ownership boundary
+# (independent scores persist without an explain partner) is pinned by
+# tests/test_verified_update.sh (Test 19/20). (t1232)
+echo "--- Test 7: verified-score parity across seed models files ---"
+for f in "$PROJECT_DIR"/seed/models_*.json; do
     if jq -e '[.models[].verified
                | if has("explain") then (.["work-report"] == .explain)
                  else (has("work-report") | not) end] | all' "$f" >/dev/null; then

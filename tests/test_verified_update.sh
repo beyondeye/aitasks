@@ -400,6 +400,41 @@ assert_eq "Bucketed-no-prev: month runs incremented" "2" "$(json_get "$TMPDIR_18
 assert_eq "Bucketed-no-prev: month score_sum incremented" "180" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.month.score_sum')"
 rm -rf "$TMPDIR_18"
 
+# Tests 19-20 pin the verified-score ownership boundary (t1232): the generic
+# accumulator persists an INDEPENDENT verified score for an explain-shadow
+# operation (work-report / trail) even when the model has NO explain key. This is
+# exactly what a "refrain from creating verified entries when explain is absent"
+# accumulator special-case would break; these guards fail loudly if that data is
+# ever silently discarded. Parity of work-report/trail with explain is a
+# seed-authoring convention only (see Test 7 in test_codeagent_{work_report,trail}.sh),
+# NOT a live-file invariant — real per-skill scores are legitimately independent.
+echo "--- Test 19: work-report score persists on a model lacking explain (t1232) ---"
+TMPDIR_19="$(setup_repo)"
+# Drop the explain key so opus4_6 has no parity partner.
+tmp_json_19="$(mktemp)"
+jq 'del(.models[0].verified.explain)' \
+    "$TMPDIR_19/aitasks/metadata/models_claudecode.json" > "$tmp_json_19"
+mv "$tmp_json_19" "$TMPDIR_19/aitasks/metadata/models_claudecode.json"
+(cd "$TMPDIR_19" && git add -A && git commit -m "drop explain key" --quiet)
+(cd "$TMPDIR_19" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill work-report --score 4 --date 2026-03-11 --silent >/dev/null 2>&1)
+assert_eq "work-report verified persisted without explain partner" "80" "$(json_get "$TMPDIR_19" '.models[0].verified["work-report"]')"
+assert_eq "work-report all-time runs = 1" "1" "$(json_get "$TMPDIR_19" '.models[0].verifiedstats["work-report"].all_time.runs')"
+assert_eq "accumulator did NOT fabricate an explain key" "false" "$(json_get "$TMPDIR_19" '.models[0].verified | has("explain")')"
+rm -rf "$TMPDIR_19"
+
+echo "--- Test 20: trail score persists on a model lacking explain (t1232) ---"
+TMPDIR_20="$(setup_repo)"
+tmp_json_20="$(mktemp)"
+jq 'del(.models[0].verified.explain)' \
+    "$TMPDIR_20/aitasks/metadata/models_claudecode.json" > "$tmp_json_20"
+mv "$tmp_json_20" "$TMPDIR_20/aitasks/metadata/models_claudecode.json"
+(cd "$TMPDIR_20" && git add -A && git commit -m "drop explain key" --quiet)
+(cd "$TMPDIR_20" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill trail --score 4 --date 2026-03-11 --silent >/dev/null 2>&1)
+assert_eq "trail verified persisted without explain partner" "80" "$(json_get "$TMPDIR_20" '.models[0].verified.trail')"
+assert_eq "trail all-time runs = 1" "1" "$(json_get "$TMPDIR_20" '.models[0].verifiedstats.trail.all_time.runs')"
+assert_eq "accumulator did NOT fabricate an explain key" "false" "$(json_get "$TMPDIR_20" '.models[0].verified | has("explain")')"
+rm -rf "$TMPDIR_20"
+
 echo ""
 echo "==============================="
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"

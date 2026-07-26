@@ -129,11 +129,22 @@ assert_exit_nonzero "codex whitespace arg refused" \
 assert_exit_zero "whitespace-free args pass the guard" \
     bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' --dry-run invoke trail --topics 635,890"
 
-# Test 7: verified-score parity — trail mirrors explain in every models
-# file (seed + live), and is absent where explain is absent.
-echo "--- Test 7: verified-score parity across models files ---"
-for f in "$PROJECT_DIR"/seed/models_*.json \
-         "$PROJECT_DIR"/aitasks/metadata/models_*.json; do
+# Test 7: verified-score parity — trail's SEED verified score mirrors explain's,
+# and is absent where explain is absent. This is a SEED-AUTHORING baseline
+# convention on the verified SCORES only: at seed time trail had no independent
+# measured history, so its baseline score was seeded by copying explain's. NOTE
+# this score convention is DECOUPLED from model resolution — trail has its own
+# independently-editable codeagent_config key and currently resolves to the heavy
+# class like pick, NOT explain (Test 4 checks trail == pick; Test 5 the no-config
+# fallback). Parity is asserted over seed/models_*.json ONLY — NOT the live
+# aitasks/metadata/models_*.json — because live satisfaction feedback
+# (aitask_verified_update.sh) accumulates INDEPENDENT per-skill scores, so strict
+# trail == explain equality cannot hold on live files by design (a real trail run
+# persists its own measured average, even on a model with no explain key). The
+# accumulator-side ownership boundary (independent scores persist without an
+# explain partner) is pinned by tests/test_verified_update.sh (Test 19/20). (t1232)
+echo "--- Test 7: verified-score parity across seed models files ---"
+for f in "$PROJECT_DIR"/seed/models_*.json; do
     if jq -e '[.models[].verified
                | if has("explain") then (.trail == .explain)
                  else (has("trail") | not) end] | all' "$f" >/dev/null; then
