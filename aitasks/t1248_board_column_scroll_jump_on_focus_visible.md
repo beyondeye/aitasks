@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-07-26 11:33
-updated_at: 2026-07-26 12:02
+updated_at: 2026-07-26 17:22
 ---
 
 ## Symptom
@@ -119,3 +120,8 @@ every `Widget._scroll_to`, `scroll_visible` and `_size_updated` on
 that priority-bound keys are invisible at that seam — any follow-up
 instrumentation must hook `App._check_bindings` (or `App.on_event`) to see the
 `up`/`down` keys that actually trigger this.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-26T14:22:55Z status=pass attempt=1 type=human
