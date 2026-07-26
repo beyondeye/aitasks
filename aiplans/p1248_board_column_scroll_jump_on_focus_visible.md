@@ -309,7 +309,7 @@ will be declined to avoid a duplicate:
   path that does that), and the fix neutralises *any* focus change during an
   active scroll rather than that one trigger — but if the real trigger is
   something else entirely, the symptom could survive. · severity: medium ·
-  → mitigation: manual_verification_board_scroll_jump_fix
+  → mitigation: t1261
 - In panes too short to show one whole card, the fix leaves a bounded one-card
   nudge rather than zero movement. · severity: low · → mitigation: none needed —
   quantified above and pinned by test 4
@@ -320,7 +320,7 @@ will be declined to avoid a duplicate:
   tests 3, 7 and 8
 
 ### Planned mitigations
-- timing: after | name: manual_verification_board_scroll_jump_fix | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement — the tmux cursor-key trigger is inferred, not captured | desc: In a real tmux session work the manual checklist above — wheel-scroll board columns both directions for ~30s confirming no snap-back, repeat in a short split pane, then verify keyboard up/down and left/right still behave
+- timing: after | name: manual_verification_board_scroll_jump_fix (created: t1261) | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement — the tmux cursor-key trigger is inferred, not captured | desc: In a real tmux session work the manual checklist above — wheel-scroll board columns both directions for ~30s confirming no snap-back, repeat in a short split pane, then verify keyboard up/down and left/right still behave
 
 ## Step 9 (Post-Implementation)
 
