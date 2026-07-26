@@ -1,0 +1,876 @@
+{
+  "schema_version": "1.0.0",
+  "trail_id": "trail-gates-framework-landing",
+  "title": "Gate framework landing order (t635 topic)",
+  "owner": "aitasks#635",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": ["aitasks#635"],
+    "initiating_task": "aitasks#635",
+    "selection_note": "Widened from topic 635 with aitasks#1076_4. Invoked on task 635; the user first chose whole-topic scope, giving the 14 active t635 children plus three externally-numbered members (aitasks#1109, aitasks#1220, aitasks#1224) that carry anchor: 635 as risk-mitigation follow-ups of landed children. The drift check then surfaced aitasks#1076_4 — anchored to topic 1065, but depending on t635 itself — and the user confirmed expanding scope to include it rather than recording it as an exclusion. Because the gatherer cannot mix topic and task scopes, membership is now pinned as an explicit id set (--scope task --owner 635 635 1109 1220 1224 1076_4) rather than recomputed from anchors; a refresh replays exactly this member set from generation.inputs. Topic 1065 is intersected by t1076_4 (its canonical anchor, preserved on that entry) but is deliberately NOT listed as a tracked scope topic: exactly one task was hand-picked from it, so new tasks appearing in the unified-artifact topic are not candidate members of this trail and must not be reported as drift. Topic 635 remains tracked, so new t635 members still surface on refresh."
+  },
+  "generation": {
+    "generated_at": "2026-07-26T05:34:30Z",
+    "generator": {
+      "agent_string": "claudecode/opus5",
+      "skill": "aitask-trail (refresh)"
+    },
+    "project_revision": {
+      "aitasks": "9c4906dc1"
+    },
+    "input_digest": "c7bc032991f48830",
+    "inputs": [
+      { "kind": "plan_file", "ref": "aitasks:aiplans/p635/p635_30_task_gate_editing_surface.md" },
+      { "kind": "task_file", "ref": "aitasks#1076_4" },
+      { "kind": "task_file", "ref": "aitasks#1109" },
+      { "kind": "task_file", "ref": "aitasks#1220" },
+      { "kind": "task_file", "ref": "aitasks#1224" },
+      { "kind": "task_file", "ref": "aitasks#635" },
+      { "kind": "task_file", "ref": "aitasks#635_16" },
+      { "kind": "task_file", "ref": "aitasks#635_17" },
+      { "kind": "task_file", "ref": "aitasks#635_18" },
+      { "kind": "task_file", "ref": "aitasks#635_23" },
+      { "kind": "task_file", "ref": "aitasks#635_24" },
+      { "kind": "task_file", "ref": "aitasks#635_26" },
+      { "kind": "task_file", "ref": "aitasks#635_27" },
+      { "kind": "task_file", "ref": "aitasks#635_28" },
+      { "kind": "task_file", "ref": "aitasks#635_29" },
+      { "kind": "task_file", "ref": "aitasks#635_30" },
+      { "kind": "task_file", "ref": "aitasks#635_31" },
+      { "kind": "task_file", "ref": "aitasks#635_32" },
+      { "kind": "task_file", "ref": "aitasks#635_34" },
+      { "kind": "task_file", "ref": "aitasks#635_37" }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-07-26T05:34:30Z",
+    "drift_reasons": [],
+    "refresh_recommended_because": "This version consumed a premise_invalidated reason the input digest could not see: v1 recorded that fourteen open members still described the pre-t635_33 gate model, and eight of those task files were subsequently refreshed against live source on 2026-07-26 — so v1's 'PREMISE REFRESH REQUIRED' caveats became stale while every digest input stayed byte-identical (task bodies are not digest inputs). Next refresh: after any wave-1 or wave-2 member lands; immediately if t635_30's unarchived plan is superseded or archived, since several ordering arguments rest on it being the live design; and whenever a task body is materially rewritten, which this trail cannot detect automatically for the same reason."
+  },
+  "narrative": {
+    "problem_statement": "The t635 gate framework has landed its substrate (ledger, orchestrator, verifier contract, profile gate declaration, active_gates materialization, board/monitor/stats visibility) but 18 open members remain with almost no ordering signal: only four hard `depends` edges survive inside the open set, every other blocker is already archived, and not one open member carries a board column. That leaves the sequencing question — what should land next, and in what order — entirely unanswered by task metadata. This trail records a preferred landing order and the reasoning behind it.",
+    "recommendation_summary": "Seven waves. Wave 1 pays down verification debt on already-landed substrate (three manual-verification tasks plus t635_27) and repairs installed downstream projects (t635_34), because a failing MV re-opens work that every later wave builds on. Wave 2 makes the docs_updated procedure gate actually reachable everywhere — port the gate skills to the other agent trees (t635_23), wire autonomous/headless dispatch and agent-aware resolution (t635_29) — and only then switches it on in the fast profile (t635_28); activating early means waves 3-7 carry their own documentation and shrink the wave-5 sweep. Wave 3 lands the three colliding gate-configuration surfaces as one composed design, led by t635_30 because it alone already has an approved plan on disk. Wave 4 builds the tasks that compose onto those surfaces (t635_31, t635_17) plus the independent stats leaf (t635_26). Wave 5 is the comprehensive website sweep, deliberately placed after the surfaces settle so the current-state-only rule does not force a re-sweep. Wave 6 is the low-priority, high-effort remote-projection track (t635_16 then t635_32). Wave 7 is t1076_4, the framework's unbuilt third gate family, which depends on the t635 umbrella itself and therefore lands only once everything above it has. One finding cuts across the whole ordering without changing it: the profile gate-override model (rendered_gates ceiling plus a derived active_gates tuple) landed on 2026-07-19, after most of this topic was written, and fourteen of the eighteen open members still described the model it replaced. As of this version that drift has been REPAIRED AT SOURCE — on 2026-07-26 eight task files (t635_16, t635_17, t635_18, t635_24, t635_26, t635_28, t635_29, t1109) were verified against live implementation and given a 'Premise refresh' section, with three stale scope statements reworded in place. The entries below record what each refresh established. Two results are worth carrying: t1109's verification procedure is NOT runnable as written and now carries two concrete re-premise options, and v1's claim that t635_28 would require re-rendering the fast variant was WRONG — verification showed the render is byte-identical, and the corrected mechanism is recorded on that entry.",
+    "method_note": "Membership, status, priority, effort, board column, depends and gate declarations come solely from the gatherer snapshot; nothing was derived by free-reading the board. Rationale comes from reading each member's task file in full, the parent t635 body, and the head of the one unarchived plan (p635_30). For the profile gate-override findings, additionally: the archived t635_33 task file to line 60, both profile YAML files (remote.yaml in full, fast.yaml's gates region), a grep of gate_ledger.py for the rendered_gates presence semantics, and git log dates for t635_33 and t635_35. This refresh (2026-07-26) additionally verified the gate machinery against live implementation before rewriting any task text: gate_ledger.py's active-tuple module comment and read paths (should_self_record, unmet_procedure_gates, the ACTIVE_TUPLE_FIELDS block), gate_orchestrator.py's enforced-set reads and its kind:procedure exclusion, aitask_archive.sh's gate_guard, aitask_gate.sh's cmd_archive_ready and cmd_procedure_gates, skill_template.render_skill's rendered_set injection, and every rendered_set / record_gates Jinja site in the task-workflow authoring source. It also confirmed that none of those files changed between the revision v1 observed and this one. NOT verified even now: the design documents under `aidocs/gates/` (integration-roadmap.md, aitask-gate-framework.md, Appendix A) were still not read, so per-phase claims inherited from the parent's phase table remain second-hand and the t635_16 projection note is deliberately framed as a question rather than a finding; no claim is made about how much of any child is already implemented; no tests were run; effort and priority values are the authors' recorded fields, not an independent estimate. Whether each archived dependency actually delivered its full scope was not checked — only that its task file sits under `aitasks/archived/`. The premise-drift findings are derived from comparing each member's recorded text and updated_at date against the landed model; they identify text that has not been refreshed, and are NOT a claim that any member's underlying goal is invalid.",
+    "caveats": [
+      "Every ordering that is not one of the four recorded `depends` edges is agent judgment, not a recorded constraint. The trail is advisory: no task metadata was read back or modified.",
+      "No time estimates, throughput claims, or completion forecasts are made anywhere in this document. Wave membership says nothing about how long a wave takes.",
+      "Three externally-numbered members (aitasks#1109, aitasks#1220, aitasks#1224) are in scope only because they carry `anchor: 635`; t1220 in particular is about skill retirement, not gates, and is topically adjacent at best. A fourth (aitasks#1076_4) is anchored to a different topic entirely and is in scope by explicit user decision.",
+      "t635_18's initial content map is explicitly marked 'refine at planning time' by its own author, so its wave-5 placement assumes a sweep whose exact page list is still open."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1-verify-and-repair",
+      "ordinal": 1,
+      "title": "Close verification debt on landed substrate, repair installed projects",
+      "purpose": "Four manual-verification tasks sit unrun against substrate that every later wave builds on (async human gates, active_gates materialization, the docs_updated gate, the pickn retirement), and one field breakage is actively costing downstream users manual gate appends. This wave converts assumed-good landed work into verified landed work and fixes the known-broken install path, so later waves build on ground that has been walked on.",
+      "why_now": "These are the cheapest items in the topic (all four MVs are effort: low) and the ones with the highest information value per unit of work: each one either confirms a premise the rest of the trail rests on or re-opens a landed child while its context is still recoverable. Running them after the surface work would mean discovering substrate defects underneath three waves of new code.",
+      "consequence_of_delay": "If t1224's active_gates materialization check fails, t635_37's effective-interplay display and t635_34's profile-policy reconcile are both built against a model that does not behave as documented. If t1109's stale-signature re-pend fails, t635_17's auto-completion policy would be layered on an unsound stop-clean path. And every day t635_34 waits, installed projects seeded before the t1147 registry fix keep blocking on risk_evaluated with 'no verifier configured'.",
+      "entries": [
+        {
+          "entry_id": "e-1224",
+          "task": "aitasks#1224",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "The active_gates / rendered_gates model landed by t635_33 and t635_35 is the single assumption shared by the largest number of later members: t635_34 reconciles profile gate policy against it, t635_37 renders its effective interplay, t635_30's design turns on it, and t635_17 enforces archival against it. This MV is the only thing in the topic that exercises that model through the real remote lane rather than a helper seam.",
+          "expected_outcome": "Either confirmation that remote-profile materialization yields the empty enforced set end-to-end (including the web-merge path and the profile-not-found stop), or a concrete defect found before four dependents are written against it.",
+          "why_order_matters": "Placed first because its failure mode is the widest: a defect here invalidates premises in t635_34, t635_37, t635_30 and t635_17 simultaneously.",
+          "confidence": "high",
+          "evidence_refs": ["ev-t1224", "ev-snapshot", "ev-profiles"]
+        },
+        {
+          "entry_id": "e-1109",
+          "task": "aitasks#1109",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "Its own task text records why it exists: the headless run-gates stop-clean path was validated against a constructed fixture rather than a live autonomous run, because remote.yaml declares no default gates. t635_17 then builds auto-completion policy directly on top of that stop-clean behaviour, and t635_16 builds remote human-gate signalling on top of the same witness model — both want it proven first.",
+          "expected_outcome": "Verified end-to-end behaviour for the four properties t635_15 shipped: stop clean at pending-human with no self-signal, code-bound witness on sign-off, ledger pass with signed_digest, and stale-signature re-pend.",
+          "why_order_matters": "Its author already flags the coordination boundary with t635_17 (this MV owns stop-clean/sign/record/re-pend; t635_17 owns the auto-completion policy). Running the MV after t635_17 blurs that boundary — a failure would be ambiguous between the landed substrate and the new policy.",
+          "confidence": "medium",
+          "caveats": [
+            "PREMISE REFRESHED 2026-07-26 (obs-t1109-premise-conflict): the task file now opens with a 'Premise refresh … READ BEFORE RUNNING' section stating plainly that steps 2-5 are NOT runnable as written — remote.yaml's rendered_gates [] makes a declared review_approved materialize as an empty enforced set, so the lane never stops at pending-human and the sign / record / stale-repend steps are unreachable in turn.",
+            "Two concrete re-premise options are written onto the task: (1) run under a profile whose ceiling includes review_approved, recommended because it preserves the MV's original intent of verifying t635_15's behaviour; or (2) restate it as a verification of ceiling filtering itself, which would leave t635_15 unverified. Choosing between them is a scope decision left to whoever runs it — the refresh deliberately did not decide.",
+            "Confidence stays medium: the blocker is now documented rather than latent, but the MV cannot be executed until that choice is made. Its position after t1224 is load-bearing, not incidental — t1224 settles which empty-set behaviour is live, which determines how these steps get restated."
+          ],
+          "evidence_refs": ["ev-t1109", "ev-t635_17", "ev-profiles", "ev-t635_33"]
+        },
+        {
+          "entry_id": "e-635-27",
+          "task": "aitasks#635_27",
+          "topic": "aitasks#635",
+          "position": 3,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_19"],
+            "gates_pending": []
+          },
+          "rationale": "This is the one recorded hard prerequisite in wave 1: t635_28 declares `depends: [t635_27]` and its own body states the activation is gated on this MV passing. Beyond the metadata edge, it is the only check that the docs_updated gate's value proposition — agent inference plus user confirmation, which unit tests cannot exercise — actually produces acceptable signal-to-noise before wave 2 switches it on for every fast-profile task.",
+          "expected_outcome": "A judgement on whether docs_updated's inference is good enough to be always-on, plus verified behaviour for the skip path, the reject path, and the archive fail-safe on a declared-but-unrun gate.",
+          "why_order_matters": "Recorded `depends` edge to t635_28 — running the activation first would enable an unproven work-gate on every pick, which is exactly the blast radius its author chose to avoid by shipping it dormant.",
+          "confidence": "high",
+          "evidence_refs": ["ev-t635_27", "ev-t635_28", "ev-snapshot"]
+        },
+        {
+          "entry_id": "e-635-34",
+          "task": "aitasks#635_34",
+          "topic": "aitasks#635",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_33"],
+            "gates_pending": []
+          },
+          "rationale": "The only member describing a breakage users are hitting today rather than a capability that is missing: installs seeded before the t1147 registry fix carry a stale gates.yaml, so their tasks block on risk_evaluated with 'no verifier configured' and need a manual ledger append before they can archive. Its blocker t635_33 is archived, so nothing holds it. Its second half — the early no-verifier warning at pick/plan time — also stops the same class of failure from being discovered only at archival.",
+          "expected_outcome": "`ait gates sync-registry` repairs installed registries additively with conflicts reported rather than overwritten, and an active gate lacking a verifier is surfaced at pick time instead of at archival.",
+          "why_order_matters": "Order against the rest of the topic is a mild preference; the reason to take it early is that it is remediating live breakage, not that anything downstream needs it.",
+          "confidence": "high",
+          "caveats": [
+            "Its scope explicitly says to re-shape the profile-policy reconcile against the t635_33 active_gates / rendered_gates model — which is what e-1224 verifies, so taking it after that MV in the same wave is deliberate."
+          ],
+          "evidence_refs": ["ev-t635_34", "ev-t1224"]
+        },
+        {
+          "entry_id": "e-1220",
+          "task": "aitasks#1220",
+          "topic": "aitasks#635",
+          "position": 5,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "Verification debt on a shipped upgrade path that can destroy user files: its risk register names two high-severity code-health risks (a prefix glob deleting a live skill, and silent deletion of the user's own untracked work). In-task coverage is a temp-dir fixture; the real `ait upgrade` → tarball → prune → commit chain and live skill discovery are unverified. It touches no gate code, so it is fully parallel to everything else here.",
+          "expected_outcome": "Confirmation on a real installed project that the retired surfaces are gone from all three agent trees, the live neighbours are untouched, and hand-edited files survive byte-identical.",
+          "why_order_matters": "Order is a mild preference only — it shares no surface with any other member. It sits in wave 1 because it is verification debt of the same character, not because anything waits on it.",
+          "confidence": "high",
+          "caveats": [
+            "Requires a project installed before the retirement change; if no such checkout is available this entry stalls and should be dropped to a later wave rather than blocking the wave."
+          ],
+          "evidence_refs": ["ev-t1220", "ev-snapshot"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-procedure-gate-reach",
+      "ordinal": 2,
+      "title": "Make the procedure gate reachable everywhere, then switch it on",
+      "purpose": "Today `docs_updated` — the framework's only concrete procedure-backed gate — runs in exactly one place: the attended Claude task-workflow Step 8. This wave removes both restrictions (ports the gate skills to the other agent trees, wires autonomous/headless dispatch with agent-aware resolution) and only then flips the gate on in the fast profile, turning it from a demonstrated capability into the framework's permanent documentation checkpoint.",
+      "why_now": "Placing the activation before the remaining surface work is the single highest-leverage structural choice in this trail: waves 3-6 are the most documentation-heavy members in the topic (settings TUI, board, `ait gate` CLI, remote projection), and with the gate active each of them carries its own doc update as it lands. That directly shrinks the wave-5 sweep instead of letting doc debt accumulate — which is precisely the mechanism t635_18's own body describes when it says later children must carry their own doc updates, enforced by the gate itself.",
+      "consequence_of_delay": "Every wave that lands before activation adds to the t635_18 backlog and has to be re-read later by someone reconstructing what changed. Leaving t635_29 undone also means the autonomous lanes keep deferring procedure gates as needs-agent, which quietly caps what wave 4's t635_17 auto-completion policy can ever achieve.",
+      "entries": [
+        {
+          "entry_id": "e-635-23",
+          "task": "aitasks#635_23",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_11", "aitasks#635_19", "aitasks#635_22"],
+            "gates_pending": []
+          },
+          "rationale": "The cheapest way to remove the sharpest limitation on the gate being activated: its own body states that until the three gate skills are ported, `docs_updated` is Claude-only, because the dispatch resolves the gate skill in the running agent's tree. All three of its recorded blockers are archived and the work is a file port of plain (non-Jinja) skills, so it is low effort and low risk.",
+          "expected_outcome": "`aitask-run-gates`, `aitask-gate-template` and `aitask-gate-docs-updated` exist in the Codex CLI and OpenCode trees, so a fast-profile task picked under either agent can actually run the gate that wave 2 is about to make mandatory.",
+          "why_order_matters": "If activation (e-635-28) lands while the skills are still Claude-only, a fast-profile task run under Codex or OpenCode declares a gate its agent tree cannot resolve, and archival stays blocked with no in-session remedy.",
+          "confidence": "high",
+          "caveats": [
+            "t635_29 wants a negative control for the missing-skill path; landing this port first means that control has to be built against a synthetic tree rather than the real pre-port state. That is a testing inconvenience, not a blocker.",
+            "Because these are plain skills rather than Jinja closures, no rerender or golden regeneration follows from them — but `aitask_skill_verify.sh` still gates the change."
+          ],
+          "evidence_refs": ["ev-t635_23", "ev-t635_29"]
+        },
+        {
+          "entry_id": "e-635-29",
+          "task": "aitasks#635_29",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_19"],
+            "gates_pending": []
+          },
+          "rationale": "This is the deliberately-narrowed ripe core of procedure-gate generalization: its author split three concerns out to t635_31 and t635_32 specifically so this piece would have no hard blocker beyond the archived t635_19, and its body already carries a pre-explored design map naming the exact call sites to change. It closes the autonomous gap (pickrem/pickweb currently skip Step 8, so the gate never fires there) and replaces the soft 'in your agent's skill tree' prose with real resolution through `agent_skill_dir`.",
+          "expected_outcome": "Procedure gates run non-interactively in the autonomous lanes and on aitask-resume re-entry, and dispatch resolves the verifier skill in the running agent's tree with a fail-safe unmet report — never a silent pass — when the skill is absent.",
+          "why_order_matters": "Ahead of activation because activation makes the gate mandatory in the fast profile; ahead of wave 4's t635_17 because auto-completion cannot be honest while procedure gates still defer as needs-agent in autonomous runs.",
+          "confidence": "high",
+          "caveats": [
+            "Its pre-explored design map cites specific line numbers in gate_ledger.py, gate_orchestrator.py and aitask_gate.sh; those were not re-read here and main advances between sessions, so they should be re-confirmed at plan time.",
+            "Its scope explicitly leaves external/plugin gate kinds as a documented extension point with nothing built — that is a recorded decision, not an omission this trail is proposing to reverse.",
+            "PREMISE REFRESHED 2026-07-26 (obs-ceiling-model-drift): its stated gap — autonomous lanes DEFER procedure gates as needs-agent, leaving the task in-flight — turned out to be half the story, and the task now records both halves. Verified: the deferral is real (gate_orchestrator.py:479 still excludes kind: procedure from headless dispatch, :251 returns the needs-agent reason), BUT the orchestrator operates on the enforced active set (:369, :542), and under remote.yaml's rendered_gates [] a declared procedure gate is FILTERED before it ever reaches the orchestrator. By t635_33's invariant that filtering is correct behaviour, not a defect.",
+            "So the gap is latent and two-layered, and the task now poses the plan-time choice explicitly: fix layer (a) by giving a headless profile's ceiling procedure gates — arguably t635_28 / t635_37 territory — or layer (b) by moving autonomous dispatch into the orchestrator so it works for any profile that renders one. This is a genuine scope decision left to planning, not something the refresh resolved.",
+            "Also recorded for its Scope bullet 2: the Step-8 dispatch seam it must formalize is gated on profile.record_gates alone, not on the ceiling, and rendered_set is currently consumed by Jinja only for risk_evaluated — so fast renders that block while default and remote do not."
+          ],
+          "evidence_refs": ["ev-t635_29", "ev-t635_23", "ev-t635_33", "ev-profiles"]
+        },
+        {
+          "entry_id": "e-635-28",
+          "task": "aitasks#635_28",
+          "topic": "aitasks#635",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_27"],
+            "gates_pending": []
+          },
+          "rationale": "A one-line profile change with framework-wide consequences: adding docs_updated to fast.yaml's default_gates turns it from a dormant registry entry into the always-on per-task documentation checkpoint the framework was designed around. Its author shipped it opt-in precisely because auto-enabling an unproven work-gate on every pick is high blast-radius, so it belongs after both its recorded prerequisite (e-635-27) and the two reach fixes above it in this wave.",
+          "expected_outcome": "Every fast-profile pick from this point carries a documentation checkpoint, so waves 3-6 update their own docs as they land rather than deferring to the wave-5 sweep.",
+          "why_order_matters": "Last in the wave by construction: it is the switch, and the two entries before it are what make the switch safe. Taken earlier it inherits both failure modes — unrunnable under non-Claude agents, and undischargeable in autonomous runs.",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium because this is a judgement call about timing, not a constraint: someone could reasonably defer activation until the surfaces settle in wave 3, accepting a larger wave-5 sweep in exchange for a quieter wave 3.",
+            "Scope is fast.yaml only. remote.yaml declares `rendered_gates: []`, so the remote/autonomous lane renders nothing and is unaffected by this flip — the cross-agent exposure is the attended fast profile run under Codex or OpenCode.",
+            "PREMISE REFRESHED 2026-07-26 (obs-ceiling-model-drift), and v1's claim here was WRONG. v1 asserted that adding docs_updated to fast.yaml would widen the render ceiling and therefore require re-rendering the fast task-workflow variant with regenerated goldens. Verification against live source disproved that: rendered_set IS injected into the Jinja context by skill_template.render_skill, but the task-workflow templates test it ONLY for risk_evaluated (SKILL.md:354,364,549 and planning.md:163,308,309,398). No block keys off docs_updated, so the rendered task-workflow-fast-/SKILL.md is byte-identical and re-rendering is a harmless no-op — do not budget for goldens churn.",
+            "The corrected mechanism, now recorded on the task: activation flows entirely through machinery that is already rendered. The Step-8 procedure-gate block is wrapped in `{%- if profile.record_gates … %}` alone — not in a rendered_set test — and is generic over kind: procedure; fast sets record_gates: true, so it is already present. At runtime it calls aitask_gate.sh procedure-gates, which resolves from the enforced active set (gate_ledger.unmet_procedure_gates:1056). The task also now carries a tripwire: if any earlier task adds a `'docs_updated' in rendered_set` block, this stops being true and the re-render plus goldens becomes real.",
+            "Blast radius confirmed narrower than v1 implied: default.yaml declares no gate keys at all and remote.yaml declares rendered_gates [] with no record_gates, so neither renders the procedure dispatch. This flip touches only the fast profile.",
+            "The advisory ordering behind t635_23 and t635_29 was added to the task as PROSE only. Its `depends` was deliberately not touched — that would change the DAG, which this trail never does."
+          ],
+          "evidence_refs": ["ev-t635_28", "ev-profiles", "ev-t635_18", "ev-t635_33", "ev-gate-ledger-seam"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-gate-config-surfaces",
+      "ordinal": 3,
+      "title": "Land the three gate-configuration surfaces as one composed design",
+      "purpose": "Three separate members build human-facing gate configuration — per-task `gates:` editing (t635_30), profile/registry-level settings config as part of retiring the legacy verify_build path (t635_24), and a registry-driven picker for the profile list keys (t635_37). All three warn in their own text about composing rather than duplicating, and two of them describe overlapping settings-TUI work. This wave treats them as one design landed in three commits rather than three designs discovered in sequence.",
+      "why_now": "The user-facing gate story is the framework's largest remaining gap — `aitask_gate.sh` itself still flags the user-facing surface as deferred — and the boundary between the three is currently drawn only in prose. Landing them adjacently, starting with the one that already has an approved plan resolving the boundary, is what keeps them from colliding. It comes after wave 2 so each of these doc-heavy changes carries its own documentation.",
+      "consequence_of_delay": "t635_30's plan is written and its plan_approved gate has already passed; the longer it sits, the more likely its design decays against changes elsewhere and has to be re-planned. Delay also keeps t635_24's dead legacy verify_build fallback alive in task-workflow Step 9, and leaves wave 4's t635_31 — which hard-depends on two of these three — unreachable.",
+      "entries": [
+        {
+          "entry_id": "e-635-30",
+          "task": "aitasks#635_30",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#1183", "aitasks#635_11"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The only member of the topic that is already planned: an unarchived plan sits at aiplans/p635/p635_30_task_gate_editing_surface.md, its plan_approved gate recorded a pass, and its frontmatter carries a materialized active_gates tuple — so the design work is done and its approval is a decaying asset. That plan also names both siblings and draws the three-way boundary explicitly, which makes it the natural anchor the other two compose against rather than a third parallel design.",
+          "expected_outcome": "A discoverable way for a human to declare a task's gating intent — board add/remove on the focused task plus `ait gate add` / `ait gate remove` with registry validation — closing the user-facing gap aitask_gate.sh has flagged as deferred since Phase 1.",
+          "why_order_matters": "First in the wave because it is the only one with an approved plan, and because that plan already fixes the boundary the other two must respect. Landing t635_24 or t635_37 first means re-deriving that boundary from prose and risks invalidating an approved plan.",
+          "confidence": "high",
+          "caveats": [
+            "The plan was written 2026-07-20 and was read here only at its head; it must be re-validated against current main before implementation, since main advances between sessions.",
+            "It declares risk_evaluated, and its frontmatter already carries a materialized active_gates tuple from an earlier claim — the re-pick will re-materialize rather than inherit it."
+          ],
+          "evidence_refs": ["ev-t635_30", "ev-p635_30", "ev-snapshot"]
+        },
+        {
+          "entry_id": "e-635-24",
+          "task": "aitasks#635_24",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_14"],
+            "gates_pending": []
+          },
+          "rationale": "Carries the widest blast radius of the three and the only pure-subtraction win in the topic: removing the legacy inline verify_build fallback from task-workflow Step 9 leaves `ait gates run` as the single verify path. Its blocker t635_14 is archived and its own body records that it was unblocked on 2026-06-29. It also absorbs t635_25's Step-9 gate-run extraction, so the Step-9 region is rewritten once rather than twice.",
+          "expected_outcome": "One verify path instead of two, the transitional fallback and its dead configuration field gone, and profile/registry-level gate configuration living in the settings TUI where verify_build used to be.",
+          "why_order_matters": "Its `depends` are satisfied, so ordering is advisory — but it must not be planned in isolation from t635_37, whose scope covers the same settings-TUI profile keys (see observation obs-settings-collision).",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium only because its section 2 overlaps t635_37 and the two tasks do not reference each other; the removal work in section 1 is unambiguous.",
+            "It rewrites task-workflow's Jinja source, so per-profile variants must be re-rendered and tests/golden/procs/task-workflow/ regenerated in the same commit.",
+            "PREMISE REFRESHED 2026-07-26 (obs-ceiling-model-drift): the task now records that the profile side is TWO keys with presence-sensitive semantics, not the single default_gates its section 2 describes, and that this makes section 2 substantively SUPERSEDED by t635_37 rather than merely overlapping it — t635_37 was authored 2026-07-19, the day t635_33 landed, and is the current statement of the same surface. Neither task cross-references the other; the refresh says so explicitly.",
+            "Recommended resolution written onto the task (a proposal for planning, not a decision this trail made): cede profile gate-LIST editing to t635_37 and narrow section 2 to registry-level per-gate settings — verifier, retries, timeout — plus removal of the orphaned verify_build field.",
+            "Scope-shrinking discovery: profile_editor.py already carries a 'Gates' PROFILE_FIELD_GROUPS entry with record_gates, default_gates and rendered_gates, edited today as free comma-separated text. Section 2 is an improvement to a live surface, not a greenfield build. Section 1 (the legacy removal) is untouched by any of this and remains the unambiguous core."
+          ],
+          "evidence_refs": ["ev-t635_24", "ev-t635_37", "ev-t635_30", "ev-t635_33", "ev-gate-ledger-seam"]
+        },
+        {
+          "entry_id": "e-635-37",
+          "task": "aitasks#635_37",
+          "topic": "aitasks#635",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Closes the correctness hole the other two leave open: default_gates and rendered_gates are edited today as free comma-separated text, so a well-formed but wrong gate name silently declares a gate the registry cannot run. It is also the newest member (2026-07-19) and the only one written against the post-t635_33 rendered_gates model, which makes it the most current statement of what the profile-side surface should be.",
+          "expected_outcome": "Registry-driven multi-select for both profile list keys with the three rendered_gates states preserved, unknown names flagged rather than dropped, and a read-only effective-interplay summary computed from the canonical seam rather than a forked copy.",
+          "why_order_matters": "Directly after t635_24 because both edit the profile-side settings surface; separating them by other work invites two incompatible layouts for the same panel.",
+          "confidence": "medium",
+          "caveats": [
+            "It never mentions t635_24 — it references only t635_30 — so the overlap with t635_24's section 2 has to be reconciled by whoever plans them, not read off the task files.",
+            "Its own scope points at the canonical `gate_ledger._read_profile_rendered_gates` semantics; forking those instead of reusing them is the failure mode to watch."
+          ],
+          "evidence_refs": ["ev-t635_37", "ev-t635_24"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-compose-and-autonomy",
+      "ordinal": 4,
+      "title": "Compose onto the settled surfaces, and make the autonomous lanes rigorous",
+      "purpose": "With the gate-configuration surfaces settled and procedure gates reachable, this wave adds the two members that were deliberately deferred until their foundations existed — per-gate agent/model selection, which composes into the wave-3 panels, and autonomous-lane rigor, which turns gates into the non-skippable verify step for headless runs — plus the one fully independent analytics leaf.",
+      "why_now": "t635_31 cannot start earlier: it records hard `depends` on both t635_24 and t635_30. t635_17 could technically have run any time since its blockers archived, but placing it after wave 2's t635_29 is what lets its auto-completion policy actually reach a terminal state on tasks that declare procedure gates.",
+      "consequence_of_delay": "Deferring t635_17 leaves the autonomous lanes trustworthy only by convention — gates remain skippable there and the archive guard keeps its escape hatch for headless profiles. Deferring t635_26 costs nothing structural; it simply leaves the ledger's retry and pending-human data unexploited.",
+      "entries": [
+        {
+          "entry_id": "e-635-31",
+          "task": "aitasks#635_31",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_24", "aitasks#635_30"],
+            "gates_pending": []
+          },
+          "rationale": "The only member with two recorded `depends` inside this trail, both satisfied by wave 3, and its text says why: it was split out of t635_29 specifically because building it before those two settings surfaces existed would have duplicated or collided with them. It generalizes beyond procedure gates — any gate can be configured to run under a chosen agent and model.",
+          "expected_outcome": "A per-gate agent/model field in the registry that dispatch honours, with a settings-TUI editor that reuses the existing agent/model picker and slots into the wave-3 panels rather than adding a fourth.",
+          "why_order_matters": "Recorded hard `depends` on both t635_24 and t635_30 — this is a fact, not a preference.",
+          "confidence": "high",
+          "caveats": [
+            "Its own scope notes that running a different agent than the session means spawning a sub-agent through the skillrun seam, which it flags as heavy and leaves to plan time.",
+            "It records that the agy CLI has no model flag and should be treated as base-model only."
+          ],
+          "evidence_refs": ["ev-t635_31", "ev-t635_24", "ev-t635_30", "ev-snapshot"]
+        },
+        {
+          "entry_id": "e-635-17",
+          "task": "aitasks#635_17",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_12", "aitasks#635_15"],
+            "gates_pending": []
+          },
+          "rationale": "The payoff item for the whole framework in headless use: it makes `ait gates run` the verify step the autonomous lanes cannot skip, makes the archive guard profile-enforced for headless profiles with no escape hatch, and adds the profile flag that lets an autonomous run finalize only when every declared gate passes. Both of its blockers are archived, so its position here is a preference driven by what makes its policy meaningful, not a constraint.",
+          "expected_outcome": "Autonomous runs that verify rather than assert: gates run as a hard step, human gates stop the lane without self-signalling, and archival of a task with non-pass gates becomes impossible for headless profiles.",
+          "why_order_matters": "After t635_29 because auto_complete_on_all_gates_pass can never fire for a task declaring a procedure gate while those still defer as needs-agent in autonomous lanes. After t1109 because that MV owns verifying the stop-clean behaviour this task's policy sits on, and its author asked for exactly that split.",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium because its correct position depends on how much of the autonomous procedure-gate path t635_29 actually delivers; if t635_29 is narrowed further at plan time, this may need to absorb the remainder.",
+            "It inherits two coordination notes — register the new profile flag the way t635_2 established, and respect the archival guard and escape-hatch split t635_4 shipped.",
+            "PREMISE REFRESHED 2026-07-26 (obs-ceiling-model-drift): both stale scope bullets were REWORDED IN PLACE. The archive-guard bullet and the auto_complete_on_all_gates_pass bullet said 'declared gates'; they now say 'enforced active set', with a pointer to the refresh section. Taken literally under remote.yaml's rendered_gates [], the old wording would have blocked headless archival on gates the profile deliberately filtered — the exact hard-error outcome t635_33's ceiling invariant forbids.",
+            "The refresh also records the reassuring half: the substrate already resolves correctly, so this is a wording risk rather than a broken mechanism. aitask_archive.sh gate_guard() calls aitask_gate.sh archive-ready, and the orchestrator reads the active set (gate_orchestrator.py:369,542). The instruction added to the task is to reuse that path and NOT re-derive from gates:. Noted alongside it: aitask_gate.sh's own help text and comments still say 'declared gates' for archive-ready — stale wording sitting over correct code, which is precisely how an implementer would be misled.",
+            "One trap flagged on the task: because remote.yaml currently enforces nothing, tests for the new headless policy will pass vacuously unless run against a profile whose ceiling is non-empty."
+          ],
+          "evidence_refs": ["ev-t635_17", "ev-t635_29", "ev-t1109", "ev-t635_33", "ev-profiles"]
+        },
+        {
+          "entry_id": "e-635-26",
+          "task": "aitasks#635_26",
+          "topic": "aitasks#635",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_20"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "A true leaf: its blocker t635_20 is archived, nothing in the topic depends on it, and its two metrics are already fully specified in the design document t635_20 left behind, so it is turnkey rather than exploratory. It is placed here rather than earlier because the data it reports on gets richer once the gate is active on every fast pick — per-gate pass/fail/retry rates are more informative over a population that actually ran gates.",
+          "expected_outcome": "Per-gate pass/fail/retry rates and pending-human wait times in both the CLI report and a stats TUI pane, derived from the shared ledger parser rather than a forked one.",
+          "why_order_matters": "Order is a mild preference only. It can be pulled forward to any wave without breaking anything; the only cost of doing so is thinner data.",
+          "confidence": "high",
+          "caveats": [
+            "Its own text flags the pending-human metric as data-sparse today and requires reporting its N honestly rather than emitting a figure over a mixed population.",
+            "PREMISE REFRESHED 2026-07-26 (obs-ceiling-model-drift), minor but it affects metric honesty: the task now records that a gate can be absent from a task's runs because its PROFILE filtered it, not because it passed or was skipped, so per-gate rates aggregated across the archived population mix profile ceilings. The refresh points at the concrete remedy — tasks carry active_gates_profile, the provenance stamp naming the producing profile, so the population can be partitioned or the denominator narrowed to tasks whose enforced set actually contained the gate — and asks for the same 'report the real N' treatment the task already specifies for pending-human wait."
+          ],
+          "evidence_refs": ["ev-t635_26", "ev-t635_28", "ev-t635_33"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w5-documentation-sweep",
+      "ordinal": 5,
+      "title": "Comprehensive website documentation sweep",
+      "purpose": "Document the gate framework across every affected website surface — concepts, workflows, skills, TUIs, commands, configuration — as one coherent pass over a settled feature set, covering the pages no individual child owns.",
+      "why_now": "Its recorded `depends` have all been archived for some time, so it has been technically pickable and could run at any point. It is placed here because the project's current-state-only documentation rule means prose must describe what exists: three of the surfaces its content map names — the verify_build configuration, the board's gate operations, and the `ait gate` command reference — are rewritten by waves 3 and 4. Sweeping before those land means describing something about to change and re-sweeping afterwards.",
+      "consequence_of_delay": "The website understates a framework that is largely built, so users cannot discover gates without reading task files. That cost is real and it is the main argument for pulling this wave earlier — the counter-argument is the re-sweep. With wave 2's activation in place, each later wave carries its own page updates, so this sweep shrinks to the cross-cutting pages rather than growing.",
+      "entries": [
+        {
+          "entry_id": "e-635-18",
+          "task": "aitasks#635_18",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_7", "aitasks#635_9", "aitasks#635_10", "aitasks#635_12", "aitasks#635_14"],
+            "gates_pending": []
+          },
+          "rationale": "The gate framework changes how tasks are worked, and none of that is on the website today. This is the only member that owns the cross-cutting pages — the Gates concept page, the working-with-gates and human-review workflows, the resume skill page, the `ait gates` / `ait gate` command reference, the gates.yaml and profile configuration reference — which no individual child would ever produce as a side effect.",
+          "expected_outcome": "A website that describes the gate framework as it actually is, with the per-child incremental updates from earlier waves folded into a coherent structure.",
+          "why_order_matters": "Placed after the surface-changing waves so the current-state-only rule does not force a second sweep of the same pages. If it is pulled earlier, the pages covering settings gate configuration, board gate operations and the gate CLI should be excluded from that earlier pass and left to this one.",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium because this is the trail's most contestable placement: the documentation gap is a live user-facing cost, and someone who weighs that above re-sweep risk would move it to wave 2 or 3.",
+            "Its content map is explicitly marked 'refine at planning time' by its author, so the page list should be re-derived rather than taken as settled.",
+            "Its own conventions checklist applies: current-state-only prose, generic placeholder project names, 'autonomous' rather than 'auto-execution', no 'sister repo' terminology, and a hand-added bullet in the workflows index for every new page.",
+            "PREMISE REFRESHED 2026-07-26 (obs-ceiling-model-drift): the stale configuration bullet was REWORDED IN PLACE — it cited 'the unification model from t635_14', superseded on 2026-07-19 — and the task now carries the corrected documentation targets: the two profile keys with their three presence states, declared intent versus the enforced set, the four active_gates* fields (with a note that they are framework-written and must not be hand-edited), the ceiling invariant, and record_gates as a third and separate knob.",
+            "The refresh explicitly instructs re-deriving the whole content map at planning time rather than trusting the corrected bullets, since the map was already marked 'refine at planning time' by its author. The correction fixes the model it names; it does not make the map authoritative."
+          ],
+          "evidence_refs": ["ev-t635_18", "ev-t635_24", "ev-t635_30"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w6-remote-projection",
+      "ordinal": 6,
+      "title": "Remote projection and comment-driven gates",
+      "purpose": "Extend gate state beyond the repository: mirror it to the linked issue tracker for reviewers who never clone, accept scoped and authorized human-gate signals from issue comments, and then let procedure gates participate in both.",
+      "why_now": "Last by the members' own weighting — both are the topic's only low-priority, high-effort pairing, and t635_32 records a hard `depends` on t635_16, so this wave is internally sequenced and cannot be parallelized. It also benefits most from everything above: procedure-gate dispatch (wave 2), the settled gate configuration surfaces (wave 3), and the verified async human-gate witness model (wave 1's t1109), which is the local half of what gets projected remotely.",
+      "consequence_of_delay": "Gate state stays repository-local, so reviewers working from the issue tracker cannot see or sign off on gates. That is a capability gap rather than a defect, which is why both members are recorded as low priority — nothing else in the topic waits on it.",
+      "entries": [
+        {
+          "entry_id": "e-635-16",
+          "task": "aitasks#635_16",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "high",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_15"],
+            "gates_pending": []
+          },
+          "rationale": "Delivers the infrastructure the rest of the wave needs — the label mirror, the singleton status comment and notable-event comments, comment-signal human gates with authorization allow-lists, and the dispatcher backend gaps those require — uniformly across the supported trackers with no hardcoded platform references. Its blocker t635_15 is archived, so it is startable whenever the wave begins.",
+          "expected_outcome": "Gate state visible on the linked issue and scoped, authorized sign-offs accepted from issue comments, with graceful degradation where a platform lacks a backend.",
+          "why_order_matters": "t635_32 records a hard `depends` on this task and needs its dispatcher backends and authorization allow-lists — that edge is a fact, not a preference.",
+          "confidence": "high",
+          "caveats": [
+            "Its author suggests splitting it at planning time, since the label mirror needs no new backends and could ship ahead of the comment mirror and comment signal. Such a split would change this wave's internal shape.",
+            "The comment-signal read-back carve-out carries a verbatim autonomy rule in the framework document's Appendix A, which was not read here.",
+            "PREMISE NOTE ADDED 2026-07-26 (obs-ceiling-model-drift) — recorded on the task as an OPEN QUESTION, explicitly not a finding, because Appendix A was still not read. The task now flags that its scope speaks of projecting 'gate state' without distinguishing declared intent from the enforced active set, which t635_33 split apart, and that mirroring declared-but-filtered gates would show gates that never run to precisely the audience the feature serves — reviewers who never clone the repo.",
+            "A candidate rule is offered for planning to accept or reject: project the enforced set, and either omit filtered gates or render them distinctly as 'skipped: execution profile', applied uniformly across the label mirror (A.3), the status comment (A.4) and comment-signal authorization (A.5). This is the weakest-evidence item in the trail and is framed that way on the task itself."
+          ],
+          "evidence_refs": ["ev-t635_16", "ev-t635_32", "ev-snapshot"]
+        },
+        {
+          "entry_id": "e-635-32",
+          "task": "aitasks#635_32",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "high",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_16"],
+            "gates_pending": []
+          },
+          "rationale": "The last piece of the procedure-gate story: it was split out of t635_29 precisely because it needs remote-projection infrastructure that did not exist, and it closes a distinction the rest of the framework leaves open — a human comment signal only observes a sign-off, whereas a procedure gate must actually be dispatched and run in response to one.",
+          "expected_outcome": "Procedure-gate terminal state participating in the remote label and comment projection, and an authorized comment signal that dispatches the verifier skill non-interactively, records the terminal block, and projects the result.",
+          "why_order_matters": "Recorded hard `depends` on t635_16, and it builds on the non-interactive run policy that wave 2's t635_29 settles — taken before either, it has neither the transport nor the execution policy it needs.",
+          "confidence": "high",
+          "caveats": [
+            "Its verification section is explicitly deferred to pick time, so scope here is less pinned down than most members of this trail."
+          ],
+          "evidence_refs": ["ev-t635_32", "ev-t635_16", "ev-t635_29"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w7-third-gate-family",
+      "ordinal": 7,
+      "title": "The third gate family: artifact-producing gates",
+      "purpose": "Build the gate family the framework named but never implemented. The integration roadmap describes three families — verifications, approvals, and artifact-producing follow-ups — and only the first two exist. This wave adds the third: a post-approval verifier whose pass condition is that an artifact was produced or explicitly waived.",
+      "why_now": "Strictly last, and not by preference: t1076_4 records `depends: [t1076_3, 635]`, and that second entry is the t635 umbrella parent itself, which cannot complete until every child above has landed. Its other blocker, t1076_3, is already archived, so the umbrella is the only thing holding it. It was pulled into this trail by explicit user decision after the drift check surfaced it, so that the topic's ordering shows where the third gate family actually falls rather than leaving it invisible.",
+      "consequence_of_delay": "None within this trail — nothing here waits on it. The cost of delay lands on the other side of the boundary: t774's planning-mode-write blocker stays open, because code agents in plan mode can only write the internal markdown plan and the HTML artifact has to be produced post-approval, which is exactly what this gate archetype exists to solve.",
+      "entries": [
+        {
+          "entry_id": "e-1076-4",
+          "task": "aitasks#1076_4",
+          "topic": "aitasks#1065",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "boardcol": "unknown",
+            "depends": ["aitasks#1076_3", "aitasks#635"],
+            "gates_pending": []
+          },
+          "rationale": "The only member that completes the framework's own stated design rather than extending it: the artifact-producing gate archetype is the third gate family that the gates roadmap names and leaves unbuilt, and it is what unblocks producing an artifact after plan approval without patching the approved plan body. It reaches this trail from a different topic — it is anchored to 1065 under the unified artifact umbrella — and its own text leaves open whether it should ultimately become a t635 child or stay where it is.",
+          "expected_outcome": "A post-approval verifier whose pass condition is 'artifact produced or explicitly waived', with the handle-binding lifecycle: a preallocated handle referenced as text during planning, content materialized post-approval, and a set-once handle-only artifacts entry written the way task-workflow writes risk fields after approval.",
+          "why_order_matters": "Its dependency on t635 is a recorded fact, and t635 is the umbrella that only archives when children_to_implement empties — so every wave above is effectively its prerequisite. Taking it earlier would mean building the third gate family against a gate framework whose configuration surfaces, dispatch model and autonomous behaviour are all still moving.",
+          "confidence": "high",
+          "caveats": [
+            "Its placement in this trail does not decide the open question its own text raises — whether it lands as a t635 child or stays under t1076. The trail records ordering only and reassigns no anchors.",
+            "Its design spec is section 8 of the unified artifact design document, which was not read here; the scope summary above comes from the task file alone.",
+            "It carries a standing instruction to add a bidirectional coordination note with t635. The parent t635 already carries its half; this trail did not verify or write either side, since it never mutates task metadata."
+          ],
+          "evidence_refs": ["ev-t1076_4", "ev-t635-parent", "ev-snapshot"]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "aitasks#635_27", "to": "aitasks#635_28", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends: t635_28 requires the docs_updated live-verify MV to pass before activation." },
+    { "from": "aitasks#635_24", "to": "aitasks#635_31", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends: per-gate agent/model composes into the profile/registry settings surface." },
+    { "from": "aitasks#635_30", "to": "aitasks#635_31", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends: per-gate agent/model must not duplicate the per-task gate editor." },
+    { "from": "aitasks#635_16", "to": "aitasks#635_32", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends: procedure-gate remote signalling needs the Appendix A projection infrastructure." },
+    { "from": "aitasks#635", "to": "aitasks#1076_4", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends: t1076_4 depends on the t635 umbrella itself, which archives only when children_to_implement empties — so every wave of this trail precedes it." },
+    { "from": "aitasks#1076_4", "to": "aitasks#635", "type": "coordinates_with", "provenance": "advisory", "note": "Both task bodies record the artifact-producing gate family as t635's unbuilt third family, with the child-versus-umbrella placement left open at planning time." },
+    { "from": "aitasks#635_23", "to": "aitasks#635_28", "type": "advisory_precedes", "provenance": "advisory", "note": "Activation before the port leaves docs_updated unrunnable under Codex CLI and OpenCode." },
+    { "from": "aitasks#635_29", "to": "aitasks#635_28", "type": "advisory_precedes", "provenance": "advisory", "note": "Activation before agent-aware dispatch leaves the gate reachable only from the attended Step 8 path." },
+    { "from": "aitasks#635_29", "to": "aitasks#635_17", "type": "advisory_precedes", "provenance": "advisory", "note": "auto_complete_on_all_gates_pass cannot fire while procedure gates defer as needs-agent in autonomous lanes." },
+    { "from": "aitasks#635_28", "to": "aitasks#635_24", "type": "advisory_precedes", "provenance": "advisory", "note": "Activating the docs gate first makes waves 3-6 carry their own documentation, shrinking the wave-5 sweep." },
+    { "from": "aitasks#635_30", "to": "aitasks#635_24", "type": "coordinates_with", "provenance": "advisory", "note": "Per-task gates: editing versus profile/registry settings configuration — both tasks name the boundary explicitly." },
+    { "from": "aitasks#635_24", "to": "aitasks#635_37", "type": "coordinates_with", "provenance": "advisory", "note": "Overlapping profile-side settings-TUI gate configuration; neither task references the other." },
+    { "from": "aitasks#635_30", "to": "aitasks#635_37", "type": "coordinates_with", "provenance": "advisory", "note": "Task-side versus profile-side gate editing over the same registry; t635_37 names this split." },
+    { "from": "aitasks#635_24", "to": "aitasks#635_18", "type": "advisory_precedes", "provenance": "advisory", "note": "The doc sweep should describe the post-removal verify_build configuration state, not the transitional one." },
+    { "from": "aitasks#635_30", "to": "aitasks#635_18", "type": "advisory_precedes", "provenance": "advisory", "note": "The commands and board pages in the sweep depend on the gate editing surface existing." },
+    { "from": "aitasks#635_37", "to": "aitasks#635_18", "type": "advisory_precedes", "provenance": "advisory", "note": "The configuration reference in the sweep should describe the registry-driven picker." },
+    { "from": "aitasks#1109", "to": "aitasks#635_17", "type": "coordinates_with", "provenance": "advisory", "note": "t1109 owns verifying stop-clean/sign/record/re-pend; t635_17 owns the auto-completion policy. Recorded in t1109." },
+    { "from": "aitasks#1109", "to": "aitasks#635_15", "type": "verifies", "provenance": "fact", "note": "Recorded in t1109 frontmatter (verifies: ['635_15']); t635_15 is archived." },
+    { "from": "aitasks#635_27", "to": "aitasks#635_19", "type": "verifies", "provenance": "advisory", "note": "Live end-to-end verification of the docs_updated gate shipped by the archived t635_19." }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-settings-collision",
+      "kind": "shared_surface_collision",
+      "statement": "Two members build profile-side gate configuration in the settings TUI without referencing each other. t635_24 section 2 says to replace the verify_build configuration with gate-configuration UIs that configure 'which gates a project/profile declares and per-gate settings (verifier, retries, timeout)'. t635_37 says to replace the free-text editing of default_gates and rendered_gates in the settings profile editor with a registry-driven picker. Both name .aitask-scripts/lib/profile_editor.py territory and the same registry. t635_24 was written 2026-06-25, before the t635_33 rendered_gates model existed; t635_37 was written 2026-07-19 and cites only t635_30 as a related surface, never t635_24. t635_31 then composes a third editor into whatever those two produce. This is the single largest coordination risk in the topic and is why wave 3 groups all three adjacently rather than letting them be picked months apart.",
+      "affects": ["aitasks#635_24", "aitasks#635_37", "aitasks#635_30", "aitasks#635_31"],
+      "evidence_refs": ["ev-t635_24", "ev-t635_37", "ev-t635_30", "ev-t635_31"]
+    },
+    {
+      "observation_id": "obs-ceiling-model-drift",
+      "kind": "stale_premise",
+      "statement": "The profile gate-override model landed after most of this topic was written, and the majority of open members still describe the model it replaced. t635_33 (archived 2026-07-19) adopted 'the profile renders the ceiling; the task selects within it at runtime': a profile declares rendered_gates, the task's gates: stays declared intent, and a derived active_gates tuple (plus _filtered / _profile / _digest provenance) is materialized atomically at claim. Its stated ceiling invariant is that a gate filtered out by the profile is invisible, or at most reported as 'skipped: execution profile' — NEVER a hard error. gate_ledger._read_profile_rendered_gates keys off presence: rendered_gates wins whenever the KEY exists, even as [], otherwise it falls back to default_gates. Live config today: fast.yaml declares default_gates [risk_evaluated] with record_gates true and NO rendered_gates key (so its ceiling falls back to default_gates), while remote.yaml declares rendered_gates [] with no default_gates and no record_gates — the headless lane renders and enforces nothing. Only four open members were written against this model: t635_30 (context refreshed by a dedicated commit on 2026-07-19), t635_37 (authored the same day), t635_34 (explicitly re-scoped against it), and t1224 (verifies it). The other fourteen predated 2026-07-19 and, where they touched gate activation or enforcement, still reasoned in terms of 'declared gates' and a single default_gates key. RESOLVED AT SOURCE 2026-07-26: eight task files (t635_16, t635_17, t635_18, t635_24, t635_26, t635_28, t635_29, t1109) were verified against live implementation and given a 'Premise refresh' section; three stale scope statements were reworded in place (t635_17's two archive/auto-complete bullets now say 'enforced active set' instead of 'declared gates', and t635_18's configuration bullet now cites the t635_33 ceiling model instead of the superseded t635_14 one). No frontmatter was altered beyond updated_at, so the input digest is unchanged and the wave ordering below is unaffected. What each refresh established is recorded on the corresponding entry's caveats. The remaining six open members were left alone as genuinely orthogonal to gate activation: t635_23, t635_27, t635_30, t635_31, t635_32, t635_34, plus t1220, t1224 and t1076_4.",
+      "affects": ["aitasks#635_17", "aitasks#635_28", "aitasks#635_29", "aitasks#635_24", "aitasks#635_18", "aitasks#635_16", "aitasks#635_26", "aitasks#1109"],
+      "evidence_refs": ["ev-t635_33", "ev-gate-ledger-seam", "ev-profiles", "ev-landing-dates", "ev-refresh-source-audit", "ev-refresh-task-edits"]
+    },
+    {
+      "observation_id": "obs-t1109-premise-conflict",
+      "kind": "stale_premise",
+      "statement": "t1109's verification procedure may not be runnable as written, which matters because it sits in wave 1. Its steps declare gates: [review_approved] on a task, drive the headless lane, and expect Step 9.5 to stop cleanly at pending-human — a procedure written 2026-07-01 around the observation that remote.yaml 'declares no default_gates'. Under the model landed on 2026-07-19 that premise no longer holds in the same way: remote.yaml now declares rendered_gates [], so the profile's ceiling is explicitly empty and a task declaring review_approved materializes active_gates as empty under the remote profile — there is nothing to pend on, and by the ceiling invariant that filtering is correct behaviour rather than a defect. t1224, immediately before it in wave 1, is precisely the check that confirms the empty-set materialization. So t1109 must be re-premised: either run it under a profile whose ceiling actually renders the gate, or restate it as a verification of the filtering behaviour itself. This is a conflict between a member's recorded procedure and current live configuration, not a claim that the underlying t635_15 behaviour is broken. RESOLVED AT SOURCE 2026-07-26: the task file now opens with a 'Premise refresh … READ BEFORE RUNNING' section stating that steps 2-5 are unreachable as written, offering both options with option 1 (run under a non-empty ceiling) recommended because it preserves the MV's original intent of verifying t635_15's stop-clean / sign / record / stale-repend behaviour, and pinning the sequencing that t1224 runs first. The choice between the two options is deliberately left to whoever runs it — that is a scope decision, not a documentation fix.",
+      "affects": ["aitasks#1109", "aitasks#1224", "aitasks#635_17"],
+      "evidence_refs": ["ev-t1109", "ev-t1224", "ev-profiles", "ev-t635_33", "ev-refresh-source-audit"]
+    },
+    {
+      "observation_id": "obs-approved-plan-in-flight",
+      "kind": "in_flight_conflict",
+      "statement": "t635_30 is further along than its Ready status suggests. An unarchived plan sits at aiplans/p635/p635_30_task_gate_editing_surface.md dated 2026-07-20, the task's Gate Runs section records a plan_approved pass from the same date, and its frontmatter carries a materialized active_gates tuple plus an implemented_with stamp — the signature of a task that was claimed, planned and approved, then set back down. The plan already draws the three-way boundary with t635_24 and t635_37. That approved design is a decaying asset: changes landed by the other two surfaces could invalidate it and force a re-plan.",
+      "affects": ["aitasks#635_30", "aitasks#635_24", "aitasks#635_37"],
+      "evidence_refs": ["ev-p635_30", "ev-t635_30", "ev-snapshot"]
+    },
+    {
+      "observation_id": "obs-docs-gate-reach",
+      "kind": "external_dependency",
+      "statement": "Activating docs_updated in fast.yaml (t635_28) before t635_23 and t635_29 land would make the gate mandatory in places it cannot run. t635_23 states that until the three gate skills are ported, docs_updated is Claude-only, because dispatch resolves the gate skill in the running agent's tree. t635_29 states that the autonomous lanes skip Step 8 and their headless gate run defers procedure gates as needs-agent, so docs_updated never fires there and the task is left in-flight; t635_29 also specifies that an absent verifier skill must degrade to a fail-safe unmet report, never a silent pass, which keeps archival blocked. The exposure is scoped: fast.yaml currently declares default_gates [risk_evaluated] and remote.yaml declares rendered_gates [], so the remote lane renders nothing and is unaffected — the affected case is an attended fast-profile run under Codex CLI or OpenCode.",
+      "affects": ["aitasks#635_28", "aitasks#635_23", "aitasks#635_29"],
+      "evidence_refs": ["ev-t635_23", "ev-t635_29", "ev-t635_28", "ev-profiles"]
+    },
+    {
+      "observation_id": "obs-installed-registry-breakage",
+      "kind": "baseline_risk",
+      "statement": "t635_34 records live breakage rather than a missing capability: downstream projects seeded before the t1147 registry-verifier fix still carry a gates.yaml missing verifier, kind and signal keys, so their tasks block on risk_evaluated with 'blocked: no verifier configured (deferred)' and require a manual ledger append before archival. The task cites a specific observation of this on 2026-07-10 in an installed project. The canonical reference and drift guard shipped, but no reconcile path exists for already-installed projects. Its blocker t635_33 is archived, so nothing holds this fix back — which is why it sits in wave 1 despite the wave otherwise being verification work.",
+      "affects": ["aitasks#635_34"],
+      "evidence_refs": ["ev-t635_34"]
+    },
+    {
+      "observation_id": "obs-verification-debt",
+      "kind": "baseline_risk",
+      "statement": "Four of the seventeen open members are manual_verification tasks standing against already-landed work: t1109 (async human gates, t635_15), t1224 (active-gates materialization in the remote and web lanes, t635_35), t635_27 (the docs_updated gate, t635_19) and t1220 (the pickn retirement upgrade path, t635_36). Three of the four were created as Step 8d risk-mitigation follow-ups, and each records the specific reason automated tests could not cover the behaviour — a live autonomous run, a live Claude Web session, agent inference with user confirmation, a real upgrade of a previously-installed project. None has run. Every remaining wave builds on at least one of the behaviours they would confirm.",
+      "affects": ["aitasks#1109", "aitasks#1220", "aitasks#1224", "aitasks#635_27"],
+      "evidence_refs": ["ev-t1109", "ev-t1220", "ev-t1224", "ev-t635_27"]
+    },
+    {
+      "observation_id": "obs-no-board-signal",
+      "kind": "other",
+      "statement": "The snapshot reports boardcol as unknown for all eighteen open members; only the umbrella parent t635 itself sits in a column (now, boardidx 20), and t1109 carries a boardidx with no column. The set therefore has essentially no board-derived ordering signal, and only four hard depends edges survive inside the open set (t635_27 to t635_28, t635_24 to t635_31, t635_30 to t635_31, and t635_16 to t635_32) — plus t1076_4's dependency on the umbrella parent. Every other recorded blocker is already archived. This is why the ordering below is predominantly advisory judgement: there was very little recorded constraint to inherit.",
+      "affects": ["aitasks#635"],
+      "evidence_refs": ["ev-snapshot", "ev-archived-check"]
+    },
+    {
+      "observation_id": "obs-third-gate-family-placement",
+      "kind": "external_dependency",
+      "statement": "The framework's third gate family is tracked outside its own topic. Both t635's body and t1076_4 record that the integration roadmap names three gate families — verifications, approvals, and artifact-producing follow-ups — and that only the first two are built; the third is t1076_4, which sits under the unified artifact umbrella at anchor 1065 with a t635 coordination link. Both task bodies explicitly leave open whether it should ultimately land as a t635 child or stay where it is. Its dependency on t635 is on the umbrella parent rather than on any specific child, which makes it downstream of the entire topic rather than of any particular capability — and is why it forms a wave of its own at the end rather than slotting beside related work.",
+      "affects": ["aitasks#1076_4", "aitasks#635"],
+      "evidence_refs": ["ev-t1076_4", "ev-t635-parent", "ev-snapshot"]
+    },
+    {
+      "observation_id": "obs-doc-sweep-tension",
+      "kind": "stale_premise",
+      "statement": "t635_18's recorded dependency set (t635_7, t635_9, t635_10, t635_12, t635_14) is entirely archived, so by its own metadata the doc sweep has been pickable for some time and its late placement here is judgement, not constraint. The judgement rests on the project's current-state-only rule: three surfaces named in its content map — the verify_build configuration entry, the board's per-task gate operations, and the ait gate command reference — are exactly what waves 3 and 4 rewrite. Someone weighting the live user-facing documentation gap above re-sweep cost could reasonably move it earlier; the mitigation in that case is to exclude those three surfaces from the early pass.",
+      "affects": ["aitasks#635_18", "aitasks#635_24", "aitasks#635_30", "aitasks#635_37"],
+      "evidence_refs": ["ev-t635_18", "ev-t635_24", "ev-t635_30", "ev-archived-check"]
+    }
+  ],
+  "exclusions": [
+    {
+      "task": "aitasks#635",
+      "reason_code": "other",
+      "reason": "Umbrella parent and owner of this trail artifact. It carries no implementation scope of its own — its body is a phase map over the children — and it archives when children_to_implement empties, so placing it in a wave would be meaningless. It is the trail's owner rather than a member of its ordering."
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 635 635 1109 1220 1224 1076_4",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Deterministic membership snapshot after the confirmed scope expansion: 19 members across topics 635 and 1065 (owner aitasks#635), each with status, priority, effort, boardcol, labels and path, plus INPUT records carrying depends and gate declarations, and digest c7bc032991f48830. Supersedes the initial topic-scoped run (digest 67e8f28b88bf4fff, 18 members), which differed only by the absence of aitasks#1076_4. Source of all membership and metadata in this trail."
+    },
+    {
+      "evidence_id": "ev-archived-check",
+      "source_type": "command_output",
+      "ref": "ls aitasks/archived/t635/t635_{7,9,10,11,12,14,15,19,20,22,33}_*.md aitasks/archived/t1183_*.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Every depends target referenced by an open member but absent from the member set resolves to a file under aitasks/archived/ with no active counterpart — confirming that only three hard depends edges remain unsatisfied inside the open set."
+    },
+    {
+      "evidence_id": "ev-profiles",
+      "source_type": "command_output",
+      "ref": "grep -n gates aitasks/metadata/profiles/*.yaml",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Read in full for remote.yaml, gates region for fast.yaml. fast.yaml declares record_gates true, default_gates [risk_evaluated], max_parallel_gates 2, and NO rendered_gates key (so its ceiling falls back to default_gates). remote.yaml declares rendered_gates [] with no default_gates and no record_gates — the headless profile renders and enforces nothing. Basis for scoping the docs_updated activation exposure and for the ceiling-model drift findings."
+    },
+    {
+      "evidence_id": "ev-t635_33",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t635/t635_33_gate_activation_render_time.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Archived (completed 2026-07-19), read to line 60. Adopts Model 1 — 'profile renders the ceiling; task selects within it at runtime': the profile declares a render-time gate set, the task's gates: narrows within it at runtime, rendering stays per-profile cached. States the user-confirmed ceiling invariant that a profile-filtered gate is invisible or at most reported as 'skipped: execution profile' and NEVER a hard error, while preserving t635_14's single-source resolution rule. Its own frontmatter carries the derived tuple (active_gates, _filtered, _profile: fast, _digest) and folded t635_25."
+    },
+    {
+      "evidence_id": "ev-gate-ledger-seam",
+      "source_type": "command_output",
+      "ref": "grep -n 'rendered_gates' .aitask-scripts/lib/gate_ledger.py",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Grep only, not a full read. Confirms the canonical presence semantics in _read_profile_rendered_gates: rendered_gates is used whenever the KEY is present — even an explicit [] — and only otherwise does default_gates apply; the render ceiling participates in the digest. Basis for the claim that fast.yaml's missing rendered_gates key makes default_gates its ceiling."
+    },
+    {
+      "evidence_id": "ev-refresh-source-audit",
+      "source_type": "command_output",
+      "ref": "2026-07-26 refresh: reads of gate_ledger.py (ACTIVE_TUPLE_FIELDS block, should_self_record, unmet_procedure_gates), gate_orchestrator.py (:251,:369,:479,:542), aitask_archive.sh gate_guard, aitask_gate.sh cmd_archive_ready / cmd_procedure_gates, skill_template.render_skill, and grep of rendered_set / record_gates across .claude/skills/task-workflow/",
+      "observed_at": "2026-07-26T05:34:30Z",
+      "summary": "Live-source audit performed before rewriting any task text. Established: every enforcer resolves the active set, not declared gates (gate_ledger's own module comment says 'Raw gates: stays the task's declared intent; active_gates is the enforced set'); the orchestrator still excludes kind: procedure from headless dispatch but operates on the active set; unmet_procedure_gates reads the active set despite a docstring beginning 'Declared gates'; rendered_set is injected into the Jinja context but tested ONLY for risk_evaluated (SKILL.md:354,364,549; planning.md:163,308,309,398); the Step-8 procedure block is gated on profile.record_gates alone and is generic over kind: procedure; per-profile gate keys are default.yaml none, fast.yaml record_gates+default_gates, remote.yaml rendered_gates [] only. This audit DISPROVED v1's claim that activating docs_updated requires re-rendering the fast variant."
+    },
+    {
+      "evidence_id": "ev-refresh-task-edits",
+      "source_type": "command_output",
+      "ref": "ait git diff --stat / diff -U0 over aitasks/ after the 2026-07-26 premise refresh",
+      "observed_at": "2026-07-26T05:34:30Z",
+      "summary": "Eight task files changed, 266 insertions and 14 deletions. Every deleted line audited: eight updated_at bumps plus exactly three intended rewordings (t635_17's two archive/auto-complete bullets, t635_18's configuration bullet). No other frontmatter altered, so the trail's input digest is unchanged at c7bc032991f48830 and the gatherer re-read all members cleanly. Changes were left uncommitted in the working tree."
+    },
+    {
+      "evidence_id": "ev-landing-dates",
+      "source_type": "command_output",
+      "ref": "git log --all --grep='t635_33' / --grep='t635_35' --format='%ad %s'",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "t635_33 merged and archived 2026-07-19, including a dedicated commit 'ait: Refresh t635_30 context for the t635_33 active_gates model'; t635_35 archived 2026-07-23 with risk-mitigation follow-up t1224 recorded. Basis for dating the ceiling model and for identifying which open members predate it."
+    },
+    {
+      "evidence_id": "ev-t635-parent",
+      "source_type": "task_file",
+      "ref": "aitasks/t635_gates_framework.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Umbrella parent: phase-to-children map, the note that children carry explicit depends matching the roadmap's dependency table with sibling auto-deps disabled, the cross-phase documentation track, and children_to_implement listing the fourteen open children."
+    },
+    {
+      "evidence_id": "ev-p635_30",
+      "source_type": "plan_file",
+      "ref": "aiplans/p635/p635_30_task_gate_editing_surface.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Unarchived implementation plan dated 2026-07-20 (head read only): names t635_24 and t635_37 as sibling tasks, states the three-way scope boundary, and describes an enforcement-fallback asymmetry driving its reset design. Basis for treating t635_30 as already-designed."
+    },
+    {
+      "evidence_id": "ev-t635_16",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_16_remote_projection_appendix_a.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Appendix A remote projection scope: label mirror, comment mirror, comment-signal human gates with authorization allow-lists, dispatcher backend gaps, graceful degradation; notes t635_32 depends on it and suggests splitting the label mirror out at planning time."
+    },
+    {
+      "evidence_id": "ev-t635_17",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_17_autonomous_lane_rigor.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Autonomous-lane rigor: gates as the non-skippable verify step for pickrem/pickweb, respect human gates without self-signalling, profile-enforced archive guard for headless profiles, the auto_complete_on_all_gates_pass flag, and coordination notes inherited from t635_2 and t635_4."
+    },
+    {
+      "evidence_id": "ev-t635_18",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_18_website_documentation.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Website sweep: content map across concepts, workflows, skills, TUIs, commands and configuration marked 'refine at planning time'; conventions checklist; and the note that later children must carry their own doc updates enforced by the docs_updated gate itself."
+    },
+    {
+      "evidence_id": "ev-t635_23",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_23_port_gate_skills_codex_opencode.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Port of three plain gate skills to the Codex CLI and OpenCode trees; states that until ported, the docs_updated procedure gate is Claude-only because dispatch resolves the gate skill in the running agent's tree; explicitly excludes agent-aware resolution as t635_29's scope."
+    },
+    {
+      "evidence_id": "ev-t635_24",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_24_remove_legacy_verify_build_path.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Removal of the legacy inline verify_build fallback from task-workflow Step 9 plus replacement of the settings-TUI verify_build configuration with profile/registry-level gate configuration; records that t635_14 landed 2026-06-29 unblocking it, absorbs t635_25's Step-9 extraction, and states the scope boundary against t635_30 and t635_31 — but never mentions t635_37."
+    },
+    {
+      "evidence_id": "ev-t635_26",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_26_stats_gate_outcome_analytics.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Two ledger-enabled metrics deferred by t635_20 and fully specified in its design document: per-gate pass/fail/retry rates and pending-human wait; notes the pending-human data is sparse today and requires honest N reporting."
+    },
+    {
+      "evidence_id": "ev-t635_27",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_27_docs_updated_live_verify.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Manual verification of the docs_updated gate: states the gate's value rests on agent inference plus user confirmation that unit tests cannot exercise; checklist covers needs-agent deferral, the skill dispatch, the skip and fail paths, and the archive fail-safe; notes t635_28 depends on it passing."
+    },
+    {
+      "evidence_id": "ev-t635_28",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_28_docs_updated_activation.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Adds docs_updated to fast.yaml default_gates; records that t635_19 shipped the gate dormant because auto-enabling an unproven work-gate on every pick is high blast-radius, and that activation is gated on t635_27 passing."
+    },
+    {
+      "evidence_id": "ev-t635_29",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_29_procedure_gate_generalization.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Narrowed ripe core: autonomous lanes skip Step 8 so procedure gates are deferred as needs-agent and never fire; agent-aware resolution via agent_skill_dir with a fail-safe unmet report for an absent skill; settled decisions on autonomous policy, external/plugin gates as a doc-only extension point, and t635_23 as soft coordination; plus a pre-explored design map of call sites."
+    },
+    {
+      "evidence_id": "ev-t635_30",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_30_task_gate_editing_surface.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Per-task gates: editing via the board and new ait gate add/remove commands; notes aitask_gate.sh flags the user-facing gate surface as deferred; frontmatter carries active_gates [risk_evaluated] with profile stamp fast, implemented_with claudecode/opus4_8, and a Gate Runs plan_approved pass dated 2026-07-20; states the boundary against t635_24 and t635_31."
+    },
+    {
+      "evidence_id": "ev-t635_31",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_31_per_gate_agent_model_selection.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Per-gate agent/model in the registry with dispatch honouring it and a settings-TUI editor reusing the existing picker; records depends on t635_24 and t635_30 and states it was split out of t635_29 because it composes with two unlanded settings surfaces; notes the agy CLI has no model flag."
+    },
+    {
+      "evidence_id": "ev-t635_32",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_32_procedure_gate_remote_signal.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Procedure-gate participation in the remote label and comment projection plus comment-triggered dispatch; records a hard depends on t635_16 for the infrastructure and builds on t635_29's non-interactive run policy; verification deferred to pick time."
+    },
+    {
+      "evidence_id": "ev-t635_34",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_34_reconcile_installed_gate_registry.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "ait gates sync-registry for installed projects with additive merge and conflict reporting, plus an early no-verifier warning at pick/plan time; records that projects seeded before the t1147 fix block on risk_evaluated with 'no verifier configured', observed 2026-07-10 in an installed project; depends on the archived t635_33."
+    },
+    {
+      "evidence_id": "ev-t635_37",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_37_settings_registry_gate_picker.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Registry-driven picker replacing free-text editing of default_gates and rendered_gates in the settings profile editor, preserving the three rendered_gates presence states, adding an effective-interplay summary from the canonical seam, and validating names at edit time; cites t635_30 as the task-side counterpart and never mentions t635_24."
+    },
+    {
+      "evidence_id": "ev-t1076_4",
+      "source_type": "task_file",
+      "ref": "aitasks/t1076/t1076_4_artifact_producing_gate_archetype.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Artifact-producing gate archetype: the gates framework's unbuilt third gate family, anchored to topic 1065 with depends [t1076_3 (archived), 635]. Post-approval verifier whose pass condition is artifact produced or waived; handle-binding lifecycle with a preallocated handle referenced during planning and content materialized post-approval; solves t774's planning-mode-write blocker; carries a standing bidirectional coordination note with t635 and leaves the child-versus-umbrella placement open at planning time."
+    },
+    {
+      "evidence_id": "ev-t1109",
+      "source_type": "task_file",
+      "ref": "aitasks/t1109_async_human_gate_live_verify.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Step 8d risk-mitigation MV for t635_15: records that the headless run-gates stop-clean path is dormant by default because remote.yaml declares no default_gates and was validated against a constructed fixture; five-step live checklist ending in stale-signature re-pend; asks to coordinate with t635_17 on the ownership split."
+    },
+    {
+      "evidence_id": "ev-t1220",
+      "source_type": "task_file",
+      "ref": "aitasks/t1220_pickn_retirement_reference_sweep_verify.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Step 8d risk-mitigation MV for t635_36 naming three code-health risks (zombie wrappers, a prefix glob deleting a live skill, deletion of the user's own untracked work); notes in-task coverage is a temp-dir fixture and the real upgrade path plus live skill discovery are unverified; includes a byte-identical preservation case."
+    },
+    {
+      "evidence_id": "ev-t1224",
+      "source_type": "task_file",
+      "ref": "aitasks/t1224_remote_lane_gate_live_verify.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Step 8d risk-mitigation MV for t635_35: records that the full remote/web lane cannot be exercised end-to-end in automated tests; checklist covers pickrem materialization to the empty enforced set with a remote profile stamp, the web-merge materialization sub-step, and the profile-not-found failure stop."
+    }
+  ],
+  "rendering_hints": {
+    "collapse_landed_entries": true
+  }
+}

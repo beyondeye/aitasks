@@ -1,10 +1,11 @@
 {
   "backend": "local",
   "created_at": 1785043052,
-  "current": "sha256:a62c5fbce37d00d38ba249907680d5268f2c8700e9d6828ca2cb5fc57b054a8c",
+  "current": "sha256:ccec468b2f632a16a05417d853940a03752950eb0f52677bdfc360c5477b973b",
   "handle": "art:trail-gates-framework-landing",
-  "updated_at": 1785043052,
+  "updated_at": 1785044399,
   "versions": [
-    "sha256:a62c5fbce37d00d38ba249907680d5268f2c8700e9d6828ca2cb5fc57b054a8c"
+    "sha256:a62c5fbce37d00d38ba249907680d5268f2c8700e9d6828ca2cb5fc57b054a8c",
+    "sha256:ccec468b2f632a16a05417d853940a03752950eb0f52677bdfc360c5477b973b"
   ]
 }
