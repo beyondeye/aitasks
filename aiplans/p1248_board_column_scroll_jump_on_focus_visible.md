@@ -167,12 +167,14 @@ decision; the task's AC gets a matching line added post-approval in Step 7.
 - **Accepted residual:** a stray key still *moves the selection* (to a visible
   card), so a following `shift+up` / `enter` acts on a different task than
   intended. Much safer than before — the newly selected card is on screen with
-  its cyan focus border — but not eliminated. Candidate follow-up.
+  its cyan focus border — but not eliminated. **Tracked as t1256** (created at
+  review time; an earlier draft left this as an untracked "candidate follow-up",
+  which is not durable tracking).
 - **Known uncovered sibling:** `_start_auto_refresh_timer` (`:5685-5691`) →
   `refresh_board` → `_queue_refocus` → `_refocus_card` → `focus()` also yanks the
   column back to the focused card, discarding a wheel position. Different
   trigger, not covered here (`auto_refresh_minutes` is `0` in this repo).
-  Candidate follow-up.
+  **Tracked as t1257** (same note as above).
 
 ### Docs
 
@@ -325,3 +327,82 @@ will be declined to avoid a duplicate:
 Profile `fast` works on the current branch, so there is no worktree/branch merge
 step. Step 9 runs `./ait gates run 1248` (active set: `risk_evaluated`), then
 `./.aitask-scripts/aitask_archive.sh 1248`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Both planned changes landed as designed, plus the
+  explicitly-scoped `_nav_lateral` addition. `TaskCard.on_focus`
+  (`aitask_board.py:1672`) now calls `scroll_visible(animate=False,
+  immediate=True)`. Six new private helpers sit next to `_visible_column_cards`:
+  `_column_widgets`, `_column_widget`, `_rows_inside`, `_card_fully_visible`,
+  `_viewport_anchor`, `_reanchor_to_viewport`. `action_nav_up` / `action_nav_down`
+  call `_reanchor_to_viewport` before stepping; `_nav_lateral` derives `old_pos`
+  from the viewport anchor when the focused card is off-screen;
+  `_get_visible_col_ids` now derives from `_column_widgets` instead of repeating
+  the four-class union. New suite: `tests/test_board_scroll_focus_jump.py`
+  (10 tests). Net +114/-8 in the board, one new test file.
+
+- **Deviations from plan:** One, mid-implementation and behaviour-neutral. The
+  plan specified `_card_fully_visible` and `_viewport_anchor` as separate
+  helpers, which duplicated the row-containment comparison in both. Extracted it
+  into a `_rows_inside(viewport, region)` staticmethod so the geometry lives in
+  one place and the *fail-open* semantics (`_card_fully_visible` returns True for
+  an unlaid-out card) stay visibly separate from it — `_viewport_anchor` must not
+  inherit that fail-open behaviour when selecting candidates. The new suite was
+  re-run after the refactor (10/10), and the full suite was re-run clean on the
+  final code because the first full run had straddled the edit.
+
+- **Issues encountered:**
+  - The root cause was not reproducible by any synthetic input. Injected SGR
+    wheel sequences — slow ticks, 8-tick bursts, 300-event bursts, both
+    directions, with and without a focused card, on the real PyPy runtime in a
+    real terminal — scrolled perfectly monotonically. It only reproduced under a
+    real mouse, which is what identified the stray cursor key as the trigger.
+  - An intermediate diagnosis (a ~40-card "jump back" observed by scraping the
+    tmux pane) was wrong and was retracted: task cards render dependency lines
+    (`🔗 t1186`), so "first task id in the column" sometimes matched a dependency
+    rather than a card title. Fixed by instrumenting the app itself
+    (`Widget._scroll_to` / `scroll_visible` / `_size_updated` on `KanbanColumn`)
+    instead of reading the screen.
+  - The stray key itself was never captured: priority-bound keys are resolved at
+    App level (`textual/app.py:4137`) *before* `Screen._forward_event`, so
+    screen-level input logging cannot see them. The trigger is therefore inferred
+    (focus advanced by exactly one card in the scroll direction across 9 live
+    episodes; `action_nav_up/down` is the only path that does that). The fix
+    neutralises any focus change during a scroll rather than that one trigger,
+    but the inference is the reason goal-achievement risk was rated medium and a
+    manual-verification mitigation was attached.
+  - A design review caught four defects in the first plan draft, all fixed before
+    implementation: an x-axis containment test that would dead-end navigation
+    whenever the vertical scrollbar appeared; an anchor chosen by key direction
+    instead of by which side the focus fell off; a missing fall-through that
+    would have made `up`/`down` a permanent no-op on a card taller than the
+    viewport; and a missing overlap fallback.
+  - Review of the plan caught that requiring the oversized-card guard to fail on
+    unmodified `main` was impossible (it guards a failure mode only the new code
+    can produce), so the harness proof was split into regression pins vs guards.
+
+- **Key decisions:**
+  - Fix the amplifier, not the trigger. tmux's synthetic cursor keys are
+    byte-identical to real ones, so any input-level filter would also suppress
+    genuine navigation. Recorded in the plan under "Deliberately not changed";
+    the alternative is now tracked as t1256 with a real decision to make.
+  - Vertical-axis-only visibility: the columns scroll vertically, and
+    `scrollable_content_region` shrinks horizontally the moment a scrollbar
+    appears, so an x test carries no information but plenty of false negatives.
+  - Bounded, not perfect: in a pane too short to show one whole card (measured:
+    zero fully-visible cards at heights 18/14/12/11) the overlap fallback leaves
+    a ≤ one-card nudge instead of zero movement, against a ~53-row rewind before.
+    The bound is stated in the plan and pinned by a test rather than left
+    implicit.
+  - `_nav_lateral` was pulled into scope during planning and the task's AC was
+    amended (item 6) rather than the widening being left silent.
+
+- **Upstream defects identified:**
+  - `aitask_board.py:5685-5691` — `_start_auto_refresh_timer` → `refresh_board`
+    → `_queue_refocus` → `_refocus_card` → `focus()` pulls a wheel-scrolled
+    column back to the focused card, discarding the user's scroll position. A
+    second, independent route to this task's reported symptom, latent here only
+    because `auto_refresh_minutes` defaults to `0`. Pre-existing and out of scope
+    for this fix; **already tracked as t1257** (created at review time — no
+    further follow-up task needed).
