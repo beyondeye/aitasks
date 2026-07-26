@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1223
+implemented_with: claudecode/opus5
 created_at: 2026-07-23 18:31
-updated_at: 2026-07-26 00:23
+updated_at: 2026-07-26 17:29
 ---
 
 ## Context
@@ -227,3 +228,8 @@ Manual: covered by t1223_7.
   t1223_5 should mirror for the settings matrix.
 - The shared-`latest`-per-refresh rule exists to keep N-repo polling bounded —
   do not add a second per-row network call anywhere.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-26T14:29:46Z status=pass attempt=1 type=human
