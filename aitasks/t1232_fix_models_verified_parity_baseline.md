@@ -39,3 +39,5 @@ Decide which side owns the invariant: either relax the parity assertions in `tes
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-25T21:10:06Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-26T06:58:20Z status=pass attempt=1 type=human
