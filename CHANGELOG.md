@@ -1,5 +1,74 @@
 # Changelog
 
+## v0.29.0
+
+### Features
+
+- **Implementation trails** (t1210, t1210_1–t1210_4): New `/aitask-trail` command builds a durable, wave-structured implementation plan across a topic's tasks — evidence-backed sequencing stored as a versioned artifact, with automatic drift detection when the underlying tasks change. The board gained a By-Trail view (`z`) that renders the waves as columns with drift badges and a detail view.
+- **Work reports** (t1162_1–t1162_4): New `/aitask-work-report` drafts a manager-facing report from selected board columns — what shipped, what's in flight, and an opt-in delivery projection based on your recent velocity. Launch it from the board with `w`.
+- **Chatlink config panel and setup wizard** (t1149_2, t1149_3): The `ait chatlink` TUI now shows a live config-check panel (transport / runtime / operation) and ships a step-by-step setup wizard (`w`) that writes your Discord config for you instead of hand-editing YAML.
+- **Live Discord validation** (t1149_5): The wizard verifies your bot token against Discord for real — login, privileged intents, channel visibility, and channel permissions — before you save.
+- **Four-tier shadow implementation review** (t1158): The shadow companion's implementation review now offers Quick / Basic / Standard / Deep tiers with explicit correctness and cleanup angles, verdicts, and a per-finding disposition (blocking / follow-up / informational).
+- **Explore with an agent picker** (t1148): `X` in the TUI switcher launches `/aitask-explore` after letting you pick the agent and model.
+- **Shadow with an agent picker** (t1152): `E` in the minimonitor launches a shadow companion with an agent/model picker, alongside the existing `e`.
+- **Framework version model** (t1223_2): Groundwork for in-app upgrades — the framework can now read its installed version, resolve the latest release, detect whether the target workspace is busy, and hand off an upgrade request safely.
+- **Opus 5 and Sonnet 5** (t1241): Registered for Claude Code and promoted to the defaults for the heavier operations (pick, explore, learn, trail, brainstorm).
+
+### Bug Fixes
+
+- **`ait setup` misses Codex config seeds** (t1185): A clean setup now populates the four agent config seeds into `aitasks/metadata/` instead of leaving them absent.
+- **Install through dangling symlinks** (t1193): `install.sh` now repairs (or diagnoses) a dangling `aitasks`/`aiplans` symlink instead of aborting mid-install.
+- **Install commits sweeping unrelated work** (t1145): The installer now path-scopes its commits, so your other staged changes are never swept into a framework commit.
+- **Crew runner config never delivered** (t1196): The crew runner config template is now actually installed and seeded, matching what the docs claimed.
+- **Applink secrets not ignored** (t1132): `ait setup` now seeds the applink `.gitignore` entries so TLS keys and session files aren't committed.
+- **Seeded gate registry drift** (t1147): The gate registry now has one canonical source shared by install, setup, and the live data branch, with a drift guard.
+- **Manual-verification tasks got the risk gate** (t1156): Manual-verification tasks are now restricted to gates they can actually reach, so they no longer stall on a code-health risk gate.
+- **Explore output invisible on Fable 5** (t1150): The explore skill now embeds its progress summary in the question widget, so it stays visible on agents that don't render pre-tool prose.
+- **Agent/model picker truncated in narrow panes** (t1153): The picker adapts to narrow hosts like the minimonitor, Esc reliably cancels, and the switch hint no longer clips.
+- **Shadow review dropped findings** (t1200): The review's disposition rubric and cap rules were reworked so a genuine defect can never be silently omitted; omissions must be disclosed.
+- **Shadow concerns lost to line wrapping** (t1167, t1187): Concern markers split across wrapped terminal rows are now rejoined, and truncated capture blocks are detected with a deeper retry.
+- **Clipboard copies from hidden tmux panes** (t1161): Copying from a TUI in a non-visible tmux pane now reaches the system clipboard.
+- **Verification checklist em-dash truncation** (t1208): Checklist items containing an em dash are no longer cut short when annotations are stripped.
+- **Board: empty columns unfocusable** (t1209): Empty columns now carry a focusable placeholder, so you can navigate to and act on them.
+- **Board: collapsed placeholder focus shade** (t1212): The collapsed-column placeholder uses the accent focus shade instead of flipping to gray.
+- **Board: double-click bypassed action gating** (t1245): Double-clicking a task card no longer toggles children in views where the action is disabled.
+- **Board: dialog "run" ignored branch overrides** (t1225): All six dialog run paths now go through one dispatcher, so branch/command overrides apply consistently.
+- **Settings dropped unknown default profiles** (t1219): Profile keys the settings UI doesn't recognize are now shown read-only and preserved on save instead of being deleted.
+- **Chatlink live-check hints** (t1189): Failure hints now include a bot-invite URL and a link to the public docs instead of internal paths.
+- **Chatlink wizard stale picker rows** (t1204): A failed member/channel refresh now marks the affected picker stale rather than silently showing outdated rows.
+- **Gate lock stale reclaim race** (t1188): Reclaiming a stale gate lock is now single-winner and TOCTOU-safe.
+- **Internal test-suite fixes** (t1143, t1160, t1211, t1240): Python 3.14 module-loading crash in the shortcut sweep, drift in the quick-jump table, cross-test module identity leakage, and monitor tests renaming your real tmux windows.
+
+### Improvements
+
+- **Gate activation resolved at render time** (t635_33, t635_35): A task's enforced gate set is now materialized once when the task is claimed — with provenance for which profile and inputs produced it — and read through one validated path everywhere, including the remote and web lanes.
+- **`docs_updated` gate uses the config resolver** (t1110): The doc-update guide is located through the standard config resolver, so a configured path with quotes or comments resolves correctly.
+- **Chat authorization modes** (t1186_1): Explicit `deny_all` / `open_members` / `restricted` postures for who may file bug reports, with a pinned precedence and warnings for ignored lists.
+- **Allowlist picker in the wizard** (t1186_2, t1186_4): The wizard fetches your Discord channel members and roles and lets you pick them from a filterable list instead of typing IDs.
+- **Wizard resumes a partial setup** (t1190): An interrupted wizard run saves a token-free draft and offers to resume where you left off.
+- **Wizard step order** (t1186_3): Token and live check now come before the allowlist step, so the fetched pickers are available when you need them; step numbering is derived, not hardcoded.
+- **Shadow review tier names** (t1169): Tiers renamed to clearer names, with the old names kept as permanent aliases; the Codex two-stage chooser was dropped.
+- **No plan mode injected for Codex agents** (t1171): Codex launches in its default mode; ~550 lines of plan-mode injection machinery and the `pexpect` dependency are gone.
+- **Work report consolidation** (t1226): The report is consolidated before the satisfaction rating step.
+- **Sonnet 5 as the default for lighter operations** (t1242).
+- **Tabbed syncer** (t1223_1): The syncer TUI is now a tabbed shell (Branches / Versions / Settings), with actions gated to the active tab.
+- **Internal restructuring** (t1149_1, t1217): Chatlink preflight checks extracted into a reusable module; `task_yaml` promoted out of the board package into `lib/` with a layering guard.
+
+### Documentation
+
+- **Work report docs** (t1162_5): New skill and workflow pages, plus board reference/how-to updates.
+- **Agent attribution prose** (t1181): Replaced a stale plan-mode example with wording that holds for every supported code agent.
+
+### Tests
+
+- **Gate lock characterization** (t1183): 36 assertions pinning the gate mutex's serialization, key derivation, and stale-reclaim behavior ahead of an upcoming change.
+- **Seed manifest drift guards** (t1194, t1197): New guards catch seed files that install or setup fail to deliver, including installers wired after the seed cleanup.
+- **Zero-collection test guard** (t1229): Every `tests/test_*.py` must collect at least one test and import cleanly, so a silently-empty suite can't pass.
+
+### Maintenance
+
+- **Retired the pickn staging experiment** (t635_36): Removed the `task-workflown` fork and `aitask-pickn` stubs, with an upgrade migration that prunes them from already-installed projects.
+
 ## v0.28.0
 
 ### Features
