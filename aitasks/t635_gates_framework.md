@@ -7,9 +7,13 @@ status: Ready
 labels: [gates]
 children_to_implement: [t635_16, t635_17, t635_18, t635_23, t635_24, t635_26, t635_27, t635_28, t635_29, t635_30, t635_31, t635_32, t635_34, t635_37]
 created_at: 2026-04-23 20:21
-updated_at: 2026-07-23 18:38
+updated_at: 2026-07-26 08:17
 boardcol: now
 boardidx: 20
+artifacts:
+  - handle: art:trail-gates-framework-landing
+    kind: implementation_trail
+    name: Gate framework landing order (t635 topic)
 ---
 
 Parent task for implementing the aitasks gate framework AND its gradual
