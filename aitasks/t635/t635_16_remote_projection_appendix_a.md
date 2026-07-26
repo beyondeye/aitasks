@@ -6,7 +6,7 @@ issue_type: feature
 status: Ready
 labels: [gates, gitremote]
 created_at: 2026-06-10 18:56
-updated_at: 2026-06-10 18:56
+updated_at: 2026-07-26 00:00
 ---
 
 ## Context
@@ -36,6 +36,29 @@ Per `aidocs/gates/aitask-gate-framework.md` Appendix A:
 
 Consider splitting at planning time (label mirror needs no new backends
 and can ship first; comment mirror + comment signal follow).
+
+## Premise refresh (2026-07-26 — t635_33 active-gates model) — CONFIRM AT PLAN TIME
+
+Flagged as an open question, **not** an asserted defect: Appendix A was not
+re-read when this note was written, so treat it as something to check rather
+than a finding.
+
+**t635_33 landed 2026-07-19** (this task was last updated 2026-06-10) and split
+what "a task's gates" means: raw `gates:` is *declared intent*, while the
+enforced set is the derived `active_gates` tuple (declared ∩ profile ceiling)
+materialized at claim, with `active_gates_filtered` recording what the ceiling
+removed. The scope above speaks of projecting "gate state" without
+distinguishing the two.
+
+**Decide at plan time which set the projection carries.** Mirroring
+declared-but-filtered gates would show reviewers gates that will never run under
+the active profile — misleading in exactly the audience this feature exists for
+(reviewers who never clone the repo). Candidate rule: project the **enforced**
+set, and either omit filtered gates entirely or render them distinctly as
+"skipped: execution profile", consistent with t635_33's invariant that a
+filtered gate is invisible or at most reported as skipped — never an error.
+Whichever is chosen, apply it uniformly to the label mirror (A.3), the status
+comment (A.4) and comment-signal authorization (A.5).
 
 ## Downstream
 

@@ -8,7 +8,7 @@ labels: [gates, statistics, stats_ui]
 gates: [risk_evaluated]
 anchor: 635
 created_at: 2026-06-29 15:52
-updated_at: 2026-06-29 15:52
+updated_at: 2026-07-26 00:00
 ---
 
 ## Context
@@ -44,6 +44,21 @@ shared `gate_ledger.py` parser — no forked parsing, D6).
   `stats_config.py` + `aitasks/metadata/stats_config.json` preset) — TUI pane.
 - `aidocs/gates/stats-multistage-completion.md` — the spec (update "Deferred"
   section to "implemented" on completion).
+
+## Premise refresh (2026-07-26 — t635_33 active-gates model)
+
+Minor, but it affects metric honesty. **t635_33 landed 2026-07-19**: each
+profile renders a gate ceiling (`rendered_gates`, defaulting to
+`default_gates`), and a task's enforced set is the derived `active_gates`
+materialized at claim. Consequence for metric 1 (per-gate pass/fail/retry
+rates): a gate can be absent from a task's runs because **its profile filtered
+it**, not because it passed or was skipped — so rates aggregated across the
+archived population mix profiles with different ceilings. Tasks carry
+`active_gates_profile` (the provenance stamp naming the producing profile), so
+the population can be partitioned or the denominator narrowed to tasks whose
+enforced set actually contained the gate. This is the same mixed-population
+honesty problem already flagged below for pending-human wait — apply the same
+"report the real N" treatment.
 
 ## Verification
 

@@ -7,7 +7,7 @@ status: Ready
 labels: [gates]
 anchor: 635
 created_at: 2026-07-01 10:46
-updated_at: 2026-07-03 00:00
+updated_at: 2026-07-26 00:00
 ---
 
 ## Context
@@ -57,6 +57,42 @@ Step-8 path.
    resolution (project-local gate skills, plugin-provided gates). Document how
    `kind: external` / `kind: plugin` would resolve; **build nothing** (no such gate
    exists yet). Spin off a task when a concrete external/plugin gate is needed.
+
+## Premise refresh (2026-07-26 — t635_33 active-gates model)
+
+This task was last updated 2026-07-03; **t635_33 landed 2026-07-19**. Its Scope
+bullet 1 premise ("the headless orchestrator **defers** procedure gates as
+`needs-agent`, so `docs_updated` never fires in an autonomous run and the task
+is left in-flight") is now only half the story. Verified against live source:
+
+- **The deferral is real, but only for gates that reach the orchestrator.**
+  `gate_orchestrator.py:479` still excludes `kind: procedure` from headless
+  machine dispatch and `:251` returns the "needs agent (procedure-backed
+  gate…)" reason — but the orchestrator operates on the **enforced active
+  set** (`read_active_gates_from_text`, `:369` and `:542`), not on declared
+  intent. `gate_ledger.unmet_procedure_gates:1056` does the same.
+- **Under today's remote profile nothing reaches it.** `remote.yaml` declares
+  `rendered_gates: []` (and no `default_gates` / `record_gates`), so a task
+  worked on the remote lane materializes `active_gates: []`. A declared
+  procedure gate is therefore **filtered by the ceiling**, not deferred — a
+  different mechanism, and by t635_33's invariant that filtering is *correct*
+  behavior ("invisible, or at most 'skipped: execution profile' — never a hard
+  error"), not a bug to fix.
+- **So the gap is latent, and two-layered.** (a) The remote profile renders and
+  enforces no gates at all, so autonomous procedure-gate dispatch has nothing
+  to act on today; (b) even for a headless profile whose ceiling DID include a
+  procedure gate, the lanes skip Step 8 and the orchestrator defers it. This
+  task must decide which layer it fixes. Plan-time question: should the remote
+  profile's ceiling gain procedure gates (a profile-config change, arguably
+  t635_28/t635_37 territory), or should autonomous dispatch live in the
+  orchestrator so it works for any profile that renders one?
+- **The attended dispatch seam is gated on `record_gates`, not the ceiling.**
+  The Step-8 procedure block in `.claude/skills/task-workflow/SKILL.md` is
+  wrapped in `{%- if profile.record_gates … %}` alone and is already generic
+  over `kind: procedure`. `rendered_set` is currently consumed by Jinja **only**
+  for `risk_evaluated`. That means `fast` (record_gates: true) renders the
+  dispatch while `default` and `remote` (no `record_gates`) do not — relevant to
+  Scope bullet 2's agent-aware resolution, which lives inside that block.
 
 ## Settled design decisions (from t635_29 planning, 2026-07-03)
 

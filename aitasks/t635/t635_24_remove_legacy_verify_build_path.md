@@ -7,7 +7,7 @@ status: Ready
 labels: [gates, task_workflow]
 anchor: 635
 created_at: 2026-06-25 10:41
-updated_at: 2026-06-29 11:30
+updated_at: 2026-07-26 00:00
 ---
 
 ## Context
@@ -81,6 +81,41 @@ have not opted into gates — which is every task until t635_14 lands.
 - A task with no `gates:` no longer runs an inline `verify_build` — it goes
   through `ait gates run` (which skips when no build gate is declared).
 - Settings TUI exposes gate configuration; no orphaned `verify_build`-only field.
+
+## Premise refresh (2026-07-26 — t635_33 active-gates model)
+
+This task was last updated 2026-06-29; **t635_33 landed 2026-07-19** and
+reshaped the profile side that Scope item 2 targets. Verified against live
+source:
+
+- **The profile side is now TWO keys, not one.** Scope item 2 says the settings
+  surface should configure "which gates a *profile* declares via
+  `default_gates`". Since t635_33 a profile also has `rendered_gates` — the
+  render-time ceiling — with **presence-sensitive** semantics:
+  `gate_ledger._read_profile_rendered_gates` uses `rendered_gates` whenever the
+  KEY exists (including an explicit `[]`, the render-nothing override) and only
+  otherwise falls back to `default_gates`. There are three distinct states to
+  represent, not a single list. Live examples: `fast.yaml` sets `default_gates`
+  with no `rendered_gates`; `remote.yaml` sets `rendered_gates: []` with no
+  `default_gates`; `default.yaml` sets neither.
+- **Scope item 2 is substantively superseded by t635_37, not merely adjacent.**
+  **t635_37** (`settings_registry_gate_picker`, authored 2026-07-19 — the same
+  day t635_33 landed) owns exactly this surface: a registry-driven picker for
+  `default_gates` / `rendered_gates` that preserves the three presence states,
+  flags unknown names, and shows the effective render/enforce interplay. Note
+  t635_37 references t635_30 but **not** this task, and this task predates it —
+  neither cross-references the other.
+  **Recommended resolution at plan time:** cede profile gate-*list* editing to
+  t635_37 and narrow this task's item 2 to **registry-level per-gate settings**
+  (verifier, retries, timeout) plus removal of the orphaned `verify_build`
+  field. Confirm with whoever plans t635_37 rather than building both.
+- **Some of the surface already exists.** `.aitask-scripts/lib/profile_editor.py`
+  already carries a "Gates" `PROFILE_FIELD_GROUPS` entry with `record_gates`,
+  `default_gates` and `rendered_gates` (edited today as free comma-separated
+  text — the deficiency t635_37 exists to fix). Item 2 is an *improvement* to a
+  live surface, not a greenfield build.
+- **Item 1 (the removal) is unaffected** by any of the above and remains the
+  unambiguous core of this task.
 
 ## Coordination (from t635_25)
 

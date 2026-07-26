@@ -6,7 +6,7 @@ issue_type: documentation
 status: Ready
 labels: [gates, web_site]
 created_at: 2026-06-10 19:03
-updated_at: 2026-06-10 19:03
+updated_at: 2026-07-26 00:00
 ---
 
 ## Context
@@ -65,9 +65,39 @@ unlanded behavior).
   append, pass, fail, log).
 
 **Configuration:**
-- `gates.yaml` registry reference; profile schema changes (gates declared
-  by profiles at planning time, `default_gates`); per the unification
-  model from t635_14.
+- `gates.yaml` registry reference; profile schema changes — per the
+  **ceiling model from t635_33** (see Premise refresh below), NOT the
+  superseded t635_14 single-key model.
+
+## Premise refresh (2026-07-26 — t635_33 active-gates model)
+
+This task was last updated 2026-06-10; **t635_33 landed 2026-07-19** and
+superseded the profile gate model the Configuration bullet named. The content
+map must document the current model:
+
+- **Two profile keys with presence semantics.** `rendered_gates` is the
+  render-time ceiling and wins whenever the KEY is present — including an
+  explicit `[]`, the render-nothing override; only when absent does
+  `default_gates` apply. Three states to explain, not one list. Live examples
+  to describe generically: one profile setting `default_gates` only, one
+  setting `rendered_gates: []`, one setting neither.
+- **Declared intent vs enforced set.** A task's `gates:` is *declared intent*;
+  the enforced set is the derived `active_gates` tuple materialized at claim
+  time, alongside `active_gates_filtered` (what the ceiling removed),
+  `active_gates_profile` (provenance stamp) and `active_gates_digest`. The task
+  file format page must cover these fields — and say they are framework-written
+  and must not be hand-edited.
+- **The ceiling invariant.** A gate filtered out by the profile is
+  **invisible**, or at most reported as "skipped: execution profile" — **never
+  an error**. This is the single most surprising behavior for a user whose task
+  declares a gate that never runs, so it belongs in the Gates concept page.
+- **Also document `record_gates`** — a third profile knob, separate from the two
+  lists, which currently controls whether the gate machinery (including the
+  Step-8 procedure-gate dispatch) is rendered into a profile's task-workflow
+  variant at all.
+- Re-derive the whole content map at planning time against live source rather
+  than trusting the bullets above — this refresh corrects the model, but the
+  map itself was already marked "refine at planning time".
 
 ## Conventions checklist
 
