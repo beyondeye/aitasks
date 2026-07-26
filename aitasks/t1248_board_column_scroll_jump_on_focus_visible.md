@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -111,6 +113,12 @@ pane `alternate_on=1 mouse_any_flag=1`.
    during an active wheel scroll), and record the decision. If the conclusion is
    that this half belongs upstream (tmux or Textual), say so explicitly rather
    than leaving it implied.
+6. **Added at planning time (scope decision recorded in the approved plan):**
+   `_nav_lateral` carries the focused card's *index* into the target column, so
+   after a wheel scroll `left`/`right` teleports the **target** column to a
+   position the user never looked at. It is the same defect one step removed;
+   fix it with the same viewport rule so the whole nav surface obeys one
+   contract.
 
 ## Reproduction harness
 
