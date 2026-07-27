@@ -40,10 +40,16 @@ new_fixture() {
     # NOT fall back to the nonempty default_gates (key-presence semantics).
     printf 'name: rnone\ndefault_gates: [risk_evaluated]\nrendered_gates: []\n' \
         > "$tmp/aitasks/metadata/profiles/rnone.yaml"
+    # risk_evaluated carries a verifier so this fixture represents a HEALTHY
+    # install: without one, every materialize below would (correctly) emit the
+    # t635_34 "no verifier configured" warning on stderr, drowning the suite in
+    # noise. The verifier-less variant is built explicitly by
+    # test_unverifiable_gate_warning, which makes that test discriminating.
     cat > "$tmp/aitasks/metadata/gates.yaml" <<'EOF'
 gates:
   risk_evaluated:
     type: machine
+    verifier: aitask-gate-risk
     blocks_dependents: true
   merge_approved:
     type: human
@@ -645,6 +651,99 @@ test_remote_lane_real_profile() {
         "$(run_gate "$d" archive-ready 9)"
 }
 
+# --- t635_34: early "no verifier" warning at claim time --------------------
+
+test_unverifiable_gate_warning() {
+    # An ENFORCED gate that nothing can ever satisfy should surface at PICK
+    # time, not when archival blocks with `no verifier configured (deferred)`.
+    local d; d="$(new_fixture)"
+    local prof="aitasks/metadata/profiles"
+    # Strip the verifier the healthy fixture ships: this is the stale-install
+    # shape t635_34 targets.
+    cat > "$d/aitasks/metadata/gates.yaml" <<'EOF'
+gates:
+  risk_evaluated:
+    type: machine
+    blocks_dependents: true
+  merge_approved:
+    type: human
+    blocks_dependents: true
+  docs_updated:
+    type: machine
+    kind: procedure
+EOF
+    write_task "$d" 1 "[risk_evaluated]"
+
+    # stdout is contractually ONE status line — task-workflow Step 4 parses it.
+    # The warning must not leak into it.
+    assert_eq "warn: stdout is still exactly the status line" "MATERIALIZED:risk_evaluated" \
+        "$(run_gate "$d" materialize-active 1 --profile "$prof/fast.yaml" 2>/dev/null)"
+    local err
+    err="$(run_gate "$d" materialize-active 1 --profile "$prof/fast.yaml" 2>&1 >/dev/null)"
+    assert_contains "warn: names the offending gate" "risk_evaluated" "$err"
+    assert_contains "warn: says it will block archival" "block archival" "$err"
+    assert_contains "warn: names the repair command" "ait gates sync-registry" "$err"
+
+    # Re-pick (the NOOP path) is the COMMON case for an in-flight task — a
+    # warning that only fired on the first materialization would be invisible
+    # for exactly the tasks that have been sitting blocked.
+    assert_eq "warn: re-pick still reports NOOP on stdout" "NOOP:unchanged" \
+        "$(run_gate "$d" materialize-active 1 --profile "$prof/fast.yaml" 2>/dev/null)"
+    err="$(run_gate "$d" materialize-active 1 --profile "$prof/fast.yaml" 2>&1 >/dev/null)"
+    assert_contains "warn: re-pick warns too (NOOP path)" "risk_evaluated" "$err"
+
+    # --- negative control (a): a HUMAN gate legitimately has no verifier.
+    printf 'name: hum\ndefault_gates: [merge_approved]\n' > "$d/$prof/hum.yaml"
+    write_task "$d" 2 "[merge_approved]"
+    err="$(run_gate "$d" materialize-active 2 --profile "$prof/hum.yaml" 2>&1 >/dev/null)"
+    assert_not_contains "warn negctl(a): human gate does NOT warn" "block archival" "$err"
+
+    # --- negative control (b): a kind:procedure gate is run by the agent.
+    printf 'name: proc\ndefault_gates: [docs_updated]\n' > "$d/$prof/proc.yaml"
+    write_task "$d" 3 "[docs_updated]"
+    err="$(run_gate "$d" materialize-active 3 --profile "$prof/proc.yaml" 2>&1 >/dev/null)"
+    assert_not_contains "warn negctl(b): procedure gate does NOT warn" "block archival" "$err"
+
+    # --- negative control (c): DECLARED but profile-FILTERED. This is the one
+    # that proves the warning respects t635_33's rendered ceiling rather than
+    # scanning the raw `gates:` field — the gate is unsatisfiable in the
+    # registry, but it is not enforced, so warning would be pure noise.
+    write_task "$d" 4 "[risk_evaluated]"
+    assert_eq "warn negctl(c): filtered task materializes empty" "MATERIALIZED:(empty)" \
+        "$(run_gate "$d" materialize-active 4 --profile "$prof/rnone.yaml" 2>/dev/null)"
+    err="$(run_gate "$d" materialize-active 4 --profile "$prof/rnone.yaml" 2>&1 >/dev/null)"
+    assert_not_contains "warn negctl(c): profile-filtered gate does NOT warn" \
+        "block archival" "$err"
+
+    # --- the predicate and the orchestrator's block reason must agree.
+    local pyout
+    pyout="$( cd "$d" && AIT_LIBDIR="$PROJECT_DIR/.aitask-scripts/lib" python3 - <<'PY'
+import sys, os
+sys.path.insert(0, os.environ["AIT_LIBDIR"])
+import gate_ledger as gl, gate_orchestrator as go
+BLOCK = "blocked: no verifier configured (deferred)"
+shapes = {
+    "absent":    {},
+    "no_verif":  {"g": dict(gl._default_gate_meta(), type="machine")},
+    "human":     {"g": dict(gl._default_gate_meta(), type="human")},
+    "procedure": {"g": dict(gl._default_gate_meta(), type="machine", kind="procedure")},
+    "ok":        {"g": dict(gl._default_gate_meta(), type="machine", verifier="x")},
+}
+for name, reg in shapes.items():
+    unver = gl.unverifiable_reason("g", reg) is not None
+    blocked = go.blocked_reason("g", ["g"], reg, {}, {}) == BLOCK
+    print(f"{name}={unver == blocked}")
+PY
+)"
+    # Assert each shape POSITIVELY: a bare `assert_not_contains "=False"` would
+    # pass vacuously if the python block errored and produced no output at all.
+    local shape
+    for shape in absent no_verif human procedure ok; do
+        assert_contains "warn: predicate agrees with blocked_reason ($shape)" \
+            "$shape=True" "$pyout"
+    done
+}
+
 # --- Run ---
 test_materialize_basic
 test_materialize_error_paths
@@ -658,6 +757,7 @@ test_tuple_atomicity_and_corruption
 test_tuple_durability
 test_negative_control_enforcers
 test_remote_lane_real_profile
+test_unverifiable_gate_warning
 
 for dir in "${CLEANUP_DIRS[@]}"; do rm -rf "$dir"; done
 

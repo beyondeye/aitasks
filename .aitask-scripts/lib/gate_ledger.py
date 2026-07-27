@@ -842,6 +842,317 @@ def _default_gate_meta() -> dict:
     }
 
 
+# Keys the registry parser understands. Single source for the field dispatch
+# below, the sync-registry fill allowlist, and the coverage drift guard — a key
+# the parser cannot round-trip must never be written by the sync writer, or the
+# writer would emit text `read_registry` silently drops (t635_34).
+_SCALAR_GATE_KEYS = ("type", "kind", "description", "verifier",
+                     "signal", "signal_target")
+_GATE_FIELD_KEYS = _SCALAR_GATE_KEYS + ("blocks_dependents", "max_retries",
+                                        "timeout_seconds", "unlocks")
+
+
+@dataclass(frozen=True)
+class _RegRec:
+    """One typed record from the single registry line-walk (t635_34).
+
+    ``kind``  ``"open"`` a ``gates:`` line activated the mapping ·
+              ``"close"`` a column-0 line terminated it · ``"gate"`` a gate
+              header at ``gate_indent`` · ``"field"`` a field of the current gate.
+    ``ws``    the LITERAL leading-whitespace string. Tabs are preserved: the
+              writer needs to reproduce a file's own indentation, and
+              ``_indent_width`` collapses a tab to four spaces and cannot be
+              inverted.
+    ``value`` raw text after ``key:``, ``.strip()``ed — exactly what the old
+              inline parser saw as ``val``. NOT quote-stripped.
+    ``end``   last line index belonging to this record. Equals ``line`` except
+              for a block-form ``unlocks``, where it is the last ``- item``
+              line (blank lines trailing the block are excluded, so an inserter
+              anchored on ``end`` never lands after a blank).
+    """
+    kind: str
+    gate: str
+    key: str
+    value: str
+    ws: str
+    line: int
+    end: int
+    items: list[str] | None
+
+
+def _walk_registry(lines: "list[str]"):
+    """Single line-walk over a gates.yaml. Yields :class:`_RegRec` records.
+
+    This IS the registry parser's control flow — :func:`read_registry_text` and
+    :func:`registry_layout` are both thin consumers of it. Do not fork it.
+
+    Behaviour pinned by ``tests/test_gate_registry_parser_quirks.py``; the
+    quirks are deliberate and load-bearing:
+      * ``gate_indent`` is sticky — never reset when the mapping deactivates;
+      * ``cur`` IS reset on dedent, so orphan fields are dropped;
+      * blank lines inside a block-form ``unlocks`` do not terminate it;
+      * ``gates: {}`` never activates (the regex demands an empty value);
+      * ANY column-0 line ends the mapping, ``#`` comments included.
+    """
+    in_gates = False
+    gate_indent = None
+    cur = None
+    i, n = 0, len(lines)
+    while i < n:
+        line = lines[i]
+        if re.match(r"^gates:\s*$", line):
+            in_gates = True
+            yield _RegRec("open", "", "", "", "", i, i, None)
+            i += 1
+            continue
+        if not in_gates or not line.strip():
+            i += 1
+            continue
+        # A non-indented, non-blank line ends the gates: mapping.
+        if re.match(r"^\S", line):
+            in_gates = False
+            cur = None
+            yield _RegRec("close", "", "", "", "", i, i, None)
+            i += 1
+            continue
+        m = re.match(r"^([ \t]+)([A-Za-z0-9_]+):\s*(.*)$", line)
+        if not m:
+            i += 1
+            continue
+        ws, key, val = m.group(1), m.group(2), m.group(3).strip()
+        indent = _indent_width(ws)
+        if gate_indent is None:
+            gate_indent = indent
+        if indent <= gate_indent:
+            # New gate header (its fields are more-indented).
+            cur = key
+            yield _RegRec("gate", cur, "", val, ws, i, i, None)
+            i += 1
+            continue
+        if cur is None:
+            i += 1
+            continue
+        # A field of the current gate.
+        if key == "unlocks" and not val:
+            # Block form: consume deeper-indented "- item" lines. Entered iff
+            # the value is empty — `_parse_inline_list("")` returns None and a
+            # non-empty unbracketed value is the scalar case, both handled by
+            # the consumer.
+            items: "list[str]" = []
+            j, last = i + 1, i
+            while j < n:
+                bl = lines[j]
+                if not bl.strip():
+                    j += 1
+                    continue
+                bm = re.match(r"^([ \t]+)-[ \t]*(.+?)\s*$", bl)
+                if bm and _indent_width(bm.group(1)) > indent:
+                    items.append(bm.group(2).strip().strip("'\""))
+                    last = j
+                    j += 1
+                    continue
+                break
+            yield _RegRec("field", cur, key, val, ws, i, last, items)
+            i = j
+            continue
+        yield _RegRec("field", cur, key, val, ws, i, i, None)
+        i += 1
+
+
+def read_registry_text(text: str) -> dict[str, dict]:
+    """Text-level twin of :func:`read_registry` (testable without a tempfile)."""
+    gates: dict[str, dict] = {}
+    for rec in _walk_registry(text.splitlines()):
+        if rec.kind == "gate":
+            # Duplicate header re-defaults: last block wins WHOLESALE.
+            gates[rec.gate] = _default_gate_meta()
+            continue
+        if rec.kind != "field":
+            continue
+        meta = gates.get(rec.gate)
+        if meta is None:
+            continue
+        key, val = rec.key, rec.value
+        if key in _SCALAR_GATE_KEYS:
+            meta[key] = val.strip("'\"")
+        elif key == "blocks_dependents":
+            meta[key] = _truthy(val)
+        elif key == "max_retries":
+            meta[key] = _int_or(val, 0)
+        elif key == "timeout_seconds":
+            meta[key] = _int_or(val, None)
+        elif key == "unlocks":
+            if rec.items is not None:
+                meta[key] = rec.items
+            else:
+                inline = _parse_inline_list(val)
+                meta[key] = inline if inline is not None else [val.strip("'\"")]
+        # Unknown keys are ignored, exactly as before.
+    return gates
+
+
+@dataclass(frozen=True)
+class GateBlock:
+    """Textual layout of one gate block (t635_34).
+
+    ``field_ws`` is ``None`` for a header-only gate — callers must resolve the
+    indent through :func:`resolve_field_indent` rather than assuming it exists.
+
+    ``last_field_end`` is the INSERTION anchor (after the last field line, so a
+    new key lands before any trailing comment that introduces the next thing).
+    ``block_end`` is the LEXICAL extent (every indented line belonging to the
+    gate, including comments, unknown keys and their block lists) and is what a
+    whole-block copy must use — ``last_field_end`` would truncate an unknown
+    key's ``- item`` lines, since the walk only recognises ``key:`` lines.
+    """
+    name: str
+    header_line: int
+    header_ws: str
+    field_ws: str | None
+    fields: dict          # key -> line index (last occurrence, matching the parser)
+    raw_values: dict      # key -> raw value text (pre quote-strip)
+    last_field_end: int
+    block_end: int
+
+
+@dataclass(frozen=True)
+class RegistryLayout:
+    """Where everything physically sits in a gates.yaml (t635_34).
+
+    Shares :func:`_walk_registry` with :func:`read_registry_text`, so the
+    presence oracle and the value parser can never disagree about a file.
+    """
+    lines: list[str]              # splitlines()
+    raw: list[str]                # splitlines(keepends=True) — index-aligned
+    open_line: int | None         # first activating `gates:` line
+    close_line: int | None        # line that terminated it; None => ran to EOF
+    close_starts_with_hash: bool  # a column-0 `#` truncated the mapping
+    gate_indent: int | None
+    order: list[str]              # gate names in file order (first occurrence)
+    blocks: dict                  # name -> GateBlock (LAST block for duplicates)
+    duplicates: list[str]
+    orphan_field_names: list[str]  # parsed "gates" whose name is a field key
+
+
+def registry_layout(text: str) -> RegistryLayout:
+    """Second consumer of the shared walk: physical layout + key presence.
+
+    Presence cannot be recovered from :func:`read_registry_text`'s output —
+    ``verifier: ""`` and an absent ``verifier:`` both parse to ``""`` — so any
+    fill-vs-conflict decision needs this.
+    """
+    lines = text.splitlines()
+    raw = text.splitlines(keepends=True)
+    open_line = close_line = None
+    gate_indent = None
+    order: list[str] = []
+    blocks: dict = {}
+    duplicates: list[str] = []
+    orphans: list[str] = []
+    header_lines: list[int] = []
+    cur = None
+
+    for rec in _walk_registry(lines):
+        if rec.kind == "open":
+            if open_line is None:
+                open_line = rec.line
+            continue
+        if rec.kind == "close":
+            if close_line is None:
+                close_line = rec.line
+            continue
+        if rec.kind == "gate":
+            if gate_indent is None:
+                gate_indent = _indent_width(rec.ws)
+            if rec.gate in blocks and rec.gate not in duplicates:
+                duplicates.append(rec.gate)
+            if rec.gate in _GATE_FIELD_KEYS and rec.gate not in orphans:
+                # A gate named `type`/`verifier`/... means the file's fields are
+                # indented at or below gate_indent and have ALREADY been read as
+                # sibling gates — the mis-indent tell.
+                orphans.append(rec.gate)
+            if rec.gate not in order:
+                order.append(rec.gate)
+            header_lines.append(rec.line)
+            cur = rec.gate
+            blocks[cur] = GateBlock(
+                name=cur, header_line=rec.line, header_ws=rec.ws,
+                field_ws=None, fields={}, raw_values={},
+                last_field_end=rec.line, block_end=rec.line,
+            )
+            continue
+        # field
+        blk = blocks.get(rec.gate)
+        if blk is None or cur != rec.gate:
+            continue
+        fields = dict(blk.fields)
+        fields[rec.key] = rec.line
+        raw_values = dict(blk.raw_values)
+        raw_values[rec.key] = rec.value
+        blocks[rec.gate] = GateBlock(
+            name=blk.name, header_line=blk.header_line, header_ws=blk.header_ws,
+            field_ws=blk.field_ws if blk.field_ws is not None else rec.ws,
+            fields=fields, raw_values=raw_values,
+            last_field_end=max(blk.last_field_end, rec.end),
+            block_end=blk.block_end,
+        )
+
+    # Lexical block extent: everything up to the next gate header / the line
+    # that closed the mapping / EOF, minus trailing blanks. Computed after the
+    # walk because it must include lines the walk does not yield records for
+    # (comments, unknown keys' block-list items, nested mappings).
+    stop = close_line if close_line is not None else len(lines)
+    for idx, start in enumerate(header_lines):
+        nxt = header_lines[idx + 1] if idx + 1 < len(header_lines) else stop
+        boundary = min(nxt, stop) if nxt > start else stop
+        end = boundary - 1
+        while end > start and not lines[end].strip():
+            end -= 1
+        name = lines[start].strip().rstrip(":").strip()
+        blk = blocks.get(name)
+        # Only the LAST block of a duplicated name is retained, matching the
+        # parser; earlier header lines for that name must not shrink its extent.
+        if blk is not None and blk.header_line == start:
+            blocks[name] = GateBlock(
+                name=blk.name, header_line=blk.header_line,
+                header_ws=blk.header_ws, field_ws=blk.field_ws,
+                fields=blk.fields, raw_values=blk.raw_values,
+                last_field_end=blk.last_field_end, block_end=max(end, start),
+            )
+
+    return RegistryLayout(
+        lines=lines, raw=raw, open_line=open_line, close_line=close_line,
+        close_starts_with_hash=(close_line is not None
+                                and lines[close_line].lstrip().startswith("#")),
+        gate_indent=gate_indent, order=order, blocks=blocks,
+        duplicates=duplicates, orphan_field_names=orphans,
+    )
+
+
+def unverifiable_reason(gate: str, registry: dict[str, dict]) -> str | None:
+    """Why an ENFORCED gate can never be satisfied — ``None`` when it can.
+
+    Mirrors the last arms of ``gate_orchestrator.blocked_reason``: a human gate
+    legitimately carries no verifier (it pends on a signal) and a procedure gate
+    is run by the attended agent, so neither is a defect. Only a machine
+    command gate with no verifier — or a gate with no registry entry at all —
+    is genuinely unsatisfiable.
+
+    ``blocked_reason`` calls this, so the pick-time warning and the run-time
+    block can never drift apart (t635_34).
+    """
+    if gate not in registry:
+        return "no registry entry"
+    meta = registry[gate]
+    if meta.get("type") == "human":
+        return None
+    if meta.get("kind") == "procedure":
+        return None
+    if not meta.get("verifier"):
+        return "no verifier configured"
+    return None
+
+
 def read_registry(registry_file: str) -> dict[str, dict]:
     """Parse gates.yaml with ``re`` only (stdlib, no PyYAML).
 
@@ -865,94 +1176,15 @@ def read_registry(registry_file: str) -> dict[str, dict]:
     The parser is **indent-aware**: a gate header is a ``name:`` at the first
     gate's indent depth; deeper-indented ``name:`` lines (e.g. a block-form
     ``unlocks:``) are fields of the current gate, not new gates.
+
+    The line-walk itself lives in :func:`_walk_registry` and is shared with
+    :func:`registry_layout` (t635_34) so the presence oracle and the parser can
+    never disagree about what a file says.
     """
-    gates: dict[str, dict] = {}
     if not registry_file or not os.path.exists(registry_file):
-        return gates
+        return {}
     with open(registry_file, encoding="utf-8") as fh:
-        lines = fh.read().splitlines()
-    in_gates = False
-    gate_indent = None
-    cur = None
-    i, n = 0, len(lines)
-    while i < n:
-        line = lines[i]
-        if re.match(r"^gates:\s*$", line):
-            in_gates = True
-            i += 1
-            continue
-        if not in_gates or not line.strip():
-            i += 1
-            continue
-        # A non-indented, non-blank line ends the gates: mapping.
-        if re.match(r"^\S", line):
-            in_gates = False
-            cur = None
-            i += 1
-            continue
-        m = re.match(r"^([ \t]+)([A-Za-z0-9_]+):\s*(.*)$", line)
-        if not m:
-            i += 1
-            continue
-        indent, key, val = _indent_width(m.group(1)), m.group(2), m.group(3).strip()
-        if gate_indent is None:
-            gate_indent = indent
-        if indent <= gate_indent:
-            # New gate header (its fields are more-indented).
-            cur = key
-            gates[cur] = _default_gate_meta()
-            i += 1
-            continue
-        if cur is None:
-            i += 1
-            continue
-        # A field of the current gate.
-        if key == "type":
-            gates[cur]["type"] = val.strip("'\"")
-        elif key == "kind":
-            # t635_19 — "procedure" marks a procedure-backed (agent-skill) gate
-            # the headless engine defers; absent/"command" = normal command verifier.
-            gates[cur]["kind"] = val.strip("'\"")
-        elif key == "description":
-            gates[cur]["description"] = val.strip("'\"")
-        elif key == "blocks_dependents":
-            gates[cur]["blocks_dependents"] = _truthy(val)
-        elif key == "verifier":
-            gates[cur]["verifier"] = val.strip("'\"")
-        elif key == "max_retries":
-            gates[cur]["max_retries"] = _int_or(val, 0)
-        elif key == "timeout_seconds":
-            gates[cur]["timeout_seconds"] = _int_or(val, None)
-        elif key == "signal":
-            gates[cur]["signal"] = val.strip("'\"")
-        elif key == "signal_target":
-            gates[cur]["signal_target"] = val.strip("'\"")
-        elif key == "unlocks":
-            inline = _parse_inline_list(val)
-            if inline is not None:
-                gates[cur]["unlocks"] = inline
-            elif val:
-                gates[cur]["unlocks"] = [val.strip("'\"")]
-            else:
-                # Block form: consume deeper-indented "- item" lines.
-                items: list[str] = []
-                j = i + 1
-                while j < n:
-                    bl = lines[j]
-                    if not bl.strip():
-                        j += 1
-                        continue
-                    bm = re.match(r"^([ \t]+)-[ \t]*(.+?)\s*$", bl)
-                    if bm and _indent_width(bm.group(1)) > indent:
-                        items.append(bm.group(2).strip().strip("'\""))
-                        j += 1
-                        continue
-                    break
-                gates[cur]["unlocks"] = items
-                i = j
-                continue
-        i += 1
-    return gates
+        return read_registry_text(fh.read())
 
 
 def format_list(task_file: str, registry_file: str | None) -> str:
@@ -1315,6 +1547,41 @@ def main(argv: list[str]) -> int:
         sys.stdout.write("ACTIVE:" + ",".join(active) + "\n")
         sys.stdout.write("FILTERED:" + ",".join(filtered) + "\n")
         sys.stdout.write("DIGEST:" + digest + "\n")
+        return 0
+
+    if cmd == "unverifiable-gates":
+        # Pick-time check behind the `materialize-active` warning (t635_34).
+        # A SEPARATE arm rather than an extra line on compute-active's output,
+        # so the load-bearing digest/tuple path stays untouched.
+        if len(argv) < 3:
+            sys.stderr.write(
+                "Usage: gate_ledger.py unverifiable-gates <registry> <gates_csv>\n")
+            return 2
+        registry = read_registry(argv[1])
+        for gate in (g.strip() for g in argv[2].split(",") if g.strip()):
+            reason = unverifiable_reason(gate, registry)
+            if reason:
+                sys.stdout.write(f"UNVERIFIABLE:{gate}:{reason}\n")
+        return 0
+
+    if cmd == "sync-registry":
+        # Additive reconcile against the canonical reference (t635_34).
+        if len(argv) < 4:
+            sys.stderr.write(
+                "Usage: gate_ledger.py sync-registry <registry> <reference> "
+                "<dry_run:0|1> [scripts_dir] [profile_file ...]\n")
+            return 2
+        import gate_registry_sync as grs
+        try:
+            report = grs.sync_registry(
+                argv[1], argv[2], dry_run=(argv[3] == "1"),
+                scripts_dir=(argv[4] if len(argv) > 4 and argv[4] else None),
+                profile_files=list(argv[5:]))
+        except grs.SyncError as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            return exc.code
+        for line in report:
+            sys.stdout.write(line + "\n")
         return 0
 
     if cmd == "active-status":

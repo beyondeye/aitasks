@@ -53,6 +53,8 @@ Gates:
   gates unlocked Show which gates are runnable now
   gates status   Show derived per-gate state
   gates list     List a task's declared gates
+  gates sync-registry
+                 Reconcile this project's gate registry with the framework's
   gate append    Append a gate-run block (used by verifiers)
   gate fail      Append a manual fail marker for a gate
   gate log       Print the sidecar log for a gate's latest run
@@ -308,8 +310,9 @@ case "${1:-help}" in
             unlocked) exec "$SCRIPTS_DIR/aitask_run_gates.sh" unlocked "$@" ;;
             list)     exec "$SCRIPTS_DIR/aitask_gate.sh" list "$@" ;;
             status)   exec "$SCRIPTS_DIR/aitask_gate.sh" status "$@" ;;
-            --help|-h|"") echo "ait gates: run | unlocked | list | status <task-id>" ;;
-            *)        echo "ait gates: unknown subcommand '$subcmd'" >&2; echo "Available: run, unlocked, list, status" >&2; exit 1 ;;
+            sync-registry) exec "$SCRIPTS_DIR/aitask_gate.sh" sync-registry "$@" ;;
+            --help|-h|"") echo "ait gates: run | unlocked | list | status <task-id> | sync-registry" ;;
+            *)        echo "ait gates: unknown subcommand '$subcmd'" >&2; echo "Available: run, unlocked, list, status, sync-registry" >&2; exit 1 ;;
         esac
         ;;
     gate)

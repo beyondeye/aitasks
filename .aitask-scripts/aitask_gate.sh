@@ -23,10 +23,25 @@
 #                                                (t635_4; python-only)
 #   resume-point <task-id>                       Derive task-workflow re-entry
 #                                                stage (t635_5; python-only)
+#   effective-gates <task-id> [--profile <f>]    Resolved declared set (t635_14)
+#   has-gates-field <task-id>                    Exit 0 if `gates:` is present
+#   should-self-record <task-id> <gate>          Exit 0 if the workflow (not the
+#                                                orchestrator) records the gate
+#   active <task-id> <gate>                      Exit 0 if the gate is enforced
+#   materialize-active <task-id> --profile <f>   Write the active_gates tuple
+#                                                (t635_33)
+#   active-gates-status <task-id> --profile <f>  Tuple provenance + freshness
+#   procedure-gates <task-id>                    Unmet kind:procedure gates
+#   begin-procedure <task-id> <gate>             Open a procedure-gate run
+#   sync-registry [--dry-run] [--registry <f>]   Additively reconcile the project
+#                 [--reference <f>]              registry against the canonical
+#                                                reference (t635_34; python-only)
 #
 # Primary path is bash + POSIX awk. The Python module lib/gate_ledger.py is the
 # documented fallback (drop-in, identical output): used when AIT_GATES_BACKEND=python
 # or when the awk scan fails. Keep the two output formats byte-identical.
+# EXCEPTIONS — python-only verbs (no bash path exists): deps-unblock,
+# archive-ready, resume-point, effective-gates, procedure-gates, sync-registry.
 #
 # append keys: run, status, attempt, duration, type (marker line);
 #              verifier, result, log, note (body lines). Others are ignored.
@@ -38,10 +53,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# NOTE: lib/registry_lock.sh is sourced LAZILY inside cmd_sync_registry, not
+# here. Only that one verb needs it, and several tests scaffold a fake
+# .aitask-scripts/lib/ by hand-copying a subset of libs — an unconditional
+# source at startup makes every other verb crash in those fixtures with
+# "No such file or directory" (see the source-on-startup rule in
+# aidocs/framework/shell_conventions.md).
 
 TASK_DIR="${TASK_DIR:-aitasks}"
 GATE_LEDGER_PY="$SCRIPT_DIR/lib/gate_ledger.py"
 REGISTRY="${TASK_DIR}/metadata/gates.yaml"
+# Canonical gate registry shipped with the framework. Overridable so tests can
+# exercise sync-registry against a doctored reference: the test fixtures symlink
+# the real .aitask-scripts/, so without this every case would run against the
+# live reference and the edge cases would be unwritable (t635_34).
+GATES_REFERENCE="${AIT_GATES_REFERENCE:-$SCRIPT_DIR/gates_reference.yaml}"
 
 VALID_STATUSES="pass fail pending running skip error"
 
@@ -641,6 +667,36 @@ cmd_compute_active() {  # internal: <task-file> <profile-file>
 # govern, exactly as the caller is told. The whole read-compute-write
 # transaction runs under the per-task gate mutex, so it can never interleave
 # with a concurrent append.
+# Early "no verifier" warning (t635_34). Fires at CLAIM time for a gate that is
+# in the task's ENFORCED active set but that no path can ever satisfy — so the
+# user learns at pick time instead of discovering it when archival blocks with
+# `blocked: no verifier configured (deferred)`.
+#
+# Scoped to the ACTIVE set on purpose: a gate outside the profile's rendered
+# ceiling is already filtered out and never enforced, so warning about it would
+# be noise (t635_33's model). Human gates (pend on a signal) and kind:procedure
+# gates (run by the attended agent) are legitimately verifier-less and must not
+# warn — the shared `gate_ledger.unverifiable_reason` predicate, which
+# `gate_orchestrator.blocked_reason` also calls, owns that decision.
+#
+# stderr ONLY: `materialize-active`'s stdout is contractually a single status
+# line that task-workflow Step 4 parses.
+_warn_unverifiable_active() {
+    local active_csv="$1"
+    [[ -z "$active_csv" ]] && return 0
+    [[ -f "$REGISTRY" ]] || return 0
+    local out line gate reason
+    out="$(delegate_python unverifiable-gates "$REGISTRY" "$active_csv" 2>/dev/null || true)"
+    [[ -z "$out" ]] && return 0
+    while IFS= read -r line; do
+        [[ "$line" == UNVERIFIABLE:* ]] || continue
+        gate="${line#UNVERIFIABLE:}"
+        reason="${gate#*:}"
+        gate="${gate%%:*}"
+        warn "materialize-active: active gate '$gate' has $reason in $REGISTRY — it will block archival. Run \`ait gates sync-registry\` to reconcile the registry."
+    done <<< "$out"
+}
+
 cmd_materialize_active() {
     local task_id="" profile=""
     while [[ $# -gt 0 ]]; do
@@ -748,6 +804,11 @@ cmd_materialize_active() {
         && [[ "$(read_yaml_field "$file" active_gates_digest)" == "$digest" ]]; then
         release_gate_lock
         trap - EXIT
+        # Also warn on the unchanged path: re-picking an in-flight task is the
+        # COMMON case, and a warning that only fired on the first
+        # materialization would be invisible for exactly the tasks that have
+        # been sitting blocked (t635_34).
+        _warn_unverifiable_active "$active"
         if _persist_task_file; then
             echo "NOOP:unchanged"
         else
@@ -768,6 +829,8 @@ cmd_materialize_active() {
 
     release_gate_lock
     trap - EXIT
+
+    _warn_unverifiable_active "$active"
 
     local status_word="MATERIALIZED"
     if ! _persist_task_file; then
@@ -812,6 +875,73 @@ cmd_active_gates_status() {
 }
 
 # --- begin-procedure (procedure-backed gates, t635_19) ---------------------
+
+# sync-registry: additively reconcile the project's gate registry against the
+# canonical reference (t635_34). Fills only keys that are textually ABSENT;
+# a key present with a different value is reported as a CONFLICT and never
+# overwritten. Comments and formatting are preserved (edits are line splices),
+# which is the main thing `ait upgrade --force`'s PyYAML deep-merge destroys.
+#
+# Python-only: the merge planner, the presence oracle and the post-write
+# self-verification all live in lib/gate_registry_sync.py.
+#
+# Serialized with the repo-level registry mutex, NOT acquire_gate_lock's
+# per-task key — this mutates a shared file, not a task file. Readers take no
+# lock and need none: the write is an atomic os.replace, so no reader ever sees
+# a torn file. Do not "fix" readers to take this lock.
+cmd_sync_registry() {
+    local dry_run=0 registry="$REGISTRY" reference="$GATES_REFERENCE"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run) dry_run=1; shift ;;
+            --registry) registry="${2:-}"; shift 2 ;;
+            --reference) reference="${2:-}"; shift 2 ;;
+            *) die "Usage: aitask_gate.sh sync-registry [--dry-run] [--registry <file>] [--reference <file>]" ;;
+        esac
+    done
+
+    local py
+    py="$(resolve_python 2>/dev/null || true)"
+    [[ -z "$py" ]] && die "sync-registry requires python3 (no bash path exists)"
+
+    # Lazily sourced: see the note at the top of this file.
+    # shellcheck source=lib/registry_lock.sh
+    source "$SCRIPT_DIR/lib/registry_lock.sh"
+
+    # Enumerate profiles through the canonical scanner so user-local profiles
+    # (profiles/local/*.yaml) are covered exactly as everywhere else.
+    local profiles=() pdir="${PROFILES_DIR:-${TASK_DIR}/metadata/profiles}"
+    local line fname
+    if [[ -d "$pdir" ]]; then
+        while IFS= read -r line; do
+            [[ "$line" == PROFILE\|* ]] || continue
+            fname="$(printf '%s' "$line" | cut -d'|' -f2)"
+            [[ -n "$fname" ]] && profiles+=("$pdir/$fname")
+        done < <(PROFILES_DIR="$pdir" "$SCRIPT_DIR/aitask_scan_profiles.sh" 2>/dev/null || true)
+    fi
+
+    registry_lock_acquire "/tmp/aitask_gate_registry_sync" 10 || \
+        die "sync-registry: another sync holds the registry lock — nothing written"
+    trap 'registry_lock_release "/tmp/aitask_gate_registry_sync"' EXIT
+
+    local rc=0 out
+    out="$("$py" "$GATE_LEDGER_PY" sync-registry "$registry" "$reference" "$dry_run" \
+        "$SCRIPT_DIR" "${profiles[@]+"${profiles[@]}"}")" || rc=$?
+
+    registry_lock_release "/tmp/aitask_gate_registry_sync"
+    trap - EXIT
+
+    [[ -n "$out" ]] && printf '%s\n' "$out"
+    if [[ "$rc" -ne 0 ]]; then
+        return "$rc"
+    fi
+    # Only when the file actually changed — a NOOP run has nothing to commit,
+    # and a "not committed" hint there would be noise the user learns to ignore.
+    if [[ "$dry_run" -eq 0 ]] && printf '%s' "$out" | grep -q '^\(FILLED\|NEW_GATE\):'; then
+        warn "registry updated but NOT committed — review it, then: ./ait git add ${registry}"
+    fi
+    return 0
+}
 
 # Allocate a run for a PROCEDURE-BACKED gate (kind: procedure) and open its
 # `running` block. The headless orchestrator defers such gates (it never writes
@@ -955,6 +1085,44 @@ Commands:
         dispatch (task-workflow / aitask-resume) calls this before running the
         gate's skill, which closes the run via `append --only-if-running`.
 
+  sync-registry [--dry-run] [--registry <file>] [--reference <file>]
+        Additively reconcile the project's gate registry
+        (aitasks/metadata/gates.yaml) against the canonical framework reference
+        (.aitask-scripts/gates_reference.yaml) — the repair for a registry
+        seeded before the verifier keys shipped, whose tasks block on
+        `no verifier configured` and cannot archive (t635_34).
+
+        ONLY fills keys that are textually ABSENT. A key present with a
+        different value is reported and never overwritten. Comments and
+        formatting are preserved, unlike `ait upgrade --force`, whose YAML
+        round-trip rewrites the file and reports nothing.
+
+        Applies by default; --dry-run previews the identical report without
+        writing. Prints one line per action:
+          FILLED:<gate>.<key>=<value>          key added from the reference
+          NEW_GATE:<gate>                      whole gate block appended
+          CONFLICT:<gate>.<key>:<proj>|<ref>   differs — left alone, decide
+                                               manually ((absent) = the project
+                                               lacks a key that is never
+                                               auto-filled, e.g. `unlocks`)
+          PROFILE_UNKNOWN:<profile>.<key>:<gate>
+                                               a profile declares a gate with no
+                                               registry entry (report only —
+                                               profiles are never edited)
+          NOOP                                 already in sync
+
+        Note: filling `timeout_seconds` gives a previously UNBOUNDED machine
+        gate a wall-clock ceiling, and filling `blocks_dependents: true` makes
+        the gate hold dependent tasks until it passes. Both are visible as
+        FILLED: lines — use --dry-run first if that matters.
+
+        Refuses to write (nonzero, file untouched) when the registry cannot be
+        edited safely: duplicate gate names, fields indented at gate level, a
+        `gates:` mapping truncated by a column-0 comment with entries below it,
+        an empty mapping, or a missing/unreadable reference. Python-only.
+
+        The registry is NOT committed — review, then `./ait git add`.
+
 Backend:
   Primary path is bash + awk. Set AIT_GATES_BACKEND=python to force the
   lib/gate_ledger.py fallback (identical output).
@@ -978,6 +1146,7 @@ main() {
         active-gates-status) shift; cmd_active_gates_status "$@" ;;
         procedure-gates) shift; cmd_procedure_gates "$@" ;;
         begin-procedure) shift; cmd_begin_procedure "$@" ;;
+        sync-registry) shift; cmd_sync_registry "$@" ;;
         --help|-h|help|"") show_help ;;
         *) die "Unknown command: $cmd (try --help)" ;;
     esac

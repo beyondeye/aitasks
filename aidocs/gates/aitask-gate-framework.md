@@ -118,8 +118,45 @@ field-level equality between the two copies (in either direction) and that
 every command-driven machine gate carries a verifier, so a forgotten refresh
 fails validation instead of shipping a stale registry to downstream projects.
 Consumers: `aitask_setup.sh` (fresh data init — seedless-safe, copies whenever
-the reference exists), `install.sh` `install_seed_gates_registry()`, and the
-drift test.
+the reference exists), `install.sh` `install_seed_gates_registry()`,
+`ait gates sync-registry`, and the drift test.
+
+**Reconciling an already-installed project (t635_34).** The copy paths above
+only run on a fresh init. A project seeded *before* the verifier keys shipped
+keeps its stale registry, so its tasks block on
+`blocked: no verifier configured (deferred)` and cannot archive without a
+manual `aitask_gate.sh append <id> <gate> pass`. The repair is:
+
+```bash
+ait gates sync-registry [--dry-run]
+```
+
+It fills only keys that are textually **absent**, reports (never overwrites)
+values that differ, and preserves the project's comments and formatting. It
+also reports profile-declared gate names that have no registry entry, and never
+edits a profile.
+
+`ait upgrade --force` also fills absent keys — its PyYAML deep-merge lets
+existing destination values win — but it rewrites the file (destroying the
+schema header and every in-block comment), reports nothing about values that
+genuinely diverge, requires a full version upgrade, and needs PyYAML, which the
+rest of the gate system deliberately avoids. Prefer `sync-registry` for a
+targeted reconcile.
+
+**Adding a registry key** means teaching `lib/gate_ledger.py` about it in the
+same change (`_GATE_FIELD_KEYS` + the `read_registry_text` dispatch) — the
+parser ignores unknown keys, so an untaught key would be invisible to every
+consumer *and* would half-propagate through `sync-registry` (carried into a
+newly appended gate block, never filled into an existing one).
+`tests/test_gates_reference_drift.sh` Part 4 enforces this.
+
+**Early warning.** `aitask_gate.sh materialize-active` (task-workflow Step 4)
+warns on stderr at claim time when a gate in the task's *enforced* active set
+has no verifier and is not `kind: procedure` — so the problem surfaces at pick
+time instead of when archival blocks. Human gates (which pend on a signal) and
+procedure gates (run by the attended agent) are legitimately verifier-less and
+never warn; the shared `gate_ledger.unverifiable_reason` predicate, which
+`gate_orchestrator.blocked_reason` also calls, owns that decision.
 
 ```yaml
 # aitasks/metadata/gates.yaml

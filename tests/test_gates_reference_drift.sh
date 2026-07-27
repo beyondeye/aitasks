@@ -162,6 +162,53 @@ assert_eq "aitask_setup.sh reads the canonical reference" "yes" \
     "$(grep -qF '.aitask-scripts/gates_reference.yaml' "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" && echo yes || echo no)"
 assert_eq "no consumer still reads seed/gates.yaml" "" \
     "$(grep -l 'seed/gates\.yaml' "$PROJECT_DIR/install.sh" "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" 2>/dev/null || true)"
+# t635_34 added a THIRD consumer: `ait gates sync-registry` reconciles an
+# installed project's registry against the reference. A refactor that breaks
+# its path must fail here rather than silently degrading the repair command.
+assert_eq "aitask_gate.sh reads the canonical reference (sync-registry)" "yes" \
+    "$(grep -qF 'gates_reference.yaml' "$PROJECT_DIR/.aitask-scripts/aitask_gate.sh" && echo yes || echo no)"
+
+# =====================================================================
+echo "--- Part 4: reference is safe for the sync writer (t635_34) ---"
+# =====================================================================
+
+# Every key the reference declares must be one the parser can consume.
+# Otherwise sync-registry carries it into a NEW_GATE copy (lexical extent) but
+# can never fill it into an EXISTING gate (allowlist-driven), so the schema
+# addition would half-propagate silently. Teaching the parser is the same edit
+# `read_registry` needs anyway to see the key at all.
+unknown_keys="$("$PY" - "$REFERENCE" <<'PYEOF'
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), "lib"))
+import gate_ledger as gl
+layout = gl.registry_layout(open(sys.argv[1], encoding="utf-8").read())
+seen = set()
+for block in layout.blocks.values():
+    seen |= set(block.fields)
+print(",".join(sorted(seen - set(gl._GATE_FIELD_KEYS))))
+PYEOF
+)"
+assert_eq "reference declares no key the registry parser cannot consume" "" "$unknown_keys"
+
+# `read_registry` does NOT strip inline comments, but PyYAML (which
+# `ait upgrade --force` still runs over this file) does. An unquoted `#` in a
+# value would make the two readers disagree about the same registry.
+bad_hash="$("$PY" - "$REFERENCE" <<'PYEOF'
+import sys, re
+bad = []
+for i, line in enumerate(open(sys.argv[1], encoding="utf-8"), 1):
+    m = re.match(r"^[ \t]+[A-Za-z0-9_]+:[ \t]+(.*)$", line)
+    if not m:
+        continue
+    value = m.group(1).strip()
+    if value.startswith(("'", '"')):
+        continue
+    if "#" in value:
+        bad.append(str(i))
+print(",".join(bad))
+PYEOF
+)"
+assert_eq "no reference value carries an unquoted '#'" "" "$bad_hash"
 
 # =====================================================================
 echo ""

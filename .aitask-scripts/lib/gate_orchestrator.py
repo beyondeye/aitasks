@@ -251,7 +251,12 @@ def blocked_reason(g: str, declared: list[str], registry: dict, state: dict,
     if registry.get(g, {}).get("kind") == "procedure":
         return ("needs agent (procedure-backed gate — run via task-workflow / "
                 "aitask-resume)")
-    if not registry.get(g, {}).get("verifier"):
+    # Shared with the pick-time warning in `aitask_gate.sh materialize-active`
+    # (t635_34) so the two can never drift. Behaviour-identical to the former
+    # inline `not registry.get(g, {}).get("verifier")`: the human and procedure
+    # arms above have already returned, so for a machine command gate the
+    # predicate reduces to exactly "no registry entry, or no verifier".
+    if gl.unverifiable_reason(g, registry):
         return "blocked: no verifier configured (deferred)"
     return "blocked"
 

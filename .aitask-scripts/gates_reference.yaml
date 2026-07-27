@@ -12,7 +12,24 @@
 # tests/test_gates_reference_drift.sh enforces field-level equality between the
 # two copies (in either direction), so a forgotten refresh fails validation
 # instead of shipping stale. Consumers: aitask_setup.sh (fresh data init),
-# install.sh install_seed_gates_registry(), and the drift test.
+# install.sh install_seed_gates_registry(), `ait gates sync-registry`, and the
+# drift test.
+#
+# The `cp` above is the MAINTAINER direction only (reference -> this repo's own
+# live registry), and it is a wholesale overwrite. It is NOT how an installed
+# downstream project reconciles: that direction is
+#   ait gates sync-registry [--dry-run]
+# which fills only ABSENT keys, reports (never overwrites) values that differ,
+# and preserves the project's comments and formatting (t635_34). Do not
+# conflate the two — running the `cp` against a project registry would discard
+# its customizations.
+#
+# When ADDING A KEY here, teach lib/gate_ledger.py's parser about it in the same
+# change (`_GATE_FIELD_KEYS` + the field dispatch in `read_registry_text`).
+# tests/test_gates_reference_drift.sh Part 4 fails otherwise: an unknown key
+# rides along into a newly-appended gate block but can never be filled into an
+# existing one, so the addition would half-propagate silently. Keep values with
+# a `#` quoted — this parser does not strip inline comments and PyYAML does.
 #
 # Declares the named verification checkpoints ("gates") a task can opt into via
 # its `gates:` frontmatter list. The task file remains authoritative for *which*
