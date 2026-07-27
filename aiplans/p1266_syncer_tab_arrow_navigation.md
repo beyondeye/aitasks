@@ -280,7 +280,7 @@ traversal chain is untouched (task verification step 7).
 ## Risk
 
 ### Code-health risk: medium
-- App-level `priority=True` arrows preempt **every** focused widget on the main screen; a future focusable pane (t1223_5's real Settings tab) that owns its own arrows will silently lose them unless it is added to `TAB_LIST_IDS` / the fall-through logic. · severity: medium · → mitigation: syncer_settings_tab_nav_coordination
+- App-level `priority=True` arrows preempt **every** focused widget on the main screen; a future focusable pane (t1223_5's real Settings tab) that owns its own arrows will silently lose them unless it is added to `TAB_LIST_IDS` / the fall-through logic. · severity: medium · → mitigation: t1267 (syncer_settings_tab_nav_coordination)
 - The four nav actions become rebindable rows in the `?` shortcut editor as a side effect of `ShortcutsMixin` registering all `BINDINGS`; a user remap of `nav_up` silently changes the list-boundary behaviour. · severity: low · → mitigation: none proposed (matches `KanbanApp`)
 - `left`/`right` on `#detail_scroll` stop scrolling horizontally — an intentional consequence of requirement 3, but a removal of existing behaviour. · severity: low · → mitigation: none proposed (pinned by test + plan decision)
 
@@ -288,7 +288,7 @@ traversal chain is untouched (task verification step 7).
 - Every requirement was probe-verified against the real `SyncerApp` before this plan was written, so the mechanism cannot turn out to be the wrong shape mid-implementation. Residual: wrap-vs-clamp was chosen as **wrap** by delegating to native `Tabs`; if clamp were wanted it is a one-line change. · severity: low · → mitigation: none needed
 
 ### Planned mitigations
-- timing: after | name: syncer_settings_tab_nav_coordination | type: chore | priority: medium | effort: low | addresses: code-health risk #1 (future focusable pane silently loses arrows) | desc: Add a bidirectional coordination note to t1223_5 so the real Settings pane extends TAB_LIST_IDS and re-verifies its widgets still receive arrows under the App-level priority bindings.
+- timing: after | name: syncer_settings_tab_nav_coordination | created: t1267 | type: chore | priority: medium | effort: low | addresses: code-health risk #1 (future focusable pane silently loses arrows) | desc: Add a bidirectional coordination note to t1223_5 so the real Settings pane extends TAB_LIST_IDS and re-verifies its widgets still receive arrows under the App-level priority bindings.
 
 ## Final Implementation Notes
 
