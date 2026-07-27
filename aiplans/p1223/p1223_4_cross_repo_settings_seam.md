@@ -770,3 +770,118 @@ unifying the shortcuts shallow-merge with `deep_merge`; fsync/crash durability.
   a repo with a separate aitask-data branch a "project layer" write lands under
   `.aitask-data/` (git-tracked on that branch), so `git diff` in the
   destination's main checkout shows nothing.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** The planned shape, across six files (+~1200 lines).
+  - `.aitask-scripts/lib/config_utils.py` (+377/-81): `_UMASK` read once at
+    import, `_os_replace` alias, `_target_mode`, `_prepare_atomic` /
+    `_commit_atomic` / `_discard_temp` / `_atomic_write`, `_render_json` /
+    `_render_yaml`, `ConfigMergeError` + `ConfigImportPartialError`, the
+    `_ABSENT` sentinel + `_read_destination`, `_describe_path` /
+    `_check_type_conflicts` / `_merge_file`, relocated `MODEL_FILES` /
+    `load_all_models` with `metadata_path=`, and the rewritten
+    `import_all_configs` (arg validation → plan → prepare → commit, with the
+    shortcuts branch folded into the same stages).
+  - **New** `.aitask-scripts/lib/cross_repo_settings.py` (428): `resolver_env`,
+    `dest_metadata_dir`, `repo_key`, `_read_layer` / `_layer_defaults`,
+    `OperationValue`, `PushOutcome`, `read_operation_defaults`,
+    `diff_across_repos`, `_catalog_model_names`, `plan_push`, `apply_push`,
+    `DestConfigUnreadable`, `PushPartialError`.
+  - `.aitask-scripts/lib/agent_model_picker.py` (+30/-…): definitions replaced
+    by a re-export, keeping `METADATA_DIR` for its existing importers.
+  - `.aitask-scripts/lib/agent_launch_utils.py` (+14): keyword-only `env=` on
+    `resolve_agent_string`, forwarded to `subprocess.run`.
+  - `.aitask-scripts/settings/settings_app.py` (+54/-…): `_reload_all_configs`
+    extracted (removing a duplicate block `action_reload_configs` already had)
+    and a `ConfigImportPartialError` branch that reloads from disk.
+  - **New** `tests/test_cross_repo_settings.py` (826): 40 tests.
+
+- **Deviations from plan:** Two, both tightening rather than reducing scope.
+  1. The plan's whole-file table said a destination holding `null` must raise.
+     The first implementation could not: `_read_destination` returned `None`
+     for *both* "absent" and "contains null", so the null case took the
+     write-verbatim branch. Added an explicit `_ABSENT` sentinel. Found by the
+     test, not by review — see Issues.
+  2. Test 30 as planned pinned only the *symptom* of the `clear_mask` write
+     order. It was strengthened to pin the order **directly**: the injected
+     failure reads the project file at clear time and asserts the new value is
+     already there. The reversal mutation (M15) only fails against the
+     strengthened version.
+
+- **Issues encountered:**
+  1. *A null destination was silently overwritten.* `_read_destination`
+     conflated "file absent" with "file holds `null`" — both were `None`, and
+     `_merge_file`'s `existing is None` branch writes the payload verbatim. The
+     planned test caught it on first run. Sentinel objects, not `None`, for
+     "absent" whenever `None` is itself a legal value.
+  2. *Two test-fixture bugs, not implementation bugs.* The `masked` test pushed
+     a model absent from its own fixture catalog (so it got
+     `model_not_in_dest_catalog` first), and the `clear_mask` partial test
+     patched `save_local_config` in a fixture whose local file was emptied and
+     therefore `unlink`ed — the patched function was never called. Both fixtures
+     were wrong about the code path they were exercising.
+  3. *`cd` leaked into the shell's working directory*, so a later
+     `mv tests/... scratchpad/` silently no-opped, and the retry with absolute
+     paths was killed by a 10-minute timeout **after** moving the test file out
+     and **before** moving it back. The file was recovered from the scratchpad.
+     A command that relocates a file must not depend on its own completion to
+     restore it.
+  4. *`unittest discover` over the whole tests/ tree exits 144* independently of
+     this change; `bash tests/run_all_python_tests.sh` is the working entry
+     point.
+
+- **Key decisions:**
+  - **Provenance mirrors the resolver exactly.** Dropping `seed` was the
+    difference between `conflict` meaning "something is genuinely wrong" and
+    `conflict` firing on every seed-only operation. Amended in the parent plan,
+    this task, t1223_5 and t1223_6 rather than left implicit.
+  - **One `dest_metadata_dir(root)` for layers, catalog and subprocess.** The
+    catalog path is passed explicitly (`metadata_path=`) rather than derived
+    from ambient `TASK_DIR`, because *any* ambient derivation lets the three
+    drift apart — an absolute `TASK_DIR` discards the root outright, and a
+    relative non-default one silently reads a different tree under it.
+  - **The project layer is read for its side effect in `plan_push`.** The shell
+    resolver exits 0 with the builtin default for a corrupt config, so the
+    strict probe is the only thing standing between a broken repo and a
+    confident `ok`.
+  - **`clear_mask` ordering is the contract, not an implementation detail.**
+    Project-then-clear leaves the effective value untouched on failure and
+    converges on retry; the reverse drops the user's override.
+  - **Partial application is reported, not assumed away.** POSIX cannot make N
+    renames atomic, so `ConfigImportPartialError` carries the landed files and
+    `settings_app` reloads from disk on it.
+  - **15 falsifiability mutations were run individually**; each made the suite
+    exit 1, and the tree was restored by reversing the exact edit (never
+    `git checkout --`, which would have destroyed the concurrent session's
+    uncommitted work).
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_codeagent.sh:74-82` — a malformed
+    `codeagent_config.json` is swallowed (`jq … 2>/dev/null` then `|| true`) and
+    the resolver falls through to the next layer, exiting 0 with a plausible
+    value. A corrupt project config is therefore indistinguishable from an
+    absent one at every call site, not just this one. Worked around here with a
+    strict probe rather than fixed, because changing the resolver's failure
+    behavior affects all ~10 callers.
+  - `aidocs/framework/model_reference_locations.md:67,74` — self-contradicting
+    and stale line references (`~540` and `663` for the resolution-chain help
+    text, which actually lives at `aitask_codeagent.sh:645-649`; line 74 still
+    cites `claudecode/opus4_6`).
+
+- **Notes for sibling tasks:**
+  - **t1223_5** must catch `DestConfigUnreadable` **per repo** in the matrix
+    worker; letting it propagate blanks the whole tab because one repo is
+    broken. It must also handle `PushPartialError` as its own outcome
+    ("retry to finish"), and index by `sess.key` directly — `repo_key` is pinned
+    equal to `AitasksSession.key` by a test.
+  - Never call `resolve_agent_string` on a foreign root without
+    `cross_repo_settings.resolver_env()`. `METADATA_DIR` / `TASK_DIR` /
+    `DEFAULT_AGENT_STRING` are documented caller overrides that outrank `cwd`.
+  - `import_all_configs(merge=True)` is now the sanctioned way to write one key
+    into any repo's config. Do not add a second path-parameterized writer.
+  - The three temp-file + `os.replace` implementations (`gate_ledger`,
+    `attachment_meta`, `config_utils`) still differ; unifying them is the
+    planned `unify_atomic_write_helpers` follow-up.
