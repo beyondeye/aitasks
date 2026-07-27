@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: [t635_7, t635_9, t635_10, t635_12, t635_14]
+depends: [t635_7, t635_9, t635_10, t635_12, t635_14, t635_34, t635_37]
 issue_type: documentation
 status: Ready
 labels: [gates, web_site]
