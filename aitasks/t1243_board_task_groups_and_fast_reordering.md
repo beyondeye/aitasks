@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Ready
 labels: [aitask_board, tui, script-performance]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -13,7 +13,6 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t1243_1, t1243_2, t1243_3, t1243_4, t1243_5, t1243_6, t1243_7, t1243_8, t1243_9, t1243_10, t1243_11, t1243_12, t1243_13, t1243_14, t1243_15]
-assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-07-26 00:06
 updated_at: 2026-07-28 01:21
