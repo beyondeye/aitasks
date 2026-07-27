@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [ait_setup, installation, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-22 18:48
-updated_at: 2026-07-22 18:48
+updated_at: 2026-07-27 18:11
 ---
 
 ## Origin
