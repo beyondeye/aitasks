@@ -83,9 +83,11 @@ from upgrade_screens import (  # noqa: E402
 )
 
 from textual import work  # noqa: E402
-from textual.app import App, ComposeResult  # noqa: E402
+from textual.actions import SkipAction  # noqa: E402
+from textual.app import App, ComposeResult, ScreenStackError  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Vertical, VerticalScroll  # noqa: E402
+from textual.css.query import NoMatches, WrongType  # noqa: E402
 from textual.widgets import (  # noqa: E402
     DataTable,
     Footer,
@@ -93,6 +95,7 @@ from textual.widgets import (  # noqa: E402
     Static,
     TabbedContent,
     TabPane,
+    Tabs,
 )
 from textual.worker import get_current_worker  # noqa: E402
 
@@ -126,6 +129,28 @@ VERSION_TAB_ACTIONS = (
     "upgrade",
     "recheck_version",
 )
+
+# Arrow-key navigation actions (t1266). Bound App-level with priority=True so
+# they beat the focused DataTable's own cursor bindings; each action re-raises
+# SkipAction when it is not the one that should handle the key, so ordinary
+# cursor / scroll movement is untouched. Blanket-gated off in check_action while
+# any screen is pushed — see the "Priority bindings + App.query_one gotcha"
+# section of aidocs/framework/tui_conventions.md.
+NAV_ACTIONS = (
+    "nav_up",
+    "nav_down",
+    "prev_tab",
+    "next_tab",
+)
+
+# Active TabPane -> the id of the list that `down` from the tab bar enters.
+# `tab_settings` is deliberately absent: its pane is a non-focusable Static
+# placeholder until t1223_5, so `down` there is an explicit no-op rather than a
+# crash. When t1223_5 lands a focusable Settings pane, add its list id here.
+TAB_LIST_IDS = {
+    "tab_branches": "branches",
+    "tab_versions": "versions",
+}
 
 # upgrade_state values (contract G). There is deliberately no "succeeded"
 # state: launch_in_tmux returns as soon as the pane exists, `ait setup` may sit
@@ -493,6 +518,16 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("U", "upgrade", "Upgrade"),
         Binding("c", "recheck_version", "Re-check"),
         Binding("q", "quit", "Quit"),
+        # Tab bar <-> content navigation (t1266). priority=True is required: a
+        # focused DataTable binds all four arrows itself and consumes them at
+        # the clamped boundary, so a non-priority binding (or an App-level
+        # on_key handler) would never observe them.
+        Binding("up", "nav_up", "Row up / leave list", show=False, priority=True),
+        Binding(
+            "down", "nav_down", "Row down / enter list", show=False, priority=True
+        ),
+        Binding("left", "prev_tab", "Previous tab", show=False, priority=True),
+        Binding("right", "next_tab", "Next tab", show=False, priority=True),
     ]
 
     def __init__(self, cli_args: argparse.Namespace) -> None:
@@ -637,7 +672,48 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         except Exception:
             return "tab_branches"
 
+    # Narrow on purpose: pre-mount, App.query_one resolves self.screen first and
+    # raises ScreenStackError (NOT NoMatches); a missing or retyped widget raises
+    # NoMatches / WrongType. Anything else is a real bug and must surface —
+    # swallowing it would turn every arrow key into a silent no-op.
+    _QUERY_MISS = (ScreenStackError, NoMatches, WrongType)
+
+    def _tab_bar(self) -> Tabs | None:
+        """The TabbedContent's Tabs bar, or None pre-mount / when not composed."""
+        try:
+            return self.query_one(TabbedContent).query_one(Tabs)
+        except self._QUERY_MISS:
+            return None
+
+    def _active_list(self) -> DataTable | None:
+        """The active pane's DataTable, or None.
+
+        `None` has two distinct causes and callers must not conflate them: the
+        active tab maps to no list at all (the Settings placeholder — a designed
+        state), or it maps to one that the query could not resolve (pre-mount, or
+        the widget is gone — a degraded lookup). Callers test membership in
+        ``TAB_LIST_IDS`` for the former before consulting this for the latter.
+        """
+        list_id = TAB_LIST_IDS.get(self._active_tab())
+        if list_id is None:
+            return None
+        try:
+            return self.query_one(f"#{list_id}", DataTable)
+        except self._QUERY_MISS:
+            return None
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        # Arrow nav is main-screen-only. Returning False for a priority binding
+        # makes Textual treat it as inactive, so the key falls through to the
+        # focused modal widget (the upgrade RadioSet/Input, the shortcut
+        # editor's table, the TUI switcher's list). Blanket rather than
+        # per-class so a future modal is covered without enumeration.
+        #
+        # No try/except: App.__init__ seeds the screen stack, so screen_stack is
+        # exception-free even pre-mount (it returns []). Guarding it could only
+        # ever fail OPEN and let a priority arrow hijack a modal widget.
+        if action in NAV_ACTIONS:
+            return len(self.screen_stack) <= 1
         # Tab gate first: a Branches-only action is not part of another tab's
         # vocabulary, so `False` drops it from the footer entirely. The row gate
         # below keeps `None` (dimmed) — same tab, just a non-applicable row.
@@ -669,6 +745,62 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if event.pane.id == "tab_versions" and not self._versions_loaded:
             self._versions_loaded = True
             self._request_versions()
+
+    # ---------------------------------------------------- tab bar <-> content
+
+    def action_nav_down(self) -> None:
+        """`down`: from the tab bar, enter the active pane's list at row 0."""
+        bar = self._tab_bar()
+        if bar is None or self.focused is not bar:
+            # Not our key: ordinary DataTable cursor / VerticalScroll movement.
+            raise SkipAction()
+        if self._active_tab() not in TAB_LIST_IDS:
+            # Settings placeholder: no list to enter. Consume and stay on the
+            # bar rather than throwing on a query that was never going to match.
+            return
+        table = self._active_list()
+        if table is None:
+            # Mapped but not composed — hand the key back instead of eating it.
+            raise SkipAction()
+        table.focus()
+        if table.row_count:
+            table.move_cursor(row=0)
+
+    def action_nav_up(self) -> None:
+        """`up`: on the list's first row, hand focus back to the tab bar."""
+        table = self._active_list()
+        if table is None or self.focused is not table or table.cursor_row > 0:
+            # Mid-list, or a widget that owns its own vertical movement.
+            raise SkipAction()
+        bar = self._tab_bar()
+        if bar is None:
+            raise SkipAction()
+        bar.focus()
+
+    def _switch_tab(self, direction: int) -> None:
+        """Move one tab, from anywhere. Delegates to Tabs so wrap matches the bar.
+
+        Focus must leave the current pane *first*: activating another tab while a
+        widget inside the current pane holds focus is silently reverted (t1060).
+        Focus then stays on the bar, from which `down` re-enters content — the
+        same convention as brainstorm's `_select_tab`.
+        """
+        bar = self._tab_bar()
+        if bar is None:
+            raise SkipAction()
+        bar.focus()
+        if direction > 0:
+            bar.action_next_tab()
+        else:
+            bar.action_previous_tab()
+
+    def action_prev_tab(self) -> None:
+        """`left`: previous tab, regardless of what holds focus."""
+        self._switch_tab(-1)
+
+    def action_next_tab(self) -> None:
+        """`right`: next tab, regardless of what holds focus."""
+        self._switch_tab(+1)
 
     def _set_busy(self, busy: bool) -> None:
         try:

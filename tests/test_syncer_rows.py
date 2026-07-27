@@ -26,6 +26,8 @@ sys.path.insert(0, str(PROJECT_DIR / ".aitask-scripts" / "syncer"))
 from textual.widgets import (  # noqa: E402
     DataTable,
     Footer,
+    Input,
+    RadioSet,
     Static,
     TabbedContent,
     TabPane,
@@ -750,6 +752,282 @@ class TabbedShellTests(unittest.TestCase):
                 await pilot.pause()
                 self.assertIsInstance(app.focused, Tabs)
         self._run(runner())
+
+    # ----------------------------------------- tab bar <-> content nav (t1266)
+
+    async def _focus_bar(self, app, pilot):
+        bar = app.query_one(TabbedContent).query_one(Tabs)
+        bar.focus()
+        await pilot.pause()
+        return bar
+
+    def test_down_from_tab_bar_enters_the_active_list(self):
+        """Requirement 1: ↓ on the bar lands on the active pane's first row."""
+        async def runner():
+            async with self.booted(repos=3) as (app, pilot):
+                await self._focus_bar(app, pilot)
+                await pilot.press("down")
+                await pilot.pause()
+                branches = app.query_one("#branches", DataTable)
+                self.assertIs(app.focused, branches)
+                self.assertEqual(branches.cursor_row, 0)
+
+                # Same contract on the second content tab, via its own table.
+                await activate_tab(app, pilot, "tab_versions")
+                await self.settle(app, pilot)
+                await pilot.press("down")
+                await pilot.pause()
+                versions = app.query_one("#versions", DataTable)
+                self.assertIs(app.focused, versions)
+                self.assertEqual(versions.cursor_row, 0)
+        self._run(runner())
+
+    def test_up_on_first_row_returns_to_the_tab_bar(self):
+        """Requirement 2: ↑ at row 0 hands focus back to the bar.
+
+        DataTable's own action_cursor_up consumes the key at the clamped
+        boundary, so without the App-level handoff this is a silent no-op.
+        """
+        async def runner():
+            async with self.booted() as (app, pilot):
+                table = app.query_one("#branches", DataTable)
+                table.focus()
+                table.move_cursor(row=0)
+                await pilot.pause()
+                await pilot.press("up")
+                await pilot.pause()
+                self.assertIsInstance(app.focused, Tabs)
+        self._run(runner())
+
+    def test_up_mid_list_moves_cursor_and_keeps_focus(self):
+        """Negative control for requirement 2 — the handoff must NOT fire
+        mid-list. The App action raises SkipAction so DataTable's own cursor
+        binding still runs."""
+        async def runner():
+            async with self.booted() as (app, pilot):
+                table = app.query_one("#branches", DataTable)
+                table.focus()
+                table.move_cursor(row=ROW_DATA)
+                await pilot.pause()
+                await pilot.press("up")
+                await pilot.pause()
+                self.assertIs(app.focused, table)
+                self.assertEqual(table.cursor_row, ROW_MAIN)
+        self._run(runner())
+
+    def test_left_right_switch_tabs_while_the_table_holds_focus(self):
+        """Requirement 3 from the content table.
+
+        Asserting TabbedContent.active is load-bearing: activating a tab while a
+        widget in the current pane holds focus is silently reverted (t1060), so
+        an implementation that forgets the focus handoff passes any weaker
+        assertion for the wrong reason.
+        """
+        async def runner():
+            async with self.booted() as (app, pilot):
+                tabbed = app.query_one(TabbedContent)
+                table = app.query_one("#branches", DataTable)
+                table.focus()
+                await pilot.pause()
+                self.assertIs(app.focused, table)
+
+                await pilot.press("right")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertEqual(tabbed.active, "tab_versions")
+                # Focus settles on the bar, from which ↓ re-enters content.
+                self.assertIsInstance(app.focused, Tabs)
+
+                await pilot.press("left")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertEqual(tabbed.active, "tab_branches")
+        self._run(runner())
+
+    def test_left_right_switch_tabs_from_the_detail_pane(self):
+        """Requirement 3's "regardless of what holds focus", asserted at the one
+        pane that would otherwise swallow ←/→.
+
+        #detail_scroll is a VerticalScroll: its own left/right bindings scroll
+        horizontally, so a design relying on SkipAction fall-through would fail
+        exactly here. This is also the positive pin for the deliberate trade-off
+        that horizontal scrolling of the detail pane is given up.
+        """
+        async def runner():
+            async with self.booted() as (app, pilot):
+                tabbed = app.query_one(TabbedContent)
+                detail = app.query_one("#detail_scroll")
+                detail.focus()
+                await pilot.pause()
+                self.assertIs(app.focused, detail)
+
+                await pilot.press("right")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertEqual(tabbed.active, "tab_versions")
+                self.assertIsInstance(app.focused, Tabs)
+
+                await pilot.press("left")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertEqual(tabbed.active, "tab_branches")
+        self._run(runner())
+
+    def test_detail_scroll_keeps_vertical_arrows(self):
+        """↑/↓ on the detail pane stay with the pane (SkipAction fall-through);
+        only ←/→ are taken over."""
+        async def runner():
+            async with self.booted() as (app, pilot):
+                detail = app.query_one("#detail_scroll")
+                detail.focus()
+                await pilot.pause()
+                for key in ("up", "down"):
+                    await pilot.press(key)
+                    await pilot.pause()
+                    self.assertIs(app.focused, detail, f"{key} stole focus")
+                self.assertEqual(
+                    app.query_one(TabbedContent).active, "tab_branches"
+                )
+        self._run(runner())
+
+    def test_tab_switching_wraps_at_both_ends(self):
+        """Wrap (not clamp) — inherited by delegating to Tabs._move_tab, so the
+        bar and the content panes behave identically."""
+        async def runner():
+            async with self.booted() as (app, pilot):
+                tabbed = app.query_one(TabbedContent)
+                table = app.query_one("#branches", DataTable)
+                table.focus()
+                await pilot.pause()
+                for expected in ("tab_versions", "tab_settings", "tab_branches"):
+                    await pilot.press("right")
+                    await pilot.pause()
+                    await pilot.pause()
+                    self.assertEqual(tabbed.active, expected)
+                # ...and backwards off the front edge.
+                await pilot.press("left")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertEqual(tabbed.active, "tab_settings")
+        self._run(runner())
+
+    def test_down_on_the_settings_placeholder_is_a_noop(self):
+        """The designed no-list case: Settings is a non-focusable Static until
+        t1223_5, so ↓ from the bar consumes the key and stays put — it must not
+        raise."""
+        async def runner():
+            async with self.booted() as (app, pilot):
+                await activate_tab(app, pilot, "tab_settings")
+                bar = await self._focus_bar(app, pilot)
+                await pilot.press("down")
+                await pilot.pause()
+                self.assertIs(app.focused, bar)
+                self.assertEqual(
+                    app.query_one(TabbedContent).active, "tab_settings"
+                )
+        self._run(runner())
+
+    def test_up_falls_through_when_the_mapped_list_is_missing(self):
+        """The *other* reason _active_list() returns None.
+
+        A tab mapped to a list id that does not resolve is a degraded lookup, not
+        a designed no-op: the key must be handed back to the focused widget
+        instead of performing the tab-bar handoff. Discriminating against
+        test_up_on_first_row_returns_to_the_tab_bar, which does hand off from the
+        very same row.
+        """
+        async def runner():
+            async with self.booted() as (app, pilot):
+                table = app.query_one("#branches", DataTable)
+                table.focus()
+                table.move_cursor(row=0)
+                await pilot.pause()
+                with mock.patch.dict(
+                    syncer_app.TAB_LIST_IDS, {"tab_branches": "no_such_widget"}
+                ):
+                    await pilot.press("up")
+                    await pilot.pause()
+                    self.assertIs(app.focused, table)
+                    # And ↓ from the bar finds nothing to enter, without raising.
+                    bar = await self._focus_bar(app, pilot)
+                    await pilot.press("down")
+                    await pilot.pause()
+                    self.assertIs(app.focused, bar)
+        self._run(runner())
+
+    def test_arrows_in_an_upgrade_modal_do_not_switch_tabs(self):
+        """The modal gate. An App priority binding fires before a pushed modal's
+        own binding, so without check_action returning False the upgrade dialog's
+        RadioSet and Input would lose their arrow keys."""
+        async def runner():
+            async with self.booted() as (app, pilot):
+                tabbed = app.query_one(TabbedContent)
+                app.push_screen(UpgradeTargetScreen("repo0", "0.0.1"))
+                for _ in range(4):
+                    await pilot.pause()
+                self.assertIsInstance(app.screen, UpgradeTargetScreen)
+
+                # RadioSet's ↑/↓ move the highlight (the "-selected" class), not
+                # pressed_index — that only changes on space/enter.
+                radio = app.screen.query_one("#upgrade_mode", RadioSet)
+                radio.focus()
+                await pilot.pause()
+                self.assertTrue(
+                    radio.query_one("#mode_latest").has_class("-selected")
+                )
+                await pilot.press("down")
+                await pilot.pause()
+                self.assertTrue(
+                    radio.query_one("#mode_pinned").has_class("-selected"),
+                    "RadioSet lost ↓ to the App",
+                )
+
+                field = app.screen.query_one("#upgrade_version_input", Input)
+                field.disabled = False
+                field.value = "0.28.0"
+                field.focus()
+                for _ in range(3):
+                    await pilot.pause()
+                field.cursor_position = 4
+                await pilot.pause()
+                await pilot.press("left")
+                await pilot.pause()
+                self.assertEqual(
+                    field.cursor_position, 3, "Input lost ← to the App"
+                )
+
+                self.assertEqual(tabbed.active, "tab_branches")
+        self._run(runner())
+
+    def test_nav_actions_inert_only_while_a_screen_is_pushed(self):
+        async def runner():
+            async with self.booted() as (app, pilot):
+                for action in syncer_app.NAV_ACTIONS:
+                    self.assertIs(
+                        app.check_action(action, ()), True, f"{action} on main"
+                    )
+                app.push_screen(UpgradeTargetScreen("repo0", "0.0.1"))
+                for _ in range(4):
+                    await pilot.pause()
+                for action in syncer_app.NAV_ACTIONS:
+                    self.assertIs(
+                        app.check_action(action, ()), False, f"{action} in modal"
+                    )
+        self._run(runner())
+
+    def test_nav_check_action_is_exception_free_before_mount(self):
+        """The modal gate carries no try/except on purpose — a swallowed error
+        there could only ever fail OPEN and let a priority arrow hijack a modal
+        widget. This pins that no guard is needed: screen_stack is safe pre-mount.
+        """
+        with mock.patch.object(
+            syncer_app, "discover_syncer_sessions", lambda: [sess("/tmp/repo0")]
+        ):
+            app = syncer_app.SyncerApp(
+                argparse.Namespace(interval=3600, no_fetch=True)
+            )
+        for action in syncer_app.NAV_ACTIONS:
+            self.assertIs(app.check_action(action, ()), True, action)
 
     # --------------------------------------------------------- tab gating
 
