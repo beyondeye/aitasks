@@ -71,7 +71,8 @@ pre-existing and stays out of scope; new plans on such a repo record
 ### Non-goals (declared, not overlooked)
 
 1. **The header's `Base branch:` still records `detect_primary_branch()`, not the
-   profile's `base_branch`.** That mismatch is pre-existing and independent: a
+   profile's `base_branch`.** (The profile's `base_branch` *is* now read — but
+   only as the `output_branch` fallback, never to change this field.) That mismatch is pre-existing and independent: a
    `base_branch: develop` profile already records `Base branch: main` today, and
    `remote-drift-check.md:9` already reads the wrong value. Fixing it here would
    change drift behaviour for existing users and mix a behaviour change into an
@@ -152,6 +153,51 @@ Contract, pinned by tests:
 Update the file-header usage comment (lines 12-17) and the `usage()` heredoc
 (lines 58-75).
 
+### 1b. Branch names are untrusted input — validate, then bind to a variable
+
+`output_branch` is user-authored profile config, and **git accepts refs
+containing shell metacharacters**: `dev$(id)`, ``dev`id` ``, `dev;id`, `dev'x`
+and `dev"x` all pass `git check-ref-format --branch` (verified). Because the
+workflow is prose that an agent *textually substitutes* into shell commands,
+quoting is **not** a sufficient defence — `"dev$(id)"` still executes inside
+double quotes, and a `'` in the value breaks out of single quotes.
+
+Two layers, both required:
+
+1. **Reject at the write site.** `aitask_plan_externalize.sh --output-branch`
+   validates against `^[A-Za-z0-9._/-]+$` *and* `git check-ref-format --branch`,
+   and `die`s otherwise — so an unsafe name can never be persisted into the plan
+   header, where Step 9 would later read it.
+2. **Never substitute the literal.** Step 5 and Step 9 bind the value into a real
+   shell variable (`output_branch=$(sed -n …)`), re-validate it, emit
+   `UNSAFE_OUTPUT_BRANCH` and stop on failure, and every downstream sink consumes
+   `"$output_branch"`. `git checkout "dev$(id)" --` executes `id`;
+   `git checkout "$output_branch" --` never does.
+
+This covers all sinks: the Step 9 checkout/merge, the Step 9 pre-flight, the
+Step 6/8 externalize calls, and the drift-check invocation.
+
+### 1c. The externalizer needs resolved runtime state, not just a profile path
+
+A profile path alone cannot describe Step 5's outcome: the base branch may have
+been chosen **interactively** rather than read from the profile, and **whether a
+worktree was created** is a runtime fact. Treating "profile has no
+`output_branch`" as "use the repository primary" silently broke the headline
+contract — a profile setting `base_branch: dev` recorded `Output branch: main`,
+so Step 9 merged to `main`.
+
+`aitask_plan_externalize.sh` therefore takes the resolved context:
+
+| Flag | Meaning |
+|---|---|
+| `--profile <path>` | Reads `output_branch` / `base_branch` / `create_worktree` with a real YAML parser. **Fails closed** on missing, malformed or non-mapping input — silently recording the primary would discard a configured merge target and only surface later as a wrong merge. |
+| `--output-branch-default <b>` | The Step-5 resolved base branch, when it came from the interactive prompt rather than the profile. Scope-honest name: it is the *output-branch fallback*, and deliberately does **not** change the recorded `Base branch:` field. |
+| `--no-worktree` | Step 5 worked on the current branch, so `output_branch` does not apply and is ignored (the schema documents it as worktree-only). Prevents a stale merge target a later session could consume. |
+| `--output-branch <b>` | Explicit override; wins over everything. |
+
+Precedence: `--output-branch` → profile `output_branch` (worktree mode only) →
+`--output-branch-default` → profile `base_branch` → detected primary.
+
 ### 2. `.claude/skills/task-workflow/SKILL.md` Step 5 — resolve `output_branch`
 
 Insert a new Jinja block immediately after the `base_branch` block (after line
@@ -193,10 +239,10 @@ immediately after Step 8 and reads that header.
 
 ```bash
 # Step 6 (proactive, after ExitPlanMode)
-./.aitask-scripts/aitask_plan_externalize.sh <task_id> --force --output-branch "<output_branch>"
+./.aitask-scripts/aitask_plan_externalize.sh <task_id> --force --profile "aitasks/metadata/profiles/<active_profile_filename>"
 
 # Step 8 (safety fallback, idempotent)
-./.aitask-scripts/aitask_plan_externalize.sh <task_id> --output-branch "<output_branch>"
+./.aitask-scripts/aitask_plan_externalize.sh <task_id> --profile "aitasks/metadata/profiles/<active_profile_filename>"
 ```
 
 Add a sentence: pass `--output-branch` whenever Step 5 resolved one (worktree
@@ -237,7 +283,7 @@ created:**` (line 565), before the NON-SKIPPABLE banner:
 
   ```bash
   # 1. It must exist as a LOCAL BRANCH — not a tag, remote-tracking ref, or SHA.
-  git rev-parse --verify --quiet "refs/heads/<output_branch>" || echo "MISSING"
+  git rev-parse --verify --quiet "refs/heads/$output_branch" || echo "MISSING"
 
   # 2. If another worktree holds it, checkout will refuse.
   git rev-parse --show-toplevel        # the worktree we are operating in
@@ -280,9 +326,9 @@ Then the three replacements — note the checkout gains a HEAD assertion:
   it before merging** — this is what makes the detached-HEAD failure mode
   impossible rather than merely unlikely:
   ```bash
-  git checkout <output_branch>
-  git symbolic-ref --short HEAD    # MUST print <output_branch>; if not, stop — do not merge
-  git merge aitask/<task_name>
+  git checkout "$output_branch" --
+  git symbolic-ref --short HEAD    # MUST print "$output_branch"; if not, stop — do not merge
+  git merge "aitask/<task_name>"
   ```
 
 Two things stay untouched, deliberately:
@@ -410,7 +456,7 @@ reach the remote* — and stays silent, best-effort, on both passes.
   `<output_branch>` differs**, run it a second time **with `--unsynced`**:
 
   ```bash
-  ./.aitask-scripts/aitask_remote_drift_check.sh --unsynced "<output_branch>" "<plan_file>"
+  ./.aitask-scripts/aitask_remote_drift_check.sh --unsynced "$output_branch" "<plan_file>"
   ```
 - **Step 3:** label every display with the branch of the run being parsed, rather
   than always `<base_branch>`. Two signal rules, kept strictly separate:
@@ -744,7 +790,15 @@ bash tests/test_remote_drift_check.sh
   least the third task to hand-edit the same five surfaces.
   · severity: medium · → mitigation: none (accepted; caught by review of the
   regenerated golden diff)
-- **Step 9 gains a new runtime failure surface at `git checkout <output_branch>`**
+- **Branch names are an injection surface.** The value is user-authored config
+  substituted by an agent into shell commands, and git permits metacharacters in
+  refs. Mitigated in depth: fail-closed validation at the persist site plus
+  variable binding (never literal substitution) at every sink, pinned by a
+  script-level test asserting the payloads are rejected AND that no command
+  substitution executed, and by a render guard asserting no `git` line
+  interpolates the placeholder. · severity: medium · → mitigation: none
+  (addressed in §1b)
+- **Step 9 gains a new runtime failure surface at `git checkout "$output_branch"`**
   (name resolving to a tag instead of a branch, branch absent locally, branch held
   by another worktree, wrong cwd). The §4 pre-flight fully-qualifies `refs/heads/`,
   compares worktree paths rather than matching blindly, and asserts symbolic HEAD
