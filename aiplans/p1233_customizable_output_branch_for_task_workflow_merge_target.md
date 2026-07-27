@@ -754,7 +754,7 @@ bash tests/test_remote_drift_check.sh
 ### Goal-achievement risk: medium
 
 - **The merge target is resolved by prose instructing an agent to grep a header
-  line and apply a 3-level fallback**, at the one site whose failure mode is
+  line and apply the two-rung fallback (`Output branch:` → legacy `main`)**, at the one site whose failure mode is
   "merged into the wrong branch". The provenance display in the approval prompt
   makes a wrong resolution visible to the user before it lands.
   · severity: medium · → mitigation: manual_verify_output_branch_merge
