@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-07-24 15:03
-updated_at: 2026-07-26 10:15
+updated_at: 2026-07-27 13:52
 ---
 
 ## Problem
@@ -109,3 +110,8 @@ among the ignored keys — decide whether `output_branch` joins that list.
 - With `output_branch` unset, behaviour is byte-identical to today.
 - The merge-approval prompt names the real target branch.
 - All rendered skill variants agree with the canonical source.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-27T10:52:59Z status=pass attempt=1 type=human
