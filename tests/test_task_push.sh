@@ -114,6 +114,7 @@ task_push
 push_rc=$?
 
 assert_success "task_push returns 0" "$push_rc"
+assert_eq "TASK_PUSH_STATUS is pushed" "pushed" "$TASK_PUSH_STATUS"
 remote_count=$(git -C "$TEST_REMOTE" rev-list --count HEAD)
 assert_eq_trim "Remote has 2 commits" "2" "$remote_count"
 
@@ -159,6 +160,7 @@ task_push
 push_rc=$?
 
 assert_success "task_push returns 0 after rebase" "$push_rc"
+assert_eq "TASK_PUSH_STATUS is pushed after rebase" "pushed" "$TASK_PUSH_STATUS"
 remote_count=$(git -C "$TEST_REMOTE" rev-list --count HEAD)
 assert_eq_trim "Remote has 3 commits after rebase" "3" "$remote_count"
 
@@ -202,10 +204,16 @@ git commit -m "orphan commit" --quiet
 
 git remote set-url origin /nonexistent/path/repo.git
 
-task_push
+# Capture stderr to a FILE, not via "$(...)": command substitution runs in a
+# subshell and would discard the TASK_PUSH_* globals the assertions below read.
+task_push 2>"$TEST_TMPDIR/push_err.txt"
 push_rc=$?
+push_err="$(cat "$TEST_TMPDIR/push_err.txt")"
 
 assert_success "task_push returns 0 even on total failure" "$push_rc"
+assert_eq "TASK_PUSH_STATUS is failed" "failed" "$TASK_PUSH_STATUS"
+assert_eq "TASK_PUSH_REASON is remote_unreachable" "remote_unreachable" "$TASK_PUSH_REASON"
+assert_contains "warning names the stranded commit count" "1 commit(s) not pushed" "$push_err"
 
 popd > /dev/null || exit 1
 
@@ -309,6 +317,220 @@ log_output=$(./ait git log --oneline -1 2>&1)
 log_rc=$?
 assert_success "ait git log returns 0" "$log_rc"
 assert_contains "ait git log shows commit" "add ait scripts" "$log_output"
+
+popd > /dev/null || exit 1
+
+# --- Test 10: failure classifier (pure unit — fixtures, no git) ---
+echo "--- Test 10: _task_push_classify reason codes ---"
+
+reload_task_utils
+
+reject_err="To /tmp/remote.git
+ ! [rejected]        master -> master (non-fast-forward)
+error: failed to push some refs to '/tmp/remote.git'"
+
+assert_eq "classify: dirty worktree blocks the rebase fallback" "dirty_worktree" \
+    "$(_task_push_classify "$reject_err" "error: cannot pull with rebase: You have unstaged changes.")"
+
+# Discriminator: the push rejection is only the symptom. When BOTH signals are
+# present the blocker must win, otherwise the hint sends the user to the wrong
+# recovery (reconcile the remote instead of cleaning the worktree).
+assert_eq "classify: blocker beats the push rejection" "dirty_worktree" \
+    "$(_task_push_classify "$reject_err" "error: cannot pull with rebase: You have unstaged changes.
+hint: fetch first")"
+
+assert_eq "classify: rebase stopped on conflicts" "rebase_conflict" \
+    "$(_task_push_classify "$reject_err" "CONFLICT (content): Merge conflict in t42.md
+error: could not apply 1a2b3c4... local commit")"
+
+assert_eq "classify: remote unreachable" "remote_unreachable" \
+    "$(_task_push_classify "fatal: '/nonexistent/path/repo.git' does not appear to be a git repository" "")"
+
+assert_eq "classify: diverged with no rebase blocker" "diverged" \
+    "$(_task_push_classify " ! [rejected]        master -> master (fetch first)" "")"
+
+assert_eq "classify: unrecognised output falls back to unknown" "unknown" \
+    "$(_task_push_classify "fatal: something nobody has seen before" "")"
+
+# Each code must map to a distinct, non-empty hint.
+assert_contains "hint: dirty worktree points at the syncer" "ait syncer" \
+    "$(_task_push_reason_hint dirty_worktree)"
+assert_contains "hint: rebase conflict points at --abort" "rebase --abort" \
+    "$(_task_push_reason_hint rebase_conflict)"
+assert_contains "hint: unreachable remote mentions connectivity" "connectivity" \
+    "$(_task_push_reason_hint remote_unreachable)"
+
+# --- Test 11: origin ahead + dirty data worktree (the live t635_27 failure) ---
+echo "--- Test 11: dirty worktree blocks rebase — reported, not silent ---"
+
+setup_remote_and_clone
+setup_branch_mode
+pushd "$TEST_MAIN_DIR" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE=".aitask-data"
+
+# Pin the outcome regardless of the developer's global git config.
+git -C .aitask-data config rebase.autoStash false
+
+echo "local branch change" > .aitask-data/my_file.txt
+git -C .aitask-data add my_file.txt
+git -C .aitask-data commit -m "branch mode local commit" --quiet
+
+advance_remote "remote_file.txt"
+
+# Another session's uncommitted edit to a TRACKED file: this is what
+# permanently blocks the pull --rebase fallback on a shared checkout.
+echo "another session's in-flight edit" >> .aitask-data/init.txt
+
+task_push 2>"$TEST_TMPDIR/dirty_err.txt"
+push_rc=$?
+dirty_err="$(cat "$TEST_TMPDIR/dirty_err.txt")"
+
+assert_success "task_push still returns 0 (best-effort contract)" "$push_rc"
+assert_eq "TASK_PUSH_STATUS is failed" "failed" "$TASK_PUSH_STATUS"
+assert_eq "TASK_PUSH_REASON is dirty_worktree" "dirty_worktree" "$TASK_PUSH_REASON"
+assert_eq "TASK_PUSH_UNPUSHED counts the stranded commit" "1" "$TASK_PUSH_UNPUSHED"
+assert_contains "warning names the stranded commit count" "1 commit(s) not pushed" "$dirty_err"
+assert_contains "warning names the actual blocker" "unstaged changes" "$dirty_err"
+assert_contains "warning names the recovery path" "ait syncer" "$dirty_err"
+
+# Nothing reached the remote — this is exactly the state that used to be
+# indistinguishable from success.
+remote_count=$(git -C "$TEST_REMOTE" rev-list --count HEAD)
+assert_eq_trim "Remote unchanged: nothing was pushed" "2" "$remote_count"
+
+popd > /dev/null || exit 1
+
+# --- Test 12: nothing to push stays silent ---
+echo "--- Test 12: nothing to push -> up-to-date, no warning ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+task_push 2>"$TEST_TMPDIR/uptodate_err.txt"
+push_rc=$?
+uptodate_err="$(cat "$TEST_TMPDIR/uptodate_err.txt")"
+
+assert_success "task_push returns 0 with nothing to push" "$push_rc"
+assert_eq "TASK_PUSH_STATUS is up-to-date" "up-to-date" "$TASK_PUSH_STATUS"
+assert_eq "no warning when nothing is stranded" "" "$uptodate_err"
+
+popd > /dev/null || exit 1
+
+# --- Test 13: no remote configured stays silent ---
+echo "--- Test 13: no remote -> no-remote, no warning ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+git remote remove origin
+echo "local only" > solo.txt
+git add solo.txt
+git commit -m "solo commit" --quiet
+
+task_push 2>"$TEST_TMPDIR/noremote_err.txt"
+push_rc=$?
+noremote_err="$(cat "$TEST_TMPDIR/noremote_err.txt")"
+
+assert_success "task_push returns 0 with no remote" "$push_rc"
+assert_eq "TASK_PUSH_STATUS is no-remote" "no-remote" "$TASK_PUSH_STATUS"
+assert_eq "solo repos stay silent" "" "$noremote_err"
+
+popd > /dev/null || exit 1
+
+# --- Test 14: the one documented exception to the exit-0 contract ---
+echo "--- Test 14: wedged data worktree dies (documented exception) ---"
+
+setup_remote_and_clone
+setup_branch_mode
+pushd "$TEST_MAIN_DIR" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE=".aitask-data"
+
+# Make _ait_data_gitdir resolve and plant an in-progress rebase.
+mkdir -p .git/worktrees/-aitask-data/rebase-merge
+
+( task_push ) 2>"$TEST_TMPDIR/wedged_err.txt"
+wedged_rc=$?
+wedged_err="$(cat "$TEST_TMPDIR/wedged_err.txt")"
+
+assert_eq "wedged worktree exits 1 (not a push outcome)" "1" "$wedged_rc"
+assert_contains "the die names the stuck operation" "rebase" "$wedged_err"
+assert_contains "the die offers a recovery command" "--abort" "$wedged_err"
+
+( AIT_GIT_SKIP_STATE_CHECK=1 task_push ) >/dev/null 2>&1
+bypass_rc=$?
+assert_success "AIT_GIT_SKIP_STATE_CHECK=1 bypasses the guard" "$bypass_rc"
+
+popd > /dev/null || exit 1
+
+# --- Test 15: ait git push --batch (public machine interface) ---
+echo "--- Test 15: ait git push --batch outcome tokens ---"
+
+# Scaffold ./ait + the libs it sources into the current repo.
+setup_ait_cli() {
+    setup_fake_aitask_repo "$PWD"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/ait" ./ait
+    chmod +x ./ait
+}
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+setup_ait_cli
+
+echo "batch push" > batch_file.txt
+git add batch_file.txt .aitask-scripts/ ait
+git commit -m "commit for batch push" --quiet
+
+batch_out="$(./ait git push --batch 2>"$TEST_TMPDIR/batch_err.txt")"
+batch_rc=$?
+assert_success "ait git push --batch returns 0 (PUSHED)" "$batch_rc"
+assert_eq "--batch prints PUSHED" "PUSHED" "$batch_out"
+remote_count=$(git -C "$TEST_REMOTE" rev-list --count HEAD)
+assert_eq_trim "Remote advanced via ait git push --batch" "2" "$remote_count"
+
+# Same repo, now in sync.
+batch_out="$(./ait git push --batch 2>"$TEST_TMPDIR/batch_err.txt")"
+batch_rc=$?
+assert_success "ait git push --batch returns 0 (NOTHING)" "$batch_rc"
+assert_eq "--batch prints NOTHING when in sync" "NOTHING" "$batch_out"
+assert_eq "NOTHING is silent on stderr" "" "$(cat "$TEST_TMPDIR/batch_err.txt")"
+
+# Negative control: the default surface stays clean.
+plain_out="$(./ait git push 2>/dev/null)"
+assert_eq "plain ait git push prints nothing on stdout" "" "$plain_out"
+
+git remote remove origin
+batch_out="$(./ait git push --batch 2>"$TEST_TMPDIR/batch_err.txt")"
+batch_rc=$?
+assert_success "ait git push --batch returns 0 (NO_REMOTE)" "$batch_rc"
+assert_eq "--batch prints NO_REMOTE" "NO_REMOTE" "$batch_out"
+assert_eq "NO_REMOTE is silent on stderr" "" "$(cat "$TEST_TMPDIR/batch_err.txt")"
+
+popd > /dev/null || exit 1
+
+# Fresh clone for the failure token (needs an upstream so the count resolves).
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+setup_ait_cli
+
+echo "stranded" > stranded.txt
+git add stranded.txt
+git commit -m "commit that will not reach the remote" --quiet
+git remote set-url origin /nonexistent/path/repo.git
+
+batch_out="$(./ait git push --batch 2>"$TEST_TMPDIR/batch_fail_err.txt")"
+batch_rc=$?
+batch_err="$(cat "$TEST_TMPDIR/batch_fail_err.txt")"
+assert_success "ait git push --batch returns 0 on failure" "$batch_rc"
+assert_eq "--batch prints FAILED:<reason>:<count>" "FAILED:remote_unreachable:1" "$batch_out"
+assert_contains "failure still warns on stderr" "1 commit(s) not pushed" "$batch_err"
 
 popd > /dev/null || exit 1
 

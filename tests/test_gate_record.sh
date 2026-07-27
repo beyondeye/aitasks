@@ -113,6 +113,37 @@ remotes="$( cd "$TMP" && git remote )"
 assert_eq "fixture has no remote (push was a no-op)" "" "$remotes"
 
 # ============================================================
+echo "--- failed push: the warning reaches stderr (call site not muted) ---"
+# ============================================================
+# The fixture above has no remote, so a re-muted `task_push 2>/dev/null` would
+# go unnoticed there. Build a second fixture that actually strands a commit:
+# a repo with an upstream whose remote URL is broken.
+TMP2="$TMP/with_remote"
+git init -q --bare "$TMP/remote.git"
+git clone -q "$TMP/remote.git" "$TMP2" 2>/dev/null
+git -C "$TMP2" config user.email "test@example.com"
+git -C "$TMP2" config user.name "Gate Record Test"
+
+mkdir -p "$TMP2/aitasks/metadata"
+cp "$TMP/aitasks/metadata/gates.yaml" "$TMP2/aitasks/metadata/gates.yaml"
+cp "$TMP/aitasks/t77_demo.md" "$TMP2/aitasks/t77_demo.md"
+git -C "$TMP2" add -A
+git -C "$TMP2" commit -qm "seed task fixture"
+git -C "$TMP2" push -q 2>/dev/null          # establishes the upstream
+
+git -C "$TMP2" remote set-url origin /nonexistent/path/repo.git
+
+push_warn="$( cd "$TMP2" && TASK_DIR="aitasks" "$RECORD" 77 plan_approved pass type=human 2>&1 >/dev/null )"
+rc=$?
+assert_eq "wrapper still exits 0 when the push fails" "0" "$rc"
+assert_contains "the un-muted warning reaches stderr" "commit(s) not pushed" "$push_warn"
+
+# The commit is still durable locally — that is what makes the push best-effort.
+head_msg2="$(git -C "$TMP2" log -1 --pretty=%s)"
+assert_eq "gate block committed despite the failed push" \
+    "ait: Record plan_approved gate for t77" "$head_msg2"
+
+# ============================================================
 echo "--- --help prints usage and exits 0 ---"
 # ============================================================
 help_out="$("$RECORD" --help)"

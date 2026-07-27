@@ -14,6 +14,7 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait update`](task-management/#ait-update) | Update task metadata (status, priority, labels, etc.) |
 | [`ait sync`](sync/) | Sync task data with remote (push/pull) |
 | [`ait git`](sync/) | Run git commands against task data (worktree-aware) |
+| [`ait git push`](sync/#ait-git-push) | Best-effort push of task data; warns when commits are stranded |
 | [`ait git-health`](sync/#ait-git-health) | Diagnose the `.aitask-data` worktree state (detached HEAD, stuck rebase/merge) |
 | [`ait lock`](lock/) | Lock/unlock tasks to prevent concurrent work |
 
@@ -100,6 +101,7 @@ ait lock --unlock 42                    # Release a lock
 ait sync                               # Interactive sync with progress
 ait sync --batch                        # Batch mode for scripting
 ait git add aitasks/t42.md              # Git operations on task data
+ait git push --batch                    # Best-effort push with a status line
 ait stats                               # Show completion stats
 ait explain-runs --list                  # List all explain runs
 ait explain-runs --cleanup-stale         # Remove stale runs

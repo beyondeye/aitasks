@@ -326,7 +326,15 @@ case "${1:-help}" in
         ;;
     git)          shift; source "$SCRIPTS_DIR/lib/task_utils.sh"
                   if [[ "${1:-}" == "push" ]]; then
+                      shift
+                      # --batch is the only recognised flag; any other argument
+                      # is ignored, exactly as it was before the flag existed.
+                      push_batch=0
+                      for arg in "$@"; do
+                          if [[ "$arg" == "--batch" ]]; then push_batch=1; fi
+                      done
                       task_push
+                      if [[ "$push_batch" == "1" ]]; then task_push_report; fi
                   else
                       task_git "$@"
                   fi

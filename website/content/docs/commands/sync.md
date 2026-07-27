@@ -105,6 +105,60 @@ When the repository uses a separate `aitask-data` branch for task files (set up 
 
 - [Syncer TUI]({{< relref "/docs/tuis/syncer" >}}) — interactive surface for remote desync state across `main` and `aitask-data` with one-keystroke pull/push/sync actions and an agent escape hatch on failure. The syncer's `s` action invokes `ait sync --batch` under the hood.
 
+## ait git push
+
+`ait git` runs git commands against task data, routing them to the data branch
+worktree in [data-branch mode](#data-branch-mode) and to the current branch in
+legacy mode. `push` is special-cased: it is **best-effort**, so a network
+outage or a diverged remote never aborts a task workflow mid-flight.
+
+```bash
+ait git push                  # best-effort push; warns if commits are stranded
+ait git push --batch          # same, plus one structured status line on stdout
+```
+
+Best-effort does not mean silent. The push is attempted up to three times, with
+a `pull --rebase` between attempts to absorb a remote that has moved. If every
+attempt fails, the command **still exits 0** but prints a warning naming how
+many commits are stranded and why:
+
+```
+Warning: 3 commit(s) not pushed to origin/aitask-data — data worktree has
+unstaged changes blocking rebase; reconcile with 'ait syncer'
+```
+
+Recognised failure reasons, each with its own recovery hint: a dirty data
+worktree blocking the rebase fallback, a rebase stopped on conflicts, an
+unreachable remote, and a remote that has diverged. An unrecognised failure
+still warns and quotes git's own first line.
+
+Two cases stay deliberately quiet, because nothing is at risk: the repository
+has no git remote configured, or the push failed while there were no local
+commits to send.
+
+### Batch Output Protocol
+
+With `--batch`, one structured line is printed on stdout (exit status is still 0
+in all cases):
+
+| Output | Meaning |
+|--------|---------|
+| `PUSHED` | Local commits reached the remote |
+| `NOTHING` | Already up to date, nothing to push |
+| `NO_REMOTE` | No git remote configured |
+| `FAILED:<reason>:<count>` | Push failed; `<reason>` is one of `dirty_worktree`, `rebase_conflict`, `remote_unreachable`, `diverged`, `unknown`, and `<count>` is the unpushed commit count (`unknown` when it cannot be determined) |
+
+The commit count is read *after* the push attempts finish, so it reports how
+many commits are unpushed **now** — on a shared checkout another session can
+move refs in between, so treat it as a current reading rather than a snapshot of
+the moment the push failed.
+
+The one case where `ait git push` does **not** exit 0 is a data worktree left
+stuck mid-rebase, merge, cherry-pick, revert, or bisect. That is a broken
+worktree rather than a push outcome, so the command stops with the recovery
+hints described under [`ait git-health`](#ait-git-health) (bypass with
+`AIT_GIT_SKIP_STATE_CHECK=1`).
+
 ## ait git-health
 
 Diagnose the state of the `.aitask-data` worktree that backs task and plan

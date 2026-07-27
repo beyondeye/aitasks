@@ -53,6 +53,19 @@ _ait_data_gitdir() {
     [[ -d "$gd" ]] && printf '%s' "$gd"
 }
 
+# Internal: run git against the task-data worktree (branch mode) or the current
+# repo (legacy mode). Unlike task_git() it skips the wedged-worktree assertion,
+# so it is safe for the read-only probes and for task_push, which asserts once
+# up front. LC_ALL=C keeps git's messages parseable by _task_push_classify.
+_ait_data_git() {
+    _ait_detect_data_worktree
+    if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
+        LC_ALL=C git -C "$_AIT_DATA_WORKTREE" "$@"
+    else
+        LC_ALL=C git "$@"
+    fi
+}
+
 # Read-only git subcommands — the guard treats them as safe.
 _ait_git_subcmd_is_readonly() {
     case "${1:-}" in
@@ -187,42 +200,200 @@ task_sync() {
     fi
 }
 
+# --- Task data push (best-effort, but never silent) ---
+#
+# task_push() returns 0 for EVERY push outcome — the best-effort contract the
+# workflow relies on. The single exception is the pre-flight
+# assert_data_worktree_clean guard, which die()s when the data worktree is
+# wedged mid-rebase/merge: that is a broken-worktree error rather than a push
+# outcome, and it is loud (bypass with AIT_GIT_SKIP_STATE_CHECK=1).
+#
+# The outcome is reported on three surfaces:
+#   in-process — the TASK_PUSH_* globals below
+#   human      — a warn() line on stderr; silent on success
+#   machine    — task_push_report(), one line (`ait git push --batch`)
+#
+# TASK_PUSH_UNPUSHED is sampled AFTER the push cycle, so it is a CURRENT count
+# ("how many commits are unpushed now"), not an atomic snapshot of the failure:
+# on a shared checkout another session can move refs in between.
+TASK_PUSH_STATUS=""     # pushed | up-to-date | no-remote | failed
+TASK_PUSH_REASON=""     # classifier code when failed (see _task_push_classify)
+TASK_PUSH_UNPUSHED=""   # unpushed commit count; "" when undeterminable
+
 # Push task data to remote with automatic pull-rebase on conflict.
-# Retries up to 3 times. Failures are non-fatal (best-effort push).
+# Retries up to 3 times. Failures are non-fatal, but they are reported: a
+# failed push used to be indistinguishable from a successful one (no output,
+# exit 0), silently stranding archival and gate-ledger commits.
 task_push() {
+    TASK_PUSH_STATUS=""
+    TASK_PUSH_REASON=""
+    TASK_PUSH_UNPUSHED=""
     assert_data_worktree_clean push
+
+    # No remote at all (solo / offline-only repo): nothing to push to and
+    # nothing at risk — stay silent.
+    if ! _task_push_has_remote; then
+        TASK_PUSH_STATUS="no-remote"
+        return 0
+    fi
+
+    local before_count push_err="" rebase_err="" out="" detail=""
+    before_count="$(_task_push_unpushed_count)"
+
     local max_attempts=3
     local attempt
     for (( attempt=1; attempt<=max_attempts; attempt++ )); do
-        if _task_push_once 2>/dev/null; then
+        if push_err="$(_task_push_once 2>&1)"; then
+            if [[ "$before_count" == "0" ]]; then
+                TASK_PUSH_STATUS="up-to-date"
+            else
+                TASK_PUSH_STATUS="pushed"
+            fi
+            TASK_PUSH_UNPUSHED="$(_task_push_unpushed_count)"
             return 0
         fi
-        # Pull with rebase to incorporate remote changes, then retry
+        # Pull with rebase to incorporate remote changes, then retry.
+        # Accumulate every attempt's output: attempt 1 carries the real
+        # blocker, later attempts only echo the state it left behind.
         if [[ $attempt -lt $max_attempts ]]; then
-            _task_pull_rebase 2>/dev/null || true
+            out="$(_task_pull_rebase 2>&1)" || true
+            rebase_err+="${out}"$'\n'
         fi
     done
-    # All attempts exhausted — best-effort, don't fail the workflow
+
+    # All attempts exhausted — best-effort, so don't fail the workflow, but
+    # don't report silent success either.
+    TASK_PUSH_STATUS="failed"
+    TASK_PUSH_REASON="$(_task_push_classify "$push_err" "$rebase_err")"
+    TASK_PUSH_UNPUSHED="$(_task_push_unpushed_count)"
+    if [[ "$TASK_PUSH_REASON" == "unknown" ]]; then
+        detail="$(_task_push_first_line "${push_err}"$'\n'"${rebase_err}")"
+        if [[ -n "$detail" ]]; then
+            detail=" (git: ${detail})"
+        fi
+    fi
+    _task_push_warn "$detail"
     return 0
+}
+
+# Print the structured one-line outcome of the last task_push call.
+# This is the cross-process surface (`ait git push --batch`): in-process callers
+# read the TASK_PUSH_* globals directly. Tokens reuse the vocabulary documented
+# for `ait sync --batch`.
+task_push_report() {
+    case "$TASK_PUSH_STATUS" in
+        pushed)     echo "PUSHED" ;;
+        up-to-date) echo "NOTHING" ;;
+        no-remote)  echo "NO_REMOTE" ;;
+        failed)     echo "FAILED:${TASK_PUSH_REASON}:${TASK_PUSH_UNPUSHED:-unknown}" ;;
+        *)          echo "ERROR:no-push-run" ;;
+    esac
 }
 
 # Internal: single push attempt
 _task_push_once() {
-    _ait_detect_data_worktree
-    if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
-        git -C "$_AIT_DATA_WORKTREE" push --quiet
-    else
-        git push --quiet
-    fi
+    _ait_data_git push --quiet
 }
 
 # Internal: pull with rebase to catch up with remote
 _task_pull_rebase() {
-    _ait_detect_data_worktree
-    if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
-        git -C "$_AIT_DATA_WORKTREE" pull --rebase --quiet
-    else
-        git pull --rebase --quiet
+    _ait_data_git pull --rebase --quiet
+}
+
+# --- task_push probes (each returns 0: they are consumed via "$(...)" inside
+# --- scripts running `set -euo pipefail`, where a leaked non-zero status would
+# --- abort the caller with no visible error) ---
+
+# Internal: commits on HEAD that the upstream does not have. Prints nothing
+# when the branch has no upstream.
+_task_push_unpushed_count() {
+    _ait_data_git rev-list --count '@{upstream}..HEAD' 2>/dev/null || true
+}
+
+# Internal: upstream ref name (e.g. origin/aitask-data); empty when unset.
+_task_push_upstream() {
+    _ait_data_git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true
+}
+
+# Internal: true when at least one git remote is configured.
+_task_push_has_remote() {
+    [[ -n "$(_ait_data_git remote 2>/dev/null || true)" ]]
+}
+
+# Internal: first non-blank line of a captured git output blob.
+_task_push_first_line() {
+    local line
+    while IFS= read -r line; do
+        if [[ -n "${line//[[:space:]]/}" ]]; then
+            printf '%s' "$line"
+            return 0
+        fi
+    done <<< "$1"
+    return 0
+}
+
+# Internal: classify a failed push cycle from the captured git output.
+# Pure (no git calls, no I/O) so every reason is unit-testable from fixtures.
+#   $1 = push stderr, $2 = accumulated `pull --rebase` stderr
+# Prints one reason code. The rebase blocker is matched BEFORE the push
+# rejection: the rejection is only the symptom, the blocker is why the
+# automatic recovery could not clear it.
+_task_push_classify() {
+    local push_err="$1" rebase_err="$2"
+    local blob="${push_err}"$'\n'"${rebase_err}"
+
+    case "$rebase_err" in
+        *"cannot pull with rebase"*|*"unstaged changes"*|*"uncommitted changes"*|*"local changes"*"would be overwritten"*)
+            echo "dirty_worktree"; return 0 ;;
+    esac
+    case "$rebase_err" in
+        *CONFLICT*|*"could not apply"*|*"Resolve all conflicts"*|*"rebase-merge directory"*|*"rebase-apply"*)
+            echo "rebase_conflict"; return 0 ;;
+    esac
+    case "$blob" in
+        *"Could not read from remote repository"*|*"does not appear to be a git repository"*|\
+        *"Could not resolve host"*|*"Connection refused"*|*"Authentication failed"*|\
+        *"Permission denied"*|*"unable to access"*|*"No configured push destination"*|*"timed out"*)
+            echo "remote_unreachable"; return 0 ;;
+    esac
+    case "$push_err" in
+        *"non-fast-forward"*|*"fetch first"*|*"rejected"*|*"behind its remote"*)
+            echo "diverged"; return 0 ;;
+    esac
+    echo "unknown"
+}
+
+# Internal: actionable recovery hint for a reason code.
+_task_push_reason_hint() {
+    case "$1" in
+        dirty_worktree)
+            echo "data worktree has unstaged changes blocking rebase; reconcile with 'ait syncer'" ;;
+        rebase_conflict)
+            echo "rebase stopped on conflicts; recover with './ait git rebase --abort' (or resolve and './ait git rebase --continue')" ;;
+        remote_unreachable)
+            echo "remote unreachable (network, auth, or no push destination); retry './ait git push' once connectivity is restored" ;;
+        diverged)
+            echo "remote has diverged (non-fast-forward) and the rebase retries did not resolve it; reconcile with 'ait syncer'" ;;
+        *)
+            echo "reason unknown; run './ait git-health' and inspect the data worktree manually" ;;
+    esac
+}
+
+# Internal: emit the user-facing warning for a failed push cycle. Warns only
+# when commits are actually stranded — an offline repo with nothing pending
+# stays as quiet as it was before this reporting existed.
+_task_push_warn() {
+    local detail="${1:-}" upstream hint
+    upstream="$(_task_push_upstream)"
+    if [[ -n "$upstream" ]]; then
+        upstream=" to ${upstream}"
+    fi
+    hint="$(_task_push_reason_hint "$TASK_PUSH_REASON")"
+
+    if [[ -z "$TASK_PUSH_UNPUSHED" ]]; then
+        warn "task data push failed (unpushed commit count unavailable) — ${hint}${detail}"
+    elif [[ "$TASK_PUSH_UNPUSHED" != "0" ]]; then
+        warn "${TASK_PUSH_UNPUSHED} commit(s) not pushed${upstream} — ${hint}${detail}"
     fi
 }
 

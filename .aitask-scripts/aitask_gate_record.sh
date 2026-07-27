@@ -80,7 +80,10 @@ main() {
 
     task_git add -- "$file" 2>/dev/null || true
     task_git commit -m "ait: Record ${gate} gate for t${task_id}" -- "$file" 2>/dev/null || true
-    task_push 2>/dev/null || true
+    # No 2>/dev/null here: task_push captures git's own noise internally, and
+    # its stderr now carries the "N commit(s) not pushed" warning — muting it
+    # would restore the silent-failure bug this call site depends on avoiding.
+    task_push || true
 
     return 0
 }
