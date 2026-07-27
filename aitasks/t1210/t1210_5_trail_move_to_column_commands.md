@@ -71,7 +71,7 @@ per-card hint line at `TrailTaskCard.compose`. Whichever lands second must
 rebase onto the other's gating and label changes. Neither blocks the other,
 but do not develop them in parallel on that region without checking.
 
-Note also that t1268's step 4 of the plan above ("refresh the underlying task
-set so a subsequent view switch shows the moves") overlaps t1268's local
-recompute path — reuse whatever t1268 lands rather than adding a second
-reload route.
+Note also that step 4 of the implementation plan above ("refresh the
+underlying task set so a subsequent view switch shows the moves") overlaps
+t1268's local recompute path — reuse whatever t1268 lands rather than adding a
+second reload route.
