@@ -27,4 +27,6 @@ Base branch: main
 
 ## Final Implementation Notes
 
-- Pending implementation.
+- Added the `convert` parser subcommand for plain bullets inside an existing verification-checklist section. It preserves item text and indentation, skips pre-existing checkbox items, updates task metadata atomically, and errors without mutating when there is nothing to convert.
+- Added the checklist-runner recovery option and refreshed the committed remote profile snapshots plus golden render fixtures.
+- Verification passed: `python3 tests/test_verification_parse.py` (46 tests) and `bash tests/test_skill_render_task_workflow.sh` (122 checks).
