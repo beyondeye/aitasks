@@ -219,8 +219,20 @@ the destination actually uses.
 - The reader returns, per `(repo, operation)`: `effective` (ground truth from
   `resolve_agent_string(root, op)` — an independent path, not our own merge),
   the raw `project_value` / `local_value`, and a derived `provenance` ∈
-  `{local, project, seed, builtin}`. If provenance-derived effective disagrees
+  `{local, project, builtin}`. If provenance-derived effective disagrees
   with `resolve_agent_string`, the cell renders `conflict` — never a guess.
+
+  > **Amended during t1223_4 (there is no `seed` tier).** This contract
+  > originally listed `seed` between `project` and `builtin`. The ground-truth
+  > resolver (`aitask_codeagent.sh:53-88`, help text `:645-649`) resolves
+  > `--agent-string → codeagent_config.local.json → codeagent_config.json →
+  > DEFAULT_AGENT_STRING` and never reads `seed/`, which is a **setup-time copy
+  > source** (`aitask_setup.sh:1666` copies it into `aitasks/metadata/`) that an
+  > installed project does not even have at its root. Treating it as an
+  > effective tier would have made every seed-only operation render `conflict`
+  > — a systematic false positive. Pinned by the negative control in
+  > `tests/test_cross_repo_settings.py`
+  > (`test_seed_config_does_not_influence_anything`).
 - The matrix shows **effective value + provenance marker**, not the project file's
   contents.
 - `plan_push(value, dest_root, operation, layer)` returns a typed outcome:

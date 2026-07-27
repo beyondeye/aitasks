@@ -58,9 +58,13 @@ Each cell shows the **effective value + a provenance marker**:
 |---|---|
 | `local` | value + `(local)` |
 | `project` | value (bare) |
-| `seed` | value + `(seed)` |
 | `builtin` | value + `(default)` |
 | `conflict` | `conflict` — **never** a guessed value |
+
+> **Amended by t1223_4: there is no `seed` row.** The ground-truth resolver has
+> no seed tier (`--agent-string` → local → project → `DEFAULT_AGENT_STRING`);
+> `seed/` is a setup-time copy source. Rendering a `seed` marker would display a
+> value the repo does not use. `read_operation_defaults` never returns it.
 
 A row where the repos' effective values are not all equal is **highlighted as
 divergent**. Build the matrix with a pure helper

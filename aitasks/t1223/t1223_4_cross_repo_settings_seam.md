@@ -80,9 +80,18 @@ Parent plan: `aiplans/p1223_expand_syncer_scope_version_and_settings_sync.md`.
 matrix. `models_<agent>.json` is `{"models": [{"name": ..., "cli_id": ...}, ...]}`;
 the model half of an agent string is a `name`, not a `cli_id`.
 
-Resolution order (most specific first): `codeagent_config.local.json` →
-`codeagent_config.json` → `seed/codeagent_config.json` → `DEFAULT_AGENT_STRING`.
-**Local wins** — this is why contract D exists.
+Resolution order (most specific first): `--agent-string` →
+`codeagent_config.local.json` → `codeagent_config.json` →
+`DEFAULT_AGENT_STRING`. **Local wins** — this is why contract D exists.
+
+**Corrected during implementation: there is no `seed` tier.** This block
+originally placed `seed/codeagent_config.json` between the project config and
+the builtin default. The resolver (`aitask_codeagent.sh:53-88`, help text
+`:645-649`) never reads `seed/` — it is a **setup-time copy source**
+(`aitask_setup.sh:1666` copies it into `aitasks/metadata/`), and an installed
+project has no `seed/` at its root. Contract D's provenance enum is therefore
+`{local, project, builtin}` + `conflict`, and required test 11 below drops its
+`seed` row.
 
 ## Part 1 — `config_utils` extension (contract E, binding)
 
@@ -125,7 +134,7 @@ def read_operation_defaults(root) -> dict[str, OperationValue]:
 
     `effective` is GROUND TRUTH from resolve_agent_string(root, op) — an
     independent path, not our own merge. `provenance` in
-    {'local','project','seed','builtin'} is derived from the raw layers.
+    {'local','project','builtin'} is derived from the raw layers.
     If the derived effective disagrees with resolve_agent_string, provenance
     is 'conflict' and the caller must render it as such — never guess."""
 
@@ -186,7 +195,8 @@ never cwd:
 **cross_repo_settings (contract D)**
 11. Provenance truth table: value only in project ⇒ `project`; only in local ⇒
     `local`; in both ⇒ `local` (and effective equals the local value); in neither
-    but in `seed/` ⇒ `seed`; nowhere ⇒ `builtin`.
+    ⇒ `builtin`. Plus the negative control: a `seed/codeagent_config.json` in the
+    fixture root influences **nothing** (no `seed` tier — see the correction above).
 12. `conflict` — stub `resolve_agent_string` to return something the layers do not
     imply; assert provenance is `conflict` and no guess is made.
 13. `-launch-mode` keys are excluded from the operation set.
