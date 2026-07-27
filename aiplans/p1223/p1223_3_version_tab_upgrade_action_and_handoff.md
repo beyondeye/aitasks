@@ -623,3 +623,101 @@ in-task test, a binding contract, or t1223_7.
 
 Settings content (t1223_4 / t1223_5), documentation (t1223_6), and live
 end-to-end verification (t1223_7). No change to the Branches tab's behaviour.
+
+## Final Implementation Notes
+
+- **Actual work done:** The planned shape, across six files (+~2070 lines).
+  - `.aitask-scripts/syncer/syncer_app.py` (+516): `VersionRow` +
+    `build_version_rows` (opaque `v0…vN` keys), `UpgradeTarget` (frozen capture)
+    and `UpgradeRun` + `upgrade_state_cell`, the `#versions` DataTable replacing
+    the placeholder, a lazy `syncer-versions` thread worker with its own
+    `_versions_gen` / `_versions_active` / `_pending_versions` triple reusing the
+    existing pure `coalesce_request`, `_probe_activity`, `action_upgrade` /
+    `action_recheck_version`, the `_begin_upgrade` → self-handoff / gate / refuse
+    → re-probe → force → spawn chain, and the lifecycle re-poll. Bindings `U`
+    (Upgrade) and `c` (Re-check) plus `VERSION_TAB_ACTIONS` gating in
+    `check_action`.
+  - `.aitask-scripts/syncer/upgrade_screens.py` (new, 411): five Cancel-focused
+    modals plus the pure `describe_activity` renderer.
+  - `.aitask-scripts/lib/agent_launch_utils.py` (+44):
+    `get_tmux_windows_result()`; `get_tmux_windows()` reduced to a one-line
+    wrapper so its existing callers are behaviourally untouched.
+  - `.aitask-scripts/aitask_syncer.sh` (+~95): the handoff (drop `exec` for the
+    app, wrapper-owned `mktemp -d`, strict-shape parse, revalidation, `exec` the
+    upgrade) with exiting `INT`/`TERM` traps.
+  - `tests/test_syncer_rows.py` (+~800): 52 → 111 tests.
+  - `tests/test_syncer_upgrade_handoff.sh` (new, ~310): 48 assertions.
+
+- **Deviations from plan:** Six were designed in (findings 1, 2, 10, 11, 13 and
+  the `python3` verification-command correction) and are written back into the
+  task file. One more came out of review — see Change Request 1. Two smaller
+  implementation choices: the modal body `Static`s carry an explicit
+  `id="upgrade_text"` (Textual's `Label` subclasses `Static`, so an id-less
+  `query_one(Static)` resolves to the dialog title — the first draft of three
+  tests asserted against the title and failed); and the `#versions` table is
+  built for one repo as readily as for many, since a lone repo still has a
+  version — there is no single-repo degradation on this tab.
+
+- **Issues encountered:**
+  1. *The captured-target test did not bite.* The `M7` falsifiability mutation
+     (re-resolve the target in the confirm callback) left the suite green: the
+     test moved the cursor to repoB **and** swapped the row map so `v1` pointed
+     back at repoA, so re-resolution happened to return the captured answer. Both
+     mutations now point at repoB, and M7 fails as it should. A passing
+     load-bearing test proves nothing until its mutation has been run.
+  2. *`git checkout --` wiped the implementation.* While reverting the loose-schema
+     mutation I ran `git checkout -- .aitask-scripts/aitask_syncer.sh`, which
+     restored the file to HEAD and destroyed the entire (uncommitted) handoff
+     change, not just the mutation. Recovered from the edit content and
+     re-verified. Negative-control restores must undo **only** the mutation.
+  3. *Assertion arguments were transposed.* The shared helpers take
+     `<desc> <needle> <haystack>`; the first draft passed `<haystack> <needle>`.
+     Several `assert_contains` calls still *passed*, because `grep -F` treats a
+     multi-line pattern as alternatives and one line of the "needle" matched.
+     Fixed, and the suite's failure path was exercised for real along the way.
+  4. *Empty `/tmp/repoN` fixture paths.* `_capture_target` refuses a root that is
+     not a directory, so the upgrade tests silently never reached the flow until
+     they were given real `tempfile` roots.
+
+- **Key decisions:**
+  - **Self-target is checked first and its activity is advisory.** The syncer's
+    own repo is where the user works, so contract C would have refused every
+    self-upgrade and left the handoff — the only safe path for that repo —
+    reachable solely through the destructive force override.
+  - **The enumeration is checked, not the lossy list.** `get_tmux_windows()`
+    reports a tmux failure as `[]`, which `detect_target_activity` reads as
+    `idle`. The classifier was fail-closed; the enumeration was not.
+  - **The target is captured once.** Nothing after the first step reads the
+    table, the row map, or the originating `AitasksSession`.
+  - **Signal traps exit.** A trap that only tidies up returns control to the next
+    statement (verified by probe), so a cancellation after the request was read
+    would have proceeded into the upgrade.
+  - **The upgrade is `exec`'d**, so bash never reads the wrapper again after the
+    upgrade replaces it on disk, and the status propagates.
+  - **Eleven falsifiability mutations** were run individually; each made the
+    relevant suite exit 1, and the restored tree is green.
+
+- **Upstream defects identified:** None. (`get_tmux_windows`'s lossy empty-list
+  return is not reported here: it is a pre-existing property of a
+  best-effort/display helper, correct for its ~10 existing callers, and it is
+  addressed in-task by the additive checked variant rather than left as a defect
+  elsewhere.)
+
+- **Notes for sibling tasks:**
+  - **t1223_5** should mirror the `v0…vN` opaque-row-key + lookup-map pattern for
+    the settings matrix, and must extend `booted()` in `tests/test_syncer_rows.py`
+    with any new impure seam it introduces — several existing tests activate
+    other tabs, so an unpatched seam reaches the developer's live tmux/network.
+  - Any multi-modal action should capture a frozen target at the start
+    (`UpgradeTarget` is the worked example); test 12b is the pattern for pinning
+    it, and it doubles as the tripwire if the row set ever becomes rebuildable.
+  - Use `agent_launch_utils.get_tmux_windows_result()` for any **safety**
+    decision; the older `get_tmux_windows()` is display-grade only.
+  - Modal body text needs an explicit id — `Label` subclasses `Static`.
+  - `tests/test_syncer_upgrade_handoff.sh` shows the `AIT_PYTHON` seam for
+    end-to-end testing of a launcher that has no `--source-only` guard.
+  - **t1223_6** should document: the `U` / `c` keys, the self-upgrade handoff and
+    its exit-then-upgrade ordering, the cross-repo refusal **and its declared
+    detection bound**, the new `unknown:tmux-enumeration-failed` reason, the
+    "launched / result unknown" semantics, and the lazy load (versions are not
+    fetched until the tab is opened).
