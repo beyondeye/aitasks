@@ -289,3 +289,83 @@ traversal chain is untouched (task verification step 7).
 
 ### Planned mitigations
 - timing: after | name: syncer_settings_tab_nav_coordination | type: chore | priority: medium | effort: low | addresses: code-health risk #1 (future focusable pane silently loses arrows) | desc: Add a bidirectional coordination note to t1223_5 so the real Settings pane extends TAB_LIST_IDS and re-verifies its widgets still receive arrows under the App-level priority bindings.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in two files.
+  `.aitask-scripts/syncer/syncer_app.py` (+134): `NAV_ACTIONS` / `TAB_LIST_IDS`
+  module constants beside the existing tab-gating tuples; four `priority=True`,
+  `show=False` arrow bindings appended to `SyncerApp.BINDINGS`; `_tab_bar()` /
+  `_active_list()` helpers with the narrow `_QUERY_MISS` catch; the `NAV_ACTIONS`
+  modal gate as the first branch of `check_action`; and
+  `action_nav_down` / `action_nav_up` / `_switch_tab` / `action_prev_tab` /
+  `action_next_tab`. `tests/test_syncer_rows.py` (+278): 12 new tests in
+  `TabbedShellTests` (each therefore runs 3x, via `VersionsTabTests` and
+  `UpgradeActionTests`).
+
+- **Deviations from plan:** None in design. One test-authoring correction: the
+  modal-gate test first asserted `RadioSet.pressed_index`, which does **not**
+  move on arrow keys — `pressed_index` is the index of the *checked* button and
+  only changes on space/enter, while up/down move the private `_selected`
+  highlight. Rewritten to a render-level assertion on the public `-selected`
+  CSS class (`#mode_latest` -> `#mode_pinned`), which observes the same
+  behaviour without reaching into a private attribute.
+
+- **Issues encountered:**
+  - The mechanism was probe-verified against the real `SyncerApp` under
+    `run_test()` *before* the plan was written (the task demanded this). Two
+    probe iterations were needed: the first used a 2-row fixture so the
+    "SkipAction falls through mid-list" assertion was inconclusive, and read the
+    modal's `Input` caret right after `focus()` (which resets it). Both were
+    probe artifacts, not defects — resolved with a 6-row fixture and a
+    baseline comparison against a plain `SyncerApp` carrying no nav bindings.
+  - Pre-mount, `App.query_one(...)` raises `textual.app.ScreenStackError`, **not**
+    `NoMatches` (it resolves `self.screen` first). An `except NoMatches` alone
+    would not have covered the pre-mount path — this is why `_QUERY_MISS` is a
+    three-tuple.
+  - `len(self.screen_stack)` is exception-free even pre-mount (returns `0`), so
+    the modal gate needs no `try/except` at all. This matters: a swallowed
+    exception there could only ever fail **open** and let a priority arrow
+    hijack a modal widget. Pinned by
+    `test_nav_check_action_is_exception_free_before_mount`.
+
+- **Key decisions:**
+  - **Mechanism: App `priority=True` BINDINGS + `check_action` blanket modal
+    gate** (the board pattern). `on_key` (settings/brainstorm) was measured and
+    rejected: the syncer's panes are row-cursor `DataTable`s that consume all
+    four arrows before the App sees them.
+  - **Wrap, not clamp**, inherited by delegating to `Tabs.action_next_tab` /
+    `action_previous_tab` (`_tabs.py:761` uses modulo), so the bar and the
+    content panes behave identically.
+  - **Focus lands on the tab bar after a tab switch**, not in the new pane —
+    required by t1060 and consistent with brainstorm; `down` is the one-key
+    follow-up into content.
+  - **`_active_list()` returning `None` has two distinct causes** that callers
+    must not conflate: no list mapped for the tab (Settings placeholder — a
+    designed no-op that consumes the key) versus a mapped-but-unresolvable
+    query (a degraded lookup that must `SkipAction` and hand the key back).
+    Each is separately tested.
+  - **Accepted trade-off:** the four nav actions become rebindable rows in the
+    syncer's `?` shortcut editor, because `ShortcutsMixin.__init__` registers
+    everything in `self.BINDINGS`. Identical to `KanbanApp`'s four `nav_*`
+    arrows, so it is house behaviour rather than a new precedent.
+  - **Accepted trade-off:** `left`/`right` on `#detail_scroll` now switch tabs
+    instead of scrolling horizontally — the direct consequence of requirement 3.
+
+- **Verification results:** `tests/test_syncer_rows.py` 147 passed;
+  `tests/run_all_python_tests.sh` 2218 passed, every sub-suite green. The
+  pre-existing `test_tab_bar_is_two_tabs_away_and_detail_stays_focusable` was
+  left unmodified and still passes (nothing binds `tab`).
+  Five falsifiability drops were run, each exiting 1, restored by undoing only
+  the mutation: the `cursor_row > 0` boundary; `bar.focus()` in `_switch_tab`;
+  the `NAV_ACTIONS` modal gate; a SkipAction-fall-through tab switch; and the
+  degraded-lookup guard in `action_nav_up`. The last two carry **discriminating
+  controls** — the fall-through design still passes the table-focused test
+  (exit 0) and is caught only by `test_left_right_switch_tabs_from_the_detail_pane`,
+  and the conflated-`None` variant still passes the normal handoff test and is
+  caught only by `test_up_falls_through_when_the_mapped_list_is_missing`.
+
+- **Not verified by this task:** the manual `ait syncer` smoke (interactive TUI)
+  — offered as a follow-up at Step 8c.
+
+- **Upstream defects identified:** None
