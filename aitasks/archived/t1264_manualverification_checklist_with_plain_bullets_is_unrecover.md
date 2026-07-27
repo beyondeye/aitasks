@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [gates]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 635
 implemented_with: codex/gpt5_6_sol
 created_at: 2026-07-27 09:15
-updated_at: 2026-07-27 12:54
+updated_at: 2026-07-27 17:53
+completed_at: 2026-07-27 17:53
 ---
 
 ## Problem
