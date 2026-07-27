@@ -445,6 +445,11 @@ def group_tasks_by_topic(tasks, sort_mode="recency"):
 # /aitask-trail skill after its own confirmation (RFC §9.3).
 
 TRAIL_ARTIFACT_KIND = "implementation_trail"
+# Artifact-version watch cadence (t1268): how often to poll `artifact
+# versions` for the active trail after an agent refresh was launched, and how
+# many polls before giving up (~30 min at 20s).
+TRAIL_WATCH_INTERVAL = 20
+TRAIL_WATCH_MAX_TICKS = 90
 ARTIFACT_SCRIPT = Path(".aitask-scripts") / "aitask_artifact.sh"
 TRAIL_GATHER_SCRIPT = Path(".aitask-scripts") / "aitask_trail_gather.sh"
 
@@ -488,6 +493,9 @@ class TrailEntryView:
     task: "Task | None"      # live local task, when active
     ghost_kind: str          # "" | "cross_repo" | "archived" | "missing"
     landed: bool             # live/archived status == Done → strike-through
+    # Drift reasons owned by THIS entry's task ref (t1268). Keyed on the raw
+    # entry ref, so ghosts carry their own reasons too.
+    drift_reasons: list = field(default_factory=list)
 
 
 @dataclass
@@ -524,37 +532,83 @@ def trail_ref_to_local_id(ref, local_project: str):
     return task_id
 
 
-def build_trail_lanes(doc, tasks_by_id, local_project, archived_lookup):
+def canonical_trail_ref(ref) -> str:
+    """Normalize a task ref to the ``<project>#<id>`` form drift reasons use.
+
+    The stored trail may spell a member ``aitasks#t42`` (the ``t`` prefix is
+    accepted notation), but trail_gather always emits drift reasons against
+    the canonical ``aitasks#42``. Keying both sides through here is what makes
+    the per-card lookup hit regardless of which spelling the trail stored
+    (t1268). Unparseable refs fall back to their raw text so nothing is lost."""
+    parsed = parse_cross_repo_ref(str(ref or ""))
+    if not parsed:
+        return str(ref or "")
+    project, task_id = parsed
+    return f"{project}#{task_id}"
+
+
+def build_trail_lanes(doc, tasks_by_id, local_project, archived_lookup,
+                      drift_by_ref=None):
     """Project a validated trail document onto live board state.
 
     Returns ``TrailWaveLane``s with waves in ``ordinal`` order and entries in
     ``position`` order (RFC §9.1). Each entry resolves to a live task, or to a
     ghost (``cross_repo`` / ``archived`` / ``missing``); ``landed`` is derived
     from live/archived status == Done — the trail snapshot is never trusted
-    over the task file (schema: "the task file remains the source of truth")."""
+    over the task file (schema: "the task file remains the source of truth").
+
+    ``drift_by_ref`` (t1268) maps a CANONICAL entry task ref to its drift
+    reasons (see ``trail_drift_by_ref``). Looked up on the ref rather than the
+    resolved local id, so archived / cross-repo ghosts carry their reasons
+    too, and through ``canonical_trail_ref`` so a stored ``aitasks#t42``
+    still matches the gatherer's ``aitasks#42``."""
     lanes = []
+    by_ref = drift_by_ref or {}
     for wave in sorted(doc.get("waves") or [],
                        key=lambda w: w.get("ordinal", 0)):
         views = []
         for entry in sorted(wave.get("entries") or [],
                             key=lambda e: e.get("position", 0)):
+            drift = by_ref.get(canonical_trail_ref(entry.get("task")), [])
             local_id = trail_ref_to_local_id(entry.get("task"), local_project)
             if local_id is None:
-                views.append(TrailEntryView(entry, None, "cross_repo", False))
+                views.append(TrailEntryView(entry, None, "cross_repo", False,
+                                            drift))
                 continue
             task = tasks_by_id.get(local_id)
             if task is not None:
                 landed = task.metadata.get("status") == "Done"
-                views.append(TrailEntryView(entry, task, "", landed))
+                views.append(TrailEntryView(entry, task, "", landed, drift))
                 continue
             archived_task = archived_lookup(local_id)
             if archived_task is not None:
                 landed = archived_task.metadata.get("status") == "Done"
-                views.append(TrailEntryView(entry, None, "archived", landed))
+                views.append(TrailEntryView(entry, None, "archived", landed,
+                                            drift))
             else:
-                views.append(TrailEntryView(entry, None, "missing", False))
+                views.append(TrailEntryView(entry, None, "missing", False,
+                                            drift))
         lanes.append(TrailWaveLane(wave, views))
     return lanes
+
+
+def trail_drift_by_ref(reasons) -> dict:
+    """Group drift reasons ``(code, task_ref, detail)`` by owning task ref.
+
+    Keys are canonicalized (``canonical_trail_ref``) so they match however the
+    trail document spelled the member.
+
+    Trail-level reasons (``task_ref`` == "-", e.g. ``input_missing``) and
+    reasons naming a task that is not a trail member (``new_related_task``)
+    have no owning card; they are dropped here and stay visible in the
+    subtitle count and the trail detail modal."""
+    by_ref: dict = {}
+    for code, task_ref, detail in reasons or []:
+        if not task_ref or task_ref == "-":
+            continue
+        key = canonical_trail_ref(task_ref)
+        by_ref.setdefault(key, []).append((code, task_ref, detail))
+    return by_ref
 
 
 def trail_entry_refs(doc) -> set:
@@ -1842,6 +1896,28 @@ def _trail_badge_text(entry: dict) -> str:
     return f"{glyph} {classification} · conf: {confidence}"
 
 
+def _trail_drift_text(reasons, max_shown: int = 2,
+                      max_detail: int = 48) -> str:
+    """Literal per-card drift marker (rendered with markup=False).
+
+    The *detail* is what makes the marker actionable ("status 'Ready' ->
+    'Implementing'"), so it is rendered alongside the code rather than the code
+    alone. Bounded by ``max_shown`` reasons and a truncated detail to fit a
+    card; the complete list stays in TrailDetailScreen."""
+    if not reasons:
+        return ""
+    parts = []
+    for code, _ref, detail in reasons[:max_shown]:
+        detail = " ".join(str(detail or "").split())
+        if len(detail) > max_detail:
+            detail = detail[:max_detail - 1].rstrip() + "…"
+        parts.append(f"{code}: {detail}" if detail else str(code))
+    extra = len(reasons) - max_shown
+    if extra > 0:
+        parts.append(f"(+{extra} more)")
+    return "⚠ " + " · ".join(parts)
+
+
 class TrailTaskCard(TaskCard):
     """Card for a live local task inside a By-Trail wave column (RFC §9.1)."""
 
@@ -1869,8 +1945,14 @@ class TrailTaskCard(TaskCard):
         status = self.task_data.metadata.get("status", "")
         if status:
             yield Label(f"📋 {status}", classes="task-info")
+        drift = _trail_drift_text(self.trail_view.drift_reasons)
+        if drift:
+            yield Label(drift, classes="task-info trail-drift", markup=False)
         # markup=False: bracketed shortcut hints are literal UI text.
-        yield Label("[enter details] [r refresh] [s select]",
+        # Card-scoped actions ONLY (t1268): `r`/`s` are view-scoped and now
+        # carry truthful By-Trail labels in the footer, so naming them here
+        # duplicated — and for `s` contradicted — the footer.
+        yield Label("[enter details]",
                     classes="task-info trail-ops", markup=False)
 
     def on_click(self, event):
@@ -1913,6 +1995,9 @@ class TrailGhostCard(TaskCard):
         yield Label(f"👻 {kind} — read-only", classes="task-info")
         yield Label(_trail_badge_text(self.trail_entry),
                     classes="task-info trail-badges", markup=False)
+        drift = _trail_drift_text(self.trail_view.drift_reasons)
+        if drift:
+            yield Label(drift, classes="task-info trail-drift", markup=False)
 
     def _priority_border_color(self):
         return "gray"
@@ -2114,16 +2199,24 @@ class GateChoiceScreen(ModalScreen):
 
 def _trail_stored_freshness(info: TrailInfo) -> str:
     """Selection-modal freshness badge from the trail's *stored* verdict (the
-    live drift check runs only for the active trail)."""
+    live drift check runs only for the active trail).
+
+    Labelled "(recorded)" (t1268): ``freshness`` records what was true when the
+    trail was last written, so a trail a live drift run calls STALE can still
+    carry ``state: current`` here. Without the qualifier the badge reads as a
+    live verdict and is actively misleading. Running drift per discovered trail
+    would cost one ~0.5s subprocess each on the discovery path — deliberately
+    not done; the active trail gets the live check."""
     if info.load_error:
         return "✗ unreadable"
     doc = info.doc or {}
     freshness = doc.get("freshness") or {}
     state = str(freshness.get("state") or "unknown")
     if state == "stale":
-        return f"⚠ stale ({len(freshness.get('drift_reasons') or [])})"
+        n = len(freshness.get('drift_reasons') or [])
+        return f"⚠ stale ({n}, recorded)"
     if state == "current":
-        return "✓ current"
+        return "✓ current (recorded)"
     return "? unknown"
 
 
@@ -5257,6 +5350,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     .task-modified { color: #FFB86C; }
     .task-title { text-style: bold; width: 1fr; }
     .task-info { color: $text-muted; }
+    .trail-drift { color: #FFB86C; }
     .inflight-action { color: $text; }
     .inflight-ops { color: $accent; }
     .inflight-empty { height: 1; padding: 0 1; color: $text-muted; }
@@ -5429,8 +5523,27 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Topic lane sort order — footer-visible only in the By-Topic view
         # (gated in check_action), placed here so it reads near the front.
         Binding("o", "sort_topic", "Sort Order"),
+        # By-Trail rebinds `r` / `s` and adds `d` / `R` / `S` (t1268).
+        # Textual resolves a repeated key by walking every binding for it in
+        # declaration order and skipping the ones check_action rejects — for
+        # dispatch (App._check_bindings -> run_action) and for the footer
+        # (Screen.active_bindings). check_action makes each pair mutually
+        # exclusive on base_filter, so exactly one is live at a time and the
+        # footer shows that one's description. The trail duplicate follows its
+        # generic partner so the pair is unambiguous at a glance.
+        #
+        # Footer ORDER follows each key's FIRST declaration (BindingsMap keys
+        # on the key and yields its bindings together), so the uppercase
+        # siblings are declared next to their lowercase primaries to satisfy
+        # the adjacency rule in aidocs/framework/tui_conventions.md
+        # ("keep uppercase sibling adjacent to its lowercase primary").
         Binding("r", "refresh_board", "Refresh"),
+        Binding("r", "trail_refresh_local", "Refresh"),
+        Binding("R", "trail_refresh_agent", "Agent Refresh"),
+        Binding("d", "trail_refresh_drift", "Freshness"),
         Binding("s", "sync_remote", "Sync"),
+        Binding("s", "trail_select", "Select Trail"),
+        Binding("S", "trail_sync", "Sync"),
         # Git Commit (shown conditionally via check_action)
         Binding("c", "commit_selected", "Commit"),
         Binding("C", "commit_all", "Commit All"),
@@ -5491,6 +5604,24 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # discard results carrying a stale token.
         self._trail_gen = 0
         self._local_project: str | None = None   # lazy project-name cache
+        # --- Artifact-version watch (t1268) ---
+        # Installed only after a confirmed agent refresh actually launched;
+        # polls `artifact versions` until the stored trail moves, then reloads.
+        # Its own supersession token, deliberately NOT _trail_gen: the
+        # post-launch _reload_active_trail() bumps _trail_gen and must not
+        # disarm a watch that is still waiting for the agent's write.
+        self._trail_watch_timer = None
+        self._trail_watch_handle: str = ""
+        self._trail_watch_baseline: list | None = None
+        self._trail_watch_ticks = 0
+        self._trail_watch_busy = False
+        self._trail_watch_gen = 0
+        # A confirmed agent launch whose baseline read is still in flight.
+        # The baseline worker can take up to _trail_versions' 15s timeout, and
+        # the dialog is already closed by then — without this guard a user who
+        # thinks nothing happened can confirm `R` again and spawn a second
+        # expensive refresh agent (t1268).
+        self._trail_launch_pending = False
 
     def check_action(self, action: str, parameters) -> bool | None:
         """Control visibility of conditional actions in the footer bar."""
@@ -5569,7 +5700,39 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if not focused or not self.manager.is_modified(focused.task_data):
                 return False
         elif action == "commit_all":
+            # By-Trail lanes are a read-only projection, not an ownership
+            # boundary: get_modified_tasks() scans task_datas +
+            # child_task_datas repo-wide, so `C` here would commit modified
+            # tasks that are not trail members. Hidden rather than scoped to
+            # the trail's members — a trail is a reading view, and hiding
+            # matches every other bytrail gate below (t1268).
+            if self.base_filter == "bytrail":
+                return False
             if not self.manager.get_modified_tasks():
+                return False
+        elif action in ("refresh_board", "sync_remote"):
+            # By-Trail rebinds `r` and `s` to trail-specific actions with
+            # truthful footer labels; the generic pair is hidden there so the
+            # duplicate-key fall-through reaches them (t1268).
+            if self.base_filter == "bytrail":
+                return False
+        elif action in ("trail_refresh_local", "trail_refresh_drift",
+                        "trail_refresh_agent", "trail_select", "trail_sync"):
+            # The By-Trail half of the duplicate-key pairs — live only there.
+            if self.base_filter != "bytrail":
+                return False
+            # Every refresh key needs a trail to act on: with none selected
+            # each is an immediate no-op, and advertising it would break the
+            # same truthful-footer contract this change exists to fix. `s`
+            # (select) and `S` (sync) stay — they are how you get a trail, and
+            # a remote sync is meaningful regardless (t1268).
+            if (action in ("trail_refresh_local", "trail_refresh_drift",
+                           "trail_refresh_agent")
+                    and not self.active_trail_handle):
+                return False
+            # A confirmed launch is mid-baseline: `R` would spawn a second
+            # agent for the same refresh, so it stops advertising itself.
+            if action == "trail_refresh_agent" and self._trail_launch_pending:
                 return False
         elif action == "toggle_children":
             # The In-Flight, By-Topic and By-Trail views render every relevant
@@ -5775,17 +5938,87 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.refresh_board(refocus_filename=refocus, refresh_locks=True)
 
     def action_refresh_board(self):
-        """`r`: refresh board data — except in By-Trail with an active trail,
-        where it launches /aitask-trail --refresh <handle> (RFC §9.3).
-        Keyboard-only: the auto-refresh timer calls _refresh_board_data."""
-        if self.base_filter == "bytrail" and self.active_trail_handle:
-            handle_id = self.active_trail_handle
-            if handle_id.startswith("art:"):
-                handle_id = handle_id[len("art:"):]
-            self._launch_trail(["--refresh", self.active_trail_handle],
-                               handle_id)
-            return
+        """`r` outside By-Trail: refresh board data.
+
+        In By-Trail this action is hidden by check_action and the key falls
+        through to action_trail_refresh_local (t1268)."""
         self._refresh_board_data()
+
+    def _rerender_trail(self, refocus_filename: str = ""):
+        """Re-mount the By-Trail lanes from in-memory state only.
+
+        Deliberately does NOT call refresh_git_status() / refresh_lock_map() /
+        xdep_status_cache.clear() the way refresh_board() does. TrailTaskCard
+        and TrailGhostCard fully override TaskCard.compose, and every reader of
+        modified_files / lock_map / xdep_status_cache lives in that base
+        compose — so By-Trail consumes none of it. Routing this view through
+        refresh_board() would block the UI thread on `git status` (5s timeout)
+        and `aitask_lock.sh --list` (10s timeout) to produce an identical
+        render (t1268).
+
+        PRECONDITION: both trail cards override TaskCard.compose. A future
+        trail card that reads is_modified / lock_map must either refresh that
+        state itself or stop using this helper.
+        """
+        if self.base_filter != "bytrail":
+            return
+        refocus_col_id = self._get_focused_col_id() or ""
+        container = self.query_one("#board_container")
+        container.remove_children()
+        self._render_bytrail(container)
+        self.call_after_refresh(self.apply_filter)
+        self._queue_refocus(refocus_filename, refocus_col_id)
+
+    def action_trail_refresh_local(self):
+        """`r` in By-Trail: reload task files from disk and re-project the
+        CACHED trail document. Zero subprocesses, no agent, no artifact read —
+        a card whose frontmatter status changed on disk updates immediately."""
+        if self._modal_is_active():
+            return
+        focused = self._focused_card()
+        refocus = focused.task_data.filename if focused else ""
+        self.manager.load_tasks()          # pure file I/O
+        self._rerender_trail(refocus)
+
+    def action_trail_refresh_drift(self):
+        """`d` in By-Trail: re-fetch the stored artifact and re-run the
+        read-only drift check. Never writes the artifact."""
+        if self._modal_is_active():
+            return
+        self._reload_active_trail()
+
+    def action_trail_refresh_agent(self):
+        """`R` in By-Trail: launch /aitask-trail --refresh for the active
+        trail (the heavyweight, model-authored refresh)."""
+        if (self._modal_is_active() or not self.active_trail_handle
+                or self._trail_launch_pending):
+            return
+        handle_id = self.active_trail_handle
+        if handle_id.startswith("art:"):
+            handle_id = handle_id[len("art:"):]
+        # The version watch is installed inside _launch_trail's result
+        # callback, on a CONFIRMED launch only — _launch_trail merely pushes a
+        # confirmation dialog. Arming here would orphan a watch on cancel and
+        # burn the tick ceiling while the dialog sits open.
+        self._launch_trail(["--refresh", self.active_trail_handle],
+                           handle_id, watch_handle=self.active_trail_handle)
+
+    def action_trail_select(self):
+        """`s` in By-Trail: open the trail selector (rescans discovery)."""
+        if self._modal_is_active():
+            return
+        self._open_trail_select(rescan=True)
+
+    def action_trail_sync(self):
+        """`S` in By-Trail: ait sync, then the local recompute.
+
+        Task data lives on the aitask-data branch, so a status changed by a
+        remote agent or another machine only reaches this checkout via a
+        sync — previously unreachable from this view (t1268)."""
+        if self._modal_is_active():
+            return
+        self.push_screen(LoadingOverlay("Syncing with remote..."))
+        self._run_sync(show_notification=True, show_overlay=True)
 
     def refresh_board(self, refocus_filename: str = "", refresh_locks: bool = False,
                       refocus_col_id: str = ""):
@@ -6220,6 +6453,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # generation must not mutate the new view's state.
         if name == "bytrail" or old == "bytrail":
             self._trail_gen += 1
+        if old == "bytrail" and name != "bytrail":
+            # Leaving the view: nothing left to reload into (t1268).
+            self._stop_trail_watch()
         if name == "bytrail":
             if self.active_trail_handle is None:
                 # Entering with no active trail opens the selection flow
@@ -6236,6 +6472,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         refocus = focused.task_data.filename if focused else ""
         self.refresh_board(refocus_filename=refocus, refresh_locks=refresh_locks)
         self._refresh_subtitle()
+        # The By-Trail duplicate-key bindings carry view-specific footer
+        # labels; Textual's Footer only relabels on the bindings_updated
+        # signal, which refresh_bindings() publishes (t1268).
+        self.refresh_bindings()
 
     def _toggle_git_filter(self):
         """Flip the git add-on. No board re-render needed."""
@@ -7022,9 +7262,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             own = task_own_id(task)
             if own:
                 tasks_by_id.setdefault(own, task)
+        drift_by_ref = trail_drift_by_ref(
+            self._trail_drift[1] if self._trail_drift else [])
         return build_trail_lanes(
             self._trail_doc, tasks_by_id, self._get_local_project(),
-            self.manager.find_task_including_archived)
+            self.manager.find_task_including_archived, drift_by_ref)
 
     def _open_trail_select(self, rescan: bool = False):
         """Open the trail-selection modal, running discovery when needed."""
@@ -7077,6 +7319,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _activate_trail(self, handle: str):
         """Make ``handle`` the session's active trail and render it."""
         self._trail_gen += 1
+        # A watch belongs to the trail it was installed for (t1268).
+        self._stop_trail_watch()
         self.active_trail_handle = handle
         info = next((i for i in (self._trail_infos or [])
                      if i.handle == handle), None)
@@ -7090,6 +7334,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self._trail_doc is not None and not self._trail_error:
             self._start_trail_drift()
         self._refresh_subtitle()
+        self.refresh_bindings()
 
     def _start_trail_drift(self):
         """Kick the read-only drift check for the active trail (view entry /
@@ -7113,7 +7358,125 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 or handle != self.active_trail_handle):
             return
         self._trail_drift = (verdict, reasons)
+        # Re-render so the per-card drift markers appear. _rerender_trail, NOT
+        # refresh_board: this is an async callback, and refresh_board would put
+        # up to 15s of git/lock subprocesses on the UI thread (t1268).
+        focused = self._focused_card()
+        self._rerender_trail(focused.task_data.filename if focused else "")
         self._refresh_subtitle()
+
+    def _reload_active_trail(self):
+        """Re-fetch the active trail's stored blob, then re-run drift.
+
+        Read-only (artifact get/versions): the board never writes a trail."""
+        if self.base_filter != "bytrail" or not self.active_trail_handle:
+            return
+        self._trail_gen += 1
+        self._trail_drift = None
+        self._refresh_subtitle()          # back to "⟳ checking freshness…"
+        self._trail_reload_worker(self._trail_gen, self.active_trail_handle)
+
+    @work(thread=True)
+    def _trail_reload_worker(self, gen: int, handle: str):
+        doc, error, versions = load_trail_blob(handle)
+        self.app.call_from_thread(self._on_trail_reload, gen, handle,
+                                  doc, error, versions)
+
+    def _on_trail_reload(self, gen: int, handle: str, doc, error: str,
+                         versions: list):
+        if (gen != self._trail_gen or self.base_filter != "bytrail"
+                or handle != self.active_trail_handle):
+            return
+        self._trail_doc = doc
+        self._trail_error = error
+        self._trail_versions_fallback = list(versions)
+        # The discovery cache still holds the OLD doc for this handle; drop it
+        # so a later `s` re-select cannot resurrect the superseded document.
+        self._trail_infos = None
+        self._rerender_trail()
+        if doc is not None and not error:
+            self._start_trail_drift()
+        self._refresh_subtitle()
+
+    # --- Artifact-version watch (t1268) -----------------------------------
+    # An agent refresh launched into a tmux window finishes long after its
+    # dialog closes, so the board polls the stored artifact's version listing
+    # until it moves, then reloads. Bounded and self-stopping.
+
+    def _stop_trail_watch(self):
+        """Tear down the watch and retire any in-flight worker."""
+        self._trail_watch_gen += 1        # invalidate in-flight callbacks
+        if self._trail_watch_timer is not None:
+            self._trail_watch_timer.stop()
+        self._trail_watch_timer = None
+        self._trail_watch_handle = ""
+        self._trail_watch_baseline = None
+        self._trail_watch_ticks = 0
+        self._trail_watch_busy = False
+
+    def _install_trail_watch(self, handle: str, baseline):
+        """Install (or replace) the watch for ``handle``, keyed to ``baseline``.
+
+        Called ONLY after a launch actually succeeded — never from the cancel
+        or tmux-failure paths, which must leave an earlier watch running."""
+        if not baseline:
+            # Unreadable reference point (_trail_versions returns [] on every
+            # failure). Returning BEFORE _stop_trail_watch is deliberate:
+            # tearing down first would destroy a still-valid watch from an
+            # earlier in-flight refresh and put nothing in its place. Better
+            # to keep watching the older baseline than to watch nothing.
+            return
+        self._stop_trail_watch()          # bumps the token, kills old timer
+        self._trail_watch_gen += 1        # this watch's own token
+        self._trail_watch_handle = handle
+        self._trail_watch_baseline = list(baseline)
+        self._trail_watch_ticks = 0
+        self._trail_watch_busy = False
+        self._trail_watch_timer = self.set_interval(
+            TRAIL_WATCH_INTERVAL, self._trail_watch_tick, name="trail_watch")
+
+    def _trail_watch_tick(self):
+        handle = self._trail_watch_handle
+        if (self.base_filter != "bytrail" or not handle
+                or handle != self.active_trail_handle):
+            self._stop_trail_watch()
+            return
+        self._trail_watch_ticks += 1
+        if self._trail_watch_ticks > TRAIL_WATCH_MAX_TICKS:
+            self._stop_trail_watch()
+            return
+        if self._trail_watch_busy:        # a slow poll is still in flight
+            return
+        self._trail_watch_busy = True
+        self._trail_watch_worker(self._trail_watch_gen, handle)
+
+    @work(thread=True)
+    def _trail_watch_worker(self, watch_gen: int, handle: str):
+        versions = _trail_versions(handle)
+        self.app.call_from_thread(self._on_trail_watch, watch_gen, handle,
+                                  versions)
+
+    def _on_trail_watch(self, watch_gen: int, handle: str, versions: list):
+        # Token check FIRST: a callback that outlived its watch must not clear
+        # the newer watch's busy flag nor be compared against its baseline.
+        if watch_gen != self._trail_watch_gen:
+            return
+        self._trail_watch_busy = False
+        if (self.base_filter != "bytrail"
+                or handle != self.active_trail_handle
+                or handle != self._trail_watch_handle):
+            self._stop_trail_watch()
+            return
+        # _trail_versions() returns [] for EVERY failure (non-zero exit,
+        # timeout, missing script) — indistinguishable from a real listing.
+        # Treat it as "no signal, poll again", never as a version change.
+        if not versions:
+            return
+        if versions == self._trail_watch_baseline:
+            return
+        self._stop_trail_watch()
+        self.notify("Trail artifact updated — reloading")
+        self._reload_active_trail()
 
     def action_trail_task(self):
         """`T`: launch /aitask-trail for the focused task (By-Topic: the
@@ -7142,18 +7505,31 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 target = str(root)
         self._launch_trail([target], target)
 
-    def _launch_trail(self, op_args: list, window_suffix: str):
+    def _launch_trail(self, op_args: list, window_suffix: str,
+                      watch_handle: str = ""):
         """Resolve and launch /aitask-trail (create or refresh).
 
         Mirrors _launch_work_report. The launched skill owns every artifact
         write (after its own confirmation); the board only builds the launch.
         Args are whitespace-free ids/handles (the codeagent guard refuses
-        otherwise)."""
+        otherwise).
+
+        ``watch_handle`` (t1268) requests an artifact-version watch for that
+        trail — installed only if a launch is actually confirmed."""
         full_cmd = resolve_dry_run_command(Path("."), "trail", *op_args)
         if not full_cmd:
             self.notify("Could not resolve agent command — launching directly")
-            self.run_dialog_command(shlex.join(
-                [str(CODEAGENT_SCRIPT), "invoke", "trail", *op_args]))
+            direct_cmd = shlex.join(
+                [str(CODEAGENT_SCRIPT), "invoke", "trail", *op_args])
+            # This fallback still launches a real agent, so it carries the
+            # same baseline→launch→watch contract as the dialog path — an
+            # early return here would silently opt the fallback out of the
+            # post-refresh pickup (t1268).
+            self._with_trail_baseline(
+                watch_handle,
+                lambda baseline: self._finish_trail_launch(
+                    baseline, watch_handle,
+                    lambda: self.run_dialog_command(direct_cmd)))
             return
         prompt_str = "/aitask-trail " + " ".join(op_args)
         agent_string = resolve_agent_string(Path("."), "trail")
@@ -7171,15 +7547,90 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         def on_trail_result(result):
             if result == "run":
-                self.run_dialog_command(screen.full_command)
-            elif isinstance(result, TmuxLaunchConfig):
-                _, err = launch_in_tmux(screen.full_command, result)
-                if err:
-                    self.notify(err, severity="error")
-                elif result.new_window:
-                    maybe_spawn_minimonitor(result.session, result.window)
-            self.refresh_board()
+                self._with_trail_baseline(
+                    watch_handle,
+                    lambda baseline: self._finish_trail_launch(
+                        baseline, watch_handle,
+                        lambda: self.run_dialog_command(screen.full_command)))
+                return
+
+            if isinstance(result, TmuxLaunchConfig):
+                def launch_tmux():
+                    _pid, err = launch_in_tmux(screen.full_command, result)
+                    if err:
+                        # launch_in_tmux returns (pane_pid, error): a non-None
+                        # error means the agent NEVER started.
+                        self.notify(err, severity="error")
+                        return False
+                    if result.new_window:
+                        maybe_spawn_minimonitor(result.session, result.window)
+                    return True
+
+                self._with_trail_baseline(
+                    watch_handle,
+                    lambda baseline: self._finish_trail_launch(
+                        baseline, watch_handle, launch_tmux))
+                return
+
+            # Cancelled / dismissed: nothing launched, and THIS dialog armed
+            # nothing. A watch from an earlier still-running agent MUST
+            # survive — stopping it here would strand that agent's eventual
+            # write. Skip the re-fetch too: a cancel changes nothing.
+            self._after_trail_launch(reload=False)
         self.push_screen(screen, on_trail_result)
+
+    def _with_trail_baseline(self, watch_handle: str, then):
+        """Read the artifact version baseline, then call ``then(baseline)``.
+
+        Off the UI thread when a watch is wanted: _trail_versions() shells out
+        with a 15s timeout, and this runs from a screen-result callback on the
+        UI thread — reading it inline could freeze the TUI for that long. The
+        launch itself is performed from ``then``, so the strict
+        baseline-before-launch ordering is preserved (t1268)."""
+        if not watch_handle:
+            then(None)          # no watch wanted → stay fully synchronous
+            return
+        self._trail_launch_pending = True
+        # The flag changes check_action's answer for trail_refresh_agent, and
+        # the mounted Footer only recomposes on the bindings_updated signal —
+        # without this the key stays rendered while it is a no-op (t1268).
+        self.refresh_bindings()
+        self._trail_baseline_worker(watch_handle, then)
+
+    @work(thread=True)
+    def _trail_baseline_worker(self, handle: str, then):
+        versions = _trail_versions(handle)
+        self.app.call_from_thread(then, versions)
+
+    def _finish_trail_launch(self, baseline, watch_handle: str, launch):
+        """Perform ``launch()``, then install the watch only if it succeeded.
+
+        ``launch`` returns False when the agent never started; anything else
+        (including a Worker handle) counts as launched."""
+        # The pending window closes the moment the baseline lands, whatever
+        # the launch outcome — clear it first so a failed launch can be retried.
+        # Paired refresh_bindings() so the footer re-advertises the key.
+        self._trail_launch_pending = False
+        self.refresh_bindings()
+        if launch() is False:
+            # Install nothing, leave an earlier watch untouched, and skip the
+            # re-fetch — nothing can have changed.
+            self._after_trail_launch(reload=False)
+            return
+        if watch_handle:
+            self._install_trail_watch(watch_handle, baseline)
+        self._after_trail_launch()
+
+    def _after_trail_launch(self, reload: bool = True):
+        """Post-dialog refresh. The immediate reload picks up the synchronous
+        in-dialog `run` case; an installed watch covers the async tmux case."""
+        if self.base_filter == "bytrail" and self.active_trail_handle:
+            if reload:
+                self._reload_active_trail()
+            else:
+                self._rerender_trail()
+        else:
+            self.refresh_board()
 
     def _launch_brainstorm(self, num: str, filename: str):
         """Launch brainstorm, switching to existing tmux window if found."""
@@ -7255,11 +7706,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self.base_filter == "inflight" and isinstance(self._focused_card(), InFlightTaskCard):
             self._record_focused_human_gate("pass")
             return
-        if self.base_filter == "bytrail":
-            # `s` in By-Trail is the trail-selection key (RFC §15 footer);
-            # re-opening rescans discovery.
-            self._open_trail_select(rescan=True)
-            return
+        # By-Trail has its own `s` (action_trail_select) and `S`
+        # (action_trail_sync); this action is hidden there by check_action.
         self.push_screen(LoadingOverlay("Syncing with remote..."))
         self._run_sync(show_notification=True, show_overlay=True)
 
@@ -7304,6 +7752,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         self.app.call_from_thread(self.manager.load_tasks)
         self.app.call_from_thread(self.refresh_board, refresh_locks=True)
+        # A sync that pulled new task data can change the drift verdict, so
+        # re-check freshness for the active trail (t1268).
+        if self.base_filter == "bytrail" and self.active_trail_handle:
+            self.app.call_from_thread(self._start_trail_drift)
 
     def _show_conflict_dialog(self, files: list[str]):
         """Show the conflict resolution dialog (must be called on main thread)."""

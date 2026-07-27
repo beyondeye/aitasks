@@ -18,6 +18,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -216,12 +217,114 @@ class TrailModelTests(ByTrailTestBase):
         self.assertEqual([d.handle for d in deduped],
                          ["art:trail-b", "art:trail-a"])
 
+    def test_drift_by_ref_grouping_and_trail_level_drop(self):
+        """t1268: reasons are keyed on the RAW entry ref so ghosts match."""
+        ab = self.ab
+        reasons = [
+            ("status_changed", "aitasks#1", "status 'Ready' -> 'Done'"),
+            ("gate_state_changed", "aitasks#1", "pending gates now []"),
+            ("task_completed", "otherproj#9", "completed and archived"),
+            # Trail-level: no owning card.
+            ("input_missing", "-", "plan input unreadable"),
+            ("other", "", "unattributable digest mismatch"),
+        ]
+        by_ref = ab.trail_drift_by_ref(reasons)
+        self.assertEqual(set(by_ref), {"aitasks#1", "otherproj#9"})
+        self.assertEqual(len(by_ref["aitasks#1"]), 2)
+        self.assertNotIn("-", by_ref)
+        self.assertEqual(ab.trail_drift_by_ref([]), {})
+        self.assertEqual(ab.trail_drift_by_ref(None), {})
+
+    def test_drift_text_bounds_and_truncation(self):
+        ab = self.ab
+        self.assertEqual(ab._trail_drift_text([]), "")
+        one = [("status_changed", "aitasks#1", "status 'Ready' -> 'Done'")]
+        text = ab._trail_drift_text(one)
+        self.assertIn("status_changed", text)
+        self.assertIn("Done", text)
+        self.assertNotIn("more", text)
+        # Past max_shown, the remainder is summarised rather than dropped.
+        many = [("c%d" % i, "aitasks#1", "d%d" % i) for i in range(5)]
+        text = ab._trail_drift_text(many, max_shown=2)
+        self.assertIn("c0", text)
+        self.assertIn("c1", text)
+        self.assertNotIn("c2", text)
+        self.assertIn("(+3 more)", text)
+        # A long detail is truncated, not wrapped into the card unbounded.
+        long_one = [("plan_changed", "aitasks#1", "x" * 300)]
+        text = ab._trail_drift_text(long_one, max_detail=20)
+        self.assertLess(len(text), 80)
+        self.assertIn("…", text)
+        # Newlines in a detail can never break the single-line marker.
+        multi = [("other", "aitasks#1", "line one\nline two")]
+        self.assertNotIn("\n", ab._trail_drift_text(multi))
+
+    def test_drift_matches_the_t_prefixed_ref_spelling(self):
+        """The trail may store `aitasks#t42`; trail_gather always emits drift
+        reasons against the canonical `aitasks#42` (its `inp.canonical`). Both
+        sides must be keyed the same way or the owning card renders nothing."""
+        ab = self.ab
+        self.assertEqual(ab.canonical_trail_ref("aitasks#t42"), "aitasks#42")
+        self.assertEqual(ab.canonical_trail_ref("aitasks#42"), "aitasks#42")
+        self.assertEqual(ab.canonical_trail_ref("aitasks#t635_3"),
+                         "aitasks#635_3")
+        # Unparseable refs keep their raw text rather than vanishing.
+        self.assertEqual(ab.canonical_trail_ref("garbage"), "garbage")
+        self.assertEqual(ab.canonical_trail_ref(None), "")
+
+        doc = _ghost_doc()
+        doc["waves"][0]["entries"][0]["task"] = "aitasks#t42"   # tolerated
+        task = self._mk_task("t42_demo.md")
+        # …while the gatherer reports the canonical spelling.
+        by_ref = ab.trail_drift_by_ref([
+            ("status_changed", "aitasks#42", "status 'Ready' -> 'Implementing'"),
+        ])
+        lanes = ab.build_trail_lanes(
+            doc, {"42": task}, "aitasks", lambda _id: None, by_ref)
+        entry = lanes[0].entries[0]
+        self.assertEqual(entry.ghost_kind, "", "t-prefixed ref did not resolve")
+        self.assertEqual([r[0] for r in entry.drift_reasons],
+                         ["status_changed"],
+                         "drift reason did not attach to the t-spelled member")
+        # And the mirror case: trail stores canonical, gatherer says `t`.
+        doc2 = _ghost_doc()
+        doc2["waves"][0]["entries"][0]["task"] = "aitasks#42"
+        by_ref2 = ab.trail_drift_by_ref([
+            ("status_changed", "aitasks#t42", "status 'Ready' -> 'Done'"),
+        ])
+        lanes2 = ab.build_trail_lanes(
+            doc2, {"42": task}, "aitasks", lambda _id: None, by_ref2)
+        self.assertEqual([r[0] for r in lanes2[0].entries[0].drift_reasons],
+                         ["status_changed"])
+
+    def test_build_trail_lanes_threads_drift_to_entries(self):
+        """Ghost and live entries alike receive their own reasons."""
+        ab = self.ab
+        doc = _ghost_doc()
+        doc["waves"][0]["entries"][0]["task"] = "aitasks#42"
+        task = self._mk_task("t42_demo.md")
+        by_ref = ab.trail_drift_by_ref([
+            ("status_changed", "aitasks#42", "status 'Ready' -> 'Done'"),
+            ("task_completed", "otherproj#2", "completed and archived"),
+        ])
+        lanes = ab.build_trail_lanes(
+            doc, {"42": task}, "aitasks", lambda _id: None, by_ref)
+        live = lanes[0].entries[0]
+        ghost = lanes[1].entries[0]
+        self.assertEqual(live.ghost_kind, "")
+        self.assertEqual([r[0] for r in live.drift_reasons], ["status_changed"])
+        self.assertEqual(ghost.ghost_kind, "cross_repo")
+        self.assertEqual([r[0] for r in ghost.drift_reasons], ["task_completed"])
+        # Omitting the map keeps every entry clean (back-compatible signature).
+        lanes = ab.build_trail_lanes(
+            doc, {"42": task}, "aitasks", lambda _id: None)
+        self.assertEqual(lanes[0].entries[0].drift_reasons, [])
+
 
 class TrailCardRenderTests(ByTrailTestBase):
     """Render-level assertions on the trail card widgets."""
 
     def _render_card(self, card, queries: dict) -> dict:
-        ab = self.ab
         from textual.app import App
         from textual.widgets import Label
 
@@ -264,6 +367,79 @@ class TrailCardRenderTests(ByTrailTestBase):
         ops = rendered["ops"]
         ops_text = ops.plain if hasattr(ops, "plain") else str(ops)
         self.assertIn("[enter details]", ops_text)
+
+    def test_hint_line_names_only_card_scoped_keys(self):
+        """t1268 AC6: the per-card hint must not contradict the footer.
+
+        `r` and `s` are view-scoped and now carry truthful By-Trail labels in
+        the footer; `s` in particular used to read "select" on the card while
+        the footer said "Sync"."""
+        ab = self.ab
+        task = self._mk_task("t42_demo.md")
+        entry = {"task": "aitasks#42", "position": 1,
+                 "classification": "core", "confidence": "high"}
+        view = ab.TrailEntryView(entry, task, "", landed=False)
+        card = ab.TrailTaskCard(view, {"ordinal": 1}, None, "trail-w1")
+        rendered = self._render_card(card, {"ops": ".trail-ops"})
+        ops = rendered["ops"]
+        ops_text = ops.plain if hasattr(ops, "plain") else str(ops)
+        self.assertIn("[enter details]", ops_text)
+        self.assertNotIn("refresh", ops_text)
+        self.assertNotIn("select", ops_text)
+
+    def test_drift_marker_renders_code_and_detail(self):
+        """t1268 AC3: the owning card shows the reason, detail included."""
+        ab = self.ab
+        task = self._mk_task("t42_demo.md")
+        entry = {"task": "aitasks#42", "position": 1,
+                 "classification": "core", "confidence": "high"}
+        reasons = [("status_changed", "aitasks#42",
+                    "status 'Ready' -> 'Implementing'")]
+        view = ab.TrailEntryView(entry, task, "", False, reasons)
+        card = ab.TrailTaskCard(view, {"ordinal": 1}, None, "trail-w1")
+        rendered = self._render_card(card, {"drift": ".trail-drift"})
+        drift = rendered["drift"]
+        text = drift.plain if hasattr(drift, "plain") else str(drift)
+        self.assertIn("status_changed", text)
+        # The detail is what makes the marker actionable — not codes alone.
+        self.assertIn("Implementing", text)
+
+    def test_ghost_card_renders_its_own_drift_marker(self):
+        """t1268 AC3: a drift reason may name an archived / cross-repo member."""
+        ab = self.ab
+        entry = {"task": "otherproj#7", "position": 1,
+                 "classification": "optional", "confidence": "low"}
+        reasons = [("task_completed", "otherproj#7",
+                    "otherproj#7 completed and archived")]
+        view = ab.TrailEntryView(entry, None, "cross_repo", False, reasons)
+        card = ab.TrailGhostCard(view, {"ordinal": 1}, "trail-w1")
+        rendered = self._render_card(card, {"drift": ".trail-drift"})
+        drift = rendered["drift"]
+        text = drift.plain if hasattr(drift, "plain") else str(drift)
+        self.assertIn("task_completed", text)
+
+    def test_no_drift_marker_when_entry_is_clean(self):
+        ab = self.ab
+        task = self._mk_task("t42_demo.md")
+        entry = {"task": "aitasks#42", "position": 1,
+                 "classification": "core", "confidence": "high"}
+        view = ab.TrailEntryView(entry, task, "", landed=False)
+        card = ab.TrailTaskCard(view, {"ordinal": 1}, None, "trail-w1")
+        from textual.app import App
+
+        found = {}
+
+        class CardApp(App):
+            def compose(self):
+                yield card
+
+        async def go():
+            app = CardApp()
+            async with app.run_test(size=(90, 24)):
+                found["n"] = len(card.query(".trail-drift"))
+
+        self._run(go())
+        self.assertEqual(found["n"], 0)
 
     def test_ghost_card_kind_and_badges(self):
         ab = self.ab
@@ -359,7 +535,10 @@ class ByTrailPilotTests(ByTrailTestBase):
                 hidden = ("move_task_right", "move_task_left", "move_task_up",
                           "move_task_down", "move_col_right", "move_col_left",
                           "toggle_column_collapsed", "toggle_children",
-                          "work_report", "sort_topic", "trail_task")
+                          "work_report", "sort_topic", "trail_task",
+                          # t1268: `C` is repo-wide, and the generic `r`/`s`
+                          # yield their keys to the By-Trail actions.
+                          "commit_all", "refresh_board", "sync_remote")
                 actions = self._footer_actions(app)
                 for action in hidden:
                     self.assertIs(app.check_action(action, None), False,
@@ -478,18 +657,30 @@ class RefreshSplitAndSupersessionTests(ByTrailTestBase):
                 await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
                 app.manager.settings = dict(app.manager.settings,
                                             sync_on_refresh=False)
-                calls = {"data": 0}
+                calls = {"data": 0, "local": 0}
                 launches = []
                 app._refresh_board_data = (
                     lambda: calls.__setitem__("data", calls["data"] + 1))
+                real_local = app.action_trail_refresh_local
+                app.action_trail_refresh_local = (
+                    lambda: calls.__setitem__("local", calls["local"] + 1))
                 app._launch_trail = (
-                    lambda args, suffix: launches.append(list(args)))
+                    lambda args, suffix, watch_handle="":
+                        launches.append(list(args)))
                 # Timer tick → passive data refresh, no dialog.
                 app._auto_refresh_tick()
                 self.assertEqual(calls["data"], 1)
                 self.assertEqual(launches, [])
-                # `r` keypress → the trail refresh launch instead.
-                app.action_refresh_board()
+                # `r` in By-Trail is the LOCAL recompute (t1268) — it must not
+                # launch an agent, and it no longer routes through
+                # _refresh_board_data (which spawns git/lock subprocesses).
+                app.action_trail_refresh_local()
+                self.assertEqual(calls["local"], 1)
+                self.assertEqual(calls["data"], 1)
+                self.assertEqual(launches, [])
+                app.action_trail_refresh_local = real_local
+                # Only the dedicated agent key launches.
+                app.action_trail_refresh_agent()
                 self.assertEqual(calls["data"], 1)
                 self.assertEqual(launches,
                                  [["--refresh", "art:trail-test"]])
@@ -593,7 +784,8 @@ class TrailLaunchConstructionTests(ByTrailTestBase):
                     app, pilot, _ghost_doc(), handle="art:trail-demo")
                 calls, patches = self._spy_launch(app)
                 with patches[0], patches[1], patches[2], patches[3]:
-                    app.action_refresh_board()
+                    # The agent refresh lives on its own key (t1268).
+                    app.action_trail_refresh_agent()
                 self.assertEqual(len(calls), 1)
                 call = calls[0]
                 self.assertEqual(call["operation"], "trail")
@@ -603,6 +795,10 @@ class TrailLaunchConstructionTests(ByTrailTestBase):
                                  "agent-trail-trail-demo")
                 self.assertEqual(call["prompt_str"],
                                  "/aitask-trail --refresh art:trail-demo")
+                # The local refresh key launches nothing.
+                with patches[0], patches[1], patches[2], patches[3]:
+                    app.action_trail_refresh_local()
+                self.assertEqual(len(calls), 1)
 
         self._run(go())
 
@@ -707,6 +903,1193 @@ class ReadOnlyNegativeControlTests(ByTrailTestBase):
                 self.assertIn("artifact unresolved", text)
                 self.assertIn("sha256:abc", text)
                 self.assertIn("trail unavailable", str(app.sub_title))
+
+        self._run(go())
+
+
+class LocalRefreshTests(ByTrailTestBase):
+    """t1268: `r` in By-Trail is a zero-subprocess local recompute."""
+
+    def test_local_refresh_spawns_no_subprocess(self):
+        """Negative control — the REAL action, nothing stubbed.
+
+        Discrimination: routing this action through _refresh_board_data (the
+        generic refresh_board path) makes `git status` and aitask_lock.sh
+        appear in `seen` and fails this test.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                launches = []
+                app._launch_trail = (
+                    lambda args, suffix, watch_handle="":
+                        launches.append(list(args)))
+                seen = []
+
+                def fake_run(argv, **kwargs):
+                    seen.append([str(a) for a in argv])
+                    return subprocess.CompletedProcess(argv, 0, "", "")
+
+                # Patch AFTER mount/view-entry so only the action is measured.
+                with patch("subprocess.run", side_effect=fake_run):
+                    app.action_trail_refresh_local()
+                    await pilot.pause()
+                    await pilot.pause()
+                self.assertEqual(seen, [], f"unexpected subprocess: {seen}")
+                self.assertEqual(launches, [])
+
+        self._run(go())
+
+    def test_drift_callback_spawns_no_subprocess(self):
+        """The async drift callback must not re-enter the git/lock path."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                seen = []
+
+                def fake_run(argv, **kwargs):
+                    seen.append([str(a) for a in argv])
+                    return subprocess.CompletedProcess(argv, 0, "", "")
+
+                reasons = [("task_completed", "otherproj#1",
+                            "otherproj#1 completed and archived")]
+                with patch("subprocess.run", side_effect=fake_run):
+                    app._on_trail_drift(app._trail_gen, "art:trail-test",
+                                        "STALE", reasons)
+                    await pilot.pause()
+                    await pilot.pause()
+                self.assertEqual(seen, [], f"unexpected subprocess: {seen}")
+                # The marker reached the owning ghost card.
+                markers = [str(w.render()) for w in app.query(".trail-drift")]
+                self.assertTrue(any("task_completed" in m for m in markers),
+                                f"no drift marker rendered: {markers}")
+
+        self._run(go())
+
+
+class OnDiskRefreshTests(unittest.TestCase):
+    """t1268 AC1: `r` picks up a frontmatter status changed ON DISK.
+
+    Uses the TASK_DIR seam (config_utils.task_dir) so the board resolves its
+    module-load constants against a temp tree — the same idiom as
+    tests/test_board_archived_relation_lookup.py.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.task_dir = Path(self.tmp.name) / "aitasks"
+        (self.task_dir / "metadata").mkdir(parents=True)
+        (self.task_dir / "metadata" / "project_config.yaml").write_text(
+            "project:\n  name: aitasks\n", encoding="utf-8")
+        self._orig_cwd = os.getcwd()
+        os.chdir(REPO_ROOT)
+
+    def tearDown(self):
+        os.chdir(self._orig_cwd)
+        self.tmp.cleanup()
+
+    def _write_task(self, status: str):
+        (self.task_dir / "t42_demo.md").write_text(
+            f"---\npriority: medium\neffort: low\nstatus: {status}\n"
+            "issue_type: bug\n---\n\n## Demo\n\nbody\n",
+            encoding="utf-8")
+
+    def _load_board(self):
+        import importlib.util
+        module_name = f"aitask_board_t1268_{id(self.task_dir)}"
+        previous = os.environ.get("TASK_DIR")
+        os.environ["TASK_DIR"] = str(self.task_dir)
+        try:
+            spec = importlib.util.spec_from_file_location(
+                module_name,
+                REPO_ROOT / ".aitask-scripts" / "board" / "aitask_board.py")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+            return module
+        finally:
+            if previous is None:
+                os.environ.pop("TASK_DIR", None)
+            else:
+                os.environ["TASK_DIR"] = previous
+
+    def _doc(self):
+        return {
+            "title": "Disk trail", "trail_id": "trail-disk",
+            "narrative": {"problem_statement": "p",
+                          "recommendation_summary": "r"},
+            "waves": [{
+                "wave_id": "w1", "ordinal": 1, "title": "Wave 1",
+                "purpose": "p", "entries": [{
+                    "entry_id": "e1", "task": "aitasks#42", "topic": "aitasks#42",
+                    "position": 1, "classification": "core",
+                    "confidence": "high", "rationale": "r",
+                    "snapshot": {"status": "Ready"},
+                }],
+            }],
+        }
+
+    def test_local_refresh_picks_up_on_disk_status_change(self):
+        """Discrimination: dropping manager.load_tasks() from the action
+        makes this fail — the in-memory Task would still say Ready."""
+        self._write_task("Ready")
+        ab = self._load_board()
+
+        def statuses(app):
+            return [str(w.render()) for w in app.query(".task-info")]
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                app.active_trail_handle = "art:trail-disk"
+                app._trail_infos = []
+                app._trail_doc = self._doc()
+                app._trail_error = ""
+                app._start_trail_drift = lambda: None
+                app._set_base_filter("bytrail")
+                await pilot.pause()
+                await pilot.pause()
+                cards = list(app.query(ab.TrailTaskCard))
+                self.assertEqual(len(cards), 1,
+                                 "trail member did not resolve to a live card")
+                self.assertTrue(any("📋 Ready" in s for s in statuses(app)),
+                                statuses(app))
+
+                # Change the status ON DISK, exactly as another agent would.
+                self._write_task("Implementing")
+
+                app.action_trail_refresh_local()
+                await pilot.pause()
+                await pilot.pause()
+                after = statuses(app)
+                self.assertTrue(any("📋 Implementing" in s for s in after),
+                                after)
+                self.assertFalse(any("📋 Ready" in s for s in after), after)
+
+        asyncio.run(go())
+
+
+class BindingContractTests(ByTrailTestBase):
+    """t1268 AC6: per-view footer labels via duplicate-key bindings."""
+
+    @staticmethod
+    def _labels(app) -> dict:
+        return {
+            active.binding.action: active.binding.description
+            for active in app.screen.active_bindings.values()
+        }
+
+    def test_bytrail_footer_labels(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                # Default view: the generic pair owns r/s.
+                labels = self._labels(app)
+                self.assertEqual(labels.get("refresh_board"), "Refresh")
+                self.assertEqual(labels.get("sync_remote"), "Sync")
+                for action in ("trail_refresh_local", "trail_refresh_drift",
+                               "trail_refresh_agent", "trail_select",
+                               "trail_sync"):
+                    self.assertNotIn(action, labels)
+
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                labels = self._labels(app)
+                # The By-Trail half takes over, each with a truthful label.
+                self.assertEqual(labels.get("trail_refresh_local"), "Refresh")
+                self.assertEqual(labels.get("trail_refresh_drift"), "Freshness")
+                self.assertEqual(labels.get("trail_refresh_agent"),
+                                 "Agent Refresh")
+                self.assertEqual(labels.get("trail_select"), "Select Trail")
+                self.assertEqual(labels.get("trail_sync"), "Sync")
+                for action in ("refresh_board", "sync_remote", "commit_all"):
+                    self.assertNotIn(action, labels)
+
+        self._run(go())
+
+    def test_duplicate_key_dispatch_falls_through(self):
+        """The one Textual-internal behaviour this design depends on.
+
+        A repeated key must dispatch to whichever binding check_action leaves
+        enabled. If a future Textual changes duplicate-key resolution, this
+        test finds out — not a user pressing `r` and launching an agent.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                fired = []
+                for name in ("action_refresh_board", "action_sync_remote",
+                             "action_trail_refresh_local",
+                             "action_trail_select"):
+                    setattr(app, name,
+                            (lambda n=name: fired.append(n)))
+
+                # Default view → the generic actions.
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertEqual(fired, ["action_refresh_board"])
+                fired.clear()
+                await pilot.press("s")
+                await pilot.pause()
+                self.assertEqual(fired, ["action_sync_remote"])
+                fired.clear()
+
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                # By-Trail → the trail actions, same keys.
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertEqual(fired, ["action_trail_refresh_local"])
+                fired.clear()
+                await pilot.press("s")
+                await pilot.pause()
+                self.assertEqual(fired, ["action_trail_select"])
+
+        self._run(go())
+
+    def test_commit_all_hidden_in_bytrail_even_when_modified(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                # Force a non-empty modified set so the generic guard passes.
+                app.manager.get_modified_tasks = lambda: [object()]
+                self.assertIsNot(app.check_action("commit_all", None), False)
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                self.assertIs(app.check_action("commit_all", None), False)
+
+        self._run(go())
+
+
+class TrailWatchTests(ByTrailTestBase):
+    """t1268 AC5: the artifact-version watch that picks up an agent refresh
+    which finished long after its launch dialog closed."""
+
+    def _capture_launch(self, app):
+        """Capture _launch_trail's result callback without creating a screen."""
+        ab = self.ab
+        box = {}
+
+        class FakeScreen:
+            def __init__(self, title, full_command, prompt_str, **kwargs):
+                self.full_command = full_command
+
+        patches = [
+            patch.object(ab, "AgentCommandScreen", FakeScreen),
+            patch.object(ab, "resolve_dry_run_command",
+                         lambda root, op, *a, **k: f"CMD {op}"),
+            patch.object(ab, "resolve_agent_string",
+                         lambda root, op: "claudecode/test"),
+            patch.object(app, "push_screen",
+                         lambda screen, cb=None: box.__setitem__("cb", cb)),
+        ]
+        return box, patches
+
+    def _launch_env(self, app, versions, tmux_result=(123, None)):
+        """Patch every outward call the result callback can make."""
+        ab = self.ab
+        events = []
+
+        class FakeTmux:
+            new_window = True
+            session = "s"
+            window = "w"
+
+        patches = [
+            patch.object(ab, "_trail_versions",
+                         lambda h: (events.append("versions"), versions)[1]),
+            patch.object(app, "run_dialog_command",
+                         lambda cmd: events.append("run")),
+            # The baseline read is normally a thread worker; run it inline so
+            # the launch sequence is deterministic. The REAL worker boundary
+            # is exercised by ThreadWorkerTests.
+            patch.object(ab, "launch_in_tmux",
+                         lambda cmd, cfg: (events.append("tmux"),
+                                           tmux_result)[1]),
+            patch.object(ab, "maybe_spawn_minimonitor", lambda s, w: None),
+            patch.object(ab, "TmuxLaunchConfig", FakeTmux),
+            patch.object(app, "_reload_active_trail",
+                         lambda: events.append("reload")),
+            patch.object(app, "notify", lambda *a, **k: events.append("notify")),
+            patch.object(app, "_trail_baseline_worker",
+                         lambda handle, then: then(ab._trail_versions(handle))),
+        ]
+        return events, patches, FakeTmux
+
+    async def _get_callback(self, app, pilot):
+        box, patches = self._capture_launch(app)
+        with patches[0], patches[1], patches[2], patches[3]:
+            app.action_trail_refresh_agent()
+        await pilot.pause()
+        return box["cb"]
+
+    def _watch_state(self, app):
+        return (app._trail_watch_handle, app._trail_watch_baseline,
+                app._trail_watch_timer)
+
+    # --- launch lifecycle -------------------------------------------------
+
+    def test_opening_dialog_installs_no_watch(self):
+        """Baseline is NOT captured while the confirmation dialog is open."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                seen = []
+                with patch.object(ab, "_trail_versions",
+                                  lambda h: (seen.append(h), ["v1"])[1]):
+                    await self._get_callback(app, pilot)
+                self.assertEqual(seen, [])
+                self.assertIsNone(app._trail_watch_timer)
+
+        self._run(go())
+
+    def test_run_result_captures_baseline_before_launch(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                cb = await self._get_callback(app, pilot)
+                events, patches, _ = self._launch_env(app, ["v1"])
+                with patches[0], patches[1], patches[2], patches[3], \
+                        patches[4], patches[5], patches[6], patches[7]:
+                    cb("run")
+                # Baseline read BEFORE the agent could possibly write.
+                self.assertEqual(events[:2], ["versions", "run"])
+                self.assertEqual(app._trail_watch_handle, "art:trail-test")
+                self.assertEqual(app._trail_watch_baseline, ["v1"])
+                self.assertIsNotNone(app._trail_watch_timer)
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_tmux_success_installs_watch(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                cb = await self._get_callback(app, pilot)
+                events, patches, FakeTmux = self._launch_env(app, ["v1"])
+                with patches[0], patches[1], patches[2], patches[3], \
+                        patches[4], patches[5], patches[6], patches[7]:
+                    cb(FakeTmux())
+                self.assertEqual(events[:2], ["versions", "tmux"])
+                self.assertEqual(app._trail_watch_baseline, ["v1"])
+                self.assertIsNotNone(app._trail_watch_timer)
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_tmux_failure_installs_no_watch_and_does_not_reload(self):
+        """A failed launch must not leave an orphan poller, nor re-fetch."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                # An earlier refresh is already being watched.
+                app._install_trail_watch("art:trail-test", ["old"])
+                before = self._watch_state(app)
+                cb = await self._get_callback(app, pilot)
+                events, patches, FakeTmux = self._launch_env(
+                    app, ["new"], tmux_result=(None, "boom"))
+                with patches[0], patches[1], patches[2], patches[3], \
+                        patches[4], patches[5], patches[6], patches[7]:
+                    cb(FakeTmux())
+                self.assertIn("notify", events)
+                self.assertNotIn("reload", events)
+                self.assertEqual(self._watch_state(app), before)
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_cancel_preserves_existing_watch_and_skips_reload(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app._install_trail_watch("art:trail-test", ["old"])
+                before = self._watch_state(app)
+                cb = await self._get_callback(app, pilot)
+                events, patches, _ = self._launch_env(app, ["new"])
+                with patches[0], patches[1], patches[2], patches[3], \
+                        patches[4], patches[5], patches[6], patches[7]:
+                    cb(None)
+                self.assertNotIn("reload", events)
+                self.assertEqual(self._watch_state(app), before,
+                                 "cancelling a dialog killed an unrelated "
+                                 "in-flight agent's watch")
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_failed_baseline_preserves_active_watcher(self):
+        """Negative control for teardown-before-validate ordering."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app._install_trail_watch("art:trail-test", ["old"])
+                before = self._watch_state(app)
+                stops = []
+                real_stop = app._stop_trail_watch
+                app._stop_trail_watch = lambda: stops.append(1)
+                # A SUCCESSFUL launch whose baseline read fails ([]).
+                app._install_trail_watch("art:trail-test", [])
+                app._stop_trail_watch = real_stop
+                self.assertEqual(stops, [],
+                                 "an unreadable baseline tore down a valid "
+                                 "watch and installed nothing")
+                self.assertEqual(self._watch_state(app), before)
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_install_twice_leaves_one_timer(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app._install_trail_watch("art:trail-test", ["a"])
+                first = app._trail_watch_timer
+                app._install_trail_watch("art:trail-test", ["b"])
+                second = app._trail_watch_timer
+                self.assertIsNot(first, second)
+                self.assertEqual(app._trail_watch_baseline, ["b"])
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    # --- supersession -----------------------------------------------------
+
+    def test_stale_worker_callback_discarded_on_same_handle_restart(self):
+        """The hazard a handle/view guard alone cannot catch.
+
+        Re-arming for the SAME handle leaves handle and base_filter identical,
+        so only a dedicated watch token retires the earlier worker.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                spawned = []
+                app._trail_watch_worker = (
+                    lambda gen, handle: spawned.append((gen, handle)))
+                reloads = []
+                app._reload_active_trail = lambda: reloads.append(1)
+
+                app._install_trail_watch("art:trail-test", ["v1"])
+                app._trail_watch_tick()
+                self.assertEqual(len(spawned), 1)
+                stale_gen = spawned[0][0]
+                self.assertTrue(app._trail_watch_busy)
+
+                # Re-arm for the same handle while that worker is in flight.
+                app._install_trail_watch("art:trail-test", ["v2"])
+                self.assertFalse(app._trail_watch_busy)
+
+                # The first worker now reports — with a listing that DIFFERS
+                # from the new baseline, so a missing guard would reload.
+                app._on_trail_watch(stale_gen, "art:trail-test", ["v9"])
+                self.assertEqual(reloads, [])
+                self.assertFalse(app._trail_watch_busy,
+                                 "stale callback cleared the new watch's "
+                                 "busy flag")
+                self.assertEqual(app._trail_watch_baseline, ["v2"])
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_callback_after_stop_is_discarded(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                reloads = []
+                app._reload_active_trail = lambda: reloads.append(1)
+                app._install_trail_watch("art:trail-test", ["v1"])
+                gen = app._trail_watch_gen
+                app._stop_trail_watch()
+                app._on_trail_watch(gen, "art:trail-test", ["v2"])
+                self.assertEqual(reloads, [])
+
+        self._run(go())
+
+    def test_reload_active_trail_does_not_disarm_watch(self):
+        """Negative control: the watch must not key off _trail_gen.
+
+        The post-launch reload bumps _trail_gen while the agent is still
+        running; keying the watch off it would silently stop the poller.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app._install_trail_watch("art:trail-test", ["v1"])
+                before = self._watch_state(app)
+                app._trail_reload_worker = lambda gen, handle: None
+                app._reload_active_trail()
+                self.assertEqual(self._watch_state(app), before)
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_busy_tick_spawns_no_second_worker(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                spawned = []
+                app._trail_watch_worker = (
+                    lambda gen, handle: spawned.append(gen))
+                app._install_trail_watch("art:trail-test", ["v1"])
+                app._trail_watch_tick()
+                app._trail_watch_tick()
+                app._trail_watch_tick()
+                self.assertEqual(len(spawned), 1)
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    # --- polling semantics ------------------------------------------------
+
+    def test_transient_versions_failure_is_a_retry_not_a_change(self):
+        """_trail_versions returns [] for EVERY failure — never a 'change'."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                reloads = []
+                app._reload_active_trail = lambda: reloads.append(1)
+                app._install_trail_watch("art:trail-test", ["v1"])
+                gen = app._trail_watch_gen
+                app._on_trail_watch(gen, "art:trail-test", [])
+                self.assertEqual(reloads, [])
+                self.assertIsNotNone(app._trail_watch_timer)
+                self.assertEqual(app._trail_watch_gen, gen,
+                                 "a transient failure stopped the watch")
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_unchanged_versions_keep_watching_changed_reloads(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                reloads = []
+                notes = []
+                app._reload_active_trail = lambda: reloads.append(1)
+                app.notify = lambda *a, **k: notes.append(a)
+                app._install_trail_watch("art:trail-test", ["v1"])
+
+                app._on_trail_watch(app._trail_watch_gen, "art:trail-test",
+                                    ["v1"])
+                self.assertEqual(reloads, [])
+                self.assertIsNotNone(app._trail_watch_timer)
+
+                app._on_trail_watch(app._trail_watch_gen, "art:trail-test",
+                                    ["v2", "v1"])
+                self.assertEqual(len(reloads), 1)
+                self.assertIsNone(app._trail_watch_timer,
+                                  "watch kept polling after the reload")
+                self.assertTrue(notes)
+
+        self._run(go())
+
+    def test_foreign_handle_and_view_change_stop_the_watch(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                reloads = []
+                app._reload_active_trail = lambda: reloads.append(1)
+
+                app._install_trail_watch("art:trail-test", ["v1"])
+                app._on_trail_watch(app._trail_watch_gen, "art:other", ["v2"])
+                self.assertEqual(reloads, [])
+                self.assertIsNone(app._trail_watch_timer)
+
+                # Leaving By-Trail stops it.
+                app._install_trail_watch("art:trail-test", ["v1"])
+                self.assertIsNotNone(app._trail_watch_timer)
+                app._set_base_filter("all")
+                await pilot.pause()
+                self.assertIsNone(app._trail_watch_timer)
+
+        self._run(go())
+
+    def test_activating_another_trail_stops_the_watch(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app._install_trail_watch("art:trail-test", ["v1"])
+                app._activate_trail("art:trail-other")
+                await pilot.pause()
+                self.assertIsNone(app._trail_watch_timer)
+                self.assertEqual(app._trail_watch_handle, "")
+
+        self._run(go())
+
+    def test_tick_ceiling_stops_the_watch(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app._trail_watch_worker = lambda gen, handle: None
+                app._install_trail_watch("art:trail-test", ["v1"])
+                for _ in range(ab.TRAIL_WATCH_MAX_TICKS):
+                    app._trail_watch_busy = False
+                    app._trail_watch_tick()
+                self.assertIsNotNone(app._trail_watch_timer)
+                app._trail_watch_busy = False
+                app._trail_watch_tick()          # one past the ceiling
+                self.assertIsNone(app._trail_watch_timer)
+
+        self._run(go())
+
+
+class ThreadWorkerTests(ByTrailTestBase):
+    """The REAL @work(thread=True) boundary for the t1268 workers.
+
+    Every other watch test stubs the worker to stay deterministic; these drive
+    the actual thread hop. Walks the axes of
+    aidocs/framework/testing_conventions.md that apply to a Textual thread
+    worker + set_interval timer:
+
+      1. Lifecycle      — start idempotency, start-after-stop, stop
+                          idempotency, stop with pending work.
+      2. Concurrency    — 50 concurrent real workers; exactly one reload wins.
+      4. Failure recov. — the versions read fails; next poll is clean, no raise.
+      5. Resource bound.— artifact script absent → clean [] fallback, watch
+                          survives.
+      6. Cleanup        — bounded thread use: repeated runs do not grow the
+                          thread set. NOTE the guarantee is deliberately
+                          weaker than "threads are joined / enumerate()
+                          returns to the pre-run baseline": Textual dispatches
+                          thread workers onto a pool, so the first run adds a
+                          thread that legitimately persists. What is asserted
+                          is no growth across subsequent runs, measured from a
+                          warmed baseline.
+
+    Not applicable, deliberately: axis 3 (mixed contexts / sync caller inside a
+    running loop on another thread) — no asyncio bridge is introduced here;
+    Textual owns the loop and `call_from_thread` is its sanctioned hop. Axis 7
+    (behaviour parity old vs new) — these are new code paths with no
+    predecessor to compare against.
+    """
+
+    async def _wait(self, pilot, pred, tries=100, delay=0.05):
+        for _ in range(tries):
+            if pred():
+                return True
+            await asyncio.sleep(delay)
+            await pilot.pause()
+        return pred()
+
+    def test_real_watch_worker_delivers_on_the_main_thread(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                seen = {}
+                app._reload_active_trail = (
+                    lambda: seen.update(thread=threading.current_thread()))
+                with patch.object(ab, "_trail_versions", lambda h: ["v2"]):
+                    app._install_trail_watch("art:trail-test", ["v1"])
+                    app._trail_watch_tick()          # REAL thread worker
+                    ok = await self._wait(pilot, lambda: "thread" in seen)
+                self.assertTrue(ok, "real worker never delivered its callback")
+                self.assertIs(seen["thread"], threading.main_thread(),
+                              "callback did not hop back to the UI thread")
+                self.assertIsNone(app._trail_watch_timer)
+
+        self._run(go())
+
+    def test_real_reload_worker_replaces_the_document(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                fresh = _ghost_doc()
+                fresh["title"] = "Reloaded trail"
+                with patch.object(ab, "load_trail_blob",
+                                  lambda h: (fresh, "", [])):
+                    app._reload_active_trail()       # REAL thread worker
+                    ok = await self._wait(
+                        pilot,
+                        lambda: (app._trail_doc or {}).get("title")
+                        == "Reloaded trail")
+                self.assertTrue(ok, "reload worker never applied the document")
+                # The stale discovery cache was invalidated with it.
+                self.assertIsNone(app._trail_infos)
+
+        self._run(go())
+
+    def test_fifty_concurrent_real_workers_produce_one_reload(self):
+        """Axis 2. The token must hold under genuine thread concurrency."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                reloads = []
+                threads = []
+                app._reload_active_trail = lambda: reloads.append(1)
+                app.notify = lambda *a, **k: None
+
+                def versions(_handle):
+                    threads.append(threading.current_thread())
+                    return ["v2"]                   # always "changed"
+
+                with patch.object(ab, "_trail_versions", versions):
+                    app._install_trail_watch("art:trail-test", ["v1"])
+                    gen = app._trail_watch_gen
+                    for _ in range(50):
+                        app._trail_watch_worker(gen, "art:trail-test")
+                    await self._wait(pilot, lambda: len(threads) >= 50)
+                    await self._wait(pilot, lambda: reloads, tries=20)
+                self.assertEqual(
+                    len(reloads), 1,
+                    f"expected exactly one reload, got {len(reloads)}")
+                self.assertIsNone(app._trail_watch_timer)
+                # They really did run off the UI thread.
+                self.assertTrue(
+                    any(t is not threading.main_thread() for t in threads))
+
+        self._run(go())
+
+    def test_missing_artifact_script_is_a_clean_retry(self):
+        """Axes 4 + 5: the binary is absent — no raise, watch survives."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                reloads = []
+                app._reload_active_trail = lambda: reloads.append(1)
+                landed = []
+                real_cb = app._on_trail_watch
+
+                def spy(gen, handle, versions):
+                    landed.append(versions)
+                    return real_cb(gen, handle, versions)
+
+                app._on_trail_watch = spy
+                missing = Path("/nonexistent/aitask_artifact.sh")
+                with patch.object(ab, "ARTIFACT_SCRIPT", missing):
+                    app._install_trail_watch("art:trail-test", ["v1"])
+                    app._trail_watch_tick()          # REAL worker + real subprocess call
+                    ok = await self._wait(pilot, lambda: landed)
+                self.assertTrue(ok, "worker never reported")
+                # _trail_versions swallows FileNotFoundError → [] → retry.
+                self.assertEqual(landed[0], [])
+                self.assertEqual(reloads, [])
+                self.assertIsNotNone(app._trail_watch_timer,
+                                     "a missing binary stopped the watch")
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_worker_threads_do_not_leak_per_invocation(self):
+        """Axis 6: repeated real worker runs must not grow the thread set.
+
+        Textual runs thread workers on a pooled thread, so the FIRST run
+        legitimately adds one and keeps it. The leak signal is therefore
+        growth across subsequent runs, measured from a warmed baseline — an
+        absolute count taken before any worker ran would flag pool reuse as a
+        leak.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app._reload_active_trail = lambda: None
+                done = []
+                with patch.object(
+                        ab, "_trail_versions",
+                        lambda h: (done.append(1), ["v1"])[1]):
+                    app._install_trail_watch("art:trail-test", ["v1"])
+                    # Warm the pool with one run, THEN take the baseline.
+                    app._trail_watch_tick()
+                    await self._wait(pilot, lambda: len(done) >= 1)
+                    baseline = threading.active_count()
+                    for i in range(12):
+                        app._trail_watch_busy = False
+                        app._trail_watch_tick()
+                        await self._wait(pilot, lambda n=i: len(done) > n + 1)
+                    settled = await self._wait(
+                        pilot,
+                        lambda: threading.active_count() <= baseline,
+                        tries=60)
+                self.assertEqual(len(done), 13)
+                self.assertTrue(
+                    settled,
+                    f"threads grew across runs: warmed baseline={baseline} "
+                    f"now={threading.active_count()}")
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_stop_idempotent_and_start_after_stop(self):
+        """Axis 1: stop twice is safe, and a watch can be re-armed after."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app._stop_trail_watch()
+                app._stop_trail_watch()              # idempotent
+                self.assertIsNone(app._trail_watch_timer)
+
+                app._install_trail_watch("art:trail-test", ["v1"])
+                self.assertIsNotNone(app._trail_watch_timer)
+                app._stop_trail_watch()
+                self.assertIsNone(app._trail_watch_timer)
+
+                # start-after-stop works and gets a fresh token.
+                gen_before = app._trail_watch_gen
+                app._install_trail_watch("art:trail-test", ["v2"])
+                self.assertIsNotNone(app._trail_watch_timer)
+                self.assertGreater(app._trail_watch_gen, gen_before)
+                self.assertEqual(app._trail_watch_baseline, ["v2"])
+                app._stop_trail_watch()
+
+        self._run(go())
+
+
+class LaunchFallbackTests(ByTrailTestBase):
+    """t1268: the direct-launch fallback honours the same AC5 contract."""
+
+    def test_direct_launch_fallback_installs_watch_and_reloads(self):
+        """resolve_dry_run_command returning nothing must not opt the
+        fallback out of the version watch / post-launch pickup."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                events = []
+                patches = [
+                    patch.object(ab, "resolve_dry_run_command",
+                                 lambda root, op, *a, **k: ""),
+                    patch.object(ab, "_trail_versions",
+                                 lambda h: (events.append("versions"),
+                                            ["v1"])[1]),
+                    patch.object(app, "run_dialog_command",
+                                 lambda cmd: events.append("run")),
+                    patch.object(app, "_reload_active_trail",
+                                 lambda: events.append("reload")),
+                    patch.object(app, "notify", lambda *a, **k: None),
+                    patch.object(app, "_trail_baseline_worker",
+                                 lambda handle, then:
+                                     then(ab._trail_versions(handle))),
+                ]
+                with patches[0], patches[1], patches[2], patches[3], \
+                        patches[4], patches[5]:
+                    app.action_trail_refresh_agent()
+                # Baseline before launch, watch installed, pickup requested.
+                self.assertEqual(events, ["versions", "run", "reload"])
+                self.assertEqual(app._trail_watch_handle, "art:trail-test")
+                self.assertEqual(app._trail_watch_baseline, ["v1"])
+                self.assertIsNotNone(app._trail_watch_timer)
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_baseline_read_is_off_the_ui_thread(self):
+        """The read shells out with a 15s timeout; it must not run inline on
+        the screen-result callback."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                where = {}
+                got = []
+                with patch.object(
+                        ab, "_trail_versions",
+                        lambda h: (where.update(
+                            thread=threading.current_thread()), ["v1"])[1]):
+                    app._with_trail_baseline(
+                        "art:trail-test", lambda b: got.append(b))
+                    ok = await self._wait(pilot, lambda: got)
+                self.assertTrue(ok, "baseline callback never arrived")
+                self.assertEqual(got, [["v1"]])
+                self.assertIsNot(where["thread"], threading.main_thread(),
+                                 "baseline read ran on the UI thread")
+
+        self._run(go())
+
+    async def _wait(self, pilot, pred, tries=100, delay=0.05):
+        for _ in range(tries):
+            if pred():
+                return True
+            await asyncio.sleep(delay)
+            await pilot.pause()
+        return pred()
+
+    def test_repeated_R_during_an_in_flight_baseline_launches_once(self):
+        """The baseline read can take up to 15s with the dialog already
+        closed; a second confirmed `R` in that window must not spawn a second
+        refresh agent."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                pending = []
+                launches = []
+                # Hold the baseline in flight: capture `then`, never call it.
+                app._trail_baseline_worker = (
+                    lambda handle, then: pending.append(then))
+                app._launch_trail = (
+                    lambda args, suffix, watch_handle="":
+                        (launches.append(list(args)),
+                         app._with_trail_baseline(
+                             watch_handle, lambda b: None))[0])
+
+                app.action_trail_refresh_agent()
+                await pilot.pause()
+                self.assertEqual(len(launches), 1)
+                self.assertTrue(app._trail_launch_pending)
+                # Footer stops advertising it while the launch is pending.
+                self.assertIs(
+                    app.check_action("trail_refresh_agent", None), False)
+                self.assertNotIn("trail_refresh_agent",
+                                 self._footer_actions(app))
+
+                # A second press during the window is a no-op.
+                app.action_trail_refresh_agent()
+                app.action_trail_refresh_agent()
+                self.assertEqual(len(launches), 1,
+                                 "a second agent was launched while the "
+                                 "first baseline was still in flight")
+
+                # Once the baseline lands the guard clears and `R` works again.
+                app._finish_trail_launch(["v1"], "", lambda: True)
+                self.assertFalse(app._trail_launch_pending)
+                self.assertIsNot(
+                    app.check_action("trail_refresh_agent", None), False)
+                app.action_trail_refresh_agent()
+                self.assertEqual(len(launches), 2)
+
+        self._run(go())
+
+    def test_pending_guard_updates_the_rendered_footer(self):
+        """AC6 at the RENDERED level, not just active_bindings.
+
+        Textual's mounted Footer recomposes only on the bindings_updated
+        signal, so a check_action change without refresh_bindings() leaves the
+        FooterKey widget on screen advertising a key that has become a no-op.
+        Asserting on active_bindings alone cannot see that.
+        """
+        ab = self.ab
+        from textual.widgets import Footer
+        from textual.widgets._footer import FooterKey
+
+        def footer_keys(app) -> dict:
+            return {k.key: k.description
+                    for k in app.query_one(Footer).query(FooterKey)}
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(200, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                await pilot.pause()
+
+                # BEFORE: the key is rendered in the footer.
+                before = footer_keys(app)
+                self.assertEqual(before.get("R"), "Agent Refresh", before)
+
+                pending = []
+                app._trail_baseline_worker = (
+                    lambda handle, then: pending.append(then))
+                app._launch_trail = (
+                    lambda args, suffix, watch_handle="":
+                        app._with_trail_baseline(watch_handle, lambda b: None))
+                app.action_trail_refresh_agent()
+                await pilot.pause()
+                await pilot.pause()
+
+                # DURING: it must be gone from the rendered footer too.
+                during = footer_keys(app)
+                self.assertNotIn(
+                    "R", during,
+                    "R Agent Refresh stayed rendered while it was a no-op")
+                # The rendered text no longer mentions it either.
+                rendered = " ".join(
+                    str(k.render()) for k in
+                    app.query_one(Footer).query(FooterKey))
+                self.assertNotIn("Agent Refresh", rendered)
+
+                # AFTER: clearing the guard restores it on screen.
+                app._finish_trail_launch(["v1"], "", lambda: True)
+                await pilot.pause()
+                await pilot.pause()
+                after = footer_keys(app)
+                self.assertEqual(after.get("R"), "Agent Refresh", after)
+
+        self._run(go())
+
+    def test_failed_launch_clears_the_pending_guard(self):
+        """A launch that never started must not wedge `R` permanently."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app._reload_active_trail = lambda: None
+                app._trail_launch_pending = True
+                app._finish_trail_launch(["v1"], "art:trail-test",
+                                         lambda: False)
+                self.assertFalse(app._trail_launch_pending)
+                self.assertIsNone(app._trail_watch_timer)
+
+        self._run(go())
+
+    def test_no_watch_requested_stays_synchronous(self):
+        """The create-trail path (no watch_handle) is unchanged."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                got = []
+                called = []
+                with patch.object(ab, "_trail_versions",
+                                  lambda h: called.append(h)):
+                    app._with_trail_baseline("", lambda b: got.append(b))
+                # Resolved inline, no worker, no versions read.
+                self.assertEqual(got, [None])
+                self.assertEqual(called, [])
+
+        self._run(go())
+
+
+class FreshnessGatingTests(ByTrailTestBase):
+    """t1268: no refresh key may advertise itself without a trail to act on."""
+
+    def test_refresh_keys_hidden_until_a_trail_is_active(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                # Enter By-Trail with NO active trail (selector cancelled).
+                app._trail_infos = []
+                app._open_trail_select = lambda rescan=False: None
+                app._set_base_filter("bytrail")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertIsNone(app.active_trail_handle)
+                actions = self._footer_actions(app)
+                for action in ("trail_refresh_local", "trail_refresh_drift",
+                               "trail_refresh_agent"):
+                    self.assertIs(app.check_action(action, None), False,
+                                  f"{action} advertised with no active trail")
+                    self.assertNotIn(action, actions)
+                # Selecting and syncing remain available and meaningful.
+                self.assertIsNot(app.check_action("trail_select", None), False)
+                self.assertIsNot(app.check_action("trail_sync", None), False)
+                self.assertIn("trail_select", actions)
+
+                # With a trail active they all come back.
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                actions = self._footer_actions(app)
+                for action in ("trail_refresh_local", "trail_refresh_drift",
+                               "trail_refresh_agent"):
+                    self.assertIn(action, actions)
 
         self._run(go())
 
