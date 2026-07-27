@@ -194,3 +194,8 @@ the command palette.
   today), render-path scoping, the group data model + persistence, block
   moves, multi-select infrastructure, the move-to-column command, and the
   group add/remove command.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-27T22:10:54Z status=pass attempt=1 type=human
