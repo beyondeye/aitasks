@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/opus5
 created_at: 2026-07-17 11:05
-updated_at: 2026-07-27 18:03
+updated_at: 2026-07-27 22:30
 ---
 
 ## Problem
@@ -106,3 +107,8 @@ gate that IS in `active_gates` but has no configured verifier — the genuine
 ## Step 9 (Post-Implementation)
 
 Standard cleanup / archival / merge per task-workflow Step 9.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-27T19:30:32Z status=pass attempt=1 type=human
