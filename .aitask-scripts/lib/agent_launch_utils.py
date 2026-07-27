@@ -264,20 +264,44 @@ def get_tmux_sessions() -> list[str]:
     return []
 
 
-def get_tmux_windows(session: str) -> list[tuple[str, str]]:
-    """List windows in a tmux session as (index, name) tuples."""
+def get_tmux_windows_result(
+    session: str,
+) -> tuple[list[tuple[str, str]], str | None]:
+    """List a session's windows as ``(index, name)`` tuples, keeping the error.
+
+    Returns ``(windows, error)``. ``error`` is ``None`` when the enumeration
+    succeeded (``windows`` may still be empty — a session really can have no
+    listable windows); otherwise it is a short reason string and ``windows`` is
+    empty.
+
+    Callers that make a *safety* decision from the window list must use this
+    variant, not ``get_tmux_windows``: the gateway folds ``TimeoutExpired`` /
+    ``FileNotFoundError`` / ``OSError`` into ``(-1, "")``, so a plain empty list
+    cannot distinguish "nothing is running there" from "we could not ask". A
+    fail-closed consumer needs that distinction (t1223_3).
+    """
     rc, out = _TMUX.run(
         ["list-windows", "-t", tmux_session_target(session),
          "-F", "#{window_index}:#{window_name}"]
     )
-    if rc == 0:
-        windows = []
-        for line in out.strip().splitlines():
-            if ":" in line:
-                idx, name = line.split(":", 1)
-                windows.append((idx, name))
-        return windows
-    return []
+    if rc != 0:
+        return [], f"tmux list-windows failed (rc={rc})"
+    windows = []
+    for line in out.strip().splitlines():
+        if ":" in line:
+            idx, name = line.split(":", 1)
+            windows.append((idx, name))
+    return windows, None
+
+
+def get_tmux_windows(session: str) -> list[tuple[str, str]]:
+    """List windows in a tmux session as (index, name) tuples.
+
+    Lossy convenience wrapper over :func:`get_tmux_windows_result` — an
+    enumeration failure is reported as an empty list. Unchanged behavior for
+    display/best-effort callers; see the result variant for safety decisions.
+    """
+    return get_tmux_windows_result(session)[0]
 
 
 def find_window_by_name(name: str, session: str) -> tuple[str, str] | None:

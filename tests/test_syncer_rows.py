@@ -10,7 +10,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -29,15 +32,19 @@ from textual.widgets import (  # noqa: E402
     Tabs,
 )
 
+import agent_launch_utils  # noqa: E402
 from agent_launch_utils import AitasksSession  # noqa: E402
 import syncer_app  # noqa: E402
 from syncer_app import (  # noqa: E402
     PENDING_UNSET,
     ActionTarget,
     RowSpec,
+    UpgradeRun,
+    UpgradeTarget,
     action_allowed_for_ref,
     build_labels,
     build_rows,
+    build_version_rows,
     coalesce_request,
     discover_syncer_sessions,
     format_age,
@@ -45,6 +52,14 @@ from syncer_app import (  # noqa: E402
     resolve_action_target,
     should_stamp_fetch,
     single_repo_rows,
+    upgrade_state_cell,
+)
+from upgrade_screens import (  # noqa: E402
+    ForceConfirmScreen,
+    HandoffConfirmScreen,
+    UpgradeConfirmScreen,
+    UpgradeRefusalScreen,
+    UpgradeTargetScreen,
 )
 
 
@@ -389,6 +404,113 @@ class DiscoverSyncerSessionsTests(unittest.TestCase):
         self.assertEqual(len(sessions), 1)  # just the synthesized cwd
 
 
+class VersionRowModelTests(unittest.TestCase):
+    """Pure Versions-tab row model (t1223_3)."""
+
+    def test_one_row_per_repo_with_opaque_positional_keys(self):
+        sessions = [sess("/tmp/alpha"), sess("/tmp/beta"), sess("/tmp/gamma")]
+        rows = build_version_rows(sessions, build_labels(sessions))
+        self.assertEqual([r.row_key for r in rows], ["v0", "v1", "v2"])
+        self.assertEqual(
+            [r.session_key for r in rows], [s.key for s in sessions]
+        )
+        # One row per REPO, not per repo×ref (the Branches model's shape).
+        self.assertEqual(len(rows), len(sessions))
+
+    def test_labels_are_collision_safe(self):
+        # Same basename in two places: labels must still disambiguate.
+        sessions = [sess("/tmp/one/proj"), sess("/tmp/two/proj")]
+        rows = build_version_rows(sessions, build_labels(sessions))
+        labels = [r.project_label for r in rows]
+        self.assertEqual(len(set(labels)), 2, labels)
+
+    def test_row_key_lookup_round_trips(self):
+        sessions = [sess("/tmp/alpha"), sess("/tmp/beta")]
+        rows = build_version_rows(sessions, build_labels(sessions))
+        by_key = {r.row_key: r for r in rows}
+        self.assertEqual(by_key["v1"].session_key, sessions[1].key)
+
+    def test_empty_session_list(self):
+        self.assertEqual(build_version_rows([], {}), [])
+
+
+class UpgradeStateCellTests(unittest.TestCase):
+    """Contract G: the State column never claims an unobserved success."""
+
+    def test_idle_and_missing_render_empty(self):
+        self.assertEqual(upgrade_state_cell(None), "")
+        self.assertEqual(
+            upgrade_state_cell(UpgradeRun(state=syncer_app.UPGRADE_IDLE)), ""
+        )
+
+    def test_launched_and_finished_labels(self):
+        self.assertEqual(
+            upgrade_state_cell(UpgradeRun(state=syncer_app.UPGRADE_LAUNCHED)),
+            "upgrading…",
+        )
+        self.assertEqual(
+            upgrade_state_cell(UpgradeRun(state=syncer_app.UPGRADE_FINISHED)),
+            "re-check needed",
+        )
+
+    def test_no_state_renders_a_success_word(self):
+        # Negative control: adding an optimistic "upgraded"/"done" label later
+        # must break this.
+        rendered = [
+            upgrade_state_cell(None),
+            upgrade_state_cell(UpgradeRun(state=syncer_app.UPGRADE_IDLE)),
+            upgrade_state_cell(UpgradeRun(state=syncer_app.UPGRADE_LAUNCHED)),
+            upgrade_state_cell(UpgradeRun(state=syncer_app.UPGRADE_FINISHED)),
+        ]
+        for text in rendered:
+            lowered = text.lower()
+            for word in ("success", "upgraded", "done", "complete", "ok"):
+                self.assertNotIn(word, lowered, rendered)
+
+
+class GetTmuxWindowsResultTests(unittest.TestCase):
+    """The checked enumeration variant added for the fail-closed activity gate.
+
+    ``get_tmux_windows`` collapses a tmux failure and an genuinely window-less
+    session into the same empty list; a safety decision cannot be made from
+    that, so the result variant keeps the error.
+    """
+
+    def _patched(self, rc: int, out: str):
+        return mock.patch.object(
+            agent_launch_utils._TMUX, "run", lambda *a, **kw: (rc, out)
+        )
+
+    def test_success_parses_index_name_tuples(self):
+        with self._patched(0, "1:board\n2:agent-t42-fix\n"):
+            windows, err = agent_launch_utils.get_tmux_windows_result("s")
+        self.assertEqual(windows, [("1", "board"), ("2", "agent-t42-fix")])
+        self.assertIsNone(err)
+
+    def test_success_with_no_windows_is_not_an_error(self):
+        # Load-bearing: a real empty session must still classify as idle.
+        with self._patched(0, ""):
+            windows, err = agent_launch_utils.get_tmux_windows_result("s")
+        self.assertEqual(windows, [])
+        self.assertIsNone(err)
+
+    def test_failure_reports_a_reason(self):
+        # The gateway folds timeout/ENOENT/OSError into rc == -1.
+        with self._patched(-1, ""):
+            windows, err = agent_launch_utils.get_tmux_windows_result("s")
+        self.assertEqual(windows, [])
+        self.assertIsNotNone(err)
+
+    def test_legacy_wrapper_returns_only_the_window_list(self):
+        # Existing callers keep exactly their old behavior.
+        with self._patched(0, "1:board\n"):
+            self.assertEqual(
+                agent_launch_utils.get_tmux_windows("s"), [("1", "board")]
+            )
+        with self._patched(-1, ""):
+            self.assertEqual(agent_launch_utils.get_tmux_windows("s"), [])
+
+
 # --------------------------------------------------------------- tabbed shell
 # The tests below boot the real SyncerApp headlessly (t1223_1). Everything
 # above this line is pure-helper coverage that needs no running app.
@@ -451,30 +573,118 @@ async def activate_tab(app, pilot, tab_id: str):
     return tabbed
 
 
+class Seams:
+    """Configurable stand-ins for every impure seam the version/upgrade paths
+    touch, with call logs so a test can assert something did **not** happen.
+
+    Without these the suite would issue real ``tmux list-windows`` calls against
+    the developer's live session and a real GitHub request — the version tab is
+    reached by several tests that are not about versions at all.
+    """
+
+    def __init__(self) -> None:
+        self.latest: tuple[str | None, str | None] = ("9.9.9", None)
+        self.windows: tuple[list[tuple[str, str]], str | None] = ([], None)
+        self.windows_queue: list[tuple[list[tuple[str, str]], str | None]] = []
+        self.tmux_sessions: list[str] = []
+        self.tmux_available = True
+        self.spawn_result: tuple[int | None, str | None] = (4242, None)
+        self.pane_alive = True
+        self.installed: dict[str, str | None] = {}
+        self.self_root: Path | None = None
+        # call logs
+        self.launches: list[tuple[str, object]] = []
+        self.window_calls: list[str] = []
+        self.latest_calls = 0
+
+    # -- seam implementations -------------------------------------------
+    def get_tmux_windows_result(self, session):
+        self.window_calls.append(session)
+        if self.windows_queue:
+            return self.windows_queue.pop(0)
+        return self.windows
+
+    def resolve_latest_version(self, *args, **kwargs):
+        self.latest_calls += 1
+        return self.latest
+
+    def launch_in_tmux(self, command, config):
+        self.launches.append((command, config))
+        return self.spawn_result
+
+    def resolve_pane_id_by_pid(self, session, pid):
+        return "%7" if self.pane_alive else None
+
+    def read_installed_version(self, root):
+        return self.installed.get(str(root))
+
+    def is_self_target(self, root, cwd):
+        return self.self_root is not None and Path(root) == Path(self.self_root)
+
+
+def version_cells(app, row_key: str) -> dict[str, str]:
+    """Rendered Versions-table cells for one row, keyed by column."""
+    table = app.query_one("#versions", DataTable)
+    return {
+        col: str(table.get_cell(row_key, col))
+        for col in ("project", "installed", "latest", "vstatus", "state")
+    }
+
+
 class TabbedShellTests(unittest.TestCase):
-    """Boots the real SyncerApp with two module seams mocked: discovery (to pin
-    ``multi_repo``) and ``snapshot`` (so the threaded refresh worker never
-    shells out to git)."""
+    """Boots the real SyncerApp with every impure seam mocked: discovery (to pin
+    ``multi_repo``), ``snapshot`` (so the threaded refresh worker never shells
+    out to git), and the version/upgrade seams (network, tmux, spawn)."""
 
     def _run(self, coro):
         return asyncio.run(coro)
 
     @contextlib.asynccontextmanager
-    async def booted(self, repos: int = 1):
-        sessions = [
-            sess(f"/tmp/repo{i}", f"repo{i}") for i in range(repos)
-        ]
+    async def booted(
+        self,
+        repos: int = 1,
+        *,
+        sessions: list[AitasksSession] | None = None,
+        seams: Seams | None = None,
+        no_fetch: bool = True,
+    ):
+        if sessions is None:
+            sessions = [sess(f"/tmp/repo{i}", f"repo{i}") for i in range(repos)]
+        seams = seams or Seams()
         with mock.patch.object(
             syncer_app, "snapshot", lambda *a, **kw: dict(FAKE_SNAPSHOT)
         ), mock.patch.object(
             syncer_app, "discover_syncer_sessions", lambda: sessions
+        ), mock.patch.object(
+            syncer_app, "get_tmux_windows_result", seams.get_tmux_windows_result
+        ), mock.patch.object(
+            syncer_app, "resolve_latest_version", seams.resolve_latest_version
+        ), mock.patch.object(
+            syncer_app, "launch_in_tmux", seams.launch_in_tmux
+        ), mock.patch.object(
+            syncer_app, "resolve_pane_id_by_pid", seams.resolve_pane_id_by_pid
+        ), mock.patch.object(
+            syncer_app, "read_installed_version", seams.read_installed_version
+        ), mock.patch.object(
+            syncer_app, "is_self_target", seams.is_self_target
+        ), mock.patch.object(
+            syncer_app, "get_tmux_sessions", lambda: list(seams.tmux_sessions)
+        ), mock.patch.object(
+            syncer_app, "is_tmux_available", lambda: seams.tmux_available
         ):
             app = syncer_app.SyncerApp(
-                argparse.Namespace(interval=3600, no_fetch=True)
+                argparse.Namespace(interval=3600, no_fetch=no_fetch)
             )
             async with app.run_test(size=(120, 30)) as pilot:
                 await pilot.pause()
                 yield app, pilot
+
+    @staticmethod
+    async def settle(app, pilot):
+        """Let thread workers finish and their call_from_thread callbacks run."""
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
 
     # ------------------------------------------------------------ tab shape
 
@@ -498,13 +708,13 @@ class TabbedShellTests(unittest.TestCase):
                 self.assertIsNotNone(app.query_one("#detail_scroll"))
         self._run(runner())
 
-    def test_placeholder_panes_render_their_text(self):
+    def test_versions_pane_holds_the_table_and_settings_the_placeholder(self):
         async def runner():
             async with self.booted() as (app, _pilot):
-                self.assertIn(
-                    "Framework versions",
-                    app.query_one("#versions_placeholder", Static).render().plain,
-                )
+                # t1223_3 replaced the Versions placeholder with a real table;
+                # the Settings placeholder stays until t1223_5.
+                self.assertIsNotNone(app.query_one("#versions", DataTable))
+                self.assertEqual(len(app.query("#versions_placeholder")), 0)
                 self.assertIn(
                     "Cross-repo settings",
                     app.query_one("#settings_placeholder", Static).render().plain,
@@ -687,6 +897,539 @@ class TabbedShellTests(unittest.TestCase):
                 self.assertEqual(
                     app.query_one(TabbedContent).active, "tab_branches"
                 )
+        self._run(runner())
+
+
+# ------------------------------------------------------- versions / upgrade
+# t1223_3. Every test here asserts on a REFUSAL path as much as on the happy
+# one: the upgrade action rewrites another repository's framework files, so
+# "did not spawn" is the property that matters most.
+
+
+def live(root: str, name: str, session: str, **kwargs) -> AitasksSession:
+    return AitasksSession(
+        session=session, project_root=Path(root), project_name=name, **kwargs
+    )
+
+
+class VersionsTabTests(TabbedShellTests):
+    """Versions-tab loading, gating and rendering."""
+
+    def test_versions_load_lazily_and_share_one_latest_lookup(self):
+        async def runner():
+            seams = Seams()
+            async with self.booted(
+                repos=3, seams=seams, no_fetch=False
+            ) as (app, pilot):
+                await self.settle(app, pilot)
+                # Negative control: staying on Branches costs no network call.
+                self.assertEqual(seams.latest_calls, 0)
+                await activate_tab(app, pilot, "tab_versions")
+                await self.settle(app, pilot)
+                # ONE shared resolution for THREE rows, not one per repo.
+                self.assertEqual(seams.latest_calls, 1)
+                self.assertEqual(len(app.query_one("#versions", DataTable).rows), 3)
+        self._run(runner())
+
+    def test_fetch_off_makes_no_network_call(self):
+        async def runner():
+            seams = Seams()
+            async with self.booted(
+                repos=2, seams=seams, no_fetch=True
+            ) as (app, pilot):
+                await activate_tab(app, pilot, "tab_versions")
+                await self.settle(app, pilot)
+                self.assertEqual(seams.latest_calls, 0)
+        self._run(runner())
+
+    def test_version_cells_render_installed_latest_and_status(self):
+        async def runner():
+            seams = Seams()
+            seams.installed = {"/tmp/repo0": "0.27.0", "/tmp/repo1": "9.9.9"}
+            seams.latest = ("9.9.9", None)
+            async with self.booted(
+                repos=2, seams=seams, no_fetch=False
+            ) as (app, pilot):
+                await activate_tab(app, pilot, "tab_versions")
+                await self.settle(app, pilot)
+                self.assertEqual(
+                    version_cells(app, "v0")["installed"], "0.27.0"
+                )
+                self.assertEqual(version_cells(app, "v0")["vstatus"], "behind")
+                self.assertEqual(
+                    version_cells(app, "v1")["vstatus"], "up_to_date"
+                )
+        self._run(runner())
+
+    def test_version_actions_are_inert_off_the_versions_tab(self):
+        async def runner():
+            async with self.booted(repos=2) as (app, pilot):
+                for action in syncer_app.VERSION_TAB_ACTIONS:
+                    self.assertIs(
+                        app.check_action(action, ()), False,
+                        f"{action} should be inert on Branches",
+                    )
+                await activate_tab(app, pilot, "tab_versions")
+                for action in syncer_app.VERSION_TAB_ACTIONS:
+                    self.assertIs(app.check_action(action, ()), True, action)
+                await activate_tab(app, pilot, "tab_settings")
+                for action in syncer_app.VERSION_TAB_ACTIONS:
+                    self.assertIs(
+                        app.check_action(action, ()), False,
+                        f"{action} should be inert on Settings",
+                    )
+        self._run(runner())
+
+    def test_branch_actions_still_inert_on_versions(self):
+        # The new gate must not have disturbed the pre-existing one.
+        async def runner():
+            async with self.booted(repos=2) as (app, pilot):
+                await activate_tab(app, pilot, "tab_versions")
+                for action in syncer_app.BRANCH_TAB_ACTIONS:
+                    self.assertIs(app.check_action(action, ()), False, action)
+        self._run(runner())
+
+    def test_upgrade_is_fail_closed_without_a_running_app(self):
+        # `_active_tab()` degrades to "tab_branches", so a pre-mount check
+        # makes the framework-rewriting action inert rather than available.
+        sessions = [sess("/tmp/repo0", "repo0")]
+        with mock.patch.object(
+            syncer_app, "discover_syncer_sessions", lambda: sessions
+        ):
+            app = syncer_app.SyncerApp(
+                argparse.Namespace(interval=3600, no_fetch=True)
+            )
+        self.assertEqual(app._active_tab(), "tab_branches")
+        self.assertIs(app.check_action("upgrade", ()), False)
+        self.assertIs(app.check_action("recheck_version", ()), False)
+
+
+class UpgradeActionTests(TabbedShellTests):
+    """The upgrade flow: capture, gate, refuse, force, spawn, hand off.
+
+    Repo roots are real directories: ``_capture_target`` refuses a target whose
+    root is not a directory, so fixture paths have to exist for the flow under
+    test to be reached at all.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def root(self, name: str) -> str:
+        path = Path(self._tmp.name) / name
+        path.mkdir(exist_ok=True)
+        return str(path)
+
+    @contextlib.asynccontextmanager
+    async def on_versions(self, seams: Seams, sessions=None, repos: int = 2):
+        async with self.booted(
+            repos=repos, sessions=sessions, seams=seams, no_fetch=False
+        ) as (app, pilot):
+            await activate_tab(app, pilot, "tab_versions")
+            await self.settle(app, pilot)
+            yield app, pilot
+
+    @staticmethod
+    async def choose_version(app, pilot, version: str = "latest"):
+        """Dismiss the version prompt with a chosen value."""
+        assert isinstance(app.screen, UpgradeTargetScreen), type(app.screen)
+        app.screen.dismiss(version)
+        await pilot.pause()
+
+    # ------------------------------------------------------------- refusals
+
+    def test_active_target_refuses_and_never_spawns(self):
+        async def runner():
+            seams = Seams()
+            seams.windows = ([("1", "board")], None)
+            sessions = [
+                live(self.root("repoA"), "repoA", "sessA"),
+                live(self.root("repoB"), "repoB", "sessB"),
+            ]
+            async with self.on_versions(seams, sessions) as (app, pilot):
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot)
+                self.assertIsInstance(app.screen, UpgradeRefusalScreen)
+                self.assertIn("board", app.screen.query_one("#upgrade_text", Static).render().plain)
+                self.assertEqual(seams.launches, [])
+        self._run(runner())
+
+    def test_failed_enumeration_refuses_and_never_spawns(self):
+        # Load-bearing negative control. get_tmux_windows() reports a tmux
+        # failure as [], which detect_target_activity would read as "idle" —
+        # feeding the checked variant's error through as `unknown` is the only
+        # thing keeping this path fail-closed.
+        async def runner():
+            seams = Seams()
+            seams.windows = ([], "tmux list-windows failed (rc=-1)")
+            sessions = [
+                live(self.root("repoA"), "repoA", "sessA"),
+                live(self.root("repoB"), "repoB", "sessB"),
+            ]
+            async with self.on_versions(seams, sessions) as (app, pilot):
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot)
+                self.assertIsInstance(app.screen, UpgradeRefusalScreen)
+                self.assertIn(
+                    "tmux-enumeration-failed",
+                    app.screen.query_one("#upgrade_text", Static).render().plain,
+                )
+                self.assertEqual(seams.launches, [])
+        self._run(runner())
+
+    def test_registry_only_target_makes_no_tmux_enumeration_call(self):
+        # is_live=False repos have no session to interrogate; asking would be a
+        # tmux round-trip for a guaranteed-empty answer. Also exercises the
+        # captured-target path for a session object that is never re-read.
+        async def runner():
+            seams = Seams()
+            seams.tmux_sessions = []
+            sessions = [
+                live(self.root("repoA"), "repoA", "sessA"),
+                live(self.root("repoB"), "repoB", "sessB", is_live=False),
+            ]
+            async with self.on_versions(seams, sessions) as (app, pilot):
+                table = app.query_one("#versions", DataTable)
+                table.move_cursor(row=1)
+                await pilot.pause()
+                seams.window_calls.clear()
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot)
+                # Straight to the confirmation: classified idle without asking.
+                self.assertIsInstance(app.screen, UpgradeConfirmScreen)
+                self.assertEqual(seams.window_calls, [])
+                app.screen.dismiss(True)
+                await pilot.pause()
+                self.assertEqual(len(seams.launches), 1)
+                _cmd, config = seams.launches[0]
+                self.assertEqual(config.session, "sessB")
+                self.assertEqual(config.cwd, self.root("repoB"))
+                self.assertTrue(config.new_session)  # sessB is not running
+        self._run(runner())
+
+    # ------------------------------------------------------------- spawning
+
+    def test_idle_live_target_spawns_once_with_the_built_command(self):
+        async def runner():
+            seams = Seams()
+            seams.tmux_sessions = ["sessA"]
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            async with self.on_versions(seams, sessions, repos=1) as (app, pilot):
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot, "0.29.0")
+                self.assertIsInstance(app.screen, UpgradeConfirmScreen)
+                app.screen.dismiss(True)
+                await pilot.pause()
+                self.assertEqual(len(seams.launches), 1)
+                command, config = seams.launches[0]
+                expected, _ = syncer_app.build_upgrade_command(
+                    Path(self.root("repoA")), "0.29.0"
+                )
+                self.assertEqual(command, expected)
+                self.assertEqual(config.cwd, self.root("repoA"))
+                self.assertTrue(config.new_window)
+                self.assertFalse(config.new_session)  # sessA already running
+        self._run(runner())
+
+    def test_cancelling_the_confirmation_never_spawns(self):
+        async def runner():
+            seams = Seams()
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            async with self.on_versions(seams, sessions, repos=1) as (app, pilot):
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot)
+                app.screen.dismiss(False)
+                await pilot.pause()
+                self.assertEqual(seams.launches, [])
+        self._run(runner())
+
+    def test_captured_target_survives_cursor_and_row_map_mutation(self):
+        # The flow spans several modal callbacks. Re-resolving the target in a
+        # later one would upgrade whatever the cursor happens to be on by then.
+        async def runner():
+            seams = Seams()
+            sessions = [
+                live(self.root("repoA"), "repoA", "sessA"),
+                live(self.root("repoB"), "repoB", "sessB"),
+            ]
+            async with self.on_versions(seams, sessions) as (app, pilot):
+                table = app.query_one("#versions", DataTable)
+                table.move_cursor(row=0)
+                await pilot.pause()
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot)
+                self.assertIsInstance(app.screen, UpgradeConfirmScreen)
+                # Move the cursor AND repoint the lookup map mid-flow, both
+                # pointing at repoB — so EVERY re-resolution path (cursor key
+                # lookup and the positional fallback alike) would yield repoB.
+                # Only using the captured target still yields repoA.
+                table.move_cursor(row=1)
+                app._version_rows_by_key = {
+                    "v0": app._version_rows[1],
+                    "v1": app._version_rows[1],
+                }
+                await pilot.pause()
+                app.screen.dismiss(True)
+                await pilot.pause()
+                self.assertEqual(len(seams.launches), 1)
+                _cmd, config = seams.launches[0]
+                self.assertEqual(config.cwd, self.root("repoA"))
+                self.assertEqual(config.session, "sessA")
+        self._run(runner())
+
+    # ---------------------------------------------------------------- force
+
+    def test_force_aborts_when_the_fresh_probe_disagrees(self):
+        # What the user accepts must be the CURRENT state, not what the refusal
+        # happened to show a few seconds earlier.
+        async def runner():
+            seams = Seams()
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            seams.windows_queue = [
+                ([("1", "board")], None),                    # initial probe
+                ([("1", "board"), ("2", "monitor")], None),  # re-probe
+                ([("1", "board"), ("2", "monitor")], None),  # re-shown refusal
+            ]
+            async with self.on_versions(seams, sessions, repos=1) as (app, pilot):
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot)
+                self.assertIsInstance(app.screen, UpgradeRefusalScreen)
+                app.screen.dismiss("force")
+                await pilot.pause()
+                # Aborted back to a refusal naming the NEW state, not a force
+                # confirmation, and nothing was launched.
+                self.assertIsInstance(app.screen, UpgradeRefusalScreen)
+                self.assertIn(
+                    "monitor", app.screen.query_one("#upgrade_text", Static).render().plain
+                )
+                self.assertEqual(seams.launches, [])
+        self._run(runner())
+
+    def test_force_confirmation_is_a_separate_destructive_step(self):
+        async def runner():
+            seams = Seams()
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            seams.windows = ([("1", "board")], None)
+            async with self.on_versions(seams, sessions, repos=1) as (app, pilot):
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot)
+                app.screen.dismiss("force")
+                await pilot.pause()
+                # A second, distinct dialog — force is never the refusal's own
+                # default action.
+                self.assertIsInstance(app.screen, ForceConfirmScreen)
+                self.assertIn(
+                    "board", app.screen.query_one("#upgrade_text", Static).render().plain
+                )
+                self.assertEqual(seams.launches, [])
+                app.screen.dismiss(True)
+                await pilot.pause()
+                self.assertEqual(len(seams.launches), 1)
+        self._run(runner())
+
+    def test_cancelling_the_force_confirmation_never_spawns(self):
+        async def runner():
+            seams = Seams()
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            seams.windows = ([("1", "board")], None)
+            async with self.on_versions(seams, sessions, repos=1) as (app, pilot):
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot)
+                app.screen.dismiss("force")
+                await pilot.pause()
+                app.screen.dismiss(False)
+                await pilot.pause()
+                self.assertEqual(seams.launches, [])
+        self._run(runner())
+
+    # ----------------------------------------------------------- self-target
+
+    def test_self_target_hands_off_and_never_spawns(self):
+        async def runner():
+            seams = Seams()
+            seams.self_root = Path(self.root("repoA"))
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            with tempfile.TemporaryDirectory() as tmp:
+                handoff = str(Path(tmp) / "request.json")
+                with mock.patch.dict(
+                    os.environ, {"AIT_SYNCER_HANDOFF": handoff}
+                ):
+                    async with self.on_versions(
+                        seams, sessions, repos=1
+                    ) as (app, pilot):
+                        app.action_upgrade()
+                        await pilot.pause()
+                        await self.choose_version(app, pilot, "0.29.0")
+                        self.assertIsInstance(app.screen, HandoffConfirmScreen)
+                        app.screen.dismiss(True)
+                        await pilot.pause()
+                        self.assertEqual(seams.launches, [])
+                        with open(handoff, encoding="utf-8") as fh:
+                            payload = json.load(fh)
+                        self.assertEqual(
+                            set(payload), {"root", "version"}
+                        )
+                        self.assertEqual(payload["version"], "0.29.0")
+                        self.assertEqual(payload["root"], self.root("repoA"))
+        self._run(runner())
+
+    def test_self_target_activity_is_advisory_not_a_refusal(self):
+        # The syncer's own repo nearly always has live framework windows.
+        # Refusing on that basis would leave the exit-then-upgrade handoff —
+        # the only safe path for this repo — reachable solely through the
+        # destructive force override.
+        async def runner():
+            seams = Seams()
+            seams.self_root = Path(self.root("repoA"))
+            seams.windows = ([("1", "board"), ("2", "monitor")], None)
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            with tempfile.TemporaryDirectory() as tmp:
+                handoff = str(Path(tmp) / "request.json")
+                with mock.patch.dict(
+                    os.environ, {"AIT_SYNCER_HANDOFF": handoff}
+                ):
+                    async with self.on_versions(
+                        seams, sessions, repos=1
+                    ) as (app, pilot):
+                        app.action_upgrade()
+                        await pilot.pause()
+                        await self.choose_version(app, pilot)
+                        self.assertIsInstance(app.screen, HandoffConfirmScreen)
+                        body = app.screen.query_one("#upgrade_text", Static).render().plain
+                        self.assertIn("board", body)
+                        self.assertIn("monitor", body)
+                        app.screen.dismiss(True)
+                        await pilot.pause()
+                        self.assertTrue(Path(handoff).exists())
+                        self.assertEqual(seams.launches, [])
+        self._run(runner())
+
+    def test_self_target_without_the_wrapper_env_var_refuses(self):
+        async def runner():
+            seams = Seams()
+            seams.self_root = Path(self.root("repoA"))
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            env = {k: v for k, v in os.environ.items()}
+            env.pop("AIT_SYNCER_HANDOFF", None)
+            with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+                os.environ, env, clear=True
+            ):
+                async with self.on_versions(
+                    seams, sessions, repos=1
+                ) as (app, pilot):
+                    notices = []
+                    with mock.patch.object(
+                        app, "notify",
+                        lambda msg, **kw: notices.append(str(msg)),
+                    ):
+                        app.action_upgrade()
+                        await pilot.pause()
+                        await self.choose_version(app, pilot)
+                        await pilot.pause()
+                    # Never spawns, never writes, and says what to do instead.
+                    self.assertEqual(seams.launches, [])
+                    self.assertEqual(list(Path(tmp).iterdir()), [])
+                    self.assertTrue(
+                        any("ait syncer" in n for n in notices), notices
+                    )
+        self._run(runner())
+
+    def test_self_target_rule_is_never_force_bypassable(self):
+        # A busy self target reaches the handoff confirmation, never the
+        # refusal/force pair — so there is no path on which a self repo is
+        # spawned into.
+        async def runner():
+            seams = Seams()
+            seams.self_root = Path(self.root("repoA"))
+            seams.windows = ([("1", "board")], None)
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            with tempfile.TemporaryDirectory() as tmp:
+                with mock.patch.dict(
+                    os.environ,
+                    {"AIT_SYNCER_HANDOFF": str(Path(tmp) / "request.json")},
+                ):
+                    async with self.on_versions(
+                        seams, sessions, repos=1
+                    ) as (app, pilot):
+                        app.action_upgrade()
+                        await pilot.pause()
+                        await self.choose_version(app, pilot)
+                        self.assertNotIsInstance(
+                            app.screen, UpgradeRefusalScreen
+                        )
+                        self.assertNotIsInstance(app.screen, ForceConfirmScreen)
+        self._run(runner())
+
+    # ------------------------------------------------------------ lifecycle
+
+    def test_lifecycle_never_renders_an_unobserved_success(self):
+        async def runner():
+            seams = Seams()
+            seams.installed = {self.root("repoA"): "0.27.0"}
+            seams.latest = ("0.29.0", None)
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            async with self.on_versions(seams, sessions, repos=1) as (app, pilot):
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot, "0.29.0")
+                app.screen.dismiss(True)
+                await pilot.pause()
+                cells = version_cells(app, "v0")
+                self.assertEqual(cells["state"], "upgrading…")
+                # The OLD version, marked stale — never the requested one.
+                self.assertEqual(
+                    cells["installed"], "0.27.0" + syncer_app.STALE_MARKER
+                )
+                # Pane gone: the result is unknown, not a success.
+                seams.pane_alive = False
+                app.action_recheck_version()
+                await self.settle(app, pilot)
+                self.assertEqual(
+                    version_cells(app, "v0")["state"], "re-check needed"
+                )
+        self._run(runner())
+
+    def test_uncapturable_pane_pid_goes_straight_to_result_unknown(self):
+        # Without a pid the run can never be observed, so it must not sit in a
+        # state the app can never leave.
+        async def runner():
+            seams = Seams()
+            seams.spawn_result = (None, None)
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            async with self.on_versions(seams, sessions, repos=1) as (app, pilot):
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot)
+                app.screen.dismiss(True)
+                await pilot.pause()
+                self.assertEqual(
+                    version_cells(app, "v0")["state"], "re-check needed"
+                )
+        self._run(runner())
+
+    def test_launch_failure_records_no_run(self):
+        async def runner():
+            seams = Seams()
+            seams.spawn_result = (None, "tmux new-window failed (rc=1)")
+            sessions = [live(self.root("repoA"), "repoA", "sessA")]
+            async with self.on_versions(seams, sessions, repos=1) as (app, pilot):
+                app.action_upgrade()
+                await pilot.pause()
+                await self.choose_version(app, pilot)
+                app.screen.dismiss(True)
+                await pilot.pause()
+                self.assertEqual(app._upgrades, {})
+                self.assertEqual(version_cells(app, "v0")["state"], "")
         self._run(runner())
 
 

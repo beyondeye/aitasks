@@ -33,10 +33,27 @@ from agent_launch_utils import (  # noqa: E402
     compact_root,
     disambiguate_labels,
     discover_aitasks_sessions,
+    get_tmux_sessions,
+    get_tmux_windows_result,
+    is_tmux_available,
     launch_in_tmux,
     maybe_spawn_minimonitor,
     resolve_agent_string,
     resolve_dry_run_command,
+    resolve_pane_id_by_pid,
+    unique_window_name,
+)
+# Imported by name (not via the module) so tests can patch these seams on
+# `syncer_app` itself — every one of them is impure (network, tmux, spawn).
+from framework_version import (  # noqa: E402
+    build_handoff_request,
+    build_upgrade_command,
+    detect_target_activity,
+    is_self_target,
+    read_installed_version,
+    resolve_latest_version,
+    version_status,
+    write_handoff_request,
 )
 from agent_command_screen import AgentCommandScreen  # noqa: E402
 from sync_action_runner import (  # noqa: E402
@@ -57,6 +74,13 @@ from sync_action_runner import (  # noqa: E402
     run_sync_batch,
 )
 from sync_failure_screen import SyncFailureContext, SyncFailureScreen  # noqa: E402
+from upgrade_screens import (  # noqa: E402
+    ForceConfirmScreen,
+    HandoffConfirmScreen,
+    UpgradeConfirmScreen,
+    UpgradeRefusalScreen,
+    UpgradeTargetScreen,
+)
 
 from textual import work  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
@@ -93,6 +117,26 @@ BRANCH_TAB_ACTIONS = (
     "toggle_fetch",
     "agent_resolve",
 )
+
+# Actions that only make sense on the Versions tab. A sibling tuple to the one
+# above rather than a second bespoke branch in check_action. Note the gate
+# fails CLOSED for these: `_active_tab()` degrades to "tab_branches", so a
+# pre-mount check makes the framework-rewriting action inert.
+VERSION_TAB_ACTIONS = (
+    "upgrade",
+    "recheck_version",
+)
+
+# upgrade_state values (contract G). There is deliberately no "succeeded"
+# state: launch_in_tmux returns as soon as the pane exists, `ait setup` may sit
+# at a prompt for minutes, and nothing reports back — so the UI can only ever
+# say what it observed.
+UPGRADE_IDLE = "idle"
+UPGRADE_LAUNCHED = "launched"
+UPGRADE_FINISHED = "finished"
+
+# Marks a version cell whose value predates a launched upgrade.
+STALE_MARKER = "*"
 
 # Empty pending-refresh slot sentinel (a pending fetch key may legitimately be
 # None, so the slot needs a distinct "unset" marker).
@@ -192,6 +236,79 @@ def build_rows(
 def single_repo_rows() -> list[RowSpec]:
     """Legacy single-repo rows (literal ref-name row keys, no project)."""
     return [RowSpec(ref, "", ref, "") for ref in TRACKED_REFS]
+
+
+@dataclass(frozen=True)
+class VersionRow:
+    """One Versions-tab row = one repo (not one repo×ref).
+
+    ``row_key`` is opaque and positional (``v0``, ``v1``, …), recovered through
+    the app's ``_version_rows_by_key`` map exactly like :class:`RowSpec`. Never
+    parse a filesystem path out of it.
+    """
+
+    row_key: str
+    session_key: str
+    project_label: str
+
+
+def build_version_rows(
+    sessions: list[AitasksSession], labels: dict[str, str]
+) -> list[VersionRow]:
+    """Version row model: one row per repo, opaque positional keys."""
+    return [
+        VersionRow(f"v{idx}", sess.key, labels.get(sess.key, sess.project_name))
+        for idx, sess in enumerate(sessions)
+    ]
+
+
+@dataclass(frozen=True)
+class UpgradeTarget:
+    """Everything the upgrade flow needs, captured once when it starts.
+
+    The flow spans up to four modal screens, each resuming in an async
+    ``push_screen`` callback. Between them the user can move the table cursor,
+    and a future change could rebuild the row model outright — so re-resolving
+    the target in a later callback risks upgrading a *different* repository
+    than the one the user chose. Everything downstream reads this frozen record
+    instead: the table, ``_version_rows_by_key`` and the originating
+    ``AitasksSession`` are all touched exactly once, at capture time.
+    """
+
+    session_key: str
+    session_name: str   # tmux session; populated even for registry-only repos
+    is_live: bool       # False = registry-synthesized; no tmux to interrogate
+    root: Path
+    label: str
+    installed: str | None
+
+
+@dataclass(frozen=True)
+class UpgradeRun:
+    """Observed state of one launched upgrade (contract G).
+
+    ``session_name`` is stored rather than looked up again so the liveness
+    re-poll never has to reach back for a session object.
+    """
+
+    state: str
+    session_name: str = ""
+    pane_pid: int | None = None
+    pane_id: str | None = None
+    started_at: float = 0.0
+
+    @property
+    def in_flight(self) -> bool:
+        return self.state == UPGRADE_LAUNCHED
+
+
+def upgrade_state_cell(run: UpgradeRun | None) -> str:
+    """Render the State column. Never claims an upgrade succeeded."""
+    if run is None or run.state == UPGRADE_IDLE:
+        return ""
+    if run.state == UPGRADE_LAUNCHED:
+        return "upgrading…"
+    return "re-check needed"
 
 
 def action_allowed_for_ref(action: str, ref_name: str) -> bool:
@@ -355,6 +472,10 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
     #detail {
         padding: 0 1;
     }
+    #versions {
+        height: auto;
+        max-height: 20;
+    }
     """
 
     BINDINGS = [
@@ -366,6 +487,11 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("p", "push", "Push"),
         Binding("a", "agent_resolve", "Resolve with agent", show=False),
         Binding("f", "toggle_fetch", "Fetch on/off"),
+        # Versions tab. Upgrade is uppercase on purpose: it rewrites another
+        # repo's framework files, so it should not share the muscle memory of
+        # the lowercase Branches keys (`u` is Pull).
+        Binding("U", "upgrade", "Upgrade"),
+        Binding("c", "recheck_version", "Re-check"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -387,6 +513,25 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         else:
             self._rows = single_repo_rows()
         self._rows_by_key: dict[str, RowSpec] = {r.row_key: r for r in self._rows}
+        # Versions tab: one row per repo, always (there is no single-repo
+        # degradation here — a lone repo still has a version).
+        self._version_rows: list[VersionRow] = build_version_rows(
+            self.sessions, build_labels(self.sessions)
+        )
+        self._version_rows_by_key: dict[str, VersionRow] = {
+            r.row_key: r for r in self._version_rows
+        }
+        self._installed: dict[str, str | None] = {}
+        self._latest: str | None = None
+        self._latest_error: str | None = None
+        self._latest_stale = False
+        self._upgrades: dict[str, UpgradeRun] = {}
+        # Loaded lazily on first Versions-tab activation: opening the syncer
+        # must not cost a GitHub round-trip for a user who never looks at it.
+        self._versions_loaded = False
+        self._versions_gen = 0
+        self._versions_active = False
+        self._pending_versions: object = PENDING_UNSET
         # Per-repo state, keyed by session key ("" in single-repo mode).
         self._snapshots: dict[str, dict[str, Any]] = {}
         # Success stamps drive the Fetched age DISPLAY; attempt stamps drive
@@ -429,12 +574,18 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     yield table
                     with VerticalScroll(id="detail_scroll"):
                         yield Static("Loading…", id="detail")
-            # Placeholder panes: the ids are established here so t1223_3 /
-            # t1223_5 fill them without re-shaping compose().
             with TabPane("Versions", id="tab_versions"):
-                yield Static(
-                    "Framework versions — coming soon.", id="versions_placeholder"
+                versions = DataTable(
+                    id="versions", cursor_type="row", zebra_stripes=True
                 )
+                versions.add_column("Project", key="project")
+                versions.add_column("Installed", key="installed")
+                versions.add_column("Latest", key="latest")
+                versions.add_column("Status", key="vstatus")
+                versions.add_column("State", key="state")
+                yield versions
+            # Placeholder pane: the id was established by t1223_1 so t1223_5
+            # fills it without re-shaping compose().
             with TabPane("Settings", id="tab_settings"):
                 yield Static(
                     "Cross-repo settings — coming soon.", id="settings_placeholder"
@@ -451,6 +602,11 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 )
             else:
                 table.add_row(row.ref_name, "loading…", "", "", "", key=row.row_key)
+        versions = self.query_one("#versions", DataTable)
+        for vrow in self._version_rows:
+            versions.add_row(
+                vrow.project_label, "—", "—", "—", "", key=vrow.row_key
+            )
         # Without this the tab bar (ContentTabs) takes boot focus and ↑/↓ no
         # longer moves the branch cursor on open. Tab reaches the detail pane,
         # a second Tab the bar, where ←/→ switch tabs.
@@ -488,6 +644,9 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if action in BRANCH_TAB_ACTIONS:
             if self._active_tab() != "tab_branches":
                 return False
+        if action in VERSION_TAB_ACTIONS:
+            if self._active_tab() != "tab_versions":
+                return False
         if action in ("sync_data", "pull", "push"):
             if not action_allowed_for_ref(action, self._selected_row().ref_name):
                 return None
@@ -501,8 +660,15 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         ←/→ on the tab bar changes no focus, so Textual never fires its
         focus-change bindings refresh — without this the footer keeps
         advertising the Branches keys that check_action has just made inert.
+
+        Also the lazy-load trigger for the Versions tab: the shared "latest
+        release" lookup is a network call, so it is paid on first sight of the
+        tab rather than at boot.
         """
         self.refresh_bindings()
+        if event.pane.id == "tab_versions" and not self._versions_loaded:
+            self._versions_loaded = True
+            self._request_versions()
 
     def _set_busy(self, busy: bool) -> None:
         try:
@@ -660,6 +826,348 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         now = time.time()
         for row in self._rows:
             table.update_cell(row.row_key, "last", self._last_cell(row, now))
+
+    # ------------------------------------------------------------ versions
+
+    def action_recheck_version(self) -> None:
+        """Re-read the targets' VERSION files (and, if fetching, the latest)."""
+        self._versions_loaded = True
+        self._request_versions(explicit=True)
+
+    def _request_versions(self, explicit: bool = False) -> None:
+        """Coalesced versions refresh.
+
+        Reuses the same pure ``coalesce_request`` policy as the branches
+        refresh (single worker, single latest-wins pending slot) with its own
+        generation counter, so a 10s-bounded GitHub call can never delay — or
+        be delayed by — the git-sync tick.
+        """
+        start, self._pending_versions = coalesce_request(
+            self._versions_active, self._pending_versions, None, explicit
+        )
+        if not start:
+            return
+        self._versions_gen += 1
+        self._versions_active = True
+        self._versions_worker(self._versions_gen, self._fetch)
+
+    @work(thread=True, exclusive=True, group="syncer-versions")
+    def _versions_worker(self, gen: int, do_fetch: bool) -> None:
+        installed = {
+            sess.key: read_installed_version(sess.project_root)
+            for sess in self.sessions
+        }
+        # ONE shared resolution for every row. Resolving per repo would make
+        # network cost scale with repo count for a value that is identical
+        # across them.
+        latest: str | None = None
+        latest_error: str | None = None
+        if do_fetch:
+            latest, latest_error = resolve_latest_version()
+        # Liveness of any launched upgrade, off the UI thread.
+        finished: list[str] = []
+        for key, run in list(self._upgrades.items()):
+            if not run.in_flight:
+                continue
+            if run.pane_pid is None or resolve_pane_id_by_pid(
+                run.session_name, run.pane_pid
+            ) is None:
+                finished.append(key)
+        self.call_from_thread(
+            self._apply_versions, gen, installed, latest, latest_error,
+            do_fetch, finished,
+        )
+
+    def _apply_versions(
+        self,
+        gen: int,
+        installed: dict[str, str | None],
+        latest: str | None,
+        latest_error: str | None,
+        did_fetch: bool,
+        finished: list[str],
+    ) -> None:
+        if gen == self._versions_gen:
+            self._installed = installed
+            if did_fetch and latest is not None:
+                self._latest = latest
+                self._latest_error = None
+                self._latest_stale = False
+            elif did_fetch:
+                # Keep the last known value rather than blanking it, but say so.
+                self._latest_error = latest_error
+                self._latest_stale = self._latest is not None
+            else:
+                self._latest_stale = self._latest is not None
+            for key in finished:
+                run = self._upgrades.get(key)
+                if run is not None:
+                    self._upgrades[key] = UpgradeRun(
+                        state=UPGRADE_FINISHED,
+                        session_name=run.session_name,
+                        pane_pid=run.pane_pid,
+                        pane_id=run.pane_id,
+                        started_at=run.started_at,
+                    )
+            self._update_versions_table()
+        self._finish_versions()
+
+    def _finish_versions(self) -> None:
+        self._versions_active = False
+        if self._pending_versions is not PENDING_UNSET:
+            _, explicit = self._pending_versions  # type: ignore[misc]
+            self._pending_versions = PENDING_UNSET
+            self._request_versions(explicit=explicit)
+
+    def _update_versions_table(self) -> None:
+        try:
+            table = self.query_one("#versions", DataTable)
+        except Exception:
+            return
+        for row in self._version_rows:
+            run = self._upgrades.get(row.session_key)
+            installed = self._installed.get(row.session_key)
+            # While an upgrade is in flight the version cells show the last
+            # value actually READ, marked stale — never the version we asked
+            # for. The UI must not render a success it did not observe.
+            in_flight = run is not None and run.in_flight
+            installed_cell = installed or "—"
+            if in_flight and installed:
+                installed_cell = f"{installed}{STALE_MARKER}"
+            latest_cell = self._latest or "—"
+            if self._latest and (self._latest_stale or in_flight):
+                latest_cell = f"{self._latest}{STALE_MARKER}"
+            table.update_cell(row.row_key, "installed", installed_cell)
+            table.update_cell(row.row_key, "latest", latest_cell)
+            table.update_cell(
+                row.row_key, "vstatus", version_status(installed, self._latest)
+            )
+            table.update_cell(row.row_key, "state", upgrade_state_cell(run))
+
+    # -------------------------------------------------------------- upgrade
+
+    def _selected_version_row(self) -> VersionRow | None:
+        try:
+            table = self.query_one("#versions", DataTable)
+        except Exception:
+            return self._version_rows[0] if self._version_rows else None
+        if table.cursor_row is not None and table.row_count > 0:
+            try:
+                row_key, _ = table.coordinate_to_cell_key((table.cursor_row, 0))
+                if row_key.value and row_key.value in self._version_rows_by_key:
+                    return self._version_rows_by_key[str(row_key.value)]
+            except Exception:
+                pass
+            idx = max(0, min(table.cursor_row, len(self._version_rows) - 1))
+            return self._version_rows[idx]
+        return self._version_rows[0] if self._version_rows else None
+
+    def _capture_target(self) -> UpgradeTarget | None:
+        """Freeze the highlighted repo into an immutable upgrade target.
+
+        This is the ONLY point in the whole flow that reads the table, the row
+        map, or the session list. Everything after it works from the returned
+        record, so a cursor move (or a future row rebuild) while a modal is
+        open cannot redirect the upgrade at another repository.
+        """
+        row = self._selected_version_row()
+        if row is None:
+            return None
+        sess = self._session_by_key.get(row.session_key)
+        if sess is None:
+            self.notify(
+                f"{row.project_label}: project no longer discovered",
+                severity="error",
+            )
+            return None
+        if not sess.project_root.is_dir():
+            self.notify(
+                f"{row.project_label}: project root missing ({sess.project_root})",
+                severity="error",
+            )
+            return None
+        return UpgradeTarget(
+            session_key=row.session_key,
+            session_name=sess.session,
+            is_live=sess.is_live,
+            root=sess.project_root,
+            label=row.project_label,
+            installed=self._installed.get(row.session_key),
+        )
+
+    def _probe_activity(self, target: UpgradeTarget) -> str:
+        """Classify framework activity in the target repo's tmux session.
+
+        Fail-closed at BOTH layers. ``detect_target_activity`` already refuses
+        to report a possibly-busy target idle when its classifier is degraded;
+        this wrapper covers the other half — a failed *enumeration*. The plain
+        ``get_tmux_windows`` reports a tmux timeout, a vanished session and a
+        genuinely window-less session all as ``[]``, which the classifier would
+        read as ``idle``, so the checked variant is used and a failure becomes
+        an explicit unknown rather than a silent green light.
+        """
+        if not target.is_live:
+            # Registry-synthesized: there is no session to interrogate, and
+            # asking would be a tmux call for a guaranteed-empty answer.
+            return "idle"
+        windows, err = get_tmux_windows_result(target.session_name)
+        if err is not None:
+            return "unknown:tmux-enumeration-failed"
+        return detect_target_activity(target.session_name, windows)
+
+    def action_upgrade(self) -> None:
+        """Upgrade the highlighted repo's framework (`U`)."""
+        target = self._capture_target()
+        if target is None:
+            return
+
+        def on_version(version: str | None) -> None:
+            if version:
+                self._begin_upgrade(target, version)
+
+        self.push_screen(
+            UpgradeTargetScreen(target.label, target.installed), on_version
+        )
+
+    def _begin_upgrade(self, target: UpgradeTarget, version: str) -> None:
+        """Route to the self-repo handoff or the cross-repo activity gate.
+
+        Self-target is checked FIRST and is never force-gated. The syncer's own
+        repo is where the user works, so it nearly always has live framework
+        windows; refusing on that basis would leave the exit-then-upgrade
+        handoff — the one path that is actually safe for this repo — reachable
+        only through the destructive force override.
+        """
+        if is_self_target(target.root, Path.cwd()):
+            self._begin_self_upgrade(target, version)
+            return
+        activity = self._probe_activity(target)
+        if activity == "idle":
+            self._confirm_spawn(target, version)
+            return
+        self._refuse_upgrade(target, version, activity)
+
+    def _begin_self_upgrade(self, target: UpgradeTarget, version: str) -> None:
+        handoff_path = os.environ.get("AIT_SYNCER_HANDOFF")
+        if not handoff_path:
+            # Fail closed: never spawn into our own repo, never no-op silently.
+            self.notify(
+                "Cannot upgrade this repo: the syncer was not launched via "
+                "`ait syncer`. Relaunch it that way, or run `ait upgrade` "
+                "from a shell.",
+                severity="error",
+                timeout=10,
+            )
+            return
+        activity = self._probe_activity(target)
+
+        def on_confirm(ok: bool | None) -> None:
+            if not ok:
+                return
+            try:
+                write_handoff_request(
+                    handoff_path, build_handoff_request(target.root, version)
+                )
+            except Exception as exc:
+                self.notify(f"Could not write handoff request: {exc}", severity="error")
+                return
+            self.exit()
+
+        self.push_screen(
+            HandoffConfirmScreen(
+                target.label, str(target.root), version, activity
+            ),
+            on_confirm,
+        )
+
+    def _refuse_upgrade(
+        self, target: UpgradeTarget, version: str, activity: str
+    ) -> None:
+        def on_choice(choice: str | None) -> None:
+            if choice != "force":
+                return
+            # Re-probe immediately before offering the destructive confirm, so
+            # what the user accepts is the CURRENT state, not what the refusal
+            # happened to show a few seconds ago.
+            fresh = self._probe_activity(target)
+            if fresh == "idle":
+                self._confirm_spawn(target, version)
+                return
+            if fresh != activity:
+                self.notify("Target activity changed — re-checking.")
+                self._refuse_upgrade(target, version, fresh)
+                return
+
+            def on_force(ok: bool | None) -> None:
+                if ok:
+                    self._spawn_upgrade(target, version)
+
+            self.push_screen(
+                ForceConfirmScreen(
+                    target.label, str(target.root), version, fresh
+                ),
+                on_force,
+            )
+
+        self.push_screen(UpgradeRefusalScreen(target.label, activity), on_choice)
+
+    def _confirm_spawn(self, target: UpgradeTarget, version: str) -> None:
+        def on_confirm(ok: bool | None) -> None:
+            if ok:
+                self._spawn_upgrade(target, version)
+
+        self.push_screen(
+            UpgradeConfirmScreen(target.label, str(target.root), version),
+            on_confirm,
+        )
+
+    def _spawn_upgrade(self, target: UpgradeTarget, version: str) -> None:
+        if not is_tmux_available():
+            self.notify(
+                "tmux is not available — run `ait upgrade` in that repo from a "
+                "shell instead.",
+                severity="error",
+            )
+            return
+        try:
+            command, _ = build_upgrade_command(target.root, version)
+        except ValueError as exc:  # pragma: no cover — dialog already validated
+            self.notify(f"Refusing to upgrade: {exc}", severity="error")
+            return
+        existing = {name for _idx, name in get_tmux_windows_result(
+            target.session_name
+        )[0]}
+        window = unique_window_name(existing, f"upgrade-{target.label}")
+        pane_pid, err = launch_in_tmux(
+            command,
+            TmuxLaunchConfig(
+                session=target.session_name,
+                window=window,
+                new_session=target.session_name not in get_tmux_sessions(),
+                new_window=True,
+                cwd=str(target.root),
+            ),
+        )
+        if err:
+            self.notify(err, severity="error")
+            return
+        pane_id = (
+            resolve_pane_id_by_pid(target.session_name, pane_pid)
+            if pane_pid
+            else None
+        )
+        # No pane pid means we can never observe this run, so it goes straight
+        # to "result unknown" rather than sitting in a state we cannot leave.
+        state = UPGRADE_LAUNCHED if pane_pid else UPGRADE_FINISHED
+        self._upgrades[target.session_key] = UpgradeRun(
+            state=state,
+            session_name=target.session_name,
+            pane_pid=pane_pid,
+            pane_id=pane_id,
+            started_at=time.time(),
+        )
+        self._update_versions_table()
+        self.notify(f"Upgrade launched for {target.label} in window {window}.")
 
     # ----------------------------------------------------------- selection
 
