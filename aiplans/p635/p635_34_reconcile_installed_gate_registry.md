@@ -645,7 +645,7 @@ corrupting the file cannot pass.
   lane via stderr, but no skill instructs the agent to surface it · severity:
   medium · → mitigation: user-confirmed trade-off; the message is
   self-describing and names the repair command;
-  `promote_no_verifier_warning_to_step4_contract` promotes it once the
+  `promote_no_verifier_warning_to_step4_contract` (**t1272**) promotes it once the
   concurrent `SKILL.md` work lands.
 - **Filling `timeout_seconds` / `blocks_dependents` changes runtime behaviour**
   in projects that had neither · severity: low · → mitigation: `--dry-run`,
@@ -674,8 +674,8 @@ corrupting the file cannot pass.
 
 ### Planned mitigations
 
-- timing: after | name: gates_sync_registry_live_verify | type: manual_verification | priority: medium | effort: low | addresses: code-health (first registry writer) + goal-achievement (real installed-project shape) | desc: Run `ait gates sync-registry` against a real stale downstream install (not a fixture) — confirm archival unblocks with no manual gate append, every comment line survives, a customised verifier is reported as CONFLICT and left intact, and `--dry-run` changes nothing.
-- timing: after | name: promote_no_verifier_warning_to_step4_contract | type: enhancement | priority: low | effort: low | addresses: goal-achievement (warning is not a documented contract) | desc: Once the concurrent `output_branch` edits to `.claude/skills/task-workflow/SKILL.md` are committed, add the stderr no-verifier warning to Step 4's documented parse list and regenerate the 3 SKILL goldens + 3 committed remote prerenders.
+- timing: after | name: gates_sync_registry_live_verify (created: t1271) | type: manual_verification | priority: medium | effort: low | addresses: code-health (first registry writer) + goal-achievement (real installed-project shape) | desc: Run `ait gates sync-registry` against a real stale downstream install (not a fixture) — confirm archival unblocks with no manual gate append, every comment line survives, a customised verifier is reported as CONFLICT and left intact, and `--dry-run` changes nothing.
+- timing: after | name: promote_no_verifier_warning_to_step4_contract (created: t1272) | type: enhancement | priority: low | effort: low | addresses: goal-achievement (warning is not a documented contract) | desc: Once the concurrent `output_branch` edits to `.claude/skills/task-workflow/SKILL.md` are committed, add the stderr no-verifier warning to Step 4's documented parse list and regenerate the 3 SKILL goldens + 3 committed remote prerenders.
 
 ## Step 9 (Post-Implementation)
 
