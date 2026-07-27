@@ -21,11 +21,12 @@ This procedure is the interactive checklist runner that `/aitask-pick` dispatche
 Parse the output for `TOTAL:<N>`.
 
 - **If `TOTAL > 0`:** proceed to the main loop.
-- **If `TOTAL:0`:** the task has no `## Verification Checklist` items yet. Use `AskUserQuestion`:
-  - Question: "Task has no `## Verification Checklist` items. Seed from the plan's `## Verification` section, or abort?"
+- **If `TOTAL:0`:** the task has no trackable `## Verification Checklist` items yet. Use `AskUserQuestion`:
+  - Question: "Task has no trackable checklist items. Seed from the plan, convert existing plain bullets, or abort?"
   - Header: "Checklist"
   - Options:
     - "Seed from plan" (description: "Extract the bullet list under the plan's `## Verification` H2 and seed the task")
+    - "Convert existing bullets" (description: "Turn plain bullets already in the checklist section into pending checkbox items, preserving their text")
     - "Abort" (description: "Stop the workflow and revert task status")
 
   **If "Seed from plan":**
@@ -37,6 +38,13 @@ Parse the output for `TOTAL:<N>`.
      ./.aitask-scripts/aitask_verification_parse.sh seed <task_file> --items <tmp_file>
      ```
   5. Re-run `summary` and continue.
+
+  **If "Convert existing bullets":**
+  1. Convert the existing plain bullets in the checklist section:
+     ```bash
+     ./.aitask-scripts/aitask_verification_parse.sh convert <task_file>
+     ```
+  2. Re-run `summary` and continue.
 
   **If "Abort":** execute the **Task Abort Procedure** (see `task-abort.md`) and end.
 

@@ -31,6 +31,7 @@ VALID_SET_STATES = {"pass", "fail", "skip", "defer", "pending"}
 
 SECTION_RE = re.compile(r"^## (verification( checklist)?|checklist)\s*$", re.IGNORECASE)
 ITEM_RE = re.compile(r"^([ \t]*)- \[([ x]|fail|skip|defer)\][ \t]+(.*)$")
+PLAIN_ITEM_RE = re.compile(r"^([ \t]*)- (?!\[)(.*)$")
 H2_RE = re.compile(r"^## ")
 SUFFIX_SPLIT = " \u2014 "
 
@@ -313,6 +314,31 @@ def cmd_seed(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_convert(args: argparse.Namespace) -> int:
+    """Convert plain Markdown bullets in an existing checklist to pending items."""
+    path = Path(args.task_file)
+    frontmatter, body = _read_task_file(path)
+    section = _locate_section(body)
+    if section is None:
+        _die("verification checklist section not found")
+
+    start, end = section
+    new_body = list(body)
+    converted = 0
+    for line_no in range(start, end):
+        m = PLAIN_ITEM_RE.match(body[line_no])
+        if m is None:
+            continue
+        new_body[line_no] = f"{m.group(1)}- [ ] {m.group(2)}"
+        converted += 1
+
+    if converted == 0:
+        _die("no plain verification checklist bullets found")
+
+    _write_task_file(path, _update_updated_at(frontmatter), new_body)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aitask_verification_parse",
@@ -351,6 +377,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_seed.add_argument("task_file")
     p_seed.add_argument("--items", required=True, help="path to a file with one item per line")
     p_seed.set_defaults(func=cmd_seed)
+
+    p_convert = sub.add_parser(
+        "convert", help="convert plain checklist bullets to pending checkbox items"
+    )
+    p_convert.add_argument("task_file")
+    p_convert.set_defaults(func=cmd_convert)
 
     return parser
 

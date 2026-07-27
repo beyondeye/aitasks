@@ -531,6 +531,43 @@ class TestSeedSubcommand(unittest.TestCase):
             self.assertFalse(text.endswith("\n\n"))
 
 
+class TestConvertSubcommand(unittest.TestCase):
+    def test_converts_plain_bullets_and_preserves_checkbox_items(self):
+        with tempfile.TemporaryDirectory() as d:
+            body = (
+                "## Verification checklist\n\n"
+                "- plain item — keep this text verbatim\n"
+                "  - nested item\n"
+                "- [x] existing checkbox\n\n"
+                "## Other section\n\n"
+                "- outside the checklist\n"
+            )
+            path = _make_file(Path(d), body, FM)
+
+            rc, _ = _run(["convert", str(path)])
+
+            self.assertEqual(rc, 0)
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("- [ ] plain item — keep this text verbatim", text)
+            self.assertIn("  - [ ] nested item", text)
+            self.assertIn("- [x] existing checkbox", text)
+            self.assertIn("- outside the checklist", text)
+
+            rc, out = _run(["summary", str(path)])
+            self.assertEqual(rc, 0)
+            self.assertIn("TOTAL:3 PENDING:2 PASS:1", out)
+
+    def test_refuses_when_section_has_no_plain_bullets(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = _make_file(Path(d), BASIC_BODY, FM)
+            before = path.read_text(encoding="utf-8")
+
+            rc, _ = _run(["convert", str(path)])
+
+            self.assertNotEqual(rc, 0)
+            self.assertEqual(path.read_text(encoding="utf-8"), before)
+
+
 class TestRoundTrip(unittest.TestCase):
     def test_end_to_end(self):
         with tempfile.TemporaryDirectory() as d:
