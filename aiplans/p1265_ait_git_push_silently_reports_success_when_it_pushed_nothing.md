@@ -427,3 +427,51 @@ Follow-up housekeeping: the memory note
 exit 0 having pushed nothing *with no signal* — once this lands, that note must be
 updated to say the failure is now reported (the merge-base verification advice
 stays valid).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. `task_utils.sh` gained
+  the `_ait_data_git` seam (LC_ALL=C, used by both push helpers and the three
+  probes), the `TASK_PUSH_STATUS` / `TASK_PUSH_REASON` / `TASK_PUSH_UNPUSHED`
+  globals, a rewritten `task_push`, `task_push_report`, and the
+  `_task_push_classify` / `_task_push_reason_hint` / `_task_push_warn` /
+  `_task_push_first_line` helpers. `ait` learned `git push --batch`;
+  `aitask_gate_record.sh` lost its `2>/dev/null`. Tests: 6 new blocks in
+  `test_task_push.sh` (18 → 63 assertions) and a remote-backed scenario in
+  `test_gate_record.sh` (13 → 16). Docs: a full `## ait git push` section in
+  `commands/sync.md` plus two `commands/_index.md` lines.
+- **Deviations from plan:** None functional. Two spots were written as explicit
+  `if` blocks instead of the plan's `[[ … ]] && x=…` shorthand (`task_push`'s
+  up-to-date branch and `_task_push_warn`'s upstream prefix) to remove any doubt
+  about `set -e` behaviour on a false test.
+- **Issues encountered:** None blocking. The only judgement call was where to
+  keep silence: a failed push with 0 unpushed commits, and a repo with no remote
+  at all, stay quiet — otherwise every offline/solo `ait git push` would warn.
+  Both are pinned by no-stderr negative controls so the silence is intentional
+  rather than incidental.
+- **Key decisions:**
+  - Exit status stays 0 for every push outcome; the machine-readable outcome is
+    carried by globals in-process and by the opt-in `--batch` line
+    cross-process. In-process globals alone would have been invisible to
+    `./ait git push` callers (a separate process).
+  - The rebase blocker is classified *before* the push rejection: the rejection
+    is only the symptom, and hinting at the wrong recovery is worse than not
+    hinting at all.
+  - `TASK_PUSH_UNPUSHED` is documented as a current reading, not an atomic
+    snapshot — under concurrency refs can move between the failure and the
+    sample.
+  - The pre-flight `assert_data_worktree_clean` die is documented as the one
+    exception to exit-0 and pinned by a regression test (plus its
+    `AIT_GIT_SKIP_STATE_CHECK=1` bypass) rather than left implicit.
+- **Verification performed:** `test_task_push.sh` 63/63, `test_gate_record.sh`
+  16/16, `test_task_git.sh` 17/17, plus `test_archive_folded.sh`,
+  `test_crash_recovery_pid_anchor.sh`, `test_claim_id.sh`,
+  `test_archive_verification_gate.sh` — all pass. `shellcheck` on the three
+  touched shell files reports no new findings (only pre-existing SC1091/SC2001/
+  SC2086/SC2034). Two negative controls were run and reverted: stubbing
+  `_task_push_warn` to a no-op fails 5 assertions across Tests 5/11/15 (exit 1),
+  and restoring `2>/dev/null` at the gate-record call site fails its new
+  assertion (exit 1). Live end-to-end on this repo: `./ait git push --batch`
+  printed `FAILED:dirty_worktree:16` with the warning, in the very situation
+  that previously printed nothing and exited 0.
+- **Upstream defects identified:** None.
