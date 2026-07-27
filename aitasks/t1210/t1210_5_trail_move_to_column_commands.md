@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: low
-depends: [t1210_4]
+depends: [t1210_4, 1243]
 issue_type: feature
 status: Ready
 labels: [aitask_board, tui]
 gates: [risk_evaluated]
 anchor: 1210
 created_at: 2026-07-22 16:17
-updated_at: 2026-07-22 16:17
+updated_at: 2026-07-28 01:11
 ---
 
 ## Context
