@@ -683,3 +683,102 @@ through `app._capture_shadow_text`), `tests/test_minimonitor_shadow_pick.py`,
 ### Planned mitigations
 - timing: after | name: shadow_refresh_concurrency_soak | type: test | priority: medium | effort: medium | addresses: code-health (commit_snapshots hot-path amendment) + goal-achievement (refresh_shadow_snapshot ships with no production consumer) | desc: Live/soak verification of the stamped per-key merge contract under real event-loop interleaving once t1216_2 wires the 0.3s fast tick — should depend on t1216_2; distinct from t1216_5 (human manual verification of the whole feature).
 - timing: after | name: shadow_seam_wrapper_removal | type: refactor | priority: medium | effort: low | addresses: code-health (transitional delegating seams on MiniMonitorApp) | desc: Once t1216_2/t1216_3 have landed and the shared seams have a second real consumer, remove the one-line MiniMonitorApp delegators and migrate the four minimonitor/shadow test files onto the shared monitor_core functions.
+
+## Final Implementation Notes
+
+- **Actual work done:** All nine plan steps landed as designed. New pure
+  `monitor/ansi_utils.py` owns the single `strip_ansi`; `match_shadow_pane`,
+  `shadow_query_args`, `find_shadow_pane(_async)`, `capture_shadow_text` and
+  `compute_shadow_staleness` are module-level in `monitor_core.py` taking a
+  duck-typed `monitor`; `TmuxMonitor.refresh_shadow_snapshot` /
+  `_merge_shadow_snapshot` / `_next_shadow_write_seq` / `_clear_shadow_snapshots`
+  implement the five-rule merge; `commit_snapshots` stamps and merges per key;
+  `concern_block_signature` + `_SENTINEL_SAFE_COLS` are the new third tier in
+  `concern_parser.py`; `format_stale_duration` moved to `monitor_shared.py`;
+  minimonitor keeps one-line delegating seams and lost `_pane_id_sort_key`.
+  `monitor_app.py` was not touched (verified: it references no lifted symbol).
+  New `tests/test_shadow_seam.py` (53 tests). Docs updated in
+  `concern-format.md` and `aidocs/framework/shadow_agent.md`.
+
+- **Deviations from plan:**
+  1. **No test file needed editing at all.** The plan's Step 1 called for an
+     import-path update in `tests/test_concern_parser.py`. `monitor_core.py`
+     already uses a dual `try: from .X / except ImportError: from X` idiom for
+     sibling imports, which resolves under BOTH the package and flat import
+     styles; reusing it in `concern_parser.py` means the flat-import test needs
+     no change. The characterization net is therefore **byte-unmodified** —
+     strictly stronger than the plan's own stated proof.
+  2. **Two extra correctness fixes found while implementing** (both beyond the
+     reviewed design, both with negative controls):
+     - `capture_all` (sync path) cleared `_shadow_snapshots` without the new
+       `_shadow_snapshot_seq`, desyncing two halves of one value and risking a
+       `KeyError` / a stale seq vetoing a later legitimate write. Fixed by
+       `_clear_shadow_snapshots()` clearing both as a unit.
+     - **Commit-side half of the rebind race.** Rule 3 guarded the merge
+       direction only. A fast refresh of the OLD shadow can land with a seq
+       *newer* than the full batch's, and seq-only arbitration would keep that
+       dead pane and discard the replacement discovery had just found. Fixed by
+       comparing seqs only when the pane identity matches: discovery owns
+       identity, the seq owns recency between reads of the same pane.
+  3. Four now-dead imports were removed from `minimonitor_app.py`
+     (`asyncio`, `SHADOW_ANALYZED_AT_OPTION`, `is_shadow_target`,
+     `_SHADOW_CAPTURE_TIMEOUT`); `_SHADOW_DEEP_RETRY_LINES` /
+     `_SHADOW_TRUNCATED_MSG` / `SHADOW_TARGET_OPTION` are still referenced and
+     stayed. The plan had assumed all constants needed re-export.
+  4. Two stale doc statements adjacent to the edits were corrected while in the
+     files: `concern-format.md`'s "Where it lives" list (missing
+     `contains_any_concern_block` / `block_head_truncated`) and its claim that
+     staleness uses a "content-signature mechanism" — it uses timestamps, and
+     that wording became actively misleading once a real content-signature
+     function existed in the same file.
+
+- **Issues encountered:**
+  - The first version of the rebind test **passed for the wrong reason**: the
+    stale merge was being rejected by the seq guard, so the identity check was
+    never exercised. The negative control (replacing the identity check with a
+    presence-only check) exposed it by *passing* when it should have failed. The
+    test was rebuilt to suspend the full refresh mid-capture so the late merge
+    carries a genuinely newer seq, and only then does identity decide. Lesson
+    applied to every other guard: each is now paired with a control proving it,
+    not the fixture, is what blocks the bad write.
+  - The initial baseline appeared to show `FAILED (failures=1)`; that is nested
+    output from an existing guard test that runs a sub-suite as a subprocess.
+    The top-level runner exits 0. Verified before making any change.
+  - `_SENTINEL_SAFE_COLS` assertion in the narrow-pane test was written with the
+    inequality inverted (24 is the *safe* width, above the 21-char fence, not
+    below it); caught on first run.
+
+- **Key decisions:**
+  - Lifted helpers take a **duck-typed `monitor`** (gateway surface only), not a
+    `TmuxMonitor`. This is what keeps the existing `_FakeMon` stubs valid and is
+    the reason zero test edits were needed; `monitor_app.py` can pass its own
+    monitor unchanged.
+  - `capture_shadow_text` is module-level and monitor-free — it touches no
+    instance state, and keeping it off `TmuxMonitor` is what lets the live-tmux
+    smoke test keep driving the real capture through `app._capture_shadow_text`.
+  - Shadow write ordering uses ONE counter reserved at the READ site on both
+    paths. All six binding behaviours have discriminating negative controls
+    (reservation point, no-generation-bump, seq guard, merge identity, commit
+    identity, bookkeeping ordering, failure policy).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - `refresh_shadow_snapshot` returns `None` for five reasons now (key absent,
+    rebound pane, stale seq, capture failure — and it never creates an entry).
+    All mean **"no update this tick"**, never "shadow gone". t1216_2's fast tick
+    must not hide or clear on `None`; the full refresh owns deletion, bounding
+    fast-path staleness to one refresh interval.
+  - Any future writer of `_shadow_snapshots` must reserve via
+    `_next_shadow_write_seq()` in the statement immediately before its own
+    capture, and write through `_merge_shadow_snapshot`. Reserving at commit
+    time, at the top of a coroutine that awaits something else first, or from a
+    second counter each breaks the read-order total ordering.
+  - `_SENTINEL_SAFE_COLS` (24) and `_SHADOW_DEEP_RETRY_LINES` (1500) are
+    exported for t1216_3. `TmuxPaneInfo.width` exists, so the narrow-pane
+    fallback consumer is viable.
+  - The sync `find_shadow_pane(monitor, ...)` is what t1216_4's duplicate guard
+    needs — it must stay sync (no await trap before a dialog opens).
+  - The `MiniMonitorApp._*` delegating seams are transitional. `monitor_app.py`
+    must call the shared functions directly and never grow parallel seams;
+    removing the seams is the `shadow_seam_wrapper_removal` follow-up.
