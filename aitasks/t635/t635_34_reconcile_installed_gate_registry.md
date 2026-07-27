@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t635_33]
 issue_type: enhancement
