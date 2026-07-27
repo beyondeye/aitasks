@@ -3,18 +3,17 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask_monitor, shadow, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1216_1, t1216_2, t1216_3, t1216_4]
-assigned_to: dario-e@beyond-eye.com
+children_to_implement: [t1216_1, t1216_2, t1216_3, t1216_4, t1216_5]
 anchor: 1111
 created_at: 2026-07-22 14:42
-updated_at: 2026-07-27 22:22
+updated_at: 2026-07-27 22:27
 ---
 
 ## Goal
