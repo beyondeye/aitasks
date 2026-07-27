@@ -26,7 +26,8 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `skip_task_confirmation` | bool | no | `true` = auto-confirm task; omit or `false` = ask | Step 0b |
 | `default_email` | string | no | `"userconfig"` = from userconfig.yaml (falls back to first from emails.txt); `"first"` = first from emails.txt; or a literal email address; omit = ask. Note: `assigned_to` from task metadata always takes priority regardless of this setting (see Step 4 email resolution). | Step 4 |
 | `create_worktree` | bool | no | `true` = create worktree; `false` = current branch | Step 5 |
-| `base_branch` | string | no | Branch name (e.g., `"main"`) | Step 5 |
+| `base_branch` | string | no | Branch the task branch is cut from (e.g., `"main"`) | Step 5 |
+| `output_branch` | string | no | Branch the finished work is merged into (e.g., `"dev"`); omit to merge into the resolved `base_branch` | Step 5 (resolve), Step 9 (merge) |
 | `plan_preference` | string | no | `"use_current"`, `"verify"`, or `"create_new"` | Step 6.0 |
 | `plan_preference_child` | string | no | Same values as `plan_preference`; overrides `plan_preference` for child tasks. Defaults to `plan_preference` if omitted | Step 6.0 |
 | `plan_verification_required` | int | no | Positive integer; default `1` | Step 6.0 |
@@ -122,6 +123,20 @@ plan_preference: use_current
 post_plan_action: start_implementation
 enableFeedbackQuestions: true
 ```
+
+**Example — merge into an integration branch:**
+```yaml
+name: integration
+description: Cut task branches from main, merge finished work into dev
+skip_task_confirmation: true
+create_worktree: true
+base_branch: main
+output_branch: dev
+```
+
+`output_branch` is only needed when the merge target differs from the branch task
+branches are cut from. A project that both branches from and merges into `dev`
+just sets `base_branch: dev` — `output_branch` defaults to it.
 
 ## Default Profile Configuration
 

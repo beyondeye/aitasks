@@ -24,7 +24,8 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 | `skip_task_confirmation` | bool | `true` auto-confirms direct task selection |
 | `default_email` | string | `"userconfig"`, `"first"`, or a literal email address |
 | `create_worktree` | bool | `true` creates a separate worktree; `false` uses the current branch |
-| `base_branch` | string | Branch name used when creating a worktree |
+| `base_branch` | string | Branch the task branch is cut from when creating a worktree |
+| `output_branch` | string | Branch the finished work is merged into; omit to merge into the resolved `base_branch` |
 | `plan_preference` | string | `"use_current"`, `"verify"`, or `"create_new"` |
 | `plan_preference_child` | string | Same values as `plan_preference`, but only for child tasks |
 | `plan_verification_required` | int | Minimum fresh `plan_verified` entries required to skip verification when `plan_preference` is `"verify"` (default `1`) |
@@ -51,11 +52,12 @@ Remote and web workflows recognize additional profile keys (`force_unlock_stale`
 
 ```yaml
 name: worktree
-description: Like fast but creates a worktree on main for each task
+description: Like fast but cuts a worktree from main and merges finished work into dev
 skip_task_confirmation: true
 default_email: userconfig
 create_worktree: true
 base_branch: main
+output_branch: dev
 plan_preference: use_current
 plan_preference_child: verify
 post_plan_action: start_implementation

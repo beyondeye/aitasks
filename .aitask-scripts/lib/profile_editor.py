@@ -51,6 +51,7 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "default_email": ("enum", ["userconfig", "first"]),
     "create_worktree": ("bool", None),
     "base_branch": ("string", None),
+    "output_branch": ("string", None),
     "plan_preference": ("enum", ["use_current", "verify", "create_new"]),
     "plan_preference_child": ("enum", ["use_current", "verify", "create_new"]),
     "plan_verification_required": ("int", None),
@@ -137,6 +138,15 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "Only used when create_worktree is true. Specifies the branch the new task branch "
         "is created from. Common values: 'main', 'develop'. "
         "When unset, the user is asked to choose."
+    ),
+    "output_branch": (
+        "Branch finished work is merged into (defaults to base_branch)",
+        "Only used when create_worktree is true. Specifies the branch the task branch "
+        "is merged into at Step 9 (post-implementation). "
+        "When unset, the resolved base_branch is used, so work lands where it was "
+        "branched from; no extra question is asked. "
+        "Set it when the merge target differs from where task branches are cut "
+        "- e.g. base_branch: main with output_branch: dev."
     ),
     "plan_preference": (
         "Existing plan handling: use_current / verify / create_new",
@@ -358,7 +368,7 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
 PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
     ("Identity", ["name", "description"]),
     ("Task Selection", ["skip_task_confirmation", "default_email"]),
-    ("Branch & Worktree", ["create_worktree", "base_branch"]),
+    ("Branch & Worktree", ["create_worktree", "base_branch", "output_branch"]),
     ("Planning", [
         "plan_preference",
         "plan_preference_child",

@@ -100,7 +100,7 @@ Web mode uses the same profile format as `/aitask-pickrem` from `aitasks/metadat
 | `plan_preference` | string | `use_current` | `"use_current"`, `"verify"`, or `"create_new"` |
 | `post_plan_action` | string | `start_implementation` | `"start_implementation"` |
 
-**Fields from `/aitask-pickrem` that are ignored** (not applicable in web mode): `default_email`, `force_unlock_stale`, `done_task_action`, `orphan_parent_action`, `review_action`, `issue_action`, `abort_plan_action`, `abort_revert_status`, `create_worktree`, `base_branch`, `enableFeedbackQuestions`.
+**Fields from `/aitask-pickrem` that are ignored** (not applicable in web mode): `default_email`, `force_unlock_stale`, `done_task_action`, `orphan_parent_action`, `review_action`, `issue_action`, `abort_plan_action`, `abort_revert_status`, `create_worktree`, `base_branch`, `output_branch`, `enableFeedbackQuestions`.
 
 See [`/aitask-pick` Execution Profiles](../aitask-pick/execution-profiles/) for the full profile reference.
 

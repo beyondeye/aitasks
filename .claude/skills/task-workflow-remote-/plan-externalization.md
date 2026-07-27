@@ -19,22 +19,63 @@ Prose reminders have historically been insufficient. Per the `feedback_guard_var
 
 Run the externalize helper. **Step 6 (proactive, from `planning.md`) must pass `--force`**; **Step 8 (safety fallback, from `SKILL.md`) must not**. See the "When to use `--force`" note below.
 
+**Both call-sites pass the resolved Step-5 branch context.** A profile path alone cannot describe it: the base branch may have been chosen interactively rather than read from the profile, and whether a worktree was created is a runtime fact.
+
+- `--profile "aitasks/metadata/profiles/<active_profile_filename>"` — **only when `active_profile_filename` is set.** It is null on manual / resume invocations that carry no profile; passing a constructed path then would point at a file that does not exist, and the helper fails closed and aborts externalization. Omit the flag entirely in that case. When present, the helper reads `output_branch`, `base_branch` and `create_worktree` from it with a real YAML parser (so `output_branch: "dev"`, `'dev'` and `dev # comment` all resolve to `dev`), validates every scalar **inside the parser** before it is serialized, and fails closed on a missing, malformed or non-mapping file. Passing a *path* rather than a value keeps a user-authored branch name out of your command line.
+- `--output-branch-default-file <path>` — when the base branch was chosen **interactively** rather than taken from the profile. Write the selected name to a scratch file with a **non-shell tool** (the Write tool), then pass the path. Do **not** use `--output-branch-default "<value>"` for an interactive answer: substituting it into a command line re-creates the injection sink, because git accepts refs like `release$(id -u)` and that expands *before* the helper can validate anything — even inside double quotes. Keep the scratch file until **Step 8** has run — Step 8 reuses the same `<branch-flags>`. Delete it only after Step 8 reaches a terminal result. (A no-op Step 8 tolerates a missing file and still returns `PLAN_EXISTS`, but any call that actually writes the header needs it.)
+- `--no-worktree` — when Step 5 worked on the current branch. `output_branch` does not apply outside worktree mode; this also clears any stale `Output branch:` already present in a plan's frontmatter, so a later session cannot consume it.
+
+If the helper exits non-zero (unsafe branch name, unreadable profile, empty value file), **stop** — do not fall back to a default and do not continue to Step 9.
+
+`--output-branch <name>` and `--output-branch-default <name>` remain available for values already known to be shell-safe (e.g. resolved from a profile by other tooling); both are validated identically.
+
+Passing these in Step 6 only is **not** sufficient: Step 8 is the one call that builds the header when Step 6 was skipped or returned `NOT_FOUND`, it runs immediately before Step 9 reads the header, and without them the configured merge target would be silently discarded.
+
+Below, `<branch-flags>` stands for the resolution flags established above. Build it once, then reuse it verbatim in **every** invocation — including retries:
+
+- With an active profile: `--profile "aitasks/metadata/profiles/<active_profile_filename>"`
+- **Without one** (`active_profile_filename` is null — manual / resume invocations): omit `--profile` entirely. Do **not** construct a path from a null value; the helper fails closed on a missing profile and would abort externalization.
+- Add `--output-branch-default-file <path>` when the base branch was chosen interactively.
+- Add `--no-worktree` when Step 5 worked on the current branch.
+
+Current-branch mode **always** includes `--no-worktree` — it is what tells the helper there is no merge target, and it is also what clears a stale `Output branch:` left in a plan's frontmatter by an earlier run. So the minimal set for a no-profile, current-branch invocation is `--no-worktree`, not an empty one. An empty `<branch-flags>` is only correct for a bare backward-compatible helper call that makes no claim about the merge target at all.
+
 Step 6 form (proactive, after `ExitPlanMode`):
 
 ```bash
-./.aitask-scripts/aitask_plan_externalize.sh <task_id> --force
+./.aitask-scripts/aitask_plan_externalize.sh <task_id> --force <branch-flags>
 ```
 
 Step 8 form (safety fallback, idempotent):
 
 ```bash
-./.aitask-scripts/aitask_plan_externalize.sh <task_id>
+./.aitask-scripts/aitask_plan_externalize.sh <task_id> <branch-flags>
 ```
 
 If you still remember the exact internal plan path from the plan-mode system reminder, pass it explicitly to skip the auto-scan (combine with `--force` in Step 6 as needed):
 
 ```bash
-./.aitask-scripts/aitask_plan_externalize.sh <task_id> --internal <path> --force
+./.aitask-scripts/aitask_plan_externalize.sh <task_id> --internal <path> --force <branch-flags>
+```
+
+Concrete example — the shipped `fast.yaml`, which sets `create_worktree: false` and no `base_branch`, so it is a current-branch profile:
+
+```bash
+./.aitask-scripts/aitask_plan_externalize.sh 42 --force \
+  --profile "aitasks/metadata/profiles/fast.yaml" --no-worktree
+```
+
+Concrete example — a worktree profile that sets `output_branch`:
+
+```bash
+./.aitask-scripts/aitask_plan_externalize.sh 42 --force \
+  --profile "aitasks/metadata/profiles/integration.yaml"
+```
+
+Concrete example — no active profile, current branch (minimal `<branch-flags>` is `--no-worktree`):
+
+```bash
+./.aitask-scripts/aitask_plan_externalize.sh 42 --force --no-worktree
 ```
 
 **Parse the output** (exactly one line, exit 0 in all non-argument-error cases):
@@ -42,7 +83,7 @@ If you still remember the exact internal plan path from the plan-mode system rem
 - `PLAN_EXISTS:<path>` — already externalized (e.g., the Step 8 safety call after a successful Step 6 externalization). No action needed. Only emitted when `--force` is **not** passed.
 - `EXTERNALIZED:<external>:<source>` — copied successfully (no existing file was overwritten). Proceed.
 - `OVERWRITTEN:<external>:<source>` — existing external plan was replaced with the current internal plan (only possible when `--force` is passed). Treat identically to `EXTERNALIZED` — proceed to commit.
-- `MULTIPLE_CANDIDATES:<p1>|<p2>|...` — multiple internal plan files fall within the recent-activity window. Use `AskUserQuestion` to let the user pick the right one (header: "Plan source"), then re-run with `--internal <chosen>` (preserving `--force` if it was in the original call).
+- `MULTIPLE_CANDIDATES:<p1>|<p2>|...` — multiple internal plan files fall within the recent-activity window. Use `AskUserQuestion` to let the user pick the right one (header: "Plan source"), then re-run with `--internal <chosen>`, **preserving `--force` and the full `<branch-flags>` from the original call**. Dropping them on the retry is silent and costly: the retry is the call that actually writes the header, so the configured merge target would be replaced by the repository primary and Step 9 would merge to the wrong branch. Keep the `--output-branch-default-file` scratch file in place until the procedure reaches a terminal result (`EXTERNALIZED` / `OVERWRITTEN` / `PLAN_EXISTS` / `NOT_FOUND`), recreating it if it was already removed.
 - `NOT_FOUND:<reason>` — handle per reason:
   - `no_internal_files` — no recent internal plan was found. In Step 6, write the plan manually with the Write tool using the naming convention and metadata header in `planning.md`. In Step 8 (safety fallback), warn the user: "No plan file exists in `aiplans/` and no recent internal plan was found. The implementation will be committed without a plan file update." and skip the consolidation/plan-commit sub-steps. Note: when `--force` is combined with this reason, the existing external plan file (if any) is left untouched.
   - `no_internal_dir` — `~/.claude/plans/` is missing. Same handling as `no_internal_files`.

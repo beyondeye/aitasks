@@ -110,6 +110,7 @@ Execution profiles are YAML files with the following keys. All keys are optional
 |-----|------|---------|-------------|
 | `create_worktree` | bool | `true`, `false` | Whether to create a separate git worktree for the task |
 | `base_branch` | string | -- | Branch name to base the task branch on |
+| `output_branch` | string | -- | Branch the finished work is merged into; defaults to `base_branch` |
 
 ### Planning
 

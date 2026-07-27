@@ -22,6 +22,11 @@
 # the cross-check pass):
 #   - base_branch: no profile sets it; all 3 renders keep the runtime
 #     "Profile check" wrapper. Not differentiable per-profile.
+#   - output_branch: same as base_branch — no shipped profile sets it, so
+#     all 3 renders keep the runtime wrapper. It also does not exist in the
+#     frozen pre-rewrite fixtures this test compares against, so there is
+#     nothing to pin here; its render behaviour is covered by Test 4b/4c in
+#     tests/test_skill_render_task_workflow.sh.
 #   - plan_verification_required, plan_verification_stale_after_hours,
 #     post_plan_action_for_child, plan_preference_child: behaviour is
 #     subsumed by plan_preference / post_plan_action rows (template

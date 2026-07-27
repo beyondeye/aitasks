@@ -95,7 +95,7 @@ Browse and edit execution profiles -- YAML files that pre-answer workflow questi
 
 - **Identity** -- name, description
 - **Task Selection** -- skip_task_confirmation, default_email
-- **Branch & Worktree** -- create_worktree, base_branch
+- **Branch & Worktree** -- create_worktree, base_branch, output_branch
 - **Planning** -- plan_preference, plan_preference_child, post_plan_action
 - **Feedback** -- enableFeedbackQuestions
 - **Exploration** -- explore_auto_continue

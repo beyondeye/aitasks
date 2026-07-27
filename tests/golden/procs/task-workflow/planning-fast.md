@@ -326,6 +326,7 @@ Task: t16_implement_auth.md
 Worktree: aiwork/t16_implement_auth
 Branch: aitask/t16_implement_auth
 Base branch: main
+Output branch: main
 ---
 ```
 
@@ -339,8 +340,16 @@ Archived Sibling Plans: aiplans/archived/p16/p16_*_*.md
 Worktree: aiwork/t16_2_add_login
 Branch: aitask/t16_2_add_login
 Base branch: main
+Output branch: main
 ---
 ```
+
+**The header values are placeholders — substitute the real ones.** In particular
+`Output branch:` MUST carry the merge target resolved in Step 5, not the literal
+`main` shown above: `SKILL.md` Step 9 reads this field to decide where to merge,
+so copying the example verbatim under a profile setting `output_branch: dev`
+would silently land the work on `main`. When no output branch was resolved
+(current-branch mode), record the same value as `Base branch:`.
 **Risk-section guard (NON-SKIPPABLE when risk-gated — verifies the §6.1 terminal step ran):** This guard applies only when this task is **gated for risk evaluation** (the §6.1 check `./.aitask-scripts/aitask_gate.sh active <task_id> risk_evaluated` exited 0). If it is *not* risk-gated, skip the guard. Also skip if `cross_repo_planned` is true (a cross-repo parent has no single-task `## Risk` section). Otherwise, before proceeding to the Checkpoint, confirm the externalized plan file contains a `## Risk` section:
 
 ```bash
@@ -362,7 +371,7 @@ For **child tasks** (when `is_child` is true), the effective action is `post_pla
 
 Then act on the effective value:
 
-- If the effective action is `"start_implementation"`: Display "Profile 'fast': proceeding to implementation". Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `plan_file`, and `active_profile` from context. If the procedure ends the workflow ("Stop and re-verify plan" or "Abort task"), do NOT proceed to Step 7. Otherwise, skip the interactive AskUserQuestion below and proceed to Step 7.
+- If the effective action is `"start_implementation"`: Display "Profile 'fast': proceeding to implementation". Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `output_branch`, `plan_file`, and `active_profile` from context. If the procedure ends the workflow ("Stop and re-verify plan" or "Abort task"), do NOT proceed to Step 7. Otherwise, skip the interactive AskUserQuestion below and proceed to Step 7.
 - If the effective action is `"ask"`: show the interactive checkpoint below.
 
 
@@ -376,7 +385,7 @@ Otherwise, use `AskUserQuestion`:
   - "Approve and stop here" (description: "Approve the plan, release the lock, revert task to Ready, and end the workflow — pick it up later in a fresh context")
   - "Abort task" (description: "Stop and revert task status")
 
-If "Start implementation": Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `plan_file`, and `active_profile` from context. If the procedure returns ("Continue anyway"), proceed to Step 7. If it ends the workflow ("Stop and re-verify plan" or "Abort task"), stop.
+If "Start implementation": Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `output_branch`, `plan_file`, and `active_profile` from context. If the procedure returns ("Continue anyway"), proceed to Step 7. If it ends the workflow ("Stop and re-verify plan" or "Abort task"), stop.
 
 If "Revise plan":
 

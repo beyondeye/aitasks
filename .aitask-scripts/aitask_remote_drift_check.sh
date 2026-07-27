@@ -10,8 +10,15 @@
 # Output protocol (one line per item, in order):
 #   LEGACY_MODE_SKIP            Task data is on the same branch as code; task_sync()
 #                               already pulled it. No drift to detect.
+#                               Suppressed by --unsynced.
+#   LOCAL_BRANCH_MISSING        refs/heads/<branch> does not exist locally. Checked
+#                               before any network access, so this never conflates
+#                               with a fetch failure. For the Step 9 output branch
+#                               this means the merge is guaranteed to fail.
 #   NO_REMOTE                   No 'origin' remote configured.
 #   FETCH_FAILED                git fetch failed (timeout, auth, network, etc.).
+#                               Means only "could not reach the remote" — it is
+#                               NOT evidence about the local branch.
 #   UP_TO_DATE                  Remote has zero commits ahead of local.
 #   AHEAD:<n>                   Remote is <n> commits ahead. Followed by either:
 #     OVERLAP:<file>            (zero or more) one per remote-changed file
@@ -36,10 +43,12 @@ NETWORK_TIMEOUT=10
 DEBUG=false
 BASE_BRANCH=""
 PLAN_FILE=""
+UNSYNCED=false
 
 show_help() {
     cat <<'EOF'
-Usage: aitask_remote_drift_check.sh [--debug] [--timeout <sec>] <base-branch> <plan-file>
+Usage: aitask_remote_drift_check.sh [--debug] [--timeout <sec>] [--unsynced]
+                                    <base-branch> <plan-file>
 
 Detects whether origin/<base-branch> has commits not yet on local
 <base-branch>, with emphasis on commits that touch files referenced in
@@ -48,6 +57,12 @@ the supplied plan file.
 Arguments:
   <base-branch>     Code-branch name (e.g., main).
   <plan-file>       Path to the externalized plan markdown file.
+  --unsynced        Skip the legacy-mode short-circuit. Pass this for a branch
+                    the workflow has not pulled (the task-workflow Step 9 output
+                    branch is never checked out during implementation), where
+                    the shortcut's premise -- task_sync() already refreshed this
+                    branch -- does not hold. In legacy mode task_sync() runs a
+                    bare `git pull --rebase`, refreshing only the CURRENT branch.
 
 Options:
   --timeout <sec>   Network operation timeout. Default: 10.
@@ -56,8 +71,11 @@ Options:
 
 Output (always exit 0; structured stdout):
   LEGACY_MODE_SKIP
+  LOCAL_BRANCH_MISSING   refs/heads/<branch> absent; checked before any network
+                         access, so it never conflates with a fetch failure
   NO_REMOTE
-  FETCH_FAILED
+  FETCH_FAILED           could not reach the remote; NOT evidence about the
+                         local branch
   UP_TO_DATE
   AHEAD:<n>
   OVERLAP:<file>     (zero or more, after AHEAD)
@@ -74,7 +92,8 @@ debug() {
 # --- Argument parsing ---
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --debug)   DEBUG=true; shift ;;
+        --debug)    DEBUG=true; shift ;;
+        --unsynced) UNSYNCED=true; shift ;;
         --timeout) NETWORK_TIMEOUT="${2:?--timeout requires a value}"; shift 2 ;;
         --help|-h) show_help; exit 0 ;;
         --*)       die "Unknown option: $1. Use --help for usage." ;;
@@ -95,10 +114,26 @@ done
 [[ -z "$PLAN_FILE" ]] && die "<plan-file> is required. Use --help for usage."
 
 # --- Legacy-mode short-circuit ---
+# Premise: in legacy mode task_sync() already pulled this branch. That holds for
+# the branch being worked on, but NOT for a branch the workflow never checks out
+# (task_sync() runs a bare `git pull --rebase`, i.e. the current branch only) --
+# hence --unsynced.
 _ait_detect_data_worktree
-if [[ "$_AIT_DATA_WORKTREE" == "." ]]; then
+if [[ "$_AIT_DATA_WORKTREE" == "." && "$UNSYNCED" != true ]]; then
     debug "legacy mode: task data on same branch as code, task_sync() already pulled"
     echo "LEGACY_MODE_SKIP"
+    exit 0
+fi
+
+# --- Local branch existence (network-independent) ---
+# Deliberately BEFORE the origin/fetch checks: a repo with no remote and no local
+# branch is still a guaranteed merge failure, and letting NO_REMOTE/FETCH_FAILED
+# win there would return silently and lose the signal. Fully-qualified so a tag
+# of the same name cannot satisfy it (gitrevisions ranks refs/tags above
+# refs/heads).
+if ! git rev-parse --verify --quiet "refs/heads/${BASE_BRANCH}" >/dev/null 2>&1; then
+    debug "local branch refs/heads/$BASE_BRANCH does not exist"
+    echo "LOCAL_BRANCH_MISSING"
     exit 0
 fi
 
@@ -147,7 +182,9 @@ ahead=""
 ahead=$(git rev-list --count "${BASE_BRANCH}..origin/${BASE_BRANCH}" 2>/dev/null) || ahead=""
 
 if [[ -z "$ahead" ]]; then
-    debug "rev-list failed (local '$BASE_BRANCH' likely missing)"
+    # Local-branch absence is caught earlier by LOCAL_BRANCH_MISSING, so this is
+    # the defensive case: origin/<branch> absent after an apparently OK fetch.
+    debug "rev-list failed (origin/'$BASE_BRANCH' missing after fetch)"
     echo "FETCH_FAILED"
     exit 0
 fi

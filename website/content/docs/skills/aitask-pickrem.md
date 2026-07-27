@@ -87,7 +87,7 @@ These fields are shared with `/aitask-pick` (see [Execution Profiles](../aitask-
 | `post_plan_action` | string | `start_implementation` | `"start_implementation"` |
 | `enableFeedbackQuestions` | bool | `true` | Standard profile flag, but remote mode sets it to `false` because no feedback prompt is shown |
 
-Fields from the standard schema that are **ignored** in remote mode: `create_worktree`, `base_branch`.
+Fields from the standard schema that are **ignored** in remote mode: `create_worktree`, `base_branch`, `output_branch`.
 
 ### Remote-Specific Profile Fields
 

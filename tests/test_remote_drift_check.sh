@@ -62,6 +62,48 @@ make_legacy_mode_repo() {
     echo "$root"
 }
 
+# A fixture's real default branch. `git init` follows init.defaultBranch, which
+# differs per machine (master here, main elsewhere), so tests must never hardcode
+# a branch name that may not exist locally.
+repo_default_branch() {
+    git -C "$1" rev-parse --abbrev-ref HEAD
+}
+
+# A legacy-mode clone (no .aitask-data stub) that HAS an origin, plus a second
+# branch `dev` whose origin side is ahead of the local side. This is the shape
+# the --unsynced bypass exists for: legacy task_sync() pulls only the current
+# branch, so `dev` is stale and the drift must still be detectable.
+# Echoes "<root>|<default_branch>".
+make_legacy_mode_pair_with_stale_dev() {
+    local root
+    root=$(mktemp -d "${TMPDIR:-/tmp}/aitask_drift_legacy_pair_XXXXXX")
+    git init --bare --quiet "$root/origin.git"
+    git clone --quiet "$root/origin.git" "$root/local" 2>/dev/null
+    local default_branch
+    (
+        cd "$root/local"
+        git config user.email "test@example.com"
+        git config user.name  "Test"
+        echo "v1" > README.md
+        git add README.md
+        git commit --quiet -m "init"
+        git push --quiet origin HEAD 2>/dev/null
+        git branch dev
+        git push --quiet origin dev 2>/dev/null
+        # Advance origin/dev beyond local dev, touching a plan-referenced file.
+        git checkout --quiet dev
+        mkdir -p .aitask-scripts
+        echo "changed" > .aitask-scripts/aitask_archive.sh
+        git add .aitask-scripts/aitask_archive.sh
+        git commit --quiet -m "remote-only change on dev"
+        git push --quiet origin dev 2>/dev/null
+        git reset --hard --quiet HEAD~1
+        git checkout --quiet -
+    )
+    default_branch=$(git -C "$root/local" rev-parse --abbrev-ref HEAD)
+    echo "$root|$default_branch"
+}
+
 # Mark a test repo as branch-mode (creates the .aitask-data stub).
 mark_branch_mode() {
     local repo_root="$1"
@@ -116,8 +158,11 @@ mark_branch_mode "$no_remote"
 plan_path="$no_remote/plan.md"
 write_plan_file "$plan_path"
 
-# Confirm: no origin remote configured (make_legacy_mode_repo uses git init)
-result=$(cd "$no_remote" && "$HELPER" main "$plan_path" 2>&1)
+# Confirm: no origin remote configured (make_legacy_mode_repo uses git init).
+# The branch must EXIST locally, or LOCAL_BRANCH_MISSING (checked first, since it
+# needs no network) would win and this would assert NO_REMOTE for the wrong reason.
+no_remote_branch=$(repo_default_branch "$no_remote")
+result=$(cd "$no_remote" && "$HELPER" "$no_remote_branch" "$plan_path" 2>&1)
 assert_eq "no origin remote emits NO_REMOTE" "NO_REMOTE" "$result"
 
 # ============================================================
@@ -215,8 +260,111 @@ mark_branch_mode "$broken"
 plan_path="$broken/plan.md"
 write_plan_file "$plan_path"
 
-result=$(cd "$broken" && "$HELPER" --timeout 2 main "$plan_path" 2>&1)
+broken_branch=$(repo_default_branch "$broken")
+result=$(cd "$broken" && "$HELPER" --timeout 2 "$broken_branch" "$plan_path" 2>&1)
 assert_eq "unreachable origin emits FETCH_FAILED" "FETCH_FAILED" "$result"
+
+# Signal separation: an EXISTING local branch behind an unreachable remote must
+# stay FETCH_FAILED. Collapsing it into LOCAL_BRANCH_MISSING would fire a false
+# "the Step 9 merge will fail" warning on every flaky network.
+assert_not_contains "unreachable origin is not reported as a missing branch" \
+    "LOCAL_BRANCH_MISSING" "$result"
+
+# ============================================================
+# Test 8: --unsynced bypasses the legacy short-circuit
+# ============================================================
+
+echo "--- Test 8: --unsynced in legacy mode ---"
+unsynced_legacy=$(make_legacy_mode_repo)
+register_cleanup "$unsynced_legacy"
+plan_path="$unsynced_legacy/plan.md"
+write_plan_file "$plan_path"
+ul_branch=$(repo_default_branch "$unsynced_legacy")
+
+# Negative control: without the flag, legacy mode still short-circuits.
+result=$(cd "$unsynced_legacy" && "$HELPER" "$ul_branch" "$plan_path" 2>&1)
+assert_eq "legacy without --unsynced still short-circuits" "LEGACY_MODE_SKIP" "$result"
+
+# With the flag the short-circuit is skipped and evaluation continues.
+result=$(cd "$unsynced_legacy" && "$HELPER" --unsynced "$ul_branch" "$plan_path" 2>&1)
+assert_not_contains "--unsynced skips LEGACY_MODE_SKIP" "LEGACY_MODE_SKIP" "$result"
+assert_eq "--unsynced in legacy mode falls through to NO_REMOTE" "NO_REMOTE" "$result"
+
+# --- Test 8b: the payload case — legacy mode, origin/dev ahead of local dev ---
+# Reaching NO_REMOTE only proves the short-circuit was skipped. This proves the
+# bypass actually DETECTS drift on a branch legacy task_sync() never refreshes,
+# which is the entire reason the flag exists.
+echo "--- Test 8b: --unsynced detects drift on a stale legacy branch ---"
+lpair=$(make_legacy_mode_pair_with_stale_dev)
+lroot="${lpair%|*}"
+register_cleanup "$lroot"
+plan_path="$lroot/local/plan.md"
+write_plan_file "$plan_path"
+
+# Negative control first: without the flag the drift is invisible in legacy mode.
+result=$(cd "$lroot/local" && "$HELPER" dev "$plan_path" 2>&1)
+assert_eq "legacy mode hides dev drift without --unsynced" "LEGACY_MODE_SKIP" "$result"
+
+result=$(cd "$lroot/local" && "$HELPER" --unsynced dev "$plan_path" 2>&1)
+assert_contains "--unsynced reports drift on the stale branch" "AHEAD:1" "$result"
+assert_contains "--unsynced still detects plan-file overlap" \
+    "OVERLAP:.aitask-scripts/aitask_archive.sh" "$result"
+
+# --- Test 8c: --unsynced is accepted in any position ---
+echo "--- Test 8c: --unsynced flag position independence ---"
+before=$(cd "$lroot/local" && "$HELPER" --unsynced dev "$plan_path" 2>&1)
+after=$(cd "$lroot/local" && "$HELPER" dev "$plan_path" --unsynced 2>&1)
+assert_eq "--unsynced after the positionals behaves identically" "$before" "$after"
+mixed=$(cd "$lroot/local" && "$HELPER" dev --unsynced "$plan_path" 2>&1)
+assert_eq "--unsynced between the positionals behaves identically" "$before" "$mixed"
+
+# ============================================================
+# Test 9: LOCAL_BRANCH_MISSING precedes NO_REMOTE
+# ============================================================
+
+echo "--- Test 9: missing local branch with no remote ---"
+nb=$(make_legacy_mode_repo)
+register_cleanup "$nb"
+plan_path="$nb/plan.md"
+write_plan_file "$plan_path"
+
+# No origin AND no such local branch: the merge target cannot exist, which is
+# knowable without any network. NO_REMOTE must not swallow that.
+result=$(cd "$nb" && "$HELPER" --unsynced nosuchbranch "$plan_path" 2>&1)
+assert_eq "missing local branch wins over NO_REMOTE" "LOCAL_BRANCH_MISSING" "$result"
+
+# ============================================================
+# Test 10: LOCAL_BRANCH_MISSING is tag-proof
+# ============================================================
+
+echo "--- Test 10: a tag must not satisfy the branch check ---"
+tagged=$(make_legacy_mode_repo)
+register_cleanup "$tagged"
+plan_path="$tagged/plan.md"
+write_plan_file "$plan_path"
+git -C "$tagged" tag dev
+
+# `git rev-parse --verify dev` resolves the TAG (gitrevisions ranks refs/tags
+# above refs/heads), and `git checkout dev` would then detach HEAD so the merge
+# lands on no branch. The check must be fully qualified to refs/heads/.
+result=$(cd "$tagged" && "$HELPER" --unsynced dev "$plan_path" 2>&1)
+assert_eq "a tag does not satisfy the local-branch check" "LOCAL_BRANCH_MISSING" "$result"
+
+# ============================================================
+# Test 11: an existing branch in branch mode is evaluated normally
+# ============================================================
+
+echo "--- Test 11: --unsynced does not otherwise alter the result ---"
+pair=$(make_branch_mode_pair)
+root="${pair%|*}"
+default_branch="${pair##*|}"
+register_cleanup "$root"
+mark_branch_mode "$root/local"
+plan_path="$root/local/plan.md"
+write_plan_file "$plan_path"
+
+result=$(cd "$root/local" && "$HELPER" --unsynced "$default_branch" "$plan_path" 2>&1)
+assert_eq "--unsynced on an up-to-date branch still emits UP_TO_DATE" "UP_TO_DATE" "$result"
 
 # ============================================================
 # Test 7: missing-arg behavior

@@ -161,6 +161,12 @@ assert_contains "SKILL.md default: base_branch AskUserQuestion present" \
     'Which branch should the new task branch be based on?' "$DEFAULT_SKILL"
 assert_contains "SKILL.md default: default_email AskUserQuestion present" \
     'Enter your email to track who is working on this task' "$DEFAULT_SKILL"
+# output_branch has NO interactive question by design: unset means "merge into
+# the resolved base branch", so the fallback is silent (t1233).
+assert_contains "SKILL.md default: output_branch fallback prose present" \
+    'the merge target is the base branch resolved above' "$DEFAULT_SKILL"
+assert_not_contains "SKILL.md default: output_branch adds no AskUserQuestion" \
+    'Which branch should the finished work be merged into' "$DEFAULT_SKILL"
 
 DEFAULT_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
 assert_contains "planning.md default: plan_preference AskUserQuestion present" \
@@ -208,6 +214,128 @@ assert_contains "synthetic profile triggers true branch (return immediately)" \
     "Profile 'test_rdc_skip' sets" "$SYNTH_OUT"
 assert_not_contains "synthetic profile suppresses fallback prose" \
     '**Profile check.** If the active profile has' "$SYNTH_OUT"
+
+# === Test 4b: synthetic profile with output_branch bakes the value (t1233) ===
+
+echo "=== Test 4b: synthetic output_branch profile ==="
+TMP_OB_PROFILE="$(mktemp "${TMPDIR:-/tmp}/test_ob_XXXXXX.yaml")"
+cat > "$TMP_OB_PROFILE" <<'YAML'
+name: test_output_branch
+description: "Synthetic profile for t1233 (output_branch)"
+create_worktree: true
+base_branch: main
+output_branch: dev
+YAML
+OB_OUT="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$TMP_OB_PROFILE" claude 2>&1)"
+assert_contains "output_branch profile bakes the resolved value" \
+    "Profile 'test_output_branch': using output branch dev" "$OB_OUT"
+assert_not_contains "output_branch profile suppresses the fallback prose" \
+    'the merge target is the base branch resolved above' "$OB_OUT"
+# Step 9 consumes the plan header at runtime, so it must stay profile-invariant:
+# no profile ever bakes a literal merge target into the checkout.
+# Line-anchored: the pre-flight PROSE legitimately mentions `git checkout dev`
+# when explaining the tag/detached-HEAD trap, so a substring check would collide
+# with it. What must never happen is the checkout COMMAND baking a literal.
+baked_checkout=$(printf '%s\n' "$OB_OUT" | grep -cE '^[[:space:]]*git checkout dev$' || true)
+assert_eq "Step 9 never bakes a literal merge target into the checkout command" \
+    "0" "$baked_checkout"
+assert_contains "Step 9 consumes the validated shell variable, not the profile value" \
+    'git checkout "$output_branch" --' "$OB_OUT"
+rm -f "$TMP_OB_PROFILE"
+
+# === Test 4c: the hardcoded `main` merge target is gone from every render ===
+
+echo "=== Test 4c: no hardcoded main merge target (t1233) ==="
+for profile in "${PROFILES[@]}"; do
+    rendered="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    assert_not_contains "SKILL.md $profile: no hardcoded merge-approval target" \
+        'merge of code changes to main branch' "$rendered"
+    assert_not_contains "SKILL.md $profile: no hardcoded git checkout main" \
+        'git checkout main' "$rendered"
+    assert_contains "SKILL.md $profile: resolves the merge target from the plan header" \
+        'Resolve the merge target' "$rendered"
+    # The branch name comes from a user-authored profile and git allows shell
+    # metacharacters in ref names (dev;id, dev$(id) are valid), so every shell
+    # sink that substitutes it must be quoted.
+    # Quoting alone is NOT sufficient: "dev$(id)" executes inside double quotes
+    # and git accepts such refs. Every sink must consume the shell VARIABLE that
+    # Step 5/Step 9 bind and validate, never a textual placeholder.
+    assert_contains "SKILL.md $profile: checkout consumes the shell variable" \
+        'git checkout "$output_branch" --' "$rendered"
+    assert_contains "SKILL.md $profile: pre-flight consumes the shell variable" \
+        'git rev-parse --verify --quiet "refs/heads/$output_branch"' "$rendered"
+    assert_contains "SKILL.md $profile: merge quotes the task branch" \
+        'git merge "aitask/<task_name>"' "$rendered"
+    assert_contains "SKILL.md $profile: Step 9 validates the branch name" \
+        'UNSAFE_OUTPUT_BRANCH' "$rendered"
+    assert_contains "SKILL.md $profile: Step 9 binds from the plan header" \
+        "output_branch=\$(sed -n 's/^Output branch: //p'" "$rendered"
+    # Step 5 must not reference a shell variable no workflow command ever binds:
+    # $base_branch is prose-only, so an absent-key fallback onto it would resolve
+    # empty and stall every default-profile worktree run.
+    unbound=$(printf '%s\n' "$rendered" | grep -cE 'output_branch="\$base_branch"' || true)
+    assert_eq "SKILL.md $profile: no fallback onto an unbound \$base_branch" "0" "$unbound"
+    # No command line may interpolate the placeholder -- that is the injectable form.
+    placeholder_sink=$(printf '%s\n' "$rendered" \
+        | grep -cE '^[[:space:]]*git .*(<output_branch>|"<output_branch>")' || true)
+    assert_eq "SKILL.md $profile: no git command substitutes the literal placeholder" \
+        "0" "$placeholder_sink"
+    # The legacy fallback must stop at main -- never rebound to Base branch, which
+    # would retroactively change where an in-flight pre-t1233 plan merges.
+    assert_not_contains "SKILL.md $profile: no Base branch rung in the fallback" \
+        'Base branch: <branch>` — plans externalized before' "$rendered"
+done
+
+# === Test 4d: the externalize call passes a PATH, never a branch value ===
+#
+# Handing the helper a profile path (which it parses with a real YAML reader)
+# keeps the user-authored branch name out of the agent's command line entirely.
+echo "=== Test 4d: externalize call-sites pass the profile path (t1233) ==="
+PE_OUT="$($RENDER "$WORKFLOW_DIR/plan-externalization.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+assert_contains "plan-externalization: passes --profile with the profile path" \
+    '--profile "aitasks/metadata/profiles/<active_profile_filename>"' "$PE_OUT"
+# Only actual command lines count -- the prose legitimately mentions the
+# --output-branch <name> escape hatch.
+# Join backslash-continued lines FIRST. Scanning only command-opening lines
+# misses a value carried on the continuation, which is exactly where an
+# interactively supplied branch would be substituted.
+PE_JOINED=$(printf '%s\n' "$PE_OUT" | sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}')
+literal_flag=$(printf '%s\n' "$PE_JOINED" \
+    | grep -E '^\./\.aitask-scripts/aitask_plan_externalize\.sh' \
+    | grep -cE -- '--output-branch(-default)? ' || true)
+assert_eq "plan-externalization: no call-site substitutes a branch value" "0" "$literal_flag"
+# The interactive value must travel through the file channel instead.
+assert_contains "plan-externalization: interactive base uses the file channel" \
+    '--output-branch-default-file' "$PE_OUT"
+# --profile must be conditional: active_profile_filename is null on manual/resume
+# invocations, and a constructed path would make the fail-closed helper abort.
+# Prose alone is not enough: an agent follows the command BLOCK. There must be a
+# rendered invocation that carries no --profile at all, or a manual/resume run
+# (active_profile_filename = null) would construct a missing path and the
+# fail-closed helper would abort externalization.
+no_profile_cmd=$(printf '%s\n' "$PE_JOINED" \
+    | grep -E '^\./\.aitask-scripts/aitask_plan_externalize\.sh' \
+    | grep -vc -- '--profile' || true)
+assert_eq "plan-externalization: a usable no-profile command form is rendered" \
+    "1" "$(test "$no_profile_cmd" -ge 1 && echo 1 || echo 0)"
+# Retries must carry the resolution flags; the retry is the call that writes the
+# header, so dropping them silently reverts the merge target to the primary.
+assert_contains "plan-externalization: retries preserve the branch flags" \
+    'preserving `--force` and the full `<branch-flags>` from the original call' "$PE_OUT"
+# Current-branch mode must not be documented as an empty flag set: --no-worktree
+# is what clears a stale Output branch left by an earlier run.
+assert_contains "plan-externalization: current-branch mode always carries --no-worktree" \
+    'Current-branch mode **always** includes `--no-worktree`' "$PE_OUT"
+assert_not_contains "plan-externalization: no empty-flags advice for current-branch mode" \
+    'legitimately **empty** for a no-profile, current-branch invocation' "$PE_OUT"
+# The scratch value file must survive until Step 8, which reuses the same flags.
+assert_contains "plan-externalization: scratch file lives until Step 8" \
+    'Keep the scratch file until **Step 8** has run' "$PE_OUT"
+# No example may label a current-branch invocation's flag set as empty: the
+# command below such a label carries --no-worktree, and the mislabel is what
+# would teach a future edit to drop it and restore the stale-header bug.
+assert_not_contains "plan-externalization: no example labels branch-flags as empty" \
+    '(`<branch-flags>` empty)' "$PE_OUT"
 
 # === Test 5: risk machinery is profile-CONDITIONAL via rendered_set (t635_33) ===
 #

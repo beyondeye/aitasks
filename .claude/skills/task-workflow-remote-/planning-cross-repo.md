@@ -25,6 +25,13 @@ approved — never inside plan mode.
 | `trigger_source` | The current task's body text (scanned for cross-repo notations in Step 4 only — never for trigger detection). |
 | `is_child`, `parent_id`, `active_profile`, `base_branch` | Standard workflow context. |
 
+**`output_branch` is deliberately not in this table.** The merge target resolved
+for the local parent is **not** inherited by cross-repo children: they live in a
+different repository whose primary and integration branches may be named
+differently, so applying this repo's `output_branch` there would be actively
+wrong. Each cross-repo task resolves its own merge target from its own profile
+and plan header when it is picked.
+
 ## Return contract
 
 Returns `cross_repo_planned: true` (with `cross_repo_name: <name>` and the

@@ -257,6 +257,12 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
   - If "Other branch", ask user to specify the branch name
 
 
+
+- **Profile check:** If the active profile has `output_branch` set, use it as the merge target and display: "Profile '\<name\>': using output branch \<branch\>". Otherwise the merge target is the base branch resolved above — **do not ask**; there is no separate question for the merge target.
+
+
+- **Never handle the branch name yourself.** It is user-authored config, and git accepts refs containing shell metacharacters (`dev$(id)`, ``dev`id` ``, `dev'x` are all valid refs). Quoting does not help — `"dev$(id)"` still executes inside double quotes — and re-reading the YAML with `sed` would mis-parse the equally valid `output_branch: "dev"` / `'dev'` / `dev # comment` forms. So the value is **displayed only**. Step 6 passes the profile *path* to the externalize helper, which resolves `output_branch` with a real YAML parser, validates it against a shell-safe subset, and fails closed. If it reports an unsafe branch name, stop and tell the user; do not continue to Step 9.
+
 - Create worktree directory:
   ```bash
   mkdir -p aiwork
@@ -266,7 +272,7 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
   ```bash
   git worktree add -b aitask/<task_name> aiwork/<task_name> <base-branch>
   ```
-  Where `<base-branch>` is `main` or the user-specified branch.
+  Where `<base-branch>` is the base branch resolved above.
 
 - Work in the `aiwork/<task_name>/` directory for implementation
 
@@ -525,6 +531,40 @@ Execute the post-implementation cleanup steps.
 
 **If a separate branch was created:**
 
+- **Resolve the merge target into a shell variable.** Read it out of the plan file's metadata header — do **not** paste the value into any command:
+
+  ```bash
+  output_branch=$(sed -n 's/^Output branch: //p' "<plan_file>" | head -n1)
+  provenance="plan header"
+  [ -n "$output_branch" ] || { output_branch=main; provenance="legacy plan, no Output branch field"; }
+  printf '%s' "$output_branch" | grep -qE '^[A-Za-z0-9._/-]+$' &&
+    git check-ref-format --branch "$output_branch" >/dev/null 2>&1 ||
+    echo "UNSAFE_OUTPUT_BRANCH"
+  ```
+
+  `UNSAFE_OUTPUT_BRANCH` → **stop**: the plan header records a branch name that is not shell-safe. Report it and do not merge.
+
+  Binding to a variable — rather than substituting the literal — is what makes an injected ref name inert: `git checkout "dev$(id)" --` executes `id`, whereas `git checkout "$output_branch" --` never does. Use the quoted variable in every command below.
+
+  Do **not** fall back to `Base branch:`. A plan written before this field existed merged to `main`, and reading its `Base branch:` would retroactively change where in-flight work lands.
+
+  Call the resolved value `<output_branch>`. Resolve it **only** from the plan header — never from `profile.output_branch`. A resumed session (POSTIMPL re-entry) may run under a different profile, and the header is what guarantees it merges into the same branch the original session did, keeping the "re-merge is a git no-op" property this workflow relies on.
+
+- **Pre-flight the merge target.** Run from the repo root, not from `aiwork/<task_name>/`. Before asking for approval:
+
+  ```bash
+  # 1. It must exist as a LOCAL BRANCH — not a tag, remote-tracking ref, or SHA.
+  git rev-parse --verify --quiet "refs/heads/$output_branch" || echo "MISSING"
+
+  # 2. If another worktree holds it, checkout will refuse.
+  git rev-parse --show-toplevel        # the worktree we are operating in
+  git worktree list --porcelain        # records: `worktree <path>` … `branch refs/heads/<b>`
+  ```
+
+  - **Always fully-qualify the ref.** A bare `<output_branch>` resolves through the gitrevisions order, which places `refs/tags/<name>` *above* `refs/heads/<name>`. A tag named `dev` passes a bare `git rev-parse --verify dev`, and the subsequent `git checkout dev` lands in **detached HEAD** — the merge then commits onto no branch at all and the output branch never moves.
+  - **Branch missing locally** (`MISSING`) → **stop and ask** the user (fetch or create it, pick a different target, or abort). Do not let `git checkout` DWIM a tracking branch into existence unnoticed.
+  - **Held by another worktree** → parse the `worktree <path>` of the record whose `branch` is `refs/heads/<output_branch>` and compare it to `git rev-parse --show-toplevel`. **Reject only when the paths differ.** The repo root is itself listed in `git worktree list --porcelain`, so an unqualified match would stop the workflow whenever the root is already on the output branch — exactly the case where checkout is a safe no-op. When they differ, `git checkout` fails with `fatal: '<branch>' is already used by worktree at …`; surface that and ask rather than failing mid-merge.
+
 **⚠️ NON-SKIPPABLE — Auto mode and execution profiles do NOT bypass this merge approval.**
 
 The AskUserQuestion below is a workflow gate, not a routine confirmation. The
@@ -537,7 +577,7 @@ The only valid skips are profile keys explicitly named in this SKILL.md as
 covering Step 9 merge approval (currently: none) or the user explicitly
 authorizing the merge in chat before the prompt fires.
 
-**IMPORTANT:** Use `AskUserQuestion` to ask: "Proceed with merge of code changes to main branch?" with options "Yes, proceed with merge" / "No, not yet". Do NOT proceed until the user approves.
+**IMPORTANT:** Use `AskUserQuestion` to ask: "Proceed with merge of code changes into the `<output_branch>` branch (\<provenance\>)?" with options "Yes, proceed with merge" / "No, not yet". Name the resolved branch and its provenance in the question text itself — a target guessed via the legacy `main` fallback must be visible to the user as a guess. Do NOT proceed until the user approves.
 
 **Record merge-approved gate:** Once the user approves the merge, execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=merge_approved`, `status=pass`, `fields="type=human"`.
 
@@ -546,11 +586,13 @@ authorizing the merge in chat before the prompt fires.
   git status --porcelain
   ```
 
-- **Merge branch into main:**
+- **Merge branch into `<output_branch>`:**
   ```bash
-  git checkout main
-  git merge aitask/<task_name>
+  git checkout "$output_branch" --   # trailing `--`: the arg is a branch, never a pathspec
+  git symbolic-ref --short HEAD    # MUST print "$output_branch"; if not, STOP — do not merge
+  git merge "aitask/<task_name>"
   ```
+  The `symbolic-ref` assertion is what makes a detached HEAD impossible rather than merely unlikely: if it prints nothing (or a different branch), the checkout did not land where the pre-flight expected and merging would commit onto no branch.
 
 - **Handle merge conflicts:** Ask user for guidance if needed.
 

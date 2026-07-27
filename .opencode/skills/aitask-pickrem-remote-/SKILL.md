@@ -509,7 +509,7 @@ The remote skill uses the standard profile format from `aitasks/metadata/profile
 | `abort_plan_action` | string | `keep` | `"keep"`, `"delete"` | Abort: Plan file action |
 | `abort_revert_status` | string | `Ready` | `"Ready"`, `"Editing"` | Abort: Revert status |
 
-Fields from the standard schema that are **ignored** (not applicable in remote mode): `create_worktree`, `base_branch`.
+Fields from the standard schema that are **ignored** (not applicable in remote mode): `create_worktree`, `base_branch`, `output_branch`.
 
 ---
 
