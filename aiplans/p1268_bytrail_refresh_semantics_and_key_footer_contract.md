@@ -665,3 +665,103 @@ every key reachable in By-Trail is footer-visible with a truthful label, and no
 `show=False` app binding remains reachable-but-hidden there except the
 view-switch radio (`a/l/f/i/y/z/g/t`), which stays hidden because the
 `ViewSelector` widget already renders it.
+
+## Final Implementation Notes
+
+- **Actual work done:** All 9 acceptance criteria implemented in
+  `.aitask-scripts/board/aitask_board.py`, with `tests/test_board_bytrail_view.py`
+  grown from 22 to 65 tests. The refresh ladder (`r` local / `d` freshness /
+  `R` agent), per-card drift markers, the artifact-version watch, By-Trail
+  `ait sync` on `S`, `C` hidden, per-view footer labels, and the
+  recorded-freshness relabel all landed as planned.
+
+- **Deviations from plan:** Five, all from review rounds that found real
+  defects in the plan as approved:
+  1. **`_rerender_trail` replaced `_refresh_board_data` for AC1.** The plan's
+     route was not zero-subprocess: `refresh_board()` unconditionally calls
+     `refresh_git_status()` (`git status`, 5 s timeout) and, with
+     `refresh_locks=True`, `refresh_lock_map()` (`aitask_lock.sh --list`,
+     10 s), both on the UI thread. Safe to skip because `TrailTaskCard` /
+     `TrailGhostCard` fully override `TaskCard.compose`, the only reader of
+     `modified_files` / `lock_map` / `xdep_status_cache` — recorded as an
+     explicit precondition in the method docstring.
+  2. **AC5 promoted into this task** rather than deferred to a follow-up (a
+     follow-up cannot satisfy its parent's AC). The version watch is armed
+     only after a launch actually succeeded, with the baseline read *before*
+     the launch call.
+  3. **Baseline read moved off the UI thread** (`_trail_baseline_worker`);
+     `_trail_versions` shells out with a 15 s timeout and ran inline on the
+     screen-result callback. The launch happens in the worker's callback, so
+     baseline-before-launch ordering is preserved.
+  4. **`canonical_trail_ref` added.** `build_trail_lanes` keyed drift lookups
+     on the raw stored ref, but `trail_gather.cmd_drift` emits reasons against
+     `inp.canonical`; a trail storing the tolerated `aitasks#t42` spelling
+     resolved to a live card with an empty reason list (AC3 silently failing).
+     Both sides now canonicalize.
+  5. **`_trail_launch_pending` guard added.** A consequence of (3): the dialog
+     closes before the baseline lands, so a second confirmed `R` in that
+     window would spawn a second refresh agent.
+
+- **Issues encountered:**
+  - *Concurrent session in the same worktree.* `.aitask-scripts/lib/gate_ledger.py`
+    was half-saved by another session mid-run (`NameError: NamedTuple`),
+    failing 14 unrelated board test files. Diagnosed by proving HEAD's copy
+    imports cleanly and the breakage lived only in the uncommitted diff; it
+    settled on its own. Only this task's two paths were ever staged.
+  - *Thread-leak assertion was wrong, not the code.* The first version
+    asserted an absolute `threading.active_count()` and failed (`baseline=1
+    now=2`). Textual dispatches thread workers onto a pool, so the first run
+    legitimately adds a persistent thread. Rewritten to warm the pool, then
+    assert no growth across subsequent runs; the weaker-but-true guarantee is
+    documented on `ThreadWorkerTests` so it is not re-tightened.
+  - *Footer relabel needs an explicit signal.* Textual's `Footer` recomposes
+    only on `bindings_updated_signal`, and the board never called
+    `refresh_bindings()`. Added at every view/trail transition and on both
+    `_trail_launch_pending` edges — without the latter the `FooterKey` widget
+    stayed on screen advertising a no-op key while `active_bindings` had
+    already dropped it.
+
+- **Key decisions:**
+  - *Per-view footer labels via duplicate-key bindings.* Verified against the
+    installed Textual 8.2.7 that a repeated key falls through `check_action`
+    on both the dispatch path (`app.py` `_check_bindings` → `run_action`) and
+    the footer path (`screen.py` `active_bindings`). Because this leans on
+    library internals, `test_duplicate_key_dispatch_falls_through` pins it so
+    a Textual upgrade surfaces the change in CI rather than in a user's hands.
+    Bindings are declared so each uppercase sibling sits next to its lowercase
+    primary, satisfying the footer-ordering rule in `tui_conventions.md`.
+  - *`C` hidden in By-Trail rather than scoped* to trail members:
+    `get_modified_tasks()` is repo-wide and a trail is a reading projection,
+    not an ownership boundary. Rationale is in the code.
+  - *`_trail_watch_gen` is separate from `_trail_gen`* — the post-launch
+    reload bumps `_trail_gen` while the agent is still running, so keying the
+    watch off it would silently disarm the poller. A negative-control test
+    pins that independence.
+  - *`_trail_versions()` returning `[]` is treated as "no signal, retry"*,
+    never as a version change: it returns `[]` for every failure mode
+    (non-zero exit, timeout, missing script), indistinguishable from a real
+    listing.
+  - *Verification method.* A mutation harness (16 mutations) proves every
+    guard actually fails when its behaviour regresses; a passing suite alone
+    would have pinned nothing. It restores from a byte copy — never
+    `git checkout --`, which would have destroyed the concurrent sessions'
+    uncommitted work — and asserts the restored file matches byte-for-byte.
+
+- **Upstream defects identified:** None
+
+- **Verification results:** 65 tests in `tests/test_board_bytrail_view.py`; all
+  19 `tests/test_board_*.py` files plus `tests/test_shortcut_scopes.py` pass;
+  16/16 mutations caught. Lint: `python3 -m pyflakes` on the board module
+  reports **7 findings, all pre-existing at HEAD** (unused imports: `json`,
+  four `task_yaml` symbols, `textual.screen.Screen`,
+  `topic_semantics.task_anchor_id`) and **0 introduced by this change** —
+  measured by diffing against `git show HEAD:` of the same file, since the
+  bare command cannot be honestly reported as passing. The test file lints
+  clean.
+
+- **Not done — manual verification:** The plan's manual pass (live footer text,
+  `r`/`d` against `art:trail-gates-framework-landing`, and the
+  `R` → tmux → auto-reload path) needs a real terminal and was not performed.
+  The footer was instead captured headlessly:
+  `r Refresh   R Agent Refresh   d Freshness   s Select Trail   S Sync`.
+  A manual-verification follow-up is offered at Step 8c.
