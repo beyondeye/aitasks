@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t635_33]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [gates, task_workflow]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -17,6 +17,7 @@ anchor: 635
 implemented_with: claudecode/opus5
 created_at: 2026-07-17 11:05
 updated_at: 2026-07-27 23:29
+completed_at: 2026-07-27 23:29
 ---
 
 ## Problem
@@ -117,3 +118,14 @@ Standard cleanup / archival / merge per task-workflow Step 9.
 > **✅ gate:plan_approved** run=2026-07-27T19:30:32Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-27T20:08:34Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-27T20:29:43Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:7f3442e1764e6ef4
+
+> **✅ gate:risk_evaluated** run=2026-07-27T20:29:43Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/635_34/risk_evaluated_2026-07-27T20:29:43Z-risk_evaluated-a1.log`
