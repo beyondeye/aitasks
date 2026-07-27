@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: low
-depends: [t1210_4, 1243]
+depends: [t1210_4, t1243_3, t1243_7]
 issue_type: feature
 status: Ready
 labels: [aitask_board, tui]
 gates: [risk_evaluated]
 anchor: 1210
 created_at: 2026-07-22 16:17
-updated_at: 2026-07-28 01:11
+updated_at: 2026-07-28 01:18
 ---
 
 ## Context
@@ -75,3 +75,32 @@ Note also that step 4 of the implementation plan above ("refresh the
 underlying task set so a subsequent view switch shows the moves") overlaps
 t1268's local recompute path — reuse whatever t1268 lands rather than adding a
 second reload route.
+
+## Notes for sibling tasks
+
+**t1243 replaces the move machinery this task's plan is written against.** The
+`## Implementation plan` above calls `TaskManager.move_task_col` +
+`normalize_indices`; both are removed by **t1243_3** (`gap_indexing`), which is
+why this task now depends on it. Re-verify the plan against the landed API
+before implementing:
+
+- `normalize_indices` is renamed `respace_column` and becomes an
+  **exhaustion-only** remedy — do **not** call it after a move. Renumbering a
+  whole column on every move is the write-amplification t1243 exists to remove.
+- Use the gap-indexed manager API instead: `move_task_to_column(task, col)` for
+  a single task (**1 file write**), and **`move_tasks_to_column(tasks, col)`**
+  for the wave move — it assigns K contiguous indices in input order, so `M`
+  gets "target column order matches wave order" for free with **exactly K
+  writes**, replacing the plan's "iterate `move_task_col`, then normalize once".
+- Ordering primitives live in `.aitask-scripts/lib/board_ordering.py`.
+
+**Do not build a second column picker.** **t1243_7**
+(`move_to_column_command`) ships the shared chain — a `SelectionList`
+task-select subdialog plus `ColumnSelectScreen` for the destination, with the
+synthetic `unordered` entry injected — bound to `m`. Reuse it so `m` means the
+same thing in every view ("move the selected task(s) to a column"), with
+per-view semantics gated in `check_action`. This task's `M` (wave move) remains
+By-Trail-specific.
+
+Ghost-entry exclusion and the "trail artifact is never consulted or modified by
+the move" contract are unchanged by t1243.
