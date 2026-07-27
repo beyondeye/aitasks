@@ -198,6 +198,66 @@ so Step 9 merged to `main`.
 Precedence: `--output-branch` → profile `output_branch` (worktree mode only) →
 `--output-branch-default` → profile `base_branch` → detected primary.
 
+### 1d. Closing the remaining channels
+
+Three further sinks had to be closed before the design held:
+
+- **Interactive branch values need a non-shell channel.** Passing an
+  interactively supplied name as `--output-branch-default "<value>"` re-creates
+  the injection sink: `release$(id -u)` expands *before* the helper can validate
+  it, even inside double quotes. The skill writes the value to a scratch file
+  with a non-shell tool and passes `--output-branch-default-file <path>`.
+- **Validate inside the YAML parser, before serialisation.** The profile reader
+  speaks a newline-delimited `key=value` protocol, so a valid YAML scalar
+  containing a newline (`output_branch: "dev\nbase_branch=release"`) injected a
+  second record and was *accepted*. The record split happens before any
+  downstream charset check could see it, so type and charset are now enforced in
+  Python before anything is emitted.
+- **`--profile` is conditional.** `active_profile_filename` is documented as
+  nullable for manual / resume invocations. Since the helper now fails closed on
+  an unreadable profile, unconditionally constructing a path would abort
+  externalization on those supported paths.
+
+Worktree mode is also authoritative: outside it, *every* derived target is
+cleared (not just the profile's `output_branch`), and a stale `Output branch:`
+already present in a plan's frontmatter is overwritten rather than retained.
+
+### 1e. The contract must live in the command blocks, not only the prose
+
+An agent follows the executable block, so a rule stated only in surrounding prose
+is not enforced. Three consequences:
+
+- The invocation forms use a `<branch-flags>` placeholder, built once and reused
+  verbatim, with a worked **no-profile** example — `active_profile_filename` is
+  nullable, and a constructed path would abort the fail-closed helper.
+- **Retries must carry `<branch-flags>`.** The `MULTIPLE_CANDIDATES` retry is the
+  call that actually writes the header; the original documented retry preserved
+  only `--force`, so a profile setting `output_branch: dev` produced
+  `Output branch: main`. The scratch value file is kept until a terminal result.
+- `--output-branch-default-file` reads the **complete** logical value. `head -n1`
+  silently turned an invalid two-line file into a different branch instead of
+  rejecting it.
+
+### 1f. Lifecycle: resolution inputs outlive a single call
+
+Step 8 reuses the same `<branch-flags>` as Step 6, so the resolution inputs have
+a lifecycle, not just a value:
+
+- **Resolution inputs are read after the already-externalized short-circuit.**
+  Validating the `--output-branch-default-file` at parse time made a no-op Step 8
+  exit 1 on a scratch file that had already been cleaned up, instead of returning
+  `PLAN_EXISTS`. A call that actually writes the header still fails closed.
+- **The scratch file lives until Step 8 finishes**, and the documented cleanup
+  moved accordingly.
+- **Current-branch mode always carries `--no-worktree`** — it is what clears a
+  stale `Output branch:` from an earlier run. An earlier draft called the flag
+  set "legitimately empty" there, which contradicted its own rule and retained
+  the stale target.
+
+The worked examples also had to match the *shipped* profiles: `fast.yaml` sets
+`create_worktree: false` and no `base_branch`, so labelling it a worktree example
+would have taught the wrong command shape.
+
 ### 2. `.claude/skills/task-workflow/SKILL.md` Step 5 — resolve `output_branch`
 
 Insert a new Jinja block immediately after the `base_branch` block (after line
@@ -834,3 +894,62 @@ bash tests/test_remote_drift_check.sh
 ### Planned mitigations
 - timing: after | name: manual_verify_output_branch_merge | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement — the suite cannot verify criterion (i) end-to-end; code-health — the Step 9 checkout pre-flight is prose, not code | desc: Run a real worktree task under a profile setting output_branch to a non-primary branch and confirm the whole chain — Step 5 resolution, the Output branch line in the plan header, the checkout pre-flight (missing branch / branch busy in another worktree), the provenance-bearing merge prompt, and the merge actually landing on the configured branch
 - timing: after | name: plan_header_resolved_base_branch | type: bug | priority: medium | effort: medium | addresses: goal-achievement — the plan header records detect_primary_branch() instead of the profile-resolved base_branch, so remote-drift-check watches the wrong branch | desc: Add --base-branch to aitask_plan_externalize.sh and thread the Step 5 resolved base branch through Step 6/8, so Base branch and Output branch in the plan header derive from the same source; update tests/test_plan_externalize.sh Tests 1 and 13 accordingly
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** Added the `output_branch` execution-profile key end to
+  end. Step 5 resolves and displays it; `aitask_plan_externalize.sh` records it
+  as an `Output branch:` plan-header field on **both** header paths (freshly
+  built, and spliced into a source plan that already carries frontmatter); Step 9
+  reads it back and merges there, behind a pre-flight that fully-qualifies
+  `refs/heads/`, compares worktree paths, and asserts symbolic HEAD before
+  merging. `aitask_remote_drift_check.sh` gained `--unsynced` and a dedicated
+  `LOCAL_BRANCH_MISSING` signal so the merge target is also drift-checked, and so
+  "branch absent locally" is never confused with "network failed". Schema surfaces
+  updated: `profile_editor.py` (3 tables), `profiles.md`, pickrem/pickweb
+  ignored-key lists, 6 website pages. Goldens regenerated and
+  `aitask_skill_rerender.sh remote` run for the 9 tracked remote variants.
+
+- **Deviations from plan:** Three, all forced by review findings.
+  1. **The plan said "no new helper / no script beyond `--output-branch`".** The
+     helper ended up owning the whole resolution (`--profile`,
+     `--output-branch-default[-file]`, `--no-worktree`) because a profile path
+     alone cannot describe Step 5's outcome — the base branch may be chosen
+     interactively and worktree mode is a runtime fact. No new script was
+     created, so the whitelist stayed untouched as planned.
+  2. **The legacy fallback lost a rung.** Planned as
+     `Output branch:` → `Base branch:` → `main`; shipped as
+     `Output branch:` → `main`. Reading `Base branch:` would retroactively
+     change where an in-flight pre-t1233 plan merges, breaking both re-entry
+     safety and the unset-behaviour criterion.
+  3. **The frontmatter-splice path was pulled forward** from a proposed
+     follow-up into this task, because the two-rung fallback is only safe if
+     every new plan really does record the field.
+
+- **Issues encountered:** The dominant theme was that *quoting cannot secure
+  textual substitution*. Git accepts refs containing shell metacharacters
+  (`dev$(id)`, ``dev`id` ``, `dev'x` all pass `check-ref-format`), and `"dev$(id)"`
+  executes inside double quotes. Successive rounds closed: the literal in the
+  checkout command; the interactive value on a continuation line (now a
+  `--output-branch-default-file` channel written by a non-shell tool); and a
+  newline-bearing YAML scalar that injected a second record into the reader's
+  `key=value` protocol (now validated inside the parser, before serialisation).
+  Separately, `set -e` masked two negative controls: a suite that *aborts*
+  reports zero failures, so a control checked on grep count alone proves nothing.
+  Both were re-run on exit code, and the affected assert now uses `|| true` so a
+  regression reports `FAIL` instead of aborting.
+
+- **Key decisions:** Validate at the write site *and* keep the value out of the
+  agent's command line (defence in depth); resolve the merge target only from the
+  plan header at Step 9, never from the profile, so a resumed session under a
+  different profile still merges where the original did; keep `Base branch:`
+  recording `detect_primary_branch()` (the profile's `base_branch` is read only
+  as the output fallback) so this task stays additive.
+
+- **Upstream defects identified:**
+  - `tests/test_remote_drift_check.sh:105,218 — Tests 2 and 6 asserted NO_REMOTE / FETCH_FAILED against a fixture whose branch is `master` while invoking the helper with a hardcoded `main`, so both passed for the wrong reason (the signal fired before anything inspected the branch). Repaired in this task.`
+  - `.aitask-scripts/aitask_remote_drift_check.sh:179-182 — the plan-referenced-path extraction filters against a hardcoded allowlist of this repository's top-level directories (aitask-scripts|aitasks|aiplans|claude/skills|…), so in a consumer project with different top-level dirs the OVERLAP detection silently matches nothing and every drift is reported as NO_OVERLAP. Pre-existing and out of scope here.`
+
+- **Notes for sibling tasks:** n/a (parent task, no children).
