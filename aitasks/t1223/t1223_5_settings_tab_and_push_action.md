@@ -101,6 +101,14 @@ Bound to a key on the Settings tab, gated via `check_action` + `_active_tab()`
 
      The prompt must state the masking value, i.e. "repo B's local layer sets
      `<masking_value>` for `<op>`; a project write would have no effect."
+
+   **Also handle `PushPartialError`** (added by t1223_4): `apply_push(...,
+   clear_mask=True)` writes two files, and if the project write lands but the
+   local clear fails it raises this instead of succeeding. The destination's
+   *effective* value is unchanged (the mask still applies), so report it as
+   "retry to finish", not as success and not as a plain failure — a retry
+   converges because the project write is idempotent and `plan_push` still
+   reports `masked`.
 5. **Apply, then refresh** the affected rows. Report a per-destination summary
    (applied / skipped-noop / rejected-with-reason / cancelled) — a single
    "done" is not enough when destinations can diverge in outcome.
