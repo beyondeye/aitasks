@@ -99,7 +99,15 @@ siblings may have adjusted details).
      currently the only synced setting.
    - The matrix: one row per operation, one column per repo, showing the
      **effective** value plus a provenance marker (`(local)` / bare project /
-     `(seed)` / `(default)` / `conflict`); divergent rows are highlighted.
+     `(default)` / `conflict`); divergent rows are highlighted.
+   - **The resolution chain has three tiers**, and the docs must say so:
+     `--agent-string` → `codeagent_config.local.json` (per-user, gitignored) →
+     `codeagent_config.json` (per-project, git-tracked) → the built-in default.
+     State explicitly that **`seed/` is not a runtime tier** — it is a
+     setup-time copy source that `ait setup` copies into `aitasks/metadata/`,
+     and an installed project has none at its root. (t1223_4 amended contract D
+     to drop the `seed` provenance value for exactly this reason; there is no
+     `(seed)` marker.)
    - Push flow: choose a source value → select destinations → **choose the layer**
      (project = git-tracked and shared with that repo's team; local = gitignored
      and personal). Say that the prompt is always asked.
@@ -110,7 +118,10 @@ siblings may have adjusted details).
    - **Rejection**: a value whose model is not in the destination's
      `models_<agent>.json` is refused with a reason — models are per-repo.
    - Note that a project-layer push leaves an **uncommitted change in the
-     destination repo** that the user must commit there.
+     destination repo** that the user must commit there. On a destination using
+     a separate `aitask-data` branch, that change lands under `.aitask-data/`
+     (git-tracked on *that* branch), so `git diff` in the destination's main
+     checkout shows nothing — say so, or users will think the push did not land.
 
 5. **Keys table.** Add the new keys (upgrade, re-check, push) with their tab
    scope, and state that Branches keys (`s`/`u`/`p`/`r`/`f`) are inert on the

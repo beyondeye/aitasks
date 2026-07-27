@@ -156,3 +156,21 @@ Manual: covered by t1223_7.
   child renders and routes; if a value looks wrong, fix it there, not here.
 - The layer prompt is deliberately unskippable — do not add a "remember my
   choice" shortcut without revisiting the parent's scope decision.
+
+### Landed with t1223_4 — read before wiring the tab
+
+- **Index by `sess.key` directly.** `diff_across_repos` keys on
+  `os.path.realpath` with the same `OSError` fallback as
+  `AitasksSession.key`, and a test pins the two together — no mapping layer.
+- **Never call `resolve_agent_string` on a foreign root yourself.**
+  `lib/agent_string.sh` documents `METADATA_DIR` / `TASK_DIR` /
+  `DEFAULT_AGENT_STRING` as caller overrides; they are inherited by the
+  subprocess and outrank `cwd`, so an unscrubbed call makes every repo resolve
+  against the same config. Go through `cross_repo_settings`, which scrubs them.
+- **`diff_across_repos` / `read_operation_defaults` raise
+  `DestConfigUnreadable`** when a repo's config layer exists but is corrupt (the
+  shell resolver silently falls through to the builtin default for a malformed
+  file, so this is the only way it surfaces). Catch it **per repo** in the matrix
+  worker — letting it propagate would blank the whole tab because one repo is
+  broken. Rendering that repo's column as unavailable is this child's call; the
+  seam deliberately does not invent a provenance value for it.
