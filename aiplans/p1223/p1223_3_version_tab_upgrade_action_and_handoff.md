@@ -576,6 +576,49 @@ Manual/live coverage: t1223_7.
 No before/after mitigation tasks were confirmed — each risk is owned by an
 in-task test, a binding contract, or t1223_7.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-26 17:52)
+
+- **Requested by user:** The wrapper's shared `trap … EXIT INT TERM` only removes
+  the handoff directory and returns. A `SIGINT`/`SIGTERM` arriving after the
+  request has been copied into `_request` cannot be undone by deleting the file,
+  and bash resumes at the next statement — so a cancellation would continue
+  through parsing and `exec` the upgrade. Use separate signal traps that clean up
+  and exit 130/143, and add a valid-request test that interrupts after the read.
+  Disposition: blocking.
+
+- **Verified:** CONFIRMED, by probe rather than by reading: a minimal script with
+  `trap "rm -rf '$d'" EXIT INT TERM` that reads a payload into a variable and is
+  then sent `SIGTERM` printed `CONTINUED_AFTER_SIGNAL with payload=start` and
+  exited **0**. The window is reachable in the real wrapper because the handoff
+  parse spawns a Python process between the read and the `exec`.
+
+- **Changes made:**
+  1. `.aitask-scripts/aitask_syncer.sh` — replaced the shared handler with a
+     `_cleanup_handoff` function plus three traps: `EXIT` tidies, while `INT` and
+     `TERM` tidy **and exit** 130 / 143 (the conventional 128+signal statuses).
+     The pre-`exec` teardown now calls `_cleanup_handoff` and still clears all
+     three traps. Using a function also drops the `SC2064` disable.
+  2. `tests/test_syncer_upgrade_handoff.sh` — the stub interpreter gained an
+     `AIT_TEST_PARSE_SLEEP` pause inside the handoff parse (identified by the
+     `no_dupes` hook in the code string) plus a `parsing` marker, which makes the
+     post-read window deterministically reachable. New case 9 sends `SIGTERM` to
+     the **wrapper alone** — not the process group, so the parse it is waiting on
+     completes normally and the request genuinely is in memory — then asserts
+     `ait` was never invoked, the exit status is 143, and the handoff dir is gone.
+  3. Task file — recorded as an AC deviation under the wrapper requirements and
+     as verification step 13b.
+
+- **Negative control:** reverting only the trap change (back to
+  `trap '_cleanup_handoff' EXIT INT TERM`) makes case 9 fail with `ait` invoked
+  and the wrapper exiting 0 — the reported hazard, reproduced. Restored by
+  undoing the mutation alone; suite back to 48/48.
+
+- **Files affected:** `.aitask-scripts/aitask_syncer.sh`,
+  `tests/test_syncer_upgrade_handoff.sh`,
+  `aitasks/t1223/t1223_3_version_tab_upgrade_action_and_handoff.md`.
+
 ## Out of scope
 
 Settings content (t1223_4 / t1223_5), documentation (t1223_6), and live
