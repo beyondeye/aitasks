@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [workflow, git, profiles]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,6 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-07-24 15:03
 updated_at: 2026-07-28 01:10
+completed_at: 2026-07-28 01:10
 ---
 
 ## Problem
@@ -120,3 +121,14 @@ among the ignored keys — decide whether `output_branch` joins that list.
 > **✅ gate:plan_approved** run=2026-07-27T10:52:59Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-27T22:04:33Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-27T22:10:45Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:607b5147782f5fa5
+
+> **✅ gate:risk_evaluated** run=2026-07-27T22:10:45Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1233/risk_evaluated_2026-07-27T22:10:45Z-risk_evaluated-a1.log`
