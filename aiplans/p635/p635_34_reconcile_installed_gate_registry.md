@@ -681,3 +681,101 @@ corrupting the file cannot pass.
 
 Standard cleanup / archival / merge per task-workflow Step 9. Stage by explicit
 path — the working tree carries another session's uncommitted work.
+
+## Final Implementation Notes
+
+- **Actual work done:** Landed the plan as approved. (1) Characterization test
+  `tests/test_gate_registry_parser_quirks.py` (24 checks) pinning all seven
+  parser quirks, landed and passing against the PRE-refactor implementation
+  first — its `parse()` helper works on both sides of the extraction, so it is
+  a real net rather than a test written against the new code. (2) Extracted
+  `_walk_registry` + `read_registry_text` in `lib/gate_ledger.py`, with
+  `read_registry` reduced to a thin wrapper; added the `registry_layout`
+  presence/layout oracle (`GateBlock` / `RegistryLayout`, incl. `block_end`
+  lexical extent, `duplicates`, `orphan_field_names`) and the shared
+  `unverifiable_reason` predicate. (3) New `lib/gate_registry_sync.py` — merge
+  planner, semantic-no-op fill filter, comment-preserving line-splice writer,
+  the indent ladder, the fail-closed matrix, post-write re-parse
+  self-verification, and the report-only profile scan. (4) `sync-registry` verb
+  in `aitask_gate.sh` (+ `AIT_GATES_REFERENCE` override, repo-level
+  `registry_lock`, no auto-commit) and the claim-time
+  `_warn_unverifiable_active` warning. (5) `blocked_reason` switched to the
+  shared predicate. (6) `ait` dispatcher (4 edits) + help. (7) Docs: reference
+  header edit-protocol (both directions + the add-a-key rule) and
+  `aidocs/gates/aitask-gate-framework.md`. (8) Tests: new
+  `test_gates_sync_registry.sh` (93 asserts, 29 cases incl. harness self-test
+  and assertion-count pin), `test_gate_active_gates.sh` +15 (99→114),
+  `test_gates_reference_drift.sh` +3 (10→13, new Part 4).
+- **Deviations from plan:** Two, both discovered by testing.
+  (a) The plan put the warning only on `materialize-active`'s write path; that
+  made it fire on the FIRST materialization and stay silent on re-pick — the
+  common case for exactly the in-flight tasks that have been sitting blocked.
+  It now fires on the `NOOP` path too, with the stdout contract re-pinned on
+  both paths.
+  (b) The plan sourced `lib/registry_lock.sh` at the top of `aitask_gate.sh`.
+  That broke `tests/test_gate_guarded_archival.sh`, whose fixture hand-copies a
+  SUBSET of `lib/` into a fake `.aitask-scripts/` — every verb then died with
+  "No such file or directory". Changed to a lazily-scoped source inside
+  `cmd_sync_registry`, with a comment pointing at the source-on-startup rule in
+  `aidocs/framework/shell_conventions.md`. Also added: the "registry not
+  committed" hint is now emitted only when the file actually changed (it was
+  misleading on a `NOOP` run), and this repo's live `aitasks/metadata/gates.yaml`
+  was refreshed from the reference per the documented maintainer protocol so the
+  two copies stay byte-identical (comment-only delta).
+- **Issues encountered:** (1) A first-cut agreement-matrix assertion used
+  `assert_not_contains "=False"`, which passed VACUOUSLY when the python block
+  errored and produced no output — it "passed" with `PROJECT_DIR` unset.
+  Replaced with five positive per-shape assertions and verified by breaking
+  `unverifiable_reason` (2 assertions fired) and restoring byte-identically.
+  (2) The assertion-count pin was initially off by three (the pin observes the
+  count BEFORE incrementing for itself).
+- **Key decisions:** `sync-registry` lives inside `aitask_gate.sh` (already
+  whitelisted in all 5 touchpoints — a new script would need all of them).
+  Exit 0 for every COMPLETED run (NOOP / applied / conflicts) so a caller cannot
+  read "did work" as failure; distinct nonzero codes (3/4/5/6) for fail-closed.
+  `NOOP` is printed only on a genuinely completed clean run — never because
+  something could not be read, which is the t1147 failure class itself (test 14).
+  `description` fills but never conflicts (a permanent false positive on a
+  cosmetic field would train people to skim the report). `blocks_dependents`
+  and `timeout_seconds` DO fill, because `ait upgrade --force` already performs
+  those exact fills silently — doing it with a `FILLED:` line and `--dry-run` is
+  strictly better than the status quo. No auto-commit: a registry change is
+  review-worthy, a deliberate divergence from the neighbouring
+  `materialize-active` convention.
+- **Verification results:** `test_gates_sync_registry.sh` 93/93,
+  `test_gate_registry_parser_quirks.py` 24/24, `test_gate_active_gates.sh`
+  114/114, `test_gates_reference_drift.sh` 13/13; the full gate/archive sweep
+  (32 suites) green; board/monitor/profile-editor gate consumers green;
+  shellcheck clean on all touched shell files (info-level SC1091 only).
+  Negative controls each proven to discriminate by breaking the implementation
+  and confirming a nonzero suite exit, then restoring by undoing the edit (not
+  `git checkout --`): the presence oracle (dict-driven variant demonstrably
+  overwrites a deliberate `verifier: ""` opt-out — 5 assertions), the
+  predicate/orchestrator agreement matrix, and both new drift guards.
+  Live smoke on a synthetic stale install: `blocked: no verifier configured
+  (deferred)` + `BLOCKED:risk_evaluated` → `sync-registry` → verifier actually
+  dispatched → a task that genuinely satisfies the gate reaches
+  `pass (attempt 1)` and `ALL_PASS`, archiving with **no** manual gate append;
+  a customised `verifier: our-custom-build` was reported as CONFLICT and left
+  intact, and both original project comments survived byte-for-byte.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_gate.sh:13-25` — the file-header subcommand list was
+    stale (stopped at `resume-point`, missing eight verbs added by t635_14 /
+    t635_19 / t635_33); refreshed in this task, no follow-up needed.
+  - `ait:57` — `gate pass` is dispatched (`ait:320`) but missing from the
+    top-level `show_usage` "Gates:" list, so `ait --help` does not advertise it.
+    Pre-existing, NOT fixed here (out of scope for this task's surface); worth a
+    one-line follow-up.
+- **Notes for sibling tasks:** t635_37 (settings profile gate picker) can reuse
+  `gate_ledger.registry_layout` to enumerate registry gate names and
+  `gate_registry_sync.scan_profiles` as the reference for what "a profile names
+  a gate with no registry entry" means — this task deliberately left profile
+  REPAIR to t635_37 and only reports. Any task adding a key to
+  `gates_reference.yaml` must also extend `_GATE_FIELD_KEYS` + the
+  `read_registry_text` dispatch, else `test_gates_reference_drift.sh` Part 4
+  fails — that guard exists because an untaught key half-propagates through
+  `sync-registry` (carried into a NEW_GATE copy, never filled into an existing
+  gate). The warning is currently an undocumented stderr signal; promoting it to
+  the Step-4 contract is the `promote_no_verifier_warning_to_step4_contract`
+  mitigation, deliberately deferred until the concurrent `output_branch` edits
+  to `.claude/skills/task-workflow/SKILL.md` land.
