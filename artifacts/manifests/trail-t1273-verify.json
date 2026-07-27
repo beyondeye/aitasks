@@ -1,10 +1,11 @@
 {
   "backend": "local",
   "created_at": 1785189340,
-  "current": "sha256:12e4206dd14941c2e9ad8eaa82ce7234774eb609cff314208c1a7a8517bd4807",
+  "current": "sha256:3ba645e96f9cbd8f38885b3b40e87fcaa969e1ce791a5fc0a6d9b08c89408042",
   "handle": "art:trail-t1273-verify",
-  "updated_at": 1785189340,
+  "updated_at": 1785190451,
   "versions": [
-    "sha256:12e4206dd14941c2e9ad8eaa82ce7234774eb609cff314208c1a7a8517bd4807"
+    "sha256:12e4206dd14941c2e9ad8eaa82ce7234774eb609cff314208c1a7a8517bd4807",
+    "sha256:3ba645e96f9cbd8f38885b3b40e87fcaa969e1ce791a5fc0a6d9b08c89408042"
   ]
 }
