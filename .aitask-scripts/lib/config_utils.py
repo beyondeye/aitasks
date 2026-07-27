@@ -17,11 +17,49 @@ from __future__ import annotations
 import copy
 import json
 import os
+import stat
+import tempfile
 from datetime import datetime, timezone
+from os import replace as _os_replace
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+# Read the umask once, at import. Probing it requires os.umask(0) followed by a
+# restore, which is process-global and racy — settings_app is a Textual app with
+# worker threads, so doing it per write could hand another thread a mode-0
+# window. New files get 0o666 & ~umask, matching what open(path, "w") produced
+# before writes became atomic.
+_UMASK = os.umask(0)
+os.umask(_UMASK)
+
+class ConfigMergeError(ValueError):
+    """A merge-mode import cannot proceed without destroying data.
+
+    Raised for a structural mismatch between the incoming payload and the
+    destination — a dict where the other side holds a scalar/list, or a
+    destination that is not a readable JSON object. A ValueError subclass so it
+    satisfies the documented exception type, but distinguishable from
+    json.JSONDecodeError (which is *also* a ValueError, and would otherwise make
+    "malformed destination" and "type conflict" indistinguishable in a test).
+    """
+
+
+class ConfigImportPartialError(RuntimeError):
+    """Some files were committed before an import failed.
+
+    Callers MUST reload their in-memory config from disk on this error rather
+    than assuming nothing changed. ``written`` names the files that landed.
+    """
+
+    def __init__(self, written: list[str], cause: BaseException) -> None:
+        super().__init__(
+            f"import partially applied after writing {written}: {cause}"
+        )
+        self.written = written
+        self.cause = cause
+
 
 EXPORT_EXTENSION = ".aitcfg.json"
 
@@ -121,12 +159,86 @@ def load_layered_config(
     return result
 
 
-def _save_json(path: Path, data: dict) -> None:
-    """Write a dict as formatted JSON."""
+def _target_mode(path: Path) -> int:
+    """Permission bits a write to ``path`` should produce.
+
+    Preserves an existing file's mode; falls back to the umask default for a new
+    file. Without this, ``tempfile.mkstemp``'s 0600 would silently downgrade
+    every config it rewrites (models_*.json is 0644 in a normal checkout).
+    """
+    try:
+        return stat.S_IMODE(os.stat(path).st_mode)
+    except OSError:
+        return 0o666 & ~_UMASK
+
+
+def _prepare_atomic(path: Path, render) -> str:
+    """Write render(fh)'s output to a temp file beside ``path``; return its path.
+
+    Pairs with :func:`_commit_atomic`. Splitting prepare from commit lets a
+    caller validate and stage several files before any of them becomes visible.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    mode = _target_mode(path)
+    fd, tmp = tempfile.mkstemp(
+        dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp"
+    )
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            render(fh)
+    except BaseException:
+        _discard_temp(tmp)
+        raise
+    return tmp
+
+
+def _commit_atomic(tmp: str, path: Path) -> None:
+    """Move a prepared temp file into place. Never leaves the temp behind."""
+    try:
+        _os_replace(tmp, path)
+    except BaseException:
+        _discard_temp(tmp)
+        raise
+
+
+def _discard_temp(tmp: str) -> None:
+    """Best-effort removal of a staged temp file."""
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
+
+
+def _atomic_write(path: Path, render) -> None:
+    """Write text produced by ``render(fh)`` to ``path`` atomically.
+
+    Temp file in the same directory + ``os.replace``, so a concurrent reader
+    never observes a partial file and a failed write leaves the original intact.
+    This is atomic *visibility*, not crash durability — there is no fsync, which
+    matches gate_ledger and attachment_meta.
+
+    ``path`` is resolved with ``realpath`` first: ``open(path, "w")`` follows a
+    symlink, but ``os.replace`` would replace the link itself, orphaning the real
+    backing file while reads kept succeeding.
+    """
+    resolved = Path(os.path.realpath(path))
+    _commit_atomic(_prepare_atomic(resolved, render), resolved)
+
+
+def _render_json(data: dict):
+    """Renderer for the project's JSON config format (indent 2, trailing NL)."""
+
+    def render(fh) -> None:
+        json.dump(data, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+
+    return render
+
+
+def _save_json(path: Path, data: dict) -> None:
+    """Write a dict as formatted JSON, atomically."""
+    _atomic_write(Path(path), _render_json(data))
 
 
 def save_project_config(path: str | Path, data: dict) -> None:
@@ -147,6 +259,53 @@ def save_local_config(path: str | Path, data: dict) -> None:
     _save_json(Path(path), data)
 
 
+MODEL_FILES = {
+    "claudecode": metadata_dir() / "models_claudecode.json",
+    "codex": metadata_dir() / "models_codex.json",
+    "opencode": metadata_dir() / "models_opencode.json",
+}
+
+
+def load_all_models(
+    project_root: str | Path | None = None,
+    *,
+    metadata_path: str | Path | None = None,
+) -> dict[str, dict]:
+    """Load all models_*.json files into {provider: data}.
+
+    Three ways to say where the catalog lives, in precedence order:
+
+    - ``metadata_path`` — used verbatim. No ambient ``TASK_DIR`` is consulted, so
+      the answer cannot drift from the caller's other paths. Cross-repo callers
+      MUST use this form: they need the catalog to come from the same metadata
+      directory as the config layers they are reading.
+    - ``project_root`` — composed as ``root / <task_dir> / metadata``. Kept for
+      same-repo callers, where honoring the user's ``TASK_DIR`` is correct. An
+      *absolute* ``TASK_DIR`` would make ``root / rel`` silently discard the root
+      (pathlib drops the left operand), so it falls back to the framework
+      default.
+    - neither — today's cwd-relative module behavior.
+
+    Providers whose file is missing or empty are omitted.
+    """
+    if metadata_path is not None:
+        meta = Path(metadata_path)
+    elif project_root is not None:
+        rel = task_dir()
+        if rel.is_absolute():
+            rel = Path("aitasks")
+        meta = Path(project_root) / rel / "metadata"
+    else:
+        meta = metadata_dir()
+
+    result: dict[str, dict] = {}
+    for provider in MODEL_FILES:
+        data = _load_json(meta / f"models_{provider}.json")
+        if data:
+            result[provider] = data
+    return result
+
+
 def load_yaml_config(path: str | Path, defaults: dict | None = None) -> dict:
     """Load a project-scoped YAML config file.
 
@@ -165,11 +324,24 @@ def load_yaml_config(path: str | Path, defaults: dict | None = None) -> dict:
 
 
 def save_yaml_config(path: str | Path, data: dict) -> None:
-    """Write a project-level YAML config with stable key ordering."""
-    yaml_path = Path(path)
-    yaml_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(yaml_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    """Write a project-level YAML config with stable key ordering, atomically.
+
+    Atomicity matters most here: userconfig.yaml carries ``email`` and
+    ``last_used_labels``, which exist nowhere else, whereas the JSON configs are
+    recoverable from an export bundle.
+    """
+    _atomic_write(Path(path), _render_yaml(data))
+
+
+def _render_yaml(data: dict):
+    """Renderer for the project's YAML config format."""
+
+    def render(fh) -> None:
+        yaml.safe_dump(
+            data, fh, default_flow_style=False, sort_keys=False, allow_unicode=True
+        )
+
+    return render
 
 
 def resolve_config_path(
@@ -312,11 +484,7 @@ def export_all_configs(
             bundle["shortcuts"] = shortcuts
             bundle["_export_meta"]["file_count"] += 1
 
-    out = Path(output_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "w", encoding="utf-8") as f:
-        json.dump(bundle, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    _atomic_write(Path(output_path), _render_json(bundle))
 
     return bundle
 
@@ -370,35 +538,144 @@ def validate_export_bundle(bundle: dict) -> list[str]:
     return warnings
 
 
+_ABSENT = object()
+"""Sentinel for "no destination file". Distinct from a file holding ``null``,
+which is a broken destination rather than an empty one — conflating the two
+would let a merge silently overwrite it."""
+
+
+def _read_destination(target: Path) -> Any:
+    """Read a merge destination strictly. Missing is fine; broken is not.
+
+    ``_load_json`` is too lossy here: it reports a directory as ``{}`` (i.e.
+    indistinguishable from absent) and returns ``None`` for a file holding
+    ``null``. Merge mode must fail closed on anything it cannot merge into,
+    because the alternative is merging into ``{}`` and clobbering the file.
+    """
+    if not target.exists():
+        return _ABSENT
+    if not target.is_file():
+        raise ConfigMergeError(
+            f"destination {target.name!r} exists but is not a regular file"
+        )
+    with open(target, "r", encoding="utf-8") as f:
+        data = json.load(f)  # JSONDecodeError propagates: malformed != conflict
+    if data is None:
+        raise ConfigMergeError(
+            f"destination {target.name!r} holds null, which is not a mergeable value"
+        )
+    return data
+
+
+def _describe_path(path: tuple[str, ...]) -> str:
+    """Render a key path for an error message.
+
+    Keys legitimately contain dots (``models_claudecode.json``), so segments are
+    quoted and joined rather than dot-concatenated into something ambiguous.
+    """
+    return " -> ".join(repr(seg) for seg in path)
+
+
+def _check_type_conflicts(existing: Any, incoming: Any, path: tuple[str, ...]) -> None:
+    """Raise if merging ``incoming`` into ``existing`` would destroy a subtree.
+
+    ``deep_merge`` recurses only when both sides are dicts and otherwise lets the
+    override win, so a dict-vs-scalar mismatch silently drops everything under
+    that key. Only *common* keys can conflict; a key present on one side alone
+    merges cleanly.
+    """
+    for key in incoming:
+        if key not in existing:
+            continue
+        a, b = existing[key], incoming[key]
+        here = path + (key,)
+        if isinstance(a, dict) and isinstance(b, dict):
+            _check_type_conflicts(a, b, here)
+        elif isinstance(a, dict) != isinstance(b, dict):
+            raise ConfigMergeError(
+                f"type conflict at {_describe_path(here)}: destination holds "
+                f"{type(a).__name__}, payload holds {type(b).__name__}"
+            )
+
+
+def _merge_file(name: str, existing: Any, incoming: Any) -> Any:
+    """Resolve one whole file's merge, or raise ConfigMergeError.
+
+    A bundle file value is not always a dict — ``models_*.json`` round-trips as a
+    bare list — so the whole-file shapes are decided before the nested walk.
+    """
+    if existing is _ABSENT:
+        return incoming  # fresh file: write verbatim, whatever the shape
+    if isinstance(existing, dict) and isinstance(incoming, dict):
+        _check_type_conflicts(existing, incoming, ())
+        return deep_merge(existing, incoming)
+    if isinstance(existing, dict) != isinstance(incoming, dict):
+        raise ConfigMergeError(
+            f"type conflict in {name!r}: destination holds "
+            f"{type(existing).__name__}, payload holds {type(incoming).__name__}"
+        )
+    return incoming  # same non-dict kind: replace, per deep_merge's list rule
+
+
 def import_all_configs(
-    input_path: str | Path,
-    metadata_dir: str | Path,
+    input_path: str | Path | None = None,
+    metadata_dir: str | Path | None = None,
     overwrite: bool = False,
     selected_files: list[str] | None = None,
+    *,
+    bundle: dict | None = None,
+    merge: bool = False,
 ) -> list[str]:
     """Restore config files from an export bundle.
 
     Args:
-        input_path: Path to the export JSON bundle.
-        metadata_dir: Path to aitasks/metadata/ directory.
+        input_path: Path to the export JSON bundle. Mutually exclusive with
+                    ``bundle``; exactly one is required.
+        metadata_dir: Path to the destination aitasks/metadata/ directory.
+                      Required (defaulted to None only because ``input_path``
+                      now needs a default and both stay positional).
         overwrite: If True, overwrite existing files. If False, skip them.
         selected_files: If provided, only import files in this list.
                         If None, import all files in the bundle.
+        bundle: An in-memory bundle, same shape as the file form. Filtered by
+                ``selected_files`` and guarded against path traversal exactly
+                like the file form.
+        merge: Deep-merge each payload into the existing destination instead of
+               replacing the file, so keys the payload does not mention survive.
+               Requires ``overwrite=True``.
 
     Returns:
         List of filenames that were written. Includes the literal
         ``"shortcuts"`` when a shortcuts subtree was merged into
-        ``userconfig.yaml``.
+        ``userconfig.yaml``. In merge mode a file appears when it was part of
+        the write plan, including a merge that changed nothing.
 
     Raises:
+        ValueError: For invalid argument combinations, an unrecognized bundle
+                    format, or a filename containing path separators.
         FileNotFoundError: If input_path does not exist.
-        json.JSONDecodeError: If the bundle is invalid JSON.
-        ValueError: If the bundle format is unrecognized or a filename
-                    contains path separators.
+        json.JSONDecodeError: If the bundle — or, in merge mode, a destination —
+                    is invalid JSON.
+        ConfigMergeError: If a merge would destroy a subtree, or a destination
+                    is not a readable JSON object.
+        ConfigImportPartialError: If a failure occurred after some files were
+                    already committed. Reload from disk; do not assume nothing
+                    changed.
     """
-    inp = Path(input_path)
-    with open(inp, "r", encoding="utf-8") as f:
-        bundle = json.load(f)
+    # Argument validation runs before any filesystem access, so a rejected call
+    # cannot leave a freshly created metadata directory behind.
+    if (input_path is None) == (bundle is None):
+        raise ValueError(
+            "Exactly one of 'input_path' or 'bundle' is required"
+        )
+    if merge and not overwrite:
+        raise ValueError("merge=True requires overwrite=True")
+    if metadata_dir is None:
+        raise ValueError("'metadata_dir' is required")
+
+    if bundle is None:
+        with open(Path(input_path), "r", encoding="utf-8") as f:
+            bundle = json.load(f)
 
     if "files" not in bundle:
         raise ValueError("Invalid export bundle: missing 'files' key")
@@ -406,9 +683,12 @@ def import_all_configs(
     meta_path = Path(metadata_dir)
     meta_path.mkdir(parents=True, exist_ok=True)
 
-    written: list[str] = []
+    # Stage 1 — plan. Read, conflict-check and merge everything before anything
+    # becomes visible, so one bad destination writes nothing at all.
+    plan: list[tuple[str, Path, Any]] = []
     for name, data in bundle["files"].items():
-        # Security: prevent path traversal
+        # Security: prevent path traversal. Deliberately ahead of the selection
+        # filter — an unselected traversal name still raises, as it always has.
         if os.sep in name or "/" in name or "\\" in name:
             raise ValueError(f"Invalid filename in bundle: {name!r}")
 
@@ -424,15 +704,18 @@ def import_all_configs(
         if target.exists() and not overwrite:
             continue
 
-        with open(target, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-        written.append(name)
+        # Destination reads happen only after the skips above: a file the caller
+        # excluded must never be able to fail the import.
+        merged = _merge_file(name, _read_destination(target), data) if merge else data
+        plan.append((name, target, _render_json(merged)))
 
     # Shortcuts are a distinct top-level bundle member (not a file under
     # `files`): deep-merge the subtree into userconfig.yaml, preserving every
     # other local top-level key (email/last_used_labels/...). Merged when
     # present and either no selection was given or "shortcuts" was selected.
+    # Planned here (so a broken userconfig.yaml aborts before anything is
+    # written) and committed last. The shallow scope-level update is the
+    # long-standing semantic and is deliberately left as-is.
     shortcuts = bundle.get("shortcuts")
     if (
         isinstance(shortcuts, dict)
@@ -453,7 +736,33 @@ def import_all_configs(
             scope_map.update(actions)
             existing[scope] = scope_map
         userconfig["shortcuts"] = existing
-        save_yaml_config(userconfig_path, userconfig)
-        written.append("shortcuts")
+        plan.append(("shortcuts", userconfig_path, _render_yaml(userconfig)))
+
+    written: list[str] = []
+    if plan:
+        # Stage 2 — prepare every temp file; nothing is visible yet.
+        staged: list[tuple[str, str, Path]] = []
+        try:
+            for name, target, render in plan:
+                resolved = Path(os.path.realpath(target))
+                staged.append((name, _prepare_atomic(resolved, render), resolved))
+        except BaseException:
+            for _, tmp, _ in staged:
+                _discard_temp(tmp)
+            raise
+
+        # Stage 3 — commit. The rename loop is the only window in which a
+        # partial application is possible; it cannot be closed on POSIX, so it
+        # is reported instead of assumed away.
+        for idx, (name, tmp, resolved) in enumerate(staged):
+            try:
+                _commit_atomic(tmp, resolved)
+            except BaseException as exc:
+                for _, pending, _ in staged[idx + 1:]:
+                    _discard_temp(pending)
+                if written:
+                    raise ConfigImportPartialError(written, exc) from exc
+                raise
+            written.append(name)
 
     return written

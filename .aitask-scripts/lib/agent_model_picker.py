@@ -30,30 +30,18 @@ _LIB_DIR = str(Path(__file__).resolve().parent)
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from config_utils import _load_json, metadata_dir  # noqa: E402
+# MODEL_FILES / load_all_models live in config_utils so headless callers (e.g.
+# cross_repo_settings) can reach the catalog without importing this
+# Textual-dependent module. Re-exported here for the existing importers.
+from config_utils import (  # noqa: E402,F401
+    MODEL_FILES,
+    _load_json,
+    load_all_models,
+    metadata_dir,
+)
 
 
 METADATA_DIR = metadata_dir()
-MODEL_FILES = {
-    "claudecode": METADATA_DIR / "models_claudecode.json",
-    "codex": METADATA_DIR / "models_codex.json",
-    "opencode": METADATA_DIR / "models_opencode.json",
-}
-
-
-def load_all_models(project_root: Path | None = None) -> dict[str, dict]:
-    """Load all models_*.json files into {provider: data}.
-
-    Callers can use this instead of instantiating ConfigManager to get
-    the all_models dict required by AgentModelPickerScreen.
-    """
-    root = project_root or Path.cwd()
-    result: dict[str, dict] = {}
-    for provider, rel in MODEL_FILES.items():
-        data = _load_json(root / rel)
-        if data:
-            result[provider] = data
-    return result
 
 
 def _bucket_avg(bucket: dict) -> int:

@@ -45,6 +45,7 @@ from agent_model_picker import (  # noqa: E402
 
 from config_utils import (  # noqa: E402
     EXPORT_EXTENSION,
+    ConfigImportPartialError,
     _load_json,
     deep_merge,
     export_all_configs,
@@ -3862,30 +3863,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def action_import_configs(self):
         self.push_screen(ImportScreen(), callback=self._handle_import)
 
-    def _handle_import(self, result):
-        if result is None:
-            return
-        try:
-            written = import_all_configs(
-                result["path"], str(METADATA_DIR),
-                overwrite=result.get("overwrite", False),
-                selected_files=result.get("selected_files"),
-            )
-            self.config_mgr.load_all()
-            self._populate_agent_tab()
-            self._populate_board_tab()
-            self._populate_project_tab()
-            self._populate_project_groups_tab()
-            self._populate_tmux_tab()
-            self._populate_models_tab()
-            self._populate_profiles_tab()
-            keybinding_registry.refresh_all()
-            self._populate_shortcuts_tab()
-            self.notify(f"Imported {len(written)} item(s)")
-        except Exception as exc:
-            self.notify(f"Import failed: {exc}", severity="error")
-
-    def action_reload_configs(self):
+    def _reload_all_configs(self):
+        """Re-read every config from disk and repopulate the tabs."""
         self.config_mgr.load_all()
         self._populate_agent_tab()
         self._populate_board_tab()
@@ -3896,6 +3875,33 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._populate_profiles_tab()
         keybinding_registry.refresh_all()
         self._populate_shortcuts_tab()
+
+    def _handle_import(self, result):
+        if result is None:
+            return
+        try:
+            written = import_all_configs(
+                result["path"], str(METADATA_DIR),
+                overwrite=result.get("overwrite", False),
+                selected_files=result.get("selected_files"),
+            )
+            self._reload_all_configs()
+            self.notify(f"Imported {len(written)} item(s)")
+        except ConfigImportPartialError as exc:
+            # Some files were committed before the failure. Reloading is
+            # mandatory here: keeping the in-memory config would re-render state
+            # that no longer matches disk, and a later save would write it back.
+            self._reload_all_configs()
+            self.notify(
+                f"Import partially applied — {len(exc.written)} item(s) "
+                f"written ({', '.join(exc.written)}) before failing: {exc.cause}",
+                severity="error",
+            )
+        except Exception as exc:
+            self.notify(f"Import failed: {exc}", severity="error")
+
+    def action_reload_configs(self):
+        self._reload_all_configs()
         self.notify("Configs reloaded from disk")
 
 

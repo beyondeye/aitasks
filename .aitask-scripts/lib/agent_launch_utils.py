@@ -229,18 +229,28 @@ def resolve_dry_run_command(
         return None
 
 
-def resolve_agent_string(project_root: Path, operation: str) -> str | None:
+def resolve_agent_string(
+    project_root: Path, operation: str, *, env: dict[str, str] | None = None
+) -> str | None:
     """Return the resolved agent string for an operation.
 
     Shells `aitask_codeagent.sh resolve <operation>` and parses the
     `AGENT_STRING:<value>` line. Returns the agent string or None on failure.
+
+    `env` is forwarded to the subprocess. It defaults to None (inherit), which is
+    correct for same-repo callers: a user who sets TASK_DIR expects it honored.
+    Callers resolving a *foreign* root must pass a scrubbed environment —
+    `lib/agent_string.sh` documents METADATA_DIR / TASK_DIR /
+    DEFAULT_AGENT_STRING as caller overrides, and they outrank `cwd`, so an
+    inherited value silently makes every root resolve against the same config.
+    See `cross_repo_settings.resolver_env()`.
     """
     wrapper = str(project_root / ".aitask-scripts" / "aitask_codeagent.sh")
     try:
         result = subprocess.run(
             [wrapper, "resolve", operation],
             capture_output=True, text=True, timeout=10,
-            cwd=str(project_root),
+            cwd=str(project_root), env=env,
         )
         if result.returncode == 0:
             for line in result.stdout.splitlines():
