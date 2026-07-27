@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1785189340,
+  "current": "sha256:12e4206dd14941c2e9ad8eaa82ce7234774eb609cff314208c1a7a8517bd4807",
+  "handle": "art:trail-t1273-verify",
+  "updated_at": 1785189340,
+  "versions": [
+    "sha256:12e4206dd14941c2e9ad8eaa82ce7234774eb609cff314208c1a7a8517bd4807"
+  ]
+}

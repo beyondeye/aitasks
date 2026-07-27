@@ -12,7 +12,11 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [1268]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-28 00:34
-updated_at: 2026-07-28 00:41
+updated_at: 2026-07-28 00:55
+artifacts:
+  - handle: art:trail-t1273-verify
+    kind: implementation_trail
+    name: t1273 verify fixture
 ---
 
 ## Manual Verification Task
