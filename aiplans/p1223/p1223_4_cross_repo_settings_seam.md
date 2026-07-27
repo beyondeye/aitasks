@@ -655,7 +655,7 @@ against its named mutation and confirm a non-zero exit.
   covers every row of the whole-file table including the carve-out
 - This task adds a **third** temp-file + `os.replace` implementation alongside
   `gate_ledger._atomic_write` and `attachment_meta.atomic_write`, which already
-  differ from each other. · severity: low · → mitigation: unify_atomic_write_helpers
+  differ from each other. · severity: low · → mitigation: t1281
 
 ### Goal-achievement risk: medium
 - **The cross-repo promise is defeated by inherited environment.** `METADATA_DIR`
@@ -697,7 +697,7 @@ against its named mutation and confirm a non-zero exit.
   propagated in-task (step below) and pinned by test 20's negative control
 
 ### Planned mitigations
-- timing: after | name: unify_atomic_write_helpers | type: refactor | priority: low | effort: medium | addresses: three divergent temp+os.replace implementations | desc: Extract gate_ledger, attachment_meta and config_utils atomic writers into one shared helper with consistent mode/cleanup semantics.
+- timing: after | name: unify_atomic_write_helpers (created: t1281) | type: refactor | priority: low | effort: medium | addresses: three divergent temp+os.replace implementations | desc: Extract gate_ledger, attachment_meta and config_utils atomic writers into one shared helper with consistent mode/cleanup semantics.
 
 ## Contract-amendment propagation (in-scope step)
 
