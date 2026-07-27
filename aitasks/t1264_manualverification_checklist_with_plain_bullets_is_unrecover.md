@@ -58,3 +58,8 @@ syntax is wrong, so re-deriving them from the plan would lose task-authored text
 Test: a task file with a `## Verification checklist` of plain bullets is
 converted to trackable items with text preserved verbatim, and `summary` then
 reports the right `TOTAL`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-27T10:00:34Z status=pass attempt=1 type=human
