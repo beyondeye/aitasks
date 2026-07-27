@@ -61,3 +61,17 @@ reads that column unchanged. RFC §9.4 and §10 are the spec.
   column in order.
 - Negative control: after a move, the trail drift check still reports
   CURRENT (boardidx/boardcol excluded from the digest).
+
+## Coordination
+
+`t1268` (By-Trail refresh semantics and key/footer contract) edits the same
+`KanbanApp.BINDINGS` list and the same `check_action` `bytrail` branches this
+task adds `m` / `M` to, and reworks the By-Trail footer labels and the
+per-card hint line at `TrailTaskCard.compose`. Whichever lands second must
+rebase onto the other's gating and label changes. Neither blocks the other,
+but do not develop them in parallel on that region without checking.
+
+Note also that t1268's step 4 of the plan above ("refresh the underlying task
+set so a subsequent view switch shows the moves") overlaps t1268's local
+recompute path — reuse whatever t1268 lands rather than adding a second
+reload route.
