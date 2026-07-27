@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [635_33]
+depends: [t635_33]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [gates, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-17 11:05
-updated_at: 2026-07-17 11:05
+updated_at: 2026-07-27 18:03
 ---
 
 ## Problem
