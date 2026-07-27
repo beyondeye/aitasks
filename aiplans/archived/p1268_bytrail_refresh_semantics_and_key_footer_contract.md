@@ -766,3 +766,4 @@ view-switch radio (`a/l/f/i/y/z/g/t`), which stays hidden because the
   `r Refresh   R Agent Refresh   d Freshness   s Select Trail   S Sync`.
   A manual-verification follow-up is offered at Step 8c.
 - **Manual-verification failure:** item "Press `d` — banner returns to `⟳ checking freshness…` then `⚠ stale: N`, and detail-bearing drift markers appear on the owning cards (including an archived member rendered as a ghost card)" failed; follow-up task t1278.
+- **Manual-verification failure:** item "Press `R` twice in quick succession — the second press is a no-op, and `R Agent Refresh` disappears from the footer while the launch is pending" failed; follow-up task t1279.
