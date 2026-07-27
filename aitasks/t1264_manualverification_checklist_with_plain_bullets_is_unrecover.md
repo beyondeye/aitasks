@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: codex/gpt5_6_sol
 created_at: 2026-07-27 09:15
-updated_at: 2026-07-27 12:51
+updated_at: 2026-07-27 12:54
 ---
 
 ## Problem
@@ -55,3 +56,8 @@ syntax is wrong, so re-deriving them from the plan would lose task-authored text
 Test: a task file with a `## Verification checklist` of plain bullets is
 converted to trackable items with text preserved verbatim, and `summary` then
 reports the right `TOTAL`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-27T09:54:21Z status=pass attempt=1 type=human
