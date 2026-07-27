@@ -65,3 +65,5 @@ reports the right `TOTAL`.
 > **✅ gate:plan_approved** run=2026-07-27T10:00:34Z status=pass attempt=1 type=human
 
 > **✅ gate:risk_evaluated** run=2026-07-27T10:00:38Z status=pass attempt=1 type=machine
+
+> **✅ gate:review_approved** run=2026-07-27T14:43:01Z status=pass attempt=1 type=human
