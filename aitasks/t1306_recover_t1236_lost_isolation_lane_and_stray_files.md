@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1162
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 18:26
-updated_at: 2026-07-28 18:28
+updated_at: 2026-07-28 18:43
 ---
 
 ## Origin
@@ -116,3 +117,8 @@ than restoring the old blob wholesale.
 - Rewriting or reverting `eb1a4f7ea`. The history is shared and another session
   was active on it; restore forward with a new commit.
 - t1179's own fix (exit-code / summary masking) — that task owns it.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-28T15:43:29Z status=pass attempt=1 type=human
