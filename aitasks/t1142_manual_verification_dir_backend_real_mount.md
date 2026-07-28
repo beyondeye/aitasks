@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: [t1076_3]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
-verifies: ['1076_3']
+verifies: [t1076_3]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-09 11:26
-updated_at: 2026-07-09 11:26
-boardidx: 20
+updated_at: 2026-07-28 11:04
 boardcol: tests
+boardidx: 20
 ---
 
 ## Manual Verification Task

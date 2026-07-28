@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1037
 implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:03
-updated_at: 2026-07-28 10:44
+updated_at: 2026-07-28 10:45
 ---
 
 The minimonitor concern picker presents every shadow concern as an identical
