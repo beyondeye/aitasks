@@ -15,7 +15,6 @@ created_at: 2026-07-09 11:26
 updated_at: 2026-07-28 11:27
 boardcol: tests
 boardidx: 20
-artifacts:
 ---
 
 ## Manual Verification Task
