@@ -319,6 +319,42 @@ carries the `Disposition:` trailers.
 - timing: after | name: concern_block_parse_diagnostics | type: enhancement | priority: medium | effort: low | addresses: goal-achievement — unrecovered markers are reported but not recoverable, and narrower widths are unverified | desc: Add a picker affordance to dump/inspect the raw concern block behind the unrecovered-marker banner, and extend the rendered-viewport layout tests below 40 columns
 - timing: after | name: concern_body_display_contract_guard | type: test | priority: medium | effort: low | addresses: code-health — canonical body vs display body is easy to misuse | desc: Guard test pinning which surfaces read Concern.body (clipboard/forward payload) versus display_body() (row rendering), so the trailer cannot be silently stripped from a forward or left in a rendered row
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-28 09:05) — commit deferred behind t1216_1
+
+- **Requested by user:** implementation is complete and green, but t1216_1
+  (`shared shadow seam`, status `Implementing`) has **uncommitted** work in the
+  same files. Let t1216_1 finish and commit first, then resume t1274, reconcile
+  the shared files, rerun the tests, and commit t1274 as one coherent change.
+- **Changes made:** none to the implementation. Nothing was committed. The full
+  working-tree change for t1274 is backed up as a patch at
+  `~/.aitask/t1274_wip.patch` (a concurrent session's `git stash` in the shared
+  checkout would otherwise be able to wipe it).
+- **Files entangled with t1216_1** — reconcile these on resume:
+  - `.aitask-scripts/monitor/concern_parser.py` — theirs: `import hashlib`, the
+    `ansi_utils` import shim, `_SENTINEL_SAFE_COLS`, `concern_block_signature`.
+    **Shared hunk:** the module-docstring strictness table — they converted the
+    bullet list to a table, I added the `unrecovered_markers` row to it.
+  - `.aitask-scripts/monitor/monitor_shared.py` — theirs: `format_shadow_glyph`.
+  - `.aitask-scripts/monitor/minimonitor_app.py` — theirs: the delegating seams
+    to `monitor_core` (large deletions). Mine: the `concern_parser` import line,
+    `unrecovered=` on the `ConcernPickerModal` push, the auto-offer toast count.
+  - `.claude/skills/aitask-shadow/concern-format.md` — **shared hunk:** the
+    "Where it lives" parser bullet (their `concern_block_signature` /
+    `monitor_core` additions + my `unrecovered_markers` / `needs_addressing`).
+  - `aidocs/framework/shadow_agent.md` — theirs: the
+    `compute_shadow_staleness` paragraph under "Feedback freshness".
+- **Untouched by t1274, purely theirs:** `monitor_core.py`, `tmux_monitor.py`,
+  `ansi_utils.py` (untracked), `tests/test_shadow_seam.py` (untracked),
+  `.claude/settings.local.json`.
+- **On resume:** confirm `git log --format=%s -30 | grep '(t1216_1)'` shows
+  their commit, re-run
+  `python3 -m unittest tests.test_concern_parser tests.test_concern_picker_modal
+  tests.test_minimonitor_concern_action tests.test_minimonitor_concern_smoke
+  tests.test_shadow_seam tests.test_shadow_disposition_surfaces`, then commit
+  t1274's files only.
+
 ## Step 9 (Post-Implementation)
 
 Standard: merge approval into `main`, `./ait gates run 1274` (declares
