@@ -1084,7 +1084,7 @@
       "usagestats": {
         "explore": {
           "all_time": {
-            "runs": 5
+            "runs": 6
           },
           "prev_month": {
             "period": "",
@@ -1092,11 +1092,11 @@
           },
           "month": {
             "period": "2026-07",
-            "runs": 5
+            "runs": 6
           },
           "week": {
             "period": "2026-W31",
-            "runs": 3
+            "runs": 4
           }
         },
         "pick": {
