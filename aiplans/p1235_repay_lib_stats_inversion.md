@@ -270,12 +270,12 @@ Step 9 (Post-Implementation) handles merge, gates, and archival.
   files and 3 doc files. Each edit is mechanical, but a missed pane is a
   `ModuleNotFoundError` that stops the TUI from starting — `stats/panes/__init__.py`
   imports every pane eagerly ·
-  severity: medium · → mitigation: stats_pane_import_regression_test
+  severity: medium · → mitigation: t1305
 - After the move `lib/` holds two different functions named `parse_frontmatter`
   (`stats_data`'s lightweight string-map parser and `task_yaml`'s YAML-backed
   one) side by side in one flat, bare-name module directory. They are not
   interchangeable, and nothing prevents a future consumer importing the wrong one ·
-  severity: medium · → mitigation: consolidate_lib_frontmatter_parsers
+  severity: medium · → mitigation: t1304
 - `tests/run_all_python_tests.sh` exports `lib/` on `PYTHONPATH`, so a broken
   per-file bootstrap can still pass the suite; the explicit `env -u PYTHONPATH`
   checks above are the only counter-signal (the general fix is t1236, in flight) ·
@@ -292,8 +292,8 @@ Step 9 (Post-Implementation) handles merge, gates, and archival.
   mechanically checkable · severity: low
 
 ### Planned mitigations
-- timing: after | name: consolidate_lib_frontmatter_parsers | type: refactor | priority: medium | effort: low | addresses: code-health — two `parse_frontmatter` functions co-located in lib/ | desc: Rename or consolidate `stats_data.parse_frontmatter` (string-map) vs `task_yaml.parse_frontmatter` (YAML-backed) so the flat lib/ namespace exposes one unambiguous frontmatter parser
-- timing: after | name: stats_pane_import_regression_test | type: test | priority: medium | effort: low | addresses: code-health — blast radius across TUI import sites | desc: Add an import-level regression test that path-loads every stats/panes/*.py and stats_app.py with only .aitask-scripts + lib on sys.path, so a missed import site fails a test instead of only at TUI runtime
+- timing: after | name: t1304 (consolidate_lib_frontmatter_parsers) | type: refactor | priority: medium | effort: low | addresses: code-health — two `parse_frontmatter` functions co-located in lib/ | desc: Rename or consolidate `stats_data.parse_frontmatter` (string-map) vs `task_yaml.parse_frontmatter` (YAML-backed) so the flat lib/ namespace exposes one unambiguous frontmatter parser
+- timing: after | name: t1305 (stats_pane_import_regression_test) | type: test | priority: medium | effort: low | addresses: code-health — blast radius across TUI import sites | desc: Add an import-level regression test that path-loads every stats/panes/*.py and stats_app.py with only .aitask-scripts + lib on sys.path, so a missed import site fails a test instead of only at TUI runtime
 
 ## Final Implementation Notes
 
