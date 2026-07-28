@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1216_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitor, shadow, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-27 22:22
-updated_at: 2026-07-27 22:22
+updated_at: 2026-07-28 19:18
 ---
 
 ## Pick-time safety guard — SAFE from your normal working tmux
