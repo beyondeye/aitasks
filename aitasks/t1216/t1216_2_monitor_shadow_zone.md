@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1216_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitor, shadow, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-27 22:21
-updated_at: 2026-07-27 22:21
+updated_at: 2026-07-28 12:16
 ---
 
 ## Context
