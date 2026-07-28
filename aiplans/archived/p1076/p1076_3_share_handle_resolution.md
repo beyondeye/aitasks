@@ -814,3 +814,4 @@ t1076_4 remains; parent archival waits for it.
   `artifact_store` is the put-side entry point — remote puts get the same
   presence verify + local-bytes cache warm for free.
 - **Manual-verification failure:** item "[t1076_3] Confirm the same-absolute-path mount assumption holds or fails clearly: with the share mounted at a DIFFERENT path than config says, operations must die actionably (not corrupt or invent a store)" failed; follow-up task t1283.
+- **Manual-verification failure:** item "[t1076_3] Unmount the share and confirm operations fail closed with "is the share mounted?" — nothing is written into the empty mountpoint dir" failed; follow-up task t1284.
