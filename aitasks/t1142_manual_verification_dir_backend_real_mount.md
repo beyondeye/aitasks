@@ -12,13 +12,10 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [t1076_3]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-09 11:26
-updated_at: 2026-07-28 11:25
+updated_at: 2026-07-28 11:27
 boardcol: tests
 boardidx: 20
 artifacts:
-  - handle: art:t1142-report
-    kind: report
-    name: t1142_dirverify
   - handle: art:t1142-movetest
     kind: movetest
 ---
