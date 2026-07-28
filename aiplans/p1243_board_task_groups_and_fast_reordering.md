@@ -389,6 +389,60 @@ the measurement data, the options presented and the choice are then recorded
 here. The dependency chain must not carry a predetermined implementation past a
 falsified premise — nor discard one on a single unconfirmed number.
 
+### RECORDED BASELINE AND CHECKPOINT DECISION (t1243_1, measured)
+
+Method as amended above: 200 cards / 5 columns, production branch-mode topology,
+3 warm-up pairs discarded, 20 recorded ping-pong pairs per axis per config, every
+per-sample validity invariant enforced, timed region event-closed (no
+`Pilot.pause`).
+
+| axis | median e2e | p90 | deferral (diag.) |
+|---|---|---|---|
+| lateral (`shift+←/→`) | **2173.2 ms** | 2556.2 ms | 659.0 ms (31.2 %) |
+| vertical (`shift+↑/↓`) | **184.1 ms** | 238.0 ms | 26.0 ms (14.9 %) |
+
+Controls: harness floor (unbound keypress) **104.5 ms = 4.8 %** of lateral;
+legacy vs branch-mode topology 2193.8 vs 2173.2 ms (`git status` is 0.09 % of the
+keypress either way, so the topology question is settled and immaterial).
+
+**Ablation — median lateral e2e with a lever removed:**
+
+| configuration | median | removable |
+|---|---|---|
+| full | 2173.2 ms | — |
+| − recompose | 138.6 ms | **93.6 %** |
+| − `apply_filter` − recompose | 123.6 ms | **94.3 %** |
+| − `apply_filter` − `git_status` | 2296.9 ms | ~0 % (within noise) |
+| vertical − `apply_filter` − `git_status` | 183.4 ms (vs 184.1) | 0.4 % |
+
+**Verdicts.** Workstream-B premise **PASS** (94.3 % vs 40 %) ·
+t1243_5 **PASS** (93.6 % vs 30 %) · **t1243_4 MISS (0.4 % vs 30 %)**.
+
+**Interpretation.** The column remount is essentially the entire cost of a
+lateral move; filtering and `git status` are not the wall. Conditional on
+t1243_5 removing the recompose, `apply_filter` is worth **10.8 %** of the
+remaining 138.6 ms — still below t1243_4's 30 % target.
+
+**Checkpoint (user-confirmed, per the procedure below).** The miss was presented
+with the data and three options — continue with the original scope / revise the
+scope to the measured bottleneck / postpone the child. No task file was edited
+and no code was reverted before the choice. **The user chose: revise t1243_4's
+scope.** Applied:
+
+- **t1243_4 no longer carries a latency target**; its structural assertions are
+  its pass condition, plus a *no-regression* latency guard. Its scope is retained
+  for the data-level match predicate and widget-kind-agnostic accumulator that
+  **t1243_10** structurally depends on, and for removing the per-keypress
+  `git status` subprocess (churn/hygiene).
+- **The ≥ 30 % target moves entirely onto t1243_5**, which measures 93.6 %.
+- **t1243_5's documented fallback is no longer an acceptable outcome on its own.**
+  "If no lifecycle-safe transplant exists in Textual 8.2.7, keep
+  `refresh_columns` and ship Tier 1 only" would forfeit ~94 % of the available
+  win, because Tier 1 is worth ~0.4 %. If the spike fails, that is a finding to
+  escalate — not a quiet fallback.
+- The tier ordering below is therefore **inverted by the data**: t1243_5, not
+  t1243_4, is the certain and dominant win.
+
 Assuming the premise holds, two tiers ordered by certainty:
 
 **Tier 1 — certain win, no widget-lifecycle risk (t1243_4).**
@@ -889,8 +943,8 @@ Each child owns its tests and opens with an anchor re-verification step.
 | 1 | `movement_baseline_and_harness` | `tests/test_board_movement.py`: **real task files** in a temp tree, driven from an **isolated subprocess**. `TASKS_DIR` is a module-load constant, and `bash tests/run_all_python_tests.sh` runs every `test_*.py` in **one** pytest process where 16 board tests already import `aitask_board` in `setUpClass` — so setting `TASK_DIR` in-process is a no-op against a cached module and the harness would silently exercise the **real** `aitasks/` tree. The parent test therefore spawns a child interpreter with `TASK_DIR` set, which imports the board fresh and writes results to a **JSON path passed as an argument** (not stdout, which carries Textual/pytest noise). Includes a `reload_and_save_board_fields` call-count spy and a **byte/path differ**. Plus the **pre-registered** profile method, premise rule and target rule above, run to produce the baseline. Characterizes today's four move ops in a self-enforcing flip table. Ends with the **decision checkpoint**: if the premise is refuted, revise/replace/postpone t1243_4 and t1243_5 and record it here. | Suite exits 1 when a guarded behaviour is reverted. **Run and assert identical results both standalone (`pytest tests/test_board_movement.py`) and via the full `run_all_python_tests.sh` suite**, plus a negative control proving the in-process variant would have read the real tree. Baseline table and checkpoint decision are deliverables. |
 | 2 | `board_field_persistence_seam` | `reload_and_save_board_fields(semantic=False)` iterating `BOARD_KEYS`; `semantic=True` advances `updated_at`; retire the dead `Task._BOARD_KEYS`. Prerequisite for every group write and a latent-bug fix today. | External-concurrent-edit test: mutate a board field in memory, rewrite `status` on disk between mutation and save → both survive. `semantic=True` advances `updated_at`, `False` leaves it byte-identical. Missing file still not recreated. A synthetic third board key round-trips. |
 | 3 | `gap_indexing` | `lib/board_ordering.py` + the manager API; rewire the four movement actions; retire `swap_tasks`; rename `normalize_indices` → `respace_column`; route every index read through `normalize_board_idx`. Flips the t1243_1 table. Carries the reverse pointer to t1210_5. | Pure-module unit tests; **exactly 1** write with an exact changed-path set on a healthy column; at-bound → still no compaction; over-bound → **exactly one** `respace_column` then success, all writes confined to that column; multi-hop transit dirties nothing outside the moved task; a legacy `10`-spaced column self-heals once. |
-| 4 | `render_filter_scoping` | Scoped `apply_filter(cols=…)`, cached haystack, no-op display skip, targeted `modified_files` update replacing per-keypress `refresh_git_status()`. The match predicate is factored into a **data-level helper** and the visible-content accumulator is **widget-kind-agnostic**, so t1243_10 can generalise the pass to units without a rewrite. **Scope is subject to t1243_1's checkpoint.** | Spy proving a move queries only touched columns and spawns no subprocess; render-level assertions; the predicate helper is unit-tested against `Task` data with no widget mounted; **must meet the pre-registered ≥ 30 % median-latency target**, not merely pass structural checks. |
-| 5 | `lateral_dom_transplant` | **Spike first**, then `_card_block()` + `_transplant_block()` with `column_id` identity handled and async dispatch. **Documented fallback** to `refresh_columns`. **Scope is subject to t1243_1's checkpoint.** | Real-Pilot: focus, `.child-wrapper` travel, post-move filter correctness, scroll sanity, `_get_focused_col_id` reports the destination. Latency delta recorded either way. |
+| 4 | `render_filter_scoping` | Scoped `apply_filter(cols=…)`, cached haystack, no-op display skip, targeted `modified_files` update replacing per-keypress `refresh_git_status()`. The match predicate is factored into a **data-level helper** and the visible-content accumulator is **widget-kind-agnostic**, so t1243_10 can generalise the pass to units without a rewrite. **Scope REVISED at t1243_1's checkpoint (user-confirmed): no latency target** — its levers measured 0.4 % removable vs a 30 % target, so it is retained for the t1243_10 prerequisite and the git-churn removal only. | Spy proving a move queries only touched columns and spawns no subprocess; render-level assertions; the predicate helper is unit-tested against `Task` data with no widget mounted. **Structural checks are the pass condition**, plus a latency **no-regression** guard versus the t1243_1 baseline. |
+| 5 | `lateral_dom_transplant` | **Spike first**, then `_card_block()` + `_transplant_block()` with `column_id` identity handled and async dispatch. **Now the dominant win — t1243_1 measured recompose at 93.6 % of lateral keypress latency, and the ≥ 30 % target moved here.** The fallback to `refresh_columns` forfeits ~94 % of the available gain and is a finding to **escalate**, not a quiet default. | Real-Pilot: focus, `.child-wrapper` travel, post-move filter correctness, scroll sanity, `_get_focused_col_id` reports the destination. **Must meet the ≥ 30 % median-latency target on the lateral axis** versus the t1243_1 baseline (2173.2 ms); latency delta recorded either way. |
 | 6 | `multiselect_marking` | `MarkedSelection`, `space` binding, `☑`/`☐` glyph, footer + `check_action` gating, clear-on-view-change, `:focus:hover` accent-shade rules (the board has none), child-card refusal with notify. | Render assertions for both glyph states; marks survive a filter pass, cleared on view switch; `space` inert while a modal is open; child card refused with a reason. |
 | 7 | `move_to_column_command` | `KanbanCommandProvider` de-duplication **first**, then `m` + task-select subdialog + `ColumnSelectScreen` chain + `move_tasks_to_column`. Injects the synthetic `unordered` entry; excludes child rows. Carries the reverse pointer to t1210_5. | Modal-chain construction spies; K marked → exactly K writes in input order with an exact changed-path set; `None` (Esc) vs `[]` distinguished; a child id fails closed with a which-items report. |
 | 8 | `boardgroup_field_and_model` | The `BOARD_LAYOUT_KEYS` / `BOARD_KEYS` split; narrow `_KEEP_LOCAL_FIELDS`; **supply the merge base from git's conflicted index** — `aitask_sync.sh` extracts `task_git show :1:<path>` and passes `--base-file`, `merge_frontmatter` takes it as a third side (the diff3 marker path is production-dead: no `merge.conflictStyle` is configured anywhere) — and resolve `boardgroup` by **base-aware change detection, failing closed to unresolved/PARTIAL** when both sides changed or no base exists; the `""` tombstone contract; `--boardgroup` in `aitask_update.sh` (update-only, mirroring `--boardidx`); slug validation; `lib/board_groups.py` providing the **INV-R derivation** (unit bucketing + sort keys) and the shared match predicate; fold no-op note in `aitask_fold_mark.sh`; full extension-points sweep. **No contiguity requirement — grouping never writes an index.** | Pure unit tests for the INV-R derivation (scattered indices, ties, an interleaved non-member) and the **two post-sync fixtures** (remote add, remote remove) rendering identically and stably; merge unit tests for local-only, remote-only, both-same, both-different (PARTIAL), deletion from each side, no base (PARTIAL), identical, absent-both; a **temporary-repository integration test** producing a real unrelated-edit-vs-`boardgroup` conflict through the actual rebase path under the default conflict style and asserting the correct side wins, with a withheld-base negative control; a guard test that every `aitask_sync.sh` driver invocation passes `--base-file`; `aitask_update.sh` round-trip advances `updated_at`; a group field survives the t1243_2 save seam. |

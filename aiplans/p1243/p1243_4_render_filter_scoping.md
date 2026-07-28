@@ -57,6 +57,19 @@ members that have no widget without rewriting this pass.
 
 Spy: a lateral move queries only the two touched columns and spawns no
 subprocess. The predicate helper is unit-tested with no widget mounted.
-`tests/test_board_view_filter.py` passes unchanged. **The ≥ 30% median-latency
-target is the pass condition** — record the delta and the dominant remaining span
-either way.
+`tests/test_board_view_filter.py` passes unchanged.
+
+**Scope revised at t1243_1's user-confirmed checkpoint — this child no longer
+carries a latency target.** The ablation baseline showed its two levers
+(`apply_filter`, `refresh_git_status`) remove **0.4 %** of lateral keypress
+latency versus a 30 % target, because the column recompose is ~94 % of the cost
+and belongs to t1243_5; conditional on t1243_5 landing first they are worth
+10.8 % of the remaining 138.6 ms. The ≥ 30 % target now sits entirely on
+t1243_5. **The structural assertions above are the pass condition**, because
+this child's retained value is the data-level match predicate and
+widget-kind-agnostic accumulator that **t1243_10** depends on, plus removing the
+per-keypress `git status` subprocess.
+
+Latency is still measured, as a **regression guard**: median keypress latency
+must not get worse on either axis versus the t1243_1 baseline. Record the delta
+and the dominant remaining span for t1243_14 either way.

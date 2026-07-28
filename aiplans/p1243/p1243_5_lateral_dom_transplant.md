@@ -25,7 +25,17 @@ it rather than working around it.
 
 ## Step 0b — read the checkpoint
 
-As t1243_4: read t1243_1's recorded decision before implementing.
+As t1243_4: read t1243_1's recorded decision before implementing. In short, from
+the measured baseline (ablation, 200 cards, production topology):
+
+- lateral keypress median **2173.2 ms**; removing the recompose alone drops it to
+  **138.6 ms** — **93.6 %** of the cost, and ~94 % of the whole Workstream-B
+  opportunity;
+- t1243_4's levers (`apply_filter`, `refresh_git_status`) measured **0.4 %**, so
+  the user-confirmed checkpoint moved the **≥ 30 % latency target onto this
+  child**;
+- the fallback to `refresh_columns` therefore forfeits nearly the entire win and
+  must be **escalated as a finding**, not taken quietly.
 
 ## Step 1 — the spike (gate everything else on it)
 
@@ -58,15 +68,24 @@ it on every card in the block. Movement actions become async (or dispatch via
 Replace `refresh_columns({src,dst})` / `refresh_column(col)` with the transplant,
 then call `apply_filter(cols={src,dst})`.
 
-## Documented fallback
+## Documented fallback — reweighted
 
-Keep `refresh_columns` and ship t1243_4's scoped filter alone. Record the spike
-result and the residual cost. Do not force an unsafe widget manipulation to match
-the plan's shape.
+Keep `refresh_columns` and ship t1243_4's scoped filter alone. Do not force an
+unsafe widget manipulation to match the plan's shape — but this is **no longer a
+neutral outcome**: it forfeits ~94 % of the measured opportunity (t1243_4's
+levers are worth 0.4 %). Record the spike result and the residual cost, and
+**escalate it as a finding**: the premise holds and the cost is real, so a failed
+spike means the remedy needs re-designing (e.g. an incremental recompose that
+does not remount unchanged cards), not that the child is done.
 
 ## Verification
 
 Real Pilot: destination focus, `.child-wrapper` travel, **post-move filter
 correctness** (the assertion that catches stale `column_id`), scroll sanity,
 `_get_focused_col_id` reports the destination, column reordering still resolves.
-Record the latency delta whichever path was taken.
+
+**Latency is a pass condition here:** ≥ 30 % reduction in median lateral
+keypress latency versus the t1243_1 baseline (2173.2 ms), using t1243_1's
+ping-pong method and per-sample validity rules. Record the delta whichever path
+was taken. On a miss, run t1243_1's Performance-Gate Confirmation Checkpoint —
+no automatic revision, no discarded code.

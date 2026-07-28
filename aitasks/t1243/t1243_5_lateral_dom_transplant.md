@@ -82,13 +82,25 @@ are awaited rather than dropped.
   `refresh_column`.
 - Both then call the scoped `apply_filter(cols={src, dst})` from t1243_4.
 
-### Documented fallback (NOT a failure)
+### Documented fallback — REWEIGHTED by t1243_1's measured baseline
 
-If the spike shows no lifecycle-safe transplant exists in 8.2.7, **keep
-`refresh_columns`** and ship t1243_4's scoped `apply_filter` alone. The measured
-whole-board filter pass is removed either way. Record the spike result and the
-residual cost in the plan; do not force an unsafe widget manipulation to satisfy
-the plan's shape.
+**This child now carries the entire Workstream-B latency target.** t1243_1
+measured, by ablation on a 200-card board: lateral keypress median **2173.2 ms**,
+of which removing the recompose alone accounts for **93.6 %** (dropping to
+138.6 ms). t1243_4's levers were worth 0.4 %, so its ≥ 30 % target was moved
+here at the user-confirmed checkpoint.
+
+Consequently the fallback is **no longer a neutral outcome**: keeping
+`refresh_columns` and shipping the scoped `apply_filter` alone forfeits ~94 % of
+the available win (Tier 1 is worth ~0.4 %, not the "whole-board filter pass"
+saving the original wording assumed).
+
+If the spike shows no lifecycle-safe transplant exists in 8.2.7: still do **not**
+force an unsafe widget manipulation. Record the spike result and the residual
+cost — and **escalate it as a finding** (the workstream's premise holds and the
+cost is real, so a failed spike means the remedy must be re-designed, e.g. an
+incremental/diffing recompose that avoids remounting unchanged cards), rather
+than closing the child as done.
 
 ## Verification
 
@@ -104,5 +116,10 @@ Real Pilot, not structural-only:
 - `ctrl+left` / `ctrl+right` column reordering still resolves the focused column
   afterwards.
 
-Record the latency delta versus the t1243_1 baseline **whichever path was taken**
-(transplant or fallback), for t1243_14.
+**Latency is a pass condition for this child:** ≥ 30 % reduction in median
+keypress latency on the **lateral** axis versus the t1243_1 baseline
+(2173.2 ms), measured with t1243_1's ping-pong method and per-sample validity
+rules. Record the delta versus the baseline **whichever path was taken**
+(transplant or fallback), for t1243_14. If the target is missed, do **not**
+revise or discard anything automatically — run t1243_1's Performance-Gate
+Confirmation Checkpoint (parent plan) and let the user choose.

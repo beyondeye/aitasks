@@ -27,11 +27,31 @@ movement keypress spawns a `git status --porcelain -- aitasks/` subprocess via
 This child is the **certain-win tier**: no widget-lifecycle surgery, no
 cross-parent DOM moves (that is t1243_5).
 
-> **SCOPE IS SUBJECT TO t1243_1's DECISION CHECKPOINT.** t1243_1 pre-registers
-> the premise rule: Workstream B's premise holds **iff `apply_filter` + column
-> recompose account for >= 40% of median keypress latency**. If t1243_1 refuted
-> it, this task's scope was revised, replaced or postponed there — **read the
-> recorded checkpoint decision in the parent plan before implementing**.
+> **SCOPE REVISED BY t1243_1's DECISION CHECKPOINT (user-confirmed).**
+> t1243_1 measured the baseline by ablation. Workstream B's premise **holds**
+> (94.3% vs 40%), but that share is **almost entirely the column recompose**,
+> which is t1243_5's lever, not this one:
+>
+> | lateral, 200 cards | median e2e |
+> |---|---|
+> | full | 2173.2 ms |
+> | − recompose | 138.6 ms |
+> | − `apply_filter` − `git_status` (this task's levers) | 2296.9 ms (no gain) |
+>
+> This task's opportunity gate therefore **missed**: 0.4% removable versus its
+> 30% target, and 10.8% of the 138.6 ms that remains once t1243_5 lands. At the
+> confirmation checkpoint the user chose **revise scope**, so:
+>
+> - **This task no longer carries a latency target.** Do not gate it on the
+>   ≥30% rule; the ≥30% target now sits entirely on **t1243_5**.
+> - **Its scope is retained** for two non-latency reasons: the **data-level match
+>   predicate + widget-kind-agnostic visible-content accumulator that t1243_10
+>   structurally depends on**, and removing the per-keypress `git status`
+>   subprocess (churn/hygiene, not measurable latency).
+> - Record the measured delta anyway, as a regression guard — it must not get
+>   *worse*.
+>
+> Full data and the recorded decision: parent plan, "Decision checkpoint".
 
 **Anchor re-verification (do this first)** — see t1243_1; anchor on symbol names.
 
@@ -105,8 +125,9 @@ card-only assumption:
   mounted** — this is what proves t1243_10 can reuse it.
 - `tests/test_board_view_filter.py` still passes unchanged (the `None` path is
   behaviour-preserving).
-- **The pre-registered target: >= 30% reduction in median keypress latency**
-  versus the t1243_1 baseline, measured with the same ping-pong method and
-  valid-sample rule. Structural assertions alone do **not** pass this child; if
-  the target is missed, record the measured delta and the dominant remaining span
-  in the parent plan for t1243_14.
+- **No latency target** (revised at t1243_1's checkpoint — see the scope note
+  above). Structural assertions **are** the pass condition for this child.
+- **Latency regression guard instead:** re-measure with t1243_1's ping-pong
+  method and valid-sample rule and record the delta; median keypress latency on
+  either axis must **not regress** versus the t1243_1 baseline. Record the
+  measured delta in the parent plan for t1243_14 either way.
