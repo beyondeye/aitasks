@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1223
+implemented_with: claudecode/opus5
 created_at: 2026-07-23 18:33
-updated_at: 2026-07-28 18:02
+updated_at: 2026-07-28 19:17
 ---
 
 ## Context
@@ -162,3 +163,8 @@ Manual review checklist:
 - t1223_7 verifies the documented behavior; if verification finds the docs
   describe something the code does not do, the **code** is the source of truth —
   file the discrepancy rather than quietly editing the page.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-28T16:17:13Z status=pass attempt=1 type=human
