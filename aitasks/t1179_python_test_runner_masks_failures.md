@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1171
 implemented_with: claudecode/opus5
 created_at: 2026-07-20 12:12
-updated_at: 2026-07-28 19:19
+updated_at: 2026-07-28 19:22
 boardcol: bug_fixes
 boardidx: 10
 ---
@@ -71,6 +73,49 @@ For (2): pin a single import path for the TUI modules under test (consistent
 `sys.path` / package-qualified imports) so `isinstance` identity holds regardless
 of test order. Fixing (1) first is worthwhile, since it is what makes (2) and any
 future breakage visible at all.
+
+## Restated acceptance criteria (2026-07-28, at implementation time)
+
+Both defects were re-checked against live HEAD before implementing, and the
+findings differ from the report above. This section supersedes the literal
+claims in `## Upstream defect` and `## Suggested fix`; the original text is kept
+verbatim for traceability. Full analysis in
+`aiplans/p1179_python_test_runner_masks_failures.md`.
+
+**(2) is already fixed — no work in this task.** t1211 (`26af930bb`, landed
+after this task was filed) made `shortcut_scopes`' manifest sweep exec each TUI
+module under a private `_PROBE_PREFIX` name instead of its canonical name; that
+re-binding was what gave `AgentCommandScreen` a second class identity under full
+discovery. `tests/test_shortcut_scopes.py` now pins the property in both
+directions with a negative control, and a full run reports
+`Ran 2479 tests … OK`, exit 0.
+
+**(1) is real, but not by the stated mechanism.** The runner contains no
+`Results:` line, and its last command runs under `set -euo pipefail`, so direct
+execution already propagates the framework's status. What actually happens:
+six *script-style* test modules print their own green tallies to **stdout**
+while the framework verdict goes to **stderr**; redirected or piped, CPython
+block-buffers stdout and flushes it at exit, so those green tallies land *below*
+`FAILED`. And `… 2>&1 | tail -40` returns `tail`'s `0`, which is where the
+reported "exits 0" came from. Revised criteria:
+
+1. The status is propagated via an explicit captured `rc`, not as an accident of
+   "last command wins".
+2. The **last line of output is always a verdict derived from that status** —
+   `PYTHON SUITE: PASSED|FAILED (runner=…, exit=N)`.
+3. Body output is ordered truthfully (`PYTHONUNBUFFERED=1`).
+4. The verdict/exit path is backend-independent by construction and exercised
+   under **both** the pytest and unittest branches.
+5. **Not fixed, by design:** a piped invocation still exits with the pipeline's
+   status. No change to this script can alter that — only `set -o pipefail` or
+   `${PIPESTATUS[0]}` in the *caller*. Documented in the runner header and
+   `CLAUDE.md`; the stderr banner is what makes the truth survive `2>&1 | tail`
+   even when the status does not.
+6. **Out of scope:** wiring the suite into `.github/workflows/`. The suite takes
+   ~12 minutes; CI wiring is a separate decision, deferred rather than absorbed.
+7. **No `PYTHONPATH` regression:** `tests/test_runner_python_isolation.sh` and
+   `tests/test_python_bootstrap_isolation.sh` (t1236, recovered by t1306) stay
+   green. Nothing in this task touches `PYTHONPATH`.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
