@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t1223_4]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui, ait_settings]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1223
 implemented_with: claudecode/opus5
 created_at: 2026-07-23 18:32
-updated_at: 2026-07-28 17:29
+updated_at: 2026-07-28 17:30
+completed_at: 2026-07-28 17:30
 ---
 
 ## Context
@@ -256,3 +257,14 @@ it is left open for the user to verify and dispose of.
 > **✅ gate:plan_approved** run=2026-07-28T09:29:34Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-28T12:46:05Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-28T14:30:06Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:6e48705521ef3f52
+
+> **✅ gate:risk_evaluated** run=2026-07-28T14:30:06Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1223_5/risk_evaluated_2026-07-28T14:30:06Z-risk_evaluated-a1.log`
