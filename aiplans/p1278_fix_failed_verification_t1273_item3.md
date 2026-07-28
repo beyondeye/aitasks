@@ -344,3 +344,74 @@ and archival via `aitask_archive.sh 1278`. Re-verification of the user-visible
 - None identified. Both defects were reproduced in a real terminal, both fixes
   were measured on the real `KanbanApp` (not a replica), and every guard was
   confirmed to fail before the change and pass after.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, both fixes plus all three
+  verification layers.
+  - `aitask_board.py:5365` — `#filter_area { dock: top; height: auto; margin: 0
+    0 1 0; }` → `#filter_area { height: auto; }`, with a comment block above it
+    recording the Textual same-edge-dock overlap and why the margin went too.
+  - `aitask_board.py` — new `_banner_budget()` and `_trail_banner()`;
+    `_refresh_subtitle`'s trail-doc branch now routes through the ladder;
+    `on_resize` gained a `_refresh_subtitle()` call. `set_cell_size` added to
+    the existing `rich.cells` import.
+  - `tests/test_board_bytrail_view.py` — `_screen_rows()` on `ByTrailTestBase`
+    plus a `BannerRenderTests` class (5 tests).
+  - `tests/test_board_header_row_live.py` — new, 138 lines, 2 tests.
+- **Deviations from plan:** None in substance. Two refinements decided during
+  implementation:
+  - `HeaderTitle` is reached with `query_one("HeaderTitle")` (a CSS type
+    selector) instead of importing it. The plan's snippet implied an import
+    from the private `textual.widgets._header`; the selector avoids depending
+    on a private module path for the same result.
+  - The floor test was split out and made explicit rather than folded into the
+    narrow test, once the exact bounds were measured (below).
+- **Issues encountered:**
+  - The first `_screen_rows`-style probe used `app.export_screenshot()`, which
+    looked like the "public" way to get rendered text. It is not usable: the
+    SVG splits glyphs across `tspan` elements, so `"Task filter" in svg` is
+    `False` even when the row is plainly on screen. `App.export_text` does not
+    exist in Textual 8.2.7. The compositor route is the only workable one.
+  - The initial drift stub returned raw `DRIFT:...` strings and blew up in
+    `trail_drift_by_ref` (`aitask_board.py:606`) with `too many values to
+    unpack`. `run_trail_drift` returns `reasons` as parsed 3-tuples
+    `(code, task_ref, detail)`; the stubs were corrected to match.
+- **Key decisions:**
+  - **Budget derived, not hardcoded.** `HeaderTitle.content_region.width` was
+    measured to equal the maximum unclipped text width exactly at 60/80/100/
+    120/160/200 columns (a constant 18-cell inset). The constant was
+    deliberately *not* baked in — reading the widget self-corrects if Textual
+    changes the icon width or `show_clock` is ever enabled.
+  - **Marker floors are bounded and pinned, not claimed away.** The ladder can
+    shed the trail title but not the app title, which `HeaderTitle` owns. So
+    `⚠ stale: N` survives to 44 columns and `⟳ checking freshness…` to 55;
+    below that the banner clips. Both are far under the board's own `.narrow`
+    reflow threshold (~100). Tested at the bound rather than asserting
+    universality.
+  - **The `_trail_error` branch is deliberately left unbudgeted** — a clipped
+    tail there loses part of a handle the user just selected, not a volatile
+    signal. Recorded in-code and in the plan's stated exclusion.
+- **Verification performed:**
+  - `test_board_bytrail_view` + `test_board_filter_row_layout`: 82 tests, OK.
+  - Nine further board suites (detail nav/collapsible, empty-column focus,
+    picker tab nav, topic view, view filter, footer visibility, in-flight view,
+    scroll focus jump): 68 tests, OK.
+  - `test_board_header_row_live`: 2 tests, OK in 3.5s;
+    `aitasks/metadata/board_config.json` md5 identical before and after, so the
+    live board boot is genuinely read-only.
+  - `tests/test_no_raw_tmux.sh`: 5/5 OK (the new live test lives under
+    `tests/`, which that guard does not scope).
+  - **Negative controls — every guard was proven to fail against the
+    regression it claims to catch**, restoring the source byte-identically
+    each time (mutation applied in Python with the restore in a `finally`, not
+    `git checkout`, since the tree carries another session's uncommitted work):
+    - re-adding `dock: top` → 4 of 5 `BannerRenderTests` fail **and** both live
+      tmux tests fail (`'aitasks board' not found in ' Task filter …'`);
+    - removing the `_trail_banner` call → the two narrow/floor tests fail;
+    - restoring only `margin: 0 0 1 0` → the geometry pin fails with
+      `Tuples differ: (0, 5) != (0, 4)`.
+    That third control exists because the geometry pin was the one test that
+    kept passing under the first mutation — a negative control that passes
+    means the test is not doing the rejecting, so it needed its own.
+- **Upstream defects identified:** None.
