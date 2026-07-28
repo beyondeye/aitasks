@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1223_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [web_site, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1223
 created_at: 2026-07-23 18:33
-updated_at: 2026-07-23 18:33
+updated_at: 2026-07-28 18:02
 ---
 
 ## Context
