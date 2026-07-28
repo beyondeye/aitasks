@@ -294,3 +294,84 @@ Step 9 (Post-Implementation) handles merge, gates, and archival.
 ### Planned mitigations
 - timing: after | name: consolidate_lib_frontmatter_parsers | type: refactor | priority: medium | effort: low | addresses: code-health — two `parse_frontmatter` functions co-located in lib/ | desc: Rename or consolidate `stats_data.parse_frontmatter` (string-map) vs `task_yaml.parse_frontmatter` (YAML-backed) so the flat lib/ namespace exposes one unambiguous frontmatter parser
 - timing: after | name: stats_pane_import_regression_test | type: test | priority: medium | effort: low | addresses: code-health — blast radius across TUI import sites | desc: Add an import-level regression test that path-loads every stats/panes/*.py and stats_app.py with only .aitask-scripts + lib on sys.path, so a missed import site fails a test instead of only at TUI runtime
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. `git mv
+  .aitask-scripts/stats/stats_data.py .aitask-scripts/lib/stats_data.py` (pure
+  rename, no shim), its `lib/`-reaching bootstrap replaced with the self-dir
+  form, docstring restated as a base-layer module. `lib/work_report_gather.py`
+  lost the whole `for _sub in ("stats",)` `sys.path` block — the acceptance
+  change. Nine importers rewritten to bare `from stats_data import …`
+  (`aitask_stats.py` + a `lib/` insert, `stats_app.py`, and all 7 files under
+  `stats/panes/`). `tests/test_no_lib_to_tui_import.sh`: allowlist reduced to
+  `shortcut_scopes.py:*`, negative control (5) re-pointed at a synthetic entry,
+  new control (5b), Test 7 extended. Four test files and four doc references
+  updated.
+
+- **Deviations from plan:** Two, both from user review of the plan before
+  approval and folded into it before implementation:
+  1. The first draft's importer table omitted `stats/panes/velocity.py`.
+     `stats/panes/__init__.py` imports every pane eagerly, so that omission
+     would have been a `ModuleNotFoundError` at TUI startup. The table now names
+     all seven pane files explicitly.
+  2. The verification section originally listed `./ait stats-tui` as a "smoke"
+     signal. It blocks on a live terminal and asserts nothing, so it was
+     demoted to manual verification and replaced with two bounded
+     `env -u PYTHONPATH` assertions over `stats.panes`.
+
+  A third correction came from the same review: the bounded pane-import command
+  initially inserted only `.aitask-scripts`, which cannot resolve the panes' new
+  bare `from stats_data import …`. That surfaced a real design weakness rather
+  than just a bad test command — the panes were relying on `stats_app.py:35`
+  importing `lib.tui_switcher` *before* the pane import at `:53`, i.e. on the
+  line ordering inside a different file. Fixed structurally by giving
+  `stats/__init__.py` its own `lib/` bootstrap, so `import stats.panes` works
+  standalone. A dedicated check (only `.aitask-scripts` on `sys.path`) proves
+  the package, not the caller, is what puts `lib/` there.
+
+- **Issues encountered:**
+  - A blanket `.aitask-scripts` → `.aitask-scripts/lib` rewrite of the test
+    heredocs broke `tests/test_stats_verified_rankings.sh`, whose heredocs also
+    import `stats.panes.agents`. Those five heredocs now insert **both** paths;
+    `.aitask-scripts/lib` is still required explicitly because the bare
+    `from stats_data import` line precedes the first `stats.*` import that would
+    trigger the package bootstrap.
+  - The first full-suite run reported 4 failures + 4 errors, but the output was
+    piped through `tail -30` so the detail was lost. A clean re-run gave
+    **2541 tests, 0 failures (1 skipped)**. The earlier failures came from a
+    concurrent session's mid-edit working tree (codebrowser / monitor /
+    `tui_layout.py`), not from this change.
+  - t1236 landed mid-task in the same checkout, replacing the runner's
+    `export PYTHONPATH=…board:…lib` with `unset PYTHONPATH`. Every stats test was
+    re-run with `PYTHONPATH` unset and passes; the new
+    `tests/test_python_bootstrap_isolation.sh` (8/8, sweeping 156 files in
+    isolated interpreters) and `tests/test_runner_python_isolation.sh` (9/9) also
+    pass with the moved module. `tests/run_all_python_tests.sh` was deliberately
+    left untouched — it is t1236's file.
+
+- **Key decisions:**
+  - **Wholesale move, not extraction.** `collect_stats`'s dependency closure is
+    most of `stats_data.py`; only the ~330-line model-ranking block and
+    `merge_stats_data` are stats-only. Splitting there would have produced a
+    larger diff and two seams.
+  - **No re-export shim at `stats/stats_data.py`.** A shim gives one module two
+    import identities; `test_stats_multistage.py` registers
+    `sys.modules["stats_data"]` and `test_aitask_stats_py.py` monkeypatches
+    module globals, so a dual identity would silently split those patches.
+    t1217 set the no-shim precedent and its guard asserts the old path is gone.
+  - **Bare imports, not `from lib.stats_data import …`**, matching `task_yaml`
+    after t1217 and keeping a single module object.
+  - **Negative control (5) rewritten rather than deleted.** It proved
+    per-package allowlisting *using the entry being removed*. `is_allowed` now
+    reads an overridable `ACTIVE_ALLOWLIST`, so the semantics are pinned against
+    a synthetic `neg_perpkg.py:stats` entry, and a new control (5b) asserts the
+    old real reach is flagged again. Verified by injecting the removed
+    `sys.path` block back into `lib/work_report_gather.py`: the guard failed and
+    named `work_report_gather.py:stats:51`, then the file was restored by hand
+    (not `git checkout --`, which would have wiped concurrent work).
+
+- **Upstream defects identified:** None
+
+- **Manual verification not performed:** `./ait stats-tui` was never launched —
+  the panes are proven to import and register, but nobody has watched them draw.
