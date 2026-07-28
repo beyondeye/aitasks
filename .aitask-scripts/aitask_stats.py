@@ -2,7 +2,7 @@
 """Calculate and display AI task completion statistics.
 
 Supports text output and CSV export. Pure data extraction lives in
-`stats/stats_data.py` and is shared with the stats TUI (`ait stats-tui`).
+`lib/stats_data.py` and is shared with the stats TUI (`ait stats-tui`).
 """
 
 from __future__ import annotations
@@ -14,15 +14,18 @@ import os
 import statistics
 import sys
 
-# Make the stats package importable regardless of how this script is launched.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Make the stats package and the base layer importable regardless of how this
+# script is launched. `stats_data` moved from stats/ to lib/ in t1235.
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _SCRIPT_DIR)
+sys.path.insert(0, os.path.join(_SCRIPT_DIR, "lib"))
 
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Sequence
 
-from stats.stats_data import (
+from stats_data import (
     AGENT_DISPLAY_NAMES,
     ARCHIVE_DIR,
     DAY_FULL_NAMES,

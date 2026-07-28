@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from textual.containers import Container
 from textual.widgets import Static
 
-from stats.stats_data import StatsData, build_chart_title, format_duration
+from stats_data import StatsData, build_chart_title, format_duration
 
 from .base import PaneDef, empty_state, register, render_chart
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 from textual.containers import Container
 from textual.widgets import DataTable
 
-from stats.stats_data import StatsData, build_chart_title, get_valid_task_types
+from stats_data import StatsData, build_chart_title, get_valid_task_types
 
 from .base import PaneDef, empty_state, register, render_chart
 

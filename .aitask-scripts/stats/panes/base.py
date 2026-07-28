@@ -14,7 +14,7 @@ from textual.containers import Container
 from textual.widgets import Static
 
 if TYPE_CHECKING:
-    from stats.stats_data import StatsData
+    from stats_data import StatsData
 
 
 @dataclass(frozen=True)

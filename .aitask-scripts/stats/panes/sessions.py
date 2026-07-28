@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from textual.containers import Container
 
-from stats.stats_data import StatsData
+from stats_data import StatsData
 
 from .base import PaneDef, empty_state, register, render_chart
 

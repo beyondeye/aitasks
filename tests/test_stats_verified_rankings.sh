@@ -30,7 +30,8 @@ assert_fail() {
 if "$AITASK_PYTHON" - <<'PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")
-from stats.stats_data import VerifiedRankingData, VerifiedModelEntry
+sys.path.insert(0, ".aitask-scripts/lib")
+from stats_data import VerifiedRankingData, VerifiedModelEntry
 from stats.panes.agents import _ops_sorted_by_runs
 
 def mk(runs):
@@ -58,7 +59,8 @@ fi
 if "$AITASK_PYTHON" - <<'PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")
-from stats.stats_data import VerifiedRankingData
+sys.path.insert(0, ".aitask-scripts/lib")
+from stats_data import VerifiedRankingData
 from stats.panes.agents import _ops_sorted_by_runs
 assert _ops_sorted_by_runs(VerifiedRankingData(by_window={}, operations=[])) == []
 PY
@@ -74,7 +76,8 @@ fi
 if "$AITASK_PYTHON" - <<'PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")
-from stats.stats_data import VerifiedRankingData, VerifiedModelEntry
+sys.path.insert(0, ".aitask-scripts/lib")
+from stats_data import VerifiedRankingData, VerifiedModelEntry
 from stats.panes.agents import VerifiedRankingsPane
 
 def mk(runs):
@@ -113,7 +116,8 @@ fi
 if "$AITASK_PYTHON" - <<'PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")
-from stats.stats_data import VerifiedRankingData, VerifiedModelEntry
+sys.path.insert(0, ".aitask-scripts/lib")
+from stats_data import VerifiedRankingData, VerifiedModelEntry
 from stats.panes.agents import VerifiedRankingsPane
 
 vdata = VerifiedRankingData(
@@ -137,7 +141,8 @@ fi
 if "$AITASK_PYTHON" - <<'PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")
-from stats.stats_data import VerifiedRankingData
+sys.path.insert(0, ".aitask-scripts/lib")
+from stats_data import VerifiedRankingData
 import stats.panes.agents as agents
 
 # Force load_verified_rankings to return empty so we hit the empty-state path.

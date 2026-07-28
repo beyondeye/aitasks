@@ -23,8 +23,12 @@ import sys
 from datetime import date
 from pathlib import Path
 
-# Allow `from stats.stats_data import …` regardless of how this script is
-# launched (via aitask_stats_tui.sh, directly, or under pytest).
+# Allow `from stats import …` regardless of how this script is launched (via
+# aitask_stats_tui.sh, directly, or under pytest). `lib/` — where stats_data
+# lives since t1235 — reaches sys.path either through the `lib.tui_switcher`
+# import below (script launch, where this file is __main__ and stats/__init__.py
+# has not run) or through stats/__init__.py (package import). Both precede the
+# bare `from stats_data import` at the end of this block.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from textual.app import App, ComposeResult  # noqa: E402
@@ -51,7 +55,7 @@ from stats import stats_config  # noqa: E402
 from stats.modals.name_input import NameInputModal  # noqa: E402
 from stats.modals.pane_selector import PaneSelectorModal  # noqa: E402
 from stats.panes import PANE_DEFS  # noqa: E402
-from stats.stats_data import (  # noqa: E402
+from stats_data import (  # noqa: E402
     SessionTotals,
     StatsData,
     collect_stats,

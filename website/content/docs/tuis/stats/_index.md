@@ -27,7 +27,7 @@ When multiple aitasks tmux sessions are available, Stats uses the same project-g
 
 ## Purpose
 
-Stats is the interactive, pane-based view of archived task completion data. It reuses the same `stats/stats_data.py` extraction module that backs the text-only [`ait stats`]({{< relref "/docs/commands/board-stats#ait-stats" >}}) command — the two share a single source of truth for summary counts, daily/weekly trends, label and issue-type breakdowns, code agent / LLM model histograms, and verified model score rankings.
+Stats is the interactive, pane-based view of archived task completion data. It reuses the same `lib/stats_data.py` extraction module that backs the text-only [`ait stats`]({{< relref "/docs/commands/board-stats#ait-stats" >}}) command — the two share a single source of truth for summary counts, daily/weekly trends, label and issue-type breakdowns, code agent / LLM model histograms, and verified model score rankings.
 
 Use `ait stats` for a scrollable text report you can pipe or redirect; use `ait stats-tui` when you want to flip between charts, try different layout combinations, or watch a single pane full-width.
 

@@ -19,7 +19,7 @@ is multi-stage and archival can lag the actual work.
 ## Problem
 
 `ait stats` (CLI `aitask_stats.py`) and `ait stats-tui` (`stats_app.py`) both
-consume `collect_stats()` in `.aitask-scripts/stats/stats_data.py`, which assumed
+consume `collect_stats()` in `.aitask-scripts/lib/stats_data.py`, which assumed
 a single linear pass ending in archival:
 
 1. It iterates **archived task files only** (`iter_archived_markdown_files`), and
@@ -156,7 +156,7 @@ follow-up is turnkey:
 
 ## References
 
-- `.aitask-scripts/stats/stats_data.py` — `resolve_completion_date`,
+- `.aitask-scripts/lib/stats_data.py` — `resolve_completion_date`,
   `iter_active_markdown_files`, `collect_inflight`, `PhaseTimings`,
   `format_duration`.
 - `.aitask-scripts/lib/gate_ledger.py` — `archive_status_from_text`,

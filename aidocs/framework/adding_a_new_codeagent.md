@@ -315,7 +315,7 @@ default `^[a-z]+/[a-z0-9_]+$` covers most real CLIs.
 | `.aitask-scripts/aitask_verified_update.sh` | Rolling verifiedstats updates (`--agent NAME` help text + accept-list) |
 | `.aitask-scripts/aitask_usage_update.sh` | Rolling usagestats updates (mirror of verified_update) |
 | `.aitask-scripts/aitask_add_model.sh` | `add-json` / `promote-config` subcommand input validation |
-| `.aitask-scripts/stats/stats_data.py` | `load_model_cli_ids()` and `load_verified_rankings()` / `load_usage_rankings()` agent loops |
+| `.aitask-scripts/lib/stats_data.py` | `load_model_cli_ids()` and `load_verified_rankings()` / `load_usage_rankings()` agent loops |
 
 Adding a new agent means adding it to **all** of these in the same
 commit — the verifier (`./.aitask-scripts/aitask_skill_verify.sh`) does
@@ -352,7 +352,7 @@ When adding a new agent:
    - `lib/agent_string.sh::get_cli_model_id` (jq) — translates a `name`
      to the raw `cli_id` for invocation
    - `lib/agent_model_picker.py::MODEL_FILES` — UI picker registration
-   - `stats/stats_data.py::load_model_cli_ids` and
+   - `lib/stats_data.py::load_model_cli_ids` and
      `load_verified_rankings` / `load_usage_rankings`
    - `aitask_add_model.sh` for `add-json` mutation
 3. **Refresh flow:** `aitask-refresh-code-models` is the supported way
@@ -400,7 +400,7 @@ seven modes...`).
 
 ## 5. Stats: display name, registry scan, canonical id, display label
 
-`.aitask-scripts/stats/stats_data.py` is the canonical stats engine for
+`.aitask-scripts/lib/stats_data.py` is the canonical stats engine for
 `ait stats` and the board's stats pane. Four touchpoints per agent:
 
 ```python

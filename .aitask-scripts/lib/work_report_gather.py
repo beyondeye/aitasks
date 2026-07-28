@@ -41,21 +41,15 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
 
-# Make the sibling script packages importable however this module is invoked
-# (via the .sh wrapper or directly from a test). Mirrors the bootstrap in
-# stats/stats_data.py. `lib/` is already sys.path[0] when run as a script, so
-# task_yaml needs no insert (t1217 moved it there). `stats` is the one
-# remaining upward reach — see the allowlist in
-# tests/test_no_lib_to_tui_import.sh.
-_SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _sub in ("stats",):
-    _sub_dir = os.path.join(_SCRIPTS_DIR, _sub)
-    if _sub_dir not in sys.path:
-        sys.path.insert(0, _sub_dir)
-
-from config_utils import load_layered_config, metadata_dir, task_dir  # noqa: E402
-from stats_data import DAY_NAMES, collect_stats  # noqa: E402
-from task_yaml import BOARD_KEYS, normalize_board_idx, parse_frontmatter  # noqa: E402
+# Every module below lives in lib/ beside this one, so no sys.path setup is
+# needed: `lib/` is already sys.path[0] when run as a script, and a test that
+# imports this module puts lib/ on sys.path itself. task_yaml moved here in
+# t1217 and stats_data in t1235 — this module reaches into no sibling package,
+# which is what tests/test_no_lib_to_tui_import.sh freezes (its allowlist is
+# now empty of real inversions).
+from config_utils import load_layered_config, metadata_dir, task_dir
+from stats_data import DAY_NAMES, collect_stats
+from task_yaml import BOARD_KEYS, normalize_board_idx, parse_frontmatter
 
 # Board defaults, kept in sync with aitask_board.py DEFAULT_COLUMNS/DEFAULT_ORDER.
 DEFAULT_COLUMNS = [

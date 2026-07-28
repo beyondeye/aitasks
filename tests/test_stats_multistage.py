@@ -16,7 +16,7 @@ from datetime import date
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
-STATS_DATA_PATH = PROJECT_DIR / ".aitask-scripts" / "stats" / "stats_data.py"
+STATS_DATA_PATH = PROJECT_DIR / ".aitask-scripts" / "lib" / "stats_data.py"
 
 spec = importlib.util.spec_from_file_location("stats_data", STATS_DATA_PATH)
 assert spec is not None and spec.loader is not None

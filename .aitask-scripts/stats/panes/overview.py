@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from textual.containers import Container, Horizontal
 from textual.widgets import Static
 
-from stats.stats_data import DAY_NAMES, StatsData, build_chart_title
+from stats_data import DAY_NAMES, StatsData, build_chart_title
 
 from .base import PaneDef, empty_state, register, render_chart
 

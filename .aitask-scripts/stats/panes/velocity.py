@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 from textual.containers import Container
 
-from stats.stats_data import StatsData, build_chart_title
+from stats_data import StatsData, build_chart_title
 
 from .base import PaneDef, empty_state, register, render_chart
 

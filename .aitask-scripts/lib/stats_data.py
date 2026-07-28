@@ -1,7 +1,13 @@
-"""Pure data extraction layer for ait stats.
+"""Base-layer module: the pure data extraction layer for ait stats.
 
-Used by the CLI text/CSV report (`aitask_stats.py`) and the TUI (`stats_app.py`).
 No rendering, no plotext — just dataclasses, parsers, and `collect_stats()`.
+Consumed by the CLI text/CSV report (`aitask_stats.py`), the stats TUI
+(`stats/stats_app.py` and its panes) and `lib/work_report_gather.py`.
+
+It lived under ``stats/`` for historical reasons only; it sits in ``lib/``
+because every layer above depends on it and it depends on none of them —
+`archive_iter`, `config_utils` and `gate_ledger` are all base-layer siblings
+(t1235). ``tests/test_no_lib_to_tui_import.sh`` freezes that direction.
 """
 
 from __future__ import annotations
@@ -16,9 +22,10 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-# Make `lib/` importable so `archive_iter` resolves regardless of how this
-# module is loaded (via the CLI wrapper, the TUI wrapper, or a test harness).
-_LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib")
+# Make lib/ importable however this module is loaded (path-loaded by a test, or
+# imported bare with lib/ on sys.path). Every module imported below now lives
+# beside this one — it reaches into no sibling package.
+_LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from archive_iter import iter_all_archived_markdown  # noqa: E402
@@ -240,6 +247,13 @@ def week_offset_for(completed: date, today: date, week_start_dow: int) -> int:
 
 
 def parse_frontmatter(content: str) -> Dict[str, str]:
+    """Lightweight string-map frontmatter reader (every value stays a string).
+
+    NOT `task_yaml.parse_frontmatter` — since t1235 the two live side by side in
+    ``lib/``, but they are not interchangeable: that one is the YAML-backed
+    parser returning typed values, this one is the flat scanner the stats
+    aggregation path uses. Import the one you mean, explicitly.
+    """
     lines = content.splitlines()
     if not lines or lines[0].strip() != "---":
         return {}

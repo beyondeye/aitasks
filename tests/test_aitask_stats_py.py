@@ -30,11 +30,11 @@ def _load_stats_module():
 stats = cast(Any, _load_stats_module())
 
 # After the data-extraction split (t597_1), constants TASK_DIR / ARCHIVE_DIR /
-# TASK_TYPES_FILE live in `stats.stats_data` and are re-exported from
-# `aitask_stats`. Tests that patch the constants must mutate the source module
-# so functions defined there (e.g. collect_stats, load_verified_rankings) pick
-# up the temp paths.
-stats_data_mod = cast(Any, sys.modules["stats.stats_data"])
+# TASK_TYPES_FILE live in `stats_data` (promoted from stats/ to the base layer
+# lib/ in t1235) and are re-exported from `aitask_stats`. Tests that patch the
+# constants must mutate the source module so functions defined there (e.g.
+# collect_stats, load_verified_rankings) pick up the temp paths.
+stats_data_mod = cast(Any, sys.modules["stats_data"])
 
 
 class TestWeekStart(unittest.TestCase):

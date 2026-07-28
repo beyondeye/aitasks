@@ -4,7 +4,7 @@ from __future__ import annotations
 from textual.containers import Container, Vertical
 from textual.widgets import DataTable, Static
 
-from stats.stats_data import (
+from stats_data import (
     StatsData,
     UsageRankingData,
     VerifiedRankingData,

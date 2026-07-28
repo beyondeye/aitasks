@@ -9,8 +9,10 @@
 # broke them. t1217 moved that parser to `lib/task_yaml.py`; this test FAILS if
 # any `lib/` module reaches back up into a sibling TUI package.
 #
-# It is a FREEZE, not a migration: the one remaining sanctioned upward reach is
-# allowlisted with its reason, not rewritten.
+# t1217 left one real inversion standing — `lib/work_report_gather.py` reaching
+# `stats/` for `collect_stats`/`DAY_NAMES` — allowlisted so it stayed visible.
+# t1235 repaid it by moving that module to `lib/stats_data.py`, so the allowlist
+# now holds only the reflection loader, which is not a dependency at all.
 #
 # Detection scope (documented on purpose — a guard that overclaims is worse than
 # one with a known boundary):
@@ -49,20 +51,24 @@ TUI_PACKAGES=(
 # --- Allowlist -------------------------------------------------------------
 # Entries are `<lib-relative-file>:<package>` (or `:*` for every package), each
 # with the reason it is sanctioned. An entry here means "known and accepted",
-# NOT "invisible" — the stats holdout below is the remaining half of the t1217
-# inversion, deliberately surfaced so it stays on the radar.
+# NOT "invisible". t1235 removed the last real inversion
+# (`work_report_gather.py:stats`) by moving stats_data into lib/, so what
+# remains is the reflection loader — a module whose sys.path setup IS its
+# purpose, not a dependency. Adding a genuine dependency entry here should be a
+# deliberate, argued edit.
 ALLOWLIST=(
   "shortcut_scopes.py:*"        # reflection loader: imports every TUI module by
                                 # path to sweep shortcut bindings; the sys.path
                                 # setup is its entire purpose, not a dependency
-  "work_report_gather.py:stats" # KNOWN remaining inversion: reuses stats_data's
-                                # collect_stats/DAY_NAMES. Out of scope for
-                                # t1217; repaying it empties this allowlist.
 )
+
+# `is_allowed` consults ACTIVE_ALLOWLIST so the negative controls below can
+# exercise a synthetic per-package entry without weakening the real one.
+ACTIVE_ALLOWLIST=("${ALLOWLIST[@]}")
 
 is_allowed() {
   local file="$1" pkg="$2" entry
-  for entry in "${ALLOWLIST[@]}"; do
+  for entry in "${ACTIVE_ALLOWLIST[@]}"; do
     [[ "$entry" == "$file:$pkg" || "$entry" == "$file:*" ]] && return 0
   done
   return 1
@@ -141,9 +147,13 @@ neg_allow="$(scan_dir "$TMP/lib" | sort -u)"
 assert_not_contains "allowlisted reflection loader is not flagged" \
   "shortcut_scopes.py" "$neg_allow"
 
-# (5) allowlisting is per-package, not per-file: work_report_gather.py may
-#     reach `stats`, but reaching `board` is still a violation.
-cat >"$TMP/lib/work_report_gather.py" <<'PY'
+# (5) allowlisting is per-package, not per-file. The real allowlist no longer
+#     carries a per-package entry (t1235 repaid the last one), so the semantics
+#     are pinned against a SYNTHETIC entry via ACTIVE_ALLOWLIST rather than
+#     dropped — a per-package entry added in future must still be per-package.
+ACTIVE_ALLOWLIST=("${ALLOWLIST[@]}" "neg_perpkg.py:stats")
+
+cat >"$TMP/lib/neg_perpkg.py" <<'PY'
 import os
 import sys
 
@@ -152,10 +162,10 @@ for _sub in ("stats",):
     sys.path.insert(0, os.path.join(_SCRIPTS_DIR, _sub))
 PY
 neg_stats="$(scan_dir "$TMP/lib" | sort -u)"
-assert_not_contains "allowlisted work_report_gather.py -> stats is not flagged" \
-  "work_report_gather.py" "$neg_stats"
+assert_not_contains "per-package allowlist: neg_perpkg.py -> stats is not flagged" \
+  "neg_perpkg.py" "$neg_stats"
 
-cat >"$TMP/lib/work_report_gather.py" <<'PY'
+cat >"$TMP/lib/neg_perpkg.py" <<'PY'
 import os
 import sys
 
@@ -163,12 +173,29 @@ _SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_SCRIPTS_DIR, "board"))
 PY
 neg_board="$(scan_dir "$TMP/lib" | sort -u)"
-assert_contains "allowlist is per-package: work_report_gather.py -> board IS flagged" \
-  "work_report_gather.py:board" "$neg_board"
+assert_contains "allowlist is per-package: neg_perpkg.py -> board IS flagged" \
+  "neg_perpkg.py:board" "$neg_board"
+
+# (5b) the t1235 repayment: with the real allowlist restored, the reach
+#      work_report_gather.py used to be allowlisted for is a violation again.
+#      Without this, deleting the entry could be mistaken for "the guard no
+#      longer looks at work_report_gather.py".
+ACTIVE_ALLOWLIST=("${ALLOWLIST[@]}")
+cat >"$TMP/lib/work_report_gather.py" <<'PY'
+import os
+import sys
+
+_SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _sub in ("stats",):
+    sys.path.insert(0, os.path.join(_SCRIPTS_DIR, _sub))
+PY
+neg_repaid="$(scan_dir "$TMP/lib" | sort -u)"
+assert_contains "t1235: work_report_gather.py -> stats is no longer allowlisted" \
+  "work_report_gather.py:stats" "$neg_repaid"
 
 # (6) prose / comments naming a package do not trip the guard.
 rm -f "$TMP/lib/bad_module.py" "$TMP/lib/work_report_gather.py" \
-      "$TMP/lib/shortcut_scopes.py"
+      "$TMP/lib/neg_perpkg.py" "$TMP/lib/shortcut_scopes.py"
 cat >"$TMP/lib/innocent.py" <<'PY'
 import sys
 
@@ -179,12 +206,17 @@ PY
 neg_prose="$(scan_dir "$TMP/lib" | sort -u)"
 assert_eq "comments and data tuples do not trip the guard" "" "$neg_prose"
 
-# --- Test 7: task_yaml lives in lib/, not board/ ---------------------------
-# The concrete t1217 postcondition, asserted directly rather than inferred.
+# --- Test 7: the promoted modules live in lib/, not in a TUI package -------
+# The concrete t1217 / t1235 postconditions, asserted directly rather than
+# inferred from the scan.
 assert_file_exists "task_yaml.py lives in lib/" \
   "$PROJECT_DIR/.aitask-scripts/lib/task_yaml.py"
 assert_file_not_exists "task_yaml.py no longer lives in board/" \
   "$PROJECT_DIR/.aitask-scripts/board/task_yaml.py"
+assert_file_exists "stats_data.py lives in lib/" \
+  "$PROJECT_DIR/.aitask-scripts/lib/stats_data.py"
+assert_file_not_exists "stats_data.py no longer lives in stats/" \
+  "$PROJECT_DIR/.aitask-scripts/stats/stats_data.py"
 
 # --- Summary ---------------------------------------------------------------
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"

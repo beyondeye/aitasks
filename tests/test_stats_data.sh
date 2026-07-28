@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Smoke tests for the stats.stats_data module (extracted in t597_1).
+# Smoke tests for the stats_data module (extracted in t597_1; promoted from
+# stats/ to the base layer lib/stats_data.py in t1235).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,8 +27,8 @@ assert_fail() {
 # 1. Module imports cleanly and exposes expected symbols.
 if python3 - <<'PY'
 import sys
-sys.path.insert(0, ".aitask-scripts")
-from stats.stats_data import (
+sys.path.insert(0, ".aitask-scripts/lib")
+from stats_data import (
     StatsData,
     TaskRecord,
     ImplementationInfo,
@@ -41,17 +42,17 @@ from stats.stats_data import (
 )
 PY
 then
-    assert_pass "stats.stats_data imports and exposes core symbols"
+    assert_pass "stats_data imports and exposes core symbols"
 else
-    assert_fail "stats.stats_data imports and exposes core symbols" "import failed"
+    assert_fail "stats_data imports and exposes core symbols" "import failed"
 fi
 
 # 2. collect_stats() returns a StatsData instance against the real repo.
 if python3 - <<'PY'
 import sys
-sys.path.insert(0, ".aitask-scripts")
+sys.path.insert(0, ".aitask-scripts/lib")
 from datetime import date
-from stats.stats_data import collect_stats, StatsData
+from stats_data import collect_stats, StatsData
 data = collect_stats(date.today(), 1)
 assert isinstance(data, StatsData), f"expected StatsData, got {type(data).__name__}"
 assert data.total_tasks >= 0
