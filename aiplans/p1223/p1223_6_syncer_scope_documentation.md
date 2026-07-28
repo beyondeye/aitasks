@@ -261,3 +261,94 @@ editing the page to match.
   existing plan"); a rewrite following the draft alone would have documented a
   refusal with no escape hatch and a poll cadence that does not apply to two of
   the three tabs. · severity: medium · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** Rewrote `website/content/docs/tuis/syncer/_index.md`
+  (+244/−20) as planned — three-tab layout with per-tab column tables, the
+  arrow-key navigation model, a Polling section scoped to Branches only, a
+  **Framework versions** section (per-cell `*` semantics, the four-case
+  inspection table, the `Force…` override, the declared bound, the self-upgrade
+  exit, the no-"succeeded" State column) and a **Cross-repo settings** section
+  (provenance markers, stored layers vs. the `--agent-string` invocation
+  override, the four-step push wizard, masking, rejection, the
+  uncommitted / data-branch-invisible write, "Extending the synced set"). Added
+  a tab-scoped keyboard-shortcut table. Widened the syncer blurbs in
+  `website/content/docs/tuis/_index.md` and the `## See also` entry in
+  `website/content/docs/commands/sync.md`.
+
+- **Deviations from plan:** None in scope. Four small precision fixes were made
+  during writing, each after re-reading the source:
+  - The push wizard's Back/Esc semantics are not uniform — Esc on step 1 cancels
+    the push, and Esc on a masked-destination prompt *skips that repository*
+    rather than going back (`syncer_app.py:1758-1762`, `settings_screens.py:343-355`).
+    Both are stated explicitly rather than generalised.
+  - `re-check needed` is also reached when no pane pid could be resolved, so the
+    State table says "or the syncer never managed to attach to it"
+    (`syncer_app.py:1532-1534`).
+  - The `≠` marker always flags a row containing a `conflict` cell, not only a
+    row whose readable values differ (`build_settings_matrix`, `:394-398`).
+  - Settings rows are the union of `defaults` keys across **both** config layers,
+    not just `codeagent_config.json` (`cross_repo_settings.py:254-257, 297-298`).
+
+- **Issues encountered:** The pre-implementation plan was written before the
+  siblings landed and had drifted in five places; the whole verify pass was spent
+  re-deriving the page's claims from the as-built code rather than from the plan.
+  A user review of the draft plan then caught three further over-claims, all
+  confirmed valid against the source and corrected before implementation:
+  1. `_probe_activity` (`syncer_app.py:1382-1385`) short-circuits to `idle` for a
+     registry-only (`is_live=False`) target with **no enumeration or
+     classification at all** — "fail-closed" is a property of the live-session
+     path only. Documented as its own row in a four-case table.
+  2. The `*` stale marker has different conditions per column: **Installed** is
+     marked only during an in-flight upgrade, **Latest** when the shared value was
+     not confirmed this refresh (`:1306-1312`). The original wording conflated
+     them and would have documented a state users never see.
+  3. `--agent-string` is a per-invocation override, not a stored tier; presenting
+     a flat four-tier chain would teach a wrong persistence model. It also
+     provably cannot reach this tab — `ait syncer` has no such flag (`:2358-2380`)
+     and `resolver_env()` scrubs `OPT_AGENT_STRING` / `DEFAULT_AGENT_STRING` /
+     `METADATA_DIR` / `TASK_DIR` (`cross_repo_settings.py:48-53, 124-132`).
+
+- **Key decisions:**
+  - **Document the force override.** The task file asked for "refused, not
+    warned". That is true of the default path, but `UpgradeRefusalScreen` does
+    carry a `Force…` button behind a second destructive confirmation. Hiding a
+    destructive escape hatch is worse than softening the message, so both are
+    documented and the two-dialog split is explained.
+  - **Proved the verification command discriminates.** A passing `hugo build`
+    only pins the cross-references if a broken one fails it. Injected a bogus
+    `relref` into the page, confirmed the build exits **1** with
+    `REF_NOT_FOUND`, then removed exactly that insertion (no `git checkout`) and
+    re-confirmed exit 0.
+  - **Kept "Extending the synced set" on the user-facing page** rather than in
+    `aidocs/`: it is three sentences and names one module, and the task allowed
+    either.
+  - `## Actions` renamed to `## Branch actions` — the only structural rename;
+    needed now that two other sections also describe actions. No cross-reference
+    used the old anchor.
+
+- **Upstream defects identified:** None.
+
+  (One cosmetic staleness noticed but not a defect: the docstring of
+  `action_push_setting` in `syncer_app.py:1727` says the key is `` `P` `` while
+  the binding at `:710` is lowercase `p`. Comment-only, no behavioral impact.)
+
+- **Notes for sibling tasks:**
+  - **t1223_7 (manual verification):** the page is now the contract to verify
+    against. The five highest-value checks, each documented with its own
+    subsection: (a) upgrading a repo with a live framework window is *refused*
+    and the dialog names the windows; (b) `Force…` raises a *second*, distinct
+    destructive confirmation; (c) upgrading the syncer's own repo exits the TUI
+    and runs the upgrade in the vacated window; (d) the State column never reads
+    "succeeded" — `upgrading…` then `re-check needed`; (e) the layer prompt is
+    always asked with no radio pre-selected, and a masked project write offers
+    exactly Skip / Write local / Clear + project.
+  - **A registry-only repo is never activity-inspected.** Worth an explicit
+    verification item: it goes straight to the confirmation dialog. If that ever
+    changes, the four-case table in "When an upgrade is refused" is the first
+    thing to update.
+  - **Verification commands:** `cd website && hugo build --gc --minify` needs
+    `node_modules` present (it already is in this checkout, so `npm install` can
+    be skipped); the build is a genuine gate on `relref` breakage, verified by
+    negative control.
