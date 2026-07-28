@@ -89,8 +89,25 @@ coalescing pattern; do not add a second one, and do not read it on every keypres
 Bound to a key on the Settings tab, gated via `check_action` + `_active_tab()`
 (t1223_1) and routed through `ShortcutsMixin` (scope `"syncer"`). Flow:
 
-1. **Source value** — default to the highlighted cell's effective value; allow
-   choosing another repo's value for that operation.
+1. **Source value** — an explicit RadioSet step listing each repo with its
+   effective value for the highlighted operation.
+
+   > **AC deviation (user-confirmed, 2026-07-28): the source is chosen
+   > explicitly, not taken from "the highlighted cell".** t1266 landed after
+   > this task was written and binds `left`/`right` App-level with
+   > `priority=True` to switch tabs "regardless of what holds focus"; and
+   > `aidocs/framework/tui_conventions.md:182` instructs DataTables to use
+   > `cursor_type="row"` precisely so they do not consume ←/→. A cell cursor
+   > could therefore never be moved horizontally by keyboard, so "the
+   > highlighted cell" is unreachable. The table uses `cursor_type="row"`
+   > (rows = operations) and the picker preselects the **first eligible** repo.
+   >
+   > **Only eligible repos are offered.** A repo whose cell is `conflict` or
+   > `unavailable` is excluded: `plan_push` matches against `value or ""`, so an
+   > unusable source does not raise — it returns `malformed_agent_string` for
+   > *every* destination, blaming the value the user picked rather than
+   > reporting that none existed. When no repo has a usable value the push key
+   > is dimmed and the action notifies instead of opening the flow.
 2. **Destinations** — multi-select over the other repos. (Multi-select is fine
    here: unlike upgrade, this writes one config key, not framework files.)
 3. **Layer prompt (no default).** "Write to the project layer (git-tracked,
@@ -130,16 +147,18 @@ name, and must not abort the remaining destinations.
 ## Verification steps
 
 ```bash
-bash tests/test_syncer_rows.py
+python3 tests/test_syncer_rows.py
 ```
 
 Required tests (pure helpers where possible; `App.run_test()` only for render
 assertions):
 
-1. `build_settings_matrix` — marker per provenance (`local`/`project`/`seed`/
+1. `build_settings_matrix` — marker per provenance (`local`/`project`/
    `builtin`), and **`conflict` renders the literal `conflict`, never a value**.
+   (No `seed` case — amended by t1223_4.)
 2. Divergence flag — all-equal row not flagged; one differing repo flagged;
-   a `conflict` cell flags the row.
+   a `conflict` cell flags the row; an `unavailable` column is **excluded** from
+   the comparison (one broken repo must not flag every row).
 3. **Render-level** — the settings table's cell text for a known fixture matrix
    equals the expected strings (`widget.render().plain` / cell values), including
    the provenance suffixes.
@@ -155,6 +174,21 @@ assertions):
 8. Per-tab gating — the push key is inert on `tab_branches` and `tab_versions`.
 9. Single-repo mode — with `<2` repos the Settings tab renders the single repo's
    values read-only and the push action is unavailable (nothing to push to).
+10. **Row-state gating** — with no selectable row (matrix not loaded, or empty)
+    and on a row where no repo holds a usable value, the push key is **dimmed**
+    (`None`, not `False`) and `action_push_setting()` **invoked directly**
+    notifies without opening the flow. `check_action` gates the key binding, not
+    the method, and this suite calls actions directly.
+11. **Source/destination roles** — the picker offers only eligible source repos
+    and preselects the first eligible one; the destination list excludes the
+    chosen source and is **not** filtered by source-eligibility (a conflicted
+    repo is a valid, and valuable, destination).
+12. **Per-repo degradation** — one corrupt repo renders `unavailable` while the
+    others still render; a repo that breaks between the probe and the retry
+    costs only its own column; a failure that cannot be attributed marks **no**
+    repo and terminates within the stated attempt bound.
+13. **Planning-phase isolation** — a destination whose `plan_push` raises is
+    reported and the remaining destinations are still planned and applied.
 
 Manual: covered by t1223_7.
 
@@ -182,6 +216,38 @@ Manual: covered by t1223_7.
   worker — letting it propagate would blank the whole tab because one repo is
   broken. Rendering that repo's column as unavailable is this child's call; the
   seam deliberately does not invent a provenance value for it.
+
+  > **AC deviation (user-confirmed, 2026-07-28): "catch it per repo" is not
+  > achievable by calling `diff_across_repos`.** It reads every root's layers in
+  > one unguarded loop (`cross_repo_settings.py:294-295`), so **one corrupt repo
+  > aborts the entire call** and no matrix is returned at all — its own docstring
+  > says callers wanting per-repo degradation must loop `read_operation_defaults`
+  > themselves. Implemented syncer-side as a **bounded shrink-and-retry loop**
+  > (`_read_settings_matrix`): the happy path costs exactly one call; on a raise
+  > a probe sweep names the offender(s), their columns render `unavailable`, and
+  > the call is retried with the rest. Each round either removes ≥1 attributable
+  > offender or spends a single non-attributable retry, bounding it at
+  > `len(sessions) + 2` attempts. A repo that breaks *between* the sweep and the
+  > retry costs only its own column, and a failure the sweep cannot attribute
+  > marks **no** repo — it surfaces as a tab-level notice instead of invented
+  > blame. Moving this into the seam as
+  > `diff_across_repos(roots, *, skip_unreadable=True)` is the confirmed "after"
+  > mitigation `cross_repo_settings_skip_unreadable`.
+
+## Coordination — t1267
+
+`t1267_syncer_settings_tab_nav_coordination` is t1266's "after" mitigation and
+names this task directly: *"If t1223_5 has already landed by the time this task
+is picked, replace step 1 with the actual fix: extend `TAB_LIST_IDS` / the
+fall-through conditions and add a test asserting the Settings pane's focusable
+widgets still receive their arrow keys."*
+
+This task did both: `TAB_LIST_IDS` gained `"tab_settings": "settings"`, and
+`test_arrows_in_a_settings_modal_do_not_switch_tabs` pins the modals' arrows. No
+fall-through change was needed — the settings modals are *pushed screens*, and
+`check_action`'s blanket `len(self.screen_stack) <= 1` gate already disables
+every nav action there. **t1267's substantive scope is therefore satisfied**;
+it is left open for the user to verify and dispose of.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->

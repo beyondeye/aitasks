@@ -58,6 +58,26 @@ with the actual fix: extend `TAB_LIST_IDS` / the fall-through conditions and add
 a test asserting the Settings pane's focusable widgets still receive their arrow
 keys (mirroring `test_arrows_in_an_upgrade_modal_do_not_switch_tabs`).
 
+## Status — the substantive fix landed with t1223_5 (2026-07-28)
+
+t1223_5 landed before this task was picked, so its "If t1223_5 has already
+landed" branch applies and **it did the work**:
+
+- `TAB_LIST_IDS` gained `"tab_settings": "settings"`, so `↓` from the tab bar
+  enters the new Settings table and the pane is a first-class arrow-nav target
+  (`test_down_from_the_bar_enters_the_settings_table`).
+- `test_arrows_in_a_settings_modal_do_not_switch_tabs` asserts the Settings
+  modals keep their arrows — the `RadioSet` highlight and the `SelectionList`
+  cursor both move, and `←`/`→` do not switch tabs.
+- **No fall-through change was needed.** The Settings pane's own content is a
+  row-cursor `DataTable` (which owns no `←`/`→`), and every widget that does own
+  arrows lives on a *pushed screen*, where `check_action`'s blanket
+  `len(self.screen_stack) <= 1` gate already disables all four nav actions —
+  pinned by the pre-existing `test_nav_actions_inert_only_while_a_screen_is_pushed`.
+
+What remains here is verification and disposal: re-check the above against the
+live source and close this task if nothing further is needed.
+
 ## Key files
 
 - `.aitask-scripts/syncer/syncer_app.py` — `NAV_ACTIONS`, `TAB_LIST_IDS`,

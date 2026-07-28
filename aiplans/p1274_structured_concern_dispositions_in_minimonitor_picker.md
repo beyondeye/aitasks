@@ -389,6 +389,72 @@ carries the `Disposition:` trailers.
   the two new tests fail (2); with `unrecovered_markers` stubbed blind, three
   fail. Restored ⇒ 0.
 
+## Final Implementation Notes
+
+- **Actual work done:** as planned, plus one addition from review (Change
+  Request 2). `concern_parser.py`: `Concern` gained derived `disposition` /
+  `verdict` fields and `display_body()`, plus `needs_addressing()`,
+  `DISPOSITIONS`, `_ITEM_NO_REGION`, the `_scan_items` split and the
+  `unrecovered_markers()` entry point. `monitor_shared.py`: two-line narrow
+  `_ConcernRow` with a measured region cap, `(no region)` placeholder,
+  `.informational` dimming, `original_index` selection identity, the
+  disposition partition + section headers in `ConcernPickerModal`,
+  disposition-scoped `a`, and the unrecovered-marker banner.
+  `minimonitor_app.py`: passes the unrecovered count to the modal, counts the
+  split in the auto-offer toast, and warns on a block that parsed to nothing.
+  Docs: `concern-format.md` (SSoT), the four producers, `impl-challenge.md`'s
+  now-false "UX boundary" paragraph, `aidocs/framework/shadow_agent.md`, and two
+  website pages.
+- **Deviations from plan:** none in approach. The plan's Part 2 assumed the
+  untitled rows might not be reproducible; they were, before implementation
+  started (see the "Root cause" section), which turned that part from a guess
+  into a measured fix and let the goal-achievement risk drop to `low`.
+- **Issues encountered:**
+  - The planned "assert `render().plain`" approach is not sufficient here. The
+    failure mode is that Rich *drops* an overflowing segment during fold, so the
+    render string contains the body even when the screen does not. The layout
+    tests therefore read the composited screen
+    (`app.screen._compositor.render_strips()`), with a negative control pinning
+    that the old single-line layout fails the same assertion.
+  - `tests/test_minimonitor_concern_smoke.py` pinned the literal auto-offer
+    string `"raised concerns"`, which the new count-bearing toast breaks. It now
+    matches a shape regex (`OFFER_RE`) instead — the assertion was about the
+    offer firing, not its wording.
+  - The whole task was implemented in a checkout shared with t1216_1, whose
+    uncommitted refactor touched the same five files (two with literally shared
+    hunks). Per the user's decision the commit waited for t1216_1 to land
+    (`466d6d9c0`); afterwards every remaining hunk was t1274's and the shared
+    hunks resolved to pure additions. See Change Request 1.
+  - The shared checkout's full suite reports 12 failures in
+    `test_board_bytrail_view` / `test_syncer_rows`. These come from other
+    sessions' uncommitted `aitask_board.py` / `syncer_app.py` work. Verified
+    independently in a clean worktree at HEAD with only this task's patch
+    applied: those suites plus all concern suites pass (399 tests, 0 failures).
+- **Key decisions:**
+  - Disposition is **derived from body prose**, not a new marker field. The
+    marker bracket is the documented t1167 drop surface; widening it would make
+    the known failure worse, and deriving works on blocks emitted before this
+    existed.
+  - `Concern.body` stays canonical and `display_body()` is display-only, so the
+    forwarded payload is byte-identical and `build_clipboard_payload` needed no
+    change. The mirror rule (clipboard uses `body`, rows use `display_body()`)
+    is the subject of the `concern_body_display_contract_guard` follow-up.
+  - The trailer grammar is **anchored to the end of the body**, so a concern that
+    quotes or discusses a disposition mid-prose is neither misclassified nor has
+    real prose stripped from its row.
+  - `_ITEM_NO_REGION` uses the closed `high|medium|low` vocabulary rather than
+    `\w+`: without the `|` separator a permissive class would let a wrapped body
+    line start a spurious concern, breaking the collision-hardening invariant.
+  - Unrecoverable markers are **reported, not recovered** — widening
+    `_MAX_MARKER_JOIN_ROWS` stays the accepted t1167 limit.
+  - Selection identity is **positional** (`original_index`), because `Concern` is
+    a `NamedTuple` and two equal concerns cannot be told apart by value.
+- **Upstream defects identified:** None
+- **Test-harness note:** every new guard was proven to fail when its fix is
+  patched out in memory (unanchored trailer, disabled region-less recovery,
+  blinded `unrecovered_markers`, DOM-ordered selection, value-based selection,
+  disposition-blind select-all, single-line narrow row, bland empty message).
+
 ## Step 9 (Post-Implementation)
 
 Standard: merge approval into `main`, `./ait gates run 1274` (declares
