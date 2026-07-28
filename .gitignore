@@ -18,6 +18,14 @@ __pycache__/
 # committed, not the raw logs)
 .aitask-gates/
 
+# Antigravity CLI workspace state (per-machine: absolute repo path + permissions)
+.antigravitycli/
+
+# OpenCode local npm artifact. Its sibling rules (node_modules, package.json,
+# bun.lock) live in .opencode/.gitignore, but that file is untracked and ignores
+# itself — so the lockfile needs a rule here to stay ignored in every checkout.
+.opencode/package-lock.json
+
 # Hugo generated files
 website/public/
 website/resources/

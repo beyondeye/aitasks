@@ -14,8 +14,11 @@ PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
 source "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"
 PY="$(require_ait_python)"
 
-# Add board and lib modules to PYTHONPATH for imports
-export PYTHONPATH="$PROJECT_DIR/.aitask-scripts/board:$PROJECT_DIR/.aitask-scripts/lib${PYTHONPATH:+:$PYTHONPATH}"
+# Do NOT seed PYTHONPATH (t1236). Every test file bootstraps its own sys.path
+# from __file__; a runner-supplied path makes a wrong bootstrap pass here and
+# fail only at TUI runtime. Any inherited value is scrubbed too, so the suite
+# behaves identically regardless of the caller's environment.
+unset PYTHONPATH
 export PYTHONDONTWRITEBYTECODE=1
 
 # Try pytest first, fall back to unittest

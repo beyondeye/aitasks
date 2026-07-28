@@ -145,7 +145,13 @@
       "WebFetch(domain:docs.anthropic.com)",
       "Bash(./ait ls *)",
       "Bash(./ait crew:*)",
-      "Bash(ait crew:*)"
+      "Bash(ait crew:*)",
+      "WebFetch(domain:hermes-agent.nousresearch.com)",
+      "Bash(./ait projects *)",
+      "Read(//home/ddt/.config/aitasks/**)",
+      "Read(//home/ddt/.claude/**)",
+      "Read(//home/ddt/.claude/skills/**)",
+      "Read(//home/ddt/.claude/plugins/**)"
     ]
   }
 }
