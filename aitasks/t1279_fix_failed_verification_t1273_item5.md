@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [1268]
 issue_type: bug
@@ -13,7 +15,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:18
-updated_at: 2026-07-28 12:26
+updated_at: 2026-07-28 12:27
 ---
 
 ## Failed verification item from t1268
