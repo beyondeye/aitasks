@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: refactor
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 implemented_with: claudecode/opus5
 created_at: 2026-07-26 11:47
-updated_at: 2026-07-28 15:30
+updated_at: 2026-07-28 15:31
 ---
 
 ## Origin
@@ -76,7 +78,19 @@ independent places) but is written nowhere as a shared definition.
   `tests/test_board_filter_row_layout.py` (filter-row geometry and the derived
   reflow threshold) and the codebrowser tests.
 - Add a test asserting each migrated call site reads the shared constant rather
-  than a literal, so a future edit cannot silently reintroduce a local number.
+  than a literal. **Scope decision at implementation time (user-confirmed):**
+  this splits in two and is met by two different mechanisms.
+  - *"reads the shared constant"* — met by test. `tests/test_tui_narrow_breakpoint.py`
+    monkeypatches `tui_layout`'s module global and drives the real widget/app;
+    a re-inlined literal ignores the patch and the assertion fails (proven by
+    running both negative controls at implementation time).
+  - *"a future edit cannot silently reintroduce a local number"* — met by
+    documentation, **not** by a source-scanning test. An AST guard over the two
+    migrated files was designed and then deliberately dropped: it would police
+    only files already covered behaviourally, while the real drift risk is a
+    *new* TUI written later, which such a scan would not see either. The
+    `aidocs/framework/tui_conventions.md` section (reached via the existing
+    `CLAUDE.md` pointer) is the mechanism instead.
 - Run isolated and in the full suite — `t1179` records that
   `tests/run_all_python_tests.sh` is order-dependent.
 - Manual: resize `ait board` and `ait codebrowser` across the breakpoints and

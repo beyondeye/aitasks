@@ -300,3 +300,102 @@ Standard cleanup, archival, and merge per `task-workflow` Step 9. No worktree wa
 created (profile `fast`, `create_worktree: false`) — work is on the current
 branch, so the merge sub-step is a no-op and archival runs via
 `./.aitask-scripts/aitask_archive.sh 1251`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, with no deviation in shape.
+  - New `.aitask-scripts/lib/tui_layout.py` (43 lines): `NARROW_TERMINAL_WIDTH = 80`,
+    `WIDE_TERMINAL_WIDTH = 120`, the `NARROW`/`NORMAL`/`WIDE` tier names, a `TIERS`
+    tuple, and the `terminal_tier()` / `is_narrow_terminal()` predicates.
+  - `codebrowser/codebrowser_app.py` (+18/−7): imports the tier seam; new
+    `SIDEBAR_WIDTH_BY_TIER = {WIDE: 35, NORMAL: 28, NARROW: 22}` class attr; the
+    five-line `on_resize` literal ladder collapsed to one dict lookup.
+    `CODE_MIN_WIDTH` gained a comment stating it equals the narrow tier by
+    coincidence and must not be pointed at the shared constant.
+  - `codebrowser/code_viewer.py` (+16/−6): imports `is_narrow_terminal`; gutter
+    widths named as `ANNOTATION_COL_WIDTH` / `ANNOTATION_COL_WIDTH_NARROW`;
+    `_annotation_col_width` now branches on the shared predicate.
+  - `aidocs/framework/tui_conventions.md` (+49): new section "Terminal-width tiers
+    vs component minimum widths" — four rules, the "stays put" table with file
+    paths, and an explicit note that the `narrow:` dialog kwarg is a host-role
+    flag, not a width test.
+  - `tests/test_tui_narrow_breakpoint.py` (245 lines, 12 tests).
+  - Behavior is byte-for-byte unchanged: 120→35, 80→28, below→22; `<80`→10 else 12.
+
+- **Deviations from plan:** One, decided mid-planning at the user's direction and
+  recorded in the plan before implementation: the **AST/source-scanning guard and
+  its negative controls were dropped**. The plan originally had a Layer-3 scanner
+  flagging `ast.Compare` against int constants in `{80, 120}`, plus a Layer-4
+  temp-copy negative control. The user removed it in favour of documentation
+  cross-referenced with the constants module. The task file's `## Verification`
+  bullet was amended in the same change so the AC states what was actually built
+  (documentation for the "cannot silently reintroduce" half, test for the "reads
+  the shared constant" half) rather than something the change does not do.
+  The `tui_narrow_breakpoint_repo_guard` "after" mitigation — whose entire content
+  was extending that guard repo-wide — was withdrawn for the same reason, with the
+  residual risk explicitly accepted. No `### Planned mitigations` subsection
+  exists, so Step 8d created nothing.
+
+- **Issues encountered:**
+  - The task text named four call sites; the planning inventory found only **two**
+    that hold centralizable literals. The board's threshold is already *derived*
+    (`selector.content_width() + 2 + FILTER_SEARCH_MIN_WIDTH`) and is the better
+    pattern, not a literal to hoist; the monitor's `narrow:` kwarg turned out not
+    to be width-derived at all (`_switcher_narrow()` returns a static `False`,
+    overridden to `True` only by minimonitor — a host-role flag). Both are recorded
+    with a disposition in the plan's Scope table and in `tui_conventions.md` so the
+    narrowing is visible rather than silent.
+  - Feared that `CodeBrowserApp` might be too heavy to boot headlessly, so the plan
+    carried a stub-sidebar fallback. A probe showed it boots fine under
+    `run_test()`, so the fallback was not needed and the tests drive the real App.
+  - A **concurrent session was mutating this checkout** throughout implementation
+    (an in-flight `stats/stats_data.py → lib/stats_data.py` move, already staged by
+    them, plus edits to `tests/run_all_python_tests.sh` and
+    `tests/test_no_lib_to_tui_import.sh`). Every commit here stages explicit paths,
+    and the three tracked files were diff-inspected to confirm they carry only this
+    task's hunks. The full-suite result below was produced against their modified
+    runner.
+
+- **Key decisions:**
+  - **Export predicates, not raw ints.** Consumers import `terminal_tier` /
+    `is_narrow_terminal` rather than `NARROW_TERMINAL_WIDTH`. A function body
+    resolves its module globals at call time, so patching
+    `tui_layout.NARROW_TERMINAL_WIDTH` propagates to every call site — which is
+    exactly what lets one test prove all sites read the shared value. Importing the
+    bare int under `from tui_layout import ...` would bind a per-module copy and
+    destroy that property.
+  - **Tier decision shared, per-tier dimensions local.** `lib/` owns only the
+    boundary; the codebrowser keeps 35/28/22 and 12/10 in its own classes. This is
+    what keeps the module from becoming a dumping ground for every width literal.
+  - **Component minimums deliberately not moved** — `CODE_MIN_WIDTH` (80, equal by
+    coincidence), `FILTER_SEARCH_MIN_WIDTH` (30, t1247's sole source of truth),
+    `_SENTINEL_SAFE_COLS` (24, derived from string lengths), `_NARROW_PREFIX_COLS`
+    (8), minimonitor `target_width` (40, a tmux pane width). A test pins
+    `CODE_MIN_WIDTH != NARROW_TERMINAL_WIDTH` under a patched tier so a future
+    "cleanup" that couples them fails.
+  - **Proved the tests can fail.** Both negative controls were run against the real
+    files: re-inlining `app_width < 80` produced 2 failures, re-inlining the
+    `width >= 120` ladder produced 2 failures. Each was restored by reverting only
+    the mutation (never `git checkout`, which would have destroyed the concurrent
+    session's uncommitted work).
+
+- **Build verification:** `bash tests/run_all_python_tests.sh` — 2504 Python tests,
+  `OK (skipped=1)`, exit 0; shell groups 38/38, 25, 24, 7, 5/5, 22/22 all passed.
+  Isolated runs: new suite 12/12, `test_code_viewer_render.py` 7/7,
+  `test_board_filter_row_layout.py` 12/12, `test_no_lib_to_tui_import.sh` 10/10.
+  Docs cross-reference verified in both directions by grep.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/codebrowser/codebrowser_app.py:357 — inline CSS
+    `#copy_path_dialog { width: 80 }` is a fixed width with no narrow variant, so
+    the copy-path dialog overflows any terminal narrower than 80 columns. Pre-existing,
+    unrelated to this task's tier work, and not fixable by the tier seam (it is CSS,
+    not a Python branch).
+  - `.aitask-scripts/codebrowser/codebrowser_app.py:709 — `_apply_detail_width`
+    falls back to `sidebar_width = 35` (the WIDE-tier value) when
+    `sidebar.styles.width` is unset. On a narrow terminal the real sidebar is 22, so
+    the fallback under-computes `available` by 13 cells and can hide the detail pane
+    that would otherwise fit. Latent because `on_resize` normally sets the width
+    first, but it is a wrong default rather than a safe one.
+
+- **Notes for sibling tasks:** n/a — standalone task, no siblings.
