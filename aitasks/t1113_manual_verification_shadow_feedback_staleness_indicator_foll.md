@@ -4,12 +4,12 @@ effort: medium
 depends: [1104]
 issue_type: manual_verification
 status: Ready
-labels: [verification, manual]
+labels: [verification, manual, tmux_destructive]
 verifies: [1104]
 created_at: 2026-07-02 13:36
-updated_at: 2026-07-02 13:36
-boardidx: 70
+updated_at: 2026-07-28 18:38
 boardcol: tests
+boardidx: 70
 ---
 
 ## Manual Verification Task

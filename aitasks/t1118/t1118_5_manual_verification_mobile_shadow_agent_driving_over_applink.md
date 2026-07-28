@@ -6,11 +6,11 @@ xdeps: [t32_2]
 xdeprepo: aitasks_mobile
 issue_type: manual_verification
 status: Ready
-labels: [verification, manual]
+labels: [verification, manual, tmux_destructive]
 verifies: [t1118_2, t1118_3, t1118_4]
 anchor: 1118
 created_at: 2026-07-03 11:31
-updated_at: 2026-07-03 11:32
+updated_at: 2026-07-28 18:38
 ---
 
 ## Manual Verification Task

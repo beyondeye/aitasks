@@ -4,11 +4,11 @@ effort: medium
 depends: [t1118_2]
 issue_type: feature
 status: Ready
-labels: [applink, applink_control, shadow]
+labels: [applink, applink_control, shadow, tmux_destructive]
 gates: [risk_evaluated]
 anchor: 1118
 created_at: 2026-07-03 11:29
-updated_at: 2026-07-03 11:29
+updated_at: 2026-07-28 18:38
 ---
 
 ## Context

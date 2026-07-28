@@ -4,9 +4,9 @@ effort: medium
 depends: []
 issue_type: feature
 status: Ready
-labels: [applink, applink_control]
+labels: [applink, applink_control, tmux_destructive]
 created_at: 2026-06-16 16:56
-updated_at: 2026-06-25 09:55
+updated_at: 2026-07-28 18:38
 boardidx: 460
 ---
 

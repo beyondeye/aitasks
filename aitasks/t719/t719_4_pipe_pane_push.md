@@ -4,9 +4,9 @@ effort: high
 depends: [t719_3]
 issue_type: performance
 status: Postponed
-labels: [performance, monitor, tui]
+labels: [performance, monitor, tui, tmux_destructive]
 created_at: 2026-04-30 10:28
-updated_at: 2026-06-01 11:56
+updated_at: 2026-07-28 18:38
 ---
 
 ## Context

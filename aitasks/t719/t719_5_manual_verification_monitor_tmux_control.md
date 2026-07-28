@@ -4,10 +4,10 @@ effort: medium
 depends: [t719_4]
 issue_type: manual_verification
 status: Ready
-labels: [verification, manual]
-verifies: [719_1, 719_2, 719_3, 719_4]
+labels: [verification, manual, tmux_destructive]
+verifies: [t719_1, t719_2, t719_3, t719_4]
 created_at: 2026-04-30 10:32
-updated_at: 2026-04-30 10:32
+updated_at: 2026-07-28 18:38
 ---
 
 ## Manual Verification Task
