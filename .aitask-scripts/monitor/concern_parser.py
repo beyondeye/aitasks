@@ -39,24 +39,50 @@ Format (single source of truth: ``.claude/skills/aitask-shadow/concern-format.md
 - **Last block wins:** when several blocks are present, only the most recent
   one is parsed (a re-issued review supersedes an earlier one).
 
-Two consumers, two strictnesses (both share :func:`_last_block_region`, diverging
-only on ``require_close``):
+Three strictness tiers. The first two share :func:`_last_block_region`, diverging
+only on ``require_close``; the third shares it too but consumes a *different
+capture shape* and never yields concerns:
 
-- :func:`parse_concerns` — **forgiving** path for the *explicit* user action
-  (the user pressed the picker hotkey): parses the newest block to EOF even if
-  its closing fence was truncated from scrollback.
-- :func:`has_concern_block` — **strict** trigger predicate for the UI
-  *auto-offer*: the newest opening fence must have *its own* closing fence
-  after it and yield >=1 concern, so the picker is not offered for an
-  incomplete (still streaming), empty, or malformed block.
+=============================== ============================== ==========================================
+Entry point                     Input shape                    Purpose
+=============================== ============================== ==========================================
+:func:`parse_concerns`          wrap-joined, ANSI-free (``-J``) **forgiving** — the *explicit* user action
+                                                               (picker hotkey): parses the newest block to
+                                                               EOF even if its closing fence was truncated
+                                                               from scrollback.
+:func:`has_concern_block`       wrap-joined, ANSI-free (``-J``) **strict** trigger for the UI *auto-offer*:
+                                                               the newest opening fence must have its own
+                                                               closing fence after it and yield >=1 concern,
+                                                               so the picker is never offered for an
+                                                               incomplete, empty, or malformed block.
+:func:`concern_block_signature` **raw tick capture**            **trigger only** — a reflow-stable equality
+                                (``-p -e``, NOT wrap-joined,    token over data the refresh tick already
+                                ANSI-bearing)                   holds, so N agents can be badged at zero
+                                                               extra tmux traffic. Never parsed into
+                                                               forwardable concerns.
+=============================== ============================== ==========================================
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import NamedTuple
 
+try:
+    from .ansi_utils import strip_ansi
+except ImportError:  # imported flat (tests put MONITOR_DIR on sys.path)
+    from ansi_utils import strip_ansi  # noqa: E402
+
 _OPEN = "===AITASK-CONCERNS==="
 _CLOSE = "===END-CONCERNS==="
+
+# Narrowest pane width at which the sentinels are guaranteed not to soft-wrap.
+# They are 21 (`_OPEN`) and 18 (`_CLOSE`) chars; below this a fence can be split
+# across rows and `concern_block_signature` — which reads a NON-wrap-joined
+# capture — stops seeing the block at all. Exported so the caller can fall back
+# to an authoritative `-J` capture for such panes rather than read the `None` as
+# "no concerns" (t1216_1; the same class of silent false negative as t1187).
+_SENTINEL_SAFE_COLS = 24
 
 # Leading "- " (dash + space) is MANDATORY — collision hardening: a wrapped
 # continuation line never carries it, so it can never start a spurious concern.
@@ -288,6 +314,52 @@ def block_head_truncated(text: str) -> bool:
     capture window is the defense there.
     """
     return _CLOSE in text and _OPEN not in text
+
+
+def concern_block_signature(raw_text: str) -> str | None:
+    """Cheap freshness trigger over a raw tick capture (t1216_1).
+
+    Returns a **reflow-stable** digest of the last complete block region, or
+    ``None`` when no complete block is present. Its input is the NON-wrap-joined,
+    ANSI-bearing text the refresh tick already captured (``capture-pane -p -e``),
+    so a caller can tell "this block changed" for N agents without spending a
+    single extra tmux round-trip. Compare successive return values for equality;
+    that is the only supported use.
+
+    **Trigger only — never parse this input into forwardable concerns.** Without
+    ``-J`` a soft-wrapped concern body is split mid-word, which is precisely what
+    the module's wrap-join contract forbids. A caller acting on a change must
+    re-capture with ``-J`` and go through :func:`parse_concerns`.
+
+    Normalisation is ANSI-strip, then whitespace runs to a single space, then
+    strip. `tmux capture-pane` without ``-J`` breaks a wrapped row with a
+    newline and pads rows with trailing spaces; it inserts nothing else. So this
+    is exact for trailing padding and for wraps at a word boundary, and the
+    digest survives a resize, a scrollbar gutter appearing, or an ANSI rendering
+    change — all of which would otherwise make an unchanged block look fresh.
+
+    Collapsing whitespace to *nothing* was considered and **rejected**: it is
+    fully reflow-proof but erases token boundaries, so ``"needs review"`` and
+    ``"needsreview"`` would collide and a genuinely changed concern would be
+    silently missed. Missing a real change is the one failure this must not have.
+
+    **Known residual:** a wrap landing *mid-word* injects a space that was not in
+    the source, so the same block re-rendered at a different pane width can
+    re-hash. Deliberately accepted, because it fails in the safe direction — at
+    most **one spurious re-offer** (a badge, and one toast if the user selects
+    it; nothing is lost or forwarded), never a missed real change. Pinned by a
+    test so it is not "fixed" back into a collision.
+
+    **Blind spot:** on a pane narrower than :data:`_SENTINEL_SAFE_COLS` the fence
+    itself wraps and this returns ``None`` — indistinguishable here from a
+    concern-free pane. Callers that can see the pane width should fall back to an
+    authoritative ``-J`` capture below that width.
+    """
+    region = _last_block_region(strip_ansi(raw_text), require_close=True)
+    if region is None:
+        return None
+    normalized = re.sub(r"\s+", " ", region).strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
 def build_clipboard_payload(

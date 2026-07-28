@@ -143,12 +143,16 @@ character reads as "stale" even when the agent is idle).
   self-guarding: minimonitor's own captures run from a non-shadow pane and never stamp;
   the `-`/no-`TMUX_PANE` paths never stamp. Best-effort — a stamp failure never breaks
   the capture.
-- **Compare (in minimonitor).** On every *other* refresh tick (~6 s at the 3 s default —
-  the concern auto-offer still runs every tick), once a shadow pane is bound, minimonitor
-  reads the cheap `@aitask_shadow_analyzed_at`, then compares it to when the followed pane
+- **Compare (`monitor_core.compute_shadow_staleness`, driven by minimonitor).** On every
+  *other* refresh tick (~6 s at the 3 s default — the concern auto-offer still runs every
+  tick), once a shadow pane is bound, the comparison reads the cheap
+  `@aitask_shadow_analyzed_at`, then compares it to when the followed pane
   last changed (`TmuxMonitor.get_last_change_wall`, derived from monitor_core's existing
   change detection). If the followed pane changed **after** the stamp (beyond a
-  one-refresh-tick epsilon that absorbs detection lag) ⇒ **stale**. It shows a live
+  one-refresh-tick epsilon that absorbs detection lag) ⇒ **stale**. The comparison itself
+  is shared in `monitor_core` (a tri-state `True` / `False` / `None`, where `None` means
+  "could not tell") so any monitoring surface can reuse it; the caller owns the display.
+  Minimonitor shows a live
   `#mini-shadow-stale` warning line — including how old the shadow's read is
   ("analyzed Ns ago") — appends a STALE marker to the concern auto-offer, and passes
   `stale=` to `ConcernPickerModal` (a red banner) so stale concerns are not forwarded

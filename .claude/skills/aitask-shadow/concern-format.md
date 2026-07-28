@@ -125,7 +125,7 @@ parsed.
 
 ## Trigger vs. action contract
 
-The parser exposes two entry points with deliberately different strictness; both
+The parser exposes three entry points with deliberately different strictness; all
 scope every fence check to the **last** opening fence (so an older block's
 closing fence cannot stand in for a newer, still-streaming block):
 
@@ -133,6 +133,17 @@ closing fence cannot stand in for a newer, still-streaming block):
 |-------------|---------|---------------|-----------|
 | `parse_concerns(text)` | the **explicit** user action (picker hotkey) | tolerated absent — parses the newest block to EOF | the user asked for it; scrollback may have truncated the close |
 | `has_concern_block(text)` | the **auto-offer** trigger | **required** after the last opening fence, plus ≥1 parsed concern | do not offer the picker for an incomplete, empty, or malformed block |
+| `concern_block_signature(raw)` | the **freshness** trigger (has this block changed?) | **required** | a reflow-stable digest, compared for equality only |
+
+The first two take a **wrap-joined, escape-free** capture (`capture-pane -p -J`,
+as `aitask_shadow_capture.sh` produces). `concern_block_signature` is the odd one
+out: it reads the **raw refresh-tick capture** (`-p -e`, *not* wrap-joined), which
+is what lets a monitor tell "this block changed" for many agents at no extra tmux
+cost. That makes it a **trigger only** — its input has soft-wrapped bodies split
+mid-word, so it must never be turned into forwardable concerns. A caller acting on
+a change re-captures with `-J` and goes through `parse_concerns`. It also returns
+nothing on a pane narrower than `_SENTINEL_SAFE_COLS` (24), where the fence itself
+can wrap; such panes need the authoritative capture instead.
 
 **Producers must emit the closing fence** so the strict auto-offer fires.
 
@@ -143,10 +154,14 @@ closing fence cannot stand in for a newer, still-streaming block):
   `plan-assumptions.md`, `plan-diagnose-errors.md`. These live **only** in the
   Claude tree; the `.agents/` and `.opencode/` shadow trees carry a `SKILL.md`
   wrapper only (no mirrored sub-procedure files).
-- **Parser:** `.aitask-scripts/monitor/concern_parser.py` — pure
-  (`Concern`, `parse_concerns`, `has_concern_block`, `build_clipboard_payload`).
-- **Consumer:** the minimonitor concern-picker modal + trigger wiring
-  (`monitor_shared.py`, `minimonitor_app.py`).
+- **Parser:** `.aitask-scripts/monitor/concern_parser.py` — pure (`Concern`,
+  `parse_concerns`, `has_concern_block`, `concern_block_signature`,
+  `contains_any_concern_block`, `block_head_truncated`,
+  `build_clipboard_payload`).
+- **Consumer:** the concern-picker modal + trigger wiring (`monitor_shared.py`,
+  `minimonitor_app.py`). The shadow lookup, capture and staleness helpers behind
+  them are shared in `monitor_core.py`, so the full monitor uses one
+  implementation rather than a copy.
 
 ## Staleness
 
@@ -154,6 +169,9 @@ The concern-forward surfaces also carry a **staleness** signal (t1104): when the
 followed agent has moved on since the shadow produced these concerns, the auto-offer
 notify appends a STALE marker and the picker modal shows a red banner, so a stale
 block is not forwarded unaware. See the "Feedback freshness" section of
-`aidocs/framework/shadow_agent.md` for the content-signature mechanism.
+`aidocs/framework/shadow_agent.md` for the mechanism — it compares **timestamps**
+(when the shadow last read the agent vs when the agent last changed), which is a
+different question from `concern_block_signature` above (has *this block's text*
+changed). Do not conflate the two.
 
 See `aidocs/framework/shadow_agent.md` for the shadow companion's overall pipeline.

@@ -27,7 +27,13 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     COMPARE_MODE_RAW,
     COMPARE_MODES,
     DEFAULT_COMPARE_MODE,
-    _strip_ansi,
+    strip_ansi,
+    # `strip_ansi` was `_strip_ansi` until t1216_1, when it moved to
+    # `monitor/ansi_utils.py` and lost the underscore. No in-tree caller used the
+    # private name, but keeping the old alias costs one line and this module's
+    # whole job is to keep existing import sites working — including ones we
+    # cannot see.
+    strip_ansi as _strip_ansi,
     _TEXTUAL_TO_TMUX,
     translate_key,
     task_id_from_window_name,
@@ -35,4 +41,16 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     is_shadow_target,
     SHADOW_TARGET_OPTION,
     SHADOW_ANALYZED_AT_OPTION,
+    # Shared shadow seam (t1216_1) — lifted out of minimonitor_app so both apps
+    # import one implementation. All take a duck-typed `monitor` (the gateway
+    # surface only), or none at all, rather than a concrete TmuxMonitor.
+    match_shadow_pane,
+    shadow_query_args,
+    find_shadow_pane,
+    find_shadow_pane_async,
+    capture_shadow_text,
+    compute_shadow_staleness,
+    _SHADOW_CAPTURE_TIMEOUT,
+    _SHADOW_DEEP_RETRY_LINES,
+    _SHADOW_TRUNCATED_MSG,
 )

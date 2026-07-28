@@ -10,7 +10,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import asyncio
 import contextlib
 import os
 import subprocess
@@ -28,10 +27,18 @@ from monitor.tmux_monitor import (  # noqa: E402
     PaneCategory,
     PaneSnapshot,
     SHADOW_TARGET_OPTION,
-    SHADOW_ANALYZED_AT_OPTION,
     TmuxMonitor,
-    is_shadow_target,
     load_monitor_config,
+    # Shared shadow seam (t1216_1). `match_shadow_pane` is re-bound into this
+    # module's namespace on purpose — it was a module-level function here before
+    # the lift and is referenced as `minimonitor_app.match_shadow_pane`.
+    match_shadow_pane,  # noqa: F401  (re-export: `minimonitor_app.match_shadow_pane`)
+    find_shadow_pane,
+    find_shadow_pane_async,
+    capture_shadow_text,
+    compute_shadow_staleness,
+    _SHADOW_DEEP_RETRY_LINES,
+    _SHADOW_TRUNCATED_MSG,
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
@@ -39,7 +46,7 @@ from monitor.monitor_shared import (  # noqa: E402
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     ConcernPickerModal,
     format_compare_mode_glyph, format_pane_status, format_shadow_glyph,
-    format_state_dot,
+    format_stale_duration, format_state_dot,
 )
 from monitor.concern_parser import (  # noqa: E402
     block_head_truncated, build_clipboard_payload, has_concern_block,
@@ -80,66 +87,10 @@ class MiniPaneCard(Static, can_focus=True):
         self.pane_id = pane_id
 
 
-# Hard ceiling for the shadow-pane tmux query + capture shell-out (seconds).
-# Keeps the picker hotkey and the refresh-tick auto-offer from ever blocking the
-# Textual event loop on a stalled tmux / helper (t1037_4).
-_SHADOW_CAPTURE_TIMEOUT = 3.0
-
-# One-shot deeper window for the EXPLICIT concern-picker hotkey when the default
-# plan-review depth still clipped the block's opening fence (t1187). Only the
-# user-initiated 'c' path pays for it, and only once per press — the per-tick
-# auto-offer never retries.
-_SHADOW_DEEP_RETRY_LINES = 1500
-
-# Shown when a concern block is present but its opening fence fell outside the
-# capture window. Distinguishes a too-shallow capture from a genuinely
-# concern-free shadow, which used to read identically ("no concerns") — the
-# silent false negative behind t1187.
-_SHADOW_TRUNCATED_MSG = (
-    "Shadow's concern block is cut off above the capture window "
-    "— increase SHADOW_PLAN_CAPTURE_LINES"
-)
-
-
-def _pane_id_sort_key(pane_id: str) -> int:
-    """Numeric ordering key for a ``%N`` tmux pane id (newest == largest).
-
-    tmux assigns pane ids monotonically, so the largest numeric id is the most
-    recently created pane. Non-numeric / malformed ids sort first (-1).
-    """
-    try:
-        return int(pane_id.lstrip("%"))
-    except (ValueError, AttributeError):
-        return -1
-
-
-def match_shadow_pane(list_output: str, followed_pane_id: str) -> str | None:
-    """Resolve the shadow pane bound to ``followed_pane_id`` from tmux output.
-
-    Pure (no tmux): ``list_output`` is ``list-panes -F '#{pane_id}\\t
-    #{@aitask_shadow_target}'`` text. Returns the ``pane_id`` whose
-    ``@aitask_shadow_target`` equals ``followed_pane_id`` (the shadow pane carries
-    the followed pane's id — see ``shadow_agent.md``). An empty target marks a
-    non-shadow pane and is ignored (``is_shadow_target``).
-
-    Defense-in-depth: if more than one pane matches (an orphaned live shadow that
-    escaped cleanup — the launch guard in ``action_launch_shadow`` normally
-    prevents this), return the **newest** (largest ``%N``) deterministically. The
-    caller may notify when ``> 1`` match is seen.
-    """
-    matches: list[str] = []
-    for line in list_output.splitlines():
-        parts = line.split("\t")
-        if len(parts) < 2:
-            continue
-        pane_id, target = parts[0].strip(), parts[1].strip()
-        if not is_shadow_target(target):
-            continue
-        if target == followed_pane_id:
-            matches.append(pane_id)
-    if not matches:
-        return None
-    return max(matches, key=_pane_id_sort_key)
+# The shadow constants, `match_shadow_pane` and the lookup / capture / staleness
+# helpers now live in `monitor/monitor_core.py` and are imported above (t1216_1)
+# — one implementation, shared with the full monitor. `_pane_id_sort_key` is
+# gone: it was a byte-identical copy of `monitor_core._pane_id_num`.
 
 
 # -- Main app -----------------------------------------------------------------
@@ -1272,86 +1223,24 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     # -- Shadow concern picker (t1037_4) ---------------------------------------
 
-    def _shadow_query_args(self) -> list[str]:
-        """tmux argv listing every pane's id + @aitask_shadow_target value.
-
-        Shared by the sync and async reverse-lookups so the format never drifts.
-        """
-        return ["list-panes", "-a", "-F",
-                f"#{{pane_id}}\t#{{{SHADOW_TARGET_OPTION}}}"]
+    # The three helpers below are delegating seams, not implementations: the
+    # shared bodies live in `monitor_core` (t1216_1) so the full monitor gets the
+    # same behaviour. They are kept as methods because minimonitor's own call
+    # sites — and the shadow test suite — bind to these private names.
 
     def _find_shadow_pane_for_sync(self, followed_pane_id: str) -> str | None:
-        """Sync reverse lookup of the shadow pane bound to ``followed_pane_id``.
-
-        For the sync duplicate-launch guard only — ``action_launch_shadow`` is a
-        sync action already issuing sync ``tmux_run`` calls. The picker action and
-        the refresh-tick auto-offer use the async :meth:`_find_shadow_pane_for` so
-        they never block the event loop.
-        """
-        if self._monitor is None:
-            return None
-        rc, out = self._monitor.tmux_run(self._shadow_query_args(), timeout=2)
-        if rc != 0:
-            return None
-        return match_shadow_pane(out, followed_pane_id)
+        """Delegating seam → :func:`monitor_core.find_shadow_pane` (sync)."""
+        return find_shadow_pane(self._monitor, followed_pane_id)
 
     async def _find_shadow_pane_for(self, followed_pane_id: str) -> str | None:
-        """Async (event-loop safe) reverse lookup for the picker / auto-offer."""
-        if self._monitor is None:
-            return None
-        rc, out = await self._monitor.tmux_run_async(
-            self._shadow_query_args(), timeout=_SHADOW_CAPTURE_TIMEOUT
-        )
-        if rc != 0:
-            return None
-        return match_shadow_pane(out, followed_pane_id)
+        """Delegating seam → :func:`monitor_core.find_shadow_pane_async`."""
+        return await find_shadow_pane_async(self._monitor, followed_pane_id)
 
     async def _capture_shadow_text(
         self, shadow_pane: str, *, lines: int | None = None
     ) -> str | None:
-        """Capture a shadow pane as clean, wrap-joined text, or ``None`` on failure.
-
-        Reuses ``aitask_shadow_capture.sh`` (the shadow skill's own capture path,
-        now ``-J``-joined per the parser's capture-join contract) so cleaning never
-        diverges. Async with a hard timeout: a stalled tmux / helper degrades to
-        ``None`` rather than hanging the UI (t1037_4).
-
-        Always passes ``--deep``: what we are reading here IS plan-review output
-        (the shadow's concern list plus its fully-framed machine block), which is
-        exactly why the plan sub-procedures use that depth. At the narrow widths
-        a shadow pane runs at, the 200-line default can start *inside* the block
-        and clip its opening fence — which both parser entry points report as
-        "no concerns" (t1187).
-
-        ``lines`` overrides the deep depth for one call (``SHADOW_PLAN_CAPTURE_
-        LINES``), used by the explicit picker hotkey's single deeper retry.
-        """
-        script = _SCRIPT_DIR / "aitask_shadow_capture.sh"
-        env = None
-        if lines is not None:
-            env = dict(os.environ, SHADOW_PLAN_CAPTURE_LINES=str(lines))
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                str(script), "--deep", shadow_pane,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-                env=env,
-            )
-        except OSError:
-            return None
-        try:
-            stdout_bytes, _ = await asyncio.wait_for(
-                proc.communicate(), timeout=_SHADOW_CAPTURE_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            with contextlib.suppress(Exception):
-                await proc.wait()
-            return None
-        if proc.returncode:
-            return None
-        return stdout_bytes.decode("utf-8", errors="replace")
+        """Delegating seam → :func:`monitor_core.capture_shadow_text`."""
+        return await capture_shadow_text(shadow_pane, lines=lines)
 
     def _set_shadow_stale_banner(self, text: str) -> None:
         """Update the live staleness warning line; no-op if unmounted (t1104).
@@ -1370,44 +1259,24 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
     ) -> None:
         """Mark the shadow's feedback stale if the followed agent moved on (t1104).
 
-        Compares *times*, not content: the shadow stamps when it last read the
-        followed pane (``@aitask_shadow_analyzed_at``, epoch); if the followed
-        pane changed after that (per monitor_core's change detection), the shadow
-        has not seen the newer output ⇒ stale. Robust to a live TUI settling by a
-        character (which an exact snapshot hash mis-reads as stale). Failure-safe:
-        an unreadable stamp / not-yet-observed pane PRESERVES the previous state
-        and never clears a standing warning; an absent stamp (shadow never
-        analyzed) clears it.
+        The comparison itself is :func:`monitor_core.compute_shadow_staleness`
+        (shared with the full monitor, t1216_1); this method owns only the
+        minimonitor-specific banner policy. The tri-state it returns is what
+        makes the display failure-safe: ``None`` means "could not tell" — an
+        unreadable / malformed stamp, or a followed pane not observed yet — and
+        must leave a standing warning exactly as it was. Only an explicit
+        ``False`` clears the banner.
         """
-        mon = self._monitor
-        if mon is None or not hasattr(mon, "get_pane_option"):
-            return
-        try:
-            stamp = await mon.get_pane_option(
-                shadow_pane, SHADOW_ANALYZED_AT_OPTION
-            )
-        except Exception:
-            return  # option read failed — preserve prior state
-        if not stamp:
-            # Shadow has not analyzed anything yet: nothing to warn about.
-            self._shadow_feedback_stale = False
-            self._set_shadow_stale_banner("")
-            return
-        try:
-            analyzed_at = float(stamp)
-        except ValueError:
-            return  # malformed stamp — preserve prior state
-        last_change = None
-        if hasattr(mon, "get_last_change_wall"):
-            last_change = mon.get_last_change_wall(followed_pane)
-        if last_change is None:
-            return  # followed pane not observed yet — preserve prior state
         # Epsilon absorbs monitor's up-to-one-tick detection lag so a change the
         # shadow already saw (just noticed a beat later) is not mis-read as new.
         eps = max(2.0, float(getattr(self, "_refresh_seconds", 3)))
-        stale = last_change > analyzed_at + eps
+        stale, analyzed_at = await compute_shadow_staleness(
+            self._monitor, shadow_pane, followed_pane, eps
+        )
+        if stale is None:
+            return  # indeterminate — preserve prior state
         if stale:
-            age = self._format_stale_duration(time.time() - analyzed_at)
+            age = format_stale_duration(time.time() - analyzed_at)
             self._shadow_feedback_stale = True
             self._set_shadow_stale_banner(
                 f"[bold]⚠ shadow feedback is stale — agent moved on "
@@ -1417,17 +1286,8 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._shadow_feedback_stale = False
             self._set_shadow_stale_banner("")
 
-    @staticmethod
-    def _format_stale_duration(seconds: float) -> str:
-        """Compact human duration for the staleness banner (t1104)."""
-        s = int(max(0.0, seconds))
-        if s < 60:
-            return f"{s}s"
-        m, s = divmod(s, 60)
-        if m < 60:
-            return f"{m}m{s:02d}s"
-        h, m = divmod(m, 60)
-        return f"{h}h{m:02d}m"
+    # Delegating seam → :func:`monitor_shared.format_stale_duration`.
+    _format_stale_duration = staticmethod(format_stale_duration)
 
     async def action_pick_concerns(self) -> None:
         """Forward the shadow agent's concerns to the followed agent (via clipboard).

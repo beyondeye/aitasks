@@ -52,8 +52,10 @@ import gate_ledger  # noqa: E402  (shared gate-ledger parser; single derivation 
 
 try:
     from .prompt_patterns import PromptPattern, all_patterns
+    from .ansi_utils import strip_ansi
 except ImportError:  # imported top-level (tests put MONITOR_DIR on PYTHONPATH)
     from prompt_patterns import PromptPattern, all_patterns  # noqa: E402
+    from ansi_utils import strip_ansi  # noqa: E402
 
 
 # Abstract key name → tmux send-keys argument (for special keys). Lives here in
@@ -141,13 +143,10 @@ COMPARE_MODE_RAW = "raw"
 COMPARE_MODES = (COMPARE_MODE_STRIPPED, COMPARE_MODE_RAW)
 DEFAULT_COMPARE_MODE = COMPARE_MODE_STRIPPED
 
-# CSI escape sequence (covers SGR colors plus any other animated CSI tokens).
-_ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+# CSI escape stripping (`strip_ansi`) lives in `monitor/ansi_utils.py` — a pure,
+# dependency-free module so `concern_parser` can share this exact implementation
+# without importing this module's asyncio / subprocess / gateway graph (t1216_1).
 _PROMPT_DETECTION_TAIL_LINES = 6
-
-
-def _strip_ansi(s: str) -> str:
-    return _ANSI_CSI_RE.sub("", s)
 
 
 def _prompt_detection_text(s: str) -> str:
@@ -186,11 +185,11 @@ def classify_content(
     safe to batch off-loop via ``asyncio.to_thread``. ``prompt_patterns`` is read
     only. All ``_last_content`` / ``_last_change_time`` mutation stays loop-side.
     """
-    compare_value = _strip_ansi(content) if mode == COMPARE_MODE_STRIPPED else content
+    compare_value = strip_ansi(content) if mode == COMPARE_MODE_STRIPPED else content
     awaiting_input = False
     awaiting_input_kind = ""
     if category == PaneCategory.AGENT and prompt_patterns:
-        stripped_text = compare_value if mode == COMPARE_MODE_STRIPPED else _strip_ansi(content)
+        stripped_text = compare_value if mode == COMPARE_MODE_STRIPPED else strip_ansi(content)
         prompt_text = _prompt_detection_text(stripped_text)
         for p in prompt_patterns:
             if p.regex.search(prompt_text):
@@ -297,12 +296,216 @@ def _pane_id_num(pane_id: str) -> int:
     tmux assigns pane ids monotonically, so the largest number is the most
     recently created pane. Used to pick the newest shadow deterministically
     when more than one targets the same followed pane (an orphan that escaped
-    cleanup) — mirrors ``match_shadow_pane``'s defense in minimonitor (t1133).
+    cleanup) — including by :func:`match_shadow_pane`, which used to carry its
+    own identical copy of this body in minimonitor (t1133, collapsed in t1216_1).
     """
     try:
         return int(pane_id.lstrip("%"))
     except (ValueError, AttributeError):
         return -1
+
+
+def match_shadow_pane(list_output: str, followed_pane_id: str) -> str | None:
+    """Resolve the shadow pane bound to ``followed_pane_id`` from tmux output.
+
+    Pure (no tmux): ``list_output`` is ``list-panes -F '#{pane_id}\t
+    #{@aitask_shadow_target}'`` text. Returns the ``pane_id`` whose
+    ``@aitask_shadow_target`` equals ``followed_pane_id`` (the shadow pane carries
+    the followed pane's id — see ``shadow_agent.md``). An empty target marks a
+    non-shadow pane and is ignored (``is_shadow_target``).
+
+    Defense-in-depth: if more than one pane matches (an orphaned live shadow that
+    escaped cleanup — the launch guard in ``action_launch_shadow`` normally
+    prevents this), return the **newest** (largest ``%N``) deterministically. The
+    caller may notify when ``> 1`` match is seen.
+    """
+    matches: list[str] = []
+    for line in list_output.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        pane_id, target = parts[0].strip(), parts[1].strip()
+        if not is_shadow_target(target):
+            continue
+        if target == followed_pane_id:
+            matches.append(pane_id)
+    if not matches:
+        return None
+    return max(matches, key=_pane_id_num)
+
+
+# Hard ceiling for the shadow-pane tmux query + capture shell-out (seconds).
+# Keeps the picker hotkey and the refresh-tick auto-offer from ever blocking the
+# Textual event loop on a stalled tmux / helper (t1037_4).
+_SHADOW_CAPTURE_TIMEOUT = 3.0
+
+# One-shot deeper window for the EXPLICIT concern-picker hotkey when the default
+# plan-review depth still clipped the block's opening fence (t1187). Only the
+# user-initiated 'c' path pays for it, and only once per press — the per-tick
+# auto-offer never retries.
+_SHADOW_DEEP_RETRY_LINES = 1500
+
+# Shown when a concern block is present but its opening fence fell outside the
+# capture window. Distinguishes a too-shallow capture from a genuinely
+# concern-free shadow, which used to read identically ("no concerns") — the
+# silent false negative behind t1187.
+_SHADOW_TRUNCATED_MSG = (
+    "Shadow's concern block is cut off above the capture window "
+    "— increase SHADOW_PLAN_CAPTURE_LINES"
+)
+
+
+def shadow_query_args() -> list[str]:
+    """tmux argv listing every pane's id + @aitask_shadow_target value.
+
+    Shared by the sync and async reverse-lookups so the format never drifts.
+    """
+    return ["list-panes", "-a", "-F",
+            f"#{{pane_id}}\t#{{{SHADOW_TARGET_OPTION}}}"]
+
+
+def find_shadow_pane(monitor, followed_pane_id: str) -> str | None:
+    """Sync reverse lookup of the shadow pane bound to ``followed_pane_id``.
+
+    ``monitor`` is duck-typed on the **gateway surface only** (``tmux_run`` ->
+    ``(rc, stdout)``), not on ``TmuxMonitor``: the sole thing needed is one
+    ``list-panes`` round-trip, and keeping the contract that narrow lets both
+    apps — and the test stubs — pass whatever they already hold (t1216_1).
+
+    For the sync duplicate-launch guard only — ``action_launch_shadow`` is a
+    sync action already issuing sync ``tmux_run`` calls. The picker action and
+    the refresh-tick auto-offer use :func:`find_shadow_pane_async` so they never
+    block the event loop.
+    """
+    if monitor is None:
+        return None
+    rc, out = monitor.tmux_run(shadow_query_args(), timeout=2)
+    if rc != 0:
+        return None
+    return match_shadow_pane(out, followed_pane_id)
+
+
+async def find_shadow_pane_async(monitor, followed_pane_id: str) -> str | None:
+    """Async (event-loop safe) reverse lookup for the picker / auto-offer."""
+    if monitor is None:
+        return None
+    rc, out = await monitor.tmux_run_async(
+        shadow_query_args(), timeout=_SHADOW_CAPTURE_TIMEOUT
+    )
+    if rc != 0:
+        return None
+    return match_shadow_pane(out, followed_pane_id)
+
+
+async def capture_shadow_text(
+    shadow_pane: str, *, lines: int | None = None
+) -> str | None:
+    """Capture a shadow pane as clean, wrap-joined text, or ``None`` on failure.
+
+    Reuses ``aitask_shadow_capture.sh`` (the shadow skill's own capture path,
+    ``-J``-joined per the parser's capture-join contract) so cleaning never
+    diverges. Async with a hard timeout: a stalled tmux / helper degrades to
+    ``None`` rather than hanging the UI (t1037_4).
+
+    Module-level and monitor-free by design: the body touches no instance state,
+    so neither app needs a ``TmuxMonitor`` to read a shadow pane (t1216_1).
+
+    Always passes ``--deep``: what we are reading here IS plan-review output
+    (the shadow's concern list plus its fully-framed machine block), which is
+    exactly why the plan sub-procedures use that depth. At the narrow widths
+    a shadow pane runs at, the 200-line default can start *inside* the block
+    and clip its opening fence — which both parser entry points report as
+    "no concerns" (t1187).
+
+    ``lines`` overrides the deep depth for one call (``SHADOW_PLAN_CAPTURE_
+    LINES``), used by the explicit picker hotkey's single deeper retry.
+
+    Note this deliberately does NOT go through the tmux gateway: the ``-J``
+    wrap-join lives in ``aitask_shadow_capture.sh`` and is the parser's
+    contract, whereas the tick capture (:meth:`TmuxMonitor._capture_args`) is
+    ``-p -e`` with no ``-J``. The two captures cannot be served from one call.
+    """
+    script = _SCRIPTS_DIR / "aitask_shadow_capture.sh"
+    env = None
+    if lines is not None:
+        env = dict(os.environ, SHADOW_PLAN_CAPTURE_LINES=str(lines))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            str(script), "--deep", shadow_pane,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            env=env,
+        )
+    except OSError:
+        return None
+    try:
+        stdout_bytes, _ = await asyncio.wait_for(
+            proc.communicate(), timeout=_SHADOW_CAPTURE_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        with contextlib.suppress(Exception):
+            await proc.wait()
+        return None
+    if proc.returncode:
+        return None
+    return stdout_bytes.decode("utf-8", errors="replace")
+
+
+async def compute_shadow_staleness(
+    monitor, shadow_pane: str, followed_pane: str, eps: float
+) -> tuple[bool | None, float | None]:
+    """Is the shadow's feedback stale relative to the followed agent? (t1104)
+
+    Compares *times*, not content: the shadow stamps when it last read the
+    followed pane (``@aitask_shadow_analyzed_at``, epoch); if the followed pane
+    changed after that (per this module's change detection), the shadow has not
+    seen the newer output => stale. Robust to a live TUI settling by a character
+    (which an exact snapshot hash mis-reads as stale).
+
+    Returns ``(stale, analyzed_at)`` where ``stale`` is a **tri-state**:
+
+    ==========================================  ===================
+    Condition                                   Result
+    ==========================================  ===================
+    no monitor / no ``get_pane_option``         ``(None, None)``
+    ``get_pane_option`` raised                  ``(None, None)``
+    stamp empty (shadow never analyzed)         ``(False, None)``
+    stamp not a float                           ``(None, None)``
+    followed pane not observed yet              ``(None, None)``
+    ``last_change > analyzed_at + eps``         ``(True, analyzed_at)``
+    otherwise                                   ``(False, analyzed_at)``
+    ==========================================  ===================
+
+    ``None`` means **"preserve whatever the caller was showing"** — an
+    unreadable/malformed stamp or a not-yet-observed followed pane must never
+    clear a standing warning. Only an explicit ``False`` clears it. The caller
+    owns ``eps`` (one refresh tick, absorbing detection lag) and the banner.
+
+    The empty-stamp branch returns **before** the last-change lookup: that
+    ordering is a cost gate, not an accident — a shadow that never analyzed
+    anything must not provoke a followed-pane query every tick.
+    """
+    if monitor is None or not hasattr(monitor, "get_pane_option"):
+        return None, None
+    try:
+        stamp = await monitor.get_pane_option(shadow_pane, SHADOW_ANALYZED_AT_OPTION)
+    except Exception:
+        return None, None  # option read failed — preserve prior state
+    if not stamp:
+        # Shadow has not analyzed anything yet: nothing to warn about.
+        return False, None
+    try:
+        analyzed_at = float(stamp)
+    except ValueError:
+        return None, None  # malformed stamp — preserve prior state
+    last_change = None
+    if hasattr(monitor, "get_last_change_wall"):
+        last_change = monitor.get_last_change_wall(followed_pane)
+    if last_change is None:
+        return None, None  # followed pane not observed yet — preserve prior state
+    return (last_change > analyzed_at + eps), analyzed_at
 
 
 def count_other_real_agents(
@@ -948,6 +1151,17 @@ class TmuxMonitor:
         # Shadow panes themselves are NEVER in `_pane_cache` (cache-boundary
         # invariant — applink `get_pane`/`capture_pane` stay shadow-blind).
         self._shadow_snapshots: dict[str, PaneSnapshot] = {}
+        # Shadow WRITE ordering (t1216_1) — separate from `_capture_generation`
+        # so a single-shadow refresh can never supersede a full refresh. Both
+        # writers reserve from this one counter in the statement immediately
+        # before they issue their own shadow capture-pane, so the seq is a
+        # faithful proxy for READ order and every shadow write is totally
+        # ordered. `_shadow_snapshot_seq` records the seq each live entry was
+        # read at; `_full_shadow_seq` carries the running full refresh's
+        # reservation from its capture site to `commit_snapshots`.
+        self._shadow_write_seq: int = 0
+        self._shadow_snapshot_seq: dict[str, int] = {}
+        self._full_shadow_seq: tuple[int, int] | None = None
         self._sessions_cache: tuple[float, list[AitasksSession]] | None = None
         self._compare_mode_overrides: dict[str, str] = {}
         self._backend: TmuxControlBackend | None = None
@@ -1005,6 +1219,29 @@ class TmuxMonitor:
         """Current capture generation; callers compare their reserved gen to this
         to detect supersession without touching a private attr."""
         return self._capture_generation
+
+    def _next_shadow_write_seq(self) -> int:
+        """Reserve the next shadow WRITE sequence number (t1216_1).
+
+        Deliberately NOT `_next_generation`: bumping the capture generation from
+        a single-shadow refresh would supersede an in-flight full refresh. Every
+        writer of `_shadow_snapshots` reserves from here in the statement
+        immediately before issuing its own shadow capture — see the class
+        docstring of :meth:`refresh_shadow_snapshot`.
+        """
+        self._shadow_write_seq += 1
+        return self._shadow_write_seq
+
+    def _clear_shadow_snapshots(self) -> None:
+        """Drop all shadow state as one unit (t1216_1).
+
+        `_shadow_snapshots` and `_shadow_snapshot_seq` are two halves of one
+        value — every read of the seq map assumes the matching snapshot exists.
+        Clearing them together in a single method keeps that invariant local
+        instead of leaving it to each call site to remember.
+        """
+        self._shadow_snapshots = {}
+        self._shadow_snapshot_seq = {}
 
     async def _run_offloaded(self, fn):
         """Run pure CPU work `fn` off the event loop (t1111_4).
@@ -1490,6 +1727,98 @@ class TmuxMonitor:
         """
         return self._shadow_snapshots.get(followed_pane_id)
 
+    async def refresh_shadow_snapshot(
+        self, followed_pane_id: str
+    ) -> "PaneSnapshot | None":
+        """Re-capture ONE bound shadow and merge it into the shadow map (t1216_1).
+
+        Lets a caller refresh a single agent's shadow far faster than the ~3 s
+        full cycle without paying for (or disturbing) a full refresh. It never
+        touches the agent-facing path: no `_next_generation`, no `_pane_cache`
+        (the pane object is passed explicitly), no agent snapshots.
+
+        ``None`` means **"no update this tick" — never "the shadow is gone"**.
+        There are four such cases and callers must treat them identically,
+        leaving whatever is on screen in place:
+
+        1. the followed pane has no shadow entry (nothing to refresh — this
+           method never *creates* one, so it can never resurrect a shadow the
+           full refresh just removed);
+        2. the entry was rebound to a different shadow pane while this capture
+           was in flight (see below);
+        3. a newer write already landed for this key;
+        4. the capture itself failed.
+
+        Only :meth:`commit_snapshots` may DELETE, because only discovery knows
+        what actually exists. That asymmetry is deliberate: mirroring the full
+        refresh's hide-on-transient-failure at a sub-second cadence would make
+        the shadow glyph flicker on any hiccup, so this path retains instead and
+        the next full refresh (≤ one refresh interval away) hides or replaces it.
+        The staleness that buys is bounded by exactly that interval.
+
+        Two guards make the merge safe against an interleaved full refresh, and
+        both run BEFORE any bookkeeping is applied — see
+        :meth:`_merge_shadow_snapshot`.
+        """
+        prev = self._shadow_snapshots.get(followed_pane_id)
+        if prev is None:
+            return None
+        captured_pane_id = prev.pane.pane_id
+        # Reserved in the statement immediately before the read below, so the
+        # seq orders this write against the full refresh by READ time.
+        seq = self._next_shadow_write_seq()
+        raw = await self.capture_pane_content_async(captured_pane_id, pane=prev.pane)
+        if raw is None:
+            return None
+        pane, content = raw
+        mode = self.get_compare_mode(pane.pane_id)
+        patterns = self.prompt_patterns
+        result = await self._run_offloaded(
+            lambda: _classify_one(content, mode, patterns, pane.category)
+        )
+        return self._merge_shadow_snapshot(
+            followed_pane_id, captured_pane_id, seq, pane, content, result
+        )
+
+    def _merge_shadow_snapshot(
+        self,
+        key: str,
+        captured_pane_id: str,
+        seq: int,
+        pane: TmuxPaneInfo,
+        content: str,
+        result: "ClassifyResult",
+    ) -> "PaneSnapshot | None":
+        """Loop-side guarded merge of one re-captured shadow (t1216_1).
+
+        Runs synchronously after the await, so both guards and the write are
+        atomic with respect to every other coroutine.
+
+        **Identity, not just existence.** A live shadow can die and be replaced
+        by a new one bound to the SAME followed pane while a capture of the old
+        one is in flight. The key is still present in that case, so a
+        presence-only check would let the dead pane's content overwrite its live
+        replacement. Requiring the current entry to still name the pane we
+        actually read closes that, and simultaneously covers the removal case.
+
+        **Bookkeeping strictly after the guards.** :meth:`_apply_bookkeeping` is
+        the only writer of `_last_content` / `_last_change_time`, and its
+        contract puts generation ownership on the caller. Calling it before the
+        checks would let a REJECTED late refresh write stale content and reset
+        the shadow's idle clock — corrupting state the merge itself then
+        declines to publish, and making the next full refresh see a change that
+        never happened.
+        """
+        cur = self._shadow_snapshots.get(key)
+        if cur is None or cur.pane.pane_id != captured_pane_id:
+            return None  # removed by a full refresh, or rebound to a new shadow
+        if seq <= self._shadow_snapshot_seq.get(key, -1):
+            return None  # a newer read already landed for this key
+        snap = self._apply_bookkeeping(pane, content, result, time.monotonic())
+        self._shadow_snapshots[key] = snap
+        self._shadow_snapshot_seq[key] = seq
+        return snap
+
     def commit_snapshot(
         self,
         gen: int,
@@ -1627,7 +1956,7 @@ class TmuxMonitor:
         """
         panes = self.discover_panes()
         self._clean_stale({p.pane_id for p in panes})
-        self._shadow_snapshots = {}
+        self._clear_shadow_snapshots()
 
         snapshots: dict[str, PaneSnapshot] = {}
         for pane in panes:
@@ -1649,6 +1978,10 @@ class TmuxMonitor:
         pane's id is still present so the loop-side :meth:`commit_snapshots` can
         clean stale ids without dropping a pane over a transient capture error.
         Mutates **no** ``_last_content`` state; that is the commit's job.
+
+        The shadow WRITE seq is reserved further down — **after** discovery and
+        immediately before the raw-capture gather — not here beside ``gen``. See
+        the comment at that site (t1216_1).
         """
         gen = self._next_generation()
         panes, shadows = await self.discover_panes_with_shadows_async()
@@ -1658,6 +1991,17 @@ class TmuxMonitor:
         # no separate fan-out); they pass their pane object explicitly because
         # they are never in `_pane_cache` (cache-boundary invariant).
         all_panes = panes + shadows
+        # Reserve this batch's shadow WRITE seq HERE — after the discovery await
+        # above, in the last statement before the shadow panes are actually read
+        # (t1216_1). Reserving it beside `gen` would date this batch from before
+        # discovery, so a fast `refresh_shadow_snapshot` that both reserved AND
+        # read entirely inside the discovery window would out-rank a full refresh
+        # that reads the same pane later — and the full refresh's NEWER content
+        # would lose the merge. The `gen ==` guard stops a batch that has already
+        # been superseded from clobbering the live batch's reservation (it cannot
+        # commit anyway — `commit_snapshots` rejects it at the same check).
+        if gen == self._capture_generation:
+            self._full_shadow_seq = (gen, self._next_shadow_write_seq())
         raw_results = await asyncio.gather(
             *(self.capture_pane_content_async(p.pane_id, pane=p) for p in all_panes),
             return_exceptions=True,
@@ -1708,6 +2052,17 @@ class TmuxMonitor:
         stale-state preservation, which would freeze the idle clock on screen).
         Duplicate shadows targeting one followed pane: the newest (largest
         ``%N``) wins, mirroring ``match_shadow_pane``.
+
+        Stamped merge (t1216_1): "rebuilt wholesale" now means *rebuilt for every
+        key this batch is the newest reader of*. Each rebuilt entry carries the
+        shadow WRITE seq this batch reserved at its capture site, and a key that
+        an interleaved :meth:`refresh_shadow_snapshot` read **later** keeps the
+        refresh's entry — but only while both are reads of the *same* pane, since
+        discovery, not the seq, decides WHICH pane is a given agent's shadow.
+        Deletion is unchanged and remains exclusive to this method: a key absent
+        from this batch's own discovery is dropped regardless of seq, which is
+        what makes a dead shadow disappear and what the single-shadow merge
+        relies on to never resurrect one.
         """
         if gen != self._capture_generation:
             return None
@@ -1727,20 +2082,70 @@ class TmuxMonitor:
                 self._compare_mode_overrides.pop(pane.pane_id, None)
         now = time.monotonic()
         snapshots: dict[str, PaneSnapshot] = {}
-        shadow_snaps: dict[str, PaneSnapshot] = {}
+        # Shadow entries are only SELECTED here; their bookkeeping is deferred
+        # until after the per-key merge below has picked a winner. Agent panes
+        # are unaffected and keep their bookkeeping inline.
+        #
+        # Why: `_apply_bookkeeping` is the sole writer of `_last_content` /
+        # `_last_change_time`, and the merge can retain a newer fast-refresh
+        # snapshot for a key. Applying it to a batch shadow that then LOSES the
+        # merge would leave the displayed snapshot new while rewriting the idle
+        # bookkeeping with this batch's older content — so the next full refresh
+        # would see a change that never happened and reset the idle clock. Same
+        # ordering rule `_merge_shadow_snapshot` follows: decide first, write
+        # bookkeeping only for the entry actually published.
+        shadow_candidates: dict[
+            str, tuple[TmuxPaneInfo, str, "ClassifyResult"]
+        ] = {}
         for pane, content, result in classified:
             if result is None:
                 continue
-            snap = self._apply_bookkeeping(pane, content, result, now)
             if pane.shadow_target:
-                prev = shadow_snaps.get(pane.shadow_target)
+                prev = shadow_candidates.get(pane.shadow_target)
                 if prev is None or (
-                    _pane_id_num(pane.pane_id) > _pane_id_num(prev.pane.pane_id)
+                    _pane_id_num(pane.pane_id) > _pane_id_num(prev[0].pane_id)
                 ):
-                    shadow_snaps[pane.shadow_target] = snap
+                    shadow_candidates[pane.shadow_target] = (pane, content, result)
             else:
-                snapshots[pane.pane_id] = snap
-        self._shadow_snapshots = shadow_snaps
+                snapshots[pane.pane_id] = self._apply_bookkeeping(
+                    pane, content, result, now
+                )
+        # Stamp this batch with the seq reserved at its capture site. The
+        # fallback covers a hand-built `commit_snapshots` call with no matching
+        # `capture_all_classified_async` reservation: a fresh (therefore highest)
+        # seq reproduces the pre-t1216_1 wholesale-overwrite semantics exactly.
+        if self._full_shadow_seq is not None and self._full_shadow_seq[0] == gen:
+            batch_seq = self._full_shadow_seq[1]
+        else:
+            batch_seq = self._next_shadow_write_seq()
+        # Discovery is authoritative for EXISTENCE and IDENTITY (which pane is
+        # this agent's shadow); the seq arbitrates only RECENCY, and only between
+        # two reads of the SAME pane. So a key an interleaved single-shadow
+        # refresh read later keeps that refresh's newer entry — unless discovery
+        # has since bound a different pane to the key, in which case the newer
+        # read is of a pane that is no longer the shadow and must not be kept.
+        # (This is the commit-side half of the rebind race that
+        # `_merge_shadow_snapshot` guards from the other direction.)
+        merged: dict[str, PaneSnapshot] = {}
+        merged_seq: dict[str, int] = {}
+        for key, (pane, content, result) in shadow_candidates.items():
+            prior_seq = self._shadow_snapshot_seq.get(key)
+            prior_snap = self._shadow_snapshots.get(key)
+            if (
+                prior_seq is not None
+                and prior_snap is not None
+                and prior_snap.pane.pane_id == pane.pane_id
+                and prior_seq > batch_seq
+            ):
+                # This batch lost: leave both the snapshot AND the idle
+                # bookkeeping exactly as the newer read left them.
+                merged[key] = prior_snap
+                merged_seq[key] = prior_seq
+            else:
+                merged[key] = self._apply_bookkeeping(pane, content, result, now)
+                merged_seq[key] = batch_seq
+        self._shadow_snapshots = merged
+        self._shadow_snapshot_seq = merged_seq
         return snapshots
 
     async def capture_all_async(self) -> dict[str, PaneSnapshot] | None:

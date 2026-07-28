@@ -92,6 +92,22 @@ def format_shadow_glyph(shadow_snap: PaneSnapshot | None) -> str:
     return f"[{_state_color(shadow_snap)}]{SHADOW_GLYPH}[/]"
 
 
+def format_stale_duration(seconds: float) -> str:
+    """Compact human duration for the shadow-staleness banner (t1104).
+
+    Pure. Shared so every surface that reports "analyzed N ago" reads
+    identically (t1216_1).
+    """
+    s = int(max(0.0, seconds))
+    if s < 60:
+        return f"{s}s"
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f"{m}m{s:02d}s"
+    h, m = divmod(m, 60)
+    return f"{h}h{m:02d}m"
+
+
 def format_pane_status(snap: PaneSnapshot) -> str:
     """Render a pane's status badge with awaiting_input > is_idle > active priority."""
     if getattr(snap, "awaiting_input", False):
