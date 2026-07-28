@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -18,6 +18,7 @@ anchor: 1037
 implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:03
 updated_at: 2026-07-28 12:56
+completed_at: 2026-07-28 12:56
 ---
 
 The minimonitor concern picker presents every shadow concern as an identical
@@ -155,3 +156,14 @@ shape they observed.
 > **✅ gate:plan_approved** run=2026-07-28T07:45:01Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-28T09:53:10Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-28T09:56:52Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a24b793b1d1c5d7b
+
+> **✅ gate:risk_evaluated** run=2026-07-28T09:56:52Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1274/risk_evaluated_2026-07-28T09:56:52Z-risk_evaluated-a1.log`
