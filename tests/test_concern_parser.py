@@ -25,7 +25,9 @@ from concern_parser import (  # noqa: E402
     build_clipboard_payload,
     contains_any_concern_block,
     has_concern_block,
+    needs_addressing,
     parse_concerns,
+    unrecovered_markers,
 )
 
 OPEN = "===AITASK-CONCERNS==="
@@ -555,6 +557,186 @@ class TestBlockHeadTruncated(unittest.TestCase):
         self.assertTrue(has_concern_block(text))
 
 
+class TestDispositionDerivation(unittest.TestCase):
+    """`disposition` / `verdict` are derived from the body's terminal trailer (t1274).
+
+    They are NOT marker fields: the shadow's implementation review already ends
+    each body with `Disposition: … Verified: …` prose, and widening the
+    `[priority | region]` bracket is the documented t1167 drop hazard. Deriving
+    also means every block emitted before this existed keeps working.
+    """
+
+    def _one(self, body):
+        concerns = parse_concerns(block(f"- [medium | region] {body}"))
+        self.assertEqual(len(concerns), 1)
+        return concerns[0]
+
+    def test_each_disposition_and_verdict_is_derived(self):
+        for disposition in ("blocking", "follow-up", "informational"):
+            for verdict in ("CONFIRMED", "PLAUSIBLE", "REFUTED"):
+                with self.subTest(disposition=disposition, verdict=verdict):
+                    c = self._one(
+                        f"Real text. Disposition: {disposition}. "
+                        f"Verified: {verdict}."
+                    )
+                    self.assertEqual(c.disposition, disposition)
+                    self.assertEqual(c.verdict, verdict)
+                    self.assertEqual(c.display_body(), "Real text.")
+
+    def test_case_and_spelling_variants_normalize(self):
+        for written, expected in (
+            ("follow-up", "follow-up"),
+            ("follow up", "follow-up"),
+            ("followup", "follow-up"),
+            ("INFORMATIONAL", "informational"),
+            ("Blocking", "blocking"),
+        ):
+            with self.subTest(written=written):
+                c = self._one(f"Text. Disposition: {written}.")
+                self.assertEqual(c.disposition, expected)
+
+    def test_trailer_sentence_order_is_free(self):
+        c = self._one("Text. Verified: CONFIRMED. Disposition: follow-up.")
+        self.assertEqual((c.disposition, c.verdict), ("follow-up", "CONFIRMED"))
+        self.assertEqual(c.display_body(), "Text.")
+
+    def test_absent_trailer_leaves_both_empty_and_body_untouched(self):
+        c = self._one("A plain concern with no trailer at all.")
+        self.assertEqual((c.disposition, c.verdict), ("", ""))
+        self.assertEqual(c.display_body(), c.body)
+
+    def test_unknown_disposition_value_is_not_derived(self):
+        c = self._one("Text. Disposition: urgent.")
+        self.assertEqual(c.disposition, "")
+        self.assertEqual(c.display_body(), c.body)
+
+    def test_prose_mention_is_neither_classified_nor_stripped(self):
+        """The anchor is what stops a body *discussing* a disposition from lying.
+
+        Without a terminal anchor this body would be classified `informational`
+        and would lose real prose from the row.
+        """
+        c = self._one(
+            "The rubric says Disposition: informational. is for settled "
+            "findings, but this one is a genuine defect."
+        )
+        self.assertEqual(c.disposition, "")
+        self.assertEqual(c.display_body(), c.body)
+
+    def test_text_after_the_trailer_means_there_is_no_trailer(self):
+        c = self._one("Text. Disposition: blocking. And one more thought.")
+        self.assertEqual(c.disposition, "")
+        self.assertEqual(c.display_body(), c.body)
+
+    def test_body_stays_canonical_and_forwarding_is_byte_identical(self):
+        """The forwarded payload must still carry the trailer verbatim.
+
+        `build_clipboard_payload` re-renders `body`, so stripping the trailer at
+        parse time would silently delete the disposition from what the followed
+        agent receives.
+        """
+        line = (
+            "- [medium | accepted risk] Automated verification does not cover "
+            "the merge. Disposition: informational. Verified: CONFIRMED."
+        )
+        concerns = parse_concerns(block(line))
+        self.assertIn("Disposition: informational.", concerns[0].body)
+        payload = build_clipboard_payload(concerns)
+        self.assertEqual(payload.splitlines()[2], line)
+
+    def test_needs_addressing_is_false_only_for_informational(self):
+        self.assertFalse(needs_addressing(Concern("high", "r", "b", "informational")))
+        for disposition in ("blocking", "follow-up", ""):
+            with self.subTest(disposition=disposition):
+                self.assertTrue(
+                    needs_addressing(Concern("high", "r", "b", disposition))
+                )
+
+    def test_new_fields_default_so_positional_construction_still_works(self):
+        c = Concern("high", "region", "body")
+        self.assertEqual((c.disposition, c.verdict), ("", ""))
+
+
+class TestRegionLessMarker(unittest.TestCase):
+    """`- [medium] body` parses with an empty region instead of vanishing (t1274).
+
+    It matches neither `_ITEM` (no `|`) nor the split-marker path (the row does
+    contain `]`), so it used to fall through to continuation handling: appended
+    to the previous concern's body, or dropped when it was the first item.
+    """
+
+    def test_parses_with_an_empty_region(self):
+        (c,) = parse_concerns(block("- [medium] a region-less concern"))
+        self.assertEqual((c.priority, c.region, c.body),
+                         ("medium", "", "a region-less concern"))
+
+    def test_is_not_dropped_as_the_first_item(self):
+        concerns = parse_concerns(
+            block("- [medium] first item", "- [high | ok] second item")
+        )
+        self.assertEqual([c.body for c in concerns], ["first item", "second item"])
+
+    def test_is_not_merged_into_the_preceding_concern(self):
+        concerns = parse_concerns(
+            block("- [high | ok] first item", "- [medium] second item")
+        )
+        self.assertEqual(len(concerns), 2)
+        self.assertEqual(concerns[0].body, "first item")
+        self.assertEqual(concerns[1].body, "second item")
+
+    def test_priority_is_the_closed_vocabulary_not_a_word_class(self):
+        """Negative control: the collision-hardening guarantee is intact.
+
+        With `\\w+` here, an ordinary wrapped body line carrying bracketed text
+        would start a spurious concern. The closed alternation is what prevents
+        that, so this must stay a continuation.
+        """
+        concerns = parse_concerns(
+            block("- [high | ok] first item", "- [see below] not a marker")
+        )
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(concerns[0].body, "first item - [see below] not a marker")
+
+
+class TestUnrecoveredMarkers(unittest.TestCase):
+    """What the parser could not turn into a concern is reported, not swallowed.
+
+    The remaining losses (an over-bound split, a malformed bracket) stay
+    deliberately unrecoverable — widening `_MAX_MARKER_JOIN_ROWS` is the accepted
+    t1167 limit. What changes is that they stop being invisible: the picker shows
+    the count so the user knows the list is short (t1274).
+    """
+
+    def test_over_bound_split_marker_is_reported(self):
+        text = block(
+            "- [low | aaaa", "bbbb", "cccc", "dddd] over-bound body",
+            "- [high | ok] a good one",
+        )
+        self.assertEqual(len(parse_concerns(text)), 1)
+        self.assertEqual(unrecovered_markers(text), ["- [low | aaaa"])
+
+    def test_malformed_and_unclosed_brackets_are_reported(self):
+        for bad in ("- [ | region] no priority", "- [medium | never closes"):
+            with self.subTest(bad=bad):
+                text = block("- [high | ok] a good one", bad)
+                self.assertEqual(unrecovered_markers(text), [bad])
+
+    def test_a_well_formed_block_reports_nothing(self):
+        text = block(
+            "- [high | ok] a good one",
+            "  a wrapped continuation line",
+            "- [medium] a region-less one",
+        )
+        self.assertEqual(unrecovered_markers(text), [])
+
+    def test_bracketed_prose_inside_a_body_is_not_reported(self):
+        text = block("- [high | ok] a body mentioning [medium | x] inline")
+        self.assertEqual(unrecovered_markers(text), [])
+
+    def test_no_block_reports_nothing(self):
+        self.assertEqual(unrecovered_markers("just some pane output"), [])
+
+
 def _states_short_region_rule(text: str) -> bool:
     """True when a producer doc states the short-region rule.
 
@@ -640,6 +822,61 @@ class TestProducerShortRegionRule(unittest.TestCase):
             "  MUST stay short (≤ ~30 chars), never a full repo path.\n"
         )
         self.assertTrue(_states_short_region_rule(with_rule))
+
+
+def _states_region_required_rule(text: str) -> bool:
+    """True when a producer doc states that `region` is mandatory.
+
+    Whitespace is collapsed first for the same reason as
+    :func:`_states_short_region_rule` — these are hand-wrapped markdown files and
+    the phrase straddles a line break in several producers.
+    """
+    flat = " ".join(text.split())
+    return "mandatory and never empty" in flat
+
+
+class TestProducerRegionRequiredRule(unittest.TestCase):
+    """Every producer must state that `region` is mandatory (t1274).
+
+    An empty region leaves the picker row with no title. The parser now tolerates
+    the shape rather than losing the item, but tolerance is not permission — this
+    is the prevention half, and it mirrors
+    :class:`TestProducerShortRegionRule` exactly so both rules fail the build the
+    same way.
+    """
+
+    SHADOW_DIR = TestProducerShortRegionRule.SHADOW_DIR
+    PRODUCER_MARKER = TestProducerShortRegionRule.PRODUCER_MARKER
+    KNOWN_PRODUCERS = TestProducerShortRegionRule.KNOWN_PRODUCERS
+
+    _producers = TestProducerShortRegionRule._producers
+
+    def test_producer_set_is_the_known_set(self):
+        self.assertEqual(sorted(self._producers()), self.KNOWN_PRODUCERS)
+
+    def test_every_producer_states_the_region_required_rule(self):
+        offenders = [
+            name
+            for name, text in self._producers().items()
+            if not _states_region_required_rule(text)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "producer doc(s) do not state that `region` is mandatory, so the "
+            "agent may emit an empty region and the picker row loses its only "
+            "title: " + ", ".join(offenders),
+        )
+
+    def test_guard_flags_a_producer_missing_the_rule(self):
+        """Negative control: prove the guard can fail."""
+        without = (
+            "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+            "- `region` names the plan section / axis the concern targets.\n"
+        )
+        self.assertFalse(_states_region_required_rule(without))
+        with_rule = without + "  It is mandatory and never empty.\n"
+        self.assertTrue(_states_region_required_rule(with_rule))
 
 
 if __name__ == "__main__":

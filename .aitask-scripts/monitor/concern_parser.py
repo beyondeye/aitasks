@@ -36,6 +36,13 @@ Format (single source of truth: ``.claude/skills/aitask-shadow/concern-format.md
   primary defense — see ``concern-format.md``.
 - ``priority`` is normalized case-insensitively to {high, medium, low}; an
   unknown value degrades to ``low`` (the item is never dropped).
+- A region-less marker (``- [medium] body``) parses with an empty ``region``
+  instead of being swallowed as a wrap continuation (t1274).
+- ``disposition`` and ``verdict`` are **derived**, not marker fields: they are
+  read from the terminal ``Disposition: … Verified: …`` run the implementation
+  review appends to the body. ``body`` itself is left canonical so
+  :func:`build_clipboard_payload` forwards the trailer intact; display surfaces
+  call :meth:`Concern.display_body`.
 - **Last block wins:** when several blocks are present, only the most recent
   one is parsed (a re-issued review supersedes an earlier one).
 
@@ -60,6 +67,10 @@ Entry point                     Input shape                    Purpose
                                 ANSI-bearing)                   holds, so N agents can be badged at zero
                                                                extra tmux traffic. Never parsed into
                                                                forwardable concerns.
+:func:`unrecovered_markers`     wrap-joined, ANSI-free (``-J``) **report** — the marker-looking lines the
+                                                               same (forgiving) region yielded no concern
+                                                               for, so the picker can say how many items
+                                                               were lost instead of degrading silently.
 =============================== ============================== ==========================================
 """
 from __future__ import annotations
@@ -90,6 +101,22 @@ _ITEM = re.compile(
     r"^\s*-\s+\[\s*(?P<priority>\w+)\s*\|\s*(?P<region>[^\]]*)\]\s*(?P<body>.*)$"
 )
 
+# A marker that omits the `| region` half entirely: `- [medium] body`. Tried only
+# after `_ITEM` fails. Without this the row is neither an item nor (because it
+# contains `]`) a split-marker candidate, so it falls through to continuation
+# handling and is silently APPENDED to the previous concern's body — or dropped
+# outright when it is the first item in the block (t1274).
+#
+# The priority alternation is deliberately the CLOSED vocabulary, not `\w+`.
+# `_ITEM` can afford `\w+` because the `|` separator already makes the shape
+# unmistakable; without that separator a permissive class would let an ordinary
+# wrapped body line (`- [see below] …`) start a spurious concern, breaking the
+# collision-hardening guarantee the whole format rests on.
+_ITEM_NO_REGION = re.compile(
+    r"^\s*-\s+\[\s*(?P<priority>high|medium|low)\s*\]\s*(?P<body>.+)$",
+    re.IGNORECASE,
+)
+
 # A row that *starts* like an item marker. Used only to detect a marker whose
 # bracket was split across rows by an agent TUI's own hard-wrap (t1167).
 _MARKER_START = re.compile(r"^\s*-\s+\[")
@@ -107,6 +134,34 @@ _MAX_MARKER_JOIN_ROWS = 2
 
 _VALID = {"high", "medium", "low"}
 
+#: Dispositions the shadow's implementation review assigns to a finding, in
+#: partition order. Single source of the vocabulary on the consumer side; the
+#: rubric that *defines* them lives in
+#: ``.claude/skills/aitask-shadow/impl-review-angles.md``.
+DISPOSITIONS = ("blocking", "follow-up", "informational")
+
+_VERDICTS = ("CONFIRMED", "PLAUSIBLE", "REFUTED")
+
+# The disposition / verdict trailer the implementation review appends to a
+# concern body as prose (`… Disposition: informational. Verified: CONFIRMED.`).
+#
+# Anchored to the END of the body on purpose. These are metadata that TERMINATE
+# the body, so only a terminal run counts: a body that quotes or discusses
+# `Disposition: informational.` mid-prose must neither be classified by it nor
+# have that prose stripped from the display (t1274). Sentence order within the
+# run is free.
+_TRAILER_SENTENCE = (
+    r"(?:Disposition:\s*(?:blocking|follow[- ]?up|informational)"
+    r"|Verified:\s*(?:CONFIRMED|PLAUSIBLE|REFUTED))\.?"
+)
+_TRAILER_SPAN = re.compile(rf"(?:\s*{_TRAILER_SENTENCE})+\s*$", re.IGNORECASE)
+_DISPOSITION_IN_TRAILER = re.compile(
+    r"Disposition:\s*(blocking|follow[- ]?up|informational)", re.IGNORECASE
+)
+_VERDICT_IN_TRAILER = re.compile(
+    r"Verified:\s*(CONFIRMED|PLAUSIBLE|REFUTED)", re.IGNORECASE
+)
+
 DEFAULT_PREAMBLE = (
     "I have some concerns: please verify them and if valid "
     "please address in the plan"
@@ -114,14 +169,63 @@ DEFAULT_PREAMBLE = (
 
 
 class Concern(NamedTuple):
-    priority: str   # one of {"high", "medium", "low"}
-    region: str     # free-text plan-region / axis label
-    body: str       # free-text concern body (wrap-joined)
+    priority: str        # one of {"high", "medium", "low"}
+    region: str          # free-text plan-region / axis label
+    body: str            # free-text concern body (wrap-joined) — see below
+    disposition: str = ""  # one of DISPOSITIONS, or "" when unspecified
+    verdict: str = ""      # one of _VERDICTS, or "" when absent
+
+    # ``body`` is CANONICAL: exactly what the producer emitted, trailer included.
+    # :func:`build_clipboard_payload` re-renders it verbatim, so stripping the
+    # trailer here would delete the disposition from what gets forwarded to the
+    # followed agent. Display surfaces call :meth:`display_body` instead; the
+    # clipboard path must always use ``body``.
+
+    def display_body(self) -> str:
+        """``body`` minus its terminal ``Disposition:`` / ``Verified:`` run.
+
+        Exactly the span :data:`_TRAILER_SPAN` matched is removed — never more —
+        so prose that merely mentions a disposition survives intact. Returns
+        ``body`` unchanged when there is no terminal trailer.
+        """
+        match = _TRAILER_SPAN.search(self.body)
+        return self.body[: match.start()].rstrip() if match else self.body
+
+
+def needs_addressing(concern: Concern) -> bool:
+    """False only for an explicitly ``informational`` concern.
+
+    The single home of the actionable/not rule, so display surfaces never
+    re-derive it. An *unspecified* disposition (the three ``plan-*`` producers
+    emit no trailer at all, and older blocks may predate it) counts as needing
+    attention — the safe direction.
+    """
+    return concern.disposition != "informational"
 
 
 def _norm_priority(raw: str) -> str:
     p = raw.strip().lower()
     return p if p in _VALID else "low"
+
+
+def _parse_trailer(body: str) -> tuple[str, str]:
+    """Return ``(disposition, verdict)`` read from ``body``'s terminal trailer.
+
+    Both default to ``""`` — when there is no terminal trailer, or when the
+    trailer carries only one of the two sentences.
+    """
+    match = _TRAILER_SPAN.search(body)
+    if match is None:
+        return "", ""
+    trailer = match.group(0)
+    disposition = ""
+    verdict = ""
+    if (d := _DISPOSITION_IN_TRAILER.search(trailer)) is not None:
+        disposition = re.sub(r"\s+", "-", d.group(1).strip().lower())
+        disposition = disposition.replace("followup", "follow-up")
+    if (v := _VERDICT_IN_TRAILER.search(trailer)) is not None:
+        verdict = v.group(1).upper()
+    return disposition, verdict
 
 
 def _last_block_region(text: str, *, require_close: bool) -> str | None:
@@ -199,19 +303,32 @@ def _join_split_marker(lines: list[str], start: int):
     return None, 1
 
 
-def _parse_items(region: str) -> list[Concern]:
+def _scan_items(region: str) -> tuple[list[Concern], list[str]]:
     """Extract concerns from a block region (the only home of the grammar).
 
-    A line matching the item marker starts a new concern; any other non-blank
-    line is a wrap continuation and is appended (space-joined) to the current
-    concern's body. Blank lines are ignored.
+    Returns ``(concerns, unrecovered)``. A line matching the item marker starts a
+    new concern; any other non-blank line is a wrap continuation and is appended
+    (space-joined) to the current concern's body. Blank lines are ignored.
 
-    A row that *starts* like a marker but whose bracket never closes on that row
-    is offered to :func:`_join_split_marker`, which rejoins a bounded number of
-    following rows to recover a marker the renderer hard-wrapped mid-bracket.
+    Three marker shapes are recognised, in order: the canonical
+    ``- [priority | region] body`` (:data:`_ITEM`); a bracket the renderer
+    hard-wrapped mid-marker, rejoined by :func:`_join_split_marker` within its
+    bounded envelope; and the region-less ``- [priority] body``
+    (:data:`_ITEM_NO_REGION`), which yields an empty region rather than being
+    swallowed as a continuation.
+
+    ``unrecovered`` collects every remaining line that *looks* like a marker
+    (:data:`_MARKER_START`) but produced no concern — an over-bound split, a
+    malformed bracket, an unclosed one. A genuine continuation line can never
+    begin ``- [`` (that is the collision-hardening invariant the format rests
+    on), so such a line is by definition a marker the parser could not recover.
+    Those lines still fall through to continuation handling as before — nothing
+    is lost — but the caller can now *report* them instead of degrading
+    silently (t1274).
     """
     # Each entry: [priority, region, [body_parts]].
     items: list[list] = []
+    unrecovered: list[str] = []
     lines = region.splitlines()
     i = 0
     while i < len(lines):
@@ -220,16 +337,36 @@ def _parse_items(region: str) -> list[Concern]:
         consumed = 1
         if m is None and _MARKER_START.match(line) and "]" not in line:
             m, consumed = _join_split_marker(lines, i)
+        region_label = m.group("region") if m else ""
+        if m is None:
+            m = _ITEM_NO_REGION.match(line)
         if m:
-            items.append([m.group("priority"), m.group("region"), [m.group("body")]])
-        elif line.strip() and items:
-            items[-1][2].append(line)
+            items.append([m.group("priority"), region_label, [m.group("body")]])
+        else:
+            if _MARKER_START.match(line):
+                unrecovered.append(line.strip())
+            if line.strip() and items:
+                items[-1][2].append(line)
         i += consumed
     out: list[Concern] = []
     for priority, region_label, parts in items:
         body = " ".join(p.strip() for p in parts if p.strip()).strip()
-        out.append(Concern(_norm_priority(priority), region_label.strip(), body))
-    return out
+        disposition, verdict = _parse_trailer(body)
+        out.append(
+            Concern(
+                _norm_priority(priority),
+                region_label.strip(),
+                body,
+                disposition,
+                verdict,
+            )
+        )
+    return out, unrecovered
+
+
+def _parse_items(region: str) -> list[Concern]:
+    """Concerns only — see :func:`_scan_items` for the grammar."""
+    return _scan_items(region)[0]
 
 
 def _iter_block_regions(text: str):
@@ -274,6 +411,23 @@ def parse_concerns(capture_text: str) -> list[Concern]:
     """
     region = _last_block_region(capture_text, require_close=False)
     return _parse_items(region) if region is not None else []
+
+
+def unrecovered_markers(capture_text: str) -> list[str]:
+    """Marker-looking lines in the newest block that yielded no concern.
+
+    The companion of :func:`parse_concerns` for the same (forgiving) block
+    region: what the parser saw but could not turn into a forwardable item. A
+    non-empty result means the user is looking at fewer concerns than the shadow
+    emitted — the picker surfaces the count so the loss is visible rather than
+    silent (t1274).
+
+    Deliberately a *report*, not a recovery. Widening the marker-join envelope
+    (:data:`_MAX_MARKER_JOIN_ROWS`) is the documented t1167 trade-off and is not
+    revisited here.
+    """
+    region = _last_block_region(capture_text, require_close=False)
+    return _scan_items(region)[1] if region is not None else []
 
 
 def has_concern_block(text: str) -> bool:

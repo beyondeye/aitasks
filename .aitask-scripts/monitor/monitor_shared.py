@@ -35,6 +35,11 @@ from textual.app import ComposeResult  # noqa: E402
 from rich.text import Text  # noqa: E402
 from rich.markup import escape  # noqa: E402
 
+try:
+    from monitor.concern_parser import needs_addressing
+except ImportError:  # imported flat (tests may put MONITOR_DIR on sys.path)
+    from concern_parser import needs_addressing  # noqa: E402
+
 if TYPE_CHECKING:  # annotations only (PEP 563 via `from __future__`); no runtime cost
     from monitor.concern_parser import Concern
 
@@ -524,13 +529,28 @@ _CONCERN_BADGE = {
 }
 
 
+#: Columns line 1 of a narrow row spends before the region: mark, spaces, the
+#: widest badge (`HIGH`), and the separating space.
+_NARROW_PREFIX_COLS = 8
+
+
 class _ConcernRow(Static):
     """A focusable, toggleable concern row inside ConcernPickerModal.
 
-    Holds one ``Concern`` and a ``selected`` flag. The checkbox glyph follows the
-    t1004 convention (☑/☐, never a dot; marked = bold yellow). Navigation mirrors
-    ``_SiblingRow``; ``space`` toggles the selection (``enter`` confirm is handled
-    at the modal level).
+    Holds one ``Concern``, its ``original_index`` in the modal's input list, and a
+    ``selected`` flag. The checkbox glyph follows the t1004 convention (☑/☐, never
+    a dot; marked = bold yellow). Navigation mirrors ``_SiblingRow``; ``space``
+    toggles the selection (``enter`` confirm is handled at the modal level).
+
+    **Two layouts (t1274).** The wide variant is one line,
+    ``☐ BADGE region body``. The narrow variant — the minimonitor companion pane,
+    where the laid-out row gets ~28 columns — is **two** lines, region on the
+    first and body on the second. One line does not fit there: Rich's fold drops
+    an overflowing segment whole rather than truncating it, so a region past ~19
+    characters erased the region *and* the body and the row rendered as a bare
+    priority badge. A 21-char region like ``authoring-conv.md:103`` is both real
+    and fully compliant with the producer's ≤30-char rule, which is why this was
+    hit routinely.
     """
 
     can_focus = True
@@ -539,6 +559,13 @@ class _ConcernRow(Static):
     _ConcernRow {
         height: 1;
         padding: 0 1;
+    }
+    _ConcernRow.two-line {
+        height: 2;
+    }
+    /* Informational: the shadow is NOT asking for action — recede, don't hide. */
+    _ConcernRow.informational {
+        color: $text-muted;
     }
     _ConcernRow:focus {
         background: $accent 30%;
@@ -549,14 +576,37 @@ class _ConcernRow(Static):
     }
     """
 
-    def __init__(self, concern: "Concern", **kwargs) -> None:
+    def __init__(
+        self,
+        concern: "Concern",
+        *,
+        narrow: bool = False,
+        original_index: int = 0,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self._concern = concern
+        self._narrow = narrow
+        self._original_index = original_index
         self._selected = False
+        if narrow:
+            self.add_class("two-line")
+        if not needs_addressing(concern):
+            self.add_class("informational")
 
     @property
     def concern(self) -> "Concern":
         return self._concern
+
+    @property
+    def original_index(self) -> int:
+        """Position in the modal's input list — the stable selection identity.
+
+        Partitioning reorders the DOM, and ``Concern`` is a ``NamedTuple``: two
+        equal concerns are indistinguishable by value, so the original order can
+        only be restored positionally.
+        """
+        return self._original_index
 
     @property
     def selected(self) -> bool:
@@ -570,12 +620,26 @@ class _ConcernRow(Static):
             self._selected = value
             self.refresh()
 
+    def _region_label(self, budget: int) -> str:
+        """The region, ellipsized to ``budget`` columns, or a visible placeholder."""
+        region = self._concern.region
+        if not region:
+            return "[dim italic](no region)[/]"
+        if budget >= 4 and len(region) > budget:
+            region = region[: budget - 1] + "…"
+        return f"[dim]{escape(region)}[/]"
+
     def render(self) -> str:
         mark = "[bold yellow]☑[/]" if self._selected else "☐"
         badge = _CONCERN_BADGE.get(self._concern.priority, "[dim]LOW[/]")
-        region = escape(self._concern.region) or "[dim]—[/]"
-        body = escape(self._concern.body)
-        return f"{mark}  {badge} [dim]{region}[/]  {body}"
+        # display_body(), never .body — the Disposition:/Verified: trailer is
+        # metadata for the receiving agent, not for this row. (The clipboard path
+        # is the mirror rule: always .body, so the trailer is forwarded intact.)
+        body = escape(self._concern.display_body())
+        if self._narrow:
+            budget = max(6, (self.size.width or 28) - _NARROW_PREFIX_COLS)
+            return f"{mark}  {badge} {self._region_label(budget)}\n   {body}"
+        return f"{mark}  {badge} {self._region_label(40)}  {body}"
 
     def on_key(self, event) -> None:
         if event.key == "space":
@@ -606,11 +670,23 @@ class _ConcernRow(Static):
             rows[new_idx].scroll_visible()
 
 
+#: Section headers for the disposition partition, in presentation order.
+_CONCERN_SECTIONS = ("Needs addressing", "Informational")
+
+
 class ConcernPickerModal(ModalScreen):
     """Modal letting the user pick which shadow concerns to forward.
 
-    Shared by the full monitor and minimonitor (both push it), so it carries its
-    own ``DEFAULT_CSS`` per the TUI conventions for multi-App modals.
+    Lives here (rather than in minimonitor) because the full monitor is due to
+    push it too — see t1216_3; today minimonitor is the only caller. It carries
+    its own ``DEFAULT_CSS`` per the TUI conventions for multi-App modals.
+
+    **Disposition partition (t1274).** Concerns the shadow marked
+    ``informational`` — real, but explicitly *not* a request for action — are
+    grouped under their own header and dimmed, and ``a`` (select all) skips them.
+    A block whose concerns all fall in one partition shows no headers at all, so
+    plan-review blocks (whose producers have no disposition concept) look exactly
+    as they did before.
 
     **Dismiss contract (consumed by t1037_4):** dismisses with the **selected**
     ``list[Concern]`` on confirm (OK / Enter) or with the full list on "copy ALL"
@@ -639,7 +715,9 @@ class ConcernPickerModal(ModalScreen):
     }
     #concern-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
     #concern-stale { color: $error; text-style: bold; margin: 0 0 1 0; }
+    #concern-unrecovered { color: $warning; text-style: bold; margin: 0 0 1 0; }
     #concern-context { color: $text-muted; margin: 0 0 1 0; }
+    .concern-section { text-style: bold; color: $accent; height: 1; }
     #concern-list { height: 1fr; min-height: 3; margin: 0 0 1 0; }
     #concern-help { color: $text-muted; margin: 0 0 1 0; }
     #concern-buttons { width: 100%; height: auto; layout: horizontal; }
@@ -652,16 +730,42 @@ class ConcernPickerModal(ModalScreen):
 
     def __init__(
         self, concerns: list["Concern"], narrow: bool = False,
-        stale: bool = False,
+        stale: bool = False, unrecovered: int = 0,
     ) -> None:
         super().__init__()
         self._concerns = list(concerns)
         self._narrow = narrow
         self._stale = stale
+        self._unrecovered = unrecovered
+
+    def _partitions(self) -> list[tuple[str, list[tuple[int, "Concern"]]]]:
+        """``[(section_title, [(original_index, concern), …]), …]``, non-empty only.
+
+        Input order is preserved inside each partition, and the original index
+        travels with every concern so selection can be restored positionally.
+        """
+        actionable: list[tuple[int, "Concern"]] = []
+        informational: list[tuple[int, "Concern"]] = []
+        for index, concern in enumerate(self._concerns):
+            target = actionable if needs_addressing(concern) else informational
+            target.append((index, concern))
+        pairs = zip(_CONCERN_SECTIONS, (actionable, informational))
+        return [(title, group) for title, group in pairs if group]
+
+    def _context_line(self) -> str:
+        partitions = self._partitions()
+        if len(partitions) < 2:
+            return f"{len(self._concerns)} concern(s)  ·  select to forward"
+        counts = {title: len(group) for title, group in partitions}
+        return (
+            f"{counts['Needs addressing']} to address  ·  "
+            f"{counts['Informational']} informational  ·  select to forward"
+        )
 
     def compose(self) -> ComposeResult:
         if self._narrow:
             self.add_class("narrow")
+        partitions = self._partitions()
         with Container(id="concern-dialog"):
             yield Static("[bold]Concerns[/]", id="concern-header")
             # Staleness warning (t1104): the followed agent has moved on since
@@ -671,15 +775,29 @@ class ConcernPickerModal(ModalScreen):
                     "⚠ These concerns may be stale — the agent has moved on",
                     id="concern-stale",
                 )
-            yield Static(
-                f"{len(self._concerns)} concern(s)  ·  select to forward",
-                id="concern-context",
-            )
+            # Lossy-parse warning (t1274): the block held marker-looking lines
+            # that yielded no concern, so this list is short of what the shadow
+            # emitted. Visible degradation beats a silently truncated list.
+            if self._unrecovered:
+                yield Static(
+                    f"⚠ {self._unrecovered} line(s) in this block "
+                    "could not be parsed",
+                    id="concern-unrecovered",
+                )
+            yield Static(self._context_line(), id="concern-context")
             with VerticalScroll(id="concern-list"):
-                for concern in self._concerns:
-                    yield _ConcernRow(concern)
+                # Headers only when both partitions exist — a single-partition
+                # block (every plan-review block) looks exactly as it did before.
+                show_headers = len(partitions) > 1
+                for title, group in partitions:
+                    if show_headers:
+                        yield Static(f"─ {title} ─", classes="concern-section")
+                    for index, concern in group:
+                        yield _ConcernRow(
+                            concern, narrow=self._narrow, original_index=index
+                        )
             yield Static(
-                "[dim]\\[↑/↓] navigate  \\[Space] toggle  \\[a] all/none  "
+                "[dim]\\[↑/↓] navigate  \\[Space] toggle  \\[a] all actionable  "
                 "\\[A] copy all  \\[Enter/OK] confirm  \\[Esc] cancel[/]",
                 id="concern-help",
             )
@@ -696,13 +814,28 @@ class ConcernPickerModal(ModalScreen):
         return list(self.query(_ConcernRow))
 
     def _selected_concerns(self) -> list["Concern"]:
-        return [row.concern for row in self._rows() if row.selected]
+        """Selected concerns in **original input order**.
+
+        Sorted by ``original_index``, never by DOM position and never matched by
+        value: partitioning reorders the DOM, and two equal ``Concern`` tuples
+        are indistinguishable, so ticking one of a duplicate pair would otherwise
+        forward the wrong one — or both.
+        """
+        selected = [row for row in self._rows() if row.selected]
+        return [row.concern for row in sorted(selected, key=lambda r: r.original_index)]
 
     def action_toggle_all(self) -> None:
         rows = self._rows()
-        # If every row is already selected, a second press clears them all.
-        target = not (bool(rows) and all(row.selected for row in rows))
-        for row in rows:
+        # Informational concerns are not requests for action, so bulk-select
+        # covers only the actionable ones. `A` (copy ALL) remains the escape
+        # hatch that takes literally everything.
+        actionable = [row for row in rows if needs_addressing(row.concern)]
+        target_rows = actionable or rows
+        # If every target row is already selected, a second press clears them.
+        target = not (
+            bool(target_rows) and all(row.selected for row in target_rows)
+        )
+        for row in target_rows:
             row.set_selected(target)
 
     def action_confirm(self) -> None:

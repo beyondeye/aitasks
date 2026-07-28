@@ -50,7 +50,9 @@ the parser-safety guard in `tests/test_concern_parser.py`.
 - `priority` ∈ {`high`, `medium`, `low`}, matched case-insensitively. An unknown
   value degrades to `low`; the item is **never dropped**.
 - `region` is a free-text plan-region / axis label (which part of the plan the
-  concern targets). Producers MUST keep it **short** (≤ ~30 chars — a
+  concern targets). It is **mandatory and never empty**: it is the row's only
+  title in the picker, so an omitted one renders as a visible `(no region)`
+  placeholder rather than a blank. Producers MUST keep it **short** (≤ ~30 chars — a
   `basename.ext:LINE` locus or an axis label, never a full repo path; full
   paths go in the body). This rule is the **primary defense** against the
   split-marker hazard below, and it remains in force: keeping the region short
@@ -86,6 +88,52 @@ the parser-safety guard in `tests/test_concern_parser.py`.
 - `body` is free text. A wrapped continuation line (any non-blank line between
   the fences that is **not** a marker) is appended, space-joined, to the current
   concern's body.
+
+### The region-less marker
+
+A marker that omits the `| region` half entirely — `- [medium] body` — parses
+with an **empty region** rather than being lost. Without that tolerance the row
+is neither an item (no `|`) nor a split-marker candidate (it *does* contain
+`]`), so it fell through to continuation handling and was silently appended to
+the previous concern's body — or dropped outright when it was the block's first
+item (t1274).
+
+The priority here is matched against the **closed** `high|medium|low`
+vocabulary, not `\w+` as in the full marker. The `|` separator is what makes the
+full marker's shape unmistakable; without it, a permissive class would let an
+ordinary wrapped body line (`- [see below] …`) start a spurious concern and
+break the collision-hardening guarantee above. This is a *tolerance*, not a
+licence: the producer rule that `region` is mandatory still stands.
+
+### Derived fields: `disposition` and `verdict`
+
+The shadow's **implementation** review ends each body with a prose trailer —
+`Disposition: blocking.` / `Disposition: follow-up.` / `Disposition:
+informational.`, and in Advanced/Deep a `Verified: CONFIRMED.` /
+`Verified: PLAUSIBLE.` verdict. The parser derives `Concern.disposition` and
+`Concern.verdict` from it. They are **derived fields, not marker fields**: the
+line format is unchanged, so every block emitted before this existed still
+parses, and widening the `[priority | region]` bracket — the documented t1167
+drop hazard — was deliberately avoided.
+
+Three rules make the derivation safe:
+
+- **Terminal anchor.** The trailer is matched only as a *run of sentences ending
+  the body*. A body that quotes or discusses `Disposition: informational.`
+  mid-prose is neither classified by it nor has that prose removed. Sentence
+  order within the run is free.
+- **`body` stays canonical.** It is exactly what the producer emitted, trailer
+  included, because `build_clipboard_payload` re-renders it verbatim — stripping
+  the trailer would delete the disposition from what the followed agent
+  receives. Display surfaces call `Concern.display_body()`, which removes
+  exactly the matched span. The clipboard path must always use `body`.
+- **Unspecified is not informational.** No trailer (the three plan-review
+  producers emit none) ⇒ `disposition == ""`, which `needs_addressing()` treats
+  as needing attention — the safe direction.
+
+The picker consumes this by splitting its list into **Needs addressing** and
+**Informational** sections, dimming the latter and excluding it from bulk
+select. A block whose concerns all land in one partition shows no headers.
 
 ### Capture-join contract
 
@@ -134,6 +182,24 @@ closing fence cannot stand in for a newer, still-streaming block):
 | `parse_concerns(text)` | the **explicit** user action (picker hotkey) | tolerated absent — parses the newest block to EOF | the user asked for it; scrollback may have truncated the close |
 | `has_concern_block(text)` | the **auto-offer** trigger | **required** after the last opening fence, plus ≥1 parsed concern | do not offer the picker for an incomplete, empty, or malformed block |
 | `concern_block_signature(raw)` | the **freshness** trigger (has this block changed?) | **required** | a reflow-stable digest, compared for equality only |
+| `unrecovered_markers(text)` | the **loss report** shown beside the picked list | tolerated absent — same region as `parse_concerns` | marker-looking lines that yielded no concern |
+
+`unrecovered_markers` is what makes the remaining losses **visible**. A
+continuation line can never begin `- ` followed by `[` (the collision-hardening
+invariant), so any such line inside the block that produced no concern is by
+definition a marker the parser could not recover — an over-bound split, a
+malformed bracket, an unclosed one. The picker shows the count so the user knows
+the list is short of what the shadow emitted, instead of the block degrading
+silently. It is a **report, not a recovery**: widening
+`_MAX_MARKER_JOIN_ROWS` remains the accepted t1167 limit.
+
+The degenerate case — a **complete block whose markers are *all* malformed** —
+needs its own handling, because it reaches neither surface above: nothing parses,
+so `has_concern_block` is false (no auto-offer) and the picker hotkey has no rows
+to show a banner beside. Both paths therefore consult `unrecovered_markers`
+before reporting emptiness, and warn that the block was emitted but none of it is
+forwardable. Reporting "no concerns" there would be a false all-clear — the same
+class of silent false negative as the clipped-head case above.
 
 The first two take a **wrap-joined, escape-free** capture (`capture-pane -p -J`,
 as `aitask_shadow_capture.sh` produces). `concern_block_signature` is the odd one
@@ -156,8 +222,8 @@ can wrap; such panes need the authoritative capture instead.
   wrapper only (no mirrored sub-procedure files).
 - **Parser:** `.aitask-scripts/monitor/concern_parser.py` — pure (`Concern`,
   `parse_concerns`, `has_concern_block`, `concern_block_signature`,
-  `contains_any_concern_block`, `block_head_truncated`,
-  `build_clipboard_payload`).
+  `contains_any_concern_block`, `block_head_truncated`, `unrecovered_markers`,
+  `needs_addressing`, `DISPOSITIONS`, `build_clipboard_payload`).
 - **Consumer:** the concern-picker modal + trigger wiring (`monitor_shared.py`,
   `minimonitor_app.py`). The shadow lookup, capture and staleness helpers behind
   them are shared in `monitor_core.py`, so the full monitor uses one

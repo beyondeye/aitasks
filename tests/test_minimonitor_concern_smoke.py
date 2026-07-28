@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -42,6 +43,10 @@ from monitor import minimonitor_app as mm  # noqa: E402
 
 OPEN = "===AITASK-CONCERNS==="
 CLOSE = "===END-CONCERNS==="
+
+#: The auto-offer toast, matched on its stable shape rather than a literal
+#: substring — the wording now interpolates counts (t1274).
+OFFER_RE = re.compile(r"Shadow raised \d+ concern", re.IGNORECASE)
 
 SOCKET = "ait_t1187_smoke"
 SESSION = "t1187_concern_smoke"
@@ -146,6 +151,7 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
         app._monitor = _FakeMon()
         app._last_concern_block_payload = {}
         app._truncation_warned = set()
+        app._unparsed_warned = set()
         app.spy_notify: list = []
         app.notify = lambda msg, **kw: app.spy_notify.append(
             (msg, kw.get("severity", "information"))
@@ -166,7 +172,7 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
 
         asyncio.run(app._maybe_offer_concerns())
         self.assertTrue(
-            any("raised concerns" in m for m, _ in app.spy_notify),
+            any(OFFER_RE.search(m) for m, _ in app.spy_notify),
             f"auto-offer did not fire; notifies={app.spy_notify}",
         )
         self.assertEqual(app._truncation_warned, set())
@@ -181,7 +187,7 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
 
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(app.spy_notify, [(mm._SHADOW_TRUNCATED_MSG, "warning")])
-        self.assertFalse(any("raised concerns" in m for m, _ in app.spy_notify))
+        self.assertFalse(any(OFFER_RE.search(m) for m, _ in app.spy_notify))
 
 
 def _async_pane(pane_id):

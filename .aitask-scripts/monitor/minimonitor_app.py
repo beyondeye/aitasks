@@ -50,7 +50,7 @@ from monitor.monitor_shared import (  # noqa: E402
 )
 from monitor.concern_parser import (  # noqa: E402
     block_head_truncated, build_clipboard_payload, has_concern_block,
-    parse_concerns,
+    needs_addressing, parse_concerns, unrecovered_markers,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
@@ -91,6 +91,18 @@ class MiniPaneCard(Static, can_focus=True):
 # helpers now live in `monitor/monitor_core.py` and are imported above (t1216_1)
 # — one implementation, shared with the full monitor. `_pane_id_sort_key` is
 # gone: it was a byte-identical copy of `monitor_core._pane_id_num`.
+
+
+def _unparsed_msg(count: int) -> str:
+    """Warning for a block whose marker lines yielded no concern (t1274).
+
+    Its own message rather than the bland "no concerns": the shadow *did* emit a
+    block, so silence (or a false all-clear) is the failure being fixed.
+    """
+    return (
+        f"Shadow emitted a concern block but {count} line(s) could not be "
+        "parsed — none are forwardable"
+    )
 
 
 # -- Main app -----------------------------------------------------------------
@@ -234,6 +246,10 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # head by the capture window (t1187). Warn once per episode, not every
         # tick; cleared for a pane as soon as a complete block is seen on it.
         self._truncation_warned: set[str] = set()
+        # Shadow panes already warned that their complete concern block parsed to
+        # nothing because every marker was malformed (t1274). Same once-per-
+        # episode policy as `_truncation_warned`, and cleared the same way.
+        self._unparsed_warned: set[str] = set()
         # Shadow-feedback freshness (t1104). Tri-state: None = unknown (never
         # resolved, or a transient capture/hash failure — do NOT clear a prior
         # warning on such a failure), False = current, True = stale.
@@ -1328,13 +1344,25 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.notify(_SHADOW_TRUNCATED_MSG, severity="warning")
                 return
         if not concerns:
-            self.notify("No concerns detected on the shadow pane")
+            # A block whose markers are ALL malformed parses to nothing, so the
+            # bland "no concerns" message would be a lie — the shadow did emit a
+            # block, none of it survived. Say that instead (t1274).
+            lost = len(unrecovered_markers(text))
+            if lost:
+                self.notify(_unparsed_msg(lost), severity="warning")
+            else:
+                self.notify("No concerns detected on the shadow pane")
             return
         # Warn on the actionable surface if the shadow's feedback is known-stale
         # (computed on the refresh tick — reuse it, no second live-sig spend).
         stale = bool(getattr(self, "_shadow_feedback_stale", None))
         self.push_screen(
-            ConcernPickerModal(concerns, narrow=True, stale=stale),
+            ConcernPickerModal(
+                concerns,
+                narrow=True,
+                stale=stale,
+                unrecovered=len(unrecovered_markers(text)),
+            ),
             callback=self._on_concerns_picked,
         )
 
@@ -1396,9 +1424,19 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 if shadow_pane not in self._truncation_warned:
                     self._truncation_warned.add(shadow_pane)
                     self.notify(_SHADOW_TRUNCATED_MSG, severity="warning")
+                return
+            # A complete block whose markers are ALL malformed yields no concern,
+            # so the strict predicate reads it as "nothing here" — the same class
+            # of silent false negative as the truncation case, and equally worth
+            # one warning per pane (t1274).
+            lost = unrecovered_markers(text)
+            if lost and shadow_pane not in self._unparsed_warned:
+                self._unparsed_warned.add(shadow_pane)
+                self.notify(_unparsed_msg(len(lost)), severity="warning")
             return
-        # A complete block arrived: re-arm the warning for this pane.
+        # A complete block arrived: re-arm the warnings for this pane.
         self._truncation_warned.discard(shadow_pane)
+        self._unparsed_warned.discard(shadow_pane)
         concerns = parse_concerns(text)
         if not concerns:
             return
@@ -1410,8 +1448,14 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             " (⚠ STALE — agent moved on)"
             if getattr(self, "_shadow_feedback_stale", None) else ""
         )
+        # Name the disposition split up front (t1274) so the toast already says
+        # how much of the block is actually asking for action.
+        actionable = sum(1 for c in concerns if needs_addressing(c))
+        info = len(concerns) - actionable
+        info_suffix = f" (+{info} informational)" if info else ""
         self.notify(
-            "Shadow raised concerns — press 'c' to pick" + stale_suffix,
+            f"Shadow raised {actionable} concern(s){info_suffix} — press 'c' to pick"
+            + stale_suffix,
             severity="information",
         )
 

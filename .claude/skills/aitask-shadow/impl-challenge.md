@@ -318,7 +318,9 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
 - `priority` is one of `high`, `medium`, `low` — reuse the severity you assigned.
 - `region` for implementation concerns should identify the **code locus**
   or the **axis** (`unmitigated risk`, `unjustified deviation`, `correctness`)
-  — and MUST stay **short** (≤ ~30 chars): use `basename.ext:LINE`, never a
+  — it is **mandatory and never empty** (it is the row's only title in
+  minimonitor's picker; an omitted one renders as `(no region)`) — and MUST
+  stay **short** (≤ ~30 chars): use `basename.ext:LINE`, never a
   full repo path (put the full path in the body instead). The whole
   `[priority | region]` marker must survive on ONE rendered row: some agent
   TUIs hard-wrap long lines with literal newlines that even a wrap-joined
@@ -332,9 +334,13 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
 - End the body with the finding's disposition as prose — one of
   `Disposition: blocking.`, `Disposition: follow-up.`, or
   `Disposition: informational.` — and, in Advanced/Deep, its verdict
-  (`Verified: CONFIRMED.` / `Verified: PLAUSIBLE.`). These stay **free text
-  inside the body** — they are not parser fields, and the line format above is
-  unchanged.
+  (`Verified: CONFIRMED.` / `Verified: PLAUSIBLE.`). These stay **inside the
+  body** and the line format above is unchanged, but they are now **parsed**:
+  minimonitor derives the disposition from this trailer and groups the picker by
+  it. Two consequences for you: the trailer must be the **last thing in the
+  body** (it is matched only as a terminal run, so anything written after it is
+  not read as a trailer), and an omitted trailer makes the finding show up as
+  needing attention.
 - Order items to match the prose list: blocking partition first, then
   follow-up, then informational, severity-ordered within each partition.
 - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
@@ -342,9 +348,11 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
 - Emit the block **only when you have at least one concern**. If the
   implementation is genuinely clean, omit the block entirely.
 
-**UX boundary (current minimonitor behavior):** minimonitor displays and
-forwards the disposition/verdict text inside each concern body, but it has no
-native blocking / follow-up / informational sections, badges, filters, or
-separate actions yet — an `informational` item looks like any other row in the
-picker, distinguished only by its body text. Those affordances belong to the
-future concern-format redesign, outside this procedure's scope.
+**What minimonitor does with it (current behavior):** the picker derives each
+finding's disposition from the trailer above and splits the list into a
+**Needs addressing** section (`blocking`, `follow-up`, and anything with no
+trailer) and an **Informational** section, which is dimmed and skipped by the
+bulk-select key. The trailer text itself is hidden from the row but kept in the
+forwarded payload, so the receiving agent still sees the disposition and verdict
+verbatim. Ordering *within* a section is yours — keep emitting items in the
+partition order above.

@@ -75,7 +75,9 @@ agent's pane.
    - `priority` is one of `high`, `medium`, `low` — reuse the severity you
      assigned in Step 3.
    - `region` names the plan section / axis the concern targets (a step name,
-     `verification`, `blast radius`, …) — and MUST stay **short** (≤ ~30
+     `verification`, `blast radius`, …) — it is **mandatory and never empty**
+     (it is the row's only title in minimonitor's picker; an omitted one
+     renders as `(no region)`) — and MUST stay **short** (≤ ~30
      chars): use an axis label or a `basename.ext:LINE` locus, never a full
      repo path (put the full path in the body instead). The whole
      `[priority | region]` marker must survive on ONE rendered row: some agent

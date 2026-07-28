@@ -68,7 +68,9 @@ pane — never the followed pane.
      carries it, so the parser can't mistake wrapped text for a new item).
    - `priority` is one of `high`, `medium`, `low`.
    - `region` names the offending skill / helper (a script name, a skill step,
-     etc.) — and MUST stay **short** (≤ ~30 chars): use a bare script name or a
+     etc.) — it is **mandatory and never empty** (it is the row's only title in
+     minimonitor's picker; an omitted one renders as `(no region)`) — and MUST
+     stay **short** (≤ ~30 chars): use a bare script name or a
      `basename.ext:LINE` locus, never a full repo path (put the full path in
      the body instead). The whole `[priority | region]` marker must survive on
      ONE rendered row: some agent TUIs hard-wrap long lines with literal

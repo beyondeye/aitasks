@@ -79,7 +79,9 @@ agent's pane.
    - `priority` is one of `high`, `medium`, `low` (mapped as above).
    - `region` names the assumption category (`environment/tooling`,
      `data/inputs`, `behavior of other code`, `sequencing`, `intent/scope`) or a
-     named plan region — and MUST stay **short** (≤ ~30 chars): use a category
+     named plan region — it is **mandatory and never empty** (it is the row's
+     only title in minimonitor's picker; an omitted one renders as
+     `(no region)`) — and MUST stay **short** (≤ ~30 chars): use a category
      or a `basename.ext:LINE` locus, never a full repo path (put the full path
      in the body instead). The whole `[priority | region]` marker must survive
      on ONE rendered row: some agent TUIs hard-wrap long lines with literal

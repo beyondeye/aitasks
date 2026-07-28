@@ -53,6 +53,16 @@ _HEAD_TRUNCATED = (
     "- [medium | parser] Multi-block accumulation is undefined.\n"
     "===END-CONCERNS===\n"
 )
+# A COMPLETE block whose every marker is malformed: no priority in the first,
+# an unclosed bracket in the second. Nothing parses, so both the strict trigger
+# and the forgiving path see an empty list — the block is real but entirely
+# lost, and saying "no concerns" about it would be a false all-clear (t1274).
+_MALFORMED_ONLY_BLOCK = (
+    "===AITASK-CONCERNS===\n"
+    "- [ | Step 7 guard] The guard double-commits the lock.\n"
+    "- [medium | parser never closes\n"
+    "===END-CONCERNS===\n"
+)
 
 
 def _async_return(value):
@@ -86,6 +96,7 @@ def _mk_app(monitor=None):
     app._monitor = monitor
     app._last_concern_block_payload = {}
     app._truncation_warned = set()
+    app._unparsed_warned = set()
     app.spy_notify: list = []
     app.spy_pushed: list = []
     app.spy_clipboard: list = []
@@ -175,6 +186,31 @@ class ActionPickConcernsTests(unittest.TestCase):
         asyncio.run(app.action_pick_concerns())
         self.assertEqual(app.spy_pushed, [])
         self.assertEqual(app.spy_clipboard, [])
+        # A pane with genuinely no block says exactly that — no scare warning.
+        self.assertEqual(
+            app.spy_notify, [("No concerns detected on the shadow pane", "information")]
+        )
+
+    def test_malformed_only_block_warns_instead_of_no_concerns(self):
+        """A block that parsed to nothing must not be reported as "no concerns".
+
+        `parse_concerns` returns [] for a malformed-only block, so the hotkey
+        used to exit on the bland message before the unrecovered-marker count was
+        ever consulted — the shadow's whole review vanished silently (t1274).
+        """
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        app._capture_shadow_text = _async_return(_MALFORMED_ONLY_BLOCK)
+
+        asyncio.run(app.action_pick_concerns())
+
+        self.assertEqual(app.spy_pushed, [])  # nothing forwardable to pick
+        self.assertEqual(app.spy_clipboard, [])
+        self.assertEqual(len(app.spy_notify), 1)
+        message, severity = app.spy_notify[0]
+        self.assertEqual(severity, "warning")
+        self.assertIn("2 line(s) could not be parsed", message)
+        self.assertNotIn("No concerns detected", message)
 
     def test_retries_deeper_on_truncated_head(self):
         """A clipped opening fence buys ONE much deeper re-capture (t1187)."""
@@ -359,6 +395,46 @@ class AutoOfferTests(unittest.TestCase):
             app.spy_notify, [(mm._SHADOW_TRUNCATED_MSG, "warning")]
         )
         self.assertEqual(app._truncation_warned, {"%5"})
+
+    def test_malformed_only_block_warns_once_per_pane(self):
+        """A complete-but-unparseable block is the same silent false negative.
+
+        `has_concern_block` is false because nothing parsed, so without this the
+        auto-offer stays completely quiet about a review the shadow did emit
+        (t1274).
+        """
+        app = self._app(_MALFORMED_ONLY_BLOCK)
+        asyncio.run(app._maybe_offer_concerns())
+        asyncio.run(app._maybe_offer_concerns())  # same block, second tick
+        self.assertEqual(len(app.spy_notify), 1)
+        message, severity = app.spy_notify[0]
+        self.assertEqual(severity, "warning")
+        self.assertIn("could not be parsed", message)
+        self.assertEqual(app._unparsed_warned, {"%5"})
+        self.assertEqual(app._truncation_warned, set())
+
+    def test_block_free_pane_never_warns_about_unparsed_lines(self):
+        """Negative control: the warning is about a BLOCK, not any pane text."""
+        app = self._app("just some agent output\n- [not a marker] prose\n")
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(app.spy_notify, [])
+        self.assertEqual(app._unparsed_warned, set())
+
+    def test_complete_block_rearms_the_unparsed_warning(self):
+        app = self._app(_MALFORMED_ONLY_BLOCK)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(app._unparsed_warned, {"%5"})
+        # A parseable block arrives: normal hint, and the pane is re-armed.
+        app._capture_shadow_text = _async_return(_CLOSED_BLOCK)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(app._unparsed_warned, set())
+        # Malformed again later -> warns again rather than staying silent.
+        app._capture_shadow_text = _async_return(_MALFORMED_ONLY_BLOCK)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(app._unparsed_warned, {"%5"})
+        self.assertEqual(
+            sum(1 for _, sev in app.spy_notify if sev == "warning"), 2
+        )
 
     def test_complete_block_rearms_the_truncation_warning(self):
         app = self._app(_HEAD_TRUNCATED)

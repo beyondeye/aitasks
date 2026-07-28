@@ -125,9 +125,11 @@ When the shadow agent interrogates a plan, reviews an implementation, or diagnos
 
 Minimonitor reads the shadow pane, parses its concern block, and opens a checklist modal of the concerns — each tagged with a priority (`high`, `medium`, or `low`) and the plan region it targets. Tick the ones you want, confirm, and minimonitor copies them — with a short preamble — to your clipboard, ready to paste into the followed agent. Nothing is written to the clipboard until you confirm, and minimonitor never types into the agent itself: you stay the driver.
 
+For an implementation review, the modal splits the list into **Needs addressing** and **Informational**. The second section holds findings the shadow reports for your judgement without asking for a change; they are dimmed and **a** (select all) skips them, while **A** (copy all) still takes everything. A review with no informational findings shows no section headers at all. If some lines in the block could not be parsed, a warning above the list says how many, so a short list is never mistaken for a complete one. If *none* of them could be parsed, minimonitor says the shadow emitted a block that yielded nothing forwardable — rather than reporting no concerns at all.
+
 If no shadow is running, pressing **c** tells you to launch one with **e**; if the shadow has not raised any concerns yet, minimonitor says so and does nothing.
 
-> **Auto-offer:** when the shadow produces a fresh concern block, minimonitor proactively surfaces a `Shadow raised concerns — press 'c' to pick` toast — once per block — so you don't have to poll the shadow pane for it.
+> **Auto-offer:** when the shadow produces a fresh concern block, minimonitor proactively surfaces a `Shadow raised 2 concern(s) — press 'c' to pick` toast — once per block — so you don't have to poll the shadow pane for it. The count is of concerns needing attention; any informational ones are noted separately in the same toast.
 
 > **Configuration:** two settings control the shadow, both editable in [`ait settings`]({{< relref "/docs/tuis/settings" >}}):
 >
@@ -204,7 +206,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `s` | Switch tmux focus to the selected agent's window |
 | `i` | Show task info for the selected agent |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
-| `c` | Pick the shadow's plan concerns and copy the selected ones to the clipboard |
+| `c` | Pick the shadow's concerns and copy the selected ones to the clipboard |
 | `j` | Open the TUI switcher |
 | `r` | Refresh the agent list |
 | `M` | Toggle the multi-session view ON/OFF |
