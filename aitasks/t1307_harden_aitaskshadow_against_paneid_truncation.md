@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [shadow, skills, robustness]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-28 18:30
-updated_at: 2026-07-28 18:30
+updated_at: 2026-07-28 18:44
 ---
 
 Harden the `aitask-shadow` skill against model-side truncation of the

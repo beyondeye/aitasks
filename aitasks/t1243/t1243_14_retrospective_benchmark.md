@@ -35,16 +35,33 @@ re-architect.
 
 ## Reference files for patterns
 
-- t1243_1's **pre-registered** method and rules — reuse them verbatim so the
-  before/after numbers are comparable:
-  - 200 parent cards over 5 columns, warm headless Pilot;
+- t1243_1's method **as amended** — reuse it so the before/after numbers are
+  comparable. Run it by invoking the harness, not by re-deriving it:
+  `AITASK_BOARD_BENCH=1 <py> -m unittest tests.test_board_movement.BoardMovementBenchmarkTests.test_bench_baseline`
+  - 200 parent cards over 5 columns, warm headless Pilot, production branch-mode
+    topology (`aitasks` → `.aitask-data/aitasks`, **relative** `TASK_DIR`);
   - **ping-pong** sampling (`shift+right`/`shift+left` between two adjacent
-    columns, `shift+down`/`shift+up` between two adjacent positions) so state is
-    stationary and samples are not saturated no-ops;
-  - warm-up samples discarded; **every recorded sample must carry a write**
-    (spy count > 0) or the run fails;
-  - median and p90 over valid samples, plus per-span totals.
-- t1243_1's recorded baseline table and its **decision checkpoint** outcome.
+    columns, `shift+down`/`shift+up` between two adjacent mid-column positions),
+    with the moved card starting at the **bottom** of its column — the only
+    position for which right→left restores the exact pre-state;
+  - 3 warm-up **pairs** discarded, 20 recorded pairs per axis per config; every
+    sample must carry a write, must see `apply_filter` fire inside the timed
+    region, must record zero span-nesting violations, and must leave a
+    non-negative residual — any failure **fails the run**;
+  - the timed region closes on an `asyncio.Event`, **never** `pilot.pause()`
+    (≥20 ms of synthetic sleep in Textual 8.2.7);
+  - **attribution is by ABLATION, not span share**, and axes are never pooled.
+- **DO NOT use span shares for attribution.** t1243_1's first run did, and read
+  `apply_filter + recompose` at 1.6 % with 98.3 % unattributed — an artifact,
+  because `_recompose_column` drops the `remove_children()` / `mount_all()`
+  awaitables so the real cost lands in the message pump afterwards. Span shares
+  are retained as diagnostics only and are labelled as under-attributing.
+- **The recorded baseline to compare against** (parent plan, "RECORDED BASELINE
+  AND CHECKPOINT DECISION"): lateral median **2173.2 ms** / p90 2556.2 ms;
+  vertical median **184.1 ms** / p90 238.0 ms; harness floor 104.5 ms.
+- t1243_1's **decision checkpoint** outcome: premise PASS (94.3 %), t1243_5 PASS
+  (93.6 %), t1243_4 MISS (0.4 %) → user chose *revise scope*, so **t1243_4 has
+  no latency target** and the ≥30 % target sits entirely on **t1243_5**.
 - t1243_5's recorded spike result (transplant landed, or the documented fallback).
 
 ## Implementation plan
@@ -53,8 +70,13 @@ re-architect.
 2. Re-run the write-count assertions on a large board: single move, bulk move of
    K, group formation of K, group block move of N — recording **actual** counts
    and changed-path sets, not just pass/fail.
-3. Produce a comparison table: baseline vs landed, per span, with the median and
-   p90 deltas and whether the **>= 30% median reduction** target was met.
+3. Produce a comparison table: baseline vs landed, **per axis** (never pooled),
+   with median and p90 deltas, the ablation deltas per lever, and whether the
+   **>= 30% median reduction** target was met — that target is **t1243_5's**,
+   judged on the **lateral** axis. t1243_4 is judged only on *no regression*.
+   If the target is missed, do **not** revise, postpone or revert anything:
+   run the **Performance-Gate Confirmation Checkpoint** (parent plan) and let
+   the user choose.
 4. Assess the specific open questions:
    - **`STEP = 1024`** — how often did a real board hit compaction? If never,
      note it; if often, quantify and consider whether `stride_for` should raise

@@ -28,8 +28,12 @@ Textual is **8.2.7**: `move_child` is **same-parent only**, `remove()` and
 move**. The board has no existing cross-column DOM helper — the column-change
 path in the detail-screen callback also goes through `refresh_columns`.
 
-> **SCOPE IS SUBJECT TO t1243_1's DECISION CHECKPOINT** — read the recorded
-> decision in the parent plan before implementing (see t1243_4 for the rule).
+> **t1243_1's DECISION CHECKPOINT HAS RUN — this child PASSED and its scope
+> GREW.** Do **not** read t1243_4's note as precedent: t1243_4 is the child that
+> *missed* and lost its latency target, and that target moved **here**.
+> Measured: recompose is **93.6 %** of a 2173.2 ms lateral keypress. Read the
+> recorded baseline and decision in the parent plan before implementing, and see
+> "Documented fallback — REWEIGHTED" below.
 
 **Anchor re-verification (do this first)** — see t1243_1; anchor on symbol names.
 
