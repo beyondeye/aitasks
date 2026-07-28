@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: [t1216_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_monitor, shadow, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 implemented_with: claudecode/opus5
 created_at: 2026-07-27 22:21
-updated_at: 2026-07-28 15:33
+updated_at: 2026-07-28 18:07
+completed_at: 2026-07-28 18:07
 ---
 
 ## Context
@@ -214,3 +215,14 @@ the real pane width and typing lands in the shadow.
 > **✅ gate:plan_approved** run=2026-07-28T12:33:25Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-28T15:06:02Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-28T15:06:44Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a8173a575ccdb279
+
+> **✅ gate:risk_evaluated** run=2026-07-28T15:06:44Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1216_2/risk_evaluated_2026-07-28T15:06:44Z-risk_evaluated-a1.log`
