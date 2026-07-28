@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui, minimonitor]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-28 11:19
-updated_at: 2026-07-28 11:19
+updated_at: 2026-07-28 17:58
 ---
 
 ## Problem
