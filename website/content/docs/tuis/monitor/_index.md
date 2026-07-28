@@ -37,15 +37,15 @@ If the current tmux session's name does not match the configured `tmux.default_s
 
 ### Understanding the Layout
 
-The monitor window has four stacked areas from top to bottom:
+The monitor window has five stacked areas from top to bottom:
 
 1. **Header** — application title bar
 2. **Session bar** — shows the tmux session name monitor is watching and the current auto-switch state
 3. **Pane list zone** — scrollable list of tmux panes grouped by category (agents, TUIs, others)
-4. **Preview zone** — live rendering of the focused pane plus a content-header label; forwards keystrokes directly to tmux when focused
+4. **Preview area** — live rendering of the focused pane plus a content-header label; forwards keystrokes directly to tmux when focused. When the selected agent has a shadow companion, this area splits into two side-by-side columns: the **preview zone** on the left and the **shadow zone** on the right
 5. **Footer** — dynamic keybinding help
 
-<!-- SCREENSHOT: Annotated monitor layout showing header, session bar, pane list, preview, and footer -->
+<!-- SCREENSHOT: Annotated monitor layout showing header, session bar, pane list, the split preview/shadow columns, and footer -->
 
 The **pane list** classifies each tmux window in the session:
 
@@ -59,14 +59,17 @@ The **preview zone** shows the content of the focused pane in real time. When yo
 
 ### Navigating the Monitor
 
-All navigation is keyboard-driven. Monitor uses a **zone model**: focus lives in either the pane list zone or the preview zone, and `Tab` cycles between them.
+All navigation is keyboard-driven. Monitor uses a **zone model**: focus lives in the pane list zone, the preview zone, or the shadow zone, and `Tab` cycles between them. The shadow zone is only part of the cycle when the selected agent has a shadow companion and the terminal is wide enough to show both columns — otherwise `Tab` moves between the pane list and the preview exactly as before.
 
-- **Tab** / **Shift+Tab** — Cycle focus between the pane list zone and the preview zone
+- **Tab** / **Shift+Tab** — Cycle focus between the pane list zone, the preview zone, and (when available) the shadow zone
 - **Up** / **Down** — Move focus between cards in the pane list zone
 - **Enter** (pane list zone) — Send an `Enter` keystroke to the focused tmux pane (useful to unblock an agent waiting for input without switching away)
 - **Enter** (preview zone) — Send an `Enter` keystroke to the focused tmux pane, same as above
 - Any other key in the **preview zone** — Forwarded to the tmux pane (characters, Ctrl-combinations, arrow keys, Escape, etc.)
+- Any other key in the **shadow zone** — Forwarded to the *shadow* pane instead, so you can talk to the shadow without leaving the monitor
 - **q** — Quit the monitor
+
+The zone that currently has focus is the one your keystrokes reach. It is marked by a highlighted border and a green `LIVE` badge in that column's header, so the target is never ambiguous.
 
 ### Jumping to Another TUI
 

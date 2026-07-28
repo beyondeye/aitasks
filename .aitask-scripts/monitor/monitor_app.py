@@ -54,7 +54,9 @@ _TMUX = TmuxClient()
 
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
-from textual.containers import Container, ScrollableContainer, VerticalScroll  # noqa: E402
+from textual.containers import (  # noqa: E402
+    Container, Horizontal, ScrollableContainer, Vertical, VerticalScroll,
+)
 from textual.screen import ModalScreen  # noqa: E402
 from textual.timer import Timer  # noqa: E402
 from textual.widgets import Button, Footer, Header, Label, Static  # noqa: E402
@@ -80,9 +82,26 @@ def _rename_window_argv(pane: str | None) -> list[str]:
 class Zone(Enum):
     PANE_LIST = "pane_list"
     PREVIEW = "preview"
+    SHADOW = "shadow"
 
 
-ZONE_ORDER = [Zone.PANE_LIST, Zone.PREVIEW]
+ZONE_ORDER = [Zone.PANE_LIST, Zone.PREVIEW, Zone.SHADOW]
+
+# -- Shadow column (t1216_2) ---------------------------------------------------
+#
+# How many consecutive FULL refreshes may drop the shadow snapshot before the
+# SHADOW zone gives up and falls back to PREVIEW. A snapshot can go absent for
+# two indistinguishable reasons — the shadow pane died, or a single capture
+# failed (test_monitor_shadow_status.LifecycleTests pins that a transient
+# failure legitimately drops the entry with no stale preservation) — so the
+# grace window covers both rather than pretending they can be told apart.
+# Counted on the 3s tick, so 2 ticks is a wall-clock ~6s.
+SHADOW_ABSENT_GRACE_TICKS = 2
+
+# Minimum columns the AGENT preview must keep for the side-by-side split to be
+# worth doing. Below this the split is suppressed and only the focused column
+# is rendered full-width.
+SHADOW_MIN_AGENT_COLS = 40
 
 # Preview panel size presets: (section_max_height, preview_max_height, label)
 #
@@ -128,6 +147,23 @@ class PaneCard(Static, can_focus=True):
 class PreviewPanel(Static, can_focus=True):
     """Focusable content preview panel — forwards keystrokes to tmux when active."""
     pass
+
+
+class PreviewRow(Horizontal):
+    """Horizontal row holding the agent + shadow preview columns.
+
+    Owns the trigger for the narrow-split decision (t1216_2). The App-level
+    `on_resize` fires BEFORE this row has been re-laid-out, so a fit check
+    driven from there measures a stale `content_region` (verified: on a
+    120→70 resize the App handler still sees a 120-column row). Reacting to
+    the row's OWN Resize event is what makes the measurement authoritative.
+    """
+
+    on_row_resize: Callable[[], None] | None = None
+
+    def on_resize(self, event) -> None:
+        if self.on_row_resize is not None:
+            self.on_row_resize()
 
 
 class PreviewScrollContainer(ScrollableContainer):
@@ -377,6 +413,37 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         scrollbar-gutter: stable;
     }
 
+    #preview-row {
+        height: 1fr;
+    }
+
+    #agent-col {
+        width: 1fr;
+    }
+
+    #shadow-col {
+        width: auto;
+        display: none;
+        border-left: solid $primary-darken-2;
+    }
+
+    #shadow-col.zone-active {
+        border-left: solid $warning;
+    }
+
+    #shadow-scroll {
+        height: 1fr;
+        max-height: 22;
+        scrollbar-gutter: stable;
+    }
+
+    #shadow-header {
+        dock: bottom;
+        padding: 0 1;
+        text-style: bold;
+        color: $text-muted;
+    }
+
     PreviewPanel {
         height: auto;
         background: #1a1a1a;
@@ -459,6 +526,33 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # superseded resolution: an apply (and its deferred scroll restore) only
         # touches the preview if its token is still current AND focus has not moved.
         self._preview_render_gen: int = 0
+        # -- Shadow column mirrors of the four fields above (t1216_2). Kept
+        # separate rather than shared so a slow shadow render can never
+        # supersede an agent render (and vice versa); the two run in different
+        # worker groups for the same reason. _shadow_scroll_state is keyed by
+        # the SHADOW pane id, not the followed agent's.
+        self._shadow_scroll_state: dict[str, tuple[bool, str | None]] = {}
+        self._last_shadow_pane_id: str | None = None
+        self._shadow_rendered_lines: list[str] = []
+        self._shadow_render_gen: int = 0
+        # Consecutive FULL refreshes for which the selected agent's shadow
+        # snapshot was absent. See SHADOW_ABSENT_GRACE_TICKS.
+        self._shadow_absent_ticks: int = 0
+        # Whether the shadow column is currently shown (a shadow is known AND
+        # the side-by-side split fits — Step 4 narrow fallback).
+        self._shadow_split_ok: bool = False
+        # Last observed shadow pane width. Used to keep the column sized (and
+        # visible) while the zone HOLDS a momentarily-absent snapshot during
+        # the grace window, when no snapshot is available to measure.
+        self._last_shadow_width: int | None = None
+        # The agent whose shadow the SHADOW zone is currently bound to. Set on
+        # entry, used to tell "the selection moved" from "the snapshot blipped".
+        self._shadow_zone_agent_id: str | None = None
+        # Which preview column `t` (tail) targets. `t` is only pressable from
+        # PANE_LIST — check_action disables every non-switch_zone binding while
+        # a preview zone is focused — so this tracks the LAST-focused preview
+        # column rather than the active zone.
+        self._active_preview_zone: Zone = Zone.PREVIEW
         self._pane_cards: dict[str, PaneCard] = {}
         self._selected_card_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
@@ -475,17 +569,44 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         yield Header()
         yield SessionBar(id="session-bar")
         yield VerticalScroll(id="pane-list")
+        # Two columns inside the preview section: the agent preview (left,
+        # elastic) and the shadow preview (right, sized to the real shadow
+        # pane's width so its content renders unwrapped). #shadow-col is
+        # display:none until a shadow is bound AND the split fits (t1216_2).
+        # The agent column keeps every id the rest of the app queries by
+        # (#preview-scroll, #content-preview, #content-header); #content-header
+        # docks to whatever its parent is, so moving it inside #agent-col
+        # re-docks it there with no CSS change.
         yield Container(
-            PreviewScrollContainer(
-                PreviewPanel("", id="content-preview"),
-                id="preview-scroll",
+            PreviewRow(
+                Vertical(
+                    PreviewScrollContainer(
+                        PreviewPanel("", id="content-preview"),
+                        id="preview-scroll",
+                    ),
+                    Static("[bold]Content Preview[/]", id="content-header"),
+                    id="agent-col",
+                ),
+                Vertical(
+                    PreviewScrollContainer(
+                        PreviewPanel("", id="shadow-preview"),
+                        id="shadow-scroll",
+                    ),
+                    Static("[bold]Shadow[/]", id="shadow-header"),
+                    id="shadow-col",
+                ),
+                id="preview-row",
             ),
-            Static("[bold]Content Preview[/]", id="content-header"),
             id="content-section",
         )
         yield Footer()
 
     def on_mount(self) -> None:
+        # Pure-DOM widget wiring first: it has no tmux dependency, so it must
+        # not sit behind the not-inside-tmux early return below (which would
+        # also make it unreachable from any test that scrubs $TMUX).
+        self._wire_preview_hooks()
+
         if not os.environ.get("TMUX"):
             self.sub_title = "Not running inside tmux"
             self.query_one("#session-bar", SessionBar).update(
@@ -613,15 +734,32 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             group="tmux-control-init",
         )
 
+        self.call_later(self._refresh_data)
+        self._refresh_timer = self.set_interval(
+            self._refresh_seconds, self._refresh_data
+        )
+
+    def _wire_preview_hooks(self) -> None:
+        """Attach the preview columns' scroll + resize callbacks.
+
+        Pure DOM wiring — no tmux — so it runs unconditionally at mount.
+        """
         try:
             scroll = self.query_one("#preview-scroll", PreviewScrollContainer)
             scroll.on_user_scroll = self._record_preview_scroll
         except Exception:
             pass
-        self.call_later(self._refresh_data)
-        self._refresh_timer = self.set_interval(
-            self._refresh_seconds, self._refresh_data
-        )
+        try:
+            shadow_scroll = self.query_one("#shadow-scroll", PreviewScrollContainer)
+            shadow_scroll.on_user_scroll = self._record_shadow_scroll
+        except Exception:
+            pass
+        try:
+            row = self.query_one("#preview-row", PreviewRow)
+            row.on_row_resize = self._schedule_shadow_fit_check
+        except Exception:
+            pass
+        self._schedule_shadow_fit_check()
 
     async def on_unmount(self) -> None:
         if getattr(self, "_monitor", None) is not None:
@@ -649,17 +787,43 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return None
 
     def _record_preview_scroll(self) -> None:
-        """Record user scroll intent for the focused pane.
+        """Record user scroll intent for the AGENT preview column."""
+        self._record_scroll_for(Zone.PREVIEW)
+
+    def _record_shadow_scroll(self) -> None:
+        """Record user scroll intent for the SHADOW preview column (t1216_2)."""
+        self._record_scroll_for(Zone.SHADOW)
+
+    def _record_scroll_for(self, zone: Zone) -> None:
+        """Record user scroll intent for one preview column.
 
         Called (via PreviewScrollContainer.call_after_refresh) once the user's
         mouse wheel / scrollbar drag / page click has committed scroll_y.
         Anchors by the text of the topmost visible line in the currently
         rendered content — stable against tmux's rolling capture.
+
+        Parameterised over the column rather than duplicated (t1216_2): the two
+        differ only in which scroller, state map, rendered-lines list and fast
+        refresh they act on. Note the key differs in kind — the agent column is
+        keyed by the FOLLOWED pane id, the shadow column by the SHADOW pane id.
         """
-        if self._focused_pane_id is None:
+        if zone == Zone.SHADOW:
+            key = self._current_shadow_pane_id()
+            scroll_id = "#shadow-scroll"
+            state = self._shadow_scroll_state
+            rendered = self._shadow_rendered_lines
+            refresh = self._fast_shadow_refresh
+        else:
+            key = self._focused_pane_id
+            scroll_id = "#preview-scroll"
+            state = self._preview_scroll_state
+            rendered = self._preview_rendered_lines
+            refresh = self._fast_preview_refresh
+
+        if key is None:
             return
         try:
-            scroll = self.query_one("#preview-scroll", PreviewScrollContainer)
+            scroll = self.query_one(scroll_id, PreviewScrollContainer)
         except Exception:
             return
         max_y = scroll.max_scroll_y
@@ -668,18 +832,18 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         anchor_text: str | None = None
         if not at_bottom:
             idx = int(scroll_y)
-            if 0 <= idx < len(self._preview_rendered_lines):
-                anchor_text = self._preview_rendered_lines[idx]
+            if 0 <= idx < len(rendered):
+                anchor_text = rendered[idx]
 
-        prev = self._preview_scroll_state.get(self._focused_pane_id)
+        prev = state.get(key)
         was_detached = prev is not None and not prev[0]
 
-        self._preview_scroll_state[self._focused_pane_id] = (at_bottom, anchor_text)
+        state[key] = (at_bottom, anchor_text)
         scroll.user_is_scrolling = False
 
         # Re-attach → pull a fresh snapshot so tail-follow resumes on latest output.
         if was_detached and at_bottom:
-            self.call_later(self._fast_preview_refresh)
+            self.call_later(refresh)
 
     # -- Cross-session project-root resolution ---------------------------------
 
@@ -770,8 +934,17 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self._monitor.multi_session:
             attached_session = await self._read_attached_session()
         self._rebuild_session_bar(attached_session)
+        # Shadow reconciliation MUST run before the _restore_focus scheduling
+        # below: it can change the active zone (grace fallback / selection
+        # moved), and `saved_zone` was captured at the top of this method,
+        # before that could happen. Handing the stale value to the deferred
+        # restore would re-focus the shadow column and undo the fallback that
+        # just fired (t1216_2).
+        saved_zone = self._reconcile_shadow_state()
+
         pane_list_rebuilt = self._rebuild_pane_list()
         self._update_content_preview()
+        self._update_shadow_preview()
 
         # Defer focus restoration until after Textual processes the DOM changes
         # from remove()/mount(). Immediate restore fails because removed widgets
@@ -805,6 +978,31 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._snapshots[pane_id] = snap  # write under the PINNED id
         if pane_id == self._focused_pane_id:  # focus-identity guard
             self._update_content_preview()
+
+    async def _fast_shadow_refresh(self) -> None:
+        """Lightweight refresh — only re-capture the selected agent's shadow.
+
+        `refresh_shadow_snapshot` returns None for four distinct reasons (key
+        absent — it never CREATES one; capture failed; stale write seq; shadow
+        rebound to a different pane) and all four mean the same thing: **no
+        update this tick**, never "shadow gone". The 3s full refresh owns
+        deletion, and the SHADOW_ABSENT_GRACE_TICKS counter is driven from
+        _refresh_data, not from here — so this must not hide or clear anything
+        (t1216_1 rule 5).
+
+        The followed pane id is pinned before the await, mirroring
+        _fast_preview_refresh's focus-identity guard.
+        """
+        if self._monitor is None:
+            return
+        pane_id = self._focused_pane_id
+        if pane_id is None:
+            return
+        snap = await self._monitor.refresh_shadow_snapshot(pane_id)
+        if snap is None:
+            return  # no update this tick
+        if pane_id == self._focused_pane_id:  # focus-identity guard
+            self._update_shadow_preview()
 
     def _schedule_delayed_refresh(self, delay: float = 0.3) -> None:
         """Schedule a one-shot preview refresh after *delay* seconds.
@@ -904,6 +1102,38 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             except Exception:
                 pass
             self._update_content_preview()
+            self._update_shadow_preview()
+            if pane_list_rebuilt:
+                self._update_selected_card_indicator(full=True)
+            return
+        # Without this branch SHADOW would fall through to the PaneCard path
+        # below, whose card.focus() fires on_descendant_focus → Zone.PANE_LIST —
+        # ejecting the user from the shadow column on EVERY 3s refresh and
+        # silently ending shadow key targeting (t1216_2).
+        if zone == Zone.SHADOW:
+            # Re-validate: this restore was QUEUED before the deferred
+            # visibility check ran, so the column may have been hidden (or the
+            # shadow may have vanished) in between. Re-focusing it then would
+            # resurrect a zone that was just left — and, because focusing the
+            # column re-enters it, would reset the absent-grace counter on
+            # every tick so the grace window could never expire.
+            # Validate on the COLUMN being shown, not on a snapshot existing:
+            # during the grace hold the snapshot is absent but the column is
+            # still up rendering the placeholder, and focus must stay there.
+            if self._shadow_split_ok:
+                try:
+                    self.query_one("#shadow-preview", PreviewPanel).focus()
+                except Exception:
+                    pass
+            else:
+                self._active_zone = Zone.PREVIEW
+                self._active_preview_zone = Zone.PREVIEW
+                try:
+                    self.query_one("#content-preview", PreviewPanel).focus()
+                except Exception:
+                    pass
+            self._update_content_preview()
+            self._update_shadow_preview()
             if pane_list_rebuilt:
                 self._update_selected_card_indicator(full=True)
             return
@@ -931,6 +1161,9 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # focus. This second call corrects the preview. On the fast path it's
         # cheap (same_pane check short-circuits). Fixes t576.
         self._update_content_preview()
+        # Same for the shadow column: _focused_pane_id may have changed just
+        # above, and the shadow shown is derived from it.
+        self._update_shadow_preview()
         # Re-apply the .selected class to the freshly-mounted card whose
         # pane_id matches _focused_pane_id (cards were destroyed by the
         # rebuild). Required so the preview-zone indicator survives ticks.
@@ -1336,13 +1569,338 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     )
                 )
 
+    # -- Shadow column rendering (t1216_2) -------------------------------------
+
+    def _update_shadow_preview(self) -> None:
+        """Render the SHADOW column for the selected agent's bound shadow.
+
+        Mirrors _update_content_preview but with its OWN render generation and
+        worker group: sharing either would let the two columns cancel or clobber
+        each other's renders.
+        """
+        try:
+            preview = self.query_one("#shadow-preview", PreviewPanel)
+            header = self.query_one("#shadow-header", Static)
+            scroll = self.query_one("#shadow-scroll", PreviewScrollContainer)
+        except Exception:
+            return
+
+        # Bump UP FRONT on EVERY entry — including the absent / frozen / empty
+        # branches — so a slow in-flight render can never clobber a newer state
+        # (same discipline as _update_content_preview, t1111_5).
+        self._shadow_render_gen += 1
+        my_gen = self._shadow_render_gen
+
+        snap = None
+        if self._focused_pane_id and self._monitor is not None:
+            snap = self._monitor.get_shadow_snapshot(self._focused_pane_id)
+
+        if snap is None:
+            # The zone may still be HELD here during the grace window (see
+            # _reconcile_shadow_state), so show a placeholder rather than
+            # anything that could be mistaken for live shadow output.
+            header.update("[bold]Shadow[/]")
+            preview.styles.min_width = 0
+            preview.update("[dim](shadow unavailable)[/]")
+            self._shadow_rendered_lines = []
+            self._last_shadow_pane_id = None
+            return
+
+        shadow_pane_id = snap.pane.pane_id
+        saved = self._shadow_scroll_state.get(shadow_pane_id)
+        is_paused = saved is not None and not saved[0]
+        same_pane = (shadow_pane_id == self._last_shadow_pane_id)
+
+        label = f"({shadow_pane_id} ← {self._focused_pane_id})"
+        if is_paused:
+            tag = " [bold yellow]PAUSED[/]"
+        elif self._active_zone == Zone.SHADOW:
+            tag = " [bold green]LIVE[/]"
+        else:
+            tag = ""
+        if self._active_zone == Zone.SHADOW:
+            header.update(f"[bold white]Shadow[/] {label}{tag}")
+        else:
+            header.update(f"[bold]Shadow[/] {label}{tag}")
+
+        # Frozen branch: same shadow pane AND (user detached OR scroll in flight).
+        if same_pane and (is_paused or scroll.user_is_scrolling):
+            self._last_shadow_pane_id = shadow_pane_id
+            return
+
+        lines = snap.content.rstrip().splitlines()
+        if lines:
+            # Size the panel to the REAL shadow pane width so its content
+            # renders unwrapped (mirrors the agent preview).
+            preview.styles.min_width = snap.pane.width
+            self._shadow_rendered_lines = lines
+            if not same_pane:
+                preview.update("[dim]…[/]")
+            self.run_worker(
+                self._apply_shadow_render(
+                    shadow_pane_id, "\n".join(lines), my_gen, saved, lines
+                ),
+                exclusive=True, group="shadow-preview", exit_on_error=False,
+            )
+        else:
+            preview.styles.min_width = 0
+            preview.update("[dim](empty)[/]")
+            self._shadow_rendered_lines = []
+
+        self._last_shadow_pane_id = shadow_pane_id
+
+    async def _apply_shadow_render(
+        self, shadow_pane_id, joined, my_gen, saved, lines
+    ) -> None:
+        """Offloaded shadow render + guarded application.
+
+        Mirrors _apply_preview_render, but the identity guard compares against
+        the CURRENT shadow pane (the selection may have moved to another agent,
+        or the shadow may have been rebound) rather than the focused agent.
+        """
+        if self._monitor is None:
+            return
+        if my_gen != self._shadow_render_gen:
+            return
+        try:
+            text = await self._monitor._run_offloaded(
+                lambda: _ansi_to_rich_text(joined)
+            )
+        except Exception:
+            text = Text(joined)
+
+        if my_gen != self._shadow_render_gen:
+            return  # superseded by a newer render → discard
+        if shadow_pane_id != self._current_shadow_pane_id():
+            return  # selection moved / shadow rebound during the offload
+        try:
+            preview = self.query_one("#shadow-preview", PreviewPanel)
+            scroll = self.query_one("#shadow-scroll", PreviewScrollContainer)
+        except Exception:
+            return
+
+        preview.update(text)
+
+        def _guarded(action, g=my_gen, p=shadow_pane_id):
+            if g == self._shadow_render_gen and p == self._current_shadow_pane_id():
+                action()
+
+        if saved is None or saved[0]:
+            self.call_after_refresh(
+                lambda: _guarded(lambda: scroll.scroll_end(animate=False))
+            )
+        else:
+            target_idx = self._locate_anchor(lines, saved[1])
+            if target_idx is None:
+                self.call_after_refresh(
+                    lambda: _guarded(lambda: scroll.scroll_end(animate=False))
+                )
+            else:
+                target_f = float(target_idx)
+                self.call_after_refresh(
+                    lambda t=target_f: _guarded(
+                        lambda: scroll.scroll_to(y=t, animate=False)
+                    )
+                )
+
     # -- Zone navigation -------------------------------------------------------
 
+    # -- Shadow column helpers (t1216_2) ---------------------------------------
+
+    def _current_shadow_pane_id(self) -> str | None:
+        """Shadow pane bound to the SELECTED agent, or None.
+
+        Resolves from ``self._focused_pane_id`` — never ``_get_focused_pane_id()``,
+        which reads ``self.focused`` and returns None whenever focus is off a
+        PaneCard, i.e. always while a preview zone is active.
+        """
+        if not self._focused_pane_id or self._monitor is None:
+            return None
+        snap = self._monitor.get_shadow_snapshot(self._focused_pane_id)
+        return None if snap is None else snap.pane.pane_id
+
+    def _shadow_visibility_width(self) -> int | None:
+        """Width the shadow column should occupy, or None to hide it.
+
+        **Single source of truth** for every caller of
+        `_apply_shadow_visibility` — the 3s reconcile and the resize-driven fit
+        check. Deriving this in two places is a live bug: while the SHADOW zone
+        HOLDS a momentarily-absent snapshot, a caller that resolved `None`
+        instead of the last known width would hide the column and trigger
+        `_leave_shadow_zone`, collapsing the grace window to whenever the user
+        happens to resize the terminal.
+        """
+        snap = None
+        if self._focused_pane_id and self._monitor is not None:
+            snap = self._monitor.get_shadow_snapshot(self._focused_pane_id)
+        if snap is not None:
+            self._last_shadow_width = snap.pane.width
+            return snap.pane.width
+        if self._active_zone == Zone.SHADOW:
+            return self._last_shadow_width  # holding: keep the column up
+        return None
+
+    def _shadow_split_fits(self, shadow_width: int) -> bool:
+        """Whether the side-by-side split leaves the agent column usable.
+
+        Decided on the mounted row's usable content width, NOT self.size.width:
+        the screen width ignores #content-section's border, the stable
+        scrollbar gutters and padding, and at the boundary that error is
+        several columns. content_region is only meaningful post-layout, so
+        every caller schedules this via call_after_refresh.
+        """
+        try:
+            row = self.query_one("#preview-row")
+        except Exception:
+            return False  # not mounted yet — no split
+        avail = row.content_region.width
+        return (avail - (shadow_width + 1)) >= SHADOW_MIN_AGENT_COLS
+
+    def _apply_shadow_visibility(self, shadow_width: int | None) -> None:
+        """Show/size or hide #shadow-col. Runs post-layout (call_after_refresh).
+
+        `shadow_width` is None when no shadow is bound. Also resets the tail
+        target when the column is not usable, so `t` can never aim at a hidden
+        column.
+        """
+        try:
+            col = self.query_one("#shadow-col")
+            preview = self.query_one("#shadow-preview", PreviewPanel)
+        except Exception:
+            return
+        fits = shadow_width is not None and self._shadow_split_fits(shadow_width)
+        self._shadow_split_ok = fits
+        if fits:
+            # +1 for the stable scrollbar gutter.
+            col.styles.width = shadow_width + 1
+            preview.styles.min_width = shadow_width
+            col.display = True
+        else:
+            col.display = False
+            if self._active_preview_zone == Zone.SHADOW:
+                self._active_preview_zone = Zone.PREVIEW
+            if self._active_zone == Zone.SHADOW:
+                self._leave_shadow_zone("Shadow column hidden — too narrow")
+
+    def _reconcile_shadow_state(self) -> Zone:
+        """Full-refresh owner of shadow visibility, the grace counter and the
+        SHADOW-zone exit. Returns the (possibly changed) active zone.
+
+        The 0.3s tick only runs while SHADOW is FOCUSED, but the column is
+        visible whenever a shadow is bound — so the 3s refresh has to own all of
+        this or the column goes stale (or keeps showing the previous agent's
+        shadow) whenever focus sits in the pane list.
+
+        Two causes of an absent snapshot are indistinguishable here — the shadow
+        pane died, or a single capture failed — so the grace window covers both.
+        A selection change is different: it IS unambiguous (we never had a
+        snapshot for the newly selected agent), so it exits immediately.
+
+        Returns the zone so _refresh_data can rebind its `saved_zone` local
+        before handing it to the deferred _restore_focus — otherwise the restore
+        would re-focus the shadow column and UNDO the fallback just applied.
+        """
+        snap = None
+        if self._focused_pane_id and self._monitor is not None:
+            snap = self._monitor.get_shadow_snapshot(self._focused_pane_id)
+
+        if self._active_zone == Zone.SHADOW:
+            moved = (
+                self._shadow_zone_agent_id is not None
+                and self._focused_pane_id != self._shadow_zone_agent_id
+            )
+            if moved and snap is None:
+                # Unambiguous: we never had a snapshot for the newly selected
+                # agent, so this is not a blip. Leave at once rather than
+                # sitting on a placeholder for the whole grace window.
+                self._leave_shadow_zone("Agent has no shadow — back to the preview")
+            elif moved:
+                # Follow the selection onto the new agent's shadow.
+                self._shadow_zone_agent_id = self._focused_pane_id
+                self._shadow_absent_ticks = 0
+            elif snap is not None:
+                self._shadow_absent_ticks = 0
+            else:
+                self._shadow_absent_ticks += 1
+                if self._shadow_absent_ticks >= SHADOW_ABSENT_GRACE_TICKS:
+                    self._leave_shadow_zone(
+                        "Shadow gone — back to the agent preview"
+                    )
+        else:
+            self._shadow_absent_ticks = 0
+
+        # Visibility/width must be measured post-layout. Derived by the shared
+        # helper (never inline) so this path and the resize-driven fit check
+        # cannot disagree about the hold case.
+        self._schedule_shadow_fit_check()
+
+        # Drop scroll state for shadow panes that no longer exist.
+        live_shadow_ids = set()
+        if self._monitor is not None:
+            for followed in list(self._snapshots):
+                s = self._monitor.get_shadow_snapshot(followed)
+                if s is not None:
+                    live_shadow_ids.add(s.pane.pane_id)
+        for pid in [p for p in self._shadow_scroll_state if p not in live_shadow_ids]:
+            del self._shadow_scroll_state[pid]
+        if (
+            self._last_shadow_pane_id is not None
+            and self._last_shadow_pane_id not in live_shadow_ids
+        ):
+            self._last_shadow_pane_id = None
+
+        return self._active_zone
+
+    def _zone_available(self, zone: Zone) -> bool:
+        """Whether `zone` can currently be entered.
+
+        Only SHADOW is conditional — it needs a bound shadow for the selected
+        agent AND the split to fit — so Tab behaves exactly as before for
+        agents with no shadow.
+        """
+        if zone != Zone.SHADOW:
+            return True
+        return self._current_shadow_pane_id() is not None and self._shadow_split_ok
+
+    def _enter_shadow_zone(self) -> None:
+        """Bind the SHADOW zone to the currently selected agent.
+
+        Idempotent for the SAME agent. This matters: _restore_focus re-focuses
+        #shadow-preview on every full refresh, which fires on_descendant_focus
+        and lands here — resetting the absent-grace counter unconditionally
+        would mean it could NEVER reach SHADOW_ABSENT_GRACE_TICKS and the zone
+        would hold a dead shadow forever.
+        """
+        if self._shadow_zone_agent_id != self._focused_pane_id:
+            self._shadow_zone_agent_id = self._focused_pane_id
+            self._shadow_absent_ticks = 0
+        self._active_preview_zone = Zone.SHADOW
+
+    def _leave_shadow_zone(self, reason: str | None = None) -> None:
+        """Fall back from SHADOW to PREVIEW and reset the tail target."""
+        self._active_zone = Zone.PREVIEW
+        self._active_preview_zone = Zone.PREVIEW
+        self._shadow_absent_ticks = 0
+        self._shadow_zone_agent_id = None
+        self._focus_first_in_zone()
+        self._manage_preview_timer()
+        if reason:
+            self.notify(reason)
+
     def _switch_zone(self, direction: int = 1) -> None:
-        """Cycle active zone forward or backward."""
+        """Cycle active zone forward or backward, skipping unavailable zones."""
         idx = ZONE_ORDER.index(self._active_zone)
-        new_idx = (idx + direction) % len(ZONE_ORDER)
-        self._active_zone = ZONE_ORDER[new_idx]
+        # Loop rather than single-step so a skip can never land on an invalid
+        # zone (PANE_LIST is always available, so this always terminates).
+        for _ in range(len(ZONE_ORDER)):
+            idx = (idx + direction) % len(ZONE_ORDER)
+            if self._zone_available(ZONE_ORDER[idx]):
+                break
+        self._active_zone = ZONE_ORDER[idx]
+        if self._active_zone == Zone.SHADOW:
+            self._enter_shadow_zone()
+        elif self._active_zone == Zone.PREVIEW:
+            self._active_preview_zone = Zone.PREVIEW
         self._focus_first_in_zone()
         self._manage_preview_timer()
         self._update_zone_indicators()
@@ -1366,6 +1924,11 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.query_one("#content-preview", PreviewPanel).focus()
             except Exception:
                 pass
+        elif self._active_zone == Zone.SHADOW:
+            try:
+                self.query_one("#shadow-preview", PreviewPanel).focus()
+            except Exception:
+                pass
 
     def _update_zone_indicators(self) -> None:
         """Update visual indicators showing which zone is active."""
@@ -1373,14 +1936,18 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             for section_id, zone in [
                 ("#pane-list", Zone.PANE_LIST),
                 ("#content-section", Zone.PREVIEW),
+                ("#shadow-col", Zone.SHADOW),
             ]:
                 widget = self.query_one(section_id)
                 widget.set_class(self._active_zone == zone, "zone-active")
         except Exception:
             return
-        # Refresh the preview header (LIVE indicator)
+        # Refresh the preview headers (LIVE indicator) for both columns.
         self._update_content_preview()
-        # Update footer to show/hide bindings based on active zone
+        self._update_shadow_preview()
+        # Update footer to show/hide bindings based on active zone.
+        # refresh_bindings() is what actually relabels the Footer — check_action
+        # alone never does.
         self.refresh_bindings()
         # Keep the previewed PaneCard visually marked even when focus is on
         # the preview pane.
@@ -1416,7 +1983,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Show/hide footer bindings based on active zone."""
-        if self._active_zone == Zone.PREVIEW:
+        if self._active_zone in (Zone.PREVIEW, Zone.SHADOW):
             return action == "switch_zone"
         return action != "switch_zone"
 
@@ -1426,11 +1993,27 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def action_send_enter(self) -> None:
         """No-op — Enter is handled in on_key. Exists for Footer display only."""
 
+    async def _fast_zone_refresh(self) -> None:
+        """Dispatch the 0.3s tick to the column the ACTIVE zone owns.
+
+        set_interval binds its callback once, so widening _manage_preview_timer's
+        `is None` guard to admit SHADOW would leave a PREVIEW→SHADOW transition
+        taking neither branch — the live timer would keep refreshing the agent
+        column forever. Dispatching here reads the zone at call time instead, so
+        a zone change needs no timer churn and there is no stop/recreate window
+        (t1216_2).
+        """
+        if self._active_zone == Zone.SHADOW:
+            await self._fast_shadow_refresh()
+        elif self._active_zone == Zone.PREVIEW:
+            await self._fast_preview_refresh()
+
     def _manage_preview_timer(self) -> None:
         """Start/stop the fast preview timer based on active zone."""
-        if self._active_zone == Zone.PREVIEW and self._preview_timer is None:
-            self._preview_timer = self.set_interval(0.3, self._fast_preview_refresh)
-        elif self._active_zone != Zone.PREVIEW and self._preview_timer is not None:
+        active = self._active_zone in (Zone.PREVIEW, Zone.SHADOW)
+        if active and self._preview_timer is None:
+            self._preview_timer = self.set_interval(0.3, self._fast_zone_refresh)
+        elif not active and self._preview_timer is not None:
             self._preview_timer.stop()
             self._preview_timer = None
 
@@ -1482,6 +2065,19 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             event.prevent_default()
             return
 
+        # In the shadow zone: forward everything to the SHADOW pane. This must
+        # sit above the PREVIEW catch-all below. event.stop() is unconditional,
+        # so when the shadow is absent the key is SWALLOWED rather than falling
+        # through to the agent pane — typing a user's shadow input into a
+        # working agent would be a real hazard (t1216_2).
+        if self._active_zone == Zone.SHADOW:
+            shadow_pane = self._current_shadow_pane_id()
+            if shadow_pane and self._monitor:
+                self._forward_key_to_tmux(event, target_pane_id=shadow_pane)
+            event.stop()
+            event.prevent_default()
+            return
+
         # In preview zone: forward everything to tmux
         if self._active_zone == Zone.PREVIEW:
             if self._focused_pane_id and self._monitor:
@@ -1500,29 +2096,48 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             event.stop()
             event.prevent_default()
 
-    def _forward_key_to_tmux(self, event) -> None:
+    def _forward_key_to_tmux(self, event, target_pane_id: str | None = None) -> None:
         """Map a Textual key event to tmux send-keys and forward it.
 
         Key translation lives in ``monitor_core.translate_key`` (shared with the
         applink ``forward_key`` verb, t822_7); this method only forwards the
-        focused-pane key and wires the desktop fast-preview refresh.
+        key and wires the desktop fast refresh.
+
+        ``target_pane_id`` overrides the default (the focused agent pane) for
+        the SHADOW zone. The SCHEDULED refresh must match the target, or typing
+        into the shadow would re-capture the agent column instead (t1216_2).
         """
-        if self._monitor.forward_key(
-            self._focused_pane_id, event.key, event.character
-        ):
-            self.call_later(self._fast_preview_refresh)
+        target = target_pane_id or self._focused_pane_id
+        if self._monitor.forward_key(target, event.key, event.character):
+            self.call_later(
+                self._fast_shadow_refresh if target_pane_id
+                else self._fast_preview_refresh
+            )
 
     # -- Focus tracking --------------------------------------------------------
 
     def on_descendant_focus(self, event) -> None:
         widget = event.widget
+        # NOTE: none of these branches clears _shadow_zone_agent_id. Focus
+        # events fire incidentally during a pane-list rebuild, and unbinding
+        # here would make the next _enter_shadow_zone look like a fresh entry
+        # and reset the absent-grace counter every tick (t1216_2). The binding
+        # is owned by _enter_shadow_zone / _leave_shadow_zone only.
         if isinstance(widget, PaneCard):
             self._active_zone = Zone.PANE_LIST
             self._focused_pane_id = widget.pane_id
             self._manage_preview_timer()
             self._update_zone_indicators()
         elif isinstance(widget, PreviewPanel):
-            self._active_zone = Zone.PREVIEW
+            # BOTH preview columns are PreviewPanel instances, so the zone must
+            # be disambiguated by widget id — an isinstance-only branch would
+            # silently route shadow focus to Zone.PREVIEW (t1216_2).
+            if widget.id == "shadow-preview":
+                self._active_zone = Zone.SHADOW
+                self._enter_shadow_zone()
+            else:
+                self._active_zone = Zone.PREVIEW
+                self._active_preview_zone = Zone.PREVIEW
             self._manage_preview_timer()
             self._update_zone_indicators()
 
@@ -1585,22 +2200,56 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # height so the ScrollableContainer has overflow to scroll over.
         section.styles.max_height = section_h
         scroll.styles.max_height = preview_h
+        # Keep the shadow column's height in step with the agent column.
+        try:
+            self.query_one(
+                "#shadow-scroll", ScrollableContainer
+            ).styles.max_height = preview_h
+        except Exception:
+            pass
         self.notify(f"Preview size: {label}")
         # Immediately repopulate the (possibly larger) preview without
         # waiting for the next 3s refresh cycle.
         self._update_content_preview()
+        self._update_shadow_preview()
+        self._schedule_shadow_fit_check()
+
+    def _schedule_shadow_fit_check(self) -> None:
+        """Re-decide the side-by-side split after the next layout pass.
+
+        content_region is meaningless before layout, so every fit decision is
+        deferred via call_after_refresh.
+        """
+        self.call_after_refresh(
+            self._apply_shadow_visibility, self._shadow_visibility_width()
+        )
 
     def action_scroll_preview_tail(self) -> None:
-        """Jump preview to the bottom and re-engage tail-follow."""
+        """Jump the LAST-FOCUSED preview column to its tail and re-engage follow.
+
+        `t` is only ever pressable from PANE_LIST — check_action disables every
+        non-switch_zone binding while a preview zone is focused — so "the active
+        column" means the last-focused one, tracked in _active_preview_zone
+        (t1216_2). The two columns key their scroll state differently: the agent
+        column by the followed pane id, the shadow column by the shadow pane id.
+        """
+        if self._active_preview_zone == Zone.SHADOW:
+            scroll_id, state = "#shadow-scroll", self._shadow_scroll_state
+            key = self._current_shadow_pane_id()
+            refresh = self._fast_shadow_refresh
+        else:
+            scroll_id, state = "#preview-scroll", self._preview_scroll_state
+            key = self._focused_pane_id
+            refresh = self._fast_preview_refresh
         try:
-            scroll = self.query_one("#preview-scroll", PreviewScrollContainer)
+            scroll = self.query_one(scroll_id, PreviewScrollContainer)
         except Exception:
             return
         scroll.scroll_end(animate=False)
-        if self._focused_pane_id is not None:
-            self._preview_scroll_state[self._focused_pane_id] = (True, None)
+        if key is not None:
+            state[key] = (True, None)
             # Pull fresh content so tail-follow resumes on the latest output.
-            self.call_later(self._fast_preview_refresh)
+            self.call_later(refresh)
         self.notify("Tail follow")
 
     def on_resize(self, event) -> None:
@@ -1608,6 +2257,11 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         section_spec, _, _ = PREVIEW_SIZES[self._preview_size_idx]
         if isinstance(section_spec, str) and section_spec.startswith("agents:"):
             self._apply_preview_size()
+        # NOTE: the shadow split is deliberately NOT re-decided here. This
+        # handler runs before #preview-row has been re-laid-out, so it would
+        # measure a stale content_region (a 120→70 resize still reports 120).
+        # PreviewRow.on_row_resize drives the fit check instead — the row's own
+        # Resize event is the one that carries a settled width (t1216_2).
 
     def action_toggle_auto_switch(self) -> None:
         """Toggle auto-switch mode on/off."""

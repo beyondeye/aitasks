@@ -13,7 +13,7 @@ depth: [advanced]
 
 | Key | Action | Context |
 |-----|--------|---------|
-| `Tab` | Cycle focus to the next zone (pane list ↔ preview) | Global |
+| `Tab` | Cycle focus to the next zone (pane list → preview → shadow) | Global |
 | `Shift+Tab` | Cycle focus to the previous zone | Global |
 | `Up` | Focus the previous card in the pane list | Pane list zone |
 | `Down` | Focus the next card in the pane list | Pane list zone |
@@ -41,7 +41,7 @@ depth: [advanced]
 | `r` | Refresh the pane list and preview immediately | Global |
 | `F5` | Refresh the pane list and preview immediately (alias for `r`, hidden in footer) | Global |
 | `z` | Cycle the preview size through S / M / L presets | Global |
-| `t` | Scroll the preview to its tail (newest output) | Global |
+| `t` | Scroll the last-focused preview column (agent or shadow) to its tail (newest output) | Global |
 | `a` | Toggle auto-switch mode (automatically focus idle agents needing attention) | Global |
 | `M` | Toggle the multi-session view ON/OFF (see [Multi-session view](#multi-session-view)) | Global |
 
@@ -58,14 +58,17 @@ depth: [advanced]
 
 ### Zone Model
 
-Monitor uses a two-zone model. Focus lives in one of:
+Monitor uses a three-zone model. Focus lives in one of:
 
 | Zone | Widget | Behavior |
 |------|--------|----------|
 | `PANE_LIST` | `VerticalScroll` of `PaneCard` widgets | Up/Down navigate between cards; Enter sends an `Enter` keystroke to the focused pane |
 | `PREVIEW` | `PreviewPanel` inside a `ScrollableContainer` | All non-bound keys are forwarded to the focused pane; a fast-refresh timer (300 ms) updates the preview while this zone is active |
+| `SHADOW` | A second `PreviewPanel` in the right-hand column | All non-bound keys are forwarded to the selected agent's **shadow** pane; the same 300 ms fast-refresh timer follows this column while it is active |
 
-`Tab` and `Shift+Tab` cycle between these zones. The active zone is reflected in the widget borders and in the content-header label above the preview.
+`Tab` and `Shift+Tab` cycle between these zones. The active zone is reflected in the widget borders and in the header label above each preview column, which shows a green `LIVE` badge for the zone that currently receives keystrokes.
+
+The `SHADOW` zone is **skipped** by `Tab` unless the selected agent has a bound shadow companion *and* the side-by-side split fits: the shadow column is sized to the real shadow pane's width so its content renders unwrapped, and the split is suppressed when it would leave the agent column narrower than 40 columns. If the shadow disappears while the zone is focused, the column holds for a short grace window (2 refreshes) showing a `(shadow unavailable)` placeholder before falling back to `PREVIEW`; keystrokes are dropped — never redirected to the agent — while it is absent.
 
 ### Pane Classification
 
