@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1162
+implemented_with: claudecode/opus5
 created_at: 2026-07-24 15:17
-updated_at: 2026-07-28 12:42
+updated_at: 2026-07-28 15:30
 ---
 
 ## Origin
@@ -75,3 +76,8 @@ suite with the export removed and counting failures.
   edit — do NOT `git checkout --`, which would discard unrelated uncommitted
   work in a shared checkout.
 - `bash tests/test_no_lib_to_tui_import.sh` still passes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-28T12:30:57Z status=pass attempt=1 type=human
