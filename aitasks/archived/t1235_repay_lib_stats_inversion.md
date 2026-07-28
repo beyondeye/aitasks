@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [reporting]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1162
 implemented_with: claudecode/opus5
 created_at: 2026-07-24 15:17
-updated_at: 2026-07-28 18:05
+updated_at: 2026-07-28 18:06
+completed_at: 2026-07-28 18:06
 ---
 
 ## Origin
@@ -84,3 +85,14 @@ then drop the insert.
 > **✅ gate:plan_approved** run=2026-07-28T12:38:36Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-28T14:53:24Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-28T15:06:38Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a8173a575ccdb279
+
+> **✅ gate:risk_evaluated** run=2026-07-28T15:06:38Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1235/risk_evaluated_2026-07-28T15:06:38Z-risk_evaluated-a1.log`
