@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from rich.cells import cell_len
+from rich.cells import cell_len, set_cell_size
 from rich.markup import escape
 from rich.text import Text
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for, task_dir
@@ -5361,8 +5361,20 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
        width (auto), never a hardcoded column count — a fixed number silently
        truncates the row whenever a base filter is added or a key is rebound
        (t1247). `.narrow` reflows the search box onto its own line instead of
-       letting it squeeze the filters. */
-    #filter_area { dock: top; height: auto; margin: 0 0 1 0; }
+       letting it squeeze the filters.
+
+       NEVER re-add `dock: top` here (t1278). Textual places two same-edge
+       docked siblings at the SAME offset rather than stacking them, so a
+       docked #filter_area lands on y=0 on top of the docked Header and paints
+       over it — silently, because the Header still reports display=True,
+       visible=True and a correct region, and still appears in the
+       compositor's visible_widgets. That hid every sub_title write (the
+       By-Trail freshness banner and `Auto-refresh: …`) for the app's whole
+       history. Undocked, the Header owns y=0 and this row flows below it.
+       The bottom margin is gone deliberately: it was a second blank
+       separator row, and dropping it pays for the header row, so
+       #board_container still starts at y=4 with an unchanged height. */
+    #filter_area { height: auto; }
     #filter_area.narrow { layout: vertical; }
     #view_col { width: auto; height: auto; }
     #filter_area.narrow #view_col { width: 100%; }
@@ -5850,6 +5862,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def on_resize(self, event):
         self._apply_filter_reflow(event.size.width)
+        # The banner is composed against the header's available width, so a
+        # resize invalidates it: without this a board dragged narrower keeps a
+        # banner budgeted for the old width and clips the freshness marker
+        # again (t1278).
+        self._refresh_subtitle()
 
     def _start_auto_refresh_timer(self):
         """Start or restart the auto-refresh timer based on current settings."""
@@ -5882,15 +5899,68 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """Update the app subtitle (delegates to the single composer)."""
         self._refresh_subtitle()
 
+    def _banner_budget(self) -> int:
+        """Cells available to `sub_title` on the header row (0 = unknown).
+
+        Read off the live HeaderTitle rather than a hardcoded inset: the inset
+        is Textual's (header icon plus the clock reservation) and would drift
+        on upgrade, or if `show_clock` were ever enabled. Queried by CSS type
+        selector so no private `textual.widgets._header` import is needed.
+
+        Returns 0 before the first layout (and if the Header is ever removed),
+        which callers treat as "cannot budget" and skip elision — degrading to
+        the untruncated string rather than guessing a width."""
+        try:
+            usable = self.query_one("HeaderTitle").content_region.width
+        except Exception:
+            return 0
+        # " — " is the separator HeaderTitle puts between title and sub_title.
+        return max(0, usable - cell_len(str(self.title)) - 3)
+
+    def _trail_banner(self, title: str, suffix: str, owner_note: str) -> str:
+        """Compose the By-Trail banner so the freshness marker always survives.
+
+        HeaderTitle ellipsis-truncates the TAIL, and the marker is the tail —
+        so without this the one volatile signal is the FIRST thing lost as the
+        terminal narrows. Measured before this shed (t1278): at 80 columns with
+        a short trail title, "(⚠ stale: 3)" already clipped to "(⚠ s…"; with a
+        long title it clipped at 120. 80 columns is an ordinary terminal, so
+        the header fix alone did not make the banner readable.
+
+        Sheds context from the widest rung down until it fits the measured
+        budget, dropping the trail title (recoverable — it is also on the
+        selection modal and the lanes) before the marker."""
+        budget = self._banner_budget()
+        full = f'By-Trail: "{title}"{suffix}{owner_note}'
+        if not budget or cell_len(full) <= budget:
+            return full
+        # Rung 2: keep the marker, elide the title to whatever room is left.
+        fixed = f'By-Trail: ""{suffix}{owner_note}'
+        room = budget - cell_len(fixed)
+        if room >= 2:
+            return (f'By-Trail: "{set_cell_size(title, room - 1)}…"'
+                    f'{suffix}{owner_note}')
+        # Rung 3: no room for any title at all.
+        without_title = f"By-Trail:{suffix}{owner_note}"
+        if cell_len(without_title) <= budget:
+            return without_title
+        # Rung 4: even the label does not fit — the marker alone is what
+        # matters. Bare (no parens): it is no longer a suffix to anything.
+        return suffix.strip().strip("()") or without_title
+
     def _refresh_subtitle(self):
         """Single writer for the app subtitle (t1210_4).
 
         By-Trail with a selected trail → the trail banner (title + freshness
         suffix); every other state → the auto-refresh status. All subtitle
-        updates (view switches, drift callbacks, settings changes) route
-        through here, so leaving By-Trail restores the auto-refresh text."""
+        updates (view switches, drift callbacks, settings changes, resizes)
+        route through here, so leaving By-Trail restores the auto-refresh
+        text."""
         if self.base_filter == "bytrail" and self.active_trail_handle:
             if self._trail_error:
+                # Left unbudgeted deliberately (t1278): a clipped tail here
+                # loses part of a handle the user just selected, not a
+                # volatile freshness signal.
                 self.sub_title = (f"By-Trail: {self.active_trail_handle} — "
                                   f"trail unavailable")
             elif self._trail_doc:
@@ -5913,7 +5983,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     owner = (f"t{self._trail_owner_id}"
                              if self._trail_owner_id else "task")
                     owner_note = f" · owner {owner} archived"
-                self.sub_title = f'By-Trail: "{title}"{suffix}{owner_note}'
+                self.sub_title = self._trail_banner(title, suffix, owner_note)
             else:
                 self.sub_title = f"By-Trail: {self.active_trail_handle}"
             return

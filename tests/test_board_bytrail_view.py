@@ -69,6 +69,19 @@ class ByTrailTestBase(unittest.TestCase):
         return asyncio.run(coro)
 
     @staticmethod
+    def _screen_rows(app) -> list[str]:
+        """Composited frame text, row by row.
+
+        Deliberately NOT app.sub_title / widget.region / widget.display: an
+        occluded widget reports display=True with a correct region and still
+        appears in the compositor's visible_widgets, which is exactly how the
+        freshness banner shipped invisible behind the docked filter row
+        (t1273 item #3 -> t1278). Only the composited frame proves a row
+        reaches the screen."""
+        return [strip.text for strip
+                in app.screen._compositor.render_strips(app.screen.size)]
+
+    @staticmethod
     def _footer_actions(app) -> set[str]:
         return {
             active.binding.action
@@ -2090,6 +2103,230 @@ class FreshnessGatingTests(ByTrailTestBase):
                 for action in ("trail_refresh_local", "trail_refresh_drift",
                                "trail_refresh_agent"):
                     self.assertIn(action, actions)
+
+        self._run(go())
+
+
+# A trail title long enough to swallow the header row on its own. The clipping
+# this pins is a function of title length, so it must not be a short fixture.
+_LONG_TRAIL_TITLE = ("Cross-repo gate framework landing order and verifier "
+                     "registry consolidation")
+
+
+class BannerRenderTests(ByTrailTestBase):
+    """t1278: the freshness banner must reach the SCREEN, not just sub_title.
+
+    Every pre-existing banner assertion in this file reads `app.sub_title`,
+    which was correct the whole time the banner was invisible. These tests
+    assert on the composited frame instead, and each one was confirmed to fail
+    against the pre-fix source (docked #filter_area / unbudgeted banner).
+    """
+
+    @staticmethod
+    def _doc(title: str) -> dict:
+        doc = copy.deepcopy(_load_fixture())
+        doc["title"] = title
+        return doc
+
+    async def _enter_live_bytrail(self, app, pilot, doc):
+        """Enter By-Trail WITHOUT stubbing _start_trail_drift.
+
+        _enter_synthetic_bytrail no-ops the drift kick, which is right for
+        tests about other things but would sever the very chain these tests
+        exist to exercise."""
+        app.active_trail_handle = "art:trail-test"
+        app._trail_infos = []
+        app._trail_doc = doc
+        app._trail_error = ""
+        app._set_base_filter("bytrail")
+        await pilot.pause()
+        await pilot.pause()
+
+    def test_d_key_drives_checking_then_stale_onto_the_header_row(self):
+        """The reported flow, end to end, through the real key and workers.
+
+        Only the two module-level subprocess seams are replaced. The key
+        press, action dispatch, worker launch, thread hop and callback
+        ordering are all the production ones, so a regression in any of them
+        fails here — which a test that injected _trail_drift and called
+        _refresh_subtitle() directly could not detect.
+        """
+        ab = self.ab
+
+        async def go():
+            # Gate the reload worker so the intermediate "checking" frame is
+            # observed deterministically instead of raced for.
+            gate = threading.Event()
+
+            def fake_load(handle):
+                gate.wait(timeout=5)
+                return (self._doc("Gate framework landing order"), "", ["v1"])
+
+            def fake_drift(handle):
+                return ("STALE", [("stale_status", "aitasks#1", "d1"),
+                                  ("stale_status", "aitasks#2", "d2")])
+
+            with patch.object(ab, "load_trail_blob", fake_load), \
+                    patch.object(ab, "run_trail_drift", fake_drift):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(160, 40)) as pilot:
+                    await pilot.pause()
+                    await self._enter_live_bytrail(
+                        app, pilot, self._doc("Gate framework landing order"))
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    self.assertIn("⚠ stale: 2", self._screen_rows(app)[0])
+
+                    await pilot.press("d")
+                    # Two beats, not one: _reload_active_trail writes the
+                    # subtitle synchronously but the frame still has to
+                    # composite. Safe to over-wait — the reload worker is
+                    # gated, so the "checking" state cannot elapse.
+                    await pilot.pause()
+                    await pilot.pause()
+                    try:
+                        self.assertIn("⟳ checking freshness…",
+                                      self._screen_rows(app)[0])
+                    finally:
+                        # Release the worker even when the assertion above
+                        # fails: an unreleased gate parks the thread until its
+                        # 5s timeout, making a failing test a slow noisy one.
+                        gate.set()
+                        await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    self.assertIn("⚠ stale: 2", self._screen_rows(app)[0])
+
+        self._run(go())
+
+    def test_marker_survives_narrow_terminals_and_long_titles(self):
+        """The marker is the TAIL, so it is what HeaderTitle clips first.
+
+        Asserts the presence of each COMPLETE status substring. That is both
+        necessary and sufficient: clipping destroys the substring being
+        matched ("(⚠ s…" does not contain "⚠ stale: 3"). Deliberately no
+        generic "row 0 has no ellipsis" rule — the checking marker ends in one
+        by design, and the elided-title rungs render one inside the quotes.
+        """
+        ab = self.ab
+
+        async def check(width, verdict, expected):
+            def fake_drift(handle):
+                return (verdict, [("stale_status", f"aitasks#{i}", "d")
+                                  for i in range(3)])
+
+            with patch.object(ab, "run_trail_drift", fake_drift):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(width, 30)) as pilot:
+                    await pilot.pause()
+                    await self._enter_live_bytrail(
+                        app, pilot, self._doc(_LONG_TRAIL_TITLE))
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    row0 = self._screen_rows(app)[0]
+                    self.assertIn(expected, row0,
+                                  f"width={width}: {expected!r} clipped off "
+                                  f"the header row: {row0.strip()!r}")
+
+        async def go():
+            # 80 is an ordinary terminal and is where the unbudgeted banner
+            # clipped even a SHORT title; 60 forces the title off entirely.
+            for width in (160, 120, 100, 80, 60):
+                await check(width, "STALE", "⚠ stale: 3")
+
+        self._run(go())
+
+    def test_checking_marker_survives_down_to_its_declared_floor(self):
+        """Pins the bound rather than claiming the ladder is width-proof.
+
+        The shed can drop the trail title but not the app title, which
+        HeaderTitle owns — so each marker has a hard floor. Measured:
+        "⟳ checking freshness…" needs >=55 columns, "⚠ stale: N" needs >=44.
+        Tested AT the bound; below it the banner degrades by clipping, which
+        is the documented behaviour, not a crash.
+        """
+        ab = self.ab
+
+        async def go():
+            gate = threading.Event()
+
+            def fake_drift(handle):
+                gate.wait(timeout=5)
+                return ("STALE", [("stale_status", "aitasks#1", "d")])
+
+            with patch.object(ab, "run_trail_drift", fake_drift):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(60, 30)) as pilot:
+                    await pilot.pause()
+                    await self._enter_live_bytrail(
+                        app, pilot, self._doc(_LONG_TRAIL_TITLE))
+                    # Gated drift worker: the "checking" frame cannot elapse,
+                    # so an extra beat is free insurance under load.
+                    await pilot.pause()
+                    try:
+                        self.assertIn("⟳ checking freshness…",
+                                      self._screen_rows(app)[0])
+                    finally:
+                        gate.set()
+                        await app.workers.wait_for_complete()
+
+        self._run(go())
+
+        async def stale_floor():
+            def fake_drift(handle):
+                return ("STALE", [("stale_status", "aitasks#1", "d")] * 3)
+
+            with patch.object(ab, "run_trail_drift", fake_drift):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(44, 30)) as pilot:
+                    await pilot.pause()
+                    await self._enter_live_bytrail(
+                        app, pilot, self._doc(_LONG_TRAIL_TITLE))
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    self.assertIn("⚠ stale: 3", self._screen_rows(app)[0])
+
+        self._run(stale_floor())
+
+    def test_autorefresh_status_renders_without_a_trail(self):
+        """The board-wide half: sub_title was invisible outside By-Trail too.
+
+        Pins that the fix is not By-Trail-specific — the same occluded header
+        hid the auto-refresh state for every user in every view.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause()
+                self.assertIn("Auto-refresh", self._screen_rows(app)[0])
+
+        self._run(go())
+
+    def test_header_row_costs_no_board_height_and_keeps_a_separator(self):
+        """Undocking bought the header row from the redundant bottom margin.
+
+        Pins both halves of that trade so a later CSS edit cannot silently
+        take a row from the lanes, nor collapse the filter/lane boundary.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 20)) as pilot:
+                await pilot.pause()
+                board = app.query_one("#board_container")
+                self.assertEqual((board.region.x, board.region.y), (0, 4),
+                                 "lanes moved: the header row was paid for "
+                                 "out of board height, not the old margin")
+                rows = self._screen_rows(app)
+                # Row 3 separates the filter row from the lanes. The search
+                # Input's bottom border sits on its right; the left must stay
+                # clear so the boundary reads as a boundary.
+                self.assertEqual(rows[3][:40].strip(), "",
+                                 f"filter/lane separator lost: {rows[3]!r}")
 
         self._run(go())
 
