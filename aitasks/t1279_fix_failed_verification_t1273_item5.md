@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [1268]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-07-28 01:18
-updated_at: 2026-07-28 01:18
+updated_at: 2026-07-28 09:17
 ---
 
 ## Failed verification item from t1268
