@@ -736,3 +736,42 @@ live manual verification that decides the layout question, and **t1288**
 (`shadow_refresh_concurrency_soak`, created as a t1216_1 "after") covers the
 concurrency soak. This mirrors the parent plan, which declined mitigation
 follow-ups for the same reason.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-28 16:30)
+
+- **Requested by user:** Review of the implementation flagged, as *blocking*,
+  that a terminal resize during the SHADOW absent-snapshot grace window
+  bypasses the intended two-full-refresh hold.
+  `_schedule_shadow_fit_check()` (monitor_app.py:2213) derived
+  `width = None` whenever `get_shadow_snapshot()` was temporarily absent and
+  queued `_apply_shadow_visibility(None)`. Unlike `_reconcile_shadow_state()`
+  it did **not** reuse `_last_shadow_width`, so the queued callback hid
+  `#shadow-col` and `_leave_shadow_zone()` ran immediately.
+
+- **Verified:** CONFIRMED against the source. The width derivation existed in
+  **two** places with different hold semantics — `_reconcile_shadow_state`
+  had the fallback (added late, when the hold/visibility conflict was first
+  found) and `_schedule_shadow_fit_check` did not. Since
+  `PreviewRow.on_row_resize` is bound to the latter, any resize mid-hold
+  collapsed the grace window. The duplication itself was the defect.
+
+- **Changes made:** Extracted the single source of truth
+  `_shadow_visibility_width()` — resolve the snapshot; if present, record and
+  return `pane.width`; if absent **and** the SHADOW zone is active, return
+  `_last_shadow_width` (holding); otherwise `None`. Both
+  `_schedule_shadow_fit_check()` and `_reconcile_shadow_state()` now call it,
+  and `_reconcile_shadow_state()` delegates its whole visibility scheduling to
+  `_schedule_shadow_fit_check()` so the two paths can no longer diverge.
+
+- **Test added:** `test_resize_during_the_grace_hold_does_not_collapse_it` —
+  one absent full refresh (inside the grace window), then
+  `pilot.resize_terminal` at a width where the split still fits; asserts the
+  zone is still `SHADOW` and `#shadow-col` is still displayed. Negative
+  control: removing the hold branch from `_shadow_visibility_width()` fails
+  this test **and** `test_hold_keeps_focus_and_column_up_for_the_first_absent_tick`,
+  proving both the new and the pre-existing hold path run through the helper.
+
+- **Files affected:** `.aitask-scripts/monitor/monitor_app.py`,
+  `tests/test_monitor_shadow_zone.py`.
