@@ -650,3 +650,104 @@ Nothing is written to `t1243_4` / `t1243_5` before step 4.
 No blocking pre-work mitigation tasks are needed. The one follow-up mitigation,
 **t1243_14 `retrospective_benchmark`**, already exists as a sibling created at
 decomposition time — no new mitigation task is created by this child.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** `tests/test_board_movement.py` (new, 1078 lines, **zero
+  production edits**) — the whole deliverable. Temp-tree fixture reproducing
+  production branch-mode topology; subprocess isolation via `--child`
+  re-execution of the same file; write spy + allowlist byte/path differ +
+  on-disk board-field/ordering/non-board-survival oracles; a 6-scenario frozen
+  flip table; a mutation test, a read-only isolation negative control, an AST
+  guard on the timed region and a pin on Textual's idle granularity; and the
+  pre-registered benchmark (env-gated full run + ungated smoke). §0's
+  pre-registration and the later method amendment were committed to
+  `aiplans/p1243_board_task_groups_and_fast_reordering.md` **before** the
+  corresponding measurements. The baseline, the gate miss, the options presented
+  and the user's decision are recorded there.
+
+- **Deviations from plan:**
+  1. **Attribution method changed mid-task, from span share to ablation.** The
+     span method reported `apply_filter + recompose` at 1.6 % of a 2173 ms
+     lateral keypress with 98.3 % unattributed — which would have refuted the
+     premise and killed t1243_4/t1243_5. It was an artifact:
+     `_recompose_column` calls `remove_children()` / `mount_all()`, whose
+     awaitables the board never awaits, so the mount + CSS + layout work lands in
+     the message pump after the wrapped call returns. Two controls proved the
+     missing time was real board work, not harness overhead. The amendment was
+     recorded in the parent plan **before** re-measuring.
+  2. **Added a harness floor control** (timed press of an *unbound* key), not in
+     the plan. Needed to rule out `Pilot._wait_for_screen`'s per-widget
+     bookkeeping: 104.5 ms, 4.8 % of lateral e2e.
+  3. **`defer_i` is measured as one non-overlapping interval** (sync-action end →
+     first deferred callback start) and is diagnostic only, never a denominator.
+  4. **The child is no longer handed `PYTHONPATH`.** A concurrent session landed
+     t1236, which makes `run_all_python_tests.sh` `unset PYTHONPATH` so each test
+     bootstraps its own `sys.path`. This file and its child now do exactly that,
+     and the child's inherited value is scrubbed. Verified green with no
+     `PYTHONPATH` set at all.
+  5. **pytest is not installed on this machine**; the runner uses the
+     `unittest discover` fallback. Same single-interpreter premise, so the
+     isolation argument is unchanged; the docstring says so.
+  6. Added `HarnessInvariantTests` (AST guard that the timed region contains no
+     `pilot.pause`, plus a pin on `SLEEP_GRANULARITY`) and a conditional
+     `R_rm4_after_rm5` diagnostic.
+
+- **Issues encountered:**
+  - The first flip-table values were hand-derived from reading
+    `normalize_indices` / `move_task_col` / `swap_tasks` and matched the measured
+    behaviour exactly on the first run.
+  - The `pilot.pause` guard initially failed on its **own docstring**; rewritten
+    as an AST call-graph check so comments and docstrings cannot trip or mask it.
+  - A `_TreeMixin` + `BoardMovementCharacterizationTests` double-inheritance
+    produced an MRO error; the scenario runner moved into a shared `_ScenarioBase`.
+  - **Process error of mine:** a broad `pkill -f "unittest discover"` intended to
+    clear my own stale runs very likely killed the concurrent session's test run
+    too. On a shared checkout, kill by PID, never by pattern.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:6113-6122` — `_recompose_column`
+    discards the awaitables returned by `col_widget.remove_children()` and
+    `col_widget.mount_all(...)`, so the board never knows when a recompose has
+    completed and relies on `call_after_refresh` ordering instead. This is the
+    direct cause of the 2173 ms lateral keypress measured here (93.6 % of it) and
+    is squarely t1243_5's territory.
+  - `.aitask-scripts/board/aitask_board.py:1046` — `refresh_git_status` catches
+    `(subprocess.TimeoutExpired, FileNotFoundError)` while `refresh_lock_map`
+    directly below it also catches `OSError`; a `PermissionError`/`OSError` from
+    `subprocess.run` would propagate out of a board refresh.
+  - `.aitask-scripts/lib/task_yaml.py:143-164` — `serialize_frontmatter`'s
+    docstring states board keys are "always last", but re-assigning a key already
+    inserted from `original_key_order` does not move it in a dict. Verified: a
+    file with `boardcol` mid-frontmatter keeps it mid-frontmatter. Round-trip is
+    still stable, so this is a contract/doc discrepancy rather than data loss —
+    but t1243_8 splits `BOARD_LAYOUT_KEYS` / `BOARD_KEYS` and would inherit the
+    wrong guarantee.
+
+- **Key decisions:**
+  - Wall-clock `e2e` is the sole denominator for both the 40 % gate and the 30 %
+    target, so the two rules stay coherent.
+  - Non-overlap of instrumented spans is *proved* by a per-thread active-span
+    stack, not inferred from a non-negative residual.
+  - Ablation measures an ideal-removal **upper bound**, so clearing a gate stays
+    necessary-not-sufficient.
+  - The benchmark **reports** a missed gate and does not fail the suite: the
+    disposition is the user's, via the Performance-Gate Confirmation Checkpoint.
+
+- **Notes for sibling tasks:**
+  - **t1243_3 and t1243_11 must consciously edit `FLIP_TABLE`.** A silent pass
+    after re-indexing is a bug in the table, not a passing test. `writes` (spy)
+    and `changed` (byte differ) disagree by design — `Task.save()` does not bump
+    `updated_at`, so an unchanged-value write is byte-identical.
+  - **t1243_5 now carries the entire latency target** (93.6 % removable) and its
+    `refresh_columns` fallback forfeits ~94 % of the win — escalate a failed
+    spike rather than taking the fallback quietly.
+  - **t1243_4 has no latency target any more**; its structural assertions are the
+    pass condition plus a no-regression guard.
+  - **t1243_14** should re-run `AITASK_BOARD_BENCH=1` with the same ablation
+    method, per axis, against lateral 2173.2 ms / vertical 184.1 ms.
+  - Anyone measuring a Textual TUI: never put `pilot.pause()` inside a timed
+    region (≥20 ms synthetic sleep), and never trust a wall-clock span around a
+    call that only *queues* work.
