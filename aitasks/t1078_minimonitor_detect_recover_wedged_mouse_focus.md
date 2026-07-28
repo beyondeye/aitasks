@@ -4,11 +4,63 @@ effort: medium
 depends: []
 issue_type: enhancement
 status: Ready
-labels: [aitask_monitormini, tmux, tui]
+labels: [aitask_monitormini, tmux, tui, tmux_disruptive]
 created_at: 2026-06-25 11:33
-updated_at: 2026-06-25 11:33
+updated_at: 2026-07-28 19:16
 boardidx: 430
 ---
+
+## Pick-time care note — POTENTIALLY DISRUPTIVE (and the approach needs a re-look)
+
+**Risk to running code agents: DISRUPTIVE, not destructive.** Nothing here kills
+a pane, so this is not `tmux_destructive` — but the remedy reaches **every
+session and client on the tmux server**, so it cannot be picked as an ordinary
+TUI change.
+
+**Detection is safe.** `tmux display -p -t $TMUX_PANE '#{pane_active}'` is
+read-only and pane-scoped; that half can be developed anywhere.
+
+**The remedy is not.** `mouse` is a **server option** — `set -g mouse off` →
+`on` → `refresh-client` briefly disables mouse for *all* sessions and clients of
+that server, including any other terminals and code agents you have open. While
+iterating on this code you will be toggling that repeatedly.
+
+### The failure mode that is not yet written down
+
+The reset is a **two-step mutation with no rollback**. If the process dies, an
+exception is raised, or the gateway call fails **between `set -g mouse off` and
+`set -g mouse on`**, the server is left with **mouse disabled everywhere** — a
+sticky, server-wide broken state the user must fix by hand, and one that is
+especially nasty because the bug being fixed is itself "input is unreachable".
+
+Any implementation must therefore make the restore unconditional (`try/finally`
+or equivalent), and should verify the final state rather than assume it.
+
+### Approach worth re-evaluating before implementing
+
+The design predates any of this being tried in anger. Re-assess in this order,
+cheapest first — the current plan may be more machinery than the problem needs:
+
+1. **Is the global toggle needed at all?** The task itself already floats a
+   two-step remedy where a plain `select-pane -t $TMUX_PANE` grabs focus without
+   being a mouse event. If `select-pane` alone resolves the wedge in practice,
+   the entire server-wide toggle — and this whole care note — goes away. Test
+   that first, against a real wedge.
+2. **Is this still reproducible?** The wedge was confirmed empirically on
+   **tmux 3.6b under Hyprland** on 2026-06-25. A stuck-drag state that tmux
+   ignores clean clicks for looks like an upstream bug; check current tmux
+   before building detection machinery for something that may already be fixed.
+3. **If the global toggle survives**, keep auto-reset off by default (as
+   designed), and consider requiring explicit confirmation even in the
+   click-to-reset path, since the blast radius is other people's sessions.
+
+### Safe to pick when
+
+You can pick this from your normal setup — it will not kill anything — but
+expect **mouse to flicker off/on across all your tmux sessions** while you
+iterate, and be ready to run `tmux -L ait set -g mouse on` by hand if a run dies
+mid-toggle. If you have long-running agents you are actively driving by mouse,
+prefer a separate throwaway tmux server.
 
 Detect a **wedged tmux mouse/focus state** from inside the minimonitor and offer
 a **mouse-clickable** recovery, since while wedged the keyboard cannot reach the
