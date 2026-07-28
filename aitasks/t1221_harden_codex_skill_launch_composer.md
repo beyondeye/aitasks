@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1162
+implemented_with: codex/gpt5_6_sol
 created_at: 2026-07-23 14:24
-updated_at: 2026-07-28 23:31
+updated_at: 2026-07-29 00:41
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ Found while registering the `work-report` operation (t1162_2): the plan-verifica
 ## Suggested fix
 
 Add a `*` arm to the codex inner case that dies with "operation not wired into the codex composer: <op>", and consider generalizing the t1162_2 whitespace guard to all skill-launch operations (behavior change for existing ops — verify no current caller passes whitespace-bearing args first).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-28T21:41:26Z status=pass attempt=1 type=human
