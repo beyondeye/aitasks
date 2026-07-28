@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1037
 created_at: 2026-07-28 01:03
-updated_at: 2026-07-28 01:03
+updated_at: 2026-07-28 08:02
 ---
 
 The minimonitor concern picker presents every shadow concern as an identical
