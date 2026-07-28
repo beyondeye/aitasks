@@ -28,6 +28,7 @@ from textual.widgets import (  # noqa: E402
     Footer,
     Input,
     RadioSet,
+    SelectionList,
     Static,
     TabbedContent,
     TabPane,
@@ -40,12 +41,15 @@ import syncer_app  # noqa: E402
 from syncer_app import (  # noqa: E402
     PENDING_UNSET,
     ActionTarget,
+    PushTarget,
     RowSpec,
+    SettingsRow,
     UpgradeRun,
     UpgradeTarget,
     action_allowed_for_ref,
     build_labels,
     build_rows,
+    build_settings_matrix,
     build_version_rows,
     coalesce_request,
     discover_syncer_sessions,
@@ -56,12 +60,24 @@ from syncer_app import (  # noqa: E402
     single_repo_rows,
     upgrade_state_cell,
 )
+from cross_repo_settings import (  # noqa: E402
+    OperationValue,
+    PushOutcome,
+    PushPartialError,
+)
 from upgrade_screens import (  # noqa: E402
     ForceConfirmScreen,
     HandoffConfirmScreen,
     UpgradeConfirmScreen,
     UpgradeRefusalScreen,
     UpgradeTargetScreen,
+)
+from settings_screens import (  # noqa: E402
+    SettingsDestinationsScreen,
+    SettingsLayerScreen,
+    SettingsMaskedScreen,
+    SettingsPushResultScreen,
+    SettingsSourceScreen,
 )
 
 
@@ -513,6 +529,158 @@ class GetTmuxWindowsResultTests(unittest.TestCase):
             self.assertEqual(agent_launch_utils.get_tmux_windows("s"), [])
 
 
+class SettingsMatrixTests(unittest.TestCase):
+    """The Settings-tab row model (t1223_5), pure — no running app.
+
+    Rendering and source-eligibility are two different questions answered from
+    the same inputs, so both are pinned here rather than inside the TUI tests.
+    """
+
+    KEYS = ["A", "B"]
+
+    def matrix(self, diff, unreadable=frozenset()):
+        return {
+            r.operation: r
+            for r in build_settings_matrix(diff, self.KEYS, unreadable)
+        }
+
+    # ---- provenance markers
+
+    def test_one_marker_per_provenance_and_conflict_is_literal(self):
+        """The amended marker table: local/project/builtin each get their own
+        rendering, and `conflict` renders the WORD, never the value behind it —
+        the layers and the resolver disagree, so any value would be a guess.
+
+        There is deliberately no `seed` case: t1223_4 established the resolver
+        has no seed tier, so a seed marker could never occur."""
+        rows = self.matrix({
+            "proj": {"A": ov("x/1", "project", project="x/1"), "B": ov("x/1", "project")},
+            "loc": {"A": ov("x/2", "local", local="x/2"), "B": ov("x/2", "local")},
+            "bui": {"A": ov("x/3", "builtin"), "B": ov("x/3", "builtin")},
+            "con": {"A": ov("x/4", "conflict", project="x/9"), "B": ov("x/4", "conflict")},
+        })
+        self.assertEqual(rows["proj"].cells[0], "x/1")
+        self.assertEqual(rows["loc"].cells[0], "x/2 (local)")
+        self.assertEqual(rows["bui"].cells[0], "x/3 (default)")
+        self.assertEqual(rows["con"].cells[0], "conflict")
+        # The value exists but must not leak into the cell.
+        self.assertNotIn("x/4", rows["con"].cells[0])
+
+    def test_unreadable_repo_renders_unavailable_in_every_row(self):
+        rows = self.matrix(
+            {
+                "pick": {"A": ov("x/1", "project"), "B": ov("x/1", "project")},
+                "qa": {"A": ov("x/2", "local"), "B": ov("x/2", "local")},
+            },
+            frozenset({"B"}),
+        )
+        for op in ("pick", "qa"):
+            self.assertEqual(rows[op].cells[1], "unavailable")
+
+    def test_missing_cell_renders_unavailable_not_a_crash(self):
+        rows = self.matrix({"pick": {"A": ov("x/1", "project")}})
+        self.assertEqual(rows["pick"].cells[1], "unavailable")
+
+    # ---- divergence
+
+    def test_divergence_flagging(self):
+        """All-equal is not flagged; one differing repo is; a conflict cell
+        always is (something in that repo is genuinely wrong)."""
+        rows = self.matrix({
+            "same": {"A": ov("x/1", "project"), "B": ov("x/1", "local")},
+            "diff": {"A": ov("x/1", "project"), "B": ov("x/2", "project")},
+            "con": {"A": ov("x/1", "conflict"), "B": ov("x/1", "project")},
+        })
+        self.assertFalse(rows["same"].divergent)
+        self.assertTrue(rows["diff"].divergent)
+        self.assertTrue(rows["con"].divergent)
+
+    def test_unreadable_column_is_excluded_from_the_comparison(self):
+        """An unreadable repo's agreement is unknowable, so it must not flag
+        every row — that would be noise, not signal."""
+        rows = self.matrix(
+            {"pick": {"A": ov("x/1", "project"), "B": ov("x/9", "project")}},
+            frozenset({"B"}),
+        )
+        self.assertFalse(rows["pick"].divergent)
+
+    # ---- row keys
+
+    def test_row_keys_are_opaque_positional_and_cells_follow_column_order(self):
+        rows = build_settings_matrix(
+            {"b_op": {"A": ov("x/1", "project"), "B": ov("x/2", "project")},
+             "a_op": {"A": ov("x/3", "project"), "B": ov("x/4", "project")}},
+            self.KEYS,
+        )
+        self.assertEqual([r.row_key for r in rows], ["s0", "s1"])
+        self.assertEqual([r.operation for r in rows], ["a_op", "b_op"])
+        self.assertEqual(rows[0].cells, ("x/3", "x/4"))   # A then B
+        by_key = {r.row_key: r for r in rows}
+        self.assertEqual(by_key["s1"].operation, "b_op")
+
+    # ---- source eligibility
+
+    def test_source_eligibility_excludes_conflict_and_unavailable(self):
+        """`sources` answers "may this be copied?", which is NOT the same
+        question as "what does the cell say?".
+
+        A conflict cell has an effective value but no coherent one to
+        propagate, and an unreadable repo has none at all. Handing either to
+        plan_push would not raise — it matches against `value or ""` — it would
+        return malformed_agent_string for every destination, blaming the user's
+        choice instead of reporting that no value existed."""
+        rows = self.matrix(
+            {
+                "mixed": {"A": ov("x/1", "conflict"), "B": ov("x/2", "local")},
+                "none": {"A": ov("x/1", "conflict"), "B": ov("x/2", "project")},
+            },
+            frozenset({"B"}),
+        )
+        self.assertEqual(rows["mixed"].sources, (None, None))  # B unreadable
+        self.assertFalse(rows["mixed"].has_source)
+
+        readable = self.matrix({
+            "mixed": {"A": ov("x/1", "conflict"), "B": ov("x/2", "local")},
+        })
+        self.assertEqual(readable["mixed"].sources, (None, "x/2"))
+        self.assertTrue(readable["mixed"].has_source)
+
+    def test_source_eligibility_keeps_every_normal_provenance(self):
+        rows = self.matrix({
+            "op": {"A": ov("x/1", "local"), "B": ov("x/2", "builtin")},
+        })
+        self.assertEqual(rows["op"].sources, ("x/1", "x/2"))
+
+
+class PushTargetTests(unittest.TestCase):
+    """Source and destination are different questions over the same repos."""
+
+    def target(self):
+        return PushTarget(
+            operation="pick",
+            repos=(("A", "repoA"), ("B", "repoB"), ("C", "repoC")),
+            sources=(None, "x/2", "x/3"),   # A ineligible as a source
+        )
+
+    def test_source_options_drop_ineligible_repos(self):
+        self.assertEqual(
+            self.target().source_options(),
+            [("B", "repoB", "x/2"), ("C", "repoC", "x/3")],
+        )
+
+    def test_destinations_exclude_the_source_but_not_ineligible_repos(self):
+        """The AC says destinations are "the OTHER repos" — leaving the source
+        in would guarantee a self-targeted noop in the summary.
+
+        But a repo that cannot be a *source* is still a perfectly good
+        *destination*: repo A is conflicted, which is exactly the state a
+        coherent write fixes. Filtering destinations by source-eligibility
+        would silently make it unfixable."""
+        dests = self.target().destinations_excluding("B")
+        self.assertEqual(dests, [("A", "repoA"), ("C", "repoC")])
+        self.assertNotIn("B", [k for k, _ in dests])
+
+
 # --------------------------------------------------------------- tabbed shell
 # The tests below boot the real SyncerApp headlessly (t1223_1). Everything
 # above this line is pure-helper coverage that needs no running app.
@@ -594,10 +762,23 @@ class Seams:
         self.pane_alive = True
         self.installed: dict[str, str | None] = {}
         self.self_root: Path | None = None
+        # -- cross-repo settings seam (t1223_5). Every one of these shells a
+        # subprocess or writes another repo's config file, and three existing
+        # tests activate the Settings tab for unrelated reasons — unpatched,
+        # the suite would run the real resolver against real repos.
+        self.diff: dict = {}
+        self.diff_queue: list = []          # successive results/exceptions
+        self.unreadable_roots: set[str] = set()
+        self.plan_outcomes: dict = {}       # session key -> PushOutcome
+        self.apply_error: dict = {}         # session key -> exception to raise
         # call logs
         self.launches: list[tuple[str, object]] = []
         self.window_calls: list[str] = []
         self.latest_calls = 0
+        self.diff_calls: list[list[str]] = []
+        self.probe_calls: list[str] = []
+        self.plans: list[tuple[str, str, str, str]] = []
+        self.applies: list[tuple[str, str, str, str, bool]] = []
 
     # -- seam implementations -------------------------------------------
     def get_tmux_windows_result(self, session):
@@ -622,6 +803,49 @@ class Seams:
 
     def is_self_target(self, root, cwd):
         return self.self_root is not None and Path(root) == Path(self.self_root)
+
+    # -- settings seams --------------------------------------------------
+    def diff_across_repos(self, roots):
+        self.diff_calls.append([str(r) for r in roots])
+        if self.diff_queue:
+            nxt = self.diff_queue.pop(0)
+            if isinstance(nxt, Exception):
+                raise nxt
+            return nxt
+        return self.diff
+
+    def read_operation_defaults(self, root):
+        self.probe_calls.append(str(root))
+        if str(root) in self.unreadable_roots:
+            raise syncer_app.DestConfigUnreadable(f"{root} is corrupt")
+        return {}
+
+    def plan_push(self, value, dest_root, operation, layer):
+        self.plans.append((value, str(dest_root), operation, layer))
+        return self.plan_outcomes.get(str(dest_root), PushOutcome(kind="ok"))
+
+    def apply_push(self, value, dest_root, operation, layer, clear_mask=False):
+        self.applies.append(
+            (value, str(dest_root), operation, layer, clear_mask)
+        )
+        err = self.apply_error.get(str(dest_root))
+        if err is not None:
+            raise err
+
+
+def ov(effective, provenance, *, operation="pick", project=None, local=None):
+    """Terse OperationValue builder for matrix fixtures."""
+    return OperationValue(
+        operation=operation, effective=effective, project_value=project,
+        local_value=local, provenance=provenance,
+    )
+
+
+def settings_cells(app, row_key: str) -> list[str]:
+    """Rendered Settings-table cells for one row: [diverge, operation, *repos]."""
+    table = app.query_one("#settings", DataTable)
+    cols = ["diverge", "operation"] + list(app._settings_col_keys)
+    return [str(table.get_cell(row_key, col)) for col in cols]
 
 
 def version_cells(app, row_key: str) -> dict[str, str]:
@@ -673,6 +897,14 @@ class TabbedShellTests(unittest.TestCase):
             syncer_app, "get_tmux_sessions", lambda: list(seams.tmux_sessions)
         ), mock.patch.object(
             syncer_app, "is_tmux_available", lambda: seams.tmux_available
+        ), mock.patch.object(
+            syncer_app, "diff_across_repos", seams.diff_across_repos
+        ), mock.patch.object(
+            syncer_app, "read_operation_defaults", seams.read_operation_defaults
+        ), mock.patch.object(
+            syncer_app, "plan_push", seams.plan_push
+        ), mock.patch.object(
+            syncer_app, "apply_push", seams.apply_push
         ):
             app = syncer_app.SyncerApp(
                 argparse.Namespace(interval=3600, no_fetch=no_fetch)
@@ -710,17 +942,15 @@ class TabbedShellTests(unittest.TestCase):
                 self.assertIsNotNone(app.query_one("#detail_scroll"))
         self._run(runner())
 
-    def test_versions_pane_holds_the_table_and_settings_the_placeholder(self):
+    def test_every_pane_holds_a_real_table_no_placeholders_left(self):
         async def runner():
             async with self.booted() as (app, _pilot):
-                # t1223_3 replaced the Versions placeholder with a real table;
-                # the Settings placeholder stays until t1223_5.
+                # t1223_3 replaced the Versions placeholder, t1223_5 the
+                # Settings one; neither Static may survive.
                 self.assertIsNotNone(app.query_one("#versions", DataTable))
+                self.assertIsNotNone(app.query_one("#settings", DataTable))
                 self.assertEqual(len(app.query("#versions_placeholder")), 0)
-                self.assertIn(
-                    "Cross-repo settings",
-                    app.query_one("#settings_placeholder", Static).render().plain,
-                )
+                self.assertEqual(len(app.query("#settings_placeholder")), 0)
         self._run(runner())
 
     # ----------------------------------------------------------- boot focus
@@ -911,17 +1141,22 @@ class TabbedShellTests(unittest.TestCase):
                 self.assertEqual(tabbed.active, "tab_settings")
         self._run(runner())
 
-    def test_down_on_the_settings_placeholder_is_a_noop(self):
-        """The designed no-list case: Settings is a non-focusable Static until
-        t1223_5, so ↓ from the bar consumes the key and stays put — it must not
-        raise."""
+    def test_down_from_the_bar_enters_the_settings_table(self):
+        """Inverted by t1223_5: Settings is a real, focusable table now, so it
+        is registered in TAB_LIST_IDS and ↓ enters it like the other tabs.
+
+        This is the t1267 coordination point — a focusable pane that is NOT in
+        TAB_LIST_IDS would silently lose the t1266 priority arrows."""
         async def runner():
-            async with self.booted() as (app, pilot):
+            seams = Seams()
+            seams.diff = {"pick": {}}
+            async with self.booted(repos=2, seams=seams) as (app, pilot):
                 await activate_tab(app, pilot, "tab_settings")
+                await self.settle(app, pilot)
                 bar = await self._focus_bar(app, pilot)
                 await pilot.press("down")
                 await pilot.pause()
-                self.assertIs(app.focused, bar)
+                self.assertIs(app.focused, app.query_one("#settings", DataTable))
                 self.assertEqual(
                     app.query_one(TabbedContent).active, "tab_settings"
                 )
@@ -1708,6 +1943,853 @@ class UpgradeActionTests(TabbedShellTests):
                 await pilot.pause()
                 self.assertEqual(app._upgrades, {})
                 self.assertEqual(version_cells(app, "v0")["state"], "")
+        self._run(runner())
+
+
+class SettingsTabTests(TabbedShellTests):
+    """The Settings tab and its push action (t1223_5), against a booted app."""
+
+    def repos(self, n: int = 2) -> list[AitasksSession]:
+        return [sess(f"/tmp/srepo{i}", f"srepo{i}") for i in range(n)]
+
+    @staticmethod
+    def matrix(sessions, per_op):
+        """{op: {session_key: OperationValue}} from a positional spec."""
+        return {
+            op: {s.key: values[i] for i, s in enumerate(sessions) if values[i]}
+            for op, values in per_op.items()
+        }
+
+    @contextlib.asynccontextmanager
+    async def on_settings(self, seams, sessions=None):
+        sessions = sessions if sessions is not None else self.repos()
+        async with self.booted(sessions=sessions, seams=seams) as (app, pilot):
+            await activate_tab(app, pilot, "tab_settings")
+            await self.settle(app, pilot)
+            yield app, pilot
+
+    async def drain(self, app, pilot):
+        """Settle repeatedly: the push chains two sequential thread workers."""
+        for _ in range(5):
+            await self.settle(app, pilot)
+
+    async def push(self, app, pilot, source, dests, layer="project"):
+        """Drive source -> destinations -> layer, then let the workers run."""
+        app.action_push_setting()
+        await pilot.pause()
+        self.assertIsInstance(app.screen, SettingsSourceScreen)
+        app.screen.dismiss(source)
+        await pilot.pause()
+        self.assertIsInstance(app.screen, SettingsDestinationsScreen)
+        app.screen.dismiss(tuple(dests))
+        await pilot.pause()
+        self.assertIsInstance(app.screen, SettingsLayerScreen)
+        app.screen.dismiss(layer)
+        await self.drain(app, pilot)
+
+    @staticmethod
+    def result_text(app) -> str:
+        return app.screen.query_one("#settings_text", Static).render().plain
+
+    # ---- rendering
+
+    def test_settings_cells_render_values_with_provenance_suffixes(self):
+        """Render-level: what the user actually sees, suffixes included."""
+        sessions = self.repos()
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "pick": [ov("x/1", "project"), ov("x/1", "project")],
+            "qa": [ov("x/2", "local"), ov("x/3", "builtin")],
+        })
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, _pilot):
+                self.assertEqual(
+                    settings_cells(app, "s0"), ["", "pick", "x/1", "x/1"]
+                )
+                self.assertEqual(
+                    settings_cells(app, "s1"),
+                    ["≠", "qa", "x/2 (local)", "x/3 (default)"],
+                )
+        self._run(runner())
+
+    # ---- lazy load
+
+    def test_settings_load_lazily(self):
+        """Zero cost for a user who never opens the tab; exactly one read when
+        they do."""
+        seams = Seams()
+        async def runner():
+            async with self.booted(repos=2, seams=seams) as (app, pilot):
+                await self.settle(app, pilot)
+                self.assertEqual(seams.diff_calls, [])
+                await activate_tab(app, pilot, "tab_settings")
+                await self.settle(app, pilot)
+                self.assertEqual(len(seams.diff_calls), 1)
+        self._run(runner())
+
+    # ---- gating
+
+    def test_settings_actions_are_inert_off_the_settings_tab(self):
+        seams = Seams()
+        async def runner():
+            async with self.booted(repos=2, seams=seams) as (app, pilot):
+                for action in syncer_app.SETTINGS_TAB_ACTIONS:
+                    self.assertIs(
+                        app.check_action(action, ()), False,
+                        f"{action} should be inert on Branches",
+                    )
+                await activate_tab(app, pilot, "tab_versions")
+                for action in syncer_app.SETTINGS_TAB_ACTIONS:
+                    self.assertIs(
+                        app.check_action(action, ()), False,
+                        f"{action} should be inert on Versions",
+                    )
+        self._run(runner())
+
+    def test_push_setting_is_fail_closed_without_a_running_app(self):
+        with mock.patch.object(
+            syncer_app, "discover_syncer_sessions", lambda: self.repos()
+        ):
+            app = syncer_app.SyncerApp(
+                argparse.Namespace(interval=3600, no_fetch=True)
+            )
+            self.assertEqual(app._active_tab(), "tab_branches")
+            self.assertIs(app.check_action("push_setting", ()), False)
+
+    def test_push_gating_by_row_state(self):
+        """The tab gate is not enough: with no selectable row (not loaded yet,
+        or an empty matrix) and on an all-conflict row there is no target to
+        build, so the key is dimmed rather than live.
+
+        `None`, not `False` — same split the ref gate uses: right tab, wrong
+        row."""
+        sessions = self.repos()
+        seams = Seams()
+        seams.diff = {}                       # zero-operation matrix
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                self.assertEqual(app._settings_rows, [])
+                self.assertIsNone(app.check_action("push_setting", ()))
+                # reload stays available so the user can retry
+                self.assertIs(app.check_action("reload_settings", ()), True)
+
+                # An all-conflict row: rows exist, none can be a source.
+                seams.diff = self.matrix(sessions, {
+                    "pick": [ov("x/1", "conflict"), ov("x/2", "conflict")],
+                })
+                app.action_reload_settings()
+                await self.settle(app, pilot)
+                self.assertEqual(len(app._settings_rows), 1)
+                self.assertIsNone(app.check_action("push_setting", ()))
+
+                # One usable source is enough to enable it.
+                seams.diff = self.matrix(sessions, {
+                    "pick": [ov("x/1", "conflict"), ov("x/2", "project")],
+                })
+                app.action_reload_settings()
+                await self.settle(app, pilot)
+                self.assertIs(app.check_action("push_setting", ()), True)
+        self._run(runner())
+
+    def test_action_push_setting_guards_itself_when_invoked_directly(self):
+        """check_action gates the KEY; the action is also called directly (this
+        suite does exactly that), so the method re-checks or it would walk into
+        a flow with no target."""
+        sessions = self.repos()
+        seams = Seams()
+        seams.diff = {}
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                notices = []
+                with mock.patch.object(
+                    app, "notify", lambda msg, **kw: notices.append(str(msg))
+                ):
+                    app.action_push_setting()
+                    await pilot.pause()
+                self.assertEqual(len(app.screen_stack), 1)  # no modal pushed
+                self.assertTrue(any("not loaded" in n for n in notices), notices)
+
+                seams.diff = self.matrix(sessions, {
+                    "pick": [ov("x/1", "conflict"), ov("x/2", "conflict")],
+                })
+                app.action_reload_settings()
+                await self.settle(app, pilot)
+                notices.clear()
+                with mock.patch.object(
+                    app, "notify", lambda msg, **kw: notices.append(str(msg))
+                ):
+                    app.action_push_setting()
+                    await pilot.pause()
+                self.assertEqual(len(app.screen_stack), 1)
+                self.assertTrue(any("usable value" in n for n in notices), notices)
+        self._run(runner())
+
+    def test_single_repo_renders_read_only_and_cannot_push(self):
+        sessions = self.repos(1)
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {"pick": [ov("x/1", "project")]})
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                self.assertFalse(app.multi_repo)
+                self.assertEqual(settings_cells(app, "s0"), ["", "pick", "x/1"])
+                # False, not None: with one repo there is nowhere to push at
+                # all, so the key leaves the footer entirely.
+                self.assertIs(app.check_action("push_setting", ()), False)
+                notices = []
+                with mock.patch.object(
+                    app, "notify", lambda msg, **kw: notices.append(str(msg))
+                ):
+                    app.action_push_setting()
+                    await pilot.pause()
+                self.assertEqual(seams.plans, [])
+                self.assertEqual(len(app.screen_stack), 1)
+        self._run(runner())
+
+    def test_footer_relabels_the_shared_keys_per_tab(self):
+        """`p` and `c` are each bound twice (push/push_setting,
+        recheck_version/reload_settings) and the tab gate picks one. Sharing
+        them beats inventing uppercase variants — but it only works because
+        check_action returns False (drop), and because the activation handler
+        calls refresh_bindings(); check_action alone never relabels a footer."""
+        seams = Seams()
+        async def runner():
+            async with self.booted(repos=2, seams=seams) as (app, pilot):
+                state = footer_state(app)
+                self.assertIn("push", state)              # Branches
+                self.assertNotIn("push_setting", state)
+                await activate_tab(app, pilot, "tab_versions")
+                await self.settle(app, pilot)
+                state = footer_state(app)
+                self.assertIn("recheck_version", state)
+                self.assertNotIn("reload_settings", state)
+                self.assertNotIn("push_setting", state)
+                await activate_tab(app, pilot, "tab_settings")
+                await self.settle(app, pilot)
+                state = footer_state(app)
+                self.assertIn("reload_settings", state)
+                self.assertIn("push_setting", state)
+                self.assertNotIn("recheck_version", state)
+                self.assertNotIn("push", state)
+        self._run(runner())
+
+    def test_the_shared_p_key_falls_through_to_the_right_action_per_tab(self):
+        """The load-bearing half of sharing `p`: a REAL keypress must reach
+        push_setting on Settings and git-push on Branches.
+
+        Textual only falls through to the next binding for a key whose
+        check_action returns False — the tab gate's `False` (drop) rather than
+        the ref gate's `None` (dim) is what makes that true here."""
+        sessions = self.repos()
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "pick": [ov("x/1", "project"), ov("x/9", "project")],
+        })
+        async def runner():
+            async with self.booted(sessions=sessions, seams=seams) as (app, pilot):
+                # Branches: `p` is git-push, and must NOT open the wizard.
+                with mock.patch.object(app, "action_push") as pushed:
+                    await pilot.press("p")
+                    await pilot.pause()
+                    self.assertEqual(pushed.call_count, 1)
+                self.assertEqual(len(app.screen_stack), 1)
+
+                await activate_tab(app, pilot, "tab_settings")
+                await self.settle(app, pilot)
+                # Settings: the same key opens the push wizard instead.
+                with mock.patch.object(app, "action_push") as pushed:
+                    await pilot.press("p")
+                    for _ in range(4):
+                        await pilot.pause()
+                    self.assertEqual(pushed.call_count, 0)
+                self.assertIsInstance(app.screen, SettingsSourceScreen)
+        self._run(runner())
+
+    # ---- per-repo degradation
+
+    def test_one_corrupt_repo_does_not_blank_the_tab(self):
+        """diff_across_repos aborts globally, so without the shrink-and-retry
+        fallback a single broken repo would leave the whole matrix empty."""
+        sessions = self.repos(3)
+        seams = Seams()
+        seams.unreadable_roots = {"/tmp/srepo1"}
+        good = self.matrix(sessions, {
+            "pick": [ov("x/1", "project"), None, ov("x/2", "project")],
+        })
+        seams.diff_queue = [syncer_app.DestConfigUnreadable("boom"), good]
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, _pilot):
+                cells = settings_cells(app, "s0")
+                self.assertEqual(cells[2], "x/1")
+                self.assertEqual(cells[3], "unavailable")
+                self.assertEqual(cells[4], "x/2")
+                self.assertEqual(
+                    set(app._settings_unreadable), {sessions[1].key}
+                )
+        self._run(runner())
+
+    def test_a_raced_corruption_costs_only_the_repo_that_raced(self):
+        """A repo can break BETWEEN the probe sweep and the retry. Marking
+        everything unreadable then would erase provably-good columns — exactly
+        the per-repo degradation the fallback exists to provide."""
+        sessions = self.repos(3)
+        seams = Seams()
+        final = self.matrix(sessions, {"pick": [ov("x/1", "project"), None, None]})
+        # 1st call raises (repo1 bad), 2nd raises again (repo2 broke since),
+        # 3rd succeeds with repo0 alone.
+        seams.diff_queue = [
+            syncer_app.DestConfigUnreadable("boom"),
+            syncer_app.DestConfigUnreadable("boom again"),
+            final,
+        ]
+        state = {"bad": {"/tmp/srepo1"}}
+
+        def probe(root):
+            seams.probe_calls.append(str(root))
+            if str(root) in state["bad"]:
+                raise syncer_app.DestConfigUnreadable(f"{root} is corrupt")
+            # repo2 breaks after the first sweep has cleared it
+            state["bad"] = {"/tmp/srepo1", "/tmp/srepo2"}
+            return {}
+
+        seams.read_operation_defaults = probe
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, _pilot):
+                cells = settings_cells(app, "s0")
+                self.assertEqual(cells[2], "x/1")       # survivor keeps its data
+                self.assertEqual(cells[3], "unavailable")
+                self.assertEqual(cells[4], "unavailable")
+                self.assertEqual(
+                    set(app._settings_unreadable),
+                    {sessions[1].key, sessions[2].key},
+                )
+        self._run(runner())
+
+    def test_an_unattributable_failure_blames_no_repo_and_terminates(self):
+        """If the sweep finds no offender we have not established that any repo
+        is broken, so none is marked — and the loop must still terminate."""
+        sessions = self.repos(2)
+        seams = Seams()
+        seams.diff_queue = [
+            syncer_app.DestConfigUnreadable("boom") for _ in range(10)
+        ]
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, _pilot):
+                self.assertEqual(app._settings_unreadable, {})
+                self.assertIsNotNone(app._settings_unattributed)
+                # Bounded at len(sessions) + 2 attempts, so an unbounded loop
+                # fails here instead of hanging.
+                self.assertLessEqual(len(seams.diff_calls), len(sessions) + 2)
+        self._run(runner())
+
+    def test_a_worker_level_failure_still_unsticks_the_refresh_flag(self):
+        """An exception escaping the worker never reaches _finish_settings, so
+        `_settings_active` would stay true and every later request would park in
+        the pending slot — `c` silently dead for the rest of the session.
+
+        The same hazard `_refresh_worker` documents for cancellation. Found by
+        the M7 mutation, which hung instead of failing because the stuck flag
+        made the next settle() wait forever."""
+        sessions = self.repos()
+        seams = Seams()
+        seams.diff_queue = [RuntimeError("unexpected boom")]
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                self.assertFalse(
+                    app._settings_active, "refresh flag left stuck after a crash"
+                )
+                # ...and a reload still starts a NEW worker rather than parking.
+                seams.diff = self.matrix(sessions, {
+                    "pick": [ov("x/1", "project"), ov("x/1", "project")],
+                })
+                before = len(seams.diff_calls)
+                app.action_reload_settings()
+                await self.settle(app, pilot)
+                self.assertGreater(len(seams.diff_calls), before)
+                self.assertEqual(settings_cells(app, "s0")[2], "x/1")
+        self._run(runner())
+
+    # ---- push outcomes
+
+    def _two_repo_seams(self, sessions, outcome=None):
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "pick": [ov("x/1", "project"), ov("x/9", "project")],
+        })
+        if outcome is not None:
+            seams.plan_outcomes[str(sessions[1].project_root)] = outcome
+        return seams
+
+    def test_ok_applies_once_with_the_chosen_layer(self):
+        sessions = self.repos()
+        seams = self._two_repo_seams(sessions)
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                await self.push(
+                    app, pilot, sessions[0].key, [sessions[1].key], "local"
+                )
+                self.assertEqual(len(seams.applies), 1)
+                value, root, operation, layer, clear = seams.applies[0]
+                self.assertEqual(value, "x/1")
+                self.assertEqual(root, "/tmp/srepo1")
+                self.assertEqual(operation, "pick")
+                self.assertEqual(layer, "local")
+                self.assertFalse(clear)
+        self._run(runner())
+
+    def test_noop_writes_nothing(self):
+        sessions = self.repos()
+        seams = self._two_repo_seams(sessions, PushOutcome(kind="noop"))
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                await self.push(app, pilot, sessions[0].key, [sessions[1].key])
+                self.assertEqual(seams.applies, [])
+                self.assertIn("already matches", self.result_text(app))
+        self._run(runner())
+
+    def test_masked_three_way_routing(self):
+        """Each branch reaches exactly one call shape — cancel writes nothing,
+        local writes local, clear+project clears the mask."""
+        sessions = self.repos()
+        for choice, expected in (
+            ("cancel", None),
+            ("local", ("local", False)),
+            ("clear", ("project", True)),
+        ):
+            seams = self._two_repo_seams(
+                sessions, PushOutcome(kind="masked", masking_value="x/7")
+            )
+            async def runner(choice=choice, expected=expected, seams=seams):
+                async with self.on_settings(seams, sessions) as (app, pilot):
+                    app.action_push_setting()
+                    await pilot.pause()
+                    app.screen.dismiss(sessions[0].key)
+                    await pilot.pause()
+                    app.screen.dismiss((sessions[1].key,))
+                    await pilot.pause()
+                    app.screen.dismiss("project")
+                    await self.drain(app, pilot)
+                    self.assertIsInstance(app.screen, SettingsMaskedScreen)
+                    self.assertIn("x/7", self.result_text(app))
+                    app.screen.dismiss(choice)
+                    await self.drain(app, pilot)
+                    if expected is None:
+                        self.assertEqual(seams.applies, [], choice)
+                    else:
+                        self.assertEqual(len(seams.applies), 1, choice)
+                        _v, _r, _o, layer, clear = seams.applies[0]
+                        self.assertEqual((layer, clear), expected, choice)
+            self._run(runner())
+
+    def test_rejected_names_its_reason_and_a_sibling_still_applies(self):
+        sessions = self.repos(3)
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "pick": [ov("x/1", "project"), ov("x/9", "project"),
+                     ov("x/9", "project")],
+        })
+        seams.plan_outcomes["/tmp/srepo1"] = PushOutcome(
+            kind="rejected", reason="model_not_in_dest_catalog"
+        )
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                await self.push(
+                    app, pilot, sessions[0].key,
+                    [sessions[1].key, sessions[2].key],
+                )
+                self.assertEqual(
+                    [a[1] for a in seams.applies], ["/tmp/srepo2"]
+                )
+                text = self.result_text(app)
+                self.assertIn("model_not_in_dest_catalog", text)
+                self.assertIn("srepo2", text)
+        self._run(runner())
+
+    def test_a_raising_apply_is_reported_and_siblings_still_process(self):
+        sessions = self.repos(3)
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "pick": [ov("x/1", "project"), ov("x/9", "project"),
+                     ov("x/9", "project")],
+        })
+        seams.apply_error["/tmp/srepo1"] = OSError("disk on fire")
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                await self.push(
+                    app, pilot, sessions[0].key,
+                    [sessions[1].key, sessions[2].key],
+                )
+                self.assertEqual(len(seams.applies), 2)   # both attempted
+                text = self.result_text(app)
+                self.assertIn("disk on fire", text)
+                self.assertIn("srepo1", text)
+        self._run(runner())
+
+    def test_a_raising_plan_is_reported_and_siblings_still_process(self):
+        """The planning phase needs the same per-destination boundary as the
+        apply phase: an unhandled exception there kills the worker, so the
+        summary never opens and later destinations are never considered."""
+        sessions = self.repos(3)
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "pick": [ov("x/1", "project"), ov("x/9", "project"),
+                     ov("x/9", "project")],
+        })
+        real_plan = seams.plan_push
+
+        def exploding_plan(value, dest_root, operation, layer):
+            if str(dest_root) == "/tmp/srepo1":
+                raise RuntimeError("resolver exploded")
+            return real_plan(value, dest_root, operation, layer)
+
+        seams.plan_push = exploding_plan
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                await self.push(
+                    app, pilot, sessions[0].key,
+                    [sessions[1].key, sessions[2].key],
+                )
+                self.assertIsInstance(app.screen, SettingsPushResultScreen)
+                text = self.result_text(app)
+                self.assertIn("resolver exploded", text)
+                # The sibling was still planned AND applied.
+                self.assertEqual([a[1] for a in seams.applies], ["/tmp/srepo2"])
+        self._run(runner())
+
+    def test_push_partial_error_invites_a_retry_not_success_or_failure(self):
+        sessions = self.repos()
+        seams = self._two_repo_seams(sessions)
+        seams.apply_error["/tmp/srepo1"] = PushPartialError(
+            "pick", "x/7", OSError("nope")
+        )
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                await self.push(app, pilot, sessions[0].key, [sessions[1].key])
+                text = self.result_text(app)
+                self.assertIn("retry to finish", text)
+                self.assertIn("x/7", text)
+                self.assertNotIn("applied to", text)
+        self._run(runner())
+
+    # ---- source / destination selection
+
+    def test_source_picker_offers_only_usable_repos(self):
+        """A conflicted repo has no coherent value to copy. Offering it would
+        push None, which plan_push turns into malformed_agent_string for every
+        destination — blaming the value instead of saying none existed."""
+        sessions = self.repos(3)
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "pick": [ov("x/1", "conflict"), ov("x/2", "local"),
+                     ov("x/3", "project")],
+        })
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                app.action_push_setting()
+                await pilot.pause()
+                screen = app.screen
+                self.assertIsInstance(screen, SettingsSourceScreen)
+                self.assertEqual(
+                    [k for k, _l, _v in screen._options],
+                    [sessions[1].key, sessions[2].key],
+                )
+                # Preselected = first ELIGIBLE, not column 0.
+                self.assertEqual(screen._resolve(), sessions[1].key)
+                app.screen.dismiss(screen._resolve())
+                await pilot.pause()
+                app.screen.dismiss((sessions[2].key,))
+                await pilot.pause()
+                app.screen.dismiss("project")
+                await self.drain(app, pilot)
+                self.assertEqual(seams.applies[0][0], "x/2")
+                self.assertNotIn(
+                    "malformed_agent_string", self.result_text(app)
+                )
+        self._run(runner())
+
+    def test_the_source_repo_is_never_a_destination(self):
+        sessions = self.repos(3)
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "pick": [ov("x/1", "project"), ov("x/2", "project"),
+                     ov("x/3", "project")],
+        })
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                app.action_push_setting()
+                await pilot.pause()
+                app.screen.dismiss(sessions[1].key)      # source = srepo1
+                await pilot.pause()
+                screen = app.screen
+                self.assertIsInstance(screen, SettingsDestinationsScreen)
+                self.assertEqual(
+                    [k for k, _l in screen._destinations],
+                    [sessions[0].key, sessions[2].key],
+                )
+                screen.dismiss((sessions[0].key, sessions[2].key))
+                await pilot.pause()
+                app.screen.dismiss("project")
+                await self.drain(app, pilot)
+                planned = [p[1] for p in seams.plans]
+                applied = [a[1] for a in seams.applies]
+                self.assertNotIn("/tmp/srepo1", planned)
+                self.assertNotIn("/tmp/srepo1", applied)
+                self.assertNotIn("srepo1", self.result_text(app))
+        self._run(runner())
+
+    def test_a_repo_ineligible_as_a_source_is_still_a_destination(self):
+        """Destinations are NOT filtered by source-eligibility: a conflicted
+        repo is exactly the one a coherent write fixes."""
+        sessions = self.repos()
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "pick": [ov("x/1", "project"), ov("x/2", "conflict")],
+        })
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                app.action_push_setting()
+                await pilot.pause()
+                app.screen.dismiss(sessions[0].key)
+                await pilot.pause()
+                screen = app.screen
+                self.assertEqual(
+                    [k for k, _l in screen._destinations], [sessions[1].key]
+                )
+                screen.dismiss((sessions[1].key,))
+                await pilot.pause()
+                app.screen.dismiss("project")
+                await self.drain(app, pilot)
+                self.assertEqual([a[1] for a in seams.applies], ["/tmp/srepo1"])
+        self._run(runner())
+
+    # ---- wizard keyboard behaviour
+
+    def _wizard_seams(self, sessions):
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "pick": [ov("x/1", "project"), ov("x/2", "project"),
+                     ov("x/3", "project")],
+        })
+        return seams
+
+    def test_choice_widgets_hold_focus_on_mount(self):
+        """Reported: the lists only responded to ↑/↓ after clicking into them.
+
+        Cause: every dialog focused Cancel (the upgrade_screens convention),
+        so the arrows landed on a Button that ignores them. Each wizard step
+        focuses its CHOICE widget instead, and ↑/↓ move immediately — asserted
+        with real keypresses and no click."""
+        sessions = self.repos(3)
+        seams = self._wizard_seams(sessions)
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                app.action_push_setting()
+                for _ in range(4):
+                    await pilot.pause()
+                radio = app.screen.query_one("#settings_source", RadioSet)
+                self.assertIs(app.focused, radio)
+                # ↑/↓ move the highlight without any click first; Space is
+                # what commits (measured — arrows leave pressed_index alone).
+                self.assertEqual(radio.pressed_index, 0)
+                await pilot.press("down")
+                await pilot.press("space")
+                await pilot.pause()
+                self.assertEqual(radio.pressed_index, 1)
+
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertIsInstance(app.screen, SettingsDestinationsScreen)
+                self.assertIs(
+                    app.focused,
+                    app.screen.query_one("#settings_dest_list", SelectionList),
+                )
+        self._run(runner())
+
+    def test_enter_advances_each_step_and_esc_steps_back(self):
+        """Enter = forward, Esc = back one step, with the earlier choice still
+        selected when you return. Driven entirely by the keyboard."""
+        sessions = self.repos(3)
+        seams = self._wizard_seams(sessions)
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                app.action_push_setting()
+                for _ in range(4):
+                    await pilot.pause()
+                # Step 1: choose srepo1 (not the default) and advance.
+                await pilot.press("down")
+                await pilot.press("space")
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertIsInstance(app.screen, SettingsDestinationsScreen)
+
+                # Step 2: tick the first destination and advance.
+                await pilot.press("space")
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertIsInstance(app.screen, SettingsLayerScreen)
+
+                # Esc goes BACK to destinations with the tick preserved.
+                await pilot.press("escape")
+                await pilot.pause()
+                self.assertIsInstance(app.screen, SettingsDestinationsScreen)
+                self.assertEqual(
+                    len(app.screen.query_one(
+                        "#settings_dest_list", SelectionList).selected),
+                    1,
+                )
+                # Esc again goes back to the source, still on srepo1.
+                await pilot.press("escape")
+                await pilot.pause()
+                self.assertIsInstance(app.screen, SettingsSourceScreen)
+                self.assertEqual(
+                    app.screen.query_one("#settings_source", RadioSet)
+                    .pressed_index,
+                    1,
+                )
+                # Esc on step 1 cancels the whole push — nothing planned.
+                await pilot.press("escape")
+                await pilot.pause()
+                self.assertEqual(len(app.screen_stack), 1)
+                self.assertEqual(seams.plans, [])
+        self._run(runner())
+
+    def test_enter_on_an_untouched_layer_step_does_not_pick_a_layer(self):
+        """The layer is always asked with NO default, so a blind Enter must
+        report "choose one" rather than silently writing to project."""
+        sessions = self.repos(3)
+        seams = self._wizard_seams(sessions)
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                app.action_push_setting()
+                for _ in range(4):
+                    await pilot.pause()
+                await pilot.press("enter")          # accept default source
+                await pilot.pause()
+                await pilot.press("space")          # tick a destination
+                await pilot.press("enter")
+                await pilot.pause()
+                screen = app.screen
+                self.assertIsInstance(screen, SettingsLayerScreen)
+                radio = screen.query_one("#settings_layer", RadioSet)
+                self.assertIn(radio.pressed_index, (None, -1))  # no default
+
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertIs(app.screen, screen)   # did NOT advance
+                self.assertIn(
+                    "Choose a layer",
+                    screen.query_one("#settings_error", Static).render().plain,
+                )
+                self.assertEqual(seams.plans, [])   # and nothing was planned
+
+                # Select explicitly, then Enter advances and plans.
+                await pilot.press("space")
+                await pilot.press("enter")
+                await self.drain(app, pilot)
+                self.assertEqual([p[3] for p in seams.plans], ["project"])
+        self._run(runner())
+
+    def test_enter_with_no_destination_ticked_does_not_advance(self):
+        sessions = self.repos(3)
+        seams = self._wizard_seams(sessions)
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                app.action_push_setting()
+                for _ in range(4):
+                    await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                screen = app.screen
+                self.assertIsInstance(screen, SettingsDestinationsScreen)
+                await pilot.press("enter")          # nothing ticked
+                await pilot.pause()
+                self.assertIs(app.screen, screen)
+                self.assertIn(
+                    "at least one",
+                    screen.query_one("#settings_error", Static).render().plain,
+                )
+        self._run(runner())
+
+    # ---- frozen capture
+
+    def test_the_captured_target_survives_a_mid_flow_row_rebuild(self):
+        """The settings row set really is rebuilt on every refresh, so a
+        callback that re-read the table could push a DIFFERENT operation than
+        the user chose. Both the cursor and the lookup map are repointed at the
+        other row while a modal is open."""
+        sessions = self.repos()
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "alpha": [ov("x/1", "project"), ov("x/9", "project")],
+            "beta": [ov("y/1", "project"), ov("y/9", "project")],
+        })
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                table = app.query_one("#settings", DataTable)
+                table.move_cursor(row=0)
+                await pilot.pause()
+                self.assertEqual(app._selected_settings_row().operation, "alpha")
+
+                app.action_push_setting()
+                await pilot.pause()
+                # Redirect everything the flow could re-read at "beta".
+                beta = app._settings_rows_by_key["s1"]
+                app._settings_rows_by_key["s0"] = beta
+                app._settings_rows = [beta, beta]
+                table.move_cursor(row=1)
+                await pilot.pause()
+
+                app.screen.dismiss(sessions[0].key)
+                await pilot.pause()
+                app.screen.dismiss((sessions[1].key,))
+                await pilot.pause()
+                app.screen.dismiss("project")
+                await self.drain(app, pilot)
+                self.assertEqual(len(seams.applies), 1)
+                self.assertEqual(seams.applies[0][2], "alpha")
+                self.assertEqual(seams.applies[0][0], "x/1")
+        self._run(runner())
+
+    # ---- t1267: the modals keep their arrow keys
+
+    def test_arrows_in_a_settings_modal_do_not_switch_tabs(self):
+        """t1267's coordination point. The t1266 arrows are App-level and
+        priority, so they fire before a pushed modal's own bindings; the
+        blanket screen-stack gate in check_action is what hands them back."""
+        sessions = self.repos(3)
+        seams = Seams()
+        seams.diff = self.matrix(sessions, {
+            "pick": [ov("x/1", "project"), ov("x/2", "project"),
+                     ov("x/3", "project")],
+        })
+        async def runner():
+            async with self.on_settings(seams, sessions) as (app, pilot):
+                tabbed = app.query_one(TabbedContent)
+                app.action_push_setting()
+                for _ in range(4):
+                    await pilot.pause()
+                self.assertIsInstance(app.screen, SettingsSourceScreen)
+                for action in syncer_app.NAV_ACTIONS:
+                    self.assertIs(app.check_action(action, ()), False, action)
+
+                radio = app.screen.query_one("#settings_source", RadioSet)
+                radio.focus()
+                await pilot.pause()
+                await pilot.press("down")
+                await pilot.pause()
+                self.assertEqual(tabbed.active, "tab_settings")  # not switched
+                self.assertIsInstance(app.screen, SettingsSourceScreen)
+
+                app.screen.dismiss(sessions[0].key)
+                await pilot.pause()
+                self.assertIsInstance(app.screen, SettingsDestinationsScreen)
+                sel = app.screen.query_one("#settings_dest_list", SelectionList)
+                sel.focus()
+                await pilot.pause()
+                await pilot.press("down")
+                await pilot.press("left")
+                await pilot.pause()
+                self.assertEqual(tabbed.active, "tab_settings")
+                self.assertIsInstance(app.screen, SettingsDestinationsScreen)
         self._run(runner())
 
 

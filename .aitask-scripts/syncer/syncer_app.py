@@ -55,6 +55,21 @@ from framework_version import (  # noqa: E402
     version_status,
     write_handoff_request,
 )
+# Cross-repo settings seam (t1223_4). Imported by name for the same reason as
+# framework_version above: every one of these shells a subprocess or writes a
+# file, so tests patch them on `syncer_app` itself.
+from cross_repo_settings import (  # noqa: E402
+    PROVENANCE_BUILTIN,
+    PROVENANCE_CONFLICT,
+    PROVENANCE_LOCAL,
+    DestConfigUnreadable,
+    OperationValue,
+    PushPartialError,
+    apply_push,
+    diff_across_repos,
+    plan_push,
+    read_operation_defaults,
+)
 from agent_command_screen import AgentCommandScreen  # noqa: E402
 from sync_action_runner import (  # noqa: E402
     STATUS_AUTOMERGED,
@@ -80,6 +95,14 @@ from upgrade_screens import (  # noqa: E402
     UpgradeConfirmScreen,
     UpgradeRefusalScreen,
     UpgradeTargetScreen,
+)
+from settings_screens import (  # noqa: E402
+    BACK,
+    SettingsDestinationsScreen,
+    SettingsLayerScreen,
+    SettingsMaskedScreen,
+    SettingsPushResultScreen,
+    SettingsSourceScreen,
 )
 
 from textual import work  # noqa: E402
@@ -130,6 +153,16 @@ VERSION_TAB_ACTIONS = (
     "recheck_version",
 )
 
+# Actions that only make sense on the Settings tab. Third sibling of the two
+# tuples above. `push_setting` carries a SECOND, row-level gate in
+# check_action: the tab gate alone would leave it live before the lazy load's
+# first apply, on an empty matrix, and on a row where no repo holds a value
+# that can be copied — states in which no push target can be built at all.
+SETTINGS_TAB_ACTIONS = (
+    "push_setting",
+    "reload_settings",
+)
+
 # Arrow-key navigation actions (t1266). Bound App-level with priority=True so
 # they beat the focused DataTable's own cursor bindings; each action re-raises
 # SkipAction when it is not the one that should handle the key, so ordinary
@@ -144,12 +177,14 @@ NAV_ACTIONS = (
 )
 
 # Active TabPane -> the id of the list that `down` from the tab bar enters.
-# `tab_settings` is deliberately absent: its pane is a non-focusable Static
-# placeholder until t1223_5, so `down` there is an explicit no-op rather than a
-# crash. When t1223_5 lands a focusable Settings pane, add its list id here.
+# Every tab now maps to a list (t1223_5 replaced the Settings placeholder with
+# a real table), which is what keeps the t1266 priority arrows working there —
+# see t1267. The "no list for this tab" branches downstream are kept as
+# defensive guards for a future non-list pane; no current tab reaches them.
 TAB_LIST_IDS = {
     "tab_branches": "branches",
     "tab_versions": "versions",
+    "tab_settings": "settings",
 }
 
 # upgrade_state values (contract G). There is deliberately no "succeeded"
@@ -261,6 +296,148 @@ def build_rows(
 def single_repo_rows() -> list[RowSpec]:
     """Legacy single-repo rows (literal ref-name row keys, no project)."""
     return [RowSpec(ref, "", ref, "") for ref in TRACKED_REFS]
+
+
+CELL_UNAVAILABLE = "unavailable"
+CELL_CONFLICT = "conflict"
+DIVERGE_MARKER = "≠"
+
+
+@dataclass(frozen=True)
+class SettingsRow:
+    """One Settings-tab row = one operation across every repo column.
+
+    ``row_key`` is opaque and positional (``s0``, ``s1``, …), recovered through
+    the app's ``_settings_rows_by_key`` map exactly like :class:`RowSpec` and
+    :class:`VersionRow`. Unlike those two this row set is REBUILT on every
+    refresh, so nothing may hold a row across a modal — see :class:`PushTarget`.
+
+    ``cells`` is display text; ``sources`` is the parallel machine-readable
+    answer to "may this repo's value be copied?". They are deliberately
+    separate: a cell reading ``conflict`` still has an underlying effective
+    value, and rendering is not the place to decide it must not be propagated.
+    """
+
+    row_key: str
+    operation: str
+    cells: tuple[str, ...]
+    sources: tuple[str | None, ...]
+    divergent: bool
+
+    @property
+    def has_source(self) -> bool:
+        return any(s is not None for s in self.sources)
+
+
+def settings_cell(value: OperationValue | None, unreadable: bool) -> str:
+    """Render one matrix cell: effective value plus a provenance marker.
+
+    There is no ``seed`` marker — t1223_4 established that the resolver has no
+    seed tier, so rendering one would display a value the repo does not use.
+    A ``conflict`` renders the literal word and NEVER a value: the layers and
+    the resolver disagree, and the contract is to never guess.
+    """
+    if unreadable or value is None:
+        return CELL_UNAVAILABLE
+    if value.provenance == PROVENANCE_CONFLICT or value.effective is None:
+        return CELL_CONFLICT
+    if value.provenance == PROVENANCE_LOCAL:
+        return f"{value.effective} (local)"
+    if value.provenance == PROVENANCE_BUILTIN:
+        return f"{value.effective} (default)"
+    return value.effective
+
+
+def settings_source(value: OperationValue | None, unreadable: bool) -> str | None:
+    """The repo's value IF it can truthfully be copied, else None.
+
+    Eligibility is derived here, once, rather than re-decided inside the push
+    flow. An unreadable repo has no value at all, and a ``conflict`` repo's
+    effective value is not a coherent thing to propagate. Handing either to
+    ``plan_push`` would not raise — it matches against ``value or ""`` — it
+    would return ``malformed_agent_string`` for every destination, blaming the
+    value the user picked instead of reporting that none existed.
+    """
+    if unreadable or value is None:
+        return None
+    if value.provenance == PROVENANCE_CONFLICT:
+        return None
+    return value.effective
+
+
+def build_settings_matrix(
+    diff: dict[str, dict[str, OperationValue]],
+    session_keys: list[str],
+    unreadable: frozenset[str] = frozenset(),
+) -> list[SettingsRow]:
+    """Settings row model: one row per operation, one cell per repo column.
+
+    Divergence is computed over the READABLE repos only — an unreadable repo's
+    agreement is unknowable, and flagging every row because one repo is broken
+    would be noise rather than signal. A ``conflict`` cell always flags its row:
+    something in that repo is genuinely wrong.
+    """
+    rows: list[SettingsRow] = []
+    for idx, operation in enumerate(sorted(diff)):
+        per_repo = diff[operation]
+        cells: list[str] = []
+        sources: list[str | None] = []
+        effectives: list[str | None] = []
+        conflicted = False
+        for key in session_keys:
+            broken = key in unreadable
+            value = per_repo.get(key)
+            cells.append(settings_cell(value, broken))
+            sources.append(settings_source(value, broken))
+            if broken:
+                continue
+            if value is None or value.provenance == PROVENANCE_CONFLICT:
+                conflicted = True
+            else:
+                effectives.append(value.effective)
+        divergent = conflicted or len(set(effectives)) > 1
+        rows.append(
+            SettingsRow(
+                row_key=f"s{idx}",
+                operation=operation,
+                cells=tuple(cells),
+                sources=tuple(sources),
+                divergent=divergent,
+            )
+        )
+    return rows
+
+
+@dataclass(frozen=True)
+class PushTarget:
+    """Everything the settings push needs, captured once when it starts.
+
+    The same frozen-capture rule as :class:`UpgradeTarget`, and here it is not
+    theoretical: the settings row set really is rebuilt on every refresh, so a
+    callback that re-read the table could act on a different operation than the
+    user chose.
+
+    ``repos`` holds EVERY repo and ``sources`` the parallel eligibility, rather
+    than one pre-filtered list, because source and destination are different
+    questions. A ``conflict`` repo cannot be a source but is a perfectly good
+    destination — arguably the one most worth fixing.
+    """
+
+    operation: str
+    repos: tuple[tuple[str, str], ...]   # (session_key, label), column order
+    sources: tuple[str | None, ...]
+
+    def source_options(self) -> list[tuple[str, str, str]]:
+        """(session_key, label, value) for every repo eligible as a source."""
+        return [
+            (key, label, value)
+            for (key, label), value in zip(self.repos, self.sources)
+            if value is not None
+        ]
+
+    def destinations_excluding(self, source_key: str) -> list[tuple[str, str]]:
+        """Every repo except the chosen source — never filtered by eligibility."""
+        return [(key, label) for key, label in self.repos if key != source_key]
 
 
 @dataclass(frozen=True)
@@ -501,6 +678,10 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         height: auto;
         max-height: 20;
     }
+    #settings {
+        height: auto;
+        max-height: 20;
+    }
     """
 
     BINDINGS = [
@@ -517,6 +698,17 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # the lowercase Branches keys (`u` is Pull).
         Binding("U", "upgrade", "Upgrade"),
         Binding("c", "recheck_version", "Re-check"),
+        # Settings tab. Both keys are deliberately SHARED with a Branches /
+        # Versions action: `p` is git-push, `c` is recheck_version, and both are
+        # gated off this tab, so the per-tab check leaves exactly one binding
+        # per key live. Textual falls through to the next binding for a key
+        # whose check_action returns False, and
+        # on_tabbed_content_tab_activated calls refresh_bindings() so the footer
+        # relabels on the switch. Sharing beats inventing an uppercase variant
+        # here: "push" is the right verb on both tabs, and unlike `U`/`u`
+        # (Upgrade vs Pull) there is no same-tab collision to disambiguate.
+        Binding("p", "push_setting", "Push setting"),
+        Binding("c", "reload_settings", "Reload"),
         Binding("q", "quit", "Quit"),
         # Tab bar <-> content navigation (t1266). priority=True is required: a
         # focused DataTable binds all four arrows itself and consumes them at
@@ -556,6 +748,20 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._version_rows_by_key: dict[str, VersionRow] = {
             r.row_key: r for r in self._version_rows
         }
+        # Settings tab: columns are one per repo (known now); rows are
+        # data-derived and therefore rebuilt on every apply.
+        self._settings_labels: dict[str, str] = build_labels(self.sessions)
+        self._settings_col_keys: list[str] = [
+            f"c{idx}" for idx in range(len(self.sessions))
+        ]
+        self._settings_rows: list[SettingsRow] = []
+        self._settings_rows_by_key: dict[str, SettingsRow] = {}
+        self._settings_unreadable: dict[str, str] = {}
+        self._settings_unattributed: str | None = None
+        self._settings_loaded = False
+        self._settings_gen = 0
+        self._settings_active = False
+        self._pending_settings: object = PENDING_UNSET
         self._installed: dict[str, str | None] = {}
         self._latest: str | None = None
         self._latest_error: str | None = None
@@ -619,12 +825,22 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 versions.add_column("Status", key="vstatus")
                 versions.add_column("State", key="state")
                 yield versions
-            # Placeholder pane: the id was established by t1223_1 so t1223_5
-            # fills it without re-shaping compose().
             with TabPane("Settings", id="tab_settings"):
-                yield Static(
-                    "Cross-repo settings — coming soon.", id="settings_placeholder"
+                settings = DataTable(
+                    id="settings", cursor_type="row", zebra_stripes=True
                 )
+                # Row cursor, not cell: the t1266 arrows are App-level and
+                # priority, so a cell cursor could never be moved horizontally
+                # by keyboard anyway. The divergence marker lives in its own
+                # narrow column so every cell stays plain, assertable text.
+                settings.add_column(DIVERGE_MARKER, key="diverge")
+                settings.add_column("Operation", key="operation")
+                for idx, sess in enumerate(self.sessions):
+                    settings.add_column(
+                        self._settings_labels.get(sess.key, sess.project_name),
+                        key=self._settings_col_keys[idx],
+                    )
+                yield settings
         yield Footer()
 
     def on_mount(self) -> None:
@@ -689,10 +905,13 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """The active pane's DataTable, or None.
 
         `None` has two distinct causes and callers must not conflate them: the
-        active tab maps to no list at all (the Settings placeholder — a designed
-        state), or it maps to one that the query could not resolve (pre-mount, or
-        the widget is gone — a degraded lookup). Callers test membership in
-        ``TAB_LIST_IDS`` for the former before consulting this for the latter.
+        active tab maps to no list at all, or it maps to one that the query
+        could not resolve (pre-mount, or the widget is gone — a degraded
+        lookup). Callers test membership in ``TAB_LIST_IDS`` for the former
+        before consulting this for the latter.
+
+        Since t1223_5 every tab maps to a list, so the first case is currently
+        unreachable; the branch is kept for a future non-list pane.
         """
         list_id = TAB_LIST_IDS.get(self._active_tab())
         if list_id is None:
@@ -723,6 +942,20 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if action in VERSION_TAB_ACTIONS:
             if self._active_tab() != "tab_versions":
                 return False
+        if action in SETTINGS_TAB_ACTIONS:
+            if self._active_tab() != "tab_settings":
+                return False
+        if action == "push_setting":
+            # Second gate: the tab gate says "right tab", this says "there is
+            # something to push". `False` above drops the key from the footer
+            # entirely; `None` here dims it, the same split the ref gate below
+            # uses. Pure in-memory — it reads the applied matrix, no I/O — so
+            # it is safe on every refresh_bindings().
+            if not self.multi_repo:
+                return False
+            row = self._selected_settings_row()
+            if row is None or not row.has_source:
+                return None
         if action in ("sync_data", "pull", "push"):
             if not action_allowed_for_ref(action, self._selected_row().ref_name):
                 return None
@@ -745,6 +978,12 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if event.pane.id == "tab_versions" and not self._versions_loaded:
             self._versions_loaded = True
             self._request_versions()
+        if event.pane.id == "tab_settings" and not self._settings_loaded:
+            # Same lazy rule as Versions: reading the matrix shells one
+            # `resolve_agent_string` per (repo, operation), so a user who never
+            # opens the tab pays none of it.
+            self._settings_loaded = True
+            self._request_settings()
 
     # ---------------------------------------------------- tab bar <-> content
 
@@ -755,8 +994,10 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # Not our key: ordinary DataTable cursor / VerticalScroll movement.
             raise SkipAction()
         if self._active_tab() not in TAB_LIST_IDS:
-            # Settings placeholder: no list to enter. Consume and stay on the
-            # bar rather than throwing on a query that was never going to match.
+            # A pane with no list: consume and stay on the bar rather than
+            # throwing on a query that was never going to match. Unreachable
+            # since t1223_5 gave Settings a real table — kept for a future
+            # non-list pane.
             return
         table = self._active_list()
         if table is None:
@@ -1300,6 +1541,457 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         )
         self._update_versions_table()
         self.notify(f"Upgrade launched for {target.label} in window {window}.")
+
+    # ------------------------------------------------------------- settings
+
+    def action_reload_settings(self) -> None:
+        """Re-read the cross-repo settings matrix (`c` on the Settings tab)."""
+        self._settings_loaded = True
+        self._request_settings(explicit=True)
+
+    def _request_settings(self, explicit: bool = False) -> None:
+        """Coalesced settings refresh — same policy as branches and versions."""
+        start, self._pending_settings = coalesce_request(
+            self._settings_active, self._pending_settings, None, explicit
+        )
+        if not start:
+            return
+        self._settings_gen += 1
+        self._settings_active = True
+        self._settings_worker(self._settings_gen)
+
+    @work(thread=True, exclusive=True, group="syncer-settings")
+    def _settings_worker(self, gen: int) -> None:
+        try:
+            diff, unreadable, unattributed = self._read_settings_matrix()
+        except Exception as exc:  # pragma: no cover — defensive
+            # Same hazard the branches worker documents: an escaping exception
+            # never reaches _finish_settings, so _settings_active stays true
+            # and every later request parks in the pending slot forever —
+            # `c` would silently stop working for the rest of the session.
+            self.call_from_thread(self._on_settings_error, str(exc))
+            return
+        self.call_from_thread(
+            self._apply_settings, gen, diff, unreadable, unattributed
+        )
+
+    def _on_settings_error(self, message: str) -> None:
+        self.notify(f"Settings read failed: {message}", severity="error")
+        self._finish_settings()
+
+    def _read_settings_matrix(
+        self,
+    ) -> tuple[dict[str, dict[str, OperationValue]], dict[str, str], str | None]:
+        """Read the matrix, degrading per repo when one is unreadable.
+
+        ``diff_across_repos`` aborts GLOBALLY on the first corrupt repo — it
+        reads every root's layers in one unguarded loop — so a single call
+        cannot give the per-repo degradation this tab promises. Hence a
+        shrink-and-retry loop:
+
+        * The happy path costs exactly one call; the extra sweeps are paid only
+          when something is actually broken (and a broken root fails its probe
+          before spawning any subprocess).
+        * Each round either removes at least one attributable offender or spends
+          the single non-attributable retry, so the loop is bounded at
+          ``len(sessions) + 2`` attempts.
+        * A repo that breaks BETWEEN the sweep and the retry costs only its own
+          column — the repos that passed keep theirs. Marking everything
+          unreadable on a raced failure would destroy exactly the guarantee this
+          method exists to provide.
+        * A failure the sweep cannot attribute to any repo blames NO repo: we
+          did not establish that, so it is surfaced as a tab-level reason
+          instead of invented per-repo blame.
+        """
+        good = list(self.sessions)
+        unreadable: dict[str, str] = {}
+        unattributed: str | None = None
+        for _ in range(len(self.sessions) + 2):
+            if not good:
+                return {}, unreadable, None
+            try:
+                return (
+                    diff_across_repos([s.project_root for s in good]),
+                    unreadable,
+                    None,
+                )
+            except DestConfigUnreadable as exc:
+                still_good: list[AitasksSession] = []
+                newly_bad = False
+                for sess in good:
+                    try:
+                        read_operation_defaults(sess.project_root)
+                        still_good.append(sess)
+                    except DestConfigUnreadable as probe_exc:
+                        unreadable[sess.key] = str(probe_exc)
+                        newly_bad = True
+                if not newly_bad:
+                    if unattributed is not None:
+                        return {}, unreadable, unattributed
+                    unattributed = str(exc)
+                    continue
+                good = still_good
+                unattributed = None
+        return {}, unreadable, unattributed
+
+    def _apply_settings(
+        self,
+        gen: int,
+        diff: dict[str, dict[str, OperationValue]],
+        unreadable: dict[str, str],
+        unattributed: str | None,
+    ) -> None:
+        if gen == self._settings_gen:
+            self._settings_unreadable = unreadable
+            self._settings_unattributed = unattributed
+            self._settings_rows = build_settings_matrix(
+                diff,
+                [s.key for s in self.sessions],
+                frozenset(unreadable),
+            )
+            self._settings_rows_by_key = {
+                r.row_key: r for r in self._settings_rows
+            }
+            self._update_settings_table()
+            if unattributed:
+                self.notify(
+                    f"Settings could not be read ({unattributed}) — press `c` "
+                    "to retry.",
+                    severity="warning",
+                )
+            self.refresh_bindings()
+        self._finish_settings()
+
+    def _finish_settings(self) -> None:
+        self._settings_active = False
+        if self._pending_settings is not PENDING_UNSET:
+            _, explicit = self._pending_settings  # type: ignore[misc]
+            self._pending_settings = PENDING_UNSET
+            self._request_settings(explicit=explicit)
+
+    def _update_settings_table(self) -> None:
+        try:
+            table = self.query_one("#settings", DataTable)
+        except Exception:
+            return
+        # The row set is data-derived, so it is rebuilt rather than updated in
+        # place — which is exactly why the push flow captures a frozen target.
+        table.clear()
+        for row in self._settings_rows:
+            table.add_row(
+                DIVERGE_MARKER if row.divergent else "",
+                row.operation,
+                *row.cells,
+                key=row.row_key,
+            )
+
+    def _selected_settings_row(self) -> SettingsRow | None:
+        if not self._settings_rows:
+            return None
+        try:
+            table = self.query_one("#settings", DataTable)
+        except Exception:
+            return self._settings_rows[0]
+        if table.cursor_row is not None and table.row_count > 0:
+            try:
+                row_key, _ = table.coordinate_to_cell_key((table.cursor_row, 0))
+                if row_key.value and row_key.value in self._settings_rows_by_key:
+                    return self._settings_rows_by_key[str(row_key.value)]
+            except Exception:
+                pass
+            idx = max(0, min(table.cursor_row, len(self._settings_rows) - 1))
+            return self._settings_rows[idx]
+        return self._settings_rows[0]
+
+    def _capture_push_target(self) -> PushTarget | None:
+        """Freeze the highlighted operation into an immutable push target.
+
+        The only point in the flow that reads the settings table or its row
+        map. Everything downstream works from the returned record, so a cursor
+        move — or the row rebuild that every refresh performs — while a modal is
+        open cannot redirect the push at another operation.
+        """
+        row = self._selected_settings_row()
+        if row is None:
+            return None
+        return PushTarget(
+            operation=row.operation,
+            repos=tuple(
+                (s.key, self._settings_labels.get(s.key, s.project_name))
+                for s in self.sessions
+            ),
+            sources=row.sources,
+        )
+
+    def action_push_setting(self) -> None:
+        """Propagate one operation's value to other repos (`P`).
+
+        Guards itself rather than relying on ``check_action``: that gates the
+        key binding, not the method, and actions are also invoked directly (the
+        test suite does exactly this). Without the re-check an unloaded or
+        all-conflict matrix would walk into a flow with no target.
+        """
+        if not self.multi_repo:
+            self.notify(
+                "Only one repository discovered — nothing to push to.",
+                severity="warning",
+            )
+            return
+        target = self._capture_push_target()
+        if target is None:
+            self.notify(
+                "Settings are not loaded yet — press `c` to load them.",
+                severity="warning",
+            )
+            return
+        options = target.source_options()
+        if not options:
+            self.notify(
+                f"No repository holds a usable value for `{target.operation}` "
+                "(unreadable or conflicting).",
+                severity="warning",
+            )
+            return
+
+        self._pick_source(target)
+
+    # The three wizard steps below are mutually recursive on purpose: Esc (or
+    # the Back button) dismisses BACK, and the caller re-pushes the PREVIOUS
+    # step with the earlier choice still selected. Every step reads only its
+    # arguments and the frozen `target`, never the table, so going back and
+    # forward cannot redirect the push at another operation.
+
+    def _pick_source(
+        self, target: PushTarget, initial: str | None = None
+    ) -> None:
+        def on_source(source_key: str | None) -> None:
+            if source_key is None:      # step 1: back == cancel the push
+                return
+            self._choose_destinations(target, source_key)
+
+        self.push_screen(
+            SettingsSourceScreen(target.operation, target.source_options(), initial),
+            on_source,
+        )
+
+    def _source_value(self, target: PushTarget, source_key: str) -> str:
+        for (key, _label), value in zip(target.repos, target.sources):
+            if key == source_key and value is not None:
+                return value
+        # Unreachable through the UI: the picker only offers eligible repos.
+        raise KeyError(source_key)
+
+    def _choose_destinations(
+        self, target: PushTarget, source_key: str,
+        initial: tuple[str, ...] = (),
+    ) -> None:
+        value = self._source_value(target, source_key)
+        # The source is removed HERE, at construction: destinations are "the
+        # other repos", and leaving it in would guarantee a self-targeted noop
+        # row in the summary that reads as a defect. Note the list is NOT
+        # filtered by source-eligibility — a conflicted repo is a legitimate
+        # (and valuable) destination.
+        dests = target.destinations_excluding(source_key)
+
+        def on_dests(chosen) -> None:
+            if chosen == BACK:
+                self._pick_source(target, initial=source_key)
+                return
+            if not chosen:
+                return
+            self._choose_layer(target, source_key, value, chosen)
+
+        self.push_screen(
+            SettingsDestinationsScreen(
+                target.operation, value, dests, initial=initial
+            ),
+            on_dests,
+        )
+
+    def _choose_layer(
+        self, target: PushTarget, source_key: str, value: str,
+        dests: tuple[str, ...],
+    ) -> None:
+        labels = dict(target.repos)
+
+        def on_layer(layer: str | None) -> None:
+            if layer == BACK:
+                self._choose_destinations(target, source_key, initial=dests)
+                return
+            if layer is None:
+                return
+            self._plan_pushes(target, value, dests, layer)
+
+        self.push_screen(
+            SettingsLayerScreen(
+                target.operation, value, [labels[k] for k in dests]
+            ),
+            on_layer,
+        )
+
+    def _plan_pushes(
+        self, target: PushTarget, value: str, dests: tuple[str, ...], layer: str
+    ) -> None:
+        self._push_plan_worker(target.operation, value, dests, layer)
+
+    @work(thread=True, group="syncer-settings-push")
+    def _push_plan_worker(
+        self, operation: str, value: str, dests: tuple[str, ...], layer: str
+    ) -> None:
+        """Plan every destination off the UI thread; never let one kill the run.
+
+        Each ``plan_push`` shells the destination's resolver with a 10s timeout,
+        so this cannot run on the UI thread. The per-destination boundary is the
+        same discipline the apply phase uses: an unhandled exception here would
+        terminate the worker, so the summary would never open and every later
+        destination would be silently unconsidered.
+        """
+        try:
+            planned = self._plan_each(operation, value, dests, layer)
+        except Exception as exc:  # pragma: no cover — defensive
+            # The per-destination boundary below already absorbs plan_push
+            # failures; this covers everything around it, so choosing a layer
+            # can never end in silence with no summary.
+            self.call_from_thread(
+                self.notify, f"Push planning failed: {exc}", severity="error"
+            )
+            return
+        self.call_from_thread(
+            self._resolve_masked, operation, value, layer, planned, []
+        )
+
+    def _plan_each(
+        self, operation: str, value: str, dests: tuple[str, ...], layer: str
+    ) -> list[tuple[str, str, str | None]]:
+        planned: list[tuple[str, str, str | None]] = []
+        for key in dests:
+            sess = self._session_by_key.get(key)
+            if sess is None:
+                planned.append((key, "missing", "project no longer discovered"))
+                continue
+            try:
+                outcome = plan_push(value, sess.project_root, operation, layer)
+            except Exception as exc:  # planning must not kill the worker
+                planned.append((key, "planning_failed", f"could not be planned: {exc}"))
+                continue
+            if outcome.kind == "masked":
+                planned.append((key, "masked", outcome.masking_value))
+            elif outcome.kind == "rejected":
+                planned.append((key, "rejected", outcome.reason))
+            else:
+                planned.append((key, outcome.kind, None))
+        return planned
+
+    def _resolve_masked(
+        self,
+        operation: str,
+        value: str,
+        layer: str,
+        pending: list[tuple[str, str, str | None]],
+        decided: list[tuple[str, str, str | None]],
+    ) -> None:
+        """Drain the masked destinations one modal at a time, then apply.
+
+        Recursive rather than a loop: each prompt resumes in a callback, so the
+        remaining queue is carried forward explicitly.
+        """
+        labels = dict(
+            (s.key, self._settings_labels.get(s.key, s.project_name))
+            for s in self.sessions
+        )
+        queue = list(pending)
+        while queue:
+            key, kind, extra = queue.pop(0)
+            if kind != "masked":
+                decided.append((key, kind, extra))
+                continue
+
+            def on_choice(
+                choice: str | None,
+                _key: str = key,
+                _extra: str | None = extra,
+                _rest: list[tuple[str, str, str | None]] = queue,
+            ) -> None:
+                resolved = choice or "cancel"
+                if resolved == "cancel":
+                    decided.append((_key, "cancelled", _extra))
+                elif resolved == "local":
+                    decided.append((_key, "apply_local", None))
+                else:
+                    decided.append((_key, "apply_clear", None))
+                self._resolve_masked(operation, value, layer, _rest, decided)
+
+            self.push_screen(
+                SettingsMaskedScreen(
+                    labels.get(key, key), operation, value, extra
+                ),
+                on_choice,
+            )
+            return
+        self._apply_pushes(operation, value, layer, decided)
+
+    def _apply_pushes(
+        self,
+        operation: str,
+        value: str,
+        layer: str,
+        decided: list[tuple[str, str, str | None]],
+    ) -> None:
+        self._push_apply_worker(operation, value, layer, decided)
+
+    @work(thread=True, group="syncer-settings-push")
+    def _push_apply_worker(
+        self,
+        operation: str,
+        value: str,
+        layer: str,
+        decided: list[tuple[str, str, str | None]],
+    ) -> None:
+        results: list[tuple[str, str]] = []
+        for key, kind, extra in decided:
+            sess = self._session_by_key.get(key)
+            label = self._settings_labels.get(key, key)
+            if kind == "noop":
+                results.append((label, "already matches — nothing written"))
+                continue
+            if kind == "cancelled":
+                results.append((label, "skipped"))
+                continue
+            if kind == "rejected":
+                results.append((label, f"rejected: {extra}"))
+                continue
+            if kind in ("planning_failed", "missing"):
+                results.append((label, str(extra)))
+                continue
+            if sess is None:
+                results.append((label, "project no longer discovered"))
+                continue
+            write_layer = "local" if kind == "apply_local" else layer
+            clear_mask = kind == "apply_clear"
+            try:
+                apply_push(
+                    value, sess.project_root, operation, write_layer,
+                    clear_mask=clear_mask,
+                )
+                results.append((label, f"applied to the {write_layer} layer"))
+            except PushPartialError as exc:
+                # Neither success nor plain failure: the project layer landed
+                # but the mask is still in place, so the repo's EFFECTIVE value
+                # is unchanged and a retry converges.
+                results.append((
+                    label,
+                    "partial — project written but the local override still "
+                    f"sets {exc.masking_value!r}; retry to finish",
+                ))
+            except Exception as exc:
+                results.append((label, f"failed: {exc}"))
+        self.call_from_thread(self._report_pushes, operation, results)
+
+    def _report_pushes(
+        self, operation: str, results: list[tuple[str, str]]
+    ) -> None:
+        self.push_screen(SettingsPushResultScreen(operation, results))
+        self._request_settings(explicit=True)
 
     # ----------------------------------------------------------- selection
 
