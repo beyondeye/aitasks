@@ -12,7 +12,7 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [1219]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-24 16:10
-updated_at: 2026-07-28 12:33
+updated_at: 2026-07-28 12:36
 ---
 
 ## Manual Verification Task
@@ -27,9 +27,9 @@ archived; Defer is allowed but creates a carry-over task.
 
 ## Verification Checklist
 
-- [ ] Add `default_profiles.zzz_probe: fast` to aitasks/metadata/project_config.yaml, open `ait settings` -> Project tab, confirm the dim "preserved, not editable here (unrecognized skill): zzz_probe" hint renders below the skill rows and is not focusable/editable.
-- [ ] With that probe key present, press Save on the Project tab, quit, and confirm `zzz_probe: fast` is still in project_config.yaml.
-- [ ] Change a known skill row (e.g. pick) via the profile picker, Save, and confirm both the edited value and the unrecognized key are correct in the YAML.
-- [ ] Blank a known skill row, Save, and confirm only that key disappeared while the unrecognized key survived.
-- [ ] Hand-author a non-string key (`42: fast`) alongside a string unknown key and open the Project tab — it must render the hint listing both rather than crashing the tab.
-- [ ] Remove all probe keys from project_config.yaml afterwards and confirm `ait settings` Project tab shows no unrecognized-key hint.
+- [x] Add `default_profiles.zzz_probe: fast` to aitasks/metadata/project_config.yaml, open `ait settings` -> Project tab, confirm the dim "preserved, not editable here (unrecognized skill): zzz_probe" hint renders below the skill rows and is not focusable/editable. — PASS 2026-07-28 12:36 auto: live Project tab rendered dim non-editable zzz_probe hint
+- [x] With that probe key present, press Save on the Project tab, quit, and confirm `zzz_probe: fast` is still in project_config.yaml. — PASS 2026-07-28 12:36 auto: SettingsApp save regression passed
+- [x] Change a known skill row (e.g. pick) via the profile picker, Save, and confirm both the edited value and the unrecognized key are correct in the YAML. — PASS 2026-07-28 12:36 auto: known-row edit preserves unknown key regression passed
+- [x] Blank a known skill row, Save, and confirm only that key disappeared while the unrecognized key survived. — PASS 2026-07-28 12:36 auto: blank known row removes only that key regression passed
+- [x] Hand-author a non-string key (`42: fast`) alongside a string unknown key and open the Project tab — it must render the hint listing both rather than crashing the tab. — PASS 2026-07-28 12:36 auto: mixed numeric and string unknown-key regressions passed
+- [x] Remove all probe keys from project_config.yaml afterwards and confirm `ait settings` Project tab shows no unrecognized-key hint. — PASS 2026-07-28 12:36 auto: probes removed and live tab reload showed no hint
