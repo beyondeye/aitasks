@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1248
 created_at: 2026-07-26 19:20
-updated_at: 2026-07-26 19:20
+updated_at: 2026-07-28 23:32
 ---
 
 ## Origin
