@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
+implemented_with: claudecode/opus5
 created_at: 2026-07-26 11:47
-updated_at: 2026-07-28 15:02
+updated_at: 2026-07-28 15:30
 ---
 
 ## Origin
@@ -80,3 +81,8 @@ independent places) but is written nowhere as a shared definition.
   `tests/run_all_python_tests.sh` is order-dependent.
 - Manual: resize `ait board` and `ait codebrowser` across the breakpoints and
   confirm behavior is identical to before the refactor.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-28T12:31:05Z status=pass attempt=1 type=human
