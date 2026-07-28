@@ -328,11 +328,11 @@ editing the page to match.
     needed now that two other sections also describe actions. No cross-reference
     used the old anchor.
 
-- **Upstream defects identified:** None.
-
-  (One cosmetic staleness noticed but not a defect: the docstring of
-  `action_push_setting` in `syncer_app.py:1727` says the key is `` `P` `` while
-  the binding at `:710` is lowercase `p`. Comment-only, no behavioral impact.)
+- **Upstream defects identified:**
+  - `.aitask-scripts/syncer/syncer_app.py:1727` — `action_push_setting`'s
+    docstring documents the key as `` `P` `` (uppercase), but the binding at
+    `:710` is lowercase `p`. Comment-only, no behavioral impact, but it
+    contradicts the binding it describes and the docs page written by this task.
 
 - **Notes for sibling tasks:**
   - **t1223_7 (manual verification):** the page is now the contract to verify
