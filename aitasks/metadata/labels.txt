@@ -84,6 +84,7 @@ task_workflow
 testing
 test_marker
 tmux
+tmux_destructive
 tui
 tui_switcher
 upstream_defect_followup

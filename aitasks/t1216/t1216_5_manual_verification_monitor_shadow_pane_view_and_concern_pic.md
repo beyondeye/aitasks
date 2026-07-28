@@ -4,11 +4,11 @@ effort: medium
 depends: [t1216_4]
 issue_type: manual_verification
 status: Ready
-labels: [verification, manual]
-verifies: [1216_1, 1216_2, 1216_3, 1216_4]
+labels: [verification, manual, tmux_destructive]
+verifies: [t1216_1, t1216_2, t1216_3, t1216_4]
 anchor: 1111
 created_at: 2026-07-27 22:27
-updated_at: 2026-07-27 22:27
+updated_at: 2026-07-28 18:27
 ---
 
 ## Pick-time safety guard — DO NOT pick from inside your working tmux
