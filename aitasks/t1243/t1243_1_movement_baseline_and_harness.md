@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:12
-updated_at: 2026-07-28 08:05
+updated_at: 2026-07-28 15:10
 ---
 
 ## Context
@@ -138,3 +139,8 @@ Compare the measurement to the premise rule.
   the fixture correct.
 - No file under the repo's real `aitasks/` is modified by any test.
 - The baseline table and the checkpoint decision are recorded in the parent plan.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-28T12:10:24Z status=pass attempt=1 type=human
