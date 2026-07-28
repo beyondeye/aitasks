@@ -55,3 +55,9 @@ tmux:
   prefer_tmux: true
   git_tui: lazygit
   shadow_pane_width: 60
+
+# TEMPORARY (t1142 manual verification) — removed at end of verification run.
+artifacts:
+  backends:
+    dir:
+      path: /run/media/ddt/aitshare/store
