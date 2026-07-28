@@ -119,6 +119,55 @@ surfaces. Always include a help/instructions line so keyboard discoverability
 never depends on focus styling alone. (See the priority-bindings note above for
 the matching arrow-key fix.)
 
+## Terminal-width tiers vs component minimum widths
+
+Two different questions get asked about width, and conflating them is how the
+repo accumulated four unrelated "narrow" numbers before t1251:
+
+- **"How wide is this terminal?"** — a *layout tier* decision. Shared. Branch on
+  `lib/tui_layout.py`: `terminal_tier(width)` → `NARROW` / `NORMAL` / `WIDE`, or
+  `is_narrow_terminal(width)` for the two-way case.
+- **"How many cells does this widget need?"** — a *component minimum width*. It
+  belongs to that widget and stays in its class.
+
+**Rules.**
+
+1. Never write a bare terminal-width comparison (`if width >= 120:`,
+   `if app_width < 80:`). Call `terminal_tier` / `is_narrow_terminal` instead.
+   The tier constants live in exactly one place so a UX retune is one edit.
+2. Keep the *per-tier dimensions* local. `lib/tui_layout.py` owns the tier
+   boundary; the TUI owns what it does at each tier — e.g.
+   `CodeBrowserApp.SIDEBAR_WIDTH_BY_TIER = {WIDE: 35, NORMAL: 28, NARROW: 22}`.
+3. Never reuse a tier constant as a component floor because the numbers match
+   today. `CODE_MIN_WIDTH` is 80 and `NARROW_TERMINAL_WIDTH` is 80, but they are
+   independent decisions; coupling them means a tier retune silently resizes the
+   code pane.
+4. **Prefer deriving the threshold from live geometry** over any constant.
+   `KanbanApp._apply_filter_reflow` computes its breakpoint as
+   `selector.content_width() + 2 + FILTER_SEARCH_MIN_WIDTH` — it cannot drift
+   when the selector grows a filter. Reach for a tier constant only when there
+   is nothing to measure.
+
+**Constants that deliberately did NOT move into `lib/tui_layout.py`** (t1251
+inventoried these; do not "finish the job" by centralizing them):
+
+| Constant | File | Why it stays |
+|---|---|---|
+| `CODE_MIN_WIDTH = 80` | `codebrowser/codebrowser_app.py` | Code-pane floor; equals the narrow tier by coincidence. |
+| `DETAIL_DEFAULT_WIDTH = 30` | `codebrowser/codebrowser_app.py` | Detail-pane default width, not a threshold. |
+| `FILTER_SEARCH_MIN_WIDTH = 30` | `board/aitask_board.py` | Search-box floor. t1247 made it the sole source of truth — deliberately not mirrored into CSS. |
+| `_SENTINEL_SAFE_COLS = 24` | `monitor/concern_parser.py` | Derived from the sentinel strings' own lengths (21/18 chars). A *correctness* threshold, not a UX one. |
+| `_NARROW_PREFIX_COLS = 8` | `monitor/monitor_shared.py` | Fixed prefix cost of a concern row. |
+| `target_width = 40` | `monitor/minimonitor_app.py` | A tmux **pane** width the app pins itself to (from `tmux.minimonitor.width`), not a test against the terminal. |
+
+**The `narrow: bool` dialog kwarg is not a width test.** The `narrow` parameter
+threaded through `monitor_shared.py`, `lib/agent_command_screen.py`,
+`lib/agent_model_picker.py`, and `lib/tui_switcher.py` is a **host-role flag**:
+`TuiSwitcherMixin._switcher_narrow()` returns a static `False` and minimonitor
+overrides it to `True` because it always lives in a ~40-column split pane.
+Nothing measures the terminal, so there is no tier to consult. Do not "fix" it
+to call `is_narrow_terminal`.
+
 ## Clipboard copies route through `lib/tui_clipboard.copy_to_system_clipboard`
 
 Never call Textual's `app.copy_to_clipboard` directly from TUI code

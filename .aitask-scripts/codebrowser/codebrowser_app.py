@@ -32,6 +32,7 @@ from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal as _find_terminal, spawn_in_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name, tmux_session_target
 from tmux_exec import TmuxClient
 from tui_clipboard import copy_to_system_clipboard
+from tui_layout import NARROW, NORMAL, WIDE, terminal_tier
 from tui_switcher import TuiSwitcherMixin
 from shortcuts_mixin import ShortcutsMixin
 
@@ -403,7 +404,17 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
     ]
 
     DETAIL_DEFAULT_WIDTH = 30
+    # Component floor: the code pane needs this many cells to stay readable, so
+    # the detail pane is squeezed to preserve it. Equal to
+    # tui_layout.NARROW_TERMINAL_WIDTH by coincidence, NOT by derivation — see
+    # aidocs/framework/tui_conventions.md, "Terminal-width tiers vs component
+    # minimum widths". Do not replace it with the tier constant (t1251).
     CODE_MIN_WIDTH = 80
+
+    # This TUI's own sidebar width per terminal tier. The tier *decision* is
+    # shared (tui_layout.terminal_tier); the per-tier dimensions are the
+    # codebrowser's alone.
+    SIDEBAR_WIDTH_BY_TIER = {WIDE: 35, NORMAL: 28, NARROW: 22}
 
     def __init__(self, *args, initial_focus: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -680,12 +691,7 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
             sidebar = self.query_one("#left_sidebar")
         except Exception:
             return
-        if width >= 120:
-            sidebar.styles.width = 35
-        elif width >= 80:
-            sidebar.styles.width = 28
-        else:
-            sidebar.styles.width = 22
+        sidebar.styles.width = self.SIDEBAR_WIDTH_BY_TIER[terminal_tier(width)]
         if self._detail_visible:
             self._apply_detail_width()
 

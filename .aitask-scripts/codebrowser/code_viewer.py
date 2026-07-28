@@ -20,6 +20,7 @@ if str(_LIB) not in sys.path:
 
 from numbered_source_view import NumberedSourceView  # noqa: E402
 from annotation_data import AnnotationRange  # noqa: E402
+from tui_layout import is_narrow_terminal  # noqa: E402
 
 ANNOTATION_COLORS = [
     "cyan", "green", "yellow", "magenta",
@@ -84,6 +85,13 @@ class CodeViewer(NumberedSourceView):
     ]
 
     MAX_LINE_WIDTH = 500
+
+    # Annotation-gutter widths. Which one applies is decided by the shared
+    # terminal tier (tui_layout.is_narrow_terminal); the widths themselves are
+    # this widget's own.
+    ANNOTATION_COL_WIDTH = 12
+    ANNOTATION_COL_WIDTH_NARROW = 10
+
     _INNER_ID = "code_display"
 
     def __init__(self, *args, **kwargs):
@@ -276,10 +284,10 @@ class CodeViewer(NumberedSourceView):
         try:
             app_width = self.app.size.width
         except Exception:
-            return 12
-        if app_width < 80:
-            return 10
-        return 12
+            return self.ANNOTATION_COL_WIDTH
+        if is_narrow_terminal(app_width):
+            return self.ANNOTATION_COL_WIDTH_NARROW
+        return self.ANNOTATION_COL_WIDTH
 
     def cycle_wrap_mode(self) -> str:
         """Toggle between truncate and wrap modes and rebuild display."""
