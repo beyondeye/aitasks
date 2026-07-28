@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
+implemented_with: claudecode/opus5
 created_at: 2026-07-20 12:12
-updated_at: 2026-07-28 15:01
+updated_at: 2026-07-28 19:19
 boardcol: bug_fixes
 boardidx: 10
 ---
@@ -70,3 +71,8 @@ For (2): pin a single import path for the TUI modules under test (consistent
 `sys.path` / package-qualified imports) so `isinstance` identity holds regardless
 of test order. Fixing (1) first is worthwhile, since it is what makes (2) and any
 future breakage visible at all.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-28T16:19:48Z status=pass attempt=1 type=human
