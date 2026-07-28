@@ -11,6 +11,25 @@ created_at: 2026-07-27 22:27
 updated_at: 2026-07-27 22:27
 ---
 
+## Pick-time safety guard — DO NOT pick from inside your working tmux
+
+**Risk to running code agents: HIGH — this checklist deliberately kills agent
+and shadow panes** ("Kill the shadow pane while the SHADOW zone is focused",
+"Kill the followed agent: its shadow dies AND the monitor window survives").
+
+**Safe to pick when:** you are in a shell whose tmux server carries no code
+agents you care about — with `AITASKS_TMUX_SOCKET` unset that is the dedicated
+`-L ait` server; check `tmux -L ait list-panes -a` first. Launch throwaway
+agents for the verification rather than reusing ones doing real work.
+
+Beyond the explicit kills, several items exercise `e` / `E`, which install a
+persistent `pane-died` hook and `remain-on-exit on` on the **followed agent's**
+pane (`lib/agent_launch_utils.py:1348-1370`). The cleanup that hook triggers
+runs raw `tmux` with no socket flag by design, so it cannot be sandboxed — see
+the guard in `t1216_4` for the full mechanism, the damage ceiling (panes only;
+no `kill-session` / `kill-server` exists in the tree), and the
+detect/disarm commands.
+
 ## Manual Verification Task
 
 This task is handled by the manual-verification module: run

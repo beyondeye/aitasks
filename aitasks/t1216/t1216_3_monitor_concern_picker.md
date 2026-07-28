@@ -11,6 +11,30 @@ created_at: 2026-07-27 22:22
 updated_at: 2026-07-27 22:22
 ---
 
+## Pick-time safety guard — SAFE from your normal working tmux
+
+**Risk to running code agents: LOW.** This child's entire tmux surface is
+**read-only**, so it can be picked and implemented from inside the same tmux
+session where your code agents are running.
+
+What it touches:
+- `capture-pane -p -J` via `aitask_shadow_capture.sh` (gateway-routed). That
+  script never kills, splits, resizes or closes anything; its only mutation is
+  `set-option -p @aitask_shadow_analyzed_at` on **its own** `$TMUX_PANE`, behind
+  a double guard, and it never runs from a monitor-side capture.
+- Clipboard via `tui_clipboard.copy_to_system_clipboard`.
+- No pane creation, no `kill-*`, no hook or `remain-on-exit` registration.
+
+Two conditions to preserve:
+- **Any live-tmux test must isolate itself.** Use
+  `require_isolated_tmux()` from `tests/lib/tmux_isolation.sh` (unsets `TMUX` /
+  `TMUX_PANE`, pins `TMUX_TMPDIR`, sets `AITASKS_TMUX_SOCKET=""`), or follow
+  `tests/test_minimonitor_concern_smoke.py`, which pins its own socket
+  (`ait_t1187_smoke`) and session name and only ever `kill-session`s that.
+- **Do not call `attach_shadow_cleanup_hook` from this child.** It belongs to
+  t1216_4 and is the one genuinely destructive seam in the shadow family (see
+  that task's guard).
+
 ## Context
 
 Third child of **t1216** (make `ait monitor` shadow-aware). Depends on

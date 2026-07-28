@@ -11,6 +11,81 @@ created_at: 2026-07-27 22:22
 updated_at: 2026-07-27 22:22
 ---
 
+## Pick-time safety guard — DO NOT pick from inside your working tmux
+
+**Risk to running code agents: HIGH — this child can kill live agent panes,
+and it can do so on a delay.**
+
+**Safe to pick when:** you are in a shell whose tmux server carries **no code
+agents you care about**. With `AITASKS_TMUX_SOCKET` unset, `ait` uses the
+dedicated `-L ait` server (t953), so check with
+`tmux -L ait list-sessions` / `tmux -L ait list-panes -a`. Writing the plan from
+inside your normal session is fine; **implementing and verifying are not**
+(`aidocs/framework/tui_conventions.md`, "Tmux-stress tasks").
+
+### Why — the exact mechanism
+
+`e` / `E` end in `attach_shadow_cleanup_hook(agent_pane, companion_pane)`
+(`lib/agent_launch_utils.py:1348-1370`), which **mutates the followed agent's
+own pane** — not the shadow's:
+
+- `set-option -p -t <agent_pane> remain-on-exit on` — a persistent behavioural
+  change; that pane stops closing on process exit.
+- `set-hook -p -t <agent_pane> pane-died "run-shell '<cleanup> <agent> <companion>'"`
+  — a **pane-scoped hook that persists** until the pane dies or is unset.
+
+Both calls are fire-and-forget with stdout/stderr to `DEVNULL`, so a bad
+registration is **silent**. The hook is installed even on agents this code did
+not launch — pressing `e` on any running agent rewrites its pane options.
+
+When the agent later dies, `aitask_companion_cleanup.sh` runs **raw `tmux` with
+no socket flag by design** (header L18-21; allowlisted at
+`tests/test_no_raw_tmux.sh:52`), so it reaches whichever server fired the hook.
+`AITASKS_TMUX_SOCKET` **cannot sandbox it.** It then:
+
+| line | action | gating |
+|---|---|---|
+| `:40` | `kill-pane` every pane in the **session** whose `@aitask_shadow_target` equals the dying agent | exact marker match — low risk |
+| `:58` | `kill-pane -t "$companion"` when the agent's window has no non-shadow siblings | **no marker check, no class check, no confirmation** |
+| `:60` | `kill-pane -t "$primary"` | unconditional |
+
+Line 58 is the hazard. `$companion` is whatever was passed at spawn time — in
+minimonitor that is `os.environ["TMUX_PANE"]` (`minimonitor_app.py:1229`),
+i.e. "the pane I am running in". **If the monitor passes its own `TMUX_PANE`,
+that is the pane of the agent implementing this task.** Because the hook fires
+on the *agent's* death, arbitrarily later, a wrong pane id is a **latent trap**
+that can detonate after your session ends — and tmux recycles pane ids.
+
+Damage ceiling (verified): **panes only.** There is no `kill-session` or
+`kill-server` anywhere in `.aitask-scripts/`, and `kill-window`
+(`monitor_core.py:2265`) is not on this path.
+
+### Working rules for this child
+
+- Prefer **mocked** tests — `tests/test_minimonitor_shadow_pick.py` stubs
+  `attach_shadow_cleanup_hook` rather than registering a real hook. Any test
+  that registers a real one must run under `require_isolated_tmux()`.
+- The PINNED contract below is the whole point: pass
+  `companion_pane = shadow_pane`, never the monitor's `TMUX_PANE`.
+
+### If you armed a pane by accident
+
+Detect (commands verified on a throwaway socket):
+
+```bash
+tmux -L ait list-panes -a -F '#{pane_id}' | while read -r p; do
+  h=$(tmux -L ait show-hooks -p -t "$p" 2>/dev/null | grep -F aitask_companion_cleanup.sh || true)
+  [ -n "$h" ] && echo "ARMED $p -> $h"
+done
+```
+
+Disarm:
+
+```bash
+tmux -L ait set-hook   -p -u -t <pane> pane-died
+tmux -L ait set-option -p -u -t <pane> remain-on-exit
+```
+
 ## Context
 
 Fourth child of **t1216** (make `ait monitor` shadow-aware). Depends on
