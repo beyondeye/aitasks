@@ -207,3 +207,58 @@ orchestrator (`./ait gates run 1306`, which owns `risk_evaluated`) and then
 - None identified. The goal is fully specified (four known paths, verified
   byte-identical to a known-good blob), every step is directly verifiable, and
   the disposition of each stray file was decided by the user before planning.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four t1236 paths restored to `main` in one commit.
+  The §1 concurrency guard passed clean — all four working-tree files still
+  diffed empty against `git show e22bdc582:<path>`, and `git diff --cached`
+  was empty (no foreign staged hunks), so no re-application on top of drifted
+  content was needed. `aidocs/slack/pros_and_cons.md` was moved to
+  `aidocs/chat/claude_tag_pros_and_cons.md` and the emptied `aidocs/slack/`
+  removed. Two ignore rules added. `.claude/settings.local.json`'s six
+  accumulated allowlist entries were re-diffed immediately before staging and
+  were byte-identical to what the audit saw, then committed.
+
+- **Deviations from plan:** The plan put the `package-lock.json` rule in
+  `.opencode/.gitignore`, following that file's existing sibling rules
+  (`node_modules`, `package.json`, `bun.lock`). During implementation
+  `git ls-files --error-unmatch .opencode/.gitignore` showed the file is
+  **untracked** — its own last line is `.gitignore`, so it ignores itself. A
+  rule there is local-only and would leave `package-lock.json` visible in every
+  other checkout, which is exactly the drift this task exists to clean up. The
+  edit was reverted and the rule placed in the tracked root `.gitignore`
+  instead, with a comment recording why it is separated from its siblings.
+  Verified by `git check-ignore -v`, which cites `.gitignore:27` (root), not
+  `.opencode/.gitignore`.
+
+- **Issues encountered:** None blocking. The plan's contingency for t1179
+  (`Implementing` against the same `tests/run_all_python_tests.sh`) never
+  fired — that session had not touched the file.
+
+- **Key decisions:** Restore forward with a new commit rather than rewriting or
+  reverting `eb1a4f7ea`. The history is shared and a concurrent session was
+  active on it; `442dbc42c`'s own message had already made that call for the
+  same reason, and repeating the rewrite is the more damaging failure mode.
+
+- **Verification results:**
+  - `bash tests/test_runner_python_isolation.sh` → 9 passed, 0 failed
+    (includes its own negative controls: a re-added `PYTHONPATH` export and a
+    stripped `unset` are both flagged; a commented-out export is not).
+  - `bash tests/test_python_bootstrap_isolation.sh` → 10 passed, 0 failed;
+    swept 156 test files in isolated interpreters, 0 broken bootstraps
+    (includes a positive control, a broken-bootstrap negative control, and a
+    poisoned-`PYTHONPATH` negative control).
+  - `bash tests/run_all_python_tests.sh` → `Ran 2544 tests in 707.746s`,
+    `OK (skipped=1)`, exit 0. The full suite passes with `PYTHONPATH` unset, so
+    no test was relying on the removed seeding. This retires the code-health
+    risk above: the lane was reintroduced against the post-`eb1a4f7ea` tree and
+    found nothing broken.
+  - `git check-ignore -v` → `.gitignore:22` for `.antigravitycli/…`,
+    `.gitignore:27` for `.opencode/package-lock.json`; negative control
+    `.opencode/instructions.md` is correctly not ignored.
+
+- **Upstream defects identified:** None. (The `442dbc42c` / `e22bdc582` /
+  `eb1a4f7ea` sequence that caused this task is a process/history-rewrite
+  incident, not a defect in a script or module. The pre-existing runner
+  exit-code masking is already owned by t1179.)
