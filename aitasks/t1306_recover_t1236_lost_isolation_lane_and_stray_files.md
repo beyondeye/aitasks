@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, git-integration]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1162
 created_at: 2026-07-28 18:26
-updated_at: 2026-07-28 18:26
+updated_at: 2026-07-28 18:28
 ---
 
 ## Origin
