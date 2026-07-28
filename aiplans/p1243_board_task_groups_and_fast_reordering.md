@@ -273,8 +273,60 @@ share (clearing 40 %) while removing rendering entirely improves user-perceived
 latency by only **25 %** (failing 30 %). A gate must not greenlight work that
 provably fails its own target.
 
+### Amendment: attribution is by ABLATION, not span share (recorded before re-measurement)
+
+The first baseline run under the span-share method above produced a reading that
+is an **instrumentation artifact, not a result**, and it is recorded here as an
+invalidation rather than as data:
+
+| lateral, 200 cards | value |
+|---|---|
+| median e2e | 2162 ms |
+| `apply_filter` span share | 0.6 % |
+| `_recompose_column` span share | 0.9 % |
+| unattributed (`other`) | **98.3 %** |
+
+Taken at face value that refutes the premise (1.6 % vs 40 %) and would kill
+t1243_4 and t1243_5. It is wrong. `_recompose_column` calls `remove_children()`
+and `mount_all()`, which return awaitables the board never awaits, so the mount +
+CSS + layout work they cause runs in the message pump **after** the wrapped call
+returns. A wall-clock span around `_recompose_column` measures its bookkeeping,
+not its cost.
+
+Two controls establish that the missing 98 % is real board work, not harness
+overhead:
+
+- **Harness floor.** The same timed press with an *unbound* key costs 46–86 ms
+  (25→200 cards). `Pilot._wait_for_screen()` posts a callback to every widget, so
+  this had to be ruled out; it is ~4 % of lateral e2e.
+- **Scaling.** Lateral e2e grows 460 → 777 → 921 → 2222 ms across 25/50/100/200
+  cards while every span share stays pinned near 1 %.
+- **Axis contrast.** At 200 cards, lateral (recomposes two columns) is 2162 ms
+  and vertical (DOM `move_child`, no recompose) is 206 ms — a 10× gap that span
+  attribution cannot see.
+
+**Revised method.** Removable cost is measured by **ablation**: re-run the same
+pre-registered ping-pong with one or more leaves no-op'd and take the delta in
+median e2e.
+
+| quantity | formula |
+|---|---|
+| `R_pair_A` | `1 − median_e2e(A, ¬apply_filter ∧ ¬recompose) / median_e2e(A, full)` |
+| `R_rm4_A` | `1 − median_e2e(A, ¬apply_filter ∧ ¬git_status) / median_e2e(A, full)` |
+| `R_rm5_A` | `1 − median_e2e(A, ¬recompose) / median_e2e(A, full)` |
+
+Everything else is unchanged: wall-clock `e2e` throughout, axes judged
+separately, 40 % for the combined workstream premise only, per-child gates at
+their own 30 % target, and the user-confirmed checkpoint below. Ablation asks
+exactly the question the gates ask — "how much can this child remove?" — and is
+immune to where in the pump the cost lands. It measures an **ideal-removal upper
+bound**, so clearing a gate stays *necessary, not sufficient*, as already
+pre-registered. Span shares are retained as diagnostics and are labelled in the
+report as under-attributing.
+
 **Aggregation.** Ratios are computed **per sample, then medianed** — never as a
-ratio of aggregates. Axes are **never pooled**; `A ∈ {lateral, vertical}`.
+ratio of aggregates. Axes are **never pooled**; `A ∈ {lateral, vertical}`. (The
+span-share table below is retained for the diagnostic quantities.)
 
 | quantity | formula |
 |---|---|
