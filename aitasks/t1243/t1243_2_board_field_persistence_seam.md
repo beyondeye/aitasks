@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: [t1243_1]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-07-28 01:12
-updated_at: 2026-07-28 01:12
+updated_at: 2026-07-28 23:28
 ---
 
 ## Context
