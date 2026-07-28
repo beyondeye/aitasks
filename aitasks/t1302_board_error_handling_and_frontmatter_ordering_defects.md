@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 17:54
-updated_at: 2026-07-28 18:07
+updated_at: 2026-07-28 23:59
 ---
 
 ## Origin
@@ -68,3 +69,8 @@ two exception types listed).
   `BOARD_LAYOUT_KEYS` / `BOARD_KEYS` and would inherit the wrong guarantee.**
   Any change here must keep the round-trip byte-stable; `tests/test_board_movement.py`
   will catch a regression, since its fixture relies on that stability.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-28T21:00:02Z status=pass attempt=1 type=human
