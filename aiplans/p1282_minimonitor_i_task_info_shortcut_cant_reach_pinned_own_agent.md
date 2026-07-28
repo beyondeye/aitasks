@@ -170,3 +170,78 @@ is a new action id, not in `SHARED_ACTION_IDS`, so no cross-scope conflict) and
   fallback would be dead code in the general case) is settled, the key choice was
   confirmed with the user, and the regression is directly assertable headlessly
   with a focused *other* card present.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned.
+  `.aitask-scripts/monitor/minimonitor_app.py` gained `Binding("I",
+  "show_own_task_info", "Task Info (followed)", show=False)` directly under the
+  `i` row, a new `action_show_own_task_info()` resolving through
+  `_find_own_agent_snapshot()`, and the extracted `_show_task_info_for(snap)`
+  helper now shared by both actions (`action_show_task_info` keeps its focus
+  resolution and `"Focus an agent pane first"` warning verbatim). The
+  `#mini-key-hints` panel gained a `I:info (followed agent)` line.
+  `website/content/docs/tuis/minimonitor/how-to.md` documents the key in the
+  how-to section and the Key Bindings Quick Reference table.
+  `tests/test_minimonitor_own_task_info.py` (new, 10 tests) covers binding
+  registration + the `i` negative control, `I` reaching the own agent while a
+  *different* card is focused, the no-focus case, cache invalidation, both
+  guards, `i` precedence, and the hint-panel render/width budget.
+
+- **Deviations from plan:** Two, both cosmetic.
+  1. Test file named `tests/test_minimonitor_own_task_info.py` rather than the
+     plan's `test_minimonitor_task_info_fallback.py` — "fallback" was the
+     pre-correction framing and would have misnamed what the file tests.
+  2. The focused-card cases construct a **real** `mm.MiniPaneCard("%other", …)`
+     instead of patching `mm.MiniPaneCard` with a stub class; `MiniPaneCard`
+     constructs fine outside an App, so the real widget exercises the real
+     `isinstance` contract in `_get_focused_pane_id`.
+
+- **Issues encountered:**
+  - `Static` has no `.renderable` attribute in this Textual version — the
+    hint-panel assertion reads `widget.render().plain` instead. `compose()` can
+    be driven directly on a `MiniMonitorApp.__new__` instance (no tmux, no App
+    context), which is how the hint text is obtained from the real source.
+  - `App.focused` is a **property**, so it cannot be set on an instance stub;
+    the tests use `patch.object(mm.MiniMonitorApp, "focused",
+    new_callable=PropertyMock)` and keep the real `_get_focused_pane_id`.
+
+- **Key decisions:**
+  - The original task proposed a *fallback* inside `action_show_task_info` (fire
+    when nothing is focused). The user corrected the premise: the minimonitor is
+    never in a "no card focused" state while any list agent exists, because
+    `_auto_select_own_window()` focuses the first card on mount, focus-restore
+    and `on_app_focus`. A fallback would therefore have been dead code except in
+    the single-agent case. Chosen instead (confirmed with the user): a dedicated
+    `I` key always scoped to the followed agent — the same shape as the existing
+    own-agent-scoped `k` / `n`, and the same lowercase/uppercase pairing as
+    `e` / `E`.
+  - `i` semantics deliberately untouched (focused card only), and the pinned
+    `#mini-own-agent` panel stays non-focusable — no change to focus handling,
+    `_rebuild_pane_list`, or `action_switch_to`.
+  - Bindings stay `show=False`: the minimonitor mounts no Textual `Footer`; its
+    discovery surface is the hard-coded `#mini-key-hints` `Static`, which the
+    change updates. Flipping `show=True` (per the "TUI footer must surface every
+    operation" convention) would render nothing and diverge from all 14 existing
+    bindings.
+  - Verification note: the width claim for the hint panel is a length assertion
+    on the rendered string (≤38 cols = 40-col default pane minus `padding: 0 1`),
+    **not** a live terminal capture. On-screen wrapping and the live dialog are
+    left to manual verification.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/minimonitor_app.py:1477 — action_cycle_compare_mode`
+    (`d`) resolves only through `self._focused_pane_id`, so the followed agent's
+    idle-detection compare mode cannot be changed from its own minimonitor — the
+    same reachability gap as t1282 but for a different key. Not fixed here (out
+    of this task's scope); may or may not be intended.
+
+- **Test harness credibility (negative control):** with
+  `action_show_own_task_info` temporarily re-pointed at `_get_focused_pane_id()`,
+  the regression test failed with `'999' != '1282'` (plus 4 other own-agent
+  cases) — the suite discriminates. Restored with Edit (never `git checkout --`,
+  which would have wiped the concurrent session's in-flight edits).
+
+- **Build verification:** `bash tests/run_all_python_tests.sh` →
+  `PYTHON SUITE: PASSED (runner=unittest, exit=0)`, 2554 tests, 1 skipped.
+  `bash tests/test_shortcuts_registry_coverage.sh` → PASS.
