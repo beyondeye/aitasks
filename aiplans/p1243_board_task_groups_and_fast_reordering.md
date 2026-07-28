@@ -239,13 +239,103 @@ method and success rule before observing any result**:
 - **Target rule (pre-registered).** t1243_4 and t1243_5 must deliver **≥ 30 %
   reduction in median keypress latency** versus the baseline.
 
-**Decision checkpoint.** t1243_1's final step compares the measurement to the
-premise rule. If the premise is **refuted**, t1243_1 does not proceed as if it
-held: it **revises, replaces, or postpones t1243_4 and t1243_5** — rewriting
-those task files and plans to target whichever span actually dominates — and
-records the decision and data in this parent plan before either child is picked.
-The dependency chain must not carry a predetermined implementation past a
-falsified premise.
+### Disambiguation of the pre-registered rules (recorded before any measurement)
+
+The two rules above are **not computable as written**: they mix per-span totals
+with a per-sample median; `refresh_columns` *contains* `_recompose_column`, so
+the pair can be double-counted; they do not say whether the two move axes are
+judged separately even though vertical has **no recompose pass** at all; and they
+do not say whether the denominator includes message-pump deferral. This section
+pins the computation. **No threshold changes — 40 % and 30 % stand.**
+
+Recorded by t1243_1 **before** collecting any data, so "pre-registered" remains
+true.
+
+**Instrumentation.** Four **mutually non-overlapping leaf** spans, each
+wall-clock (`perf_counter`): `apply_filter` (`af`), `_recompose_column` (`rc`),
+`refresh_git_status` (`git`), `reload_and_save_board_fields` (`save`).
+`refresh_column` / `refresh_columns` are wrapped **inclusively for reporting
+only** and are excluded from every formula. Non-overlap is *proved* by a
+per-thread active-span stack that fails the run on nesting — a non-negative
+residual cannot prove it, because uninstrumented time can absorb a double count.
+
+`defer_i` (message-pump deferral) is measured as **one** non-overlapping interval
+per sample — synchronous-action-end → first deferred callback start — never as a
+sum of callback ages (sibling callbacks queued together share the same wait, and
+later ones also contain earlier ones' execution time). It is **diagnostic only**.
+
+**Denominator: wall-clock `e2e_i` for every rule.** Both the 40 % gate and the
+30 % target divide by the same per-sample wall-clock keypress latency — exactly
+"share of median keypress latency" as written above. Deferral is *not*
+subtracted: an "active work" denominator makes the two rules incoherent. At
+`e2e` = 20 ms, `defer` = 10 ms, render = 5 ms it would report a **50 %** render
+share (clearing 40 %) while removing rendering entirely improves user-perceived
+latency by only **25 %** (failing 30 %). A gate must not greenlight work that
+provably fails its own target.
+
+**Aggregation.** Ratios are computed **per sample, then medianed** — never as a
+ratio of aggregates. Axes are **never pooled**; `A ∈ {lateral, vertical}`.
+
+| quantity | formula |
+|---|---|
+| `E2E_A` | `median_i(e2e_i)`, `p90_i(e2e_i)` — the sole denominator |
+| `DEFER_A` | `median_i(defer_i)`, `median_i(defer_i / e2e_i)` — diagnostic |
+| `R_pair_A` | `median_i((af_i + rc_i) / e2e_i)` |
+| `R_rm4_A` | `median_i((af_i + git_i) / e2e_i)` — t1243_4's combined removable cost |
+| `R_rm5_A` | `median_i(rc_i / e2e_i)` — t1243_5's removable cost (lateral only) |
+
+**Decision rules — 40 % for the combined workstream only; per-child gates on
+combined removable cost.** Applying 40 % independently to `rc`, `af` or `git` is
+a false-negative gate: at `rc` = 15 %, `af` = 15 %, `git` = 12 % no component
+reaches 40 %, yet t1243_4 removes 27 % and t1243_5 removes 15 % — jointly past
+the 30 % target.
+
+- **Workstream-B premise** = `R_pair_lateral ≥ 0.40`. Lateral is the path the
+  premise is about — the one that recomposes two columns. `R_pair_vertical` is
+  reported alongside. **This is the only use of the 40 % threshold.**
+- **t1243_4 opportunity gate** = `max(R_rm4_lateral, R_rm4_vertical) ≥ 0.30`.
+- **t1243_5 opportunity gate** = `R_rm5_lateral ≥ 0.30`.
+- Each child's gate threshold **is** its own target, because a child whose total
+  removable cost is below its target cannot reach it even with perfect removal.
+  **Necessary, not sufficient** — clearing it does not promise the target.
+- **Target rule** — ≥ 30 % reduction in median keypress latency **per axis**
+  against `E2E_lateral` / `E2E_vertical`; t1243_5 is judged on lateral only.
+
+**Topology.** `refresh_git_status` is on every move path, and this project runs
+in **branch mode** (`aitasks` → `.aitask-data/aitasks`), so production executes
+`git -C .aitask-data status --porcelain -- aitasks/`. The baseline fixture
+reproduces that topology (and keeps `TASK_DIR` **relative**, so `is_modified`
+matches porcelain paths as in production). A legacy-topology run is reported
+alongside; the checkpoint uses the branch-mode number.
+
+### Decision checkpoint — user-confirmed, never automatic
+
+t1243_1's final step compares the measurement to the rules above. **If every rule
+holds**, it records the baseline table here and the chain proceeds.
+
+**If any rule is missed, the agent takes no corrective action on its own.** It
+must **not** revise, replace, rewrite or postpone t1243_4 / t1243_5 (or any other
+task); must **not** revert, discard, stash or reset any code — the working tree
+is preserved exactly as it is; and must **not** proceed as though the gate passed
+or quietly re-scope to make it pass.
+
+Instead it presents the evidence (which rule, measured value vs threshold, the
+per-axis ratio table so the dominant span is visible), states what the numbers
+imply and what each option costs, and asks the user to choose:
+
+1. Continue with the original work despite the result.
+2. Revise the child's scope based on the measured bottleneck.
+3. Postpone the child.
+4. Keep an already-written implementation despite missing its target (offered
+   only when an implementation exists).
+
+This checkpoint is **NON-SKIPPABLE** — the `fast` profile, `post_plan_action`
+and auto mode do not bypass it. It applies equally to the **post-implementation
+30 % target**, whenever t1243_4, t1243_5 or t1243_14 evaluates it against this
+baseline. Only after the user chooses does anything get written to a task file;
+the measurement data, the options presented and the choice are then recorded
+here. The dependency chain must not carry a predetermined implementation past a
+falsified premise — nor discard one on a single unconfirmed number.
 
 Assuming the premise holds, two tiers ordered by certainty:
 

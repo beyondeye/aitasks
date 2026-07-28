@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: test
@@ -116,16 +118,32 @@ Fix the method and the rules **before observing any result**:
 - **Target rule.** Children 4 and 5 must deliver **>= 30% reduction in median
   keypress latency** versus this baseline.
 
-### 5. Decision checkpoint (the last step of this child)
+### 5. Decision checkpoint (the last step of this child) — user-confirmed
 
-Compare the measurement to the premise rule.
+The rules above are ambiguous as written (per-span totals vs per-sample median;
+`refresh_columns` contains `_recompose_column`; axes not separated even though
+vertical has no recompose; denominator vs message-pump deferral). **Step 0 of
+this child records the disambiguated formula in the parent plan before any data
+is collected** — thresholds unchanged (40 % / 30 %). In particular: one
+wall-clock denominator for both rules, per-sample ratios then medianed, axes
+judged separately, 40 % used only for the combined workstream premise, and each
+child gated on its own **combined removable cost** at its own 30 % target.
 
-- **Premise holds** → record the baseline table in
+Compare the measurement to those rules.
+
+- **Every rule holds** → record the baseline table in
   `aiplans/p1243_board_task_groups_and_fast_reordering.md` and proceed.
-- **Premise refuted** → do **not** let the dependency chain carry a falsified
-  premise. **Revise, replace, or postpone t1243_4 and t1243_5** — rewrite those
-  task files and their plans to target whichever span actually dominates — and
-  record the decision and the data in the parent plan before either is picked.
+- **Any rule missed** → do **not** let the dependency chain carry a falsified
+  premise — and do **not** act on the number unilaterally. The agent must **not**
+  revise, replace or postpone t1243_4 / t1243_5, must **not** revert or discard
+  any code (the working tree is preserved), and must **not** proceed as if the
+  gate passed. It presents the measurements and reasoning and asks the user to
+  choose: (1) continue with the original work, (2) revise the child's scope based
+  on the measured bottleneck, (3) postpone the child, or (4) keep an
+  already-written implementation despite missing its target. This checkpoint is
+  **NON-SKIPPABLE** (the `fast` profile and auto mode do not bypass it) and
+  applies equally to the post-implementation 30 % target. The user's choice and
+  the data are recorded in the parent plan afterwards.
 
 ## Verification
 
@@ -138,7 +156,9 @@ Compare the measurement to the premise rule.
   read the real `aitasks/` tree, proving the subprocess isolation is what makes
   the fixture correct.
 - No file under the repo's real `aitasks/` is modified by any test.
-- The baseline table and the checkpoint decision are recorded in the parent plan.
+- The disambiguated decision formula is recorded in the parent plan **before**
+  the benchmark runs; the baseline table, the options presented on a missed gate,
+  and the user's recorded choice are appended after.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
