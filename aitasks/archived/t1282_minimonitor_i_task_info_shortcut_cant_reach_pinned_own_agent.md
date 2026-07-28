@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui, minimonitor]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-07-28 11:19
-updated_at: 2026-07-28 19:20
+updated_at: 2026-07-28 23:58
+completed_at: 2026-07-28 23:58
 ---
 
 ## Problem
@@ -93,3 +94,14 @@ pane first" warning only fires when neither is resolvable.
 > **✅ gate:plan_approved** run=2026-07-28T16:19:58Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-28T20:29:00Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-28T20:58:49Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4e5d8c9fd25d357d
+
+> **✅ gate:risk_evaluated** run=2026-07-28T20:58:49Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1282/risk_evaluated_2026-07-28T20:58:49Z-risk_evaluated-a1.log`
