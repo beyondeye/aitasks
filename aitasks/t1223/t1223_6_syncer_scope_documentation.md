@@ -170,3 +170,5 @@ Manual review checklist:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-28T16:17:13Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-28T20:29:19Z status=pass attempt=1 type=human
