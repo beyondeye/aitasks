@@ -1,9 +1,9 @@
 {
-  "backend": "local",
+  "backend": "dir",
   "created_at": 1785227093,
   "current": "sha256:e7a919abf1120a7145f9c084cec71b0bcc91a1fd58687f6eba0b2cfca64b7a1e",
   "handle": "art:t1142-movetest",
-  "updated_at": 1785227116,
+  "updated_at": 1785227131,
   "versions": [
     "sha256:97d06ff8cc238bc803106008597d50007aee9a6bdd5ba0e23c9cee7935a392d5",
     "sha256:e7a919abf1120a7145f9c084cec71b0bcc91a1fd58687f6eba0b2cfca64b7a1e"
