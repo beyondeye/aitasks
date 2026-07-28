@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitask_monitor, shadow, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -18,6 +18,7 @@ anchor: 1111
 implemented_with: claudecode/opus5
 created_at: 2026-07-27 22:20
 updated_at: 2026-07-28 11:53
+completed_at: 2026-07-28 11:53
 ---
 
 ## Context
@@ -200,3 +201,14 @@ specifically `tests/test_minimonitor_concern_action.py`,
 > **✅ gate:plan_approved** run=2026-07-27T21:14:10Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-28T08:51:31Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-28T08:53:45Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:95cf519820dd7fa1
+
+> **✅ gate:risk_evaluated** run=2026-07-28T08:53:45Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1216_1/risk_evaluated_2026-07-28T08:53:45Z-risk_evaluated-a1.log`
