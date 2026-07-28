@@ -195,6 +195,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("q", "quit", "Quit", show=False),
         Binding("s", "switch_to", "Switch", show=False),
         Binding("i", "show_task_info", "Task Info", show=False),
+        Binding("I", "show_own_task_info", "Task Info (followed)", show=False),
         Binding("m", "switch_to_monitor", "Full Monitor", show=False),
         Binding("M", "toggle_multi_session", "Multi", show=False),
         Binding("d", "cycle_compare_mode", "Detect", show=False),
@@ -268,6 +269,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         yield VerticalScroll(id="mini-pane-list")
         yield Static(
             "i:info  q:quit  tab:agent\n"
+            "I:info (followed agent)\n"
             "s/\u2191\u2193:switch  enter:send\n"
             "d:detect (\u2248 strip, = raw)\n"
             "j:tui switcher  m:full monitor\n"
@@ -1503,15 +1505,12 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.notify(f"Multi-session {state}", timeout=3)
         self.call_later(self._refresh_data)
 
-    def action_show_task_info(self) -> None:
-        """Show task detail dialog for the focused agent pane."""
-        pane_id = self._get_focused_pane_id()
-        if not pane_id:
-            self.notify("Focus an agent pane first", severity="warning")
-            return
-        snap = self._snapshots.get(pane_id)
-        if not snap:
-            return
+    def _show_task_info_for(self, snap: PaneSnapshot) -> None:
+        """Open the task detail dialog for ``snap``'s pane, refreshing the cache.
+
+        Shared by ``i`` (focused list card) and ``I`` (followed agent) — same
+        dialog, two different target resolutions.
+        """
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if not task_id:
             self.notify("No task ID in window name", severity="warning")
@@ -1524,6 +1523,35 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify(f"Task t{task_id} not found", severity="error")
             return
         self.push_screen(TaskDetailDialog(info))
+
+    def action_show_task_info(self) -> None:
+        """Show task detail dialog for the focused agent pane."""
+        pane_id = self._get_focused_pane_id()
+        if not pane_id:
+            self.notify("Focus an agent pane first", severity="warning")
+            return
+        snap = self._snapshots.get(pane_id)
+        if not snap:
+            return
+        self._show_task_info_for(snap)
+
+    def action_show_own_task_info(self) -> None:
+        """Show task detail dialog for the agent this minimonitor follows.
+
+        The followed agent lives in the static, non-focusable #mini-own-agent
+        panel and is excluded from the selectable list, so the focus-scoped
+        ``i`` can never reach it — and since ``_auto_select_own_window`` always
+        focuses a list card when one exists, a "nothing focused" fallback on
+        ``i`` would be dead code whenever another agent is running (t1282).
+        Hence its own key, scoped to the followed agent regardless of which
+        list card is focused — the same resolution as ``action_kill_own_agent``
+        / ``action_pick_next_for_own``.
+        """
+        snap = self._find_own_agent_snapshot()
+        if snap is None:
+            self.notify("No followed agent in this window", severity="warning")
+            return
+        self._show_task_info_for(snap)
 
     def action_switch_to_monitor(self) -> None:
         """Switch to the full monitor window with the companion agent focused.

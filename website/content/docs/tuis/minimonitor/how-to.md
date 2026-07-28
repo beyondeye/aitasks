@@ -106,6 +106,8 @@ For agent panes whose window name carries a task ID (e.g., `agent-t42-claudecode
 
 The task cache is refreshed and the task detail dialog appears with the task's metadata and content. If the focused card has no task ID in its window name, a warning notification is shown instead.
 
+The agent minimonitor **follows** — the one pinned at the top under `── this agent ──` — is never selectable, so **i** cannot reach it. Press **I** (Shift+i) instead: it always opens the task detail dialog for the followed agent, whichever card happens to be highlighted. If this window has no agent to follow, a warning notification is shown instead.
+
 ### How to Launch a Shadow Agent
 
 Press **e** to launch a *shadow agent* next to the code agent you are following — an advisory companion that reads that agent's terminal output and helps you make sense of it. By default the shadow opens as a new pane in the **same tmux window** as the followed agent, so it sits right beside the work it is watching.
@@ -205,6 +207,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `Enter` | Send an `Enter` keystroke to the sibling pane |
 | `s` | Switch tmux focus to the selected agent's window |
 | `i` | Show task info for the selected agent |
+| `I` | Show task info for the followed agent (the one pinned at the top) |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
 | `c` | Pick the shadow's concerns and copy the selected ones to the clipboard |
 | `j` | Open the TUI switcher |
