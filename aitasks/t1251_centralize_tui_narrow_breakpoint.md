@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-07-26 11:47
-updated_at: 2026-07-26 11:47
+updated_at: 2026-07-28 15:02
 ---
 
 ## Origin
