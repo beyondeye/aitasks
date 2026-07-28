@@ -3,12 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [test, reporting]
 gates: [risk_evaluated]
 anchor: 1162
 created_at: 2026-07-24 11:50
-updated_at: 2026-07-24 11:50
+updated_at: 2026-07-28 12:54
+completed_at: 2026-07-28 12:54
 ---
 
 ## Origin
@@ -56,3 +58,22 @@ stable), and drop or relax it for the live `aitasks/metadata/models_*.json` —
 those are user data, not a fixture. If some live-file check is still wanted,
 assert only that any present `work-report` value is a valid score, not that it
 equals `explain`.
+
+## Resolution — already fixed by t1232
+
+Closed without implementation on 2026-07-28: the suggested fix landed
+independently under **t1232** (`t1232_fix_models_verified_parity_baseline.md`,
+archived), commit `09ebdb42a bug: Scope verified-parity Test 7 to seed files,
+add accumulator boundary guard (t1232)`.
+
+`tests/test_codeagent_work_report.sh` Test 7 now iterates `seed/models_*.json`
+only — never the live `aitasks/metadata/models_*.json` — which is exactly the
+scoping this task asked for. The `opus4_8 -> verified: {'work-report': 100}`
+live entry no longer trips the assertion; all three parity checks pass. The
+accumulator-side boundary (an independent per-operation score persists without
+an `explain` partner) is pinned by `tests/test_verified_update.sh` Test 19/20.
+
+The suite does still report 5 failures, but for an unrelated cause — codeagent
+tests hardcoding v4 model names (`sonnet4_6` / `opus4_8`) after the v5 seed
+migration. That drift is tracked separately by **t1246**
+(`t1246_fix_codeagent_tests_v5_model_drift.md`) and is out of scope here.
