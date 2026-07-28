@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1223
+implemented_with: claudecode/opus5
 created_at: 2026-07-23 18:32
-updated_at: 2026-07-28 09:27
+updated_at: 2026-07-28 12:29
 ---
 
 ## Context
@@ -179,3 +180,8 @@ Manual: covered by t1223_7.
   worker — letting it propagate would blank the whole tab because one repo is
   broken. Rendering that repo's column as unavailable is this child's call; the
   seam deliberately does not invent a provenance value for it.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-28T09:29:34Z status=pass attempt=1 type=human
