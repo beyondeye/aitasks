@@ -355,6 +355,40 @@ carries the `Disposition:` trailers.
   tests.test_shadow_seam tests.test_shadow_disposition_surfaces`, then commit
   t1274's files only.
 
+### Change Request 2 (2026-07-28 12:20) — malformed-only block was still invisible
+
+- **Requested by user (shadow concern, `[high | minimonitor_app.py:1316]`,
+  Disposition: blocking, Verified: CONFIRMED):** a block containing *only*
+  malformed markers stays invisible. `parse_concerns()` returns nothing, so
+  `action_pick_concerns()` exits via "No concerns detected" **before**
+  `unrecovered_markers()` is consulted, and the strict auto-offer
+  (`has_concern_block`) is silent for the same reason. Surface an
+  unparsed-marker warning before the empty return, and cover both the manual and
+  auto-offer paths for a malformed-only complete block.
+- **Verified:** valid, and reproduced. Both exits confirmed by reading the code
+  and by the two new tests failing against the pre-fix behaviour.
+- **Changes made:**
+  - `minimonitor_app.py` — new module-level `_unparsed_msg(count)`.
+    `action_pick_concerns` now consults `unrecovered_markers(text)` before the
+    empty return and warns instead of reporting "no concerns".
+    `_maybe_offer_concerns` does the same in its `not has_concern_block(text)`
+    branch, after the truncation check, de-duped per shadow pane via a new
+    `_unparsed_warned` set that is re-armed (discarded) whenever a parseable
+    block arrives — same policy as `_truncation_warned`.
+  - `tests/test_minimonitor_concern_action.py` — `_MALFORMED_ONLY_BLOCK`
+    fixture, plus: hotkey warns rather than saying "no concerns"; auto-offer
+    warns once per pane; the warning re-arms after a good block; a
+    **negative control** that a pane with no block never warns. Also tightened
+    `test_empty_parse_no_modal` to pin the genuinely-empty message.
+  - Test stubs that build the app via `__new__`
+    (`test_minimonitor_concern_action.py`, `test_minimonitor_concern_smoke.py`)
+    mirror the new `_unparsed_warned` attribute.
+  - `concern-format.md` and the minimonitor how-to page document the degenerate
+    all-malformed case.
+- **Discrimination proven:** with `_unparsed_msg` reverted to the bland string
+  the two new tests fail (2); with `unrecovered_markers` stubbed blind, three
+  fail. Restored ⇒ 0.
+
 ## Step 9 (Post-Implementation)
 
 Standard: merge approval into `main`, `./ait gates run 1274` (declares
