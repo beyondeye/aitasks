@@ -775,3 +775,82 @@ follow-ups for the same reason.
 
 - **Files affected:** `.aitask-scripts/monitor/monitor_app.py`,
   `tests/test_monitor_shadow_zone.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** All ten plan steps landed. `Zone.SHADOW` joins the enum
+  and `ZONE_ORDER`; `compose()` splits `#content-section` into `#preview-row` >
+  `#agent-col` / `#shadow-col` (all four pre-existing ids preserved);
+  `_update_shadow_preview` / `_apply_shadow_render` mirror the agent renderer
+  with their own `_shadow_render_gen` and a distinct `group="shadow-preview"`;
+  `_fast_shadow_refresh` drives the 0.3s tick via a new `_fast_zone_refresh`
+  dispatcher; `on_key` gains a SHADOW branch above the PREVIEW catch-all and
+  `_forward_key_to_tmux` takes `target_pane_id` plus a matching refresh;
+  `action_scroll_preview_tail` follows `_active_preview_zone`;
+  `_reconcile_shadow_state` owns the grace/visibility state machine on the 3s
+  tick. New `tests/test_monitor_shadow_zone.py` (39 tests). Docs updated in
+  `tuis/monitor/_index.md` and `reference.md`.
+
+- **Deviations from plan:** Five, all found while implementing and each with a
+  negative control:
+  1. **`on_mount` early-returns when `$TMUX` is unset**, so every preview hook
+     the plan added was unreachable (and untestable). Extracted
+     `_wire_preview_hooks()` and moved it ABOVE that guard — it is pure DOM
+     wiring with no tmux dependency.
+  2. **The App-level `on_resize` measures a stale row.** The plan called for an
+     unconditional fit check there; verified that on a 120→70 resize the App
+     handler still reads a 120-column `#preview-row`. Added a small
+     `PreviewRow(Horizontal)` subclass whose OWN Resize drives the check
+     (same hook pattern as `PreviewScrollContainer`), and the App handler
+     deliberately does not.
+  3. **The grace counter could never expire.** `_restore_focus` re-focuses the
+     column each tick → `on_descendant_focus` → `_enter_shadow_zone()` → counter
+     reset. Made entry idempotent per bound agent.
+  4. **`on_descendant_focus` unbinding `_shadow_zone_agent_id`** made every
+     re-entry look fresh (pane-list rebuilds fire card-focus events). The
+     binding is now owned solely by `_enter_shadow_zone` / `_leave_shadow_zone`.
+  5. **The visibility rule defeated the grace hold** — hiding the column on any
+     absent snapshot collapsed the window to one tick. The column now stays up
+     at `_last_shadow_width` while holding, and `_restore_focus` validates on
+     the column being SHOWN rather than on a snapshot existing.
+
+- **Issues encountered:**
+  - Three negative controls initially **passed**, meaning those tests were not
+    discriminating — another guard was doing the rejecting. Rewrote them to
+    assert the actual mechanism (the `zone` argument handed to
+    `_restore_focus`; the callback handed to `set_interval`) instead of an end
+    state. Deviations 3-5 were found precisely because of that re-check.
+  - `assertIs` on bound methods always fails (a new object per attribute
+    access); compare `__func__` against the class attribute.
+  - Mounted tests must drive selection by focusing the real `PaneCard`, not by
+    assigning `_focused_pane_id` — the deferred `_restore_focus` reverts it.
+
+- **Key decisions:**
+  - One interval with a zone-reading **dispatcher** rather than stop/recreate on
+    every zone change: no timer churn and no stop/recreate window.
+  - The SHADOW exit is decided by **event, not by probing tmux**: a selection
+    change onto a shadowless agent exits at once (unambiguous), while a
+    same-agent absence uses the grace window, because "died" and "capture
+    blipped" are genuinely indistinguishable from `_shadow_snapshots`.
+  - `_shadow_visibility_width()` is the single source of truth for column
+    visibility (see Post-Review Changes) — the two-place derivation it replaced
+    was itself the defect the review found.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - `_current_shadow_pane_id()` is the "selected agent's shadow" resolver
+    t1216_3 / t1216_4 should reuse. It resolves from `_focused_pane_id`, never
+    `_get_focused_pane_id()` (which is None whenever focus is off a PaneCard).
+  - `_reconcile_shadow_state` resolves `get_shadow_snapshot` once per tick on
+    the full-refresh path; t1216_3's per-tick signature scan belongs there and
+    should reuse that single resolution rather than re-fetching per agent.
+  - `_forward_key_to_tmux` now takes `target_pane_id` — reuse it rather than
+    adding a parallel forwarder.
+  - **Adding a fourth zone would hit the same class of bug.** Four
+    pre-existing single-zone assumptions had to be fixed: `_restore_focus`'s
+    zone-specific early return, `_refresh_data`'s single render call, a
+    `saved_zone` captured before the zone can change, and a create-once timer.
+    Audit those four sites first.
+  - `refresh_shadow_snapshot` cannot bootstrap a key — the 3s full refresh must
+    establish existence first.
