@@ -103,7 +103,7 @@ When the repository uses a separate `aitask-data` branch for task files (set up 
 
 ### See also
 
-- [Syncer TUI]({{< relref "/docs/tuis/syncer" >}}) — interactive surface for remote desync state across `main` and `aitask-data` with one-keystroke pull/push/sync actions and an agent escape hatch on failure. The syncer's `s` action invokes `ait sync --batch` under the hood.
+- [Syncer TUI]({{< relref "/docs/tuis/syncer" >}}) — interactive surface for remote desync state across `main` and `aitask-data` with one-keystroke pull/push/sync actions and an agent escape hatch on failure. The syncer's `s` action invokes `ait sync --batch` under the hood. Git state is only its first tab: the same TUI also tracks each discovered repo's installed framework version (with an upgrade action) and compares shared settings across repos.
 
 ## ait git push
 
