@@ -757,6 +757,74 @@ staged **content**, not just the path list.
 
 Task/plan files are committed with `./ait git`, separately from code.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-28 14:05)
+
+- **Requested by user:** Three UX defects in the push dialogs. (a) The lists only
+  responded to ↑/↓ *after clicking into them*. (b) Enter should act as the OK
+  button and advance one step. (c) Esc should go back one step in the dialog
+  series rather than abandoning the push.
+
+- **Verified:** (a) CONFIRMED and root-caused — every dialog focused the Cancel
+  Button on mount (inherited from `upgrade_screens`, where a single destructive
+  confirm makes that right), so the arrows landed on a widget that ignores them.
+  (b) and (c) were simply not implemented: Esc dismissed `None`, which aborted
+  the whole flow from any step.
+
+- **Changes made:**
+  1. `settings_screens.py` — reshaped into a wizard around a new
+     `_WizardScreen` base: `escape` → back, and `enter` → advance bound with
+     `priority=True` so it wins over a focused `RadioSet`/`SelectionList`. Every
+     choice step now focuses its **choice widget** on mount. Steps 2–3 dismiss a
+     `BACK` sentinel (distinct from `None`, which still means "cancel the
+     push"). The layer step became a `RadioSet` with **no** option pressed, so
+     Enter on an untouched dialog reports "Choose a layer" instead of advancing
+     — the no-default contract survives the wizard model. The masked step
+     likewise became an unpressed `RadioSet`; its Esc means *skip this
+     destination*, since the masked prompts are drained one destination at a
+     time after planning and there is no coherent earlier step mid-queue.
+  2. `syncer_app.py` — `_pick_source` / `_choose_destinations` / `_choose_layer`
+     became mutually recursive on the `BACK` sentinel, each re-pushing the
+     previous dialog **with the earlier choice preselected** (source stays
+     picked, destination ticks stay ticked). Added `_source_value` so the value
+     lookup is a named helper rather than an inline `dict(zip(...))`.
+  3. **Measured rather than assumed:** a probe confirmed that in this Textual
+     version `↑`/`↓` move a `RadioSet`'s highlight but leave `pressed_index`
+     unchanged — **Space** is what commits. Every dialog's hint line therefore
+     reads `↑/↓ move · Space select · Enter continue · Esc back`, and the
+     measurement is recorded in a comment so a future reader does not "fix" it.
+  4. Four keyboard-driven tests (real keypresses, no programmatic `dismiss`):
+     focus-on-mount, Enter-advances/Esc-steps-back-with-state-preserved,
+     blind-Enter-on-the-layer-step, Enter-with-nothing-ticked. Mutations
+     M14–M17 added and each confirmed to fail.
+
+- **Files affected:** `.aitask-scripts/syncer/settings_screens.py`,
+  `.aitask-scripts/syncer/syncer_app.py`, `tests/test_syncer_rows.py`.
+
+### Change Request 2 (2026-07-28 14:40)
+
+- **Requested by user:** Why can't the lowercase `p` shortcut open the
+  push-settings wizard?
+
+- **Verified:** No blocker. `p` (git-push) is in `BRANCH_TAB_ACTIONS`, so on the
+  Settings tab `check_action` returns `False` — a *drop*, not the ref gate's
+  `None` *dim* — and Textual falls through to the next binding for that key.
+  That is the same mechanism already carrying the shared `c`
+  (`recheck_version` / `reload_settings`). The original `P` was a weak analogy
+  to `U`: `U` is uppercase because `u` means Pull **on the same tab**, whereas
+  `p` is inert on Settings and "push" is the correct verb for both.
+
+- **Changes made:** `Binding("P", "push_setting", …)` → `Binding("p", …)` with
+  the rationale rewritten in place. `test_footer_relabels_the_shared_c_key_per_tab`
+  widened to `…_shared_keys_per_tab` (both `p` and `c`), plus a new
+  **real-keypress** test proving `p` reaches `action_push` on Branches without
+  opening the wizard, and opens `SettingsSourceScreen` on Settings without
+  calling `action_push`. Mutation M18 (revert to `P`) confirmed to fail it.
+
+- **Files affected:** `.aitask-scripts/syncer/syncer_app.py`,
+  `tests/test_syncer_rows.py`.
+
 ## Out of scope
 
 Any setting other than the default code agent per operation; **any change to
@@ -764,3 +832,121 @@ Any setting other than the default code agent per operation; **any change to
 pushing the destination's config; user-facing documentation (t1223_6); live
 end-to-end verification (t1223_7). No change to the Branches or Versions tabs'
 behavior.
+
+## Final Implementation Notes
+
+- **Actual work done:** The planned shape, across three code/test files.
+  - **New** `.aitask-scripts/syncer/settings_screens.py` (~440): `BACK` sentinel,
+    the `_WizardScreen` base (Enter→advance `priority=True`, Esc→back, inline
+    `_error`), and five screens — `SettingsSourceScreen`,
+    `SettingsDestinationsScreen`, `SettingsLayerScreen`, `SettingsMaskedScreen`,
+    `SettingsPushResultScreen`.
+  - `.aitask-scripts/syncer/syncer_app.py` (+~700): `SettingsRow`,
+    `settings_cell` / `settings_source` / `build_settings_matrix` (pure),
+    `PushTarget` with `source_options` / `destinations_excluding`; the
+    `#settings` DataTable replacing the placeholder; `SETTINGS_TAB_ACTIONS` plus
+    the tab gate *and* the row-level `push_setting` gate; `TAB_LIST_IDS` entry;
+    the lazy `syncer-settings` worker with `_read_settings_matrix`'s bounded
+    shrink-and-retry, `_on_settings_error`, `_apply_settings`,
+    `_update_settings_table`, `_selected_settings_row`, `_capture_push_target`;
+    the `_pick_source` → `_choose_destinations` → `_choose_layer` →
+    `_push_plan_worker` / `_plan_each` → `_resolve_masked` →
+    `_push_apply_worker` → `_report_pushes` chain. Bindings `p` (Push setting)
+    and `c` (Reload), both shared with an existing key.
+  - `tests/test_syncer_rows.py` (+~1000): 147 → **211** tests
+    (`SettingsMatrixTests`, `PushTargetTests`, `SettingsTabTests`, plus the two
+    inverted placeholder tests and the extended `Seams`/`booted()`).
+
+- **Deviations from plan:** Two designed in and user-confirmed before
+  implementation (the explicit source step replacing "the highlighted cell", and
+  the syncer-side degradation replacing "catch `DestConfigUnreadable` per repo"),
+  both written back into the task file. Two more came out of review — see
+  Post-Review Changes. One implementation choice: the plan sketched a single
+  fallback for a corrupt repo; it shipped as a **bounded shrink-and-retry loop**
+  because one extra attempt cannot cover a repo that breaks between the probe
+  and the retry.
+
+- **Issues encountered:**
+  1. *A mutation hung instead of failing, and that was a real bug in my code.*
+     M7 (remove the degradation fallback) made the test sit for the full 600 s
+     timeout. Cause: an exception escaping `_settings_worker` never reached
+     `_finish_settings`, so `_settings_active` stayed `True`, every later
+     request parked in the coalescer's pending slot, and `settle()` waited
+     forever — `c` would have been silently dead for the rest of the session.
+     This is the exact hazard `_refresh_worker` documents for cancellation
+     ("or `_refresh_active` stays stuck true and refreshing halts forever") and
+     my worker lacked the house `_on_*_error` guard. Fixed, plus an outer
+     boundary on the plan worker so choosing a layer can never end in silence;
+     pinned by `test_a_worker_level_failure_still_unsticks_the_refresh_flag`.
+     M7 now fails cleanly in 4 s. **A hang is not a pass — the driver was also
+     changed to time out at 150 s and report `HANGS (detected)` distinctly,
+     because the 600 s hang blocked the remaining eleven mutations.**
+  2. *`RadioSet` arrows do not select.* The keyboard work was designed against a
+     comment in an existing test; a direct probe showed `↑`/`↓` move the
+     highlight but leave `pressed_index` alone, and **Space** commits. The hint
+     text says so and the measurement is recorded in a comment.
+  3. *Test ordering slip.* New numbered verification items were inserted out of
+     order twice (15d/15e before 15c, 18 before 17) and had to be re-ordered.
+
+- **Key decisions:**
+  - **Source and destination eligibility are different questions.** A
+    `conflict` repo cannot be a source (its layers and resolver disagree, so its
+    value is not coherent to copy) but is a legitimate — arguably the most
+    valuable — *destination*. `PushTarget` therefore carries every repo plus a
+    parallel `sources` tuple instead of one pre-filtered list. An early draft
+    filtered once and would have made conflicted repos unfixable.
+  - **The source is excluded from destinations at construction time**, not
+    filtered later: leaving it in guarantees a self-targeted `noop` row that
+    reads as a defect.
+  - **`plan_push` does not raise on an unusable value** — it matches
+    `value or ""` and returns `malformed_agent_string` for *every* destination,
+    blaming the user's choice rather than reporting that none existed. That is
+    why eligibility is computed in the pure model and the key is gated off rows
+    with no source.
+  - **A binding gate is not the action's guard.** `check_action` gates the key;
+    the suite (and the board) invoke `action_*` directly, so
+    `action_push_setting` re-checks and notifies.
+  - **Exception boundaries on every phase, not just the last.** The apply loop's
+    per-destination guard is worthless if the preceding planning worker can die
+    whole — the summary would never open and later destinations would be
+    silently unconsidered.
+  - **Blame only what you established.** A degradation failure the probe cannot
+    attribute marks *no* repo unreadable; it surfaces as a tab-level notice.
+  - **Sharing `p` and `c` beats inventing uppercase variants.** The tab gate's
+    `False` (drop) — not the ref gate's `None` (dim) — is what makes Textual
+    fall through to the second binding, so the shared keys are pinned by a real
+    keypress test rather than by `check_action` alone.
+  - **22 falsifiability mutations were run individually**; each made the suite
+    exit non-zero, and the tree was restored by reversing the exact edit from an
+    in-memory copy — never `git checkout --`, which destroyed an implementation
+    in t1223_3 and would here have discarded a concurrent session's work.
+
+- **Upstream defects identified:**
+  - `aidocs/framework/tui_conventions.md` — the file contains **no** render-level
+    verification rule, despite this task file and p1223_5's predecessor both
+    citing "the render-level verification rule (assert `widget.render().plain`,
+    prefer `markup=False`)" in it as required reading. The convention exists only
+    as practice in `tests/test_syncer_rows.py`. Future planners are pointed at
+    something that is not there; covered by the confirmed follow-up
+    `document_render_level_verification_rule`.
+
+- **Notes for sibling tasks:**
+  - **t1223_6** should document: the Settings tab's provenance markers
+    (`(local)` / bare / `(default)` / `conflict` / `unavailable`) and the
+    **three-tier** chain with `seed/` as a setup-time source only; the shared
+    `p` / `c` keys and their per-tab meaning; the wizard's
+    `↑/↓ move · Space select · Enter continue · Esc back` model; that the layer
+    is always asked with no default; and — importantly — that a push **writes
+    but does not commit** the destination's config, which on a repo whose
+    `aitasks/` is a symlink onto an `aitask-data` branch is invisible to
+    `git status` in its main checkout.
+  - **t1267's substantive scope is satisfied** by this task (`TAB_LIST_IDS`
+    entry + `test_arrows_in_a_settings_modal_do_not_switch_tabs`); it is left
+    open for verification and disposal, with a note recorded in its file.
+  - Any new syncer thread worker must route its failure through an
+    `_on_<x>_error` that calls `_finish_<x>()`. Without it the coalescer's
+    `_<x>_active` flag sticks and that tab's refresh dies silently for the rest
+    of the session.
+  - `settings_screens._WizardScreen` is the reusable multi-step-modal pattern
+    (Enter/Esc, `BACK` sentinel, caller re-pushes the previous step with the
+    earlier choice preselected).
