@@ -6070,8 +6070,18 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # callback, on a CONFIRMED launch only — _launch_trail merely pushes a
         # confirmation dialog. Arming here would orphan a watch on cancel and
         # burn the tick ceiling while the dialog sits open.
+        #
+        # debounce_key (t1279): the dialog binds `R` to Run, so without this a
+        # second `R` tapped while the dialog is opening confirms it and
+        # launches the agent unreviewed. This covers the dialog's first
+        # OPENING_DEBOUNCE_SECONDS; the `_trail_launch_pending` guard above
+        # covers the DISJOINT window that starts once the dialog has closed and
+        # the baseline read is in flight. Neither is a duplicate of the other —
+        # do not delete one as redundant.
         self._launch_trail(["--refresh", self.active_trail_handle],
-                           handle_id, watch_handle=self.active_trail_handle)
+                           handle_id, watch_handle=self.active_trail_handle,
+                           debounce_key=resolve_key(
+                               "board", "trail_refresh_agent", "R") or "R")
 
     def action_trail_select(self):
         """`s` in By-Trail: open the trail selector (rescans discovery)."""
@@ -7576,7 +7586,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._launch_trail([target], target)
 
     def _launch_trail(self, op_args: list, window_suffix: str,
-                      watch_handle: str = ""):
+                      watch_handle: str = "", debounce_key: str = ""):
         """Resolve and launch /aitask-trail (create or refresh).
 
         Mirrors _launch_work_report. The launched skill owns every artifact
@@ -7585,7 +7595,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         otherwise).
 
         ``watch_handle`` (t1268) requests an artifact-version watch for that
-        trail — installed only if a launch is actually confirmed."""
+        trail — installed only if a launch is actually confirmed.
+
+        ``debounce_key`` (t1279) is the key that opened this dialog, when that
+        key is one the dialog itself binds; an immediate repeat of it is then
+        swallowed while the dialog is new."""
         full_cmd = resolve_dry_run_command(Path("."), "trail", *op_args)
         if not full_cmd:
             self.notify("Could not resolve agent command — launching directly")
@@ -7613,6 +7627,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             operation_args=list(op_args),
             default_agent_string=agent_string,
             skill_name="trail",
+            debounce_key=debounce_key,
         )
 
         def on_trail_result(result):

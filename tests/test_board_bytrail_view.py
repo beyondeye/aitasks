@@ -27,8 +27,23 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
+import agent_command_screen as acs  # noqa: E402
+
 FIXTURE_PATH = (REPO_ROOT / "aidocs" / "implementation_trail_examples"
                 / "gate_framework.json")
+
+
+class FakeClock:
+    """Monotonic-clock stand-in so the t1279 debounce tests never sleep."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
 
 
 def _load_fixture() -> dict:
@@ -678,7 +693,7 @@ class RefreshSplitAndSupersessionTests(ByTrailTestBase):
                 app.action_trail_refresh_local = (
                     lambda: calls.__setitem__("local", calls["local"] + 1))
                 app._launch_trail = (
-                    lambda args, suffix, watch_handle="":
+                    lambda args, suffix, watch_handle="", **_kw:
                         launches.append(list(args)))
                 # Timer tick → passive data refresh, no dialog.
                 app._auto_refresh_tick()
@@ -939,7 +954,7 @@ class LocalRefreshTests(ByTrailTestBase):
                 await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
                 launches = []
                 app._launch_trail = (
-                    lambda args, suffix, watch_handle="":
+                    lambda args, suffix, watch_handle="", **_kw:
                         launches.append(list(args)))
                 seen = []
 
@@ -1942,7 +1957,7 @@ class LaunchFallbackTests(ByTrailTestBase):
                 app._trail_baseline_worker = (
                     lambda handle, then: pending.append(then))
                 app._launch_trail = (
-                    lambda args, suffix, watch_handle="":
+                    lambda args, suffix, watch_handle="", **_kw:
                         (launches.append(list(args)),
                          app._with_trail_baseline(
                              watch_handle, lambda b: None))[0])
@@ -2005,7 +2020,7 @@ class LaunchFallbackTests(ByTrailTestBase):
                 app._trail_baseline_worker = (
                     lambda handle, then: pending.append(then))
                 app._launch_trail = (
-                    lambda args, suffix, watch_handle="":
+                    lambda args, suffix, watch_handle="", **_kw:
                         app._with_trail_baseline(watch_handle, lambda b: None))
                 app.action_trail_refresh_agent()
                 await pilot.pause()
@@ -2327,6 +2342,123 @@ class BannerRenderTests(ByTrailTestBase):
                 # clear so the boundary reads as a boundary.
                 self.assertEqual(rows[3][:40].strip(), "",
                                  f"filter/lane separator lost: {rows[3]!r}")
+
+        self._run(go())
+
+
+class RefreshDoubleTapTests(ByTrailTestBase):
+    """t1279: a double-tapped `R` must not confirm the launch dialog.
+
+    `R` opens AgentCommandScreen, which binds `R -> run`, so the second press
+    was consumed by the modal and confirmed it — launching a real agent the
+    user never reviewed (t1273 item #5).
+
+    These tests drive the REAL dialog through real key dispatch. The existing
+    TrailWatchTests / LaunchFallbackTests call action_trail_refresh_agent()
+    directly against a FakeScreen and therefore cannot see this bug.
+    """
+
+    def _env(self, app, clock, *, tmux: bool):
+        """Patch the launch surface, the dialog's tmux shape, and the clock."""
+        ab = self.ab
+        launches = []
+
+        return launches, [
+            patch.object(acs, "_monotonic", clock),
+            patch.object(acs, "is_tmux_available", lambda: tmux),
+            patch.object(acs, "get_tmux_sessions", lambda: ["work"]),
+            patch.object(acs, "get_tmux_windows", lambda s: [("0", "main")]),
+            patch.object(acs, "load_tmux_defaults", lambda root: {
+                "default_split": "vertical",
+                "default_session": "work",
+                "prefer_tmux": tmux,
+            }),
+            patch.object(ab, "resolve_dry_run_command",
+                         lambda root, op, *a, **k: f"CMD {op}"),
+            patch.object(ab, "resolve_agent_string",
+                         lambda root, op: "claudecode/test"),
+            patch.object(ab, "_trail_versions", lambda h: ["v1"]),
+            patch.object(app, "_trail_baseline_worker",
+                         lambda handle, then: then(["v1"])),
+            patch.object(ab, "maybe_spawn_minimonitor", lambda s, w: None),
+            # The two ways a confirmed dialog reaches a real agent.
+            patch.object(app, "run_dialog_command",
+                         lambda cmd: launches.append(("terminal", cmd))),
+            patch.object(ab, "launch_in_tmux",
+                         lambda cmd, cfg: (launches.append(("tmux", cmd)),
+                                           (123, None))[1]),
+        ]
+
+    def _double_tap(self, tmux: bool):
+        ab = self.ab
+        clock = FakeClock()
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                launches, patches = self._env(app, clock, tmux=tmux)
+                for ctx in patches:
+                    ctx.start()
+                try:
+                    # _press_keys interleaves wait_for_idle between keys, so
+                    # this is a genuine double-tap, not two isolated presses.
+                    await pilot.press("R", "R")
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, ab.AgentCommandScreen,
+                                          "the dialog was dismissed by the "
+                                          "second R")
+                    self.assertEqual(launches, [],
+                                     "an agent was launched without review")
+
+                    # ...and the dialog is not left crippled: past the window
+                    # the same key runs normally.
+                    clock.advance(acs.OPENING_DEBOUNCE_SECONDS + 0.05)
+                    await pilot.press("R")
+                    await pilot.pause()
+                    self.assertEqual(len(launches), 1, launches)
+                    self.assertEqual(launches[0][0],
+                                     "tmux" if tmux else "terminal")
+                finally:
+                    for ctx in reversed(patches):
+                        ctx.stop()
+
+        self._run(go())
+
+    def test_double_tap_does_not_launch_in_terminal_mode(self):
+        self._double_tap(tmux=False)
+
+    def test_double_tap_does_not_launch_in_tmux_mode(self):
+        """The realistic case: inside tmux the dialog opens on the tmux tab,
+        so an unreviewed confirm spawns a background agent window."""
+        self._double_tap(tmux=True)
+
+    def test_board_threads_the_resolved_key_through_normalisation(self):
+        """A remapped launch key must still reach the guard.
+
+        resolve_key() returns the literal from the shortcut editor ("#");
+        event.key and BindingsMap use Textual's normalised name.
+        """
+        ab = self.ab
+        clock = FakeClock()
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                _launches, patches = self._env(app, clock, tmux=False)
+                patches.append(patch.object(
+                    ab, "resolve_key", lambda scope, action, default=None: "#"))
+                for ctx in patches:
+                    ctx.start()
+                try:
+                    await pilot.press("R")
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, ab.AgentCommandScreen)
+                    self.assertEqual(app.screen._debounce_key, "number_sign")
+                finally:
+                    for ctx in reversed(patches):
+                        ctx.stop()
 
         self._run(go())
 

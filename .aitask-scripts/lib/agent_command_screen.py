@@ -23,6 +23,10 @@ Usage:
         default_window_name="agent-pick-42",
     )
     app.push_screen(screen, callback)
+
+A host that opens this dialog with a key the dialog itself binds may pass
+`debounce_key=<that key>` (opt-in, off by default) so an immediate repeat of
+the launching key cannot confirm the dialog — see OPENING_DEBOUNCE_SECONDS.
 """
 from __future__ import annotations
 
@@ -36,6 +40,7 @@ import yaml
 from textual import on, work
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
+from textual.keys import _character_to_key
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static, TabbedContent, TabPane
@@ -68,6 +73,21 @@ _FRESH_WINDOW_OPERATIONS = frozenset(
 _PROFILES_DIR = Path("aitasks/metadata/profiles")
 _LOCAL_PROFILES_DIR = _PROFILES_DIR / "local"
 _SKILLRUN_PRUNE_AGE_SECONDS = 3600  # 1 hour
+
+# Opening-window debounce (t1279). A host that opens this dialog with a key the
+# dialog itself binds (e.g. the board's By-Trail `R`, which lands on `R -> run`)
+# passes that key as `debounce_key`; an immediate repeat is swallowed for this
+# long after the dialog is first painted, so a double-tap cannot confirm a
+# dialog the user has not read yet. Sized for an accidental burst, not for
+# reading time: terminal auto-repeat lands keys ~30-80ms apart and a human
+# double-tap ~100-250ms apart, while a considered second press is well past
+# this and would feel like a dead key much beyond ~500ms.
+OPENING_DEBOUNCE_SECONDS = 0.3
+
+
+def _monotonic() -> float:
+    """Indirection so tests can drive the opening-window debounce (t1279)."""
+    return time.monotonic()
 
 
 def _prune_stale_skillrun_overrides() -> None:
@@ -374,6 +394,7 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
         skill_name: str | None = None,
         default_profile: str | None = None,
         narrow: bool = False,
+        debounce_key: str = "",
     ):
         super().__init__()
         self.title_text = title
@@ -402,6 +423,17 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
         # Narrow layout for the minimonitor companion pane (~40 cols). When set,
         # compose() adds the `narrow` CSS class that stacks rows vertically.
         self._narrow = narrow
+        # Opening-window debounce (t1279), opt-in per host. resolve_key() hands
+        # back the literal a user typed in the shortcut editor ("#"), but
+        # event.key and BindingsMap use Textual's normalised name
+        # ("number_sign") — mirror Binding.make_bindings (binding.py:150-156)
+        # or a remapped key silently never matches.
+        self._debounce_key = (
+            _character_to_key(debounce_key) if len(debounce_key) == 1 else debounce_key
+        )
+        # Stamped at first paint by _stamp_opened(); None means "not on screen
+        # yet", which swallows the key (fail safe).
+        self._opened_at: float | None = None
         _prune_stale_skillrun_overrides()
 
     def compose(self):
@@ -500,6 +532,26 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
 
         self._refresh_agent_row()
         self._refresh_profile_row()
+        self.call_after_refresh(self._stamp_opened)
+
+    def _stamp_opened(self) -> None:
+        """Start the opening window once the dialog is actually on screen.
+
+        Deliberately NOT stamped in __init__: on_mount above runs
+        _populate_tmux_tab() -> get_tmux_sessions(), a tmux subprocess on the
+        UI thread, and the event loop is single-threaded, so a repeat keypress
+        is queued behind all of it. A construction-stamped window can therefore
+        already be expired by the time the user first sees the dialog (t1279).
+        """
+        self._opened_at = _monotonic()
+
+    def _in_opening_window(self, key: str) -> bool:
+        """True while `key` is the launching key and the dialog is still new."""
+        if not self._debounce_key or key != self._debounce_key:
+            return False
+        if self._opened_at is None:
+            return True  # not painted yet — swallow (fail safe)
+        return (_monotonic() - self._opened_at) < OPENING_DEBOUNCE_SECONDS
 
     def _populate_tmux_tab(self) -> None:
         tmux = self.query_one("#tmux_content")
@@ -1052,6 +1104,21 @@ class AgentCommandScreen(ShortcutsMixin, ModalScreen):
         self.action_edit_profile()
 
     def on_key(self, event) -> None:
+        if self._in_opening_window(event.key):
+            # An immediate repeat of the key that opened this dialog is
+            # swallowed for OPENING_DEBOUNCE_SECONDS after it appears, so a
+            # double-tap cannot confirm a dialog the user has not read yet
+            # (t1279). Time-limited on purpose: after the window the key runs
+            # normally, and `r` / Enter / the Run button work throughout.
+            #
+            # MUST stay above the Input/Select early-return below: a collapsed
+            # Select defines neither _on_key nor check_consume_key, so with the
+            # tmux Select focused the key would bubble on to App._on_key and
+            # fire the `R -> run` binding. Typing is unaffected because
+            # Input._on_key stops printable keys before they reach this screen.
+            event.stop()  # keep the event off the App entirely
+            event.prevent_default()  # ...and suppress App._on_key -> _check_bindings
+            return
         focused = self.app.focused
         if isinstance(focused, (Input, Select, SelectOverlay)):
             return  # Let input/select/overlay handle the key
