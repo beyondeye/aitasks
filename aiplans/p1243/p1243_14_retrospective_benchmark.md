@@ -25,9 +25,28 @@ it rather than working around it.
 
 ## Step 1 — re-run the pre-registered benchmark
 
-Same method as t1243_1 verbatim — ping-pong sampling, warm-up discarded, every
-sample must carry a write, median + p90 + per-span totals. Comparability is the
-whole point; do not "improve" the method here.
+Same method as t1243_1 **as amended** — invoke the harness rather than
+re-deriving it:
+
+```bash
+AITASK_BOARD_BENCH=1 <ait-python> -m unittest \
+  tests.test_board_movement.BoardMovementBenchmarkTests.test_bench_baseline
+```
+
+Ping-pong sampling from the bottom-of-column card, 3 warm-up pairs discarded,
+20 recorded pairs per axis per config, all four per-sample validity invariants
+enforced, timed region closed on an `asyncio.Event` (never `pilot.pause()`),
+production branch-mode topology. Comparability is the whole point; do not
+"improve" the method here.
+
+**Attribution is by ABLATION, not span share.** t1243_1's first run used span
+shares and read `apply_filter + recompose` at 1.6 % with 98.3 % unattributed —
+an artifact of `_recompose_column` dropping its `remove_children()` /
+`mount_all()` awaitables, so the cost lands in the message pump after the wrapped
+call returns. Span shares are diagnostics only.
+
+Baseline to beat: **lateral 2173.2 ms** (p90 2556.2), **vertical 184.1 ms**
+(p90 238.0), harness floor 104.5 ms.
 
 ## Step 2 — re-run the write assertions at scale
 
@@ -36,8 +55,11 @@ counts and changed-path sets, not pass/fail.
 
 ## Step 3 — the comparison table
 
-Baseline vs landed, per span, with median and p90 deltas and whether the ≥ 30%
-target was met.
+Baseline vs landed, **per axis** (never pooled), with median and p90 deltas plus
+the per-lever ablation deltas, and whether the ≥ 30 % target was met. That target
+is **t1243_5's**, judged on the **lateral** axis; t1243_4 is judged only on
+*no regression*. On a miss, change nothing — run the **Performance-Gate
+Confirmation Checkpoint** (parent plan) and let the user decide.
 
 ## Step 4 — answer the open questions
 
