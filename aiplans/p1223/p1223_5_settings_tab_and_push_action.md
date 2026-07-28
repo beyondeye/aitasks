@@ -659,7 +659,7 @@ staged **content**, not just the path list.
   `syncer/settings_screens.py`, the matrix model kept pure (tests 1–4), a
   separate worker group so the Branches tick is untouched, and t1223_1/t1223_3's
   regression tests left intact; structural follow-up
-  `unify_syncer_tab_worker_triples`
+  `unify_syncer_tab_worker_triples` (**t1298**)
 - New impure seams (`diff_across_repos`, `plan_push`, `apply_push`) are reachable
   from three existing tests that already activate `tab_settings` for unrelated
   assertions; an unpatched seam makes the whole suite shell out to the
@@ -694,7 +694,7 @@ staged **content**, not just the path list.
   a failure the sweep cannot attribute blames no repo at all; pinned by tests 14
   / 14b / 14c with M7 / M7b / M7c as the negative controls and the attempt count
   asserted against the stated `len(sessions) + 2` bound; layering follow-up
-  `cross_repo_settings_skip_unreadable`
+  `cross_repo_settings_skip_unreadable` (**t1297**)
 - The push spans up to four modals and two thread workers; an outcome lost
   between phases would report success for a write that never happened, and an
   unhandled exception in either worker drops the summary screen entirely so the
@@ -730,9 +730,9 @@ staged **content**, not just the path list.
   t1223_6
 
 ### Planned mitigations
-- timing: after | name: cross_repo_settings_skip_unreadable | type: enhancement | priority: medium | effort: low | addresses: goal-achievement risk 1 (per-repo degradation implemented in the syncer rather than the seam) | desc: Add diff_across_repos(roots, *, skip_unreadable=True) -> (matrix, unreadable) to cross_repo_settings and delete the syncer-side two-phase fallback.
-- timing: after | name: unify_syncer_tab_worker_triples | type: refactor | priority: low | effort: medium | addresses: code-health risk 1 (syncer_app.py growth; three hand-copied worker triples) | desc: Extract the per-tab _gen/_active/_pending triple and its request/apply/finish quartet into one shared helper so a further tab adds no new copy.
-- timing: after | name: document_render_level_verification_rule | type: documentation | priority: low | effort: low | addresses: verified doc gap — two task files cite a render-level verification rule that does not exist in aidocs/framework | desc: Add the render-level TUI verification rule (assert widget.render().plain, prefer markup=False) to aidocs/framework/tui_conventions.md.
+- timing: after | created: t1297 | name: cross_repo_settings_skip_unreadable | type: enhancement | priority: medium | effort: low | addresses: goal-achievement risk 1 (per-repo degradation implemented in the syncer rather than the seam) | desc: Add diff_across_repos(roots, *, skip_unreadable=True) -> (matrix, unreadable) to cross_repo_settings and delete the syncer-side two-phase fallback.
+- timing: after | created: t1298 | name: unify_syncer_tab_worker_triples | type: refactor | priority: low | effort: medium | addresses: code-health risk 1 (syncer_app.py growth; three hand-copied worker triples) | desc: Extract the per-tab _gen/_active/_pending triple and its request/apply/finish quartet into one shared helper so a further tab adds no new copy.
+- timing: after | created: t1299 | name: document_render_level_verification_rule | type: documentation | priority: low | effort: low | addresses: verified doc gap — two task files cite a render-level verification rule that does not exist in aidocs/framework | desc: Add the render-level TUI verification rule (assert widget.render().plain, prefer markup=False) to aidocs/framework/tui_conventions.md.
 
 ---
 
@@ -928,7 +928,7 @@ behavior.
     prefer `markup=False`)" in it as required reading. The convention exists only
     as practice in `tests/test_syncer_rows.py`. Future planners are pointed at
     something that is not there; covered by the confirmed follow-up
-    `document_render_level_verification_rule`.
+    `document_render_level_verification_rule` (**t1299**).
 
 - **Notes for sibling tasks:**
   - **t1223_6** should document: the Settings tab's provenance markers
