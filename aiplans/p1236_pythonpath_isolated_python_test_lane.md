@@ -184,6 +184,118 @@ lane. They are left alone.
   chosen approach delivers the stated goal, and the required negative control is
   specified concretely enough to prove the masking is gone.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-28 16:20)
+
+- **Requested by user:** `tests/lib/import_isolated.py` loads each test under its
+  filename stem rather than the normal pytest/unittest package context. Correct
+  for the current flat `tests/`, but a future test using relative imports or
+  package-level fixtures could fail this lane despite passing under the real
+  runner. Document the constraint or evolve the driver if the layout becomes
+  package-based.
+
+- **Verified:** the concern is valid as a *future-layout* constraint and is
+  **not** a current defect. Measured on the live tree:
+  - `find tests -name __init__.py` → no hits anywhere under `tests/`, so it is
+    not a package.
+  - `grep -lE '^\s*from\s+\.' tests/test_*.py` → no test file uses a
+    package-relative import.
+  - `unittest.defaultTestLoader.discover('tests')` registers the module as
+    `test_tmux_exec` — the bare file stem, exactly what the driver uses. Parity
+    with the real runner is therefore exact today.
+
+- **Changes made:** documented the assumption *and* pinned it with a tripwire,
+  so it fails loudly instead of drifting silently:
+  1. `tests/lib/import_isolated.py` — added a "PARITY ASSUMPTION" block to the
+     module docstring: why the bare-stem name matches `unittest discover` and
+     pytest prepend mode for a flat `tests/`, what breaks the equivalence, and
+     the instruction to derive a dotted package name rather than relax the
+     tripwire.
+  2. `tests/test_python_bootstrap_isolation.sh` — new **Test 5 (tripwire)**:
+     fails if any `__init__.py` appears under `tests/` or any test file gains a
+     package-relative import, printing the offending paths and the remediation.
+     Rationale: a false alarm from a diverged driver is as corrosive as a miss,
+     so the divergence must surface at the moment the layout changes.
+
+- **Tripwire negative control (sandbox, to avoid dropping an `__init__.py` into
+  the shared checkout a concurrent session is testing against):** copied the
+  lane + driver into a temp tree with one dummy test.
+  - Arm A, flat layout → 10 passed, 0 failed, exit 0.
+  - Arm B, after `touch tests/__init__.py` → 9 passed, **1 failed**, exit 1,
+    with the remediation message. The tripwire discriminates.
+
+- **Files affected:** `tests/lib/import_isolated.py`,
+  `tests/test_python_bootstrap_isolation.sh` (real-tree run after the change:
+  156 files swept, 10 passed / 0 failed; `shellcheck` clean apart from
+  pre-existing SC1091 info).
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced the `PYTHONPATH` export in
+  `tests/run_all_python_tests.sh` with `unset PYTHONPATH` (scrubs an inherited
+  value too, not just "stops adding"). Added three files: a textual guard
+  (`tests/test_runner_python_isolation.sh`) pinning that the export cannot come
+  back; a per-file isolation lane (`tests/test_python_bootstrap_isolation.sh`)
+  that imports every `tests/test_*.py` in its own PYTHONPATH-free interpreter;
+  and its driver (`tests/lib/import_isolated.py`). The lane is a scope
+  extension confirmed with the user mid-implementation — see "Deviations".
+
+- **Deviations from plan:** The plan assumed dropping the export was sufficient
+  to make the masking "structurally impossible". It is not. `pytest` and
+  `unittest discover` import all 150+ test modules into **one** interpreter
+  sharing one `sys.path`, so the first module that inserts `.aitask-scripts/lib`
+  unmasks every module imported after it. Proven on the live tree: breaking the
+  alphabetically-first test's `lib` insert makes the new runner exit 1, but
+  breaking the identical insert in `tests/test_tmux_exec.py` still exits 0. The
+  user was presented with three options (add the lane / defer to a follow-up /
+  accept the boundary) and chose to extend scope, so the per-file lane and its
+  driver were added. Without it t1236 would have delivered only half its goal.
+
+- **Issues encountered:**
+  - *The task's suggested negative-control target does not discriminate.* The
+    task text proposed breaking `tests/test_history_data.py`'s bootstrap. That
+    file's `lib` insert is redundant — `.aitask-scripts/codebrowser/history_data.py:17`
+    inserts `lib` itself — so both arms exit 0 and the control proves nothing.
+    Retargeted to `tests/test_agent_command_dialog_default_session.py`, whose
+    single `lib` insert is genuinely load-bearing. Result: old-runner emulation
+    exits **0** (masked), new runner exits **1** with `ModuleNotFoundError`.
+    Restored by reversing that one edit — no `git checkout --`, per the task's
+    shared-checkout warning.
+  - *Concurrent session churn.* Another session moved
+    `.aitask-scripts/stats/stats_data.py` → `lib/` mid-task. The first full-suite
+    run showed 6 failures purely from that transient state; both the old and the
+    new runner were confirmed to behave identically at the same moment, and the
+    re-run after the move settled was clean.
+
+- **Key decisions:**
+  - `unset PYTHONPATH` rather than merely deleting the export: an ambient
+    `PYTHONPATH` from the developer's shell masks a broken bootstrap on one
+    machine and not another, and the task's own criterion is "no `PYTHONPATH`
+    inherited from the runner".
+  - The isolation lane is a standalone `.sh` test, not a second pass inside
+    `run_all_python_tests.sh`. It costs ~24s (import-only, no test bodies)
+    instead of doubling a 12-minute suite, and matches the repo convention that
+    shell tests are run individually.
+  - Option 2 from the task (a second `env -u PYTHONPATH` pytest lane) was
+    rejected: it doubles the suite runtime, leaves the masking in place for the
+    main pass, and — being one shared interpreter — would not have caught the
+    intra-process masking either.
+  - The flat-`tests/` parity assumption is pinned by a tripwire rather than only
+    documented, so a future package-based layout fails loudly with remediation
+    instead of letting the driver silently diverge from the real runner.
+
+- **Verification evidence:**
+  - Full suite with `PYTHONPATH=/nonexistent/poison` inherited: **2541 tests,
+    exit 0**, 703s.
+  - `tests/test_python_bootstrap_isolation.sh`: 156 files swept, 10/10, ~24s.
+  - `tests/test_runner_python_isolation.sh`: 9/9; verified it goes **red**
+    (4 assertions fail) when the export is re-added to the live runner.
+  - `tests/test_no_lib_to_tui_import.sh`: 13/13. `shellcheck`: clean apart from
+    pre-existing SC1091 info.
+
+- **Upstream defects identified:** None
+
 ## Step 9 (Post-Implementation)
 
 Current-branch mode — no worktree/branch cleanup. After review and commit,
