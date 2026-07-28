@@ -16,8 +16,6 @@ updated_at: 2026-07-28 11:27
 boardcol: tests
 boardidx: 20
 artifacts:
-  - handle: art:t1142-movetest
-    kind: movetest
 ---
 
 ## Manual Verification Task
