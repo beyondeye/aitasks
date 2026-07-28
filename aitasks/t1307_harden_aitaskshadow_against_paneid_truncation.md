@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 18:30
-updated_at: 2026-07-28 18:44
+updated_at: 2026-07-29 00:19
 ---
 
 Harden the `aitask-shadow` skill against model-side truncation of the
@@ -79,3 +80,8 @@ single-digit example pane id, which anchors the model toward short ids:
   this repo).
 - Keep the change documentation-only (no script/logic change); the capture
   script already errors cleanly on a missing pane.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-28T21:19:39Z status=pass attempt=1 type=human
