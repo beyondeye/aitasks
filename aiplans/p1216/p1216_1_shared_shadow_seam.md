@@ -720,12 +720,27 @@ through `app._capture_shadow_text`), `tests/test_minimonitor_shadow_pick.py`,
        dead pane and discard the replacement discovery had just found. Fixed by
        comparing seqs only when the pane identity matches: discovery owns
        identity, the seq owns recency between reads of the same pane.
-  3. Four now-dead imports were removed from `minimonitor_app.py`
+  3. **Third review pass — two more findings, both confirmed:**
+     - *(blocking)* `commit_snapshots` applied `_apply_bookkeeping` to **every**
+       batch shadow before the per-key seq merge ran. When the merge then
+       retained a newer fast-refresh snapshot, the displayed snapshot was new
+       while `_last_content` / `_last_change_time` had been rewritten with the
+       batch's OLDER content — so the next full refresh would see a change that
+       never happened and reset the shadow's idle clock. This is the same
+       ordering rule as rule 4, which had only been applied to the merge path.
+       Fixed by deferring shadow bookkeeping: the batch now *selects* shadow
+       candidates, and `_apply_bookkeeping` runs only for the entry the merge
+       actually publishes. Agent panes are unaffected.
+     - *(low)* The `tmux_monitor.py` compatibility shim had dropped its
+       `_strip_ansi` re-export. No in-tree caller used the private name, but the
+       module exists precisely to keep unseen import sites working, so
+       `strip_ansi as _strip_ansi` was restored as a one-line alias.
+  4. Four now-dead imports were removed from `minimonitor_app.py`
      (`asyncio`, `SHADOW_ANALYZED_AT_OPTION`, `is_shadow_target`,
      `_SHADOW_CAPTURE_TIMEOUT`); `_SHADOW_DEEP_RETRY_LINES` /
      `_SHADOW_TRUNCATED_MSG` / `SHADOW_TARGET_OPTION` are still referenced and
      stayed. The plan had assumed all constants needed re-export.
-  4. Two stale doc statements adjacent to the edits were corrected while in the
+  5. Two stale doc statements adjacent to the edits were corrected while in the
      files: `concern-format.md`'s "Where it lives" list (missing
      `contains_any_concern_block` / `block_head_truncated`) and its claim that
      staleness uses a "content-signature mechanism" — it uses timestamps, and
@@ -782,3 +797,35 @@ through `app._capture_shadow_text`), `tests/test_minimonitor_shadow_pick.py`,
   - The `MiniMonitorApp._*` delegating seams are transitional. `monitor_app.py`
     must call the shared functions directly and never grow parallel seams;
     removing the seams is the `shadow_seam_wrapper_removal` follow-up.
+
+### Commit note — concurrent session overlap
+
+While this task was in review, another session (**t1274**, concern dispositions)
+began editing four of the same files and built directly on top of this task's
+uncommitted work — its `unrecovered_markers` row was added to the three-row
+strictness table introduced here. `main` also advanced five commits (none of
+which touched these files).
+
+The code commit was therefore assembled by **hunk extraction** rather than
+`git add <path>`: each shared file was reconstructed as `HEAD + this task's
+changes only`, hashed with `git hash-object -w`, and pointed at via
+`git update-index --cacheinfo`. That stages content without touching the working
+tree, so t1274's in-flight work was never disturbed and never committed under
+this task's id. Files `monitor_core.py`, `tmux_monitor.py`, `ansi_utils.py` and
+`tests/test_shadow_seam.py` contained no foreign content and were staged
+directly.
+
+Verification of the extraction, since a partial stage can easily be
+self-inconsistent:
+- Every reconstructed file was diffed against `HEAD` — zero added lines matching
+  t1274 markers — and against the combined worktree, where the only differences
+  were t1274's own edits.
+- The **exact commit tree** was materialised (`git archive HEAD` + overlay) and
+  the shadow suite run against it: 160 tests OK, including
+  `test_concern_parser.py` and `test_minimonitor_concern_smoke.py` at their
+  unmodified HEAD versions — which is what re-establishes the
+  byte-unmodified-characterization-net claim for the committed state.
+- The full suite on that tree showed 12 failures; a **pristine-HEAD control**
+  (same archive, no overlay) reproduced the identical 12, so they are artefacts
+  of a bare archive lacking `.git` / `aitasks/` data, not regressions. The
+  2356 − 2302 = 54-test delta is exactly this task's new file.
