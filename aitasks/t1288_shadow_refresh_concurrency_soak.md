@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1216_2]
 issue_type: test
 status: Ready
 labels: [aitask_monitor, shadow, tui]
 gates: [risk_evaluated]
 anchor: 1111
 created_at: 2026-07-28 11:52
-updated_at: 2026-07-28 11:52
+updated_at: 2026-07-28 18:06
 ---
 
 ## Origin
@@ -42,8 +42,10 @@ consumer. The unit tests in `tests/test_shadow_seam.py` script every await
 deterministically, which is exactly what makes them reproducible — and exactly
 why they cannot exercise genuine concurrency.
 
-Depends on **t1216_2** (add the dependency when that task lands; there is nothing
-to soak until the fast tick exists).
+Depends on **t1216_2** — wired in `depends:` when that task landed
+(2026-07-28). Its `_fast_shadow_refresh` is the production consumer that drives
+`refresh_shadow_snapshot` on the 0.3 s tick, so the seam finally has real
+event-loop interleaving to soak.
 
 Scope:
 
