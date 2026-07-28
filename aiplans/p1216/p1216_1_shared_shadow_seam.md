@@ -654,16 +654,16 @@ through `app._capture_shadow_text`), `tests/test_minimonitor_shadow_pick.py`,
   per-tick hot path shared by monitor and minimonitor; a stamping error could
   silently drop shadow entries, resurrect a removed one, or corrupt the shadow's
   idle clock, with no user-visible signal until a glyph goes wrong · severity:
-  medium · → mitigation: shadow_refresh_concurrency_soak
+  medium · → mitigation: t1288 (shadow_refresh_concurrency_soak)
 - Plan review found four genuine correctness gaps in the first draft of this
   merge (undefined stamp origin, presence-vs-identity, bookkeeping ahead of the
   guards, unspecified failure policy) — evidence that this seam is easy to get
   subtly wrong and that a later edit could reintroduce any of them. The five
   binding rules and their one-test-per-rule net are the standing control ·
-  severity: medium · → mitigation: shadow_refresh_concurrency_soak
+  severity: medium · → mitigation: t1288 (shadow_refresh_concurrency_soak)
 - The transitional delegating seams left on `MiniMonitorApp` mean two names for
   one implementation until t1216_2/_3 land — structure debt that will quietly
-  become permanent if nobody removes it · severity: low · → mitigation: shadow_seam_wrapper_removal
+  become permanent if nobody removes it · severity: low · → mitigation: t1289 (shadow_seam_wrapper_removal)
 - Blast radius is wide but mechanical: 6 source files (one new), 2 docs, 1 new
   test file, 1 test import-path edit · severity: low · → mitigation: none needed
   (the unmodified characterization net is the in-task control)
@@ -673,7 +673,7 @@ through `app._capture_shadow_text`), `tests/test_minimonitor_shadow_pick.py`,
   (t1216_2's fast tick is the first). Its concurrency contract is proven only by
   scripted-coroutine unit tests, which cannot reproduce real event-loop
   interleaving, so a subtle ordering flaw could survive to t1216_2 · severity:
-  medium · → mitigation: shadow_refresh_concurrency_soak
+  medium · → mitigation: t1288 (shadow_refresh_concurrency_soak)
 - `concern_block_signature`'s reflow stability is a *property* claim over
   arbitrary tmux wrapping; the tests sample several widths but cannot enumerate
   them. The residual is bounded and fails safe (at most one spurious re-offer)
@@ -681,8 +681,8 @@ through `app._capture_shadow_text`), `tests/test_minimonitor_shadow_pick.py`,
   discriminating / residual / narrow-pane test quartet in this task)
 
 ### Planned mitigations
-- timing: after | name: shadow_refresh_concurrency_soak | type: test | priority: medium | effort: medium | addresses: code-health (commit_snapshots hot-path amendment) + goal-achievement (refresh_shadow_snapshot ships with no production consumer) | desc: Live/soak verification of the stamped per-key merge contract under real event-loop interleaving once t1216_2 wires the 0.3s fast tick — should depend on t1216_2; distinct from t1216_5 (human manual verification of the whole feature).
-- timing: after | name: shadow_seam_wrapper_removal | type: refactor | priority: medium | effort: low | addresses: code-health (transitional delegating seams on MiniMonitorApp) | desc: Once t1216_2/t1216_3 have landed and the shared seams have a second real consumer, remove the one-line MiniMonitorApp delegators and migrate the four minimonitor/shadow test files onto the shared monitor_core functions.
+- timing: after | created: t1288 | name: shadow_refresh_concurrency_soak | type: test | priority: medium | effort: medium | addresses: code-health (commit_snapshots hot-path amendment) + goal-achievement (refresh_shadow_snapshot ships with no production consumer) | desc: Live/soak verification of the stamped per-key merge contract under real event-loop interleaving once t1216_2 wires the 0.3s fast tick — should depend on t1216_2; distinct from t1216_5 (human manual verification of the whole feature).
+- timing: after | created: t1289 | name: shadow_seam_wrapper_removal | type: refactor | priority: medium | effort: low | addresses: code-health (transitional delegating seams on MiniMonitorApp) | desc: Once t1216_2/t1216_3 have landed and the shared seams have a second real consumer, remove the one-line MiniMonitorApp delegators and migrate the four minimonitor/shadow test files onto the shared monitor_core functions.
 
 ## Final Implementation Notes
 
