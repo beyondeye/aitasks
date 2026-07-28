@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, testing, script-performance]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-07-28 01:12
-updated_at: 2026-07-28 01:12
+updated_at: 2026-07-28 08:05
 ---
 
 ## Context
