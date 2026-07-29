@@ -29,7 +29,7 @@ layout fields. It snapshots **`boardcol` and `boardidx` by name, hardcoded**,
 reloads the file (to preserve concurrent external edits to other fields),
 re-applies those two, and calls the **timestamp-neutral** `save()`.
 
-Two consequences:
+Three consequences:
 
 1. **Any board key it does not name is silently dropped.** `Task._BOARD_KEYS =
    BOARD_KEYS` exists on the class but is **never read anywhere in the repo** — a
