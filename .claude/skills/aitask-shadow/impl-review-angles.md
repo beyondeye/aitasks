@@ -126,10 +126,27 @@ addressed or validly accepted risk is reported as `informational` per the
 disposition rubric, with the mitigation or acceptance rationale named, so the
 user can judge it independently. Nothing this angle sees is silently discarded.
 
+**Notes-absent mode.** When there are no Final Implementation Notes (the normal
+pre-commit state — see the review-state assessment in `impl-challenge.md`), the
+angle still runs: judge each plan risk's status from the **diff alone**, and say
+that the notes were not available. A risk the diff visibly addresses is
+`informational` exactly as above; the honest verdict for one the diff neither
+addresses nor mentions is that it is open, not that it was ignored.
+
 ### Angle S2 — plan-deviation auditor
 Compare the diff against the plan. A deviation the Final Implementation Notes
 justify is fine. Flag only deviations that are unexplained or whose
 justification does not hold up.
+
+**Notes-absent mode.** Without notes, "unexplained" would classify *every*
+deviation as a finding — the agent has simply not written its narration yet.
+Surface real deviations anyway (they are the angle's output and the anti-drop
+rule still binds), but classify them as **pending narration**: `informational`
+per the disposition rubric, with the region `pending narration`, stating that the
+deviation is real and un-narrated rather than unjustified. The exception is a
+deviation that is **wrong on its own merits** — a divergence that breaks
+something, contradicts the task's acceptance criteria, or leaves the plan's goal
+unmet — which is classified by the rubric normally, notes or no notes.
 
 ## Anti-drop rule
 

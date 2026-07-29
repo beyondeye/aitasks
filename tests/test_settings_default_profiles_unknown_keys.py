@@ -87,6 +87,15 @@ class NegativeControlTests(_Fixture):
         self.assertNotIn(UNKNOWN, VALID_PROFILE_SKILLS)
         self.assertIn(KNOWN, VALID_PROFILE_SKILLS)
 
+    def test_shadow_is_a_known_skill(self):
+        """t1311: the shadow resolves a profile like any other skill.
+
+        Left out of the allow-list, `default_profiles.shadow` renders read-only
+        in the settings TUI — and that mapping is the ONLY thing that activates
+        a profile's `shadow_impl_review_tier`, so the key would look broken.
+        """
+        self.assertIn("shadow", VALID_PROFILE_SKILLS)
+
 
 class SavePathTests(_Fixture):
     def test_unknown_key_survives_save(self):

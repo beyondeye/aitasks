@@ -82,6 +82,10 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
     "qa_mode": ("enum", ["ask", "create_task", "implement", "plan_only"]),
     "qa_run_tests": ("bool", None),
     "qa_tier": ("enum", ["q", "s", "e"]),
+    "shadow_impl_review_tier": (
+        "enum",
+        ["quick", "default", "advanced", "deep"],
+    ),
 }
 
 _UNSET = "(unset)"
@@ -362,6 +366,24 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "  'e': Exhaustive — full analysis + edge cases + verification gate\n"
         "  (unset): prompts the user"
     ),
+    "shadow_impl_review_tier": (
+        "Shadow implementation-review depth: quick/default/advanced/deep",
+        "Default effort tier for the shadow's implementation review\n"
+        "(/aitask-shadow -> impl-challenge). When set, a generic 'review the\n"
+        "implementation' runs at this tier and the tier prompt is skipped.\n"
+        "  'quick'    — hunk-only scan, no verify pass, <=4 findings\n"
+        "  'default'  — legacy three-axis adversarial pass, no cap\n"
+        "  'advanced' — 10 angles + precision verify, <=8 findings\n"
+        "  'deep'     — 12 angles + recall verify + gap sweep, <=15 findings\n"
+        "  (unset): prompts the user\n\n"
+        "A tier named in your ask ('deep review') always overrides this.\n\n"
+        "TAKES EFFECT ONLY when default_profiles.shadow names this profile.\n"
+        "The shadow resolves its profile like any other skill, so a profile\n"
+        "that is never selected for 'shadow' leaves this key inert. Add to\n"
+        "project_config.yaml (team) or userconfig.yaml (personal):\n"
+        "  default_profiles:\n"
+        "    shadow: <this profile's name>",
+    ),
 }
 
 # Logical grouping of profile fields for display
@@ -385,6 +407,7 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
         "manual_verification_mode",
     ]),
     ("QA Analysis", ["qa_mode", "qa_run_tests", "qa_tier"]),
+    ("Shadow Review", ["shadow_impl_review_tier"]),
     ("Exploration", ["explore_auto_continue"]),
     ("Review", ["review_default_modes", "review_auto_continue"]),
     ("Lock Management", ["force_unlock_stale"]),

@@ -34,6 +34,7 @@ in ``SITES`` — this guard will tell you which ones you missed.
 """
 
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -43,6 +44,13 @@ ANGLES = ".claude/skills/aitask-shadow/impl-review-angles.md"
 CHALLENGE = ".claude/skills/aitask-shadow/impl-challenge.md"
 SHADOW_SKILL = ".claude/skills/aitask-shadow/SKILL.md"
 WEBSITE = "website/content/docs/workflows/shadow-agent.md"
+
+#: The profile whose render actually strips content (t1311 gated
+#: impl-challenge's tier fallback on `shadow_impl_review_tier`, which only
+#: `fast` sets). Checking the weakest surface is the point: the agent executes
+#: a RENDERED variant, not the authoring source these paths point at.
+RENDERED_PROFILE = "fast"
+RENDERED_DIR = f".claude/skills/aitask-shadow-{RENDERED_PROFILE}-"
 
 DISPOSITIONS = ("blocking", "follow-up", "informational")
 
@@ -172,6 +180,98 @@ class TestWholeSurfaceSweep(unittest.TestCase):
                     f"First offending window:\n"
                     f"  …{offenders[0] if offenders else ''}…",
                 )
+
+
+def render_shadow_variant() -> Path | None:
+    """Render the `fast` shadow closure and return its dir, or None if the
+    renderer is unavailable (no `ait setup` / no minijinja).
+
+    Rendered dirs are gitignored, so they cannot be assumed to exist — the
+    guard renders them itself rather than silently checking nothing.
+    """
+    out = REPO_ROOT / RENDERED_DIR
+    proc = subprocess.run(
+        [
+            "./.aitask-scripts/aitask_skill_render.sh",
+            "aitask-shadow",
+            "--profile",
+            RENDERED_PROFILE,
+            "--agent",
+            "claude",
+            "--force",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0 or not out.is_dir():
+        return None
+    return out
+
+
+class TestRenderedSurfaces(unittest.TestCase):
+    """The same guarantees must survive rendering (t1311).
+
+    Before the shadow skill was templated, the authoring files above *were* what
+    the agent read. They no longer are: the agent reads
+    ``.claude/skills/aitask-shadow-<profile>-/``. A conditional that drops a
+    disposition-enumerating passage from one profile's render would leave every
+    assertion above green while the shadow, at runtime, reads a surface that
+    lists two of the three values.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rendered = render_shadow_variant()
+
+    def setUp(self):
+        if self.rendered is None:
+            self.skipTest(
+                "shadow variant could not be rendered (run 'ait setup' to "
+                "install minijinja in the framework venv)"
+            )
+
+    def _rendered(self, authoring_rel: str) -> Path:
+        return self.rendered / Path(authoring_rel).name
+
+    def test_rendered_sites_list_all_three_dispositions(self):
+        for rel, anchor in SITES:
+            if not rel.startswith(".claude/skills/aitask-shadow/"):
+                continue  # the website doc is not a rendered surface
+            with self.subTest(file=rel, site=anchor):
+                section = normalize(extract_section(self._rendered(rel), anchor))
+                self.assertTrue(section.strip(), f"{rel}: rendered site {anchor!r} is empty")
+                for value in DISPOSITIONS:
+                    self.assertIn(
+                        value,
+                        section,
+                        f"{rel} [rendered {RENDERED_PROFILE}]: site {anchor!r} "
+                        f"never mentions the {value!r} disposition.",
+                    )
+
+    def test_no_rendered_surface_carries_a_two_value_enumeration(self):
+        for rel in ALL_SURFACES:
+            if not rel.startswith(".claude/skills/aitask-shadow/"):
+                continue
+            with self.subTest(file=rel):
+                path = self._rendered(rel)
+                offenders = stale_enumerations(path.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    offenders,
+                    [],
+                    f"{rel} [rendered {RENDERED_PROFILE}]: names 'blocking' and "
+                    f"'follow-up' together without 'informational'. First "
+                    f"offending window:\n  …{offenders[0] if offenders else ''}…",
+                )
+
+    def test_rendered_closure_is_present(self):
+        """Negative control for the two tests above: they check nothing if the
+        files are absent, and `extract_section` would raise a confusing error."""
+        for rel in ALL_SURFACES:
+            if not rel.startswith(".claude/skills/aitask-shadow/"):
+                continue
+            with self.subTest(file=rel):
+                self.assertTrue(self._rendered(rel).is_file(), f"missing rendered {rel}")
 
 
 class TestGuardNegativeControls(unittest.TestCase):

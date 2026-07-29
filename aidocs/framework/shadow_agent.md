@@ -29,9 +29,10 @@ detection stage (that idea is deferred — see "Phase detection" below).
    the followed agent's *current* state rather than a frozen launch-time
    snapshot. A `-` argument cleans pre-captured text from stdin (also the test
    seam). All tmux access goes through `lib/tmux_exec.sh`
-   (`tests/test_no_raw_tmux.sh`). The plan-review sub-procedures
-   (`plan-explain` / `plan-challenge` / `plan-socratic` / `plan-assumptions`)
-   recapture with `--deep` (the script's `SHADOW_PLAN_CAPTURE_LINES`, default
+   (`tests/test_no_raw_tmux.sh`). The deep-analysis sub-procedures
+   (`plan-explain` / `plan-challenge` / `plan-socratic` / `plan-assumptions` /
+   `impl-challenge`) recapture with `--deep` (the script's
+   `SHADOW_PLAN_CAPTURE_LINES`, default
    400) because a whole plan can exceed the 200-line default and be truncated to
    its tail; ordinary reads (explain-output, help-answer-prompt,
    diagnose-errors) stay at the default depth to stay cheap. Minimonitor's own
@@ -54,12 +55,24 @@ detection stage (that idea is deferred — see "Phase detection" below).
 
 ## The skill (`/aitask-shadow`)
 
-Source: `.claude/skills/aitask-shadow/` — `SKILL.md` plus four `plan-*.md`
-sub-procedures. It is **user-invocable** (`user-invocable: true`) and **static**
-(no profile / `.j2` / stub machinery, modeled on `aitask-contribute`): a spawned
-agent CLI can only be triggered non-headlessly by a slash command on argv, and a
-freshly spawned shadow has no parent skill to read-and-follow a non-invocable
-one. Argument contract:
+Source: `.claude/skills/aitask-shadow/` — the `SKILL.md.j2` authoring template
+plus nine sub-procedure `.md` files (five `plan-*.md`, `impl-challenge.md`,
+`impl-review-angles.md`, `concern-format.md`, `spawn-learn-skill.md`).
+
+It is **user-invocable** (`user-invocable: true`) **and profile-aware** — the
+canonical stub + `.md.j2` pair of `aidocs/framework/stub-skill-pattern.md`,
+resolver key `shadow`. The two properties are independent, and it is worth
+naming the confusion this doc used to encode: the skill's user-invocability
+follows from the spawn path (a spawned agent CLI can only be triggered
+non-headlessly by a slash command on argv, and a freshly spawned shadow has no
+parent skill to read-and-follow a non-invocable one), but that argues **only**
+for `user-invocable: true` — it never implied staticness. `aitask-explore` is
+likewise both user-invocable and templated. The conversion also means the nine
+sub-procedures are rendered into the Codex and OpenCode trees, which the former
+"Source of Truth" redirects never reached.
+
+Argument contract (unchanged by the conversion — the stub forwards ARGUMENTS
+verbatim after stripping an optional `--profile <name>`):
 
 ```
 /aitask-shadow <followed_pane_id> [<source_task_id>]
@@ -89,7 +102,7 @@ free-form ask once it is running decides which capability applies:
   `AskUserQuestion` by laying out the options and *suggesting* an answer the user
   types themselves). Several **structured analyses** each live in a
   read-and-follow sub-procedure with a defined methodology (four review a plan;
-  one diagnoses the followed agent's errors):
+  one reviews the implementation; one diagnoses the followed agent's errors):
   - `plan-explain.md` — explain a plan to a non-expert: surface the technical
     subjects the plan rests on and offer per-subject introduction + motivation
     (multiSelect), then a plain-language walkthrough.
@@ -102,6 +115,15 @@ free-form ask once it is running decides which capability applies:
   - `plan-assumptions.md` — enumerate the plan's assumptions
     (environment / data / behavior / sequencing / intent) and flag the
     load-bearing-and-unverified ones first.
+  - `impl-challenge.md` — adversarially review the **implementation** (the code
+    actually written), at one of four effort tiers (quick / default / advanced /
+    deep) whose angle texts live in `impl-review-angles.md`. It opens with a
+    **review-state assessment**: resolve the plan, resolve the diff as the
+    *composite* of four channels (committed / staged / unstaged / untracked),
+    list the included paths, and state the attribution limit. The assessment
+    **states, never prompts** — see the anti-gating note below. Tier resolution
+    is: a tier named in the user's ask, else the profile's
+    `shadow_impl_review_tier`, else a 4-option prompt.
   - `plan-diagnose-errors.md` — diagnose skill/helper errors the followed agent
     hit (tool-call errors / retries), present candidate concerns for the user to
     pick from, and offer to spin chosen ones into `/aitask-explore` fix-tasks.
@@ -175,6 +197,22 @@ output after the shadow read it reads **stale**.
 - `tmux.shadow_same_window` in `project_config.yaml` (TMUX schema) — `true`
   (default) spawns the shadow as a split in the followed agent's window; `false`
   spawns it in a separate `agent-shadow-*` window.
+- `shadow_impl_review_tier` in an **execution profile**
+  (`aitasks/metadata/profiles/<name>.yaml`) — the default effort tier for
+  `impl-challenge` (`quick` | `default` | `advanced` | `deep`). When set, a
+  generic "review the implementation" runs at that tier and the 4-option tier
+  prompt is skipped; unset keeps the prompt. A tier named in the user's ask
+  overrides it either way. **It only takes effect once `default_profiles.shadow`
+  names that profile** — the shadow resolves its profile through
+  `aitask_skill_resolve_profile.sh shadow` like any other skill, which returns
+  `default` when the mapping is absent, so shipping the key in `fast.yaml`
+  without the mapping leaves it inert. Add it in `project_config.yaml` (team) or
+  `userconfig.yaml` (personal):
+
+  ```yaml
+  default_profiles:
+    shadow: fast
+  ```
 
 ## Phase detection (deferred)
 
@@ -184,3 +222,20 @@ immediately available, and answer any question without needing to know the
 phase. Phase autodetection remains a possible future advisory-only enhancement;
 it must never become a flow step, a prerequisite, or a gate on what the user can
 ask.
+
+**The same principle removed `impl-challenge`'s "too early to review" gate.**
+That gate refused to start a review until the plan carried a
+`## Final Implementation Notes` section, on the premise that its absence meant
+the implementation phase had not finished. The premise was backwards:
+task-workflow writes those notes inside the **"Commit changes"** branch of Step
+8, *after* the Step-8 review prompt — so at the single most common moment a user
+reaches for a shadow implementation review (the followed agent parked at
+"Implementation complete. Please review and test the changes.") the notes are
+absent **by construction**. The gate therefore fired on the normal path and
+charged an abort/proceed confirmation for doing exactly the intended thing. It
+is now a **review-state assessment** that states what it resolved instead of
+asking permission to proceed. Only a genuinely un-reviewable state — all four
+diff channels empty — stops the run, and that is a report, not a prompt. A
+missing plan degrades the run (angles S1/S2 go unavailable) rather than blocking
+it. Anything that inspects the followed agent's state to decide whether the user
+may proceed is the shape this rule forbids.

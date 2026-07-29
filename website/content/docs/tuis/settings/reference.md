@@ -139,6 +139,12 @@ Execution profiles are YAML files with the following keys. All keys are optional
 | `qa_mode` | enum | `ask`, `create_task`, `implement`, `plan_only` | What to do with test proposals in [`/aitask-qa`](../../skills/aitask-qa/) |
 | `qa_run_tests` | bool | `true`, `false` | Whether to run discovered tests during QA analysis |
 
+### Shadow Review
+
+| Key | Type | Options | Description |
+|-----|------|---------|-------------|
+| `shadow_impl_review_tier` | enum | `quick`, `default`, `advanced`, `deep` | Default effort tier for the [shadow's implementation review]({{< relref "/docs/workflows/shadow-agent" >}}#review-the-implementation). Set = a generic "review the implementation" runs at that tier with no prompt; unset = the shadow asks. A tier named in your ask always wins. Takes effect only once `default_profiles.shadow` names this profile |
+
 ### Manual Verification
 
 | Key | Type | Options | Description |
@@ -174,7 +180,7 @@ These keys control behavior for the fully autonomous remote workflow (`/aitask-p
 | `verify_build` | string or list | Shell command(s) run after implementation to verify the build |
 | `test_command` | string or list | Shell command(s) for running project tests — used by [`/aitask-qa`](../../skills/aitask-qa/). Auto-detects if not set |
 | `lint_command` | string or list | Shell command(s) for linting project code — used by [`/aitask-qa`](../../skills/aitask-qa/). Skipped if not set |
-| `default_profiles` | dict | Default execution profile per skill. Maps skill names (`pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`) to profile names (without `.yaml`). Users can override in `userconfig.yaml`. The `--profile` argument overrides both |
+| `default_profiles` | dict | Default execution profile per skill. Maps skill names (`pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`, `shadow`) to profile names (without `.yaml`). Users can override in `userconfig.yaml`. The `--profile` argument overrides both |
 
 ## Model Entry Schema
 

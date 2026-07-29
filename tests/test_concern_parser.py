@@ -879,5 +879,106 @@ class TestProducerRegionRequiredRule(unittest.TestCase):
         self.assertTrue(_states_region_required_rule(with_rule))
 
 
+class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
+    """The same guarantees must survive rendering (t1311).
+
+    The shadow skill is templated: at runtime the agent reads
+    ``.claude/skills/aitask-shadow-<profile>-/``, not the authoring dir every
+    class above inspects. A conditional that dropped the concern-block rules
+    from one profile's render — or a template that accidentally joined an
+    inline sentinel mention into a contiguous block — would leave those classes
+    green while the surface actually executed was broken.
+
+    ``fast`` is the profile whose render strips content (it is the only one
+    setting ``shadow_impl_review_tier``), so it is the weakest surface.
+    """
+
+    PROFILE = "fast"
+    RENDERED_DIR = os.path.join(
+        os.path.dirname(__file__), "..", ".claude", "skills",
+        "aitask-shadow-%s-" % PROFILE,
+    )
+    PRODUCER_MARKER = TestProducerShortRegionRule.PRODUCER_MARKER
+    KNOWN_PRODUCERS = TestProducerShortRegionRule.KNOWN_PRODUCERS
+
+    @classmethod
+    def setUpClass(cls):
+        """Render on demand — rendered dirs are gitignored, so a fresh checkout
+        has none and an existence check alone would skip silently forever."""
+        import subprocess
+
+        repo = os.path.join(os.path.dirname(__file__), "..")
+        proc = subprocess.run(
+            ["./.aitask-scripts/aitask_skill_render.sh", "aitask-shadow",
+             "--profile", cls.PROFILE, "--agent", "claude", "--force"],
+            cwd=repo, capture_output=True, text=True,
+        )
+        cls.rendered_ok = proc.returncode == 0 and os.path.isdir(cls.RENDERED_DIR)
+
+    def setUp(self):
+        if not self.rendered_ok:
+            self.skipTest(
+                "shadow variant could not be rendered (run 'ait setup' to "
+                "install minijinja in the framework venv)"
+            )
+
+    def _rendered_docs(self):
+        import glob
+
+        docs = sorted(glob.glob(os.path.join(self.RENDERED_DIR, "*.md")))
+        self.assertTrue(docs, "no rendered shadow docs found — render failed?")
+        return docs
+
+    def _rendered_producers(self):
+        found = {}
+        for path in self._rendered_docs():
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            if self.PRODUCER_MARKER in text:
+                found[os.path.basename(path)] = text
+        return found
+
+    def test_no_rendered_doc_is_parser_live(self):
+        offenders = []
+        for path in self._rendered_docs():
+            with open(path, encoding="utf-8") as fh:
+                if has_concern_block(fh.read()):
+                    offenders.append(os.path.basename(path))
+        self.assertEqual(
+            offenders,
+            [],
+            "rendered shadow doc(s) embed a parser-live concern block: "
+            + ", ".join(offenders),
+        )
+
+    def test_no_rendered_doc_embeds_any_contiguous_block(self):
+        offenders = []
+        for path in self._rendered_docs():
+            with open(path, encoding="utf-8") as fh:
+                if contains_any_concern_block(fh.read()):
+                    offenders.append(os.path.basename(path))
+        self.assertEqual(
+            offenders,
+            [],
+            "rendered shadow doc(s) embed a contiguous open->items->close block: "
+            + ", ".join(offenders),
+        )
+
+    def test_rendered_producer_set_is_the_known_set(self):
+        """A producer that failed to render is a producer whose rules the agent
+        never reads — indistinguishable, at runtime, from one that has none."""
+        self.assertEqual(sorted(self._rendered_producers()), self.KNOWN_PRODUCERS)
+
+    def test_every_rendered_producer_states_both_region_rules(self):
+        short = [n for n, t in self._rendered_producers().items()
+                 if not _states_short_region_rule(t)]
+        required = [n for n, t in self._rendered_producers().items()
+                    if not _states_region_required_rule(t)]
+        self.assertEqual(short, [], "rendered producer(s) lost the short-region "
+                                    "rule: " + ", ".join(short))
+        self.assertEqual(required, [], "rendered producer(s) lost the "
+                                       "region-is-mandatory rule: " + ", ".join(required))
+
+
 if __name__ == "__main__":
     unittest.main()

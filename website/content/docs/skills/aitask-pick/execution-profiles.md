@@ -37,6 +37,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 | `qa_mode` | string | `"ask"`, `"create_task"`, `"implement"`, or `"plan_only"` — used by [`/aitask-qa`](../../aitask-qa/) to control what happens with test proposals |
 | `qa_run_tests` | bool | `true` runs discovered tests, `false` skips test execution — used by [`/aitask-qa`](../../aitask-qa/) |
 | `qa_tier` | string | `"quick"`, `"standard"`, or `"exhaustive"` — pre-selects the QA analysis depth tier |
+| `shadow_impl_review_tier` | string | `"quick"`, `"default"`, `"advanced"`, or `"deep"` — pre-selects the effort tier for the [shadow's implementation review]({{< relref "/docs/workflows/shadow-agent" >}}#review-the-implementation), skipping its tier prompt. A tier named in your ask still wins. Takes effect only once `default_profiles.shadow` names this profile |
 | `manual_verification_followup_mode` | string | `"ask"` (default) or `"never"` — used by task-workflow Step 8c to control whether the post-implementation manual-verification follow-up prompt fires |
 | `manual_verification_mode` | string | `"ask"` (default), `"manual"`, `"autonomous"`, or `"autonomous_with_plan"` — pre-answers the [Manual Verification](../../workflows/manual-verification/#autonomous-verification) up-front offer to let an AI agent run the checklist. Controls only that offer; the per-item `auto` verb stays available regardless |
 | `risk_evaluation` | bool | `true` runs the [risk-evaluation step](../../workflows/risk-evaluation/) at the end of planning and offers risk-mitigation follow-ups; omit or `false` = disabled (opt-in, off by default) |
@@ -81,7 +82,7 @@ default_profiles:
   pick: default   # overrides team's "fast"
 ```
 
-Valid skill names: `pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`. Values are profile names (without `.yaml` extension) matching the `name` field in profile YAML files.
+Valid skill names: `pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`, `shadow`. Values are profile names (without `.yaml` extension) matching the `name` field in profile YAML files.
 
 You can also configure defaults via the Settings TUI: `ait settings` → Project Config tab → Default Profiles section.
 

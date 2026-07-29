@@ -42,6 +42,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `qa_mode` | string | no | `"ask"` = prompt; `"create_task"` = auto-create follow-up; `"implement"` = implement tests now; `"plan_only"` = export plan only; omit = ask | aitask-qa Step 5 |
 | `qa_run_tests` | bool | no | `true` = run discovered tests; `false` = skip test execution; omit or `true` = run | aitask-qa Step 4 |
 | `qa_tier` | string | no | `"quick"`, `"standard"` (default), `"exhaustive"` | aitask-qa Step 1c |
+| `shadow_impl_review_tier` | string | no | `"quick"`, `"default"`, `"advanced"`, `"deep"` — default effort tier for the shadow's implementation review. Set = a generic "review the implementation" runs at that tier with no prompt; omit = the 4-option tier prompt. A tier named in the user's ask always overrides it. **Inert unless `default_profiles.shadow` names this profile** — the shadow resolves its profile like any other skill, so the shipped `fast.yaml` value does nothing until that mapping exists. | aitask-shadow `impl-challenge.md` Tier selection |
 | `remote_drift_check` | string | no | `"warn"` (default — soft warning when remote is ahead with no plan-overlap, strong warning with overlap), `"skip"` (do nothing), `"strong-only"` (only prompt when overlap exists) | Step 6 checkpoint (post-plan) |
 | `manual_verification_mode` | string | no | `"ask"` (default — prompt fires with autonomous / autonomous_with_plan / skip), `"manual"` (skip prompt; straight to interactive), `"autonomous"` (skip prompt; run autonomous), `"autonomous_with_plan"` (skip prompt; design + approve + execute). Controls only the up-front prompt — the per-item `auto` verb in the interactive loop is always available regardless. | Manual Verification Step 1.5 |
 | `headless` | bool | no | `true` = a fully autonomous profile (no interactive prompts) used where `ait setup` never ran, e.g. Claude Code Web. Marks the profile as one whose `prerender_for_headless` skills ship committed prerenders. Currently only `remote`. | (build-time: `aitask_skill_verify.sh`) |
@@ -153,7 +154,7 @@ default_profiles:
   pick: default   # overrides team's "fast"
 ```
 
-Valid skill names: `pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`.
+Valid skill names: `pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`, `shadow`.
 
 Values are profile names (without `.yaml` extension) matching the `name` field in profile YAML files.
 

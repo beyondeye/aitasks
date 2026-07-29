@@ -1,22 +1,22 @@
 ---
 name: aitask-shadow
-description: Shadow companion for a followed coding agent - reads its captured terminal output and, in one instruction-driven flow, explains it, helps answer an AskUserQuestion, or critically interrogates a plan. Advisory-only. Spawned by minimonitor; not a task-implementation command.
+description: Shadow companion for a followed coding agent — reads its captured terminal output and, in one instruction-driven flow, explains it, helps answer an AskUserQuestion, or critically interrogates a plan. Advisory-only. Spawned by minimonitor; not a task-implementation command.
+user-invocable: true
 ---
 
-## Source of Truth
+This is a profile-aware skill stub. Execute these steps in order, then stop:
 
-This is a Codex CLI skill wrapper. The authoritative skill definition is:
+1. **Resolve active profile.** Parse ARGUMENTS for `--profile <name>`. If
+   found, use that as `<profile>` and remove the `--profile <name>` pair
+   from ARGUMENTS. Otherwise run:
+   `./.aitask-scripts/aitask_skill_resolve_profile.sh shadow`
+   and use the single-line stdout as `<profile>`.
 
-**`.claude/skills/aitask-shadow/SKILL.md`**
+2. **Render per-profile variant.** Run:
+   `./.aitask-scripts/aitask_skill_render.sh aitask-shadow --profile <profile> --agent codex`
+   No-op if the per-profile SKILL.md is already up to date.
 
-Read that file and follow its complete workflow.
-
-**If you are Codex CLI:** For tool mapping and adaptations, read **`.agents/skills/codex_tool_mapping.md`**.
-
-## Arguments
-
-Use the source skill's arguments:
-
-```text
-$aitask-shadow <followed_pane_id> [<source_task_id>]
-```
+3. **Dispatch via Read-and-follow.** Read the file at
+   `.agents/skills/aitask-shadow-<profile>-codex-/SKILL.md` and execute its
+   instructions as if they were this skill, forwarding the (possibly
+   stripped) ARGUMENTS unchanged.

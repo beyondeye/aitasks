@@ -266,7 +266,7 @@ doc_update:
 # The --profile argument on any skill overrides both.
 #
 # Valid skill names: pick, fold, review, pr-import, revert, explore,
-#                    pickrem, pickweb, qa
+#                    pickrem, pickweb, qa, shadow
 #
 # Resolution order:
 #   1. --profile <name> argument (highest priority)

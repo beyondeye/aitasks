@@ -227,7 +227,7 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
         "summary": "Default execution profile for each skill",
         "detail": (
             "Maps skill names to profile names (without .yaml). "
-            "Valid skills: pick, fold, review, pr-import, revert, explore, pickrem, pickweb, qa. "
+            "Valid skills: pick, fold, review, pr-import, revert, explore, pickrem, pickweb, qa, shadow. "
             "Any other key is shown read-only and preserved on save (the profile "
             "resolver reads it, so it must not be dropped) — edit it in the YAML. "
             "Users can override in userconfig.yaml. The --profile argument overrides both."
@@ -237,7 +237,7 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
 
 VALID_PROFILE_SKILLS = {
     "pick", "fold", "review", "pr-import", "revert",
-    "explore", "pickrem", "pickweb", "qa",
+    "explore", "pickrem", "pickweb", "qa", "shadow",
 }
 
 TMUX_CONFIG_SCHEMA: dict[str, dict[str, str]] = {

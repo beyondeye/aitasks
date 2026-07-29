@@ -53,7 +53,7 @@ Ask for one of these specifically, or ask broadly ("review this plan") and the s
 
 ### Review the implementation
 
-Once an agent has *implemented* a task — not just planned it — the shadow can adversarially review the **code that was actually written**. This is the implementation-side companion to challenging a plan. It reads the task and plan (what was supposed to be built), discovers the real change — the task's commits, or the uncommitted working-tree diff when the agent has not committed yet — and the plan's own *Final Implementation Notes*, then reviews at one of four **effort tiers**:
+Once an agent has *implemented* a task — not just planned it — the shadow can adversarially review the **code that was actually written**. This is the implementation-side companion to challenging a plan. It reads the task and plan (what was supposed to be built), discovers the real change — everything the task's commits, the index, the working tree, and brand-new untracked files contain, taken together — and the plan's own *Final Implementation Notes* if they exist yet, then reviews at one of four **effort tiers**:
 
 - **Quick** — a reduced, hunk-only scan of the diff: only correctness bugs visible from the changed lines themselves (plus obvious duplication and dead code), at most 4 findings, no verification pass. A fast sanity check; it runs only when you explicitly ask for it.
 - **Default** — one full-context adversarial pass over the diff, the plan, its risks, and the Final Implementation Notes, along three axes: **implementation flaws** (bugs, missed cases, incorrect logic, or regressions in the code as actually written); **risks left unmitigated** (risks the plan flagged that the landed code does not address — an already-handled risk is reported as informational rather than raised as a problem, never dropped); and **unjustified deviations from the plan** (divergences the Final Implementation Notes do not explain). No findings cap, and a candidate the shadow is merely unsure about is reported rather than discarded.
@@ -64,9 +64,11 @@ Every finding states the problem, why it bites, and a severity, plus a **disposi
 
 **The shadow never silently hides a finding.** Anything left out — by a cap, by a focus you asked for, or by deduplication — is disclosed at the end of the list with a count. The only thing dropped without mention is a candidate the shadow can *refute* by quoting the line that disproves it; "probably not worth mentioning" is not a refutation, and such a finding is reported as informational for you to judge.
 
-Name a tier in your ask — "quick review of the implementation", "advanced review", "deep review". An unqualified "adversarial review" runs the Default tier, and the shadow says so up front and points you at Advanced, so you always know which review you got. A generic "review the implementation" makes the shadow ask which tier you want, recommending Advanced. You can also narrow the focus in free text ("just check the callers", "only plan deviations") at any tier.
+Name a tier in your ask — "quick review of the implementation", "advanced review", "deep review". An unqualified "adversarial review" runs the Default tier, and the shadow says so up front and points you at Advanced, so you always know which review you got. A generic "review the implementation" with no tier wording is where the `shadow_impl_review_tier` profile setting applies: with it set, the shadow runs that tier straight away and announces which profile chose it; without it, the shadow asks which tier you want, recommending Advanced. A tier you name yourself always wins over the profile setting. You can also narrow the focus in free text ("just check the callers", "only plan deviations") at any tier.
 
-If the plan shows the implementation phase has not finished yet (no *Final Implementation Notes*), the shadow warns you it is probably too early to review and lets you stop or proceed against the partial state.
+Before it starts, the shadow tells you what it is about to review. It resolves the change as the **union** of four sources — the task's commits, staged changes, unstaged changes, and brand-new untracked files — rather than stopping at the first one that has content, because an earlier commit plus newer uncommitted edits is a normal shape and the newest work is usually what you most want reviewed. It lists the files it picked up, grouped by source. Uncommitted and untracked changes carry no task id, so if your working tree holds another task's work too, the shadow flags any file the plan does not mention as possibly unrelated, and you can narrow it in free text ("only the monitor files").
+
+Reviewing *before* the agent has committed is the normal case, not a mistake: the *Final Implementation Notes* are written after the Step 8 review prompt, so at the moment you are being asked to review, they do not exist yet. The shadow does not warn you or ask for confirmation about this — it simply says the notes are not written yet and audits deviations against the plan directly. A real deviation it finds in that state is reported as **pending narration** (informational — real, but the agent has not written its explanation yet) unless the deviation is wrong on its own merits. The one thing that stops a review is having genuinely nothing to review: no commits, nothing staged, nothing unstaged, and no untracked files.
 
 ### Diagnose skill or helper errors
 
@@ -96,10 +98,20 @@ The shadow is read-only with respect to the followed agent. It never sends keyst
 
 ## Configuration
 
-Two settings control the shadow, both editable in [`ait settings`](../../tuis/settings/):
+Three settings control the shadow, all editable in [`ait settings`](../../tuis/settings/):
 
 - **Placement** — `tmux.shadow_same_window` (Tmux tab). `true` (the default) splits the shadow into the followed agent's window; `false` opens it in its own window.
 - **Agent and model** — the `shadow` row on the Agent Defaults tab selects which coding agent and model the shadow runs as. You can run the shadow as a lighter, faster model than the agent it watches.
+- **Default implementation-review tier** — `shadow_impl_review_tier` in an [execution profile]({{< relref "/docs/concepts/execution-profiles" >}}) (Profiles tab, "Shadow Review" group). Set it to `quick`, `default`, `advanced`, or `deep` to skip the tier prompt for a generic "review the implementation"; leave it unset to keep being asked.
+
+  The shadow picks its profile the same way every other skill does, so this key only takes effect once you have pointed the `shadow` skill at that profile. Setting the tier alone changes nothing. In `aitasks/metadata/userconfig.yaml` (just you) or `aitasks/metadata/project_config.yaml` (the whole team):
+
+  ```yaml
+  default_profiles:
+    shadow: fast
+  ```
+
+  The shipped `fast` profile already sets `shadow_impl_review_tier: advanced`, so the two lines above are all it takes to get advanced reviews without a prompt.
 
 ---
 

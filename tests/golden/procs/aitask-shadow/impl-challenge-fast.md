@@ -156,24 +156,12 @@ Auto-detect the tier from the user's free-text ask:
   **Default**
 - "advanced" / "standard" / "normal" → **Advanced**
 - "deep" / "thorough" / "max" / "exhaustive" → **Deep**
-{% if profile.shadow_impl_review_tier is defined and profile.shadow_impl_review_tier -%}
 - A generic "review the implementation" with no level or compatibility wording:
-  run **{{ profile.shadow_impl_review_tier }}** — the tier configured by profile
-  '{{ profile.name }}' via `shadow_impl_review_tier`. Announce it and name the
+  run **advanced** — the tier configured by profile
+  'fast' via `shadow_impl_review_tier`. Announce it and name the
   override in the same line: "say 'deep review' (or any other tier) to run a
   different one." Do **NOT** ask.
-{% else -%}
-- A generic "review the implementation" with no level or compatibility wording:
-  ask via `AskUserQuestion` (Header "Review tier") with four options —
-  "Advanced (Recommended) — systematic angle-based review with precision
-  verification, ≤8 findings" / "Default — the legacy three-axis adversarial
-  review, single full-context pass, no cap" / "Quick — reduced hunk-only scan,
-  no verification, ≤4 findings" / "Deep — expanded angles, recall-biased
-  verification, gap sweep, ≤15 findings". This single 4-option question works
-  on every supported agent — Codex CLI's `request_user_input` accepts 4
-  options per question (verified live on v0.144.6; see
-  `.agents/skills/codex_tool_mapping.md`).
-{% endif %}
+
 Nothing routes to Quick implicitly — it runs only on an explicit request.
 
 **Resolution order (apply in this order).** **1.** A tier named in the user's ask

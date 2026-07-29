@@ -101,7 +101,7 @@ default_profiles:
   pick: default   # overrides team's "fast"
 ```
 
-Valid skill names: `pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`.
+Valid skill names: `pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`, `shadow`.
 
 ### Override with `--profile`
 
