@@ -108,6 +108,20 @@ The task cache is refreshed and the task detail dialog appears with the task's m
 
 The agent minimonitor **follows** — the one pinned at the top under `── this agent ──` — is never selectable, so **i** cannot reach it. Press **I** (Shift+i) instead: it always opens the task detail dialog for the followed agent, whichever card happens to be highlighted. If this window has no agent to follow, a warning notification is shown instead.
 
+### How to Pick a Task by Number
+
+When an agent finishes it usually names the tasks it created, or the one to pick next, as bare numbers. Press **p** to act on one without leaving the window:
+
+1. Press **p** and type the task number (`1310`, or `1310_2` for a child task — a leading `t` is accepted)
+2. Press Enter; the task's details open, with **OK** / **Cancel** and a **kill followed agent** checkbox
+3. Confirm, and the usual launch dialog appears so you can pick the coding agent, model, and where the new window goes
+
+The checkbox is unchecked by default. Tick it to close down the agent this minimonitor follows once the new one has launched — the new agent always starts first, so the window teardown can never strand it. Leave it unticked to run both side by side.
+
+Unlike **n**, which only offers the followed task's next *ready sibling*, **p** reaches any task. That includes tasks that are not cleanly pickable: if the target is not `Ready`, or is still waiting on an unfinished dependency, the dialog says so and the confirm button reads **Launch anyway** instead of **OK**. Minimonitor still lets you launch it — it just never does so silently. It also warns when an agent for that task is already running in this session.
+
+If the number does not look like a task id, or no such task exists, a warning notification is shown and nothing is launched.
+
 ### How to Launch a Shadow Agent
 
 Press **e** to launch a *shadow agent* next to the code agent you are following — an advisory companion that reads that agent's terminal output and helps you make sense of it. By default the shadow opens as a new pane in the **same tmux window** as the followed agent, so it sits right beside the work it is watching.
@@ -153,9 +167,9 @@ Select a target and the switcher focuses the existing tmux window running that T
 
 <!-- SCREENSHOT: aitasks_tui_switcher_dialog.svg — the TUI switcher overlay as shown from minimonitor -->
 
-### How to Refresh the Agent List
+### How the Agent List Refreshes
 
-Press **r** to force an immediate refresh of the agent list. Minimonitor also refreshes automatically every `tmux.monitor.refresh_seconds` seconds (default 3), so manual refresh is only needed when you want an immediate update.
+The agent list refreshes on its own every `tmux.monitor.refresh_seconds` seconds (default 3) — there is no manual refresh key. Actions that change the agent set (launching or killing an agent) schedule a refresh themselves, so the list catches up immediately rather than at the next tick.
 
 ### How to Toggle the Multi-Session View
 
@@ -208,11 +222,17 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `s` | Switch tmux focus to the selected agent's window |
 | `i` | Show task info for the selected agent |
 | `I` | Show task info for the followed agent (the one pinned at the top) |
+| `k` | Kill the followed agent (with a confirmation dialog) |
+| `n` | Launch the followed agent's next ready sibling task |
+| `p` | Pick any task by typing its number, then launch it |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
+| `E` | Launch a shadow agent, choosing the code agent and model first |
 | `c` | Pick the shadow's concerns and copy the selected ones to the clipboard |
+| `d` | Cycle the idle-detection compare mode (`≈` ANSI-stripped, `=` strict) |
 | `j` | Open the TUI switcher |
-| `r` | Refresh the agent list |
+| `m` | Switch to the full [monitor]({{< relref "/docs/tuis/monitor" >}}) with this agent focused |
 | `M` | Toggle the multi-session view ON/OFF |
+| `?` | Open the shortcut editor to rebind any of these keys |
 | `q` | Quit minimonitor |
 
 Minimonitor inherits config keys (`tmux.default_session`, `tmux.monitor.refresh_seconds`, `tmux.monitor.idle_threshold_seconds`, `tmux.monitor.capture_lines`, `tmux.monitor.agent_window_prefixes`, `tmux.monitor.tui_window_names`) from the same `project_config.yaml` section monitor uses — see the [monitor reference]({{< relref "/docs/tuis/monitor/reference" >}}#configuration) for the full list.

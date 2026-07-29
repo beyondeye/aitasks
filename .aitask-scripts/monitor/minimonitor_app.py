@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -44,7 +45,7 @@ from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
-    ConcernPickerModal,
+    ConcernPickerModal, TaskNumberInputModal, TaskPickConfirmDialog,
     format_compare_mode_glyph, format_pane_status, format_shadow_glyph,
     format_stale_duration, format_state_dot, is_task_completed,
 )
@@ -91,6 +92,13 @@ class MiniPaneCard(Static, can_focus=True):
 # helpers now live in `monitor/monitor_core.py` and are imported above (t1216_1)
 # — one implementation, shared with the full monitor. `_pane_id_sort_key` is
 # gone: it was a byte-identical copy of `monitor_core._pane_id_num`.
+
+
+# Accepted shapes for a hand-typed task number (t1310): a parent id, or one
+# child level — the same shape `_TASK_ID_RE` extracts from agent window names.
+# Applied BEFORE any lookup, because the id is interpolated into a glob pattern
+# downstream and passed to the pick command.
+_PICK_TASK_ID_RE = re.compile(r"\d+(?:_\d+)?")
 
 
 def _unparsed_msg(count: int) -> str:
@@ -188,6 +196,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("enter", "send_enter_to_sibling", "Send Enter", show=False),
         Binding("k", "kill_own_agent", "Kill", show=False),
         Binding("n", "pick_next_for_own", "Next", show=False),
+        Binding("p", "pick_task_by_number", "Pick task", show=False),
         Binding("e", "launch_shadow", "Shadow", show=False),
         Binding("E", "launch_shadow_pick", "Shadow (pick agent)", show=False),
         Binding("c", "pick_concerns", "Concerns", show=False),
@@ -278,7 +287,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             "d:detect (\u2248 strip, = raw)\n"
             "j:tui switcher  m:full monitor\n"
             "k:kill  n:next  e/E:shadow\n"
-            "c:concerns",
+            "c:concerns  p:pick task",
             id="mini-key-hints",
         )
 
@@ -1049,9 +1058,38 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if snap is None:
             self.notify("Followed agent no longer exists", severity="warning")
             return
+        # Read the status BEFORE the dialog opens: a task completing while
+        # AgentCommandScreen is up must not flip the kill decision.
         current_info = self._task_cache.get_task_info(task_id, sess)
+        is_parent_with_children = "_" not in task_id
+        should_kill = (
+            is_parent_with_children
+            or not current_info
+            or current_info.status == "Done"
+        )
+        self._launch_pick(
+            target_id,
+            self._root_for_snap(snap),
+            pane_id if should_kill else None,
+        )
 
-        target_root = self._root_for_snap(snap)
+    def _launch_pick(
+        self, target_id: str, target_root: Path, kill_pane_id: str | None
+    ) -> None:
+        """Open the launch dialog for ``/aitask-pick <target_id>`` and run it.
+
+        Shared by ``n`` (:meth:`_launch_pick_for_own`, which derives
+        ``kill_pane_id`` from the followed task's status) and ``p``
+        (:meth:`action_pick_task_by_number`, where the user ticks a checkbox) —
+        one implementation so the two keys cannot drift.
+
+        ``kill_pane_id`` is killed only **after** a successful launch. That
+        order is load-bearing: unlike the full monitor, the minimonitor shares
+        the followed agent's window, so killing first would tear this app down
+        before the next agent exists.
+        """
+        if self._monitor is None:
+            return
         full_cmd = resolve_dry_run_command(target_root, "pick", target_id)
         if not full_cmd:
             self.notify(
@@ -1076,7 +1114,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         def on_pick_result(pick_result):
             if isinstance(pick_result, TmuxLaunchConfig):
-                # 1. Launch the next sibling FIRST (new window) so it survives
+                # 1. Launch the incoming agent FIRST (new window) so it survives
                 #    even if killing the current window tears down this app.
                 _, err = launch_in_tmux(screen.full_command, pick_result)
                 if err:
@@ -1085,18 +1123,136 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 if pick_result.new_window:
                     maybe_spawn_minimonitor(pick_result.session, pick_result.window)
                 self.notify(f"Launched agent for t{target_id}")
-                # 2. Kill the current window per the full-monitor heuristic.
-                is_parent_with_children = "_" not in task_id
-                if (
-                    is_parent_with_children
-                    or not current_info
-                    or current_info.status == "Done"
-                ):
-                    self._monitor.kill_agent_pane_smart(pane_id)
+                # 2. Only now kill the outgoing agent, if the caller asked.
+                if kill_pane_id and self._monitor is not None:
+                    self._monitor.kill_agent_pane_smart(kill_pane_id)
                     self._focused_pane_id = None
             self.call_later(self._refresh_data)
 
         self.push_screen(screen, on_pick_result)
+
+    def action_pick_task_by_number(self) -> None:
+        """Pick any task by typing its number, then launch it (t1310).
+
+        The end-of-run case ``n`` cannot serve: an agent reports the follow-up
+        tasks it created, or the one to pick next, as bare numbers — and ``n``
+        only ever resolves the followed pane's next *Ready sibling*. Two
+        dialogs: a number prompt, then the task's details with an opt-in
+        "kill followed agent" checkbox. The launch and the kill both go through
+        the same :meth:`_launch_pick` ``n`` uses.
+        """
+        if self._monitor is None:
+            # Guard at the ENTRY, not at launch: _launch_pick's own
+            # `self._monitor is None` return is silent, so without this the
+            # user would complete both dialogs and see nothing happen.
+            self.notify("Monitor not ready", severity="warning")
+            return
+        snap = self._find_own_agent_snapshot()
+        target_root = self._root_for_snap(snap) if snap else self._project_root
+        sess = snap.pane.session_name if snap else self._session
+
+        self.push_screen(
+            TaskNumberInputModal(narrow=True),
+            callback=lambda raw: self._on_pick_number_entered(
+                raw, snap, target_root, sess
+            ),
+        )
+
+    def _on_pick_number_entered(
+        self, raw: str | None, snap: PaneSnapshot | None, target_root: Path, sess: str
+    ) -> None:
+        """Validate the typed id, resolve it, and open the confirm dialog."""
+        if not raw:
+            return  # cancelled
+        target_id = raw.strip().lstrip("t")
+        if not _PICK_TASK_ID_RE.fullmatch(target_id):
+            # Validate BEFORE resolving: TaskInfoCache._resolve interpolates the
+            # id into a `Path.glob` pattern, so a metacharacter ("12*") would
+            # match an unrelated task file and the dialog would describe a
+            # different task than the one `/aitask-pick <raw>` launches.
+            self.notify(f"Not a task number: {raw.strip()!r}", severity="warning")
+            return
+
+        self._task_cache.invalidate(target_id, sess)
+        info = self._task_cache.get_task_info(target_id, sess)
+        if info is None:
+            self.notify(f"Task t{target_id} not found", severity="warning")
+            return
+        blocking = self._task_cache.blocking_dependencies(info, sess)
+        already = self._find_running_agent_line(target_id, sess)
+
+        kill_label = None
+        if snap is not None:
+            own_id = self._task_cache.get_task_id_for_pane(snap.pane)
+            own_info = None
+            if own_id:
+                # Refresh for the same reason blocking_dependencies does: this
+                # status is what the user reads before ticking a box that closes
+                # the agent down, and a stale "Done" would actively encourage
+                # killing an agent that is still working.
+                self._task_cache.invalidate(own_id, sess)
+                own_info = self._task_cache.get_task_info(own_id, sess)
+            own_status = own_info.status if own_info else "unknown"
+            kill_label = (
+                f"t{own_id or '?'} · {own_status} · {snap.pane.window_name}"
+            )
+        pane_id = snap.pane.pane_id if snap is not None else None
+
+        self.push_screen(
+            TaskPickConfirmDialog(
+                info,
+                kill_target_label=kill_label,
+                already_running=already,
+                blocking=blocking,
+                narrow=True,
+            ),
+            callback=lambda result: self._on_pick_confirmed(
+                result, target_id, target_root, pane_id
+            ),
+        )
+
+    def _find_running_agent_line(self, target_id: str, sess: str) -> str | None:
+        """Warning text when an agent for ``target_id`` is already running.
+
+        Scoped to ``sess``: task ids come from the window name alone, so in
+        multi-session mode an unscoped scan would match an unrelated ``t<id>``
+        in another project. One tmux session maps to exactly one project root,
+        so the session scope IS the project scope — the same rule
+        :meth:`_find_own_agent_snapshot` uses.
+        """
+        for snap in self._snapshots.values():
+            if snap.pane.category != PaneCategory.AGENT:
+                continue
+            if snap.pane.session_name not in ("", sess):
+                continue
+            if self._task_cache.get_task_id_for_pane(snap.pane) != target_id:
+                continue
+            return (
+                f"⚠ t{target_id} is already running in this session, "
+                f"window {snap.pane.window_index}:{snap.pane.window_name}"
+            )
+        return None
+
+    def _on_pick_confirmed(
+        self,
+        result: tuple[bool, bool] | None,
+        target_id: str,
+        target_root: Path,
+        pane_id: str | None,
+    ) -> None:
+        if not result:
+            return
+        _ok, kill = result
+        kill_pane_id = None
+        if kill and pane_id:
+            if pane_id in self._snapshots:
+                kill_pane_id = pane_id
+            else:
+                self.notify(
+                    "Followed agent no longer exists — launching without kill",
+                    severity="warning",
+                )
+        self._launch_pick(target_id, target_root, kill_pane_id)
 
     def action_launch_shadow(self) -> None:
         """Spawn the shadow companion agent for the followed coding agent.

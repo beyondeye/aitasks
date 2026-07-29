@@ -26,7 +26,7 @@ import sys
 import threading
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -2423,6 +2423,12 @@ class TaskInfo:
     # wrong under cross-session / multi-project monitoring. Defaulted so the one
     # keyword-arg test stub keeps constructing TaskInfo unchanged.
     task_file_abs: str = ""
+    # Normalized ``depends`` ids (bare, a leading ``t`` stripped) — the same
+    # normalization ``find_ready_siblings`` applies. Feeds
+    # :meth:`TaskInfoCache.blocking_dependencies`, which the minimonitor's
+    # pick-by-number dialog uses to warn about an unpickable target (t1310).
+    # Defaulted for the same reason as ``task_file_abs``.
+    depends: list[str] = field(default_factory=list)
     # File identity ``(st_mtime_ns, st_size)`` of ``task_file_abs``, sampled
     # BEFORE the content read in ``_resolve`` — never after (t1322). The archive
     # script's rewrites are rename-based (``sed -i``, ``awk > tmp && mv`` in
@@ -2701,6 +2707,50 @@ class TaskInfoCache:
             return None
         return task_id.split("_", 1)[0]
 
+    def blocking_dependencies(
+        self,
+        info: "TaskInfo",
+        session_name: str = "",
+        *,
+        refresh: bool = True,
+    ) -> list[str]:
+        """Unsatisfied ``depends`` entries of an already-resolved task (t1310).
+
+        Takes the resolved :class:`TaskInfo` rather than an id so the caller —
+        which has just invalidated and re-read the target for display — reads
+        each task file exactly once.
+
+        A dependency counts as blocking unless it resolves with status
+        ``Done``. An entry that does not resolve at all is reported as blocking
+        too (fail-closed): a dangling id must be visible, never silently
+        treated as satisfied. Archived dependencies resolve normally —
+        :meth:`_resolve` searches ``aitasks/archived/`` — and carry
+        ``status: Done``, so completed work does not show up as a blocker.
+
+        **Freshness.** ``refresh=True`` invalidates each dependency before
+        resolving it. Since t1322 the cache is identity-keyed, so a dependency
+        flipping ``Ready`` → ``Done`` while a long-lived minimonitor is open is
+        already picked up by ``get_task_info`` on its own — ``refresh=True`` is
+        no longer what prevents a stale "still blocking" verdict. It is retained
+        because it still does two things the identity gate cannot: it forces an
+        immediate retry of a *negative* entry whose backoff is not yet due, and
+        it re-decides ``_resolve``'s active-beats-archived precedence. This
+        matches :meth:`find_ready_siblings`, which recomputes its
+        ``blocking_ids`` by reading every sibling file from disk on each call.
+
+        ``refresh=False`` therefore no longer serves stale content; it only
+        skips the forced invalidation. Tests assert that distinction by counting
+        ``_resolve`` calls over an *unchanged* file, not by rewriting one.
+        """
+        blocking: list[str] = []
+        for dep in info.depends:
+            if refresh:
+                self.invalidate(dep, session_name)
+            dep_info = self.get_task_info(dep, session_name)
+            if dep_info is None or dep_info.status != "Done":
+                blocking.append(dep)
+        return blocking
+
     def find_next_sibling(
         self, task_id: str, session_name: str = ""
     ) -> tuple[str, str] | None:
@@ -2958,5 +3008,10 @@ class TaskInfoCache:
             body=body,
             plan_content=plan_content,
             task_file_abs=str(task_path),
+            # Same normalization as find_ready_siblings: "t42" / "42" / 42 all
+            # become the bare "42".
+            depends=[
+                str(d).lstrip("t") for d in (metadata.get("depends", []) or [])
+            ],
             file_identity=identity,
         )

@@ -31,7 +31,9 @@ from typing import TYPE_CHECKING
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, VerticalScroll  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
-from textual.widgets import Button, Label, Markdown, Static  # noqa: E402
+from textual.widgets import (  # noqa: E402
+    Button, Checkbox, Input, Label, Markdown, Static,
+)
 from textual.app import ComposeResult  # noqa: E402
 from rich.text import Text  # noqa: E402
 from rich.markup import escape  # noqa: E402
@@ -210,23 +212,33 @@ class TaskDetailDialog(ModalScreen):
         self._info = info
         self._showing_plan = False
 
-    def compose(self) -> ComposeResult:
+    def _detail_widgets(self) -> ComposeResult:
+        """The header / meta / body triple, without the dialog container or the
+        footer. Subclasses (``TaskPickConfirmDialog``, t1310) reuse it so
+        ``action_toggle_plan`` — which queries ``#task-detail-header`` and
+        ``#task-detail-scroll`` — is inherited verbatim.
+        """
         info = self._info
+        yield Static(
+            f"[bold]t{info.task_id}: {info.title}[/]",
+            id="task-detail-header",
+        )
+        yield Static(
+            f"Priority: {info.priority}  Effort: {info.effort}  "
+            f"Type: {info.issue_type}  Status: {info.status}",
+            id="task-detail-meta",
+        )
+        yield VerticalScroll(
+            Markdown(info.body or "*No content*"),
+            id="task-detail-scroll",
+        )
+
+    def compose(self) -> ComposeResult:
         with Container(id="task-detail-dialog"):
-            yield Static(
-                f"[bold]t{info.task_id}: {info.title}[/]",
-                id="task-detail-header",
+            yield from self._detail_widgets()
+            plan_hint = (
+                "  [dim]p: switch plan/task[/]" if self._info.plan_content else ""
             )
-            yield Static(
-                f"Priority: {info.priority}  Effort: {info.effort}  "
-                f"Type: {info.issue_type}  Status: {info.status}",
-                id="task-detail-meta",
-            )
-            yield VerticalScroll(
-                Markdown(info.body or "*No content*"),
-                id="task-detail-scroll",
-            )
-            plan_hint = "  [dim]p: switch plan/task[/]" if info.plan_content else ""
             yield Static(
                 f"[dim]q/Esc: close[/]{plan_hint}",
                 id="task-detail-footer",
@@ -250,6 +262,237 @@ class TaskDetailDialog(ModalScreen):
 
         header = self.query_one("#task-detail-header", Static)
         header.update(f"[bold]t{self._info.task_id}: {self._info.title}[/] [{label}]")
+
+
+class TaskNumberInputModal(ModalScreen):
+    """Prompt for a task number to pick (t1310).
+
+    The first TUI surface in this repo that takes a *typed* task id rather than
+    offering a list — the end-of-run "created t1234 / pick t1235 next" case the
+    minimonitor's ``p`` serves. Dismisses the raw string (validation and
+    normalization belong to the caller, which owns the downstream lookup) or
+    ``None`` on cancel.
+    """
+
+    BINDINGS = [Binding("escape", "dismiss_dialog", "Close", show=False)]
+
+    DEFAULT_CSS = """
+    TaskNumberInputModal { align: center middle; }
+    #task-num-dialog {
+        width: 60%;
+        min-width: 28;
+        height: auto;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #task-num-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
+    #task-num-input { margin: 0 0 1 0; }
+    #task-num-help { color: $text-muted; margin: 0 0 1 0; }
+    #task-num-buttons { width: 100%; height: auto; layout: horizontal; }
+    #task-num-buttons Button { margin: 0 1; }
+
+    /* Narrow variant (minimonitor companion pane, ~40 cols): widen the dialog
+       and stack the buttons, matching NextSiblingDialog.narrow. */
+    TaskNumberInputModal.narrow #task-num-dialog { width: 90%; min-width: 30; }
+    TaskNumberInputModal.narrow #task-num-buttons { layout: vertical; height: auto; }
+    TaskNumberInputModal.narrow #task-num-buttons Button {
+        width: 1fr;
+        margin: 0 0 1 0;
+    }
+    """
+
+    def __init__(self, narrow: bool = False) -> None:
+        super().__init__()
+        self._narrow = narrow
+
+    def compose(self) -> ComposeResult:
+        if self._narrow:
+            self.add_class("narrow")
+        with Container(id="task-num-dialog"):
+            yield Static("[bold]Pick Task by Number[/]", id="task-num-header")
+            yield Input(placeholder="e.g. 1310 or 1310_2", id="task-num-input")
+            yield Static(
+                "[dim]\\[Enter/OK] continue  \\[Esc] cancel[/]",
+                id="task-num-help",
+            )
+            with Container(id="task-num-buttons"):
+                yield Button("OK", variant="primary", id="btn-num-ok")
+                yield Button("Cancel", variant="default", id="btn-num-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#task-num-input", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.dismiss(event.value)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-num-ok":
+            self.dismiss(self.query_one("#task-num-input", Input).value)
+        else:
+            self.dismiss(None)
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(None)
+
+
+class TaskPickConfirmDialog(TaskDetailDialog):
+    """Task detail plus a launch confirmation and an opt-in kill (t1310).
+
+    A *subclass* rather than a flag on ``TaskDetailDialog`` so the read-only
+    ``i`` / ``I`` surface stays unchanged by construction: the base keeps its
+    exact bindings, CSS, auto-focus, compose order and ``None`` dismissal, and
+    its two call sites are untouched. Textual type selectors match base classes,
+    so the base's ``#task-detail-dialog`` rules still apply here and only the
+    confirm row and the ``.narrow`` variant live below.
+
+    Dismisses ``(True, kill_followed_agent)`` on confirm, ``None`` on cancel.
+    """
+
+    DEFAULT_CSS = """
+    /* Leave room for the confirm row on a short pane; the body scroll gives up
+       space first but never disappears entirely. */
+    TaskPickConfirmDialog #task-detail-dialog { height: 90%; }
+    TaskPickConfirmDialog #task-detail-scroll { min-height: 1; }
+    /* Docked, not in normal flow: the minimonitor pane is as short as the tmux
+       window, and a flow-laid confirm row silently overflows *below* the dialog
+       at ~20 rows — the buttons then render off-screen entirely. Docking makes
+       "the controls are inside the dialog" structural: the body scroll is what
+       gives up space, down to a single row. */
+    TaskPickConfirmDialog #pick-confirm-row {
+        dock: bottom;
+        width: 100%;
+        height: auto;
+        margin: 1 0 0 0;
+    }
+    TaskPickConfirmDialog #task-detail-footer { dock: bottom; }
+    #pick-eligibility { color: $warning; text-style: bold; margin: 0 0 1 0; }
+    #pick-running { color: $warning; margin: 0 0 1 0; }
+    #pick-kill-detail { color: $text-muted; text-style: bold; margin: 0 0 1 0; }
+    #pick-buttons { width: 100%; height: auto; layout: horizontal; }
+    #pick-buttons Button { margin: 0 1; }
+
+    /* Narrow variant (minimonitor companion pane, ~40 cols): two buttons plus
+       a checkbox cannot share a row, so stack them — and drop the `tall`
+       borders, which cost two rows per control in a pane that has none to
+       spare. */
+    TaskPickConfirmDialog.narrow #task-detail-dialog { width: 90%; min-width: 30; }
+    TaskPickConfirmDialog.narrow #pick-buttons { layout: vertical; height: auto; }
+    TaskPickConfirmDialog.narrow #pick-buttons Button {
+        width: 1fr;
+        height: 1;
+        border: none;
+        margin: 0 0 1 0;
+    }
+    TaskPickConfirmDialog.narrow #pick-kill {
+        width: 1fr;
+        height: 1;
+        border: none;
+    }
+    """
+
+    def __init__(
+        self,
+        info: TaskInfo,
+        *,
+        kill_target_label: str | None = None,
+        already_running: str | None = None,
+        blocking: list[str] | None = None,
+        narrow: bool = False,
+    ) -> None:
+        super().__init__(info)
+        self._kill_target_label = kill_target_label
+        self._already_running = already_running
+        self._blocking = list(blocking or [])
+        self._narrow = narrow
+
+    @property
+    def has_eligibility_warning(self) -> bool:
+        """True when the target is not cleanly pickable — drives the OK label."""
+        return self._info.status != "Ready" or bool(self._blocking)
+
+    def _kill_detail_text(self, kill: bool) -> str:
+        """State of the kill checkbox, in words.
+
+        Textual's ``Checkbox`` draws the same ``X`` slider glyph whether or not
+        it is ticked — only the colour differs. That is too weak a signal for a
+        control that closes down a running agent, especially in a ~40-column
+        pane, so the state is restated here in text.
+        """
+        verb = "KILLS" if kill else "keeps"
+        return f"{verb} {self._kill_target_label}"
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id != "pick-kill":
+            return
+        self.query_one("#pick-kill-detail", Static).update(
+            self._kill_detail_text(event.value)
+        )
+
+    def _eligibility_lines(self) -> list[str]:
+        lines: list[str] = []
+        if self._info.status != "Ready":
+            status = self._info.status or "(no status)"
+            lines.append(f"⚠ t{self._info.task_id} is {status} — not Ready to pick")
+        if self._blocking:
+            blockers = " ".join(f"t{b}" for b in self._blocking)
+            lines.append(f"⛔ blocked by {blockers}")
+        return lines
+
+    def compose(self) -> ComposeResult:
+        if self._narrow:
+            self.add_class("narrow")
+        with Container(id="task-detail-dialog"):
+            yield from self._detail_widgets()
+            with Container(id="pick-confirm-row"):
+                eligibility = self._eligibility_lines()
+                if eligibility:
+                    yield Static("\n".join(eligibility), id="pick-eligibility")
+                if self._already_running:
+                    yield Static(self._already_running, id="pick-running")
+                if self._kill_target_label is not None:
+                    # Short label on purpose: ToggleButton is `text-wrap: nowrap;
+                    # text-overflow: ellipsis`, so a long one is silently clipped
+                    # *inside* the dialog — invisible to a region-fit test. The
+                    # detail goes in its own wrapping Static below.
+                    yield Checkbox("kill followed agent", value=False, id="pick-kill")
+                    yield Static(
+                        self._kill_detail_text(False), id="pick-kill-detail"
+                    )
+                with Container(id="pick-buttons"):
+                    if self.has_eligibility_warning:
+                        yield Button(
+                            "Launch anyway", variant="warning", id="btn-pick-ok"
+                        )
+                    else:
+                        yield Button("OK", variant="primary", id="btn-pick-ok")
+                    yield Button("Cancel", variant="default", id="btn-pick-cancel")
+            plan_hint = (
+                "  [dim]p: switch plan/task[/]" if self._info.plan_content else ""
+            )
+            yield Static(
+                f"[dim]q/Esc: cancel[/]{plan_hint}",
+                id="task-detail-footer",
+            )
+
+    def on_mount(self) -> None:
+        # Confirm-mode only. The base's default AUTO_FOCUS lands on the
+        # focusable body scroll, which is right for i/I (arrows scroll the
+        # body) and must not change; here the primary action should be armed.
+        self.query_one("#btn-pick-ok", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "btn-pick-ok":
+            self.dismiss(None)
+            return
+        kill = False
+        if self._kill_target_label is not None:
+            kill = self.query_one("#pick-kill", Checkbox).value
+        self.dismiss((True, kill))
+
+    def action_dismiss_dialog(self) -> None:
+        # Inherited q / Esc must mean cancel, never a truthy result.
+        self.dismiss(None)
 
 
 class KillConfirmDialog(ModalScreen):
