@@ -30,6 +30,7 @@ applink_security
 archiveformat
 auto-update
 bash_scripts
+board
 brainstom_modules
 brainstorm_detailer
 brainstorm_explore
