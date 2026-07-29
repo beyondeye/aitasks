@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui, monitor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-07-29 11:05
-updated_at: 2026-07-29 11:46
+updated_at: 2026-07-29 13:13
+completed_at: 2026-07-29 13:13
 ---
 
 ## Problem
@@ -184,3 +185,14 @@ Read `aidocs/framework/tui_conventions.md` and
 > **✅ gate:plan_approved** run=2026-07-29T08:46:03Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-29T10:09:06Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-29T10:13:41Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:fd9cf85dcf1d4e67
+
+> **✅ gate:risk_evaluated** run=2026-07-29T10:13:41Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1322/risk_evaluated_2026-07-29T10:13:41Z-risk_evaluated-a1.log`
