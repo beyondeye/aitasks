@@ -4563,7 +4563,7 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
             else:
                 error = result.stderr.strip() or result.stdout.strip()
                 self.app.notify(f"Revert failed: {error}", severity="error")
-        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
             self.app.notify(f"Revert failed: {e}", severity="error")
 
     @on(Button.Pressed, "#btn_close")
@@ -4735,19 +4735,25 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
     def _do_lock(self, task_id: str, email: str):
         """Run lock subprocess in a thread worker."""
         try:
-            result = subprocess.run(
-                ["./.aitask-scripts/aitask_lock.sh", "--lock", task_id, "--email", email],
-                capture_output=True, text=True, timeout=15
-            )
-            self.app.call_from_thread(self.app.pop_screen)  # dismiss LoadingOverlay
+            try:
+                result = subprocess.run(
+                    ["./.aitask-scripts/aitask_lock.sh", "--lock", task_id, "--email", email],
+                    capture_output=True, text=True, timeout=15
+                )
+            finally:
+                # Dismiss LoadingOverlay. Scoped to the subprocess call, not the
+                # whole body: pop_screen removes the TOP screen, so it must run
+                # before any later push (see _do_unlock's ResetTaskConfirmScreen).
+                # `finally` — not the `except` below — is what keeps the overlay
+                # off-screen for an exception type this handler does not name.
+                self.app.call_from_thread(self.app.pop_screen)
             if result.returncode == 0:
                 self.app.call_from_thread(self.app.notify, f"Locked t{task_id}", severity="information")
                 self.app.call_from_thread(self.dismiss, "locked")
             else:
                 error = result.stderr.strip() or result.stdout.strip()
                 self.app.call_from_thread(self.app.notify, f"Lock failed: {error}", severity="error")
-        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            self.app.call_from_thread(self.app.pop_screen)  # dismiss LoadingOverlay
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
             self.app.call_from_thread(self.app.notify, f"Lock failed: {e}", severity="error")
 
     @on(Button.Pressed, "#btn_unlock")
@@ -4783,11 +4789,17 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
     def _do_unlock(self, task_id: str):
         """Run unlock subprocess in a thread worker."""
         try:
-            result = subprocess.run(
-                ["./.aitask-scripts/aitask_lock.sh", "--unlock", task_id],
-                capture_output=True, text=True, timeout=15
-            )
-            self.app.call_from_thread(self.app.pop_screen)  # dismiss LoadingOverlay
+            try:
+                result = subprocess.run(
+                    ["./.aitask-scripts/aitask_lock.sh", "--unlock", task_id],
+                    capture_output=True, text=True, timeout=15
+                )
+            finally:
+                # Dismiss LoadingOverlay before the ResetTaskConfirmScreen push
+                # below — pop_screen removes the TOP screen, so a body-wide
+                # `finally` here would pop the confirm dialog instead. See
+                # _do_lock for the full rationale.
+                self.app.call_from_thread(self.app.pop_screen)
             if result.returncode == 0:
                 self.app.call_from_thread(self.app.notify, f"Unlocked t{task_id}", severity="information")
                 meta = self.task_data.metadata
@@ -4813,8 +4825,7 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
             else:
                 error = result.stderr.strip() or result.stdout.strip()
                 self.app.call_from_thread(self.app.notify, f"Unlock failed: {error}", severity="error")
-        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            self.app.call_from_thread(self.app.pop_screen)  # dismiss LoadingOverlay
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
             self.app.call_from_thread(self.app.notify, f"Unlock failed: {e}", severity="error")
 
     def action_close_modal(self):
