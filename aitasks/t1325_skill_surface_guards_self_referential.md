@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1311
+implemented_with: claudecode/opus5
 created_at: 2026-07-29 11:36
-updated_at: 2026-07-29 12:05
+updated_at: 2026-07-29 19:13
 ---
 
 ## Origin
@@ -72,3 +73,8 @@ test changes beyond the mitigation's remit).
 
 - t1317 (`templated_skill_dispatch_smoke`) — created the four-surface contract
   test and fixed the `aitask-trail` instance.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-29T16:13:30Z status=pass attempt=1 type=human
