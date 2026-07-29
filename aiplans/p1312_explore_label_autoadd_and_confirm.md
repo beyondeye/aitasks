@@ -452,7 +452,7 @@ task).
 - Whole-file `sort -u` rewrite on the data branch = merge-conflict surface,
   and concurrent writers can last-writer-wins a label away (atomic `mv` fixes
   torn reads, not lost updates; a registry lock would drop labels instead —
-  worse) · severity: medium · → mitigation: `labels_txt_concurrent_append`
+  worse) · severity: medium · → mitigation: t1337 (`labels_txt_concurrent_append`)
   (**confirmed at review**: each `add_label_to_file` rebuilds from its own
   snapshot and `mv`s, so the later writer discards the earlier one's new label.
   The mitigation task is created at task-workflow **Step 8d**, in this same
@@ -463,15 +463,15 @@ task).
 
 - Normalization matching misses the typo class that dominates actual drift
   (`brainstom_modules`, `skill_optiomizations`) · severity: medium ·
-  → mitigation: `label_fuzzy_match_typos`
+  → mitigation: t1336 (`label_fuzzy_match_typos`)
 - `existing_only` on headless remote silently drops proposed labels if the
   drop report isn't surfaced · severity: low · → mitigation: none (the arm is
   specified to report drops; render test pins the arm)
 
 ### Planned mitigations
 - timing: before | name: characterize_batch_label_frontmatter | created: t1321 | type: test | priority: medium | effort: low | addresses: code-health — rewriting BATCH_LABELS changes emitted frontmatter | desc: Characterization test pinning the current `--batch --labels` frontmatter output across the parent, child and draft creation paths, so the sanitize-and-rewrite change lands against a known baseline.
-- timing: after | name: label_fuzzy_match_typos | type: enhancement | priority: medium | effort: low | addresses: goal-achievement — normalization misses the typo class | desc: Add edit-distance near-matching to `aitask_labels.sh classify` so typo variants (brainstom_modules, skill_optiomizations, sanboxing) are suggested against existing labels, not just separator/case variants.
-- timing: after | name: labels_txt_concurrent_append | type: enhancement | priority: low | effort: low | addresses: code-health — whole-file `sort -u` rewrite on the data branch | desc: Make `labels.txt` appends conflict-tolerant (append-only write with dedupe at read time, or a git merge driver) instead of rewriting the whole file on every new label.
+- timing: after | name: label_fuzzy_match_typos | created: t1336 | type: enhancement | priority: medium | effort: low | addresses: goal-achievement — normalization misses the typo class | desc: Add edit-distance near-matching to `aitask_labels.sh classify` so typo variants (brainstom_modules, skill_optiomizations, sanboxing) are suggested against existing labels, not just separator/case variants.
+- timing: after | name: labels_txt_concurrent_append | created: t1337 | type: enhancement | priority: low | effort: low | addresses: code-health — whole-file `sort -u` rewrite on the data branch | desc: Make `labels.txt` appends conflict-tolerant (append-only write with dedupe at read time, or a git merge driver) instead of rewriting the whole file on every new label.
 
 > **Sequencing consequence of the confirmed `before` mitigation:** per Step 7,
 > `characterize_batch_label_frontmatter` is created as an independent task that
