@@ -7,7 +7,10 @@ set -e
 
 TASK_DIR="aitasks"
 ARCHIVED_DIR="aitasks/archived"
-LABELS_FILE="aitasks/metadata/labels.txt"
+# Consumed by labels_file_path() in lib/task_utils.sh (indirectly — no local
+# reference, hence the disable).
+# shellcheck disable=SC2034
+LABELS_FILE="${TASK_DIR}/metadata/labels.txt"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
@@ -48,19 +51,8 @@ utc_to_local() {
     portable_date -d "$utc_ts" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$utc_ts"
 }
 
-ensure_labels_file() {
-    local dir
-    dir=$(dirname "$LABELS_FILE")
-    mkdir -p "$dir"
-    touch "$LABELS_FILE"
-}
-
-get_existing_labels() {
-    ensure_labels_file
-    if [[ -s "$LABELS_FILE" ]]; then
-        sort -u "$LABELS_FILE"
-    fi
-}
+# ensure_labels_file / get_existing_labels / add_label_to_file / sanitize_label
+# live in lib/task_utils.sh — do not re-define them here.
 
 # Count +/- diff lines in issue body text (for primary contributor selection)
 # Counts lines starting with + or - (excluding +++ and --- diff headers)
@@ -977,13 +969,9 @@ interactive_import_issue() {
             read -erp "Enter new label: " new_label < /dev/tty
             if [[ -n "$new_label" ]]; then
                 local label
-                label=$(echo "$new_label" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g') || true
+                label=$(sanitize_label "$new_label") || true
                 if [[ -n "$label" ]]; then
-                    ensure_labels_file
-                    if ! grep -qFx "$label" "$LABELS_FILE" 2>/dev/null; then
-                        echo "$label" >> "$LABELS_FILE"
-                        sort -u "$LABELS_FILE" -o "$LABELS_FILE"
-                    fi
+                    add_label_to_file "$label"
                     selected_labels+=("$label")
                     success "  Added: $label"
                 fi

@@ -92,7 +92,12 @@ Batch mode (for automation):
                          its parent; else ID itself). Flattened — never chains.
                          Mutually exclusive with --anchor; rejected with --parent.
   --issue URL            Issue tracker URL (e.g., GitHub issue URL)
-  --labels, -l LABELS    Comma-separated labels
+  --labels, -l LABELS    Comma-separated labels. Each is sanitized (lowercased;
+                         invalid chars -> "_"); a label that sanitizes to
+                         nothing is dropped with a warning. Any label not yet
+                         in aitasks/metadata/labels.txt is added there and
+                         committed together with the task. Drafts register
+                         their vocabulary at finalize time, not at draft time.
   --gates GATES          Comma-separated declared gate names (see
                          aitasks/metadata/gates.yaml; optional)
   --also-blocks-dependents GATES
@@ -749,6 +754,23 @@ enforce_manual_verification_gate_invariant() {
     info "manual_verification: dropped unreachable gate(s) from finalized draft: ${stripped#STRIPPED:}"
 }
 
+# Register a finalized task's labels in the vocabulary. Drafts live in the
+# gitignored aitasks/new/ and are never committed, so the vocabulary write is
+# deferred to finalize time — otherwise an abandoned draft would leak its labels
+# into the worktree permanently. The labels themselves were already normalized
+# when the draft was created (run_batch_mode).
+_register_task_labels() {
+    local filepath="$1"
+    local raw csv
+    [[ -f "$filepath" ]] || return 0
+    raw=$(grep -m1 '^labels:' "$filepath" 2>/dev/null | sed 's/^labels: *//' || true)
+    [[ -z "$raw" ]] && return 0
+    csv=$(parse_yaml_list "$raw")
+    [[ -z "$csv" ]] && return 0
+    add_labels_csv_to_file "$csv"
+    return 0
+}
+
 finalize_draft() {
     local draft_path="$1"
     local silent="${2:-false}"
@@ -780,6 +802,7 @@ finalize_draft() {
         # Copy content, remove draft-specific fields
         sed '/^draft: true$/d; /^parent: .*$/d' "$draft_path" > "$filepath"
         enforce_manual_verification_gate_invariant "$filepath"
+        _register_task_labels "$filepath"
 
         # Update parent's children_to_implement
         update_parent_children_to_implement "$parent_num" "$task_id"
@@ -815,6 +838,7 @@ finalize_draft() {
         # Copy content, remove draft field
         sed '/^draft: true$/d' "$draft_path" > "$filepath"
         enforce_manual_verification_gate_invariant "$filepath"
+        _register_task_labels "$filepath"
 
         rm -f "$draft_path"
 
@@ -1046,7 +1070,11 @@ select_xdeprepo() {
     echo "$selected"
 }
 
-LABELS_FILE="aitasks/metadata/labels.txt"
+# Consumed by labels_file_path() in lib/task_utils.sh. Keep the assignment: the
+# task_git staging sites below reference "$LABELS_FILE" directly, and under
+# `set -e` (without -u) an unset variable would expand to `task_git add ""`,
+# whose `|| true` would silently stop committing the vocabulary.
+LABELS_FILE="${TASK_DIR}/metadata/labels.txt"
 EMAILS_FILE="aitasks/metadata/emails.txt"
 TASK_TYPES_FILE="aitasks/metadata/task_types.txt"
 
@@ -1066,36 +1094,8 @@ add_email_to_file() {
     fi
 }
 
-sanitize_label() {
-    local label="$1"
-    # Convert to lowercase, keep only valid chars (a-z, 0-9, hyphen, underscore)
-    echo "$label" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g'
-}
-
-ensure_labels_file() {
-    local dir
-    dir=$(dirname "$LABELS_FILE")
-    mkdir -p "$dir"
-    touch "$LABELS_FILE"
-}
-
-get_existing_labels() {
-    ensure_labels_file
-    if [[ -s "$LABELS_FILE" ]]; then
-        sort -u "$LABELS_FILE"
-    fi
-}
-
-add_label_to_file() {
-    local label="$1"
-    ensure_labels_file
-    # Add label if not already present
-    if ! grep -qFx "$label" "$LABELS_FILE" 2>/dev/null; then
-        echo "$label" >> "$LABELS_FILE"
-        # Keep file sorted
-        sort -u "$LABELS_FILE" -o "$LABELS_FILE"
-    fi
-}
+# sanitize_label / ensure_labels_file / get_existing_labels / add_label_to_file
+# live in lib/task_utils.sh — do not re-define them here.
 
 # --- Task Types Management ---
 
@@ -1211,15 +1211,9 @@ get_labels_interactive() {
                 local new_label
                 read -erp "Enter new label: " new_label
                 if [[ -n "$new_label" ]]; then
-                    # Sanitize the label using sed (more portable than tr -cd with hyphen)
-                    label=$(echo "$new_label" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g') || true
+                    label=$(sanitize_label "$new_label") || true
                     if [[ -n "$label" ]]; then
-                        # Add to labels file
-                        ensure_labels_file
-                        if ! grep -qFx "$label" "$LABELS_FILE" 2>/dev/null; then
-                            echo "$label" >> "$LABELS_FILE"
-                            sort -u "$LABELS_FILE" -o "$LABELS_FILE"
-                        fi
+                        add_label_to_file "$label"
                     fi
                 fi
             else
@@ -1998,10 +1992,34 @@ run_batch_mode() {
     task_name=$(sanitize_name "$BATCH_NAME")
     [[ -z "$task_name" ]] && task_name="unnamed_task"
 
+    # Normalize --labels before anything is written, so the task frontmatter and
+    # aitasks/metadata/labels.txt can never disagree. Pure (no file write): an
+    # abandoned draft must not leave its labels behind in the vocabulary.
+    # Policy for tokens that sanitize to nothing (e.g. "!!!") is warn-and-drop:
+    # exit 0, a stderr warning, and the label simply does not appear.
+    if [[ -n "$BATCH_LABELS" ]]; then
+        local _label_dropped
+        _label_dropped=$(normalize_labels_csv "$BATCH_LABELS" 2>&1 >/dev/null)
+        BATCH_LABELS=$(normalize_labels_csv "$BATCH_LABELS" 2>/dev/null)
+        [[ -n "$_label_dropped" ]] && warn "dropped invalid label(s): ${_label_dropped#DROPPED:}"
+    fi
+
     local filepath
     local task_id
 
     if [[ "$BATCH_COMMIT" == true ]]; then
+        # Register new labels in the vocabulary BEFORE the parent/child split, so
+        # the existing `task_git add "$LABELS_FILE"` at each commit site carries
+        # labels.txt in the very same task-creation commit.
+        # >&2 is load-bearing: info() writes to stdout, and --silent promises
+        # exactly one stdout line that callers parse.
+        if [[ -n "$BATCH_LABELS" ]]; then
+            add_labels_csv_to_file "$BATCH_LABELS"
+            if (( ${#AIT_LABELS_ADDED[@]} > 0 )); then
+                info "Added to label vocabulary: $(IFS=','; echo "${AIT_LABELS_ADDED[*]}")" >&2
+            fi
+        fi
+
         # --commit: auto-finalize immediately (claims real ID, requires network)
         if [[ -n "$BATCH_PARENT" ]]; then
             # Child task: create directly (parent ID is already unique)

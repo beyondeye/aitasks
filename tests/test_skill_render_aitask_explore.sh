@@ -12,6 +12,10 @@
 #   2. Profile-conditional sanity: all live profiles have explore_auto_continue
 #      false or undefined, so the AskUserQuestion branch must fire and the
 #      auto-continue branch must NOT fire under any of them.
+#   2b. explore_label_confirm (t1312) arms: ask for default/fast, existing_only
+#       (and NO label AskUserQuestion) for the headless `remote` profile, plus
+#       the `auto` arm driven from a scratch profile — no committed profile
+#       selects it, so without the scratch render that arm is untested.
 #   3. No Jinja markers leak into any rendered entry-point.
 #   3b. Rendered body must NOT re-resolve profile (t777_26 forbidden tokens).
 #   4. Stub markers present on all 3 stub files (canonical body fingerprint
@@ -89,6 +93,63 @@ for profile in "${PROFILES[@]}"; do
         'Task created successfully. How would you like to proceed?' "$rendered"
     assert_not_contains "$profile/claude: no auto-continue branch" \
         "': continuing to implementation" "$rendered"
+done
+
+# === Test 2b: explore_label_confirm arms (t1312) ===
+#
+# The label-confirmation step has three arms and only two are reachable from
+# the committed profiles (`ask` for default/fast, `existing_only` for remote).
+# The `auto` arm is driven from a scratch profile written to the test's temp
+# dir — rendering the template against it directly, the same mechanism Test 1
+# uses. The scratch file never enters aitasks/metadata/.
+
+echo "=== Test 2b: explore_label_confirm arms ==="
+
+LABEL_PROMPT_NEEDLE='How should the labels be settled?'
+
+for profile in default fast; do
+    rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    assert_contains "$profile: label-confirm ask arm fires" \
+        "$LABEL_PROMPT_NEEDLE" "$rendered"
+    assert_contains "$profile: ask arm carries the classification-in-question rule" \
+        'MUST be carried inside the question text' "$rendered"
+    assert_not_contains "$profile: existing_only arm does NOT fire" \
+        'never mint a new label' "$rendered"
+done
+
+remote_rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/remote.yaml" claude 2>&1)"
+assert_not_contains "remote: NO label AskUserQuestion at all" \
+    "$LABEL_PROMPT_NEEDLE" "$remote_rendered"
+assert_not_contains "remote: no label Header line" \
+    '- Header: "Labels"' "$remote_rendered"
+assert_contains "remote: existing_only arm fires" \
+    'never mint a new label' "$remote_rendered"
+assert_contains "remote: existing_only arm reports the dropped labels" \
+    'report the dropped labels' "$remote_rendered"
+
+SCRATCH_DIR="$(mktemp -d)"
+trap 'rm -rf "$SCRATCH_DIR"' EXIT
+cat > "$SCRATCH_DIR/auto.yaml" <<'SCRATCH'
+name: labelauto
+description: Scratch profile exercising explore_label_confirm=auto
+explore_label_confirm: auto
+SCRATCH
+auto_rendered="$($RENDER "$TEMPLATE" "$SCRATCH_DIR/auto.yaml" claude 2>&1)"
+assert_contains "auto: auto arm fires" \
+    'labels are accepted as proposed' "$auto_rendered"
+assert_contains "auto: NEW labels are retained" \
+    '`NEW:` labels are kept' "$auto_rendered"
+assert_not_contains "auto: NO label AskUserQuestion" \
+    "$LABEL_PROMPT_NEEDLE" "$auto_rendered"
+assert_not_contains "auto: existing_only arm does NOT fire" \
+    'never mint a new label' "$auto_rendered"
+
+# The classify helper is referenced by every arm — it is what makes the
+# proposed labels checkable at all.
+for profile in default fast remote; do
+    rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    assert_contains "$profile: Step 3a calls the label classifier" \
+        'aitask_labels.sh classify' "$rendered"
 done
 
 # === Test 3: no Jinja markers leak ===

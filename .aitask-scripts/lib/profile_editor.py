@@ -69,6 +69,7 @@ PROFILE_SCHEMA: dict[str, tuple[str, list[str] | None]] = {
         ["ask", "manual", "autonomous", "autonomous_with_plan"],
     ),
     "explore_auto_continue": ("bool", None),
+    "explore_label_confirm": ("enum", ["ask", "auto", "existing_only"]),
     "review_default_modes": ("string", None),
     "review_auto_continue": ("bool", None),
     "force_unlock_stale": ("bool", None),
@@ -279,6 +280,18 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
         "Used by aitask-explore. When true, automatically continues to the implementation "
         "phase after exploration completes. When false or unset, asks the user."
     ),
+    "explore_label_confirm": (
+        "Label confirmation before task creation in exploration mode",
+        "Controls how /aitask-explore settles the labels of the task it creates.\n"
+        "  ask           — Show proposed labels split into existing / new, with\n"
+        "                  near-duplicate suggestions, and confirm (default)\n"
+        "  auto          — Accept the proposed labels without a prompt; new ones\n"
+        "                  are still registered in aitasks/metadata/labels.txt\n"
+        "  existing_only — Never mint a new label: keep the ones that exist,\n"
+        "                  substitute near-duplicates, report the rest as dropped\n\n"
+        "Omitting this key shows the interactive prompt. Headless profiles must\n"
+        "set `auto` or `existing_only` so no prompt is ever emitted.",
+    ),
     "review_default_modes": (
         "Comma-separated review-guide names to auto-select",
         "Used by aitask-review. When set, auto-selects these review guides instead "
@@ -408,7 +421,7 @@ PROFILE_FIELD_GROUPS: list[tuple[str, list[str]]] = [
     ]),
     ("QA Analysis", ["qa_mode", "qa_run_tests", "qa_tier"]),
     ("Shadow Review", ["shadow_impl_review_tier"]),
-    ("Exploration", ["explore_auto_continue"]),
+    ("Exploration", ["explore_auto_continue", "explore_label_confirm"]),
     ("Review", ["review_default_modes", "review_auto_continue"]),
     ("Lock Management", ["force_unlock_stale"]),
     ("Remote Workflow", [

@@ -39,7 +39,10 @@ The optional `--profile <name>` argument overrides execution-profile selection f
 - **Context-rich task creation** — Tasks created from exploration include specific findings, file paths, and investigation context that would be tedious to write manually
 - **Seamless handoff** — When continuing to implementation, the full exploration context flows into the planning phase
 
-**Profile key:** `explore_auto_continue` — Set to `true` to skip the "continue to implementation or save" prompt and automatically proceed to implementation.
+**Profile keys:**
+
+- `explore_auto_continue` — Set to `true` to skip the "continue to implementation or save" prompt and automatically proceed to implementation.
+- `explore_label_confirm` — Controls how the new task's labels are settled: `ask` (default) shows the proposed labels split into existing, near-duplicate and new, and confirms them with you; `auto` accepts them without a prompt; `existing_only` keeps only labels already in the project vocabulary, substituting near-duplicates and reporting the rest as dropped. Whatever is settled on, any genuinely new label is added to `aitasks/metadata/labels.txt` and committed together with the task.
 
 ## File Selection
 

@@ -34,6 +34,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 | `post_plan_action_for_child` | string | Same values as `post_plan_action`, but only for child tasks |
 | `enableFeedbackQuestions` | bool | `false` disables satisfaction feedback prompts; `true` or omitted keeps them enabled. See [Verified Scores](../../verified-scores/) |
 | `explore_auto_continue` | bool | Used by `/aitask-explore` to continue automatically after exploration |
+| `explore_label_confirm` | string | `"ask"` (default), `"auto"`, or `"existing_only"` — controls how [`/aitask-explore`](../../aitask-explore/) settles the labels of the task it creates. `ask` confirms them interactively, `auto` accepts them silently, `existing_only` never mints a new label. Headless profiles must set `auto` or `existing_only` |
 | `qa_mode` | string | `"ask"`, `"create_task"`, `"implement"`, or `"plan_only"` — used by [`/aitask-qa`](../../aitask-qa/) to control what happens with test proposals |
 | `qa_run_tests` | bool | `true` runs discovered tests, `false` skips test execution — used by [`/aitask-qa`](../../aitask-qa/) |
 | `qa_tier` | string | `"quick"`, `"standard"`, or `"exhaustive"` — pre-selects the QA analysis depth tier |

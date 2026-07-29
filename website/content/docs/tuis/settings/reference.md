@@ -131,6 +131,7 @@ Execution profiles are YAML files with the following keys. All keys are optional
 | Key | Type | Options | Description |
 |-----|------|---------|-------------|
 | `explore_auto_continue` | bool | `true`, `false` | Auto-continue to implementation after exploration |
+| `explore_label_confirm` | enum | `ask`, `auto`, `existing_only` | How [`/aitask-explore`](../../skills/aitask-explore/) settles the new task's labels: confirm them, accept them silently, or restrict them to labels already in the project vocabulary |
 
 ### QA
 

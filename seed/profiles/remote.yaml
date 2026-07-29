@@ -16,3 +16,6 @@ issue_action: close_with_notes
 abort_plan_action: keep
 abort_revert_status: Ready
 manual_verification_followup_mode: never
+# headless: never emit a label prompt, and never mint a new vocabulary entry
+# from an unattended run.
+explore_label_confirm: existing_only

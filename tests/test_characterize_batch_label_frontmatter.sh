@@ -1,28 +1,32 @@
 #!/usr/bin/env bash
-# test_characterize_batch_label_frontmatter.sh - CHARACTERIZATION test (t1321).
+# test_characterize_batch_label_frontmatter.sh - CHARACTERIZATION test
+# (t1321, flipped by t1312).
 #
-# Pins the CURRENT (pre-t1312) `labels:` frontmatter emitted by
-# `aitask_create.sh --batch --labels ...` across all three creation paths, plus
-# the two side-effect facts t1312 changes. Today `format_yaml_list`
-# (lib/task_utils.sh:414) is a pure `s/,/, /g` + bracket wrap: no split, no
-# trim, no case-fold, no sanitize, no dedupe.
+# Pins the `labels:` frontmatter emitted by `aitask_create.sh --batch --labels
+# ...` across all three creation paths, plus the two vocabulary side-effect
+# facts. t1312 inserted a `normalize_labels_csv` pass (trim, lowercase,
+# sanitize, dedupe, drop-empties) ahead of `format_yaml_list`
+# (lib/task_utils.sh) and made the committed paths register new labels in
+# aitasks/metadata/labels.txt.
 #
 # Paths covered:
-#   parent - create_task_file       (aitask_create.sh:1791, batch site :2066)
-#   child  - create_child_task_file (:462,  batch site :2035)
-#   draft  - create_draft_file      (:580,  batch site :2093, gitignored)
+#   parent - create_task_file       (batch site: run_batch_mode parent branch)
+#   child  - create_child_task_file (batch site: run_batch_mode child branch)
+#   draft  - create_draft_file      (no --commit, gitignored)
 #
-# >>> THIS TEST IS EXPECTED TO CHANGE WHEN t1312 LANDS. <<<
-# t1312 normalizes the --labels CSV (trim, lowercase, sanitize, dedupe) before
-# it reaches format_yaml_list, and starts writing new labels into
-# aitasks/metadata/labels.txt. When it lands, the expectations for the
-# NON-CANONICAL cases (2, 3, 5, 6) are updated IN THE SAME COMMIT as the
-# normalization change - the diff to this file IS the reviewable record of
-# exactly what changed. Case 1 (`ui,backend`) is canonical and must NOT move.
-# Two side-effect facts flip at the same time:
-#   - labels.txt stops being byte-identical across a create
-#   - the creation commit starts containing labels.txt
-# EXPECTED_ASSERTIONS must be re-derived in that commit too.
+# >>> FLIP RECORD (t1321 -> t1312) <<<
+# Case 1 (`ui,backend`) is canonical and did NOT move, as designed. The
+# non-canonical cases each moved exactly once:
+#   2 `ui, backend`       [ui,  backend]        -> [ui, backend]   (trim)
+#   3 `UI Stuff,foo-bar!` [UI Stuff, foo-bar!]  -> [ui_stuff, foo-bar]
+#   5 `foo,FOO,foo`       [foo, FOO, foo]       -> [foo]           (dedupe)
+#   6 `!!!`               [!!!]                 -> []              (drop)
+# Side-effect facts flipped for the two COMMITTED paths only:
+#   - labels.txt is rewritten whenever the case contributes a label the
+#     vocabulary does not already hold (CASE_VOCAB_GROWS below)
+#   - the creation commit then contains labels.txt alongside the task file
+# The draft path is unchanged: drafts are gitignored, so the vocabulary write
+# is deferred to `--finalize` (covered by tests/test_label_autoadd.sh).
 #
 # Run: bash tests/test_characterize_batch_label_frontmatter.sh
 
@@ -62,20 +66,24 @@ CASE_IN=(
 )
 CASE_OUT=(
     "labels: [ui, backend]"
-    "labels: [ui,  backend]"
-    "labels: [UI Stuff, foo-bar!]"
+    "labels: [ui, backend]"
+    "labels: [ui_stuff, foo-bar]"
     "labels: []"
-    "labels: [foo, FOO, foo]"
-    "labels: [!!!]"
+    "labels: [foo]"
+    "labels: []"
 )
 CASE_WHY=(
     "canonical"
-    "double space preserved (no trim)"
-    "verbatim (no case-fold, no sanitize)"
+    "leading space trimmed"
+    "case-folded and sanitized (space -> _, ! stripped from the tail)"
     "empty input"
-    "no dedupe (exact-dup + case-fold-dup)"
-    "no sanitize (token reduces to empty under t1312)"
+    "deduped (exact-dup + case-fold-dup collapse to one)"
+    "all-invalid token dropped (warn + drop, still exit 0)"
 )
+# Does this case contribute a label the vocabulary does not already hold, given
+# the cases before it in the same fixture ran first? Drives both side-effect
+# assertions. Case 2 repeats case 1's labels; cases 4 and 6 contribute none.
+CASE_VOCAB_GROWS=(1 0 1 0 1 0)
 
 setup_project() {
     local tmpdir
@@ -132,6 +140,17 @@ head_files()   { git show --name-only --pretty=format: HEAD | grep -v '^$' | sor
 head_subject() { git log -1 --pretty=format:%s; }
 head_sha()     { git rev-parse HEAD; }
 
+VOCAB_PATH="aitasks/metadata/labels.txt"
+
+# Expected `head_files` output: the given paths plus labels.txt when the case
+# grew the vocabulary, sorted the same way head_files sorts.
+expect_files() {
+    local grows="$1"; shift
+    local paths=("$@")
+    [[ "$grows" == "1" ]] && paths+=("$VOCAB_PATH")
+    printf '%s\n' "${paths[@]}" | sort | tr '\n' ' '
+}
+
 # Task id token from a created path: aitasks/t7_p_case1.md -> t7
 parent_id_of() { local b; b=$(basename "$1" .md); printf '%s' "${b%%_*}"; }
 # Child id token: aitasks/t7/t7_1_c_case1.md -> t7_1
@@ -156,10 +175,10 @@ test_parent_path() {
     setup_project
     assert_clean_baseline
 
-    local base_cksum
-    base_cksum=$(labels_cksum)
+    local prev_cksum
+    prev_cksum=$(labels_cksum)
 
-    local i f
+    local i f vocab_changed
     for i in "${!CASE_IN[@]}"; do
         f=$(bash .aitask-scripts/aitask_create.sh --batch --commit --silent \
                 --name "p_case$i" --desc x --labels "${CASE_IN[$i]}" 2>/dev/null || true)
@@ -172,10 +191,16 @@ test_parent_path() {
         # THIS creation commit without depending on the `tr '_' ' '` rule.
         assert_contains "parent case $i asserts on its own creation commit" \
             "ait: Add task $(parent_id_of "$f"):" "$(head_subject)"
-        assert_eq "parent case $i commit holds only the task file" \
-            "$f " "$(head_files)"
-        assert_eq "parent case $i leaves labels.txt byte-identical" \
-            "$base_cksum" "$(labels_cksum)"
+        assert_eq "parent case $i commit content (${CASE_WHY[$i]})" \
+            "$(expect_files "${CASE_VOCAB_GROWS[$i]}" "$f")" "$(head_files)"
+        vocab_changed=no
+        if [[ "$(labels_cksum)" != "$prev_cksum" ]]; then vocab_changed=yes; fi
+        if [[ "${CASE_VOCAB_GROWS[$i]}" == "1" ]]; then
+            assert_eq "parent case $i grew labels.txt" "yes" "$vocab_changed"
+        else
+            assert_eq "parent case $i left labels.txt byte-identical" "no" "$vocab_changed"
+        fi
+        prev_cksum=$(labels_cksum)
     done
 
     teardown
@@ -186,15 +211,15 @@ test_child_path() {
     setup_project
     assert_clean_baseline
 
-    local base_cksum parent_file parent_num
-    base_cksum=$(labels_cksum)
+    local prev_cksum parent_file parent_num
+    prev_cksum=$(labels_cksum)
 
     parent_file=$(bash .aitask-scripts/aitask_create.sh --batch --commit --silent \
                       --name par --desc x 2>/dev/null || true)
     assert_file_exists "child fixture: parent task created" "$parent_file"
     parent_num=$(parent_id_of "$parent_file"); parent_num="${parent_num#t}"
 
-    local i f
+    local i f vocab_changed
     for i in "${!CASE_IN[@]}"; do
         f=$(bash .aitask-scripts/aitask_create.sh --batch --commit --silent \
                 --parent "$parent_num" --name "c_case$i" --desc x \
@@ -210,11 +235,17 @@ test_child_path() {
         # The parent file is a legitimate co-committed artifact here:
         # update_parent_children_to_implement rewrites it and :2047 stages it.
         # labels.txt is still absent - that is the fact being pinned.
-        assert_eq "child case $i commit holds child + parent, not labels.txt" \
-            "$(printf '%s\n%s\n' "$f" "$parent_file" | sort | tr '\n' ' ')" \
+        assert_eq "child case $i commit content (${CASE_WHY[$i]})" \
+            "$(expect_files "${CASE_VOCAB_GROWS[$i]}" "$f" "$parent_file")" \
             "$(head_files)"
-        assert_eq "child case $i leaves labels.txt byte-identical" \
-            "$base_cksum" "$(labels_cksum)"
+        vocab_changed=no
+        if [[ "$(labels_cksum)" != "$prev_cksum" ]]; then vocab_changed=yes; fi
+        if [[ "${CASE_VOCAB_GROWS[$i]}" == "1" ]]; then
+            assert_eq "child case $i grew labels.txt" "yes" "$vocab_changed"
+        else
+            assert_eq "child case $i left labels.txt byte-identical" "no" "$vocab_changed"
+        fi
+        prev_cksum=$(labels_cksum)
     done
 
     teardown
@@ -238,7 +269,7 @@ test_draft_path() {
         assert_eq "draft case $i labels line (${CASE_WHY[$i]})" \
             "${CASE_OUT[$i]}" "$(labels_line "$f")"
         assert_eq "draft case $i creates no commit" "$base_sha" "$(head_sha)"
-        assert_eq "draft case $i leaves labels.txt byte-identical" \
+        assert_eq "draft case $i leaves labels.txt byte-identical (deferred to --finalize)" \
             "$base_cksum" "$(labels_cksum)"
     done
 

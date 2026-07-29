@@ -51,6 +51,7 @@
       "./.aitask-scripts/aitask_init_data.sh *": "allow",
       "./.aitask-scripts/aitask_issue_import.sh *": "allow",
       "./.aitask-scripts/aitask_issue_update.sh *": "allow",
+      "./.aitask-scripts/aitask_labels.sh *": "allow",
       "./.aitask-scripts/aitask_lock.sh *": "allow",
       "./.aitask-scripts/aitask_lock_diag.sh *": "allow",
       "./.aitask-scripts/aitask_ls.sh *": "allow",

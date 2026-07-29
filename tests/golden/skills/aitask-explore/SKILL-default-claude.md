@@ -77,6 +77,12 @@ The user can also provide free text via the "Other" option.
 - **Exploration strategy:** General-purpose exploration based on the user's description.
 - **Task defaults:** `issue_type: feature`, `priority: medium`
 
+#### Label defaults
+
+Whatever the intent, the task's `labels` are **not** decided here — propose them
+in **Step 3a** from the areas the exploration actually touched, and settle them
+there. Do not invent labels while exploring.
+
 #### Cross-repo scope detection
 
 After the exploration intent and its free-text description are captured (from
@@ -205,6 +211,52 @@ Use `AskUserQuestion` to confirm or modify:
   flags (see "Create the task" below). Apply any other metadata changes the user
   also requested, as in "Modify before creating".
 
+#### Step 3a: Settle the task's labels
+
+Propose 1–4 labels naming the areas the exploration actually touched (scripts,
+TUIs, subsystems), then classify them against the project vocabulary:
+
+```bash
+./.aitask-scripts/aitask_labels.sh classify "<proposed,labels,csv>"
+```
+
+Each output line is one proposed label:
+- `EXISTING:<label>` — already in `aitasks/metadata/labels.txt`
+- `NEAR:<label>:<candidates>` — not present, but separator/case variants are
+- `NEW:<label>` — would mint a new vocabulary entry
+- `INVALID:<original>` — unusable; drop it
+
+Whatever this step settles on becomes `<l>` in **Create the task** below. The
+skill never writes `labels.txt` itself — `aitask_create.sh --batch` registers any
+new label and commits it together with the task file.
+
+
+Confirm the labels with the user via a single `AskUserQuestion`.
+
+**The classification MUST be carried inside the question text**, not in
+same-turn prose before the widget — same visibility rule as Step 2 and the
+metadata confirmation above. Format it as, e.g.:
+
+> Proposed labels for this task:
+> • `bash_scripts` — existing
+> • `aitask_create` — new; close to existing `aitask-create`
+> • `label_vocab` — new
+>
+> How should the labels be settled?
+
+- Header: "Labels"
+- Options:
+  - "Accept as proposed" (description: "Use all proposed labels; new ones are added to the project vocabulary")
+  - **Include this option ONLY when at least one `NEAR:` line was produced:** "Use the suggested existing labels" (description: "Substitute each near-duplicate with the existing label it matches, avoiding a new variant")
+  - "Edit labels" (description: "Type the exact comma-separated label list to use")
+
+**If "Edit labels":** take the user's comma-separated list from the "Other" free
+text and use it verbatim as `<l>` (it is sanitized at creation time).
+
+`INVALID:` labels are dropped from every branch — mention them in the question
+text so their absence is not a surprise.
+
+
 **If folded_tasks is non-empty:** Build the merged description using `aitask_fold_content.sh` with `--primary-stdin` (the primary task does not exist yet):
 
 ```bash
@@ -222,7 +274,7 @@ Execute the **Batch Task Creation Procedure** (see `.claude/skills/task-workflow
 - priority: `<p>`
 - effort: `<e>`
 - issue_type: `<issue_type>`
-- labels: `"<l>"`
+- labels: `"<l>"` (the CSV settled in Step 3a)
 - description: task description (or merged description if folded_tasks is non-empty)
 
 **Cross-repo flags:** When the "Create as cross-repo paired task" option was
@@ -293,6 +345,8 @@ Set the following context variables from the created task, then read and follow 
 - This skill creates standalone (parent-level) tasks only, not children
 - No files are written during the exploration phase — findings are tracked mentally until task creation
 - The `explore_auto_continue` profile key controls whether to ask the user about continuing to implementation (default: `false`, always ask)
+- The `explore_label_confirm` profile key controls Step 3a: `ask` (default when absent) confirms the labels interactively, `auto` accepts the proposed labels without a prompt, and `existing_only` keeps only labels already in the vocabulary (substituting near-duplicates) and reports the rest as dropped. Headless profiles must set `auto` or `existing_only`.
+- Labels proposed here become project vocabulary: `aitask_create.sh --batch` sanitizes them, appends any new one to `aitasks/metadata/labels.txt`, and commits that file together with the task
 - When handing off to task-workflow, the created task has status `Ready` — task-workflow's Step 4 will set it to `Implementing`
 - For the full Execution Profiles schema and customization guide, see `.claude/skills/task-workflow/SKILL.md`
 - **Folded tasks:** When existing pending tasks are folded into a new task (Step 2b), their full content is incorporated using the **Task Fold Content Procedure** (structured `## Merged from t<N>` headers) and marked using the **Task Fold Marking Procedure** (both in `.claude/skills/task-workflow/`). The original folded task files are set to status `Folded` with a `folded_into` property pointing to the new task. They exist only as references for deletion after the new task is completed (handled by task-workflow Step 9). The `folded_tasks` frontmatter field tracks which task IDs to clean up.

@@ -62,6 +62,7 @@
       "Bash(./.aitask-scripts/aitask_init_data.sh:*)",
       "Bash(./.aitask-scripts/aitask_issue_import.sh:*)",
       "Bash(./.aitask-scripts/aitask_issue_update.sh:*)",
+      "Bash(./.aitask-scripts/aitask_labels.sh:*)",
       "Bash(./.aitask-scripts/aitask_lock.sh:*)",
       "Bash(./.aitask-scripts/aitask_lock_diag.sh:*)",
       "Bash(./.aitask-scripts/aitask_ls.sh:*)",

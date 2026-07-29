@@ -10,7 +10,11 @@ the **repo-authoritative** checks the sandboxed producer must not own:
 - ``issue_type`` ∈ ``aitasks/metadata/task_types.txt``
 - ``labels`` ⊆ ``aitasks/metadata/labels.txt`` (``aitask_create.sh``
   auto-adds unknown labels rather than rejecting — so subset enforcement
-  MUST happen here)
+  MUST happen here). Local, attended task creation grows that file; the
+  gateway never does, so a remote submitter still cannot mint a label. Why
+  that keeps this boundary intact — and the byte-identity property the
+  subset check relies on — is written up in
+  ``aidocs/chat/label_vocabulary_and_allowlist.md``.
 - control characters: **detect-and-reject, never sanitize** — the gateway
   only ever creates a task from the byte-identical submitted values.
   ``title`` allows no Cc code point and none of the zero-width/bidi

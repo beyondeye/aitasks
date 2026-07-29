@@ -420,6 +420,167 @@ format_yaml_list() {
     fi
 }
 
+# --- Label Vocabulary Management ---
+#
+# Canonical implementation of the label vocabulary seam (aitasks/metadata/
+# labels.txt). aitask_create.sh, aitask_update.sh, aitask_pr_import.sh,
+# aitask_issue_import.sh and aitask_labels.sh all call these — do NOT re-define
+# any of them in a caller: a later definition shadows the lib and the shared
+# behaviour silently disappears (tests/test_label_vocabulary_lib.sh pins this).
+
+# Resolve the vocabulary file path, honoring a caller-set LABELS_FILE.
+# Lazy on purpose: aitask_create.sh sets TASK_DIR *after* sourcing this lib, and
+# tests export a temp TASK_DIR before sourcing.
+labels_file_path() {
+    if [[ -n "${LABELS_FILE:-}" ]]; then
+        printf '%s' "$LABELS_FILE"
+    else
+        printf '%s' "${TASK_DIR:-aitasks}/metadata/labels.txt"
+    fi
+}
+
+# Canonicalize a single label: lowercase, non-[a-z0-9_-] -> "_", collapse runs
+# of "_", trim leading/trailing "_". "UI Stuff" -> "ui_stuff"; "!!!" -> "".
+# Matches github_map_labels() in aitask_pr_import.sh so imported and
+# locally-minted labels agree.
+#
+# Control characters are folded FIRST, before the line-oriented stages. `sed`
+# processes one line at a time, so an embedded newline would otherwise survive
+# the whole pipeline: `--add-label $'alpha\nbeta'` then wrote a two-line
+# `labels: [...]` inline list (which YAML folds to the space-bearing label
+# "alpha beta") while the CSV registration saw only the first line — the
+# frontmatter and the vocabulary disagreed, and labels.txt is itself
+# line-delimited. Folding to "_" rather than deleting keeps the two halves
+# distinguishable ("alpha_beta", not "alphabeta").
+sanitize_label() {
+    local label="$1"
+    printf '%s' "$label" | tr '[:cntrl:]' '_' | tr '[:upper:]' '[:lower:]' \
+        | sed -e 's/[^a-z0-9_-]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//'
+}
+
+ensure_labels_file() {
+    local file dir
+    file=$(labels_file_path)
+    dir=$(dirname "$file")
+    mkdir -p "$dir"
+    touch "$file"
+}
+
+# Print the vocabulary, sorted. Always returns 0 — a bare `[[ -s ]] && sort`
+# returns 1 on an empty file and would abort `set -e` callers.
+get_existing_labels() {
+    local file
+    ensure_labels_file
+    file=$(labels_file_path)
+    if [[ -s "$file" ]]; then
+        LC_ALL=C sort -u "$file"
+    fi
+    return 0
+}
+
+# --- Rich-return globals (see add_labels_csv_to_file) ---
+# NEVER call the label helpers via $( ) — command substitution runs them in a
+# subshell and these globals evaporate with it. Read them after a direct call.
+AIT_LABELS_NORMALIZED=""   # normalized CSV, safe for frontmatter
+AIT_LABELS_ADDED=()        # labels newly appended to the vocabulary this call
+AIT_LABELS_DROPPED=()      # input tokens that sanitized to nothing
+
+# Append a label to the vocabulary if absent. Appends to AIT_LABELS_ADDED when
+# it actually wrote. Always returns 0 (callers invoke it bare under `set -e`).
+add_label_to_file() {
+    local label="$1"
+    local file tmp
+    [[ -z "$label" ]] && return 0
+    # Write-site guard for a line-delimited file: a control character (newline
+    # above all) would inject extra vocabulary entries that no reader can tell
+    # apart from real ones. Undecidable on read, so neutralize on write. Every
+    # in-tree caller passes a sanitize_label output, so this never fires in
+    # practice — it exists so a future caller cannot corrupt the file.
+    # Matched in-shell on purpose: grep is line-oriented and can never see the
+    # newline it is meant to catch (it splits the input on exactly that byte).
+    if [[ "$label" == *[[:cntrl:]]* ]]; then
+        warn "refusing to register a label containing a control character"
+        return 0
+    fi
+    ensure_labels_file
+    file=$(labels_file_path)
+    # -F/-x: labels may legitimately start with "-" or contain regex chars.
+    if grep -qFx -- "$label" "$file" 2>/dev/null; then
+        return 0
+    fi
+    # temp-file + mv so concurrent readers never see a torn file.
+    # LC_ALL=C pins collation: the committed file must not reorder by locale.
+    tmp="${file}.tmp.$$"
+    { cat "$file"; echo "$label"; } | LC_ALL=C sort -u > "$tmp" && mv "$tmp" "$file"
+    AIT_LABELS_ADDED+=("$label")
+    return 0
+}
+
+# Pure: split a CSV on ",", trim, sanitize, drop empties, order-preserving
+# dedupe. stdout = normalized CSV. stderr = "DROPPED:<tok1>,<tok2>" when any
+# input token sanitized to nothing. Writes no files.
+normalize_labels_csv() {
+    local csv="$1"
+    local -a parts=() kept=() dropped=()
+    local raw trimmed clean k found
+    [[ -z "$csv" ]] && { printf ''; return 0; }
+    # `read` consumes ONE line: an embedded newline would silently truncate the
+    # token list (",a\nb,c" yielded just "a"). Fold control characters first so
+    # every token survives the split, then sanitize_label canonicalizes each.
+    csv=$(printf '%s' "$csv" | tr '[:cntrl:]' '_')
+    IFS=',' read -ra parts <<< "$csv"
+    for raw in "${parts[@]}"; do
+        trimmed="${raw#"${raw%%[![:space:]]*}"}"
+        trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+        [[ -z "$trimmed" ]] && continue
+        clean=$(sanitize_label "$trimmed")
+        if [[ -z "$clean" ]]; then
+            dropped+=("$trimmed")
+            continue
+        fi
+        found=false
+        for k in ${kept[@]+"${kept[@]}"}; do
+            [[ "$k" == "$clean" ]] && { found=true; break; }
+        done
+        [[ "$found" == false ]] && kept+=("$clean")
+    done
+    if (( ${#dropped[@]} > 0 )); then
+        echo "DROPPED:$(IFS=','; printf '%s' "${dropped[*]}")" >&2
+    fi
+    if (( ${#kept[@]} > 0 )); then
+        printf '%s' "$(IFS=','; printf '%s' "${kept[*]}")"
+    fi
+    return 0
+}
+
+# Normalize a CSV and register every resulting label in the vocabulary.
+# Sets AIT_LABELS_NORMALIZED / AIT_LABELS_ADDED / AIT_LABELS_DROPPED.
+# Call directly (never via $( )) — the results are the globals, not stdout.
+# shellcheck disable=SC2034  # the AIT_LABELS_* globals ARE the return value; they are read by callers in other files
+add_labels_csv_to_file() {
+    local csv="$1"
+    local normalized dropped_line
+    AIT_LABELS_NORMALIZED=""
+    AIT_LABELS_ADDED=()
+    AIT_LABELS_DROPPED=()
+    [[ -z "$csv" ]] && return 0
+    # Two-call stdout/stderr split (same idiom as filter_gates_for_issue_type).
+    dropped_line=$(normalize_labels_csv "$csv" 2>&1 >/dev/null)
+    normalized=$(normalize_labels_csv "$csv" 2>/dev/null)
+    if [[ -n "$dropped_line" ]]; then
+        IFS=',' read -ra AIT_LABELS_DROPPED <<< "${dropped_line#DROPPED:}"
+    fi
+    AIT_LABELS_NORMALIZED="$normalized"
+    [[ -z "$normalized" ]] && return 0
+    local -a tokens=()
+    IFS=',' read -ra tokens <<< "$normalized"
+    local t
+    for t in "${tokens[@]}"; do
+        add_label_to_file "$t"
+    done
+    return 0
+}
+
 # Gates a `manual_verification` task can actually REACH: the machine gates
 # recorded in task-workflow Step 9. Manual verification skips Steps 6-8
 # (plan / risk / review), so any gate whose checkpoint lives there is

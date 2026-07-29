@@ -50,6 +50,7 @@
       "Bash(./.aitask-scripts/aitask_issue_update.sh:*)",
       "Bash(./.aitask-scripts/aitask_changelog.sh:*)",
       "Bash(shellcheck:*)",
+      "Bash(./.aitask-scripts/aitask_labels.sh:*)",
       "Bash(./.aitask-scripts/aitask_lock.sh:*)",
       "Bash(/home/ddt/Work/aitasks/.aitask-scripts/aitask_lock.sh:*)",
       "Bash(./.aitask-scripts/aitask_backfill_pid_anchor.sh:*)",

@@ -11,7 +11,12 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 
 TASK_DIR="aitasks"
-LABELS_FILE="aitasks/metadata/labels.txt"
+# Consumed by labels_file_path() in lib/task_utils.sh; also staged by variable
+# at the commit sites, so the assignment must stay (see aitask_create.sh).
+LABELS_FILE="${TASK_DIR}/metadata/labels.txt"
+# Set by the interactive label editor when it appends to the vocabulary; read at
+# the interactive commit to decide whether labels.txt joins the commit.
+LABELS_VOCAB_DIRTY=false
 TASK_TYPES_FILE="aitasks/metadata/task_types.txt"
 
 # Batch mode variables
@@ -180,9 +185,16 @@ Verifies options (batch mode, for manual-verification tasks):
   --remove-verifies ID   Remove a task ID from verifies (can be repeated)
 
 Label options (batch mode):
-  --labels, -l LABELS    Labels (comma-separated, replaces all existing labels)
-  --add-label LABEL      Add a label (can be repeated)
-  --remove-label LABEL   Remove a label (can be repeated)
+  --labels, -l LABELS    Labels (comma-separated, replaces all existing labels).
+                         Sanitized, and any new label is registered in
+                         aitasks/metadata/labels.txt and committed with the task
+                         — same as --add-label, so both ways of naming a label
+                         grow the vocabulary identically.
+  --add-label LABEL      Add a label (can be repeated). Sanitized and registered
+                         in aitasks/metadata/labels.txt.
+  --remove-label LABEL   Remove a label (can be repeated). Matched verbatim
+                         against the current frontmatter so legacy raw labels
+                         stay removable; never unregisters from labels.txt.
 
 Gate options (batch mode):
   --gates GATES          Declared gate set (comma-separated names, replaces all;
@@ -789,29 +801,10 @@ write_task_file() {
 }
 
 # --- Label Management ---
-
-ensure_labels_file() {
-    local dir
-    dir=$(dirname "$LABELS_FILE")
-    mkdir -p "$dir"
-    touch "$LABELS_FILE"
-}
-
-get_existing_labels() {
-    ensure_labels_file
-    if [[ -s "$LABELS_FILE" ]]; then
-        sort -u "$LABELS_FILE"
-    fi
-}
-
-add_label_to_file() {
-    local label="$1"
-    ensure_labels_file
-    if ! grep -qFx "$label" "$LABELS_FILE" 2>/dev/null; then
-        echo "$label" >> "$LABELS_FILE"
-        sort -u "$LABELS_FILE" -o "$LABELS_FILE"
-    fi
-}
+#
+# sanitize_label / ensure_labels_file / get_existing_labels / add_label_to_file
+# / normalize_labels_csv / add_labels_csv_to_file live in lib/task_utils.sh —
+# do not re-define them here.
 
 # --- Task Types Management ---
 
@@ -840,6 +833,11 @@ validate_task_type() {
     fi
 }
 
+# PURE frontmatter-list math: computes the resulting label list and nothing
+# else. It runs inside command substitution at both call sites, so any
+# vocabulary bookkeeping done here would be invisible to the caller (the
+# AIT_LABELS_* globals die with the subshell) — registration and staging are
+# the caller's job.
 process_label_operations() {
     local current_labels="$1"
     local new_labels="$2"
@@ -870,8 +868,6 @@ process_label_operations() {
         done
         if [[ "$found" == false ]]; then
             labels_array+=("$label")
-            # Also add to labels file for future use
-            add_label_to_file "$label"
         fi
     done
 
@@ -1365,10 +1361,14 @@ interactive_update_labels() {
             read -rp "Enter new label: " new_label
             if [[ -n "$new_label" ]]; then
                 local sanitized
-                sanitized=$(echo "$new_label" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g')
+                sanitized=$(sanitize_label "$new_label")
                 if [[ -n "$sanitized" ]]; then
+                    # Selection only — this function runs inside command
+                    # substitution, so the vocabulary write is deferred to the
+                    # caller (which can then stage labels.txt). Consequence: a
+                    # label minted here does not reappear in this session's
+                    # picker; it is still selected and echoed.
                     labels_array+=("$sanitized")
-                    add_label_to_file "$sanitized"
                     success "Added: $sanitized" >&2
                 fi
             fi
@@ -1575,6 +1575,15 @@ run_interactive_mode() {
                 ;;
             labels)
                 new_labels=$(interactive_update_labels "$new_labels")
+                # Register outside the subshell so the vocabulary write is
+                # visible here and labels.txt can be staged with the task.
+                add_labels_csv_to_file "$new_labels"
+                new_labels="$AIT_LABELS_NORMALIZED"
+                if (( ${#AIT_LABELS_ADDED[@]} > 0 )); then
+                    # Sticky-OR: the menu loops, and an earlier iteration may
+                    # already have appended.
+                    LABELS_VOCAB_DIRTY=true
+                fi
                 changes_made=true
                 success "Labels updated to: ${new_labels:-None}"
                 ;;
@@ -1660,6 +1669,9 @@ run_interactive_mode() {
         local humanized_name
         humanized_name=$(basename "$final_path" .md | sed -E 's/^t[0-9]*_([0-9]*_)?//' | tr '_' ' ')
         task_git add "$final_path"
+        if [[ "$LABELS_VOCAB_DIRTY" == true ]]; then
+            task_git add "$LABELS_FILE" 2>/dev/null || true
+        fi
         task_git commit -m "ait: Update task t${task_num}: ${humanized_name}"
         local commit_hash
         commit_hash=$(task_git rev-parse --short HEAD)
@@ -1896,9 +1908,51 @@ run_batch_mode() {
     local new_verifies
     new_verifies=$(process_verifies_operations "$CURRENT_VERIFIES" "$BATCH_VERIFIES" BATCH_ADD_VERIFIES BATCH_REMOVE_VERIFIES "$BATCH_VERIFIES_SET")
 
-    # Process labels
+    # Process labels.
+    #
+    # Normalize the *supplied* labels first so the frontmatter this write emits
+    # and the vocabulary it registers can never disagree. --remove-label args
+    # are deliberately left verbatim: they are matched against the current
+    # frontmatter, and removing a legacy raw label must keep working.
+    local _supplied_labels=""
+    if [[ "$BATCH_LABELS_SET" == true && -n "$BATCH_LABELS" ]]; then
+        local _label_dropped
+        _label_dropped=$(normalize_labels_csv "$BATCH_LABELS" 2>&1 >/dev/null)
+        BATCH_LABELS=$(normalize_labels_csv "$BATCH_LABELS" 2>/dev/null)
+        [[ -n "$_label_dropped" ]] && warn "dropped invalid label(s): ${_label_dropped#DROPPED:}"
+        _supplied_labels="$BATCH_LABELS"
+    fi
+    if (( ${#BATCH_ADD_LABELS[@]} > 0 )); then
+        local -a _clean_add=()
+        local _raw_add _clean
+        for _raw_add in "${BATCH_ADD_LABELS[@]}"; do
+            _clean=$(sanitize_label "$_raw_add")
+            if [[ -z "$_clean" ]]; then
+                warn "dropped invalid label: $_raw_add"
+                continue
+            fi
+            _clean_add+=("$_clean")
+        done
+        BATCH_ADD_LABELS=(${_clean_add[@]+"${_clean_add[@]}"})
+        if (( ${#BATCH_ADD_LABELS[@]} > 0 )); then
+            _supplied_labels="${_supplied_labels:+$_supplied_labels,}$(IFS=','; printf '%s' "${BATCH_ADD_LABELS[*]}")"
+        fi
+    fi
+
     local new_labels
     new_labels=$(process_label_operations "$CURRENT_LABELS" "$BATCH_LABELS" BATCH_ADD_LABELS BATCH_REMOVE_LABELS "$BATCH_LABELS_SET")
+
+    # Register the supplied labels in the vocabulary — never the whole resulting
+    # list, so a bare `--status Done` (every gate transition / board move) can
+    # not drag a task's pre-existing labels into labels.txt.
+    local _stage_labels=false
+    if [[ -n "$_supplied_labels" ]]; then
+        add_labels_csv_to_file "$_supplied_labels"
+        if (( ${#AIT_LABELS_ADDED[@]} > 0 )); then
+            _stage_labels=true
+            info "Added to label vocabulary: $(IFS=','; echo "${AIT_LABELS_ADDED[*]}")" >&2
+        fi
+    fi
 
     # Process children_to_implement
     local new_children
@@ -2014,6 +2068,11 @@ run_batch_mode() {
         local humanized_name
         humanized_name=$(basename "$final_path" .md | sed -E 's/^t[0-9]*_([0-9]*_)?//' | tr '_' ' ')
         task_git add "$final_path"
+        # Only when this update actually appended to the vocabulary — otherwise
+        # labels.txt would be left dirty for an unrelated commit to sweep up.
+        if [[ "$_stage_labels" == true ]]; then
+            task_git add "$LABELS_FILE" 2>/dev/null || true
+        fi
         task_git commit -m "ait: Update task t${BATCH_TASK_NUM}: ${humanized_name}"
     fi
 
