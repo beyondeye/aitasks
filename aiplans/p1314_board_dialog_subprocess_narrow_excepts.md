@@ -234,3 +234,84 @@ cases 3–5), so there is nothing for a before/after follow-up task to carry.
 Follow `SKILL.md` Step 9: merge to `main` (current-branch mode — no worktree to
 remove), run `./ait gates run 1314` (`risk_evaluated` is the active gate), then
 `./.aitask-scripts/aitask_archive.sh 1314`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned change, no deviations.
+  - `.aitask-scripts/board/aitask_board.py` — the three `TaskDetailScreen`
+    handlers widened to `(subprocess.TimeoutExpired, FileNotFoundError,
+    OSError)`: `revert_task` (:4566), `_do_lock` (:4756), `_do_unlock` (:4828).
+    All 13 `subprocess` `except` sites in the module now share that tuple; a
+    `grep -c "except (subprocess.TimeoutExpired, FileNotFoundError)"` returns 0.
+  - `_do_lock` / `_do_unlock`: the `LoadingOverlay` pop moved into a `finally`
+    scoped to the `subprocess.run` call, replacing the duplicated pop (one in
+    the try body, one in the except). One pop site in source, unskippable by
+    construction, and still dispatched before any later `push_screen`.
+  - `tests/test_board_dialog_subprocess_degrade.py` — new, 9 tests, 3 classes.
+
+- **Deviations from plan:** None in the shipped change. The plan's five test
+  cases all landed as written.
+
+- **Issues encountered:**
+  1. **The first negative-control run was silently inert** — it reported all
+     five controls "failing", but three of them were not testing what they
+     claimed. Two independent causes, both worth remembering:
+     - **`__pycache__` reuse.** The A/B/C mutations each delete the same 9
+       characters (`, OSError`), so the mutated files are byte-identical in
+       size, and the driver wrote them within one mtime second of each other.
+       CPython's `.pyc` validation is `(mtime_seconds, size)` — both matched, so
+       cases B and C silently re-ran case A's bytecode and reported A's failure.
+       Fixed by `PYTHONDONTWRITEBYTECODE=1` plus purging every `__pycache__`
+       before each run.
+     - **Mutations that were just SyntaxErrors.** Controls D and E deleted a
+       `finally:` block, leaving a bare `try:` — the suite "failed" at import
+       with `ERROR: setUpClass`, proving nothing about the assertions. Fixed by
+       `compile()`-checking every mutation before running it (the D control now
+       substitutes `if True:` to keep the block valid while removing only the
+       `finally` semantics).
+     - The durable fix was making each control **declare the test id it must
+       fail on**, and treating "non-zero exit for any other reason" as an inert
+       control. Only after that did the controls fail per-site as intended.
+  2. **One full-suite failure, pre-existing and unrelated** —
+     `tests/test_board_work_report.py:483 test_hidden_cards_still_listed`,
+     `AssertionError: 140 != 141`. Verified unrelated by restoring the pristine
+     `HEAD` copy of `aitask_board.py` (my change fully reverted) and re-running:
+     it fails identically. Root cause traced: the test's first populated
+     candidate column is the `unordered` pseudo-column (141 tasks), and
+     `aitasks/t_refresh_codeagent_suite_default_model_expectations.md` has a
+     `t_` prefix with **no numeric id**, so `TaskCard._parse_filename` yields no
+     `task_num` and `action_work_report`'s `if not task_num: continue`
+     (`aitask_board.py:7271-7272`) drops it — 140 dialog options for a 141-task
+     column. Not fixed here (out of scope); filed below.
+
+- **Key decisions:**
+  - **`finally` scoped to `subprocess.run`, not to the worker body.**
+    `pop_screen` removes the *top* screen, and `_do_unlock`'s success path
+    pushes `ResetTaskConfirmScreen`. A body-wide `finally` would pop the
+    confirmation dialog instead of the overlay. The narrow scope keeps the pop
+    exactly where it was (immediately after the call returns) while also
+    covering the raise path. `test_unlock_success_pops_overlay_before_reset_prompt`
+    pins the ordering, and negative control E demonstrates the body-wide variant
+    breaking three tests.
+  - **No once-only `popped` flag / wrapper.** With the `finally` scoped to the
+    single call there is exactly one pop site, so a double-pop is impossible by
+    construction rather than by a guard variable.
+  - **`FileNotFoundError` kept in the tuple** though it is redundant under
+    `OSError`, so all 13 sites in the module read identically.
+  - **Unanticipated exceptions still propagate.** The `finally` cleans up the
+    overlay but does not swallow — `test_overlay_backstop_for_unanticipated_exception`
+    asserts a `RuntimeError` both pops the overlay *and* is re-raised, so a real
+    bug stays visible instead of being hidden behind a fake failure toast.
+  - Did **not** revisit the shared "run a helper subprocess, degrade on failure"
+    helper — t1302 rejected it on the grounds the 30+ sites have genuinely
+    different degrade semantics, and the task scopes that out.
+
+- **Upstream defects identified:**
+  - `tests/test_board_work_report.py:483 — test_hidden_cards_still_listed asserts sl.option_count == len(col_tasks) against the LIVE task tree, so any task file the board can load but TaskCard._parse_filename cannot parse makes the suite fail (currently 140 != 141).`
+  - `.aitask-scripts/board/aitask_board.py:7271-7272 — action_work_report silently drops tasks whose filename yields no task_num (`if not task_num: continue`), so a work report is generated missing those tasks with no notification to the user.`
+
+- **Build verification:** `bash tests/run_all_python_tests.sh` →
+  `PYTHON SUITE: FAILED (runner=unittest, exit=1)`, 2729 tests, 1 failure
+  (`test_board_work_report.py`, pre-existing and unrelated — see above).
+  `tests/test_board_dialog_subprocess_degrade.py` (9/9) and
+  `tests/test_board_refresh_degrade.py` (2/2) both pass.
