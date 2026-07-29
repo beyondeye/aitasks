@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui, monitor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-07-29 07:49
-updated_at: 2026-07-29 12:09
+updated_at: 2026-07-29 13:58
+completed_at: 2026-07-29 13:58
 ---
 
 ## Problem
@@ -181,3 +182,14 @@ same pass.
 > **✅ gate:plan_approved** run=2026-07-29T07:27:06Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-29T10:28:04Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-29T10:58:10Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d23a647d65cba588
+
+> **✅ gate:risk_evaluated** run=2026-07-29T10:58:10Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1310/risk_evaluated_2026-07-29T10:58:10Z-risk_evaluated-a1.log`
