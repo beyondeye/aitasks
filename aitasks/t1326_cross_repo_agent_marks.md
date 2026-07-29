@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitor, aitask_monitormini, tui, tmux]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-29 11:58
-updated_at: 2026-07-29 11:58
+updated_at: 2026-07-29 22:06
 ---
 
 ## Problem

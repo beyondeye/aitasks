@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [1343]
 issue_type: enhancement
 status: Ready
 labels: [task_workflow, git, worktree]
