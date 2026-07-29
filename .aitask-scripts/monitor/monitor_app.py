@@ -34,7 +34,7 @@ from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
     TaskDetailDialog, KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     format_compare_mode_glyph, format_pane_status, format_shadow_glyph,
-    format_state_dot,
+    format_state_dot, is_task_completed,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from rich.text import Text  # noqa: E402
@@ -564,6 +564,13 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._task_cache = TaskInfoCache(project_root)
         self._gate_cache = GateSummaryCache()
         self._auto_switch: bool = False
+        # Pane ids whose task is finished, recomputed once per refresh tick
+        # (t1322). Read by the card badge, the session bar's `done` counter and
+        # the auto-switch filter, so all three agree within a tick. Starts empty
+        # so keypress-driven rebuilds that run outside _refresh_data (e.g.
+        # action_toggle_auto_switch) reuse the last tick's set rather than
+        # triggering an N-stat fan-out on a keystroke.
+        self._completed_pane_ids: frozenset[str] = frozenset()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -889,6 +896,10 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._task_cache.update_session_mapping(
             await self._monitor.get_session_to_project_mapping_async()
         )
+        # Completed-pane set for THIS tick (t1322). Must run after
+        # update_session_mapping (which may clear the task cache) and before
+        # _maybe_auto_switch below, which filters on it.
+        self._completed_pane_ids = self._compute_completed_panes()
         # NOTE: no per-tick gate-cache clear here — GateSummaryCache now
         # invalidates by task-file mtime/size, so a live-growing ledger
         # re-derives on the tick its file changes without re-reading unchanged
@@ -1053,12 +1064,55 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             "-u", "AITASK_MONITOR_FOCUS_WINDOW",
         ])
 
+    def _agents_header_text(self, n_agents: int) -> str:
+        """The CODE AGENTS section header, including the status legend.
+
+        Built in one place because both the fast in-place path and the slow
+        rebuild path in :meth:`_rebuild_pane_list` render this line; duplicating
+        it once more would make the legend and the AUTO tag drift apart.
+        """
+        auto_label = "  [bold yellow]⟳ AUTO[/]" if self._auto_switch else ""
+        legend = (
+            "  [dim]([/][green]●[/][dim] active [/]"
+            "[bold magenta]●[/][dim] prompt [/]"
+            "[yellow]●[/][dim] idle [/]"
+            "[bold dodger_blue1]●[/][dim] done)[/]"
+        )
+        return f"[bold]CODE AGENTS ({n_agents})[/]{auto_label}{legend}"
+
+    def _compute_completed_panes(self) -> frozenset[str]:
+        """Pane ids whose task is finished, for THIS refresh tick (t1322).
+
+        One place, one pass: the card badge, the session bar's `done` counter
+        and the auto-switch filter must agree within a tick, and only a single
+        precomputed set guarantees that. This is also the only site that pays
+        the per-pane ``os.stat`` freshness check — every later ``get_task_info``
+        on the same tick hits a warm entry.
+        """
+        done: set[str] = set()
+        for pane_id, snap in self._snapshots.items():
+            if snap.pane.category != PaneCategory.AGENT:
+                continue
+            task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+            if not task_id:
+                continue
+            if is_task_completed(
+                self._task_cache.get_task_info(task_id, snap.pane.session_name)
+            ):
+                done.add(pane_id)
+        return frozenset(done)
+
     def _maybe_auto_switch(self) -> bool:
         """Switch focus to a pane that needs attention if the current is active.
 
         Priority: awaiting_input > is_idle. Awaiting panes are surfaced first
         because they are blocked on user input — no idle-threshold wait
         required.
+
+        Completed panes (t1322) are excluded from every branch. A finished agent
+        is idle forever and, sorted by ``idle_seconds`` descending, would
+        otherwise permanently capture focus — parking the monitor on a done
+        agent and never surfacing a live one that needs input.
 
         Returns True if focus was switched, False otherwise.
         """
@@ -1067,8 +1121,15 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         current_snap = self._snapshots.get(self._focused_pane_id)
         if current_snap is None or current_snap.pane.category != PaneCategory.AGENT:
             return False
-        # If focused agent already needs attention, keep it
-        if getattr(current_snap, "awaiting_input", False) or current_snap.is_idle:
+        # If focused agent already needs attention, keep it — unless it is
+        # merely *completed*-idle, which needs no attention at all.
+        if (
+            getattr(current_snap, "awaiting_input", False)
+            or (
+                current_snap.is_idle
+                and self._focused_pane_id not in self._completed_pane_ids
+            )
+        ):
             return False
         # Prefer awaiting-input panes over idle ones — they need attention
         # more urgently (blocked on a prompt).
@@ -1085,6 +1146,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         idle_agents = [
             snap for snap in self._snapshots.values()
             if snap.pane.category == PaneCategory.AGENT and snap.is_idle
+            and snap.pane.pane_id not in self._completed_pane_ids
         ]
         if not idle_agents:
             return False
@@ -1192,10 +1254,22 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             s for s in self._snapshots.values()
             if s.pane.category == PaneCategory.AGENT
         ]
+        # The three counters partition the agents exactly as the badges do, on
+        # the same PROMPT > COMPLETED > IDLE ladder (t1322), so every agent
+        # lands in at most one bucket and the bar can never disagree with the
+        # rows above it. Subtracting completed from idle alone would not be
+        # enough: a completed agent parked on its final feedback prompt is both
+        # awaiting and completed, and would be counted twice while its badge
+        # read PROMPT.
         awaiting_count = sum(1 for a in agents if getattr(a, "awaiting_input", False))
+        done_count = sum(1 for a in agents
+                         if a.pane.pane_id in self._completed_pane_ids
+                         and not getattr(a, "awaiting_input", False))
         idle_count = sum(1 for a in agents
-                         if a.is_idle and not getattr(a, "awaiting_input", False))
+                         if a.is_idle and not getattr(a, "awaiting_input", False)
+                         and a.pane.pane_id not in self._completed_pane_ids)
         awaiting_str = f"  [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
+        done_str = f"  [bold dodger_blue1]{done_count} done[/]" if done_count > 0 else ""
         idle_str = f"  [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         bar = self.query_one("#session-bar", SessionBar)
         auto_tag = "  [bold yellow][AUTO][/]" if self._auto_switch else ""
@@ -1225,6 +1299,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 f"· {total} {pane_word} · multi "
                 f"(attached: {attached})"
                 f"{awaiting_str}"
+                f"{done_str}"
                 f"{idle_str}"
                 f"{auto_tag}"
                 f"{desync}"
@@ -1236,6 +1311,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 f"tmux Monitor — session: {self._session} "
                 f"({total} pane{'s' if total != 1 else ''})"
                 f"{awaiting_str}"
+                f"{done_str}"
                 f"{idle_str}"
                 f"{auto_tag}"
                 f"{desync}"
@@ -1253,8 +1329,15 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return stdout.strip() or None
 
     def _format_agent_card_text(self, snap: PaneSnapshot) -> str:
-        dot = format_state_dot(snap)
-        status = format_pane_status(snap)
+        # Membership in the per-tick set is the SOLE source of the completed
+        # flag (t1322). The `info` lookup further down may supply the title and
+        # gate summary, but must never re-derive completion: an archive landing
+        # between _compute_completed_panes and this call would flip the identity
+        # gate and leave the badge disagreeing with the session bar and the
+        # auto-switch decision for a tick.
+        completed = snap.pane.pane_id in self._completed_pane_ids
+        dot = format_state_dot(snap, completed)
+        status = format_pane_status(snap, completed)
         if self._monitor is not None:
             mode = self._monitor.get_compare_mode(snap.pane.pane_id)
             is_override = self._monitor.is_compare_mode_overridden(snap.pane.pane_id)
@@ -1338,12 +1421,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 if isinstance(w, Static) and not isinstance(w, PaneCard)
             ]
             if agents and headers:
-                auto_label = (
-                    "  [bold yellow]⟳ AUTO[/]" if self._auto_switch else ""
-                )
-                headers[0].update(
-                    f"[bold]CODE AGENTS ({len(agents)})[/]{auto_label}"
-                )
+                headers[0].update(self._agents_header_text(len(agents)))
             by_id = {c.pane_id: c for c in current_cards}
             self._pane_cards = by_id
             for snap in agents:
@@ -1386,9 +1464,8 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self._pane_cards[card.pane_id] = card
 
         if agents:
-            auto_label = "  [bold yellow]⟳ AUTO[/]" if self._auto_switch else ""
             container.mount(Static(
-                f"[bold]CODE AGENTS ({len(agents)})[/]{auto_label}",
+                self._agents_header_text(len(agents)),
                 classes="section-header",
             ))
             mount_with_session_dividers(agents, self._format_agent_card_text)

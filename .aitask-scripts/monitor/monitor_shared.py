@@ -5,6 +5,7 @@ and the mini monitor. Extracted to avoid code duplication.
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -66,21 +67,48 @@ def format_compare_mode_glyph(mode: str, is_override: bool) -> str:
     return f"[{color}]{glyph}[/]"
 
 
-def _state_color(snap: PaneSnapshot) -> str:
-    """The single definition of the state→color mapping (t1133): PROMPT
-    (awaiting_input) > IDLE > active, as bold magenta / yellow / green.
-    Shared by the status badge, the agent dot, and the shadow glyph."""
+def is_task_completed(info) -> bool:
+    """True when a pane's resolved task is finished (t1322).
+
+    Accepts a ``TaskInfo`` or ``None``. Both signals are checked because
+    ``aitask_archive.sh`` sets ``status: Done`` *before* it moves the file into
+    ``aitasks/archived/``, so a monitor tick can land between the two and see
+    either one alone.
+    """
+    if info is None:
+        return False
+    if str(getattr(info, "status", "")).strip() == "Done":
+        return True
+    abs_path = str(getattr(info, "task_file_abs", "") or "")
+    return "/archived/" in abs_path.replace(os.sep, "/")
+
+
+def _state_color(snap: PaneSnapshot, completed: bool = False) -> str:
+    """The single definition of the state→color mapping (t1133, t1322):
+    PROMPT (awaiting_input) > COMPLETED > IDLE > active, as bold magenta /
+    bold dodger_blue1 / yellow / green. Shared by the status badge, the agent
+    dot, and the shadow glyph.
+
+    ``completed`` is an explicit opt-in parameter and is never inferred here:
+    it is a property of the pane's *task*, which a ``PaneSnapshot`` does not
+    carry, and a shadow pane has no task of its own — inferring it would make
+    :func:`format_shadow_glyph` colour shadows by their followed agent's task
+    state. A completed agent parked on a final prompt still reads PROMPT, which
+    is actionable now.
+    """
     if getattr(snap, "awaiting_input", False):
         return "bold magenta"
+    if completed:
+        return "bold dodger_blue1"
     if snap.is_idle:
         return "yellow"
     return "green"
 
 
-def format_state_dot(snap: PaneSnapshot) -> str:
+def format_state_dot(snap: PaneSnapshot, completed: bool = False) -> str:
     """The agent row's own status dot ``●``, colored by state (t1133 — was
     previously duplicated inline in monitor_app / minimonitor_app)."""
-    return f"[{_state_color(snap)}]●[/]"
+    return f"[{_state_color(snap, completed)}]●[/]"
 
 
 # Shadow-status glyph (t1133): a deliberately different shape from the agent's
@@ -91,7 +119,12 @@ SHADOW_GLYPH = "◆"  # ◆
 def format_shadow_glyph(shadow_snap: PaneSnapshot | None) -> str:
     """Colored ``◆`` for a bound shadow's state, or ``""`` when the agent has
     no live shadow — callers render nothing (no placeholder), keeping
-    non-shadowed rows byte-identical to the pre-t1133 output."""
+    non-shadowed rows byte-identical to the pre-t1133 output.
+
+    Deliberately single-argument: a shadow is an advisory companion with no
+    task of its own, so it can never be COMPLETED and must never be rendered
+    in the completed colour (t1322). Pinned by a test.
+    """
     if shadow_snap is None:
         return ""
     return f"[{_state_color(shadow_snap)}]{SHADOW_GLYPH}[/]"
@@ -113,10 +146,14 @@ def format_stale_duration(seconds: float) -> str:
     return f"{h}h{m:02d}m"
 
 
-def format_pane_status(snap: PaneSnapshot) -> str:
-    """Render a pane's status badge with awaiting_input > is_idle > active priority."""
+def format_pane_status(snap: PaneSnapshot, completed: bool = False) -> str:
+    """Render a pane's status badge with awaiting_input > completed > is_idle >
+    active priority (t1322). See :func:`_state_color` for why ``completed`` is
+    an explicit parameter rather than something derived from ``snap``."""
     if getattr(snap, "awaiting_input", False):
         return f"[bold magenta]PROMPT {int(snap.idle_seconds)}s[/]"
+    if completed:
+        return f"[bold dodger_blue1]DONE {int(snap.idle_seconds)}s[/]"
     if snap.is_idle:
         return f"[yellow]IDLE {int(snap.idle_seconds)}s[/]"
     return "[green]Active[/]"

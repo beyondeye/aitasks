@@ -392,14 +392,25 @@ class PushScheduler:
         category = getattr(pane.category, "value", str(pane.category))
         task_id = task_id_from_window_name(pane.window_name)
         title = None
+        task_status = None
         if task_id and self._tasks is not None:
             try:
                 info = self._tasks.get_task_info(task_id, pane.session_name)
                 raw_title = getattr(info, "title", None) if info is not None else None
                 if isinstance(raw_title, str) and raw_title:
                     title = raw_title
+                # Task status rides the same already-resolved lookup (t1322) so
+                # the mobile client can render a completed badge, as
+                # aidocs/applink/monitor_port_design.md has always specified.
+                # Read via getattr for the same reason as the title: this whole
+                # block is best-effort and must not raise on an info object that
+                # does not carry the attribute.
+                raw_status = getattr(info, "status", None) if info is not None else None
+                if isinstance(raw_status, str) and raw_status:
+                    task_status = raw_status
             except Exception:
                 title = None
+                task_status = None
         frame = {
             "v": 1, "kind": "push", "verb": "pane_status",
             "payload": {
@@ -416,6 +427,10 @@ class PushScheduler:
         }
         if title is not None:
             frame["payload"]["title"] = title
+        # Additive optional field — no protocol `v` bump (aidocs/applink/
+        # protocol.md "Versioning": clients ignore fields they don't recognize).
+        if task_status is not None:
+            frame["payload"]["status"] = task_status
         await self._send(json.dumps(frame))
 
     async def _send(self, data) -> bool:

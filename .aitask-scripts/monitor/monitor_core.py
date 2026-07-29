@@ -2384,16 +2384,23 @@ def load_monitor_config(project_root: Path) -> dict:
 
 # -- Task context --------------------------------------------------------------
 
-_TASK_ID_RE = re.compile(r'^agent-(?:pick|qa)-(\d+(?:_\d+)?)$')
+_TASK_ID_RE = re.compile(r'^agent-(?:pick|qa|resume)-(\d+(?:_\d+)?)$')
 
 
 def task_id_from_window_name(window_name: str) -> str | None:
     """Pure pane→task mapping: extract the task id from an agent window name.
 
     Returns the captured id (e.g. ``"100"`` or ``"100_1"``) or ``None`` when the
-    window name is not an ``agent-(pick|qa)-<id>`` window. Kept import-free and
-    side-effect-free so it can be unit-tested directly.
+    window name is not an ``agent-(pick|qa|resume)-<id>`` window. Kept
+    import-free and side-effect-free so it can be unit-tested directly.
+
+    ``resume`` was added in t1322: the board launches resumed agents into
+    ``agent-resume-<id>`` windows, which previously matched nothing — so a
+    resumed agent showed no task title, no gate summary, and could never reach
+    the COMPLETED status. Prefixes that carry no task id (``agent-explore-``,
+    ``agent-raw-``) must keep resolving to ``None``.
     """
+
     m = _TASK_ID_RE.match(window_name)
     return m.group(1) if m else None
 
@@ -2416,6 +2423,31 @@ class TaskInfo:
     # wrong under cross-session / multi-project monitoring. Defaulted so the one
     # keyword-arg test stub keeps constructing TaskInfo unchanged.
     task_file_abs: str = ""
+    # File identity ``(st_mtime_ns, st_size)`` of ``task_file_abs``, sampled
+    # BEFORE the content read in ``_resolve`` — never after (t1322). The archive
+    # script's rewrites are rename-based (``sed -i``, ``awk > tmp && mv`` in
+    # aitask_archive.sh), so a read that races a rewrite returns the OLD inode's
+    # bytes while a post-read stat samples the NEW one — which would pin stale
+    # content under a fresh key, permanently. ``None`` (unstat-able, or a
+    # hand-built test stub) means "never serve this from cache".
+    file_identity: tuple[int, int] | None = None
+
+
+def _file_identity(path: str) -> tuple[int, int] | None:
+    """``(st_mtime_ns, st_size)`` for ``path``, or ``None`` if it cannot be stat'ed.
+
+    ns mtime (not float ``st_mtime``) catches two edits inside one wall-clock
+    second; ``st_size`` closes the same-mtime-different-length case. Deliberately
+    the same key :class:`GateSummaryCache` uses, so two caches over the same file
+    can never disagree about whether it changed.
+    """
+    if not path:
+        return None
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
 
 
 class GateSummaryCache:
@@ -2476,6 +2508,18 @@ class GateSummaryCache:
         return summary
 
 
+@dataclass
+class _TaskEntry:
+    """One :class:`TaskInfoCache` slot.
+
+    A positive entry carries its own freshness key on ``info.file_identity``; a
+    negative one has no path to stat, so it carries a retry budget instead.
+    """
+    info: TaskInfo | None
+    miss_at: float = 0.0     # monotonic time of the last failed _resolve
+    miss_count: int = 0      # consecutive failed _resolves
+
+
 class TaskInfoCache:
     """Cache for resolved task info — avoids file I/O on every refresh.
 
@@ -2483,7 +2527,35 @@ class TaskInfoCache:
     resolves the task file from the project root that owns that session (via
     ``session_to_project``). An empty/unknown ``session_name`` falls back to
     the local ``project_root`` — preserving single-session behaviour.
+
+    **Freshness (t1322).** Entries are invalidated by file identity
+    (``(st_mtime_ns, st_size)``), the same key :class:`GateSummaryCache` uses.
+    Before t1322 a resolved entry was immortal: a task archived while the TUI was
+    open served its pre-archival ``TaskInfo`` forever, which made a COMPLETED
+    status impossible to detect. Three things now reject a cached answer:
+
+    * the identity changed — an in-place edit (``status: Ready`` → ``Done``);
+    * the stat raised — the file **moved** (``aitasks/`` → ``aitasks/archived/``);
+    * the entry is negative and its retry is due (see ``_MISS_RETRY_SCHEDULE``).
+
+    Unlike :class:`GateSummaryCache`, an ``OSError`` here must **re-resolve, not
+    fail closed**: failing closed would blank the pane's task title on exactly
+    the tick its task completes.
     """
+
+    # Backoff steps for a negative (unresolvable) entry, then a sparse terminal
+    # interval repeated FOREVER. The terminal step is load-bearing: a budget
+    # that stops permanently poisons a pane whose miss outlived it — an
+    # interrupted archive, or a long `.aitask-data` reconciliation holding
+    # `aitasks/` unresolvable for minutes — and nothing else guarantees
+    # recovery. Steady-state cost is one _resolve per 5 min per missing task.
+    _MISS_RETRY_SCHEDULE: tuple[float, ...] = (5.0, 15.0, 60.0)
+    _MISS_RETRY_TERMINAL: float = 300.0
+
+    # Injectable clock so tests drive the retry schedule deterministically
+    # instead of monkeypatching time.monotonic globally (no sleeps — see
+    # aidocs/framework/testing_conventions.md).
+    _now = staticmethod(time.monotonic)
 
     def __init__(
         self,
@@ -2494,7 +2566,7 @@ class TaskInfoCache:
         self._session_to_project: dict[str, Path] = dict(session_to_project or {})
         # Keyed by (session_name, task_id) so two projects can both have t100
         # without clobbering each other.
-        self._cache: dict[tuple[str, str], TaskInfo | None] = {}
+        self._cache: dict[tuple[str, str], _TaskEntry] = {}
         self._window_to_task_id: dict[str, str | None] = {}
         # Pane-keyed task-id cache (t986). Keyed by pane_id so panes sharing a
         # window are never conflated; see get_task_id_for_pane.
@@ -2506,6 +2578,15 @@ class TaskInfoCache:
         Clears the resolved-task cache when the mapping changes, since entries
         for a session may have been resolved against a stale (or absent)
         mapping and now point at the wrong project's task data.
+
+        **Do not delete this as redundant now that entries are identity-keyed
+        (t1322).** It is the one staleness class the identity key structurally
+        cannot catch: when a session's project root changes, the OLD root's
+        absolute path may still stat perfectly fine (a real ``t100`` in the
+        fallback project), so the identity gate would keep serving the wrong
+        project's task indefinitely, with no signal. Clearing also resets the
+        negative-retry budgets — correct, since a mapping change is exactly the
+        event that can turn a permanent miss into a hit.
         """
         if mapping != self._session_to_project:
             self._session_to_project = dict(mapping)
@@ -2547,14 +2628,72 @@ class TaskInfoCache:
     def get_task_info(
         self, task_id: str, session_name: str = ""
     ) -> TaskInfo | None:
-        """Resolve task info from task ID. Cached after first lookup."""
+        """Resolve task info from task ID, re-reading when the file changed.
+
+        Hot path is exactly one ``os.stat`` on the cached ``task_file_abs``
+        (~0.65 µs warm, vs ~125 µs for a full re-resolve), so an unchanged task
+        is never re-read from disk. See the class docstring for the three ways a
+        cached answer is rejected.
+        """
         key = (session_name, task_id)
-        if key not in self._cache:
-            self._cache[key] = self._resolve(task_id, session_name)
-        return self._cache[key]
+        entry = self._cache.get(key)
+        if entry is not None:
+            info = entry.info
+            if info is not None:
+                # The `is not None` guard is load-bearing: _file_identity
+                # returns None on OSError, and a bare `==` would make
+                # None == None true — serving a stale entry for a file we can
+                # no longer stat, which is precisely the archived-move case.
+                if (
+                    info.file_identity is not None
+                    and _file_identity(info.task_file_abs) == info.file_identity
+                ):
+                    return info
+            elif not self._miss_retry_due(entry):
+                return None
+        return self._store(key, self._resolve(task_id, session_name), entry)
+
+    def _miss_retry_due(self, entry: _TaskEntry) -> bool:
+        """Whether a negative entry is due for another ``_resolve`` attempt.
+
+        Backs off through ``_MISS_RETRY_SCHEDULE`` and then repeats
+        ``_MISS_RETRY_TERMINAL`` forever — it never stops retrying.
+        """
+        idx = entry.miss_count - 1
+        if idx < len(self._MISS_RETRY_SCHEDULE):
+            step = self._MISS_RETRY_SCHEDULE[idx]
+        else:
+            step = self._MISS_RETRY_TERMINAL
+        return (self._now() - entry.miss_at) >= step
+
+    def _store(
+        self,
+        key: tuple[str, str],
+        info: TaskInfo | None,
+        prev: _TaskEntry | None,
+    ) -> TaskInfo | None:
+        """Commit a ``_resolve`` result, carrying the miss budget forward."""
+        if info is None:
+            self._cache[key] = _TaskEntry(
+                info=None,
+                miss_at=self._now(),
+                miss_count=(prev.miss_count + 1) if prev is not None else 1,
+            )
+            return None
+        self._cache[key] = _TaskEntry(info=info)
+        return info
 
     def invalidate(self, task_id: str, session_name: str = "") -> None:
+        """Drop a cached entry so the next lookup re-resolves.
+
+        Still needed after t1322's identity keying: it is the only *immediate*
+        retry for a cached negative (a backoff that is not yet due would
+        otherwise return ``None`` again to a user's explicit gesture), and the
+        only thing that re-decides ``_resolve``'s active-beats-archived
+        precedence when both copies of a task exist.
+        """
         self._cache.pop((session_name, task_id), None)
+
 
     def get_parent_id(self, task_id: str) -> str | None:
         """Extract parent task number from a child task ID."""
@@ -2746,6 +2885,13 @@ class TaskInfoCache:
         if task_path is None:
             return None
 
+        # Sample the file identity BEFORE the read, never after (t1322).
+        # aitask_archive.sh rewrites the task file by rename (`sed -i`,
+        # `awk > tmp && mv`), so a read that races a rewrite returns the OLD
+        # inode's bytes; an identity sampled afterwards would belong to the NEW
+        # file and would pin that stale content in the cache permanently.
+        identity = _file_identity(str(task_path))
+
         try:
             raw = task_path.read_text(encoding="utf-8")
         except OSError:
@@ -2812,4 +2958,5 @@ class TaskInfoCache:
             body=body,
             plan_content=plan_content,
             task_file_abs=str(task_path),
+            file_identity=identity,
         )

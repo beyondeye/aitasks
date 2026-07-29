@@ -46,7 +46,7 @@ from monitor.monitor_shared import (  # noqa: E402
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     ConcernPickerModal,
     format_compare_mode_glyph, format_pane_status, format_shadow_glyph,
-    format_stale_duration, format_state_dot,
+    format_stale_duration, format_state_dot, is_task_completed,
 )
 from monitor.concern_parser import (  # noqa: E402
     block_head_truncated, build_clipboard_payload, has_concern_block,
@@ -233,6 +233,10 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._project_root = project_root
         self._task_cache = TaskInfoCache(project_root)
         self._gate_cache = GateSummaryCache()
+        # Pane ids whose task is finished, recomputed once per refresh tick
+        # (t1322) so the card badge and the session bar's `d` counter agree
+        # within a tick. See MonitorApp._compute_completed_panes.
+        self._completed_pane_ids: frozenset[str] = frozenset()
         self._mount_time: float = 0.0
         self._own_window_id: str | None = None
         self._own_window_index: str | None = None
@@ -436,6 +440,10 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Drop last cycle's gate summaries so a live-growing ledger re-derives
         # this refresh (mirrors the board's per-refresh gate cache).
         self._gate_cache.clear()
+        # Completed-pane set for THIS tick (t1322) — after the session
+        # mapping refresh (which may clear the task cache), before the bar
+        # and the pane list read it.
+        self._completed_pane_ids = self._compute_completed_panes()
 
         # Keep window index fresh (handles tmux renumber-windows)
         self._update_own_window_info()
@@ -561,11 +569,19 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if s.pane.category == PaneCategory.AGENT
         ]
         total = len(agents)
+        # Same three-way partition as the full monitor (t1322): each agent lands
+        # in at most one bucket, on the PROMPT > COMPLETED > IDLE ladder the
+        # badges use. The bar is narrow, so `done` renders as a compact `Nd`.
         awaiting_count = sum(1 for a in agents if getattr(a, "awaiting_input", False))
+        done_count = sum(1 for a in agents
+                         if a.pane.pane_id in self._completed_pane_ids
+                         and not getattr(a, "awaiting_input", False))
         idle_count = sum(1 for a in agents
-                         if a.is_idle and not getattr(a, "awaiting_input", False))
+                         if a.is_idle and not getattr(a, "awaiting_input", False)
+                         and a.pane.pane_id not in self._completed_pane_ids)
 
         awaiting_str = f" [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
+        done_str = f" [bold dodger_blue1]{done_count}d[/]" if done_count > 0 else ""
         idle_str = f" [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         try:
             desync = _get_desync_summary(Path.cwd(), compact=True)
@@ -589,11 +605,31 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 s.pane.session_name for s in agents if s.pane.session_name
             }
             n = len(sessions) if sessions else 1
-            bar.update(f"multi: {n}s · {total}a{awaiting_str}{idle_str}{desync}{state_badge}")
+            bar.update(f"multi: {n}s · {total}a{awaiting_str}{done_str}{idle_str}{desync}{state_badge}")
         else:
             bar.update(
-                f"{self._session}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{idle_str}{desync}{state_badge}"
+                f"{self._session}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{done_str}{idle_str}{desync}{state_badge}"
             )
+
+    def _compute_completed_panes(self) -> frozenset[str]:
+        """Pane ids whose task is finished, for THIS refresh tick (t1322).
+
+        Mirrors :meth:`MonitorApp._compute_completed_panes` — one pass per tick
+        so the card badge and the session-bar counter cannot disagree, and the
+        only site paying the per-pane ``os.stat`` freshness check.
+        """
+        done: set[str] = set()
+        for pane_id, snap in self._snapshots.items():
+            if snap.pane.category != PaneCategory.AGENT:
+                continue
+            task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+            if not task_id:
+                continue
+            if is_task_completed(
+                self._task_cache.get_task_info(task_id, snap.pane.session_name)
+            ):
+                done.add(pane_id)
+        return frozenset(done)
 
     def _agent_card_text(self, snap: PaneSnapshot) -> str:
         """Build the compact card text (status line + optional task title) for
@@ -603,8 +639,14 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         ``_own_agent_identity_text`` and is static by design: no live status
         dot, no compare-mode glyph, and no shadow-status glyph (t1133).
         """
-        dot = format_state_dot(snap)
-        status = format_pane_status(snap)
+        # Per-tick set is the SOLE source of the completed flag (t1322) — the
+        # `info` lookup below supplies the title and gate summary but must never
+        # re-derive completion, or the badge could disagree with the session bar
+        # for a tick. See MonitorApp._format_agent_card_text.
+        completed = snap.pane.pane_id in self._completed_pane_ids
+        dot = format_state_dot(snap, completed)
+        status = format_pane_status(snap, completed)
+
 
         glyph = "?"
         shadow = ""
@@ -650,6 +692,11 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         task title. Deliberately omits live status (idle/prompt/active) and the
         idle-detection glyph — the docked panel is built once and is not a
         refreshing status card like the general-list entries.
+
+        **This includes COMPLETED (t1322), by explicit decision.** The followed
+        agent's own task finishing is not surfaced here; the panel stays static.
+        Use `ait monitor`, or the general list, to see a completed badge. Left
+        this way so the omission reads as a choice, not an oversight.
         """
         name = snap.pane.window_name
         line = f"[bold]{name}[/]"

@@ -119,8 +119,13 @@ class FakeConn:
 
 
 class FakeTaskResolver:
-    def __init__(self, titles=None, raises=False):
+    def __init__(self, titles=None, raises=False, statuses=None):
         self.titles = titles or {}
+        # t1322: task status rides the same lookup as the title. Left as None by
+        # default so the returned object has NO `status` attribute at all — that
+        # is the shape the pre-t1322 fake had, and the production code must keep
+        # tolerating it (it reads via getattr inside a best-effort block).
+        self.statuses = statuses or {}
         self.raises = raises
         self.mapping_updates = []
 
@@ -133,7 +138,10 @@ class FakeTaskResolver:
         title = self.titles.get(task_id)
         if title is None:
             return None
-        return SimpleNamespace(title=title)
+        status = self.statuses.get(task_id)
+        if status is None:
+            return SimpleNamespace(title=title)
+        return SimpleNamespace(title=title, status=status)
 
 
 def binaries(ws):
@@ -234,6 +242,8 @@ async def main():
           ps[0]["kind"] == "push" and ps[0]["payload"]["task_id"] == "100")
     check("pane_status omits title when no task resolver is injected",
           "title" not in ps[0]["payload"])
+    check("pane_status omits status when no task resolver is injected",
+          "status" not in ps[0]["payload"])
     check("force set cleared after keyframe", "%1" not in sub.force)
 
     # Optional task resolver: successful lookup adds a best-effort title.
@@ -254,6 +264,45 @@ async def main():
           pst[0]["payload"]["title"] == "Show task title")
     check("pane_status refreshes session-to-project mapping before title lookup",
           resolvert.mapping_updates[-1] == {"aitasks": Path("/tmp/aitasks")})
+    check("pane_status omits status when the info object has no status attr",
+          "status" not in pst[0]["payload"])
+
+    # t1322: status rides the already-resolved lookup (additive optional field,
+    # no protocol `v` bump). This is what lets the mobile client render a
+    # completed badge.
+    subs = C.Subscription()
+    subs.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000, "cadence_focused_ms": 300})
+    wss = FakeWS()
+    mons = FakeMonitor()
+    mons.snaps["%1"] = FakeSnap(FakePane("%1"), "line1\nline2\n")
+    scheds = PushScheduler(
+        FakeConn(subs), wss, mons, clock=clock,
+        task_resolver=FakeTaskResolver({"100": "Show task title"},
+                                       statuses={"100": "Done"}),
+    )
+    await scheds._run_once()
+    pss = [json.loads(t) for t in texts(wss)]
+    check("pane_status carries status when resolver returns it",
+          pss[0]["payload"].get("status") == "Done")
+    check("pane_status still carries title alongside status",
+          pss[0]["payload"].get("title") == "Show task title")
+    check("pane_status frame stays at protocol v1 (additive field)",
+          pss[0]["v"] == 1)
+
+    # An empty status must be omitted, never sent as "".
+    sub0 = C.Subscription()
+    sub0.apply_subscribe({"panes": ["%1"], "cadence_idle_ms": 1000, "cadence_focused_ms": 300})
+    ws0 = FakeWS()
+    mon0 = FakeMonitor()
+    mon0.snaps["%1"] = FakeSnap(FakePane("%1"), "line1\nline2\n")
+    sched0 = PushScheduler(
+        FakeConn(sub0), ws0, mon0, clock=clock,
+        task_resolver=FakeTaskResolver({"100": "T"}, statuses={"100": ""}),
+    )
+    await sched0._run_once()
+    ps0 = [json.loads(t) for t in texts(ws0)]
+    check("pane_status omits empty status rather than sending an empty string",
+          "status" not in ps0[0]["payload"])
 
     # Cosmetic title lookup is best-effort: misses/errors must not abort status.
     sube = C.Subscription()
@@ -269,6 +318,8 @@ async def main():
     pse = [json.loads(t) for t in texts(wse)]
     check("pane_status still emits when title resolver raises",
           pse[0]["payload"]["task_id"] == "100" and "title" not in pse[0]["payload"])
+    check("pane_status omits status when the resolver raises",
+          "status" not in pse[0]["payload"])
 
     # --- idle: unchanged content within keyframe interval -> zero binary ----
     now["t"] += 2.0          # past the 1s cadence, but content is unchanged
