@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [backend]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1162
 implemented_with: codex/gpt5_6_sol
 created_at: 2026-07-23 14:24
-updated_at: 2026-07-29 00:41
+updated_at: 2026-07-29 10:15
+completed_at: 2026-07-29 10:15
 ---
 
 ## Origin
@@ -42,3 +43,14 @@ Add a `*` arm to the codex inner case that dies with "operation not wired into t
 > **✅ gate:plan_approved** run=2026-07-28T21:41:26Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-29T06:54:25Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-29T07:15:06Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:efb37283abe8c324
+
+> **✅ gate:risk_evaluated** run=2026-07-29T07:15:06Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1221/risk_evaluated_2026-07-29T07:15:06Z-risk_evaluated-a1.log`
