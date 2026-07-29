@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: test
