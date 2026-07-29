@@ -1041,7 +1041,7 @@ class TaskManager:
                         filepath = filepath[1:-1]
                     if filepath.endswith('.md'):
                         self.modified_files.add(filepath)
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
 
     def refresh_lock_map(self):

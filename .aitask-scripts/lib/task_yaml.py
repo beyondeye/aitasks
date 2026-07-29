@@ -144,24 +144,33 @@ def serialize_frontmatter(metadata: dict, body: str, original_key_order: list) -
     """Serialize metadata and body back into a task file string.
 
     Keys are ordered: original order first, then new non-board keys,
-    board keys (boardcol, boardidx) always last.
+    board keys (boardcol, boardidx) always last — preserving the relative
+    order the file already used among the board keys it already had.
 
     Returns:
         str: Complete file content with ``---`` delimited frontmatter.
     """
     ordered = {}
-    # Original keys first
+    # Original keys first. Board keys are skipped here so the tail loop can
+    # genuinely move them last: re-assigning a key already present in a dict
+    # does NOT reposition it, so inserting them here and re-assigning below
+    # silently left a mid-frontmatter boardcol exactly where it was.
     for key in original_key_order:
-        if key in metadata:
+        if key in metadata and key not in BOARD_KEYS:
             ordered[key] = metadata[key]
     # Any new non-board keys
     for key in metadata:
         if key not in ordered and key not in BOARD_KEYS:
             ordered[key] = metadata[key]
-    # Board keys always last
-    for key in BOARD_KEYS:
-        if key in metadata:
-            ordered[key] = metadata[key]
+    # Board keys always last, in the relative order the file already used.
+    # Imposing BOARD_KEYS order instead would rewrite every task file that
+    # happens to carry boardidx before boardcol (36 of them at the time of
+    # writing) on its next save. Board keys absent from the original order are
+    # newly introduced and append after those, in canonical order.
+    seen_board = [k for k in original_key_order if k in BOARD_KEYS and k in metadata]
+    for key in seen_board + [k for k in BOARD_KEYS
+                             if k in metadata and k not in seen_board]:
+        ordered[key] = metadata[key]
 
     # width=4096 keeps flow lists on a single physical line. PyYAML's
     # default (80) wraps a long list (e.g. children_to_implement) across
