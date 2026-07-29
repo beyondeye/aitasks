@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:12
-updated_at: 2026-07-28 23:28
+updated_at: 2026-07-29 12:12
 ---
 
 ## Context
@@ -106,3 +107,8 @@ New tests, over **real files** in a temp tree (reuse the t1243_1 harness):
 4. **Missing file:** a deleted/archived file is still **not** recreated.
 5. **Negative control:** revert to the hardcoded two-name snapshot and confirm
    test 3 fails — proving the test discriminates.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-29T09:12:59Z status=pass attempt=1 type=human
