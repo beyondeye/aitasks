@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-07-29 07:49
-updated_at: 2026-07-29 07:56
+updated_at: 2026-07-29 10:14
 ---
 
 Two defects in the shadow skill's implementation-review sub-procedure
@@ -157,3 +158,8 @@ default.
   agent. This task fixes the entry conditions of a single review. Whichever
   lands second should re-check the other's assumptions about when a review may
   start and which tier it runs at.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-29T07:14:35Z status=pass attempt=1 type=human
