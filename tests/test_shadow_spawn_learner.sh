@@ -20,6 +20,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/codeagent_defaults.sh"
 
 PASS=0
 FAIL=0
@@ -33,7 +34,7 @@ SPAWN="$PROJECT_DIR/.aitask-scripts/aitask_shadow_spawn_learner.py"
 # ============================================================
 echo "--- codeagent dry-run resolution ---"
 
-# Default agent (codeagent_config.json defaults.learn → claudecode/opus4_8).
+# Default agent (whatever codeagent_config.json declares for defaults.learn).
 # Pane ids are deliberately MULTI-DIGIT (t1307): a single-digit fixture cannot
 # tell a faithful pass-through apart from one that drops digits.
 out=$("$CODEAGENT" --dry-run invoke learn %237 1071_5 2>&1)
@@ -62,9 +63,52 @@ assert_not_contains "codex learn is not wrapped in plan mode" "aitask_codex_plan
 # ============================================================
 echo "--- explicit learn default ---"
 
-out=$("$CODEAGENT" resolve learn 2>&1)
-assert_contains "resolve learn returns the configured default" \
-    "AGENT_STRING:claudecode/opus4_8" "$out"
+# Resolution runs against a hermetic METADATA_DIR rather than the live one: a
+# developer's gitignored codeagent_config.local.json outranks the project config
+# and would otherwise make these assertions machine-dependent. The fixture still
+# installs the REAL project config, so the completeness check below continues to
+# guard the file that actually ships.
+FIXTURE_ROOT="$(mktemp -d)"
+trap 'rm -rf "$FIXTURE_ROOT"' EXIT
+
+live_cfg="$PROJECT_DIR/aitasks/metadata/codeagent_config.json"
+codeagent_fixture_metadata "$FIXTURE_ROOT/withcfg" "$live_cfg"
+codeagent_fixture_metadata "$FIXTURE_ROOT/nocfg"
+AIT_CODEAGENT_FIXTURE_OMIT_OPS=learn \
+    codeagent_fixture_metadata "$FIXTURE_ROOT/nolearn" "$live_cfg"
+
+learn_default=$(codeagent_config_default learn "$FIXTURE_ROOT/withcfg/codeagent_config.json")
+# A sentinel that is registered but is NOT the configured default. Injecting it
+# as DEFAULT_AGENT_STRING is what makes "read the config" distinguishable from
+# "fell back" — asserting the real default would be vacuous today, since
+# defaults.learn and DEFAULT_AGENT_STRING are both claudecode/opus5.
+sentinel=$(codeagent_sentinel_excluding "$FIXTURE_ROOT/withcfg" "$learn_default")
+
+# Config completeness: a missing defaults.learn key is exactly the silent
+# fallback this section exists to rule out.
+assert_exit_zero "codeagent config declares a learn default" test -n "$learn_default"
+
+# Every expectation below compares the EXACT extracted AGENT_STRING field rather
+# than a substring, so an empty $learn_default cannot pass vacuously and a prefix
+# such as opus5 cannot match a longer registered name like opus5_1m.
+out=$(METADATA_DIR="$FIXTURE_ROOT/withcfg" DEFAULT_AGENT_STRING="$sentinel" \
+    "$CODEAGENT" resolve learn 2>&1)
+resolved=$(codeagent_resolve_field AGENT_STRING "$out")
+assert_eq "resolve learn returns the configured default" "$learn_default" "$resolved"
+assert_exit_zero "resolve learn does not fall back to DEFAULT_AGENT_STRING" \
+    test "$resolved" != "$sentinel"
+
+# Negative controls. These prove the sentinel injection is live, so the
+# assertion above cannot pass merely because the seam is inert.
+out=$(METADATA_DIR="$FIXTURE_ROOT/nocfg" DEFAULT_AGENT_STRING="$sentinel" \
+    "$CODEAGENT" resolve learn 2>&1)
+assert_eq "no-config resolve learn falls back to DEFAULT_AGENT_STRING" \
+    "$sentinel" "$(codeagent_resolve_field AGENT_STRING "$out")"
+
+out=$(METADATA_DIR="$FIXTURE_ROOT/nolearn" DEFAULT_AGENT_STRING="$sentinel" \
+    "$CODEAGENT" resolve learn 2>&1)
+assert_eq "config without a learn key falls back to DEFAULT_AGENT_STRING" \
+    "$sentinel" "$(codeagent_resolve_field AGENT_STRING "$out")"
 
 # ============================================================
 # Tests: operation support + codex plan policy

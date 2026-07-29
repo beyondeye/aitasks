@@ -114,6 +114,20 @@ rule.)
 | `tests/test_verified_update_flags.sh` | 48, 49, 52, 53, 56, 64 | Flag-parsing tests against `opus4_6` / `claude-opus-4-6` | `informational_only` (fixture, stable) |
 | `tests/test_crew_init.sh`, `test_crew_groups.sh`, `test_crew_template_includes.sh`, `test_crew_runner.sh`, `test_crew_status.sh`, `test_crew_report.sh`, `test_crew_setmode.sh`, `test_launch_mode_field.sh` | many | Pass `--add-type impl:claudecode/opus4_6` as a stable test argument — model choice is incidental | `informational_only` |
 | `tests/test_plan_verified.sh` | 108, 128, 148, 149, 202, 218, 222, 230, 246 | Fixtures for plan-verified append — agent string is incidental | `informational_only` |
+| `tests/test_shadow_spawn_learner.sh` | n/a (derived) | `resolve learn` against a hermetic fixture, plus no-config and missing-key fallback controls | `informational_only` (t1318 — see note below) |
+| `tests/test_codeagent_trail.sh` | n/a (derived) | Heavy-class resolution: `resolve trail == resolve pick`, seeded + no-config | `informational_only` (t1318 — see note below) |
+| `tests/test_codeagent_work_report.sh` | n/a (derived) | Light-class resolution: `resolve work-report == resolve explain`, seeded + no-config | `informational_only` (t1318 — see note below) |
+
+**Why the last three need no edit on promote (t1318).** They previously pinned
+literal model names and went red the moment t1241 promoted the defaults to
+`claudecode/opus5`. They now **derive** the expected value from the config the
+resolver actually reads (`aitasks/metadata/codeagent_config.json` for the live
+case, `seed/codeagent_config.json` for the fixture cases) and prove the config
+was really read by injecting a *sentinel* `DEFAULT_AGENT_STRING` — never by
+asserting the shipped constant. Shared helpers live in
+`tests/lib/codeagent_defaults.sh`. **Prefer this idiom for any new
+default-sensitive test**; the `needed_for_promote` entries above are the ones
+still carrying literals.
 
 ---
 
@@ -127,7 +141,7 @@ rule.)
 | Script help/examples (§4) | 0 | 0 | 2 lines (aitask_codeagent.sh:663, aitask_brainstorm_init.sh:126–130) | ~8 lines |
 | Docs (§5) | 0 | 0 | 3 locations (codeagent.md defaults table + line 167, aidocs/codeagents/claudecode_tools.md:5) | many |
 | Skills & procedures (§6) | 0 | 0 | 0 | 8 locations |
-| Tests (§7) | 0 | test_resolve_detected_agent, test_aitask_stats_py | test_codeagent, test_brainstorm_crew | many stable fixtures |
+| Tests (§7) | 0 | test_resolve_detected_agent, test_aitask_stats_py | test_codeagent, test_brainstorm_crew | many stable fixtures + 3 derived-expectation suites (t1318) |
 
 **Conclusion:** `aitask-refresh-code-models` covers the full model-registry
 write in §1 but writes **nothing** in §2, §3, §4-partial, or §5-partial.

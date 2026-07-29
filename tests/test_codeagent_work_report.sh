@@ -4,6 +4,11 @@
 # resolution equivalence with explain, the whitespace fail-closed guard, and
 # verified-score parity across the models files.
 # Run: bash tests/test_codeagent_work_report.sh
+#
+# Resolution expectations are DERIVED from seed/codeagent_config.json and checked
+# against an injected sentinel DEFAULT_AGENT_STRING (t1318) — never pinned to a
+# literal model, which is what left this file red after t1241/t1242 promoted the
+# defaults to claudecode/sonnet5 and claudecode/opus5.
 
 set -e
 
@@ -19,12 +24,14 @@ TOTAL=0
 
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# Derived-default helpers (see tests/lib/codeagent_defaults.sh)
+. "$PROJECT_DIR/tests/lib/codeagent_defaults.sh"
 
 # --- Test environment setup ---
 
-# with_config=true copies the seeded codeagent_config.json (work-report ->
-# claudecode/sonnet4_6); with_config=false leaves no config so resolution
-# falls through to DEFAULT_AGENT_STRING.
+# with_config=true copies the seeded codeagent_config.json (which assigns
+# work-report to the light class, alongside explain); with_config=false leaves
+# no config so resolution falls through to DEFAULT_AGENT_STRING.
 setup_test_env() {
     local with_config="$1"
     local tmpdir
@@ -77,7 +84,13 @@ echo "--- Test 1: claudecode work-report dry-run ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke work-report --columns now,next --tasks 12,34 2>&1)
 assert_contains "claudecode dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
 assert_contains "claudecode dry-run contains claude binary" "claude" "$output"
-assert_contains "claudecode dry-run contains sonnet model (seeded default)" "claude-sonnet-4-6" "$output"
+# Cross-check `invoke` against `resolve` rather than pinning a cli_id literal:
+# the contract is that the composed command line carries the SAME model the
+# resolver picks for this operation, whatever the seeded config says.
+seeded_cli_id=$(codeagent_resolve_field CLI_ID \
+    "$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve work-report 2>&1)")
+assert_exit_zero "resolve work-report reports a cli_id" test -n "$seeded_cli_id"
+assert_contains "claudecode dry-run uses the resolved default model" "$seeded_cli_id" "$output"
 # %q-escaped: the whole slash command is ONE argument with args in order.
 assert_contains "claudecode dry-run contains slash command + args verbatim" '/aitask-work-report\ --columns\ now\,next\ --tasks\ 12\,34' "$output"
 
@@ -102,19 +115,40 @@ assert_contains "opencode dry-run contains --prompt slash command + args verbati
 
 # Test 4: resolution equivalence with explain (seeded config)
 echo "--- Test 4: resolve work-report == resolve explain (seeded) ---"
-output_wr=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve work-report 2>&1)
-output_ex=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve explain 2>&1)
-assert_contains "seeded resolve work-report is sonnet4_6" "AGENT_STRING:claudecode/sonnet4_6" "$output_wr"
-assert_contains "seeded resolve explain is sonnet4_6" "AGENT_STRING:claudecode/sonnet4_6" "$output_ex"
+# The fixture copies seed/codeagent_config.json, so that file — not the live
+# aitasks/metadata one — is what the resolutions below read. The two diverge
+# (seed shadow is claudecode/*, live shadow is codex/*).
+seed_cfg="$PROJECT_DIR/seed/codeagent_config.json"
+seeded_explain=$(codeagent_config_default explain "$seed_cfg")
+# Registered but not the seeded value: injecting it as DEFAULT_AGENT_STRING is
+# what distinguishes "read the config" from "fell through to the hardcoded
+# default".
+sentinel=$(codeagent_sentinel_excluding "$TMPDIR_TEST/aitasks/metadata" "$seeded_explain")
+
+assert_exit_zero "seed config declares an explain default" test -n "$seeded_explain"
+
+output_wr=$(cd "$TMPDIR_TEST" && DEFAULT_AGENT_STRING="$sentinel" bash "$CODEAGENT" resolve work-report 2>&1)
+output_ex=$(cd "$TMPDIR_TEST" && DEFAULT_AGENT_STRING="$sentinel" bash "$CODEAGENT" resolve explain 2>&1)
+assert_eq "seeded resolve work-report matches the configured light-class default" \
+    "$seeded_explain" "$(codeagent_resolve_field AGENT_STRING "$output_wr")"
+assert_eq "seeded resolve explain matches the configured light-class default" \
+    "$seeded_explain" "$(codeagent_resolve_field AGENT_STRING "$output_ex")"
+# The contract this test exists for: work-report is in the same class as explain.
+assert_eq "seeded resolve work-report == resolve explain" "$output_ex" "$output_wr"
 
 # Test 5: resolution equivalence with explain (no config -> DEFAULT_AGENT_STRING)
 echo "--- Test 5: resolve equivalence without config ---"
 TMPDIR_NOCFG="$(setup_test_env false)"
 CODEAGENT_NOCFG="$TMPDIR_NOCFG/.aitask-scripts/aitask_codeagent.sh"
-output_wr=$(cd "$TMPDIR_NOCFG" && bash "$CODEAGENT_NOCFG" resolve work-report 2>&1)
-output_ex=$(cd "$TMPDIR_NOCFG" && bash "$CODEAGENT_NOCFG" resolve explain 2>&1)
-assert_contains "no-config resolve work-report falls to default" "AGENT_STRING:claudecode/opus4_8" "$output_wr"
-assert_contains "no-config resolve explain falls to default" "AGENT_STRING:claudecode/opus4_8" "$output_ex"
+# Asserting the INJECTED sentinel (rather than the shipped constant) proves the
+# fallback path is live without pinning a literal that a promotion would rot,
+# and makes Test 4's config-was-read result non-vacuous.
+output_wr=$(cd "$TMPDIR_NOCFG" && DEFAULT_AGENT_STRING="$sentinel" bash "$CODEAGENT_NOCFG" resolve work-report 2>&1)
+output_ex=$(cd "$TMPDIR_NOCFG" && DEFAULT_AGENT_STRING="$sentinel" bash "$CODEAGENT_NOCFG" resolve explain 2>&1)
+assert_eq "no-config resolve work-report falls to DEFAULT_AGENT_STRING" \
+    "$sentinel" "$(codeagent_resolve_field AGENT_STRING "$output_wr")"
+assert_eq "no-config resolve explain falls to DEFAULT_AGENT_STRING" \
+    "$sentinel" "$(codeagent_resolve_field AGENT_STRING "$output_ex")"
 
 # Test 6: whitespace guard rejects an arg with an embedded space (fail-closed)
 echo "--- Test 6: whitespace guard ---"
