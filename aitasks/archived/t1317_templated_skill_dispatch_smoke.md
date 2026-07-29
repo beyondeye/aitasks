@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: test
-status: Implementing
+status: Done
 labels: [shadow, execution_profiles]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1311
 implemented_with: claudecode/opus5
 created_at: 2026-07-29 10:15
-updated_at: 2026-07-29 11:01
+updated_at: 2026-07-29 11:49
+completed_at: 2026-07-29 11:49
 ---
 
 ## Origin
@@ -114,3 +115,14 @@ discovery `aitask_skill_verify.sh:35-37` uses), and for each agent surface:
 > **✅ gate:plan_approved** run=2026-07-29T08:01:19Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-29T08:12:29Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-29T08:49:40Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:0862213a7c937ab8
+
+> **✅ gate:risk_evaluated** run=2026-07-29T08:49:40Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1317/risk_evaluated_2026-07-29T08:49:40Z-risk_evaluated-a1.log`
