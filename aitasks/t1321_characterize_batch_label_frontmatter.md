@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1312
+implemented_with: claudecode/opus5
 created_at: 2026-07-29 10:40
-updated_at: 2026-07-29 10:42
+updated_at: 2026-07-29 11:51
 ---
 
 ## Origin
@@ -56,3 +57,8 @@ Fixture: copy `setup_project` from `tests/test_anchor_create.sh:82-118` (bare re
 - `bash tests/test_characterize_batch_label_frontmatter.sh` → exit 0, all cases pass against CURRENT `aitask_create.sh`.
 - Negative control demonstrated once (documented in the plan/notes).
 - `shellcheck` clean on the new test file (info-level baseline OK).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-29T08:51:40Z status=pass attempt=1 type=human
