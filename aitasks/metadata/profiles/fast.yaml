@@ -16,3 +16,10 @@ manual_verification_followup_mode: ask
 record_gates: true
 default_gates: [risk_evaluated]
 max_parallel_gates: 2
+# Default effort tier for the shadow's implementation review. Takes effect only
+# when default_profiles.shadow names this profile (project_config.yaml for the
+# team, userconfig.yaml for you personally):
+#     default_profiles:
+#       shadow: fast
+# Without that mapping the shadow resolves to 'default' and keeps prompting.
+shadow_impl_review_tier: advanced

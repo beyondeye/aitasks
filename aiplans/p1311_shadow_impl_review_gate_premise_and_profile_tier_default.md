@@ -457,3 +457,94 @@ every non-empty channel and its paths are disclosed. Then repeat with
 ## Post-implementation
 
 Step 9 (merge / archival) as usual.
+
+## Final Implementation Notes
+
+- **Actual work done:** §A–§G implemented as planned. `aitask-shadow` converted to
+  the stub + `SKILL.md.j2` pattern (resolver key `shadow`) with four stubs;
+  the three legacy "Source of Truth" redirects deleted. All nine sub-procedures
+  now render into the Codex and OpenCode trees. New profile key
+  `shadow_impl_review_tier` (`quick|default|advanced|deep`) registered at the
+  three `profile_editor.py` sites + a new "Shadow Review" field group; `shadow`
+  added to `VALID_PROFILE_SKILLS` and both "Valid skills" strings; `advanced`
+  shipped in seed + live `fast.yaml`; `default_profiles: {shadow: fast}` added
+  to the local gitignored `userconfig.yaml`. `impl-challenge.md`'s "too early to
+  review" gate replaced by a non-prompting **Review-state assessment** with the
+  composite four-channel diff source; only the tier *fallback* bullet is
+  Jinja-gated. `impl-review-angles.md` gained notes-absent modes for S1/S2.
+  Docs updated across `aidocs/framework/shadow_agent.md`, five website pages and
+  the profiles key table (+ `remote` prerenders regenerated). Tests: new
+  `test_skill_render_aitask_shadow.sh` (475 assertions),
+  `test_profile_editor_shadow_tier.py`, rendered-tree sweeps added to both shadow
+  prose guards, `shadow` added to the settings known-skill assertion, 6 goldens.
+
+- **Deviations from plan:**
+  - **Step 7 risk-mitigation "before" creation was treated as already executed.**
+    The plan's single `timing: before` line is annotated `created: t1317`, which
+    is already in `depends:` / `risk_mitigation_tasks:` and has landed and
+    archived. Part 2 of `risk-mitigation-followup.md` has no idempotency guard,
+    so re-running it would have double-created the mitigation.
+  - **`grep -c 'git status --short'` is 1, not the planned 0.** The rewrite
+    *names* the porcelain form inside a prohibition ("Enumerate paths
+    NUL-separated, never from `git status --short`") rather than deleting the
+    mention — telling the agent what not to do is worth more than the absence.
+    The test asserts the prohibition is present AND that the old command form
+    (`git status --short   # what changed`) is gone.
+  - **Goldens cover the two Jinja-bearing files only** (as planned); the eight
+    Jinja-free procedures get a profile × agent **invariance sweep** (Test 1i)
+    instead, which fails loudly if any of them ever grows a conditional.
+  - Added `qa_tier` to the settings `_index.md` group bullet — that list claims
+    to mirror `PROFILE_FIELD_GROUPS` and was already missing it.
+  - New website cross-section links use `{{< relref >}}` rather than relative
+    paths: relref is build-verified, and the neighbouring `docs/tuis/` pages
+    already use it. Verified in the built HTML, not just the source.
+
+- **Issues encountered:**
+  - **A concurrent session was adding a different profile key
+    (`explore_label_confirm`) to eight of the same files, uncommitted.** Seven of
+    the resulting diff hunks interleaved both changes, so hunk filtering could
+    not separate them. Resolved by reconstructing each shared file as
+    "HEAD + only my edits" and staging that blob via `git hash-object` +
+    `git update-index`, leaving their worktree work untouched. The staged tree
+    was then verified to contain zero `explore_label_confirm` lines, to compile,
+    and to parse as YAML.
+  - Jinja tags on their own lines emitted stray blank lines that broke the
+    rendered markdown list; fixed with `-%}` trim markers on the `if`/`else`.
+  - `collect_profile_values` reads enum widgets via `CycleField.current_value`
+    under id `profile_{key}__{prefix}` (not `.value` / `profile_enum_…`); the
+    round-trip test fake had to match the real widget contract.
+
+- **Key decisions:**
+  - **Route (b) — make the skill profile-aware — over route (a), a runtime
+    profile-key reader.** No new bash helper was needed, the tier default is
+    baked in at render time exactly like `qa_tier`, and the sub-procedures reach
+    the other agent trees as a side effect.
+  - **Only the fallback bullet is gated, never the recognition rules.** Gating
+    the whole Tier-selection section (the `qa_tier` shape) would delete the
+    explicit-wording table from the `fast` render, leaving "a tier named in your
+    ask still wins" with no mapping behind it. Test 2p guards this, and a
+    negative control confirmed it fails on exactly that regression.
+  - **Full tier words (`quick|default|advanced|deep`), not `qa_tier`'s `q/s/e`** —
+    matching `impl-challenge.md`'s own vocabulary. Pinned by a test.
+  - **The inert-key problem is documented, not designed around.** Seeding
+    `default_profiles: {shadow: fast}` in `seed/project_config.yaml` was rejected
+    (that file deliberately ships `default_profiles:` empty). The condition is
+    stated in five places instead; `warn_on_orphaned_profile_skill_key` (the
+    "after" mitigation) will later turn it into a detected condition.
+
+- **Upstream defects identified:**
+  - `aitask_board.py:7259-7261 — work-report task collection silently skips a task whose filename has no number, so the report lists fewer tasks than the column contains (t_refresh_codeagent_suite_default_model_expectations.md ⇒ test_board_work_report.test_hidden_cards_still_listed fails 135≠136). Pre-existing; already tracked by t1330.`
+  - `.claude/skills/task-workflow/risk-mitigation-followup.md:136-194 — Part 2 ("before" creation) has no idempotency guard: re-picking a task whose before-mitigation was already created and landed would create a duplicate task and re-add it to depends:/risk_mitigation_tasks. The plan line already carries a `created: t<id>` annotation that a guard could read.`
+  - `.claude/skills/task-workflow/planning.md:29-56 — Step 6.0a's force-reverify handoff is inert under `plan_preference: use_current`. aitask_risk_mitigation_landed.sh returns FORCE_VERIFY:0 when the plan has no prior plan_verified entry, on the stated assumption that "`decide` already returns VERIFY" — but `decide` only runs on the verify path, so a parent task under the fast profile never re-verifies its plan after a before-mitigation lands.`
+
+- **Build verification:** `bash tests/run_all_python_tests.sh --test-dir tests` →
+  2720 tests, 1 failure, run twice with identical results. The failure is
+  `test_board_work_report.test_hidden_cards_still_listed` (135≠136), isolated by
+  set-difference to the numberless task file above; it was present at the commit
+  this session started from and is unrelated to this change. All other
+  verification green: render test 475/475, dispatch contract 65/65, opencode
+  pointers 117/117, opencode setup 31/31, parity 86/86,
+  `aitask_skill_verify.sh` OK (13 templates × 3 agents), `hugo build` 229 pages
+  with all new links + the `#review-the-implementation` anchor verified in the
+  built HTML, and two behavioral scratch-repo fixtures proving the untracked and
+  committed channels (both with space-containing filenames).
