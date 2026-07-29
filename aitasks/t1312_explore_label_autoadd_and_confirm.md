@@ -212,3 +212,5 @@ their vocabulary leak for free; only their *prose* rules would need aligning.
 > **✅ gate:plan_approved** run=2026-07-29T07:39:57Z status=pass attempt=1 type=human
 
 > **✅ gate:plan_approved** run=2026-07-29T13:39:54Z status=pass attempt=2 type=human
+
+> **✅ gate:review_approved** run=2026-07-29T15:31:25Z status=pass attempt=1 type=human
