@@ -16,7 +16,7 @@ risk_mitigation_tasks: [1317]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-07-29 07:49
-updated_at: 2026-07-29 12:02
+updated_at: 2026-07-29 15:50
 ---
 
 Two defects in the shadow skill's implementation-review sub-procedure
@@ -166,3 +166,5 @@ default.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-29T07:14:35Z status=pass attempt=1 type=human
+
+> **✅ gate:plan_approved** run=2026-07-29T12:50:19Z status=pass attempt=2 type=human
