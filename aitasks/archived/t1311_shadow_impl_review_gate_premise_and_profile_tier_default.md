@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [1317]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [shadow, execution_profiles]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ risk_mitigation_tasks: [1317, 1332, 1333]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-07-29 07:49
-updated_at: 2026-07-29 17:04
+updated_at: 2026-07-29 17:05
+completed_at: 2026-07-29 17:05
 ---
 
 Two defects in the shadow skill's implementation-review sub-procedure
@@ -170,3 +171,14 @@ default.
 > **✅ gate:plan_approved** run=2026-07-29T12:50:19Z status=pass attempt=2 type=human
 
 > **✅ gate:review_approved** run=2026-07-29T13:58:55Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-29T14:04:48Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:043d68d48faef543
+
+> **✅ gate:risk_evaluated** run=2026-07-29T14:04:48Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1311/risk_evaluated_2026-07-29T14:04:48Z-risk_evaluated-a1.log`
