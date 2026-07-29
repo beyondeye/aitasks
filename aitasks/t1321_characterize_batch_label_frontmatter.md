@@ -71,3 +71,5 @@ Fixture: copy `setup_project` from `tests/test_anchor_create.sh:82-118` (bare re
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-29T08:51:40Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-29T09:19:34Z status=pass attempt=1 type=human
