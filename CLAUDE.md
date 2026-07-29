@@ -12,12 +12,27 @@ The `ait` CLI dispatcher routes to shell scripts in
 `.aitask-scripts/`.
 
 ### Testing
-Tests are bash scripts run individually:
+Bash tests are run individually — no runner. Each file is self-contained with
+`assert_eq`/`assert_contains` helpers and prints its own PASS/FAIL summary:
 ```bash
 bash tests/test_claim_id.sh
 ```
-No test runner — each file is self-contained with `assert_eq`/`assert_contains`
-helpers and prints PASS/FAIL summary.
+
+Python tests do have one aggregate runner (~12 min for the full suite):
+```bash
+bash tests/run_all_python_tests.sh                    # whole suite
+bash tests/run_all_python_tests.sh --test-dir <dir>   # a subset / fixture dir
+```
+**Read only the last line for the verdict** — `PYTHON SUITE: PASSED|FAILED
+(runner=…, exit=N)`, derived from the backend's real exit status. A
+`Results: N passed, 0 failed` line earlier in the output belongs to one
+script-style test module, not to the suite; several of those print *after* the
+framework's own `FAILED` unless output is unbuffered (t1179).
+
+**Piping discards the status:** `bash tests/run_all_python_tests.sh 2>&1 | tail`
+exits with `tail`'s `0` no matter what the suite did. Use `set -o pipefail` or
+check `${PIPESTATUS[0]}`. The verdict banner goes to stderr so it survives
+`2>&1 | tail` even when the exit status does not.
 
 ### Linting
 ```bash
