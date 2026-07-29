@@ -271,3 +271,95 @@ Standard: merge approval, `ait gates run 1317` (declared gate: `risk_evaluated`)
 worktree/branch cleanup (n/a — current-branch profile), then
 `./.aitask-scripts/aitask_archive.sh 1317`. Archival unblocks **t1311**, whose
 `depends:` names this task.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, three files:
+  - `tests/test_skill_dispatch_contract.sh` (new, 366 lines) — Test 1 discovery
+    (12 skills via the `aitask_skill_verify.sh:35-37` `find`), Test 2 the
+    dispatch contract over 12 skills × 4 surfaces = 48 assertions, Test 3 the
+    negative-control block (12 assertions). 61 total, all passing.
+  - `.opencode/skills/aitask-trail/SKILL.md` (new) — the missing 4th-surface
+    stub, body mirroring `.opencode/commands/aitask-trail.md` with the
+    `.opencode/skills/` frontmatter convention (`name:` + `description:`).
+  - `aidocs/framework/stub-skill-pattern.md` — two §3g notes: the OpenCode
+    skill-dir stub as a required surface, and the enforcement pointer to the new
+    test (bidirectional doc↔test cross-ref; the table itself is not restated).
+
+- **Deviations from plan:** Two, both mechanical.
+  1. Discovery uses a `while IFS= read -r` loop instead of `mapfile` (the plan
+     named `mapfile` with a bash-3.2 fallback noted); the loop is the fallback,
+     taken up front rather than deferred.
+  2. NC-1's mutation was planned as `sed -i` on the fixture. Replaced with a
+     second `write_ctrl_stub` call naming a wrong target — same effect, and it
+     sidesteps the BSD/GNU `sed -i` divergence entirely (see
+     `aidocs/framework/sed_macos_issues.md`).
+
+- **Issues encountered:**
+  - **The negative controls caught a real bug in the first draft of the test
+    itself.** `check_surface` toggled `set +e` / `set -e` around the resolver
+    invocation. Because `set -e` is shell-global (not function-scoped), the
+    inner `set -e` re-enabled errexit *inside* `probe()`'s command substitution,
+    so `check_surface`'s `return 1` killed the subshell before `probe` could
+    echo `problems`. All three in-suite controls reported `''` instead of
+    `problems` — a suite that looked structurally complete but proved nothing.
+    Fixed by removing errexit toggling in both functions and using the
+    condition-context idiom `out="$(cmd)" || rc=$?`. This is the concrete
+    argument for the `feedback_negctrl_proves_test_discriminates` rule: the
+    positive path was green throughout.
+  - `shellcheck` (no `-x`) reports three SC1091 infos for the sourced libs;
+    `shellcheck -x` is clean. One SC2016 on the parse regex is a false positive
+    (the backticks are literal markdown in the stub, not command substitution)
+    and carries an inline `disable` with that reason.
+
+- **Key decisions:**
+  - **Reuse the canonical seam, don't restate §3g.** The expected rendered path
+    comes from `agent_skill_dir` in `.aitask-scripts/lib/agent_skills_paths.sh`,
+    compared against the path *parsed out of the stub body*. Three-way agreement
+    (hand-authored stub ↔ bash helper ↔ actual render output) is what makes a
+    codex stub missing `-codex-` fail; reconstructing the path from the same
+    mapping the stub is supposed to satisfy would have been circular.
+  - **One profile (`default`), not all three.** The stub body is profile-agnostic
+    by contract (§3b/§3f) so the dispatch shape is profile-invariant; `default`
+    also keeps the test away from the *committed* `*-remote-` prerender dirs that
+    `.gitignore:57-65` un-ignores.
+  - **Controls mutate a scratch fixture, never a committed file.** Restore is
+    `rm -rf` of the `_t1317_ctrl` prefix under `trap cleanup EXIT` plus a
+    pre-clean — deliberately not `git checkout`, which would have discarded an
+    unrelated concurrent session's in-flight minimonitor work present in this
+    checkout throughout the task.
+  - **Closure rule scoped to the skill's own authoring dir.** Every `*.md` in
+    `.claude/skills/<skill>/` must have a same-named counterpart in the rendered
+    dir (the stub `SKILL.md` maps 1:1 onto the `.j2`-rendered `SKILL.md`).
+    Verified to hold today for the only two skills with sibling procedures —
+    `aitask-qa` (6) and `aitask-pickrem` (1). A whole-transitive-closure rule
+    would have been wrong: `task-workflow` renders 29 of its 32 files into any
+    given closure, so three legitimately-unreachable files would fail it.
+
+- **Verification performed:** new suite 61/61 exit 0; `shellcheck -x` clean;
+  `aitask_skill_verify.sh` OK (12 × 3); `test_opencode_skill_legacy_pointers.sh`
+  108/108; `test_opencode_setup.sh` 31/31; `test_skill_render_aitask_trail.sh`
+  52/52; `test_skill_verify.sh` 24/24. Two top-level negative controls against
+  *real* stubs (codex `-codex-` strip; trail stub hidden) each drove the suite to
+  exit 1 with a precise diagnostic and were restored from a scratchpad copy with
+  an empty resulting `git diff`. No scratch dirs left behind.
+
+- **Upstream defects identified:**
+  - `.opencode/skills/aitask-trail/SKILL.md` — missing entirely since t1210_3
+    (`3386e1f43`); 11 of 12 templated skills had this stub. **Fixed in this
+    task** at the user's direction, since the new test treats all four surfaces
+    as mandatory and AC #2 requires a green suite.
+  - `tests/test_opencode_setup.sh:22` — derives `expected_skill_count` from the
+    tree under test (`git ls-files '.opencode/skills/aitask-*/SKILL.md'`), so a
+    missing wrapper lowers both sides of the comparison and the test stays green.
+    This is why the trail gap survived. Self-referential expectation, not fixed
+    here (out of scope); worth a separate task if the count is meant to be a
+    real guard.
+  - `.aitask-scripts/aitask_skill_verify.sh:57-64` — `_stub_path_for` covers only
+    3 surfaces and omits `.opencode/skills/<skill>/SKILL.md`; its Read-path check
+    also greps a regex rebuilt from its own restatement of §3g rather than
+    confirming the rendered file exists. Left alone deliberately (production
+    script; the new test covers both gaps).
+  - `.gitignore:43` — comment points at the stale path
+    `.claude/skills/task-workflow/stub-skill-pattern.md`; the live doc is
+    `aidocs/framework/stub-skill-pattern.md`. Cosmetic.
