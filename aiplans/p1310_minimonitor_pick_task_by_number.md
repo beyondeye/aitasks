@@ -654,6 +654,26 @@ ait minimonitor      # in a window beside a running agent
   imports the changed modules was additionally re-run directly against the
   final code and passes.
 
+- **Concurrent-task reconciliation (t1322).** t1310 was picked up in a second
+  session, by which time a concurrent **t1322** ("COMPLETED agent status",
+  committed as `411c7a546`) had edited all three files t1310 touches. Effects on
+  this task:
+  - `TaskInfoCache` is now **identity-keyed** (`(st_mtime_ns, st_size)`), so the
+    "entries are immortal" premise `blocking_dependencies` was designed against
+    no longer holds. `refresh=True` is retained — it still forces an immediate
+    retry of a *negative* entry whose backoff is not yet due, and re-decides
+    `_resolve`'s active-beats-archived precedence — and the docstring now says
+    exactly that instead of the old staleness rationale.
+  - The `refresh=False` negative control had to be rewritten: rewriting the
+    dependency file on disk is now picked up regardless of `refresh`, so that
+    form no longer discriminates. It now counts `_resolve` calls over an
+    *unchanged* file, which is the distinction `refresh` still makes.
+  - Three blank lines that the merge had incidentally dropped from t1322's
+    committed formatting were restored, so this commit carries no whitespace
+    noise from the other task.
+  - Re-verified after t1322 landed: t1310's 47 + 19 tests pass, as do t1322's
+    own `test_monitor_completed_status` and `test_task_info_cache_freshness`.
+
 - **Live verification (tmux, isolated socket `-L t1310check`):** confirmed in a
   real 40-column pane that the `p:pick task` hint renders, the number dialog
   accepts input, and the confirm dialog shows the task detail, the
