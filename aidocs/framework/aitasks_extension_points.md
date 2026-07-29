@@ -23,10 +23,22 @@ cross-PC sync) silently drops or mangles it:
 4. **Sync/merge rule:** `board/aitask_merge.py` `merge_frontmatter()`. A field
    with no explicit rule falls into the generic `else` and can be dropped to the
    unresolved/PARTIAL path on a concurrent edit. Add a branch: list fields go in
-   `_LIST_UNION_FIELDS` (union), board-layout fields in `BOARD_KEYS`
-   (`_KEEP_LOCAL_FIELDS`), and a scalar that must survive concurrent edits gets a
-   newer-`updated_at`-wins branch (mirror `updated_at` / `anchor`). Keep a
-   semantic scalar OUT of `_LIST_UNION_FIELDS` / `BOARD_KEYS`.
+   `_LIST_UNION_FIELDS` (union), per-checkout **board-layout** fields in
+   `BOARD_LAYOUT_KEYS` (from which `_KEEP_LOCAL_FIELDS` is derived), and a scalar
+   that must survive concurrent edits gets a newer-`updated_at`-wins branch
+   (mirror `updated_at` / `anchor`). Keep a semantic scalar OUT of
+   `_LIST_UNION_FIELDS` / `BOARD_LAYOUT_KEYS`.
+4b. **Board save path (board-owned fields only):** `Task.reload_and_save_board_fields`
+   in `board/aitask_board.py` takes a **required** `fields` set and persists only
+   what the caller names — so no key is ever written back by a move that did not
+   name it, whichever set it is in. A new board key goes in `BOARD_KEYS` (making
+   it nameable and validated) but **not** in `BOARD_LAYOUT_KEYS` unless it is
+   per-checkout layout. `BOARD_LAYOUT_KEYS` membership carries two policies a
+   shared key must not inherit: its merge conflicts resolve **silently
+   local-wins** (via `_KEEP_LOCAL_FIELDS`, layer 4), and writes naming only those
+   keys are treated as layout so they **do not record `updated_at`**. Naming a
+   non-layout key is what makes a write semantic. Guarded by
+   `tests/test_board_persistence_seam.py`.
 5. **Documentation surfaces:** the field's existence + meaning is enumerated in
    several places that drift independently — update **all** of them:
    - `seed/aitasks_agent_instructions.seed.md` "## Task File Format" YAML block,

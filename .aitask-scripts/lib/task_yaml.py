@@ -46,7 +46,20 @@ _FlowListDumper.add_representer(list, lambda dumper, data:
 
 # --- Constants ---
 
-BOARD_KEYS = ("boardcol", "boardidx")
+# Per-checkout layout. This set defines TWO policies, both of which are wrong
+# for a key carrying meaning across checkouts:
+#   * merge      — `_KEEP_LOCAL_FIELDS` is derived from it, so a conflict is
+#                  resolved local-wins SILENTLY;
+#   * timestamp  — `Task.reload_and_save_board_fields` treats a write naming
+#                  only these keys as layout, so it does NOT record `updated_at`.
+BOARD_LAYOUT_KEYS = ("boardcol", "boardidx")
+# Every board-owned key. Drives frontmatter key ordering and the "empty metadata"
+# probe, and is the vocabulary the save path validates a caller's `fields`
+# against. A *shared* board key belongs here but NOT in BOARD_LAYOUT_KEYS —
+# otherwise it inherits both policies above. (It is not at risk of being written
+# back by unrelated layout moves either way: every caller names the exact fields
+# it mutated.)
+BOARD_KEYS = BOARD_LAYOUT_KEYS
 
 FRONTMATTER_RE = re.compile(r'\A---\n(.*?)\n---\n(.*)', re.DOTALL)
 

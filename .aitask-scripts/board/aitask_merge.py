@@ -34,7 +34,9 @@ from pathlib import Path
 # These imports MUST stay below the insert — task_yaml is no longer a
 # same-package sibling.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from task_yaml import parse_frontmatter, serialize_frontmatter, BOARD_KEYS  # noqa: E402
+from task_yaml import (  # noqa: E402
+    parse_frontmatter, serialize_frontmatter, BOARD_LAYOUT_KEYS,
+)
 import gate_ledger  # noqa: E402  -- stdlib-only; sys.path set up just above
 
 # ---------------------------------------------------------------------------
@@ -129,7 +131,11 @@ def parse_conflict_file(content: str) -> tuple[str, str] | None:
 # edit falls through to the generic unresolved/PARTIAL path — degrading to a
 # manual conflict beats a silent union guess for structured entries.
 _LIST_UNION_FIELDS = frozenset({"labels", "depends"})
-_KEEP_LOCAL_FIELDS = frozenset(BOARD_KEYS)
+# Deliberately BOARD_LAYOUT_KEYS, not BOARD_KEYS: local-wins is correct only for
+# per-checkout layout. A *shared* board key resolved local-wins would silently
+# discard another checkout's change to it, so a key added to BOARD_KEYS must opt
+# in to its own merge rule rather than inherit this one.
+_KEEP_LOCAL_FIELDS = frozenset(BOARD_LAYOUT_KEYS)
 _PROMPTABLE_FIELDS = frozenset({"priority", "effort"})
 # Active-gates tuple (t635_33): derived, profile-filtered enforcement state
 # written atomically at claim time. Deliberately NOT in _LIST_UNION_FIELDS

@@ -46,7 +46,7 @@ import gate_ledger
 import trail_schema
 from task_yaml import (
     _TaskSafeLoader, _FlowListDumper, _normalize_task_ids,
-    FRONTMATTER_RE, BOARD_KEYS,
+    FRONTMATTER_RE, BOARD_KEYS, BOARD_LAYOUT_KEYS,
     normalize_board_idx, parse_frontmatter, serialize_frontmatter,
 )
 
@@ -194,6 +194,10 @@ def _get_user_email() -> str:
 # --- Data Models & Logic ---
 
 class Task:
+    # Both are READ by reload_and_save_board_fields: the layout set is its
+    # "is this a semantic write?" discriminator; the full set is the vocabulary
+    # its required `fields` argument is validated against.
+    _BOARD_LAYOUT_KEYS = BOARD_LAYOUT_KEYS
     _BOARD_KEYS = BOARD_KEYS
 
     def __init__(self, filepath: Path):
@@ -257,21 +261,54 @@ class Task:
         self._update_timestamp()
         self.save()
 
-    def reload_and_save_board_fields(self):
-        """Reload task from disk, re-apply current board fields, and save.
+    def reload_and_save_board_fields(self, fields):
+        """Reload from disk, re-apply the named board fields, and save.
 
-        Prevents overwriting external changes to non-board fields (e.g. status
-        set by Claude Code) during board layout operations.
-        Skips save if file no longer exists (e.g. archived/deleted).
+        Re-reads the file so that edits another writer made **before this call**
+        (a status set by a coding agent, a synced-in change) are not lost to the
+        board's in-memory copy. It is best-effort, not atomic: the reload and the
+        write are separate opens, so an edit landing *between* them is still
+        overwritten. No lock is taken and no other writer participates in one.
+
+        ``fields`` is the exact set of board keys this call is persisting, and
+        is **required** — pass what you mutated, e.g. ``("boardidx",)`` for a
+        vertical move. **Only the named fields survive the reload.** A call must
+        never carry a field it did not mutate, in any direction: re-applying a
+        stale ``boardcol`` from an index-only operation reverts another writer's
+        column move; re-applying a stale shared field overwrites another
+        checkout's membership change; re-applying a stale ``boardidx`` from a
+        membership write discards a newer local move.
+
+        Naming any key outside ``_BOARD_LAYOUT_KEYS`` makes this a semantic
+        write: ``updated_at`` is set to the current minute. Note
+        ``_update_timestamp`` is minute-resolution — a semantic write sets
+        ``updated_at`` to the current minute, it does not guarantee a strictly
+        greater value than the one already stored.
+
+        Raises ``ValueError`` for an empty or unknown ``fields`` — both are
+        caller bugs that would otherwise silently persist nothing, or timestamp
+        a write whose value was dropped because the key name was misspelled.
+
+        Skips the save if the file no longer exists (e.g. archived/deleted).
         """
-        current_boardcol = self.metadata.get("boardcol")
-        current_boardidx = self.metadata.get("boardidx")
+        keys = tuple(fields)
+        if not keys:
+            raise ValueError("reload_and_save_board_fields: fields is empty — "
+                             "name the board keys this call mutated")
+        unknown = [k for k in keys if k not in self._BOARD_KEYS]
+        if unknown:
+            raise ValueError(f"reload_and_save_board_fields: not board keys: "
+                             f"{unknown} (known: {list(self._BOARD_KEYS)})")
+        semantic = any(k not in self._BOARD_LAYOUT_KEYS for k in keys)
+
+        snapshot = {k: self.metadata.get(k) for k in keys}
         if not self.load():
             return  # File gone (archived/deleted) — do NOT recreate it
-        if current_boardcol is not None:
-            self.metadata["boardcol"] = current_boardcol
-        if current_boardidx is not None:
-            self.metadata["boardidx"] = current_boardidx
+        for key, value in snapshot.items():
+            if value is not None:  # preserves "" (tombstone); never invents a key
+                self.metadata[key] = value
+        if semantic:
+            self._update_timestamp()
         self.save()
 
     @property
@@ -1306,15 +1343,15 @@ class TaskManager:
             max_idx = max((t.board_idx for t in existing), default=0)
             task.board_col = new_col
             task.board_idx = max_idx + 10
-            task.reload_and_save_board_fields()
+            task.reload_and_save_board_fields(("boardcol", "boardidx"))
 
     def swap_tasks(self, task1_name: str, task2_name: str):
         t1 = self.task_datas.get(task1_name)
         t2 = self.task_datas.get(task2_name)
         if t1 and t2:
             t1.board_idx, t2.board_idx = t2.board_idx, t1.board_idx
-            t1.reload_and_save_board_fields()
-            t2.reload_and_save_board_fields()
+            t1.reload_and_save_board_fields(("boardidx",))
+            t2.reload_and_save_board_fields(("boardidx",))
 
     def normalize_indices(self, col_id: str):
         """Re-number tasks in a column to 10, 20, 30... to prevent index drift."""
@@ -1323,7 +1360,7 @@ class TaskManager:
             new_idx = (i + 1) * 10
             if task.board_idx != new_idx:
                 task.board_idx = new_idx
-                task.reload_and_save_board_fields()
+                task.reload_and_save_board_fields(("boardidx",))
 
     def add_column(self, col_id: str, title: str, color: str):
         """Add a new column to the board configuration."""
@@ -1347,7 +1384,7 @@ class TaskManager:
             # Reassign tasks from old ID to new ID
             for task in self.get_column_tasks(col_id):
                 task.board_col = new_id
-                task.reload_and_save_board_fields()
+                task.reload_and_save_board_fields(("boardcol",))
         self.save_metadata()
 
     @property
@@ -1377,7 +1414,7 @@ class TaskManager:
         for task in self.get_column_tasks(col_id):
             task.board_col = "unordered"
             task.board_idx = 0
-            task.reload_and_save_board_fields()
+            task.reload_and_save_board_fields(("boardcol", "boardidx"))
         self.columns = [c for c in self.columns if c["id"] != col_id]
         if col_id in self.column_order:
             self.column_order.remove(col_id)
@@ -8272,7 +8309,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             focused.task_data.board_idx = tasks[0].board_idx - 10
         else:
             focused.task_data.board_idx = tasks[-1].board_idx + 10
-        focused.task_data.reload_and_save_board_fields()
+        focused.task_data.reload_and_save_board_fields(("boardidx",))
         self.manager.normalize_indices(col_id)
         self.manager.refresh_git_status()
         self.refresh_column(col_id, refocus_filename=filename, refocus_col_id=col_id)
