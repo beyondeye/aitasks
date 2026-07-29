@@ -87,3 +87,5 @@ single-digit example pane id, which anchors the model toward short ids:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-28T21:19:39Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-29T08:00:17Z status=pass attempt=1 type=human
