@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [shadow, execution_profiles]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1311
 created_at: 2026-07-29 10:15
-updated_at: 2026-07-29 10:15
+updated_at: 2026-07-29 10:19
 ---
 
 ## Origin
