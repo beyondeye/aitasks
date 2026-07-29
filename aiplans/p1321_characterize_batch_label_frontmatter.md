@@ -282,3 +282,80 @@ Current-branch mode — no worktree/branch cleanup. Gate orchestrator runs the
 declared `risk_evaluated` gate, then `aitask_archive.sh 1321`. Archiving t1321
 unblocks t1312 (`depends:` edge), which is then re-picked with its plan force
 re-verified.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in plan order.
+  1. Widened the AC table in `aitasks/t1321_characterize_batch_label_frontmatter.md`
+     from 4 to 6 rows (added the dedupe row `foo,FOO,foo` and the
+     sanitizes-to-empty row `!!!`), added a note recording *why* the rows were
+     added, and updated the "When t1312 lands" paragraph to name rows 2/3/5/6 and
+     their expected transformations. The commit-content sentence was also
+     corrected to state the honest per-path expectation (see Deviations).
+  2. Wrote `tests/test_characterize_batch_label_frontmatter.sh` — 88 assertions:
+     6 inputs × 3 creation paths, plus 3 fixture-clean preconditions and 1
+     parent-create assertion.
+- **Deviations from plan:** None in substance. One clarification carried from the
+  plan into the task file: the task's original shorthand "the task-creation
+  commit contains only the task file" is true only for the **parent** path. The
+  child commit legitimately also contains the parent file
+  (`update_parent_children_to_implement` rewrites it; `aitask_create.sh:2047`
+  stages it), and the draft path creates no commit at all. Pinning the literal
+  shorthand would have made every child case fail against *correct* current
+  behavior, so each path asserts its own exact commit contents and all three
+  assert `labels.txt` **absent**.
+- **Issues encountered:** Three defects were caught in plan review before any
+  code was written, all confirmed against source and fixed in the plan:
+  1. `assert_eq` (`tests/lib/asserts.sh:28-37`) is exact equality, so the
+     originally planned "subject *starts with* `ait: Add task`" check could not
+     be written with it → switched to `assert_contains`.
+  2. Children commit `ait: Add child task <id>: …` (`aitask_create.sh:2052`), not
+     `ait: Add task …` — a single shared needle would have failed all 6 child
+     cases → each path now uses its own **id-bearing** needle
+     (`parent_id_of` / `child_id_of`), which also makes the two needles
+     mutually discriminating.
+  3. The assertion-count derivation was arithmetically wrong (94 vs. the correct
+     6×(5+5+4)+3+1 = 88); a correct implementation would have failed its own
+     tripwire. Corrected before implementation; the implemented `TOTAL` came out
+     at exactly 88, matching the derivation with no adjustment.
+- **Key decisions:**
+  - **Discriminating sentinel over an empty `labels.txt`.** The fixture seeds
+    `zzz_sentinel_preexisting` — a value that intersects none of the test inputs
+    — so any append+`sort -u` by the batch path necessarily changes the file. An
+    empty file would have passed the "untouched" assertion vacuously.
+  - **`assert_clean_baseline()` as a checked precondition.** The sentinel must be
+    committed before the first `--batch --commit`, because `aitask_create.sh`
+    unconditionally runs `task_git add "$LABELS_FILE"` and `task_git commit`
+    commits staged paths only. That ordering requirement was implicit in the
+    copied fixture; it is now asserted, so a future edit that moves the write
+    below `git add -A` fails loudly instead of corrupting the commit-content
+    assertions with a fixture artifact.
+  - **Assertion-count tripwire.** The negative control is one-shot evidence; a
+    later refactor that deleted assertions would still print a green
+    `0 failed`. `EXPECTED_ASSERTIONS=88` is checked outside the PASS/FAIL/TOTAL
+    counters (so it is not self-referential) and was validated to fire.
+- **Verification evidence (all commands run; results verbatim):**
+  1. `bash tests/test_characterize_batch_label_frontmatter.sh` →
+     `Results: 88/88 passed, 0 failed`, **exit 0**, tripwire silent.
+  2. `shellcheck` → only 2 × SC1091 (info, "not following sourced file"); the
+     fixture source `tests/test_anchor_create.sh` emits 3 of the same.
+     `shellcheck -S warning` → **exit 0**.
+  3. **Negative controls — one-time implementation validation** (each mutation
+     reverted by undoing only that edit, not `git checkout`):
+     - *Frontmatter arm:* `CASE_OUT[1]` `labels: [ui,  backend]` →
+       `labels: [ui, backend]` ⇒ `Results: 85/88 passed, 3 failed`, **exit 1**
+       (one failure per creation path — confirms all three paths assert the row).
+     - *Side-effect arm:* `base_cksum` forced to `"0 0"` in `test_parent_path`
+       ⇒ `Results: 82/88 passed, 6 failed`, **exit 1**.
+     - *Tripwire arm:* `EXPECTED_ASSERTIONS=87` ⇒ summary still read
+       `88/88 passed, 0 failed` **and** the tripwire fired with **exit 1** —
+       demonstrating it catches exactly the case a green summary hides.
+     A final post-restore run returned to `88/88 passed, 0 failed`, exit 0.
+- **Upstream defects identified:** None.
+
+  (Two dead-code observations were made while tracing the label paths —
+  `add_label_to_file()` at `aitask_create.sh:1089` and `sanitize_label()` at
+  `:1069` have no callers, the interactive path inlining the append at
+  `:1219-1221` instead. These are recorded as context, not as defects: they are
+  not broken, and t1312 is already scheduled to rework this exact code into a
+  shared lib seam. They are deliberately not routed to a follow-up task.)
