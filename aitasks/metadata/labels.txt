@@ -100,3 +100,4 @@ verifiedstats
 web_site
 whitelists
 workflows
+worktree
