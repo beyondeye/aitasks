@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: [t1243_1]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_board, tui, python]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:12
-updated_at: 2026-07-29 12:13
+updated_at: 2026-07-29 14:03
+completed_at: 2026-07-29 14:03
 ---
 
 ## Context
@@ -161,3 +162,14 @@ New tests, over **real files** in a temp tree (reuse the t1243_1 harness):
 > **✅ gate:plan_approved** run=2026-07-29T09:12:59Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-29T10:59:15Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-29T11:03:47Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:3477244c6e5d6f1e
+
+> **✅ gate:risk_evaluated** run=2026-07-29T11:03:47Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1243_2/risk_evaluated_2026-07-29T11:03:47Z-risk_evaluated-a1.log`
