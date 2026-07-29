@@ -51,6 +51,8 @@ Relevant sources: `.claude/skills/aitask-shadow/` (`SKILL.md`, `plan-challenge.m
 
 Coordination note: t1158 (shadow impl review modes/tiers from /code-review prompts) reworks `impl-challenge.md` review *content*; this task reworks loop *mechanics*. Keep them separate and coordinate whichever lands second.
 
+Coordination note: t1311 (shadow impl-review gate premise + profile tier default) fixes the *entry conditions* of a single implementation review — it removes the "too early to review" abort/proceed gate that fires whenever the Final Implementation Notes are not yet written (the normal pre-commit state), and adds an execution-profile key supplying a default review tier. Both touch how a review round starts, so whichever lands second must re-check the other's assumptions about when a review may begin and which tier it runs at.
+
 ## Merged from t1017: shadow steerabiility
 
 
