@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t1216_2]
 issue_type: feature
@@ -100,32 +102,66 @@ as minimonitor today — and never scales with N.
 The badge is **derived, never a latched flag**:
 
 ```
-badge_on(pane) == sig is not None and sig != _concern_sig_offered.get(pane)
+badge_on(pane) == sig is not None and sig not in _concern_sig_offered.get(pane, frozenset())
 ```
+
+Membership, not equality: the on-screen signature comes from the raw tick
+capture (`-p -e`) while the stored one is recomputed from the `-J` capture, and
+`concern_block_signature`'s documented mid-word-wrap residual makes those two
+digests differ systematically for the same block. Each marker therefore records
+**both** digests (see `p1216_3` correction 17).
 
 | Event | `_concern_sig_offered` | Badge |
 |---|---|---|
-| New block, signature differs from the stored one | unchanged | **on** (+ toast if selected) |
+| New block, signature differs from the stored one | unchanged | **on** (+ toast if selected **and** it verifies) |
 | `c` pressed → `-J` capture returns `None` (failure/timeout) | **unchanged** | stays **on** |
-| `c` pressed → capture ok but parse yields 0 concerns, or still head-truncated after the deep retry | **unchanged** | stays **on** |
-| `c` pressed → modal actually pushed with ≥1 concern | set to the signature of the **captured** text | off |
+| `c` pressed → capture shows **no complete block** (still head-truncated after the deep retry) | **unchanged** | stays **on** |
+| `c` pressed → capture shows a **complete block yielding nothing forwardable** | set to the **captured** sig pair | off |
+| `c` pressed → modal actually pushed with ≥1 concern | set to the **captured** sig pair | off |
 | Picker cancelled (Esc / Cancel) | already set at push | stays off — the user saw them |
 | Shadow re-issues a *different* block | differs again | **on** again |
 | Block scrolls out of the capture window (`sig is None`) | **retained** | off |
 | That same block scrolls back in | matches retained | stays off (no re-toast) |
-| Followed pane loses its shadow entirely | entry **evicted** | off |
+| Shadow dies / respawns for the same agent | **retained** | off, and off again on respawn |
+| Followed **agent pane** leaves the snapshot map | entry **evicted** | row gone |
 
-The marker is set only once `ConcernPickerModal` has **actually been pushed with
-at least one concern** — not on the keypress. Clearing at keypress would hide a
-block the user never saw whenever the capture fails, times out, or parses
-nothing, which is exactly when the badge matters most. Setting it at push rather
-than on confirm is still deliberate: a user who opens the list and forwards
-nothing has seen the block, so re-toasting would be noise.
+**Two rows amended during plan verification (2026-07-29), both decided
+deliberately rather than drifted into:**
+
+1. *Shadow loss no longer evicts.* The original row ("followed pane loses its
+   shadow entirely → evicted") contradicted this task's own "Notes for sibling
+   tasks", which requires that a respawned shadow **not** silently re-offer an
+   identical block — eviction produces exactly that re-offer. It is also not
+   cleanly implementable: `get_shadow_snapshot()` returns `None` both for a dead
+   shadow and for a one-tick capture blip (t1133's `LifecycleTests` establish
+   blips are normal), so literal eviction needs a per-agent grace counter or it
+   re-offers on every blip. **Confirmed with the user:** retain across shadow
+   loss; evict only when the agent pane itself leaves the snapshot map. The badge
+   still goes off meanwhile, because it derives from the *current* signature.
+2. *A definitive negative now clears the badge.* The original row lumped "parse
+   yields 0 concerns" together with capture failure. Since t1274, a complete
+   block that yields nothing forwardable produces a **specific** message
+   (`unparsed_concerns_msg`) — the user has been told exactly what is in it and
+   it will never become parseable, so leaving the badge lit strands it forever.
+   The indeterminate cases (capture failed, or no complete block in the window)
+   still leave the marker untouched, because there we learned nothing.
+
+The marker is set only once the outcome is **definitive** — never on the
+keypress. Clearing at keypress would hide a block the user never saw whenever
+the capture fails or times out, which is exactly when the badge matters most.
+Setting it at push rather than on confirm is still deliberate: a user who opens
+the list and forwards nothing has seen the block, so re-toasting would be noise.
 
 Store the signature **of the text the picker actually captured** (recomputed
-from the `-J` capture), not the tick signature that raised the badge — the
-shadow may have emitted more between badge and keypress, and storing the older
-signature would leave the newer block permanently un-offered.
+from the `-J` capture) alongside the tick signature that raised the badge — the
+former because the shadow may have emitted more between badge and keypress, and
+storing only the older one would leave the newer block permanently un-offered;
+the latter because the two capture paths hash the same block differently.
+
+The trigger signature is **snapshotted before the capture await and passed
+explicitly** to the marker writer. Re-reading it afterwards would let the 3s
+refresh substitute a *newer* block's signature, marking a block as offered that
+was never presented — a silent miss (`p1216_3` correction 19).
 
 Retaining the entry on `sig is None` rather than clearing it is what stops a
 block flickering in and out of the capture window from re-firing forever, and it
