@@ -40,3 +40,5 @@ Add a `*` arm to the codex inner case that dies with "operation not wired into t
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-28T21:41:26Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-29T06:54:25Z status=pass attempt=1 type=human
