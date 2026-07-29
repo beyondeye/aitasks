@@ -58,6 +58,7 @@ installation
 legal
 license
 macos
+manual
 manual_verification
 memories
 model_selection
@@ -91,6 +92,7 @@ tmux_disruptive
 tui
 tui_switcher
 upstream_defect_followup
+verification
 verifiedstats
 web_site
 whitelists
