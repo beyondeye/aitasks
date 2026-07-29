@@ -10,7 +10,7 @@
 
 Shared core of `aitask-learn-skill`. **Input:** `content` — the already-gathered
 source text (a document, a fetched page, or a captured terminal session), plus a
-short `source_label` describing where it came from (e.g. `pane %5`, a URL, a path).
+short `source_label` describing where it came from (e.g. `pane %237`, a URL, a path).
 **Output:** a new static skill at `.claude/skills/<name>/SKILL.md` — then,
 optionally, generic cross-agent wrappers, and an optional commit — with its
 invocation path reported back.

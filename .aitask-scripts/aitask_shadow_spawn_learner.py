@@ -22,8 +22,9 @@ hook (it is not a shadow companion). The user closes its window when done.
 Usage:
     aitask_shadow_spawn_learner.py [--dry-run] <followed_pane_id> [<source_task_id>]
 
-    <followed_pane_id>  tmux pane id (e.g. %5) of the followed agent — captured
-                        read-only by the spawned learner.
+    <followed_pane_id>  tmux pane id (e.g. %237) of the followed agent — captured
+                        read-only by the spawned learner. Pass it exactly as
+                        given; an abbreviated id can name a different live pane.
     <source_task_id>    optional; only used to label the learner window
                         (agent-learn-<task_id>).
     --dry-run           Resolve and print the learn command WITHOUT touching tmux
@@ -62,7 +63,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="Resolve the command without touching tmux.")
     parser.add_argument("followed_pane_id",
-                        help="tmux pane id of the followed agent (e.g. %%5).")
+                        help="tmux pane id of the followed agent, passed verbatim "
+                             "(e.g. %%237).")
     parser.add_argument("source_task_id", nargs="?", default=None,
                         help="Optional task id, used only to label the window.")
     args = parser.parse_args(argv)

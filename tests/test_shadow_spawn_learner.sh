@@ -34,24 +34,26 @@ SPAWN="$PROJECT_DIR/.aitask-scripts/aitask_shadow_spawn_learner.py"
 echo "--- codeagent dry-run resolution ---"
 
 # Default agent (codeagent_config.json defaults.learn → claudecode/opus4_8).
-out=$("$CODEAGENT" --dry-run invoke learn %5 1071_5 2>&1)
+# Pane ids are deliberately MULTI-DIGIT (t1307): a single-digit fixture cannot
+# tell a faithful pass-through apart from one that drops digits.
+out=$("$CODEAGENT" --dry-run invoke learn %237 1071_5 2>&1)
 assert_contains "default learn resolves to claude" "claude" "$out"
 assert_contains "default learn emits /aitask-learn-skill" "/aitask-learn-skill" "$out"
-assert_contains "default learn passes pane id" "%5" "$out"
+assert_contains "default learn passes pane id" "%237" "$out"
 
 # Explicit claudecode (pane only).
-out=$("$CODEAGENT" --agent-string claudecode/opus4_8 --dry-run invoke learn %7 2>&1)
+out=$("$CODEAGENT" --agent-string claudecode/opus4_8 --dry-run invoke learn %314 2>&1)
 assert_contains "claudecode learn emits /aitask-learn-skill" "/aitask-learn-skill" "$out"
-assert_contains "claudecode learn pane id" "%7" "$out"
+assert_contains "claudecode learn pane id" "%314" "$out"
 
 # OpenCode uses --prompt with the slash command.
 out=$("$CODEAGENT" --agent-string opencode/opencode_claude_sonnet_4_6 \
-    --dry-run invoke learn %7 2>&1)
+    --dry-run invoke learn %314 2>&1)
 assert_contains "opencode learn uses --prompt" "--prompt" "$out"
 assert_contains "opencode learn emits /aitask-learn-skill" "/aitask-learn-skill" "$out"
 
 # Codex launches directly in its default mode — no plan-mode wrapper.
-out=$("$CODEAGENT" --agent-string codex/gpt5_5 --dry-run invoke learn %7 2>&1)
+out=$("$CODEAGENT" --agent-string codex/gpt5_5 --dry-run invoke learn %314 2>&1)
 assert_contains "codex learn builds composer prompt" "aitask-learn-skill" "$out"
 assert_not_contains "codex learn is not wrapped in plan mode" "aitask_codex_plan_invoke" "$out"
 
@@ -70,9 +72,9 @@ assert_contains "resolve learn returns the configured default" \
 echo "--- operation support ---"
 
 assert_exit_zero "learn is a supported operation" \
-    "$CODEAGENT" --dry-run invoke learn %1
+    "$CODEAGENT" --dry-run invoke learn %142
 assert_exit_nonzero "an unknown operation is still rejected" \
-    "$CODEAGENT" --dry-run invoke bogus-op %1
+    "$CODEAGENT" --dry-run invoke bogus-op %142
 
 # ============================================================
 # Tests: launcher --dry-run (no live tmux required)

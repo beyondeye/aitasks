@@ -15,4 +15,4 @@ Read that file and follow its complete workflow (it reads its shared
 
 ## Arguments
 
-Optional source: a tmux pane id (`%5`), a local file path, or a GitHub/GitLab/Bitbucket file-or-directory URL. Without an argument, the skill prompts for the source.
+Optional source: a tmux pane id (`%237`), a local file path, or a GitHub/GitLab/Bitbucket file-or-directory URL. Without an argument, the skill prompts for the source.

@@ -18,7 +18,7 @@ wrappers are written and the result committed).
 
 ### Step 1: Resolve the source
 
-If invoked with an argument (e.g. `/aitask-learn-skill %5`,
+If invoked with an argument (e.g. `/aitask-learn-skill %237`,
 `/aitask-learn-skill https://github.com/org/repo/blob/main/docs/howto.md`,
 `/aitask-learn-skill ./notes/deploy.md`), use the argument as the source.
 
@@ -26,7 +26,7 @@ If invoked with no argument, ask with `AskUserQuestion`:
 - Question: "What should I learn the skill from?"
 - Header: "Source"
 - Options:
-  - "tmux pane" (description: "A pane id like %5 — capture the workflow an agent just ran in it")
+  - "tmux pane" (description: "A pane id like %237 — capture the workflow an agent just ran in it")
   - "Local file" (description: "A path, e.g. ./notes/deploy.md")
   - "URL or repo file/dir" (description: "A doc page, or a GitHub/GitLab/Bitbucket file or directory")
 
@@ -34,7 +34,7 @@ The user supplies the actual value via the "Other" free-text input.
 
 ### Step 1b: Classify the source
 
-- **tmux pane id** — matches `^%[0-9]+$` (e.g. `%5`). *(See Step 2A.)*
+- **tmux pane id** — matches `^%[0-9]+$` (e.g. `%237`). *(See Step 2A.)*
 - **Local file** — starts with `/`, `~`, or `./`, OR contains no `://` and exists
   as a local file.
 - **Repository single file** — contains `github.com` and `/blob/`, OR `gitlab.com`
@@ -58,6 +58,9 @@ depth:
 
 1. Capture an initial chunk (1000 lines of scrollback):
    ```bash
+   # Pass <pane_id> EXACTLY as received (Step 1b) — pane ids are often 2-3 digits
+   # (e.g. %237). Never abbreviate or re-derive it: a shortened id can match a
+   # DIFFERENT live pane and you would learn from the wrong agent's screen.
    SHADOW_CAPTURE_LINES=1000 ./.aitask-scripts/aitask_shadow_capture.sh <pane_id>
    ```
    This is read-only — `aitask_shadow_capture.sh` never sends input to the pane.

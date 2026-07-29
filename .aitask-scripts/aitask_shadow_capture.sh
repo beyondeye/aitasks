@@ -12,7 +12,7 @@
 #   ./.aitask-scripts/aitask_shadow_capture.sh --deep <pane_id>  # plan-review depth
 #   ./.aitask-scripts/aitask_shadow_capture.sh -      # clean raw capture from stdin
 #
-#   <pane_id>   tmux pane id (e.g. %5) or any target the gateway can address.
+#   <pane_id>   tmux pane id (e.g. %237) or any target the gateway can address.
 #   --deep      Capture SHADOW_PLAN_CAPTURE_LINES (default 400) scrollback lines
 #               instead of the default SHADOW_CAPTURE_LINES (200). The plan-review
 #               depth: used by the shadow's plan-review sub-procedures, whose long
@@ -69,7 +69,8 @@ Usage: aitask_shadow_capture.sh <pane_id>
 Capture a followed agent's tmux pane as clean, escape-free text on stdout.
 
 Arguments:
-  <pane_id>   tmux pane id (e.g. %5) of the agent being shadowed
+  <pane_id>   tmux pane id (e.g. %237) of the agent being shadowed; pass it
+              exactly as given — never abbreviate or re-derive it
   --deep      capture SHADOW_PLAN_CAPTURE_LINES (default 400) scrollback lines
               instead of the default SHADOW_CAPTURE_LINES (200); the plan-review
               depth, used by the shadow's plan-review sub-procedures (whose long

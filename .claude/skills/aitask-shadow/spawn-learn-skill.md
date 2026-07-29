@@ -19,7 +19,9 @@ read-only against the followed agent.
 
 **Inputs:** the followed pane id (the shadow's `<followed_pane_id>` argument) and,
 if known, the `<source_task_id>` (used only to label the learner's window). No
-screen capture is needed here — the spawned learner does its own capture.
+screen capture is needed here — the spawned learner does its own capture. Hand
+the pane id on **verbatim**: the learner captures whatever pane it is given, so a
+mangled id points it at the wrong agent's screen just as it would you.
 
 ## Procedure
 
@@ -39,6 +41,7 @@ screen capture is needed here — the spawned learner does its own capture.
    you have it):
 
    ```bash
+   # Pass <followed_pane_id> EXACTLY as received — never abbreviate or re-derive it.
    ./.aitask-scripts/aitask_shadow_spawn_learner.py <followed_pane_id> [<source_task_id>]
    ```
 
