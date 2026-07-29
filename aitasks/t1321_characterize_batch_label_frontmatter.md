@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: test
@@ -37,20 +39,27 @@ Write `tests/test_characterize_batch_label_frontmatter.sh` pinning today's `--ba
 
 For each path, assert the exact `labels:` line emitted for these inputs (current pass-through behavior — `format_yaml_list` at `lib/task_utils.sh:414` is a pure `s/,/, /g` + bracket wrap, no split/trim/sanitize):
 
-| input | current emitted line |
-|---|---|
-| `--labels "ui,backend"` | `labels: [ui, backend]` |
-| `--labels "ui, backend"` | `labels: [ui,  backend]` (double space preserved) |
-| `--labels "UI Stuff,foo-bar!"` | `labels: [UI Stuff, foo-bar!]` (verbatim) |
-| `--labels ""` | `labels: []` |
+| # | input | current emitted line | why it is pinned |
+|---|---|---|---|
+| 1 | `--labels "ui,backend"` | `labels: [ui, backend]` | canonical — must NOT change under t1312 |
+| 2 | `--labels "ui, backend"` | `labels: [ui,  backend]` | double space preserved (no trim) |
+| 3 | `--labels "UI Stuff,foo-bar!"` | `labels: [UI Stuff, foo-bar!]` | verbatim (no case-fold, no sanitize) |
+| 4 | `--labels ""` | `labels: []` | empty-input branch of `format_yaml_list` |
+| 5 | `--labels "foo,FOO,foo"` | `labels: [foo, FOO, foo]` | **no dedupe today** — exact-dup *and* case-fold-dup both survive |
+| 6 | `--labels "!!!"` | `labels: [!!!]` | **sanitizes to empty** under t1312's rule; today it passes through verbatim |
+
+Rows 5-6 were added during implementation (see the plan's §0): the original
+four-row table omitted **deduplication** and **sanitizes-to-empty**, both of
+which t1312 explicitly changes, so a t1312 implementation could have got them
+wrong with no before/after review record.
 
 Also pin the two side-effect facts t1312 changes:
 - `aitasks/metadata/labels.txt` is NOT written by any batch path today (assert byte-identical before/after).
-- The task-creation commit contains only the task file (assert via `git show --name-only --pretty=format: HEAD`; `labels.txt` absent).
+- The task-creation commit does not contain `labels.txt` (assert via `git show --name-only --pretty=format: HEAD`). Exact expected contents are per-path: the **parent** commit holds only the task file; the **child** commit legitimately holds the child file *and* the parent file (`update_parent_children_to_implement` rewrites it); the **draft** path creates no commit at all.
 
 Fixture: copy `setup_project` from `tests/test_anchor_create.sh:82-118` (bare remote + clone + `setup_fake_aitask_repo` + `aitask_claim_id.sh --init`); assertions from `tests/lib/asserts.sh`.
 
-**When t1312 lands**, this test's expectations for the non-canonical rows are UPDATED IN THE SAME COMMIT as the normalization change (that is the point: the diff to this file becomes the reviewable record of exactly what changed — `[ui,  backend]` → `[ui, backend]`, `[UI Stuff, foo-bar!]` → `[ui_stuff, foo-bar_]`... per the final sanitizer, and the labels.txt/commit-content expectations flip). Prove the test can fail (negative control): temporarily alter one expected string, run, confirm exit 1, restore.
+**When t1312 lands**, this test's expectations for the non-canonical rows (2, 3, 5, 6) are UPDATED IN THE SAME COMMIT as the normalization change (that is the point: the diff to this file becomes the reviewable record of exactly what changed — `[ui,  backend]` → `[ui, backend]`, `[UI Stuff, foo-bar!]` → `[ui_stuff, foo-bar_]`, `[foo, FOO, foo]` → whatever the dedupe rule collapses it to, `[!!!]` → whatever the sanitizer does with a token that reduces to the empty string... per the final sanitizer, and the labels.txt/commit-content expectations flip). Prove the test can fail (negative control): temporarily alter one expected string, run, confirm exit 1, restore.
 
 ## Verification
 
