@@ -86,6 +86,7 @@ task_attachments
 task_workflow
 test_marker
 testing
+tests
 tmux
 tmux_destructive
 tmux_disruptive
