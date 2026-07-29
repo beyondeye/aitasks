@@ -1,7 +1,7 @@
 ---
 priority: low
 effort: medium
-depends: []
+depends: [1312]
 issue_type: refactor
 status: Ready
 labels: [aitask_explore, aitask-create, bash_scripts, task_workflow]
