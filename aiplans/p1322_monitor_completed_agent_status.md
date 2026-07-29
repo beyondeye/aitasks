@@ -492,6 +492,73 @@ document the fourth state and the new precedence.
 
 Step 9 (Post-Implementation) handles merge, gate run, and archival.
 
+## Final Implementation Notes
+
+- **Actual work done:** All five parts landed as planned. `TaskInfoCache` is now
+  identity-keyed on `(st_mtime_ns, st_size)` with `_TaskEntry` slots; the ladder
+  gained COMPLETED via an explicit `completed` parameter; both apps compute a
+  per-refresh `_completed_pane_ids` set that is the sole source for the card
+  badge, the three-way bar counters and the auto-switch filter; `_TASK_ID_RE`
+  covers `agent-resume-`; `pane_status` carries an optional `status`. 38 new
+  tests across two new files, plus 6 new checks in `test_applink_pusher.sh`.
+
+- **Deviations from plan:**
+  1. **Colour changed from `bold blue` to `bold dodger_blue1`.** The plan's own
+     live-terminal verification step caught what no string assertion could:
+     Textual resolves `blue` to `#000080` — a **1.09:1** contrast ratio against
+     the `#1a1a1a` card background, effectively invisible — and even bolded it
+     only reaches `#0000ff` (2.03:1), worse than every other state.
+     `dodger_blue1` (`#0087ff`) measures 4.90:1. Confirmed by tmux capture
+     (`38;5;33`). This preserves the user's "blue, not cyan" decision.
+  2. **Negative-retry schedule made non-terminating.** The plan originally
+     stopped after `5+15+60s`; a review concern showed that a miss outliving the
+     budget (interrupted archive, long `.aitask-data` reconciliation) would
+     poison a pane permanently. It now decays to a sparse 300s interval and
+     never stops. Risk downgraded medium → low as a result.
+  3. **`blocking_dependencies` docstring correction was NOT committed here.**
+     That method does not exist at HEAD — it is part of the concurrent t1310
+     work — so the correction lives in the working tree and will land with
+     t1310's own commit.
+
+- **Issues encountered:**
+  - **Concurrent session overlap.** t1310 (status `Implementing`) had
+    uncommitted work interleaved with mine in `monitor_core.py`,
+    `monitor_shared.py` and `minimonitor_app.py`, and owns the *untracked*
+    `tests/test_minimonitor_pick_by_number.py`. Per user decision the commit was
+    built by **surgical hunk splitting**: t1322-only file contents were
+    reconstructed from HEAD by anchored replacement, verified to contain zero
+    t1310 identifiers, and proven self-consistent by running 13 monitor/applink
+    suites against an isolated export of HEAD + only those files. Staged content
+    therefore differs from the working tree by design.
+  - **A predicted test breakage was real.** My change made
+    `test_negative_control_stale_read_without_refresh`
+    (`tests/test_minimonitor_pick_by_number.py:359`) fail, exactly as the plan
+    predicted — its mechanism (rewrite the file, assert the stale answer
+    persists) no longer discriminates once the cache is identity-keyed. Rewritten
+    to count `_resolve` calls over an unchanged file. That file is t1310's, so
+    the fix is left in the working tree for their commit.
+  - **Test-harness discrimination was verified, not assumed.** Three negative
+    controls: neutralising `_file_identity` fails 4 freshness tests (including
+    the archive-move test with the predicted `'Ready' != 'Done'`); unfiltering
+    auto-switch fails both focus tests; and the done/awaiting double-count was
+    shown to produce `1 done` alongside `1 awaiting` under the buggy variant.
+
+- **Key decisions:**
+  - Identity sampled **before** the content read (the archive script's rewrites
+    are rename-based, so stat-after-read would pin stale content permanently).
+  - `OSError` **re-resolves** rather than failing closed like `GateSummaryCache`
+    — failing closed would blank the task title on the very tick it completes.
+  - `completed` is an explicit parameter, never inferred inside `_state_color`,
+    so `format_shadow_glyph` can never colour a task-less shadow pane.
+  - The per-refresh set (not a per-surface lookup) is the sole state source, so
+    the badge, the counters and auto-switch cannot disagree within a tick.
+  - `update_session_mapping`'s `clear()` documented as **not** redundant — it is
+    the one staleness class the identity key structurally cannot catch.
+
+- **Upstream defects identified:**
+  - `tests/test_multi_agent_window_substrate.sh:90-92 — pre-existing failure: "discovery keeps exactly one real agent" / "discovery kept the agent pane (%1)" fail and the embedded Python then raises AttributeError: 'list' object has no attribute 'pane_id'. Reproduces with all t1322 changes stashed, so it predates this task; _parse_list_panes appears to no longer filter shadow/companion panes as the test expects.`
+  - `.aitask-scripts/board/aitask_board.py — uncommitted concurrent change makes tests/test_board_work_report.py::test_hidden_cards_still_listed fail in the live tree; the same test passes at HEAD and with only t1322's changes applied. Belongs to the concurrent board work, not to t1322.`
+
 ## Risk
 
 ### Code-health risk: medium
