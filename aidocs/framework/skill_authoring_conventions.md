@@ -182,9 +182,25 @@ re-rendered per machine by `aitask_skill_render.sh`; a small committed set
 (e.g. `task-workflow-remote-`) exists only so minijinja-less remote/web
 environments can execute it in place, and is still excluded from the local
 install. When writing or reviewing a glob that means "all installable skills",
-narrow to `aitask-*/` and skip `*-/`; derive any "what should the install
-package?" count the same way (`git ls-files '.opencode/skills/aitask-*/SKILL.md'`).
-See `tests/test_opencode_setup.sh` for the canonical `aitask-*/` usage.
+narrow to `aitask-*/` and skip `*-/`. Note that `aitask-*/` alone is **not**
+enough: it still matches the committed rendered variants
+(`aitask-pickrem-remote-/`, `aitask-pickweb-remote-/`), so
+`git ls-files '.opencode/skills/aitask-*/SKILL.md'` counts 30 where there are 28
+wrappers. Excluding trailing-hyphen names is what separates stubs from artifacts
+(`_is_rendered_variant` in `.aitask-scripts/aitask_audit_wrappers.sh`).
+
+**Never derive "which skills must have a wrapper?" from a wrapper tree itself.**
+A count read from the tree under test falls by one when a wrapper is missing, so
+both sides of the comparison agree and the omission is invisible — that is how
+`.opencode/skills/aitask-trail/SKILL.md` stayed missing from t1210_3 until t1317
+(t1325). The ground truth is **cross-tree parity**: the three ported trees
+(`.agents/skills`, `.opencode/skills`, `.opencode/commands`) are authored
+independently, so they must carry identical membership. Enforced by
+`./.aitask-scripts/aitask_audit_wrappers.sh parity`, which
+`aitask_skill_verify.sh` runs on every invocation and `tests/test_opencode_setup.sh`
+asserts as its Test 0. A count derived from `.opencode/skills/` remains valid for
+its one real job — checking that packaging/staging preserved what it was handed —
+and `tests/test_opencode_setup.sh` Tests 1-2 use it only for that.
 
 ## Profile-aware skills require a stub + `.md.j2` pair
 

@@ -724,10 +724,23 @@ Adding a new agent that needs its own wrapper tree (e.g., a
 `gemini`-style `<agent>/commands/<skill>.toml` flavor) requires:
 
 1. Add the tree name to the `tree in agents opencode-skill …` list in
-   `cmd_discover()`.
-2. Add a `wrapper_path()` case mapping the tree to its on-disk path.
+   `cmd_discover()` **and** in `cmd_parity()`.
+2. Add a `wrapper_path()` case mapping the tree to its on-disk path, and a
+   `tree_root()` case naming the directory that holds it.
 3. Add a `render_<tree>_<kind>()` function emitting the stub body.
 4. Add a `cmd_render_wrapper()` case routing the tree to the renderer.
+
+**Cross-tree parity is the enforced invariant.** Every wrapper tree must carry
+the same set of skills; `./.aitask-scripts/aitask_audit_wrappers.sh parity`
+reports `PARITY_GAP:<tree>:<skill>` when one tree is missing a skill the others
+have, and `ORPHAN:<skill>` when a wrapper has no source-of-truth
+`.claude/skills/<skill>/SKILL.md`. It is run by `aitask_skill_verify.sh` (the
+mandated pre-commit check) and asserted as Test 0 of
+`tests/test_opencode_setup.sh`. A tree whose root directory is absent is treated
+as "that agent is not installed here" and dropped from the comparison, so a
+Claude-only consumer project still passes. Wiring a new tree into `cmd_parity()`
+is therefore what makes it guarded rather than merely writable — skipping step 1
+leaves the new tree free to drift silently (t1325).
 5. Add the tree to the Trees table in `usage()`.
 
 ### 12b. Templated vs non-templated stubs

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # aitask_skill_verify.sh — Verify all .j2 authoring templates render cleanly
-# across the 4 supported agents (default profile) and that each stub surface
-# follows the canonical pattern documented in aidocs/framework/stub-skill-pattern.md.
+# across the supported agents (default profile), that each of the 4 stub surfaces
+# follows the canonical pattern documented in aidocs/framework/stub-skill-pattern.md,
+# and that the ported wrapper trees agree on which skills they carry.
 #
 # Usage:
 #   aitask_skill_verify.sh
@@ -9,7 +10,8 @@
 # Exit codes:
 #   0  - all checks pass (or no .j2 templates found yet)
 #   1  - one or more failures (render error, empty output, missing/bad stub,
-#        broken transitive reference, or render error in any closure leaf)
+#        broken transitive reference, render error in any closure leaf, or a
+#        wrapper-set parity gap across the ported agent trees)
 #
 # Render check uses lib/skill_template.py directly (writes to stdout) instead
 # of aitask_skill_render.sh — verification is purely functional, no disk
@@ -53,13 +55,27 @@ PYTHON="$(require_ait_python)"
 SKILL_TEMPLATE_PY="$SCRIPT_DIR/lib/skill_template.py"
 
 # --- Per-skill stub-surface map (mirrors aidocs/framework/stub-skill-pattern.md §3g) ---
+#
+# Keyed by SURFACE, not by agent: OpenCode ships TWO required stubs (§3g note —
+# "Both are required surfaces"), the auto-discovered command wrapper and the
+# skill-dir stub, and they dispatch to the same rendered variant. Keying this by
+# agent is what let .opencode/skills/<skill>/SKILL.md go unchecked (t1325).
+
+_surface_agent() {
+    case "$1" in
+        claude)                      echo "claude" ;;
+        codex)                       echo "codex" ;;
+        opencode-cmd|opencode-skill) echo "opencode" ;;
+    esac
+}
 
 _stub_path_for() {
-    local agent="$1" skill="$2"
-    case "$agent" in
-        claude)   echo ".claude/skills/$skill/SKILL.md" ;;
-        codex)    echo ".agents/skills/$skill/SKILL.md" ;;
-        opencode) echo ".opencode/commands/$skill.md" ;;
+    local surface="$1" skill="$2"
+    case "$surface" in
+        claude)         echo ".claude/skills/$skill/SKILL.md" ;;
+        codex)          echo ".agents/skills/$skill/SKILL.md" ;;
+        opencode-cmd)   echo ".opencode/commands/$skill.md" ;;
+        opencode-skill) echo ".opencode/skills/$skill/SKILL.md" ;;
     esac
 }
 
@@ -98,6 +114,7 @@ done
 
 failures=0
 agents=(claude codex opencode)
+surfaces=(claude codex opencode-cmd opencode-skill)
 
 for tpl in "${templates[@]}"; do
     skill="$(basename "$(dirname "$tpl")")"
@@ -129,10 +146,11 @@ for tpl in "${templates[@]}"; do
     #   1) resolver call referencing this skill
     #   2) render call referencing this skill
     #   3) trailing-hyphen Read path with <profile>- placeholder
-    for agent in "${agents[@]}"; do
-        stub_path="$(_stub_path_for "$agent" "$skill")"
+    for surface in "${surfaces[@]}"; do
+        agent="$(_surface_agent "$surface")"
+        stub_path="$(_stub_path_for "$surface" "$skill")"
         if [[ ! -f "$stub_path" ]]; then
-            printf 'STUB_FAIL: %s: missing stub for %s\n' "$stub_path" "$agent" >&2
+            printf 'STUB_FAIL: %s: missing stub for %s\n' "$stub_path" "$surface" >&2
             failures=$((failures + 1))
             continue
         fi
@@ -147,19 +165,14 @@ for tpl in "${templates[@]}"; do
                 "$stub_path" "$skill" >&2
             failures=$((failures + 1))
         fi
-        # Shared-root agents (codex today, +agy in t814) carry an additional
-        # `-<agent>-` segment in the rendered dir name; other agents keep
-        # the simpler `-<profile>-` form. The stub literal must match.
-        if [[ "$(agent_shared_skills_root "$agent")" == "true" ]]; then
-            stub_read_literal="${skill}-<profile>-${agent}-/SKILL\\.md"
-            stub_read_display="${skill}-<profile>-${agent}-/SKILL.md"
-        else
-            stub_read_literal="${skill}-<profile>-/SKILL\\.md"
-            stub_read_display="${skill}-<profile>-/SKILL.md"
-        fi
-        if ! grep -q "$stub_read_literal" "$stub_path"; then
+        # Expected Read path comes from the canonical seam, not from a local
+        # restatement of §3g: agent_skill_dir already applies the shared-root
+        # `-<agent>-` rule (codex today, +agy in t814), so the surface table stays
+        # single-sourced. Fixed-string grep — the path carries no regex intent.
+        stub_read_path="$(agent_skill_dir "$agent" "$skill" "<profile>")/SKILL.md"
+        if ! grep -qF -- "$stub_read_path" "$stub_path"; then
             printf 'STUB_FAIL: %s: missing trailing-hyphen Read path ("%s")\n' \
-                "$stub_path" "$stub_read_display" >&2
+                "$stub_path" "$stub_read_path" >&2
             failures=$((failures + 1))
         fi
     done
@@ -196,6 +209,40 @@ for tpl in "${templates[@]}"; do
     fi
 done
 
+# --- Wrapper-set parity across the ported agent trees (t1325) ---
+# The stub checks above only see skills that have a .j2 authoring template. The
+# non-templated aitask-* skills also ship wrappers in all three ported trees, and
+# nothing verified that set — which is how .opencode/skills/aitask-trail/SKILL.md
+# stayed missing from t1210_3 until t1317. Delegated to aitask_audit_wrappers.sh,
+# which owns the wrapper-tree vocabulary; the set logic is not restated here.
+PARITY_OUT=""
+PARITY_RC=0
+# MUST stay in a condition context: this script is `set -e`, so a bare command
+# substitution would abort the whole verifier at the first finding — before the
+# WRAPPER_FAIL lines are printed and before the failure count is reported.
+PARITY_OUT="$("$SCRIPT_DIR/aitask_audit_wrappers.sh" parity 2>&1)" || PARITY_RC=$?
+if (( PARITY_RC != 0 )); then
+    # `parity` (non-strict) exits 0 even with findings, so any non-zero here means
+    # the check itself could not run. Fail closed rather than assume "no gaps".
+    printf 'VERIFY_FAIL: wrapper parity check could not run (exit %d):\n%s\n' \
+        "$PARITY_RC" "$PARITY_OUT" >&2
+    failures=$((failures + 1))
+else
+    while IFS= read -r parity_line; do
+        case "$parity_line" in
+            "")                    continue ;;
+            PARITY_GAP:*|ORPHAN:*)
+                printf 'WRAPPER_FAIL: %s\n' "$parity_line" >&2
+                failures=$((failures + 1)) ;;
+            *)
+                # stderr was merged in; anything unrecognized is treated as a
+                # failure rather than silently dropped.
+                printf 'VERIFY_FAIL: unrecognized parity output: %s\n' "$parity_line" >&2
+                failures=$((failures + 1)) ;;
+        esac
+    done <<< "$PARITY_OUT"
+fi
+
 if (( failures > 0 )); then
     echo "aitask_skill_verify.sh: $failures failure(s)" >&2
     exit 1
@@ -213,4 +260,4 @@ if [[ -f "$PARITY_TEST" && -f "$PARITY_FIXTURES" ]]; then
     fi
 fi
 
-echo "aitask_skill_verify.sh: OK (${#templates[@]} template(s) verified across ${#agents[@]} agents)"
+echo "aitask_skill_verify.sh: OK (${#templates[@]} template(s) verified across ${#agents[@]} agents, ${#surfaces[@]} stub surfaces; wrapper parity clean)"

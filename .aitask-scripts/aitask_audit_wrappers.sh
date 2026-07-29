@@ -33,13 +33,23 @@ readonly TREE_OPENCODE_COMMANDS=".opencode/commands"
 # Skill discovery
 # -----------------------------------------------------------------------------
 
-# Emit the names of every user-invokable aitask-* skill in the source of truth.
+# True for a rendered per-profile variant dir name (`aitask-pick-fast-`,
+# `aitask-pickrem-remote-`, …). Rendered dirs end with a trailing hyphen — the
+# "generated" marker the `*-/` gitignore globs rely on (see
+# aidocs/framework/stub-skill-pattern.md and lib/agent_skills_paths.sh). Authoring
+# dirs never end with one, so this cleanly separates source from artifact.
+_is_rendered_variant() {
+    [[ "$1" == *- ]]
+}
+
+# Emit the names of every aitask-* skill in the source of truth.
 list_source_skills() {
     local entry name
     for entry in "$SOURCE_SKILLS_DIR"/aitask-*; do
         [[ -d "$entry" ]] || continue
         [[ -f "$entry/SKILL.md" ]] || continue
         name="${entry##*/}"
+        _is_rendered_variant "$name" && continue
         printf '%s\n' "$name"
     done | sort
 }
@@ -94,6 +104,122 @@ wrapper_path() {
         opencode-command)  printf '%s\n' "${TREE_OPENCODE_COMMANDS}/${skill}.md" ;;
         *) die "Unknown tree: $tree" ;;
     esac
+}
+
+# tree_root <root> <tree> -> echoes the directory that holds that tree's wrappers.
+tree_root() {
+    local root="$1" tree="$2"
+    case "$tree" in
+        agents)            printf '%s\n' "${root}/${TREE_AGENTS_SKILLS}" ;;
+        opencode-skill)    printf '%s\n' "${root}/${TREE_OPENCODE_SKILLS}" ;;
+        opencode-command)  printf '%s\n' "${root}/${TREE_OPENCODE_COMMANDS}" ;;
+        *) die "Unknown tree: $tree" ;;
+    esac
+}
+
+# list_wrapper_skills <root> <tree> -> names of the aitask-* wrappers in that tree.
+# Rendered per-profile variants are excluded (see _is_rendered_variant): they are
+# generated artifacts, not stubs. Counting them is exactly what makes a naive
+# `git ls-files '.opencode/skills/aitask-*/SKILL.md'` report 30 where there are 28
+# wrappers.
+list_wrapper_skills() {
+    local root="$1" tree="$2" dir entry name
+    dir="$(tree_root "$root" "$tree")"
+    [[ -d "$dir" ]] || return 0
+    for entry in "$dir"/aitask-*; do
+        [[ -e "$entry" ]] || continue
+        name="${entry##*/}"
+        case "$tree" in
+            agents|opencode-skill)
+                [[ -d "$entry" && -f "$entry/SKILL.md" ]] || continue
+                ;;
+            opencode-command)
+                [[ -f "$entry" && "$name" == *.md ]] || continue
+                name="${name%.md}"
+                ;;
+        esac
+        _is_rendered_variant "$name" && continue
+        printf '%s\n' "$name"
+    done | sort
+}
+
+# parity [--strict] [<root>] -> cross-tree wrapper-set check.
+#
+# The three ported wrapper trees are authored independently, so requiring
+# identical membership is a ground truth that does NOT come from any one of them.
+# This is the check that catches the realistic omission: a skill added to some but
+# not all trees (t1210_3 gave aitask-trail a Codex stub and an OpenCode command
+# wrapper but no OpenCode skill-dir stub; see t1317 / t1325).
+#
+# Emits, per case:
+#   PARITY_GAP:<tree>:<skill>  a skill present in >=1 PRESENT tree, missing from
+#                              this PRESENT tree.
+#   ORPHAN:<skill>             a wrapper with no source-of-truth
+#                              .claude/skills/<skill>/SKILL.md.
+#
+# Tree-presence rule: a tree whose root directory does not exist means that agent
+# is simply not installed in this project (a Claude-only consumer install), so it
+# is dropped from the comparison instead of reporting every skill as missing.
+# With fewer than two trees present nothing can disagree, so no PARITY_GAP can be
+# emitted — the ORPHAN check still runs while at least one tree is present.
+#
+# Residual limit (deliberate): a skill removed from ALL trees at once is invisible
+# here. That is a deliberate removal, not the omission this guard targets.
+#
+# Exit status: 0 by default even when findings were emitted, matching the
+# `discover` / `audit-helper-whitelist` reporters and this script's documented
+# "all subcommands exit 0" contract. With --strict, exit 2 when any line was
+# emitted — deliberately not 1, which die() already uses for usage/infrastructure
+# errors, so a caller can distinguish "findings" from "could not run".
+cmd_parity() {
+    local strict=false root="" arg
+    for arg in "$@"; do
+        case "$arg" in
+            --strict) strict=true ;;
+            -*)       die "parity: unknown option: $arg" ;;
+            *)        root="$arg" ;;
+        esac
+    done
+    root="${root:-$REPO_ROOT}"
+    root="${root%/}"
+
+    local tree present_trees=() findings=0
+    for tree in agents opencode-skill opencode-command; do
+        [[ -d "$(tree_root "$root" "$tree")" ]] && present_trees+=("$tree")
+    done
+
+    # Union of every wrapper name seen across the present trees.
+    local union
+    union="$(
+        for tree in ${present_trees[@]+"${present_trees[@]}"}; do
+            list_wrapper_skills "$root" "$tree"
+        done | sort -u
+    )"
+    [[ -n "$union" ]] || return 0
+
+    local skill path
+    while IFS= read -r skill; do
+        [[ -n "$skill" ]] || continue
+        # PARITY_GAP needs at least two present trees to be meaningful.
+        if (( ${#present_trees[@]} >= 2 )); then
+            for tree in "${present_trees[@]}"; do
+                path="${root}/$(wrapper_path "$tree" "$skill")"
+                if [[ ! -f "$path" ]]; then
+                    printf 'PARITY_GAP:%s:%s\n' "$tree" "$skill"
+                    findings=$((findings + 1))
+                fi
+            done
+        fi
+        if [[ ! -f "${root}/${SOURCE_SKILLS_DIR}/${skill}/SKILL.md" ]]; then
+            printf 'ORPHAN:%s\n' "$skill"
+            findings=$((findings + 1))
+        fi
+    done <<< "$union"
+
+    if [[ "$strict" == true ]] && (( findings > 0 )); then
+        return 2
+    fi
+    return 0
 }
 
 # discover -> emit GAP:<tree>:<skill> for every missing wrapper.
@@ -511,6 +637,12 @@ Usage: aitask_audit_wrappers.sh <subcommand> [args]
 
 Phase 1 subcommands (skill wrapper audit + port):
   discover                              List GAP:<tree>:<skill> lines for every missing wrapper.
+  parity [--strict] [<root>]            Cross-tree wrapper-set check. Emits PARITY_GAP:<tree>:<skill>
+                                        for a skill present in some but not all installed wrapper
+                                        trees, and ORPHAN:<skill> for a wrapper with no source-of-truth
+                                        .claude/skills/<skill>/SKILL.md. Trees whose root dir is absent
+                                        are treated as "agent not installed" and skipped. <root>
+                                        defaults to the repo root; pass one to check a fixture tree.
   render-wrapper <tree> <skill_name>    Print a wrapper template to stdout.
   apply-wrapper <tree> <skill_name> [--force]
                                         Write the wrapper to its canonical path. Refuses to overwrite without --force.
@@ -534,6 +666,9 @@ Trees (for --wrapper subcommands):
   opencode-command   .opencode/commands/<skill>.md
 
 All subcommands exit 0 on success and emit structured KEY:value lines on stdout.
+Findings are reported as lines, not as an exit status. The single exception is
+`parity --strict`, which exits 2 when it emitted any finding (2, not 1, so it
+stays distinguishable from a usage/infrastructure error).
 EOF
 }
 
@@ -543,6 +678,7 @@ main() {
 
     case "$cmd" in
         discover)                cmd_discover "$@" ;;
+        parity)                  cmd_parity "$@" ;;
         render-wrapper)          cmd_render_wrapper "$@" ;;
         apply-wrapper)           cmd_apply_wrapper "$@" ;;
         discover-helpers)        cmd_discover_helpers "$@" ;;

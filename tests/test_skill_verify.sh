@@ -84,6 +84,20 @@ description: stub for test
 2. ./.aitask-scripts/aitask_skill_render.sh $skill --profile <profile> --agent opencode
 3. Read .opencode/skills/$skill-<profile>-/SKILL.md
 EOF
+    # 4th surface: the OpenCode skill-dir stub. Carries the same body as the
+    # command wrapper and dispatches to the same rendered variant — §3g note
+    # ("Both are required surfaces"). Omitting it here is what let the verifier's
+    # missing 4th surface stay invisible to its own test (t1325).
+    mkdir -p ".opencode/skills/$skill"
+    cat > ".opencode/skills/$skill/SKILL.md" <<EOF
+---
+name: $skill
+description: stub for test
+---
+1. ./.aitask-scripts/aitask_skill_resolve_profile.sh $skill
+2. ./.aitask-scripts/aitask_skill_render.sh $skill --profile <profile> --agent opencode
+3. Read .opencode/skills/$skill-<profile>-/SKILL.md
+EOF
 }
 
 # Helper: write a well-formed .j2 referencing only fields that exist in default.yaml.
@@ -139,7 +153,8 @@ set -e
 assert_exit_nonzero_rc "test 3: no stubs → exit non-zero" "$RC"
 assert_contains_ci "test 3: missing claude stub" ".claude/skills/$SK_NOSTUB/SKILL.md: missing stub for claude" "$OUT"
 assert_contains_ci "test 3: missing codex stub"  ".agents/skills/$SK_NOSTUB/SKILL.md: missing stub for codex" "$OUT"
-assert_contains_ci "test 3: missing opencode stub" ".opencode/commands/$SK_NOSTUB.md: missing stub for opencode" "$OUT"
+assert_contains_ci "test 3: missing opencode command stub" ".opencode/commands/$SK_NOSTUB.md: missing stub for opencode-cmd" "$OUT"
+assert_contains_ci "test 3: missing opencode skill-dir stub" ".opencode/skills/$SK_NOSTUB/SKILL.md: missing stub for opencode-skill" "$OUT"
 
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"
@@ -156,6 +171,33 @@ RC=$?
 set -e
 assert_exit_zero_rc "test 4: happy path → exit 0" "$RC"
 assert_contains_ci "test 4: stdout reports 'OK'" "aitask_skill_verify.sh: OK" "$OUT"
+
+# --- Test 4b (t1325): the OpenCode skill-dir surface is load-bearing ---
+# Negative control for Test 4: starting from the passing 4-surface fixture,
+# remove ONLY .opencode/skills/<skill>/SKILL.md — the exact shape of the
+# aitask-trail gap (t1317) — and require the verifier to fail naming it. Without
+# this, "all 4 surfaces" could regress to 3 and Test 4 would still be green.
+# Restore is a re-write of just that stub, never a git checkout.
+rm -f ".opencode/skills/$SK_GOOD/SKILL.md"
+assert_file_not_exists "test 4b: mutation is real (skill-dir stub removed)" \
+    ".opencode/skills/$SK_GOOD/SKILL.md"
+
+set +e
+OUT="$("$VERIFY" 2>&1)"
+RC=$?
+set -e
+assert_exit_nonzero_rc "test 4b: missing opencode skill-dir stub → exit non-zero" "$RC"
+assert_contains_ci "test 4b: STUB_FAIL names the opencode-skill surface" \
+    ".opencode/skills/$SK_GOOD/SKILL.md: missing stub for opencode-skill" "$OUT"
+
+# Restore only the mutated stub, then re-assert the fixture is clean again — a
+# failing control must not be explainable by a fixture broken some other way.
+_write_canonical_stubs "$SK_GOOD"
+set +e
+OUT="$("$VERIFY" 2>&1)"
+RC=$?
+set -e
+assert_exit_zero_rc "test 4b: post-restore → exit 0 again" "$RC"
 
 cleanup
 mkdir -p ".claude/skills" ".agents/skills" ".opencode/commands"

@@ -1480,7 +1480,7 @@ setup_data_branch() {
             echo ""
             echo "# Per-profile rendered skill variants (on-demand, not committed)"
             echo "# Convention: rendered dirs end with a trailing hyphen; authoring"
-            echo "# dirs never do. See .claude/skills/task-workflow/stub-skill-pattern.md."
+            echo "# dirs never do. See https://www.aitasks.io/docs/concepts/skill-templating/"
             echo ".claude/skills/*-/"
             echo ".agents/skills/*-/"
             echo ".opencode/skills/*-/"

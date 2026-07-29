@@ -105,10 +105,14 @@ When converting a skill in t777_6 (pilot) or t777_8..15 (others), each conversio
 
 - **Stub frontmatter `name:` / TOML `description=` / OpenCode frontmatter `description:` match the no-suffix slash command** (e.g., `aitask-pick`, NOT `aitask-pick-fast-`).
 - **Stubs are committed to git.** Rendered variants (trailing-hyphen dirs) are gitignored.
-- **One stub per (skill, agent surface)** — 3 stubs total per skill:
+- **One stub per (skill, agent surface)** — 4 stubs total per skill:
   1. Claude SKILL.md (per §3b)
   2. Codex SKILL.md (per §3b)
   3. OpenCode command MD (per §3d)
+  4. OpenCode skill-dir SKILL.md at `.opencode/skills/<skill>/SKILL.md` — same
+     body as (3), same rendered dispatch target; see the §3g note ("Both are
+     required surfaces"). Omitting it from this list is what let
+     `aitask_skill_verify.sh` check only 3 surfaces (t1325).
 - **Stub body is profile-agnostic** — it never embeds profile-specific content or branches on profile keys. All profile-conditional logic belongs in the authoring template (`.claude/skills/<skill>/SKILL.md.j2`).
 - **Stub MUST NOT modify state** beyond the resolve + render bash calls. No git operations, no task-file edits, no lock changes.
 - **Authoring dir names MUST NOT end with `-`** — load-bearing for the `*-/` gitignore convention. Verified by the one-shot audit in t777_3 Step 5; future renames or new authoring skills must respect this hard rule.
