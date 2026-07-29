@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-07-29 09:52
-updated_at: 2026-07-29 10:22
+updated_at: 2026-07-29 18:55
 ---
 
 ## Origin
@@ -62,3 +63,8 @@ Note: t1302 deliberately rejected factoring a shared "run a helper subprocess,
 degrade on failure" helper out of these call sites, on the grounds that the 30+
 sites have genuinely different degrade semantics. If this task revisits that,
 treat it as a separate, explicitly-scoped refactor.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-29T15:55:16Z status=pass attempt=1 type=human
