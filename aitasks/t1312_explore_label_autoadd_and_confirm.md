@@ -14,9 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 risk_mitigation_tasks: [1321]
 assigned_to: dario-e@beyond-eye.com
-implemented_with: claudecode/fable5
+implemented_with: claudecode/opus5
 created_at: 2026-07-29 09:15
-updated_at: 2026-07-29 12:25
+updated_at: 2026-07-29 16:39
 ---
 
 Extend `/aitask-explore` so the labels it puts on newly created tasks are
@@ -197,3 +197,5 @@ their vocabulary leak for free; only their *prose* rules would need aligning.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-29T07:39:57Z status=pass attempt=1 type=human
+
+> **✅ gate:plan_approved** run=2026-07-29T13:39:54Z status=pass attempt=2 type=human
