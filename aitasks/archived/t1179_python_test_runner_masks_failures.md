@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bash_scripts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1171
 implemented_with: claudecode/opus5
 created_at: 2026-07-20 12:12
-updated_at: 2026-07-28 19:22
+updated_at: 2026-07-29 10:26
+completed_at: 2026-07-29 10:26
 boardcol: bug_fixes
 boardidx: 10
 ---
@@ -123,3 +124,14 @@ reported "exits 0" came from. Revised criteria:
 > **✅ gate:plan_approved** run=2026-07-28T16:19:48Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-29T07:18:35Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-29T07:26:26Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4b8b5bf7e4cd2840
+
+> **✅ gate:risk_evaluated** run=2026-07-29T07:26:26Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1179/risk_evaluated_2026-07-29T07:26:26Z-risk_evaluated-a1.log`
