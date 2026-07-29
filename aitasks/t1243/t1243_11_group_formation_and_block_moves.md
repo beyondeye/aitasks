@@ -46,8 +46,12 @@ Because INV-R derives rendering from persisted state rather than requiring
 contiguous indices (see t1243_8), grouping needs **no index writes at all**:
 
 - **Formation** (adding K tasks to a group): K writes, each setting `boardgroup`
-  via t1243_2's `reload_and_save_board_fields(semantic=True)`. **No `boardidx` is
-  touched. Non-members are never rewritten.**
+  via t1243_2's `reload_and_save_board_fields(fields=("boardgroup",))` — naming a
+  non-layout key *is* what makes it a semantic write; there is no `semantic=True`
+  bool. **No `boardidx` is touched** — and because the seam persists only the
+  named fields, naming `boardgroup` alone is also what stops a stale in-memory
+  index from being written back over a concurrent move. **Non-members are never
+  rewritten.**
 - **Removal**: 1 write per removed task, setting the `""` tombstone. Position is
   untouched — membership no longer depends on it, so a mid-run removal cannot
   strand anything.

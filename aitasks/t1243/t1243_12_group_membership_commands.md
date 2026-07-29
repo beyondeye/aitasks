@@ -81,8 +81,9 @@ Through `_COMMANDS`: "Add Tasks to Group", "Remove Tasks from Group",
 Following `AnchorField`: always present (so an ungrouped task can be given a
 group), empty clears, shells out to `aitask_update.sh --batch <id> --boardgroup
 <slug> --silent`, then reloads the detail screen. Note this path advances
-`updated_at` on its own, consistent with the in-process `semantic=True` writes —
-both matter for t1243_8's base-aware merge.
+`updated_at` on its own, consistent with the in-process semantic writes
+(`reload_and_save_board_fields(fields=("boardgroup",))` — there is no
+`semantic=True` bool) — both matter for t1243_8's base-aware merge.
 
 ### 6. `check_action` gating
 

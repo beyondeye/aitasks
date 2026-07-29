@@ -56,9 +56,12 @@ boardgroup: perf_work
 
 ### 1. Split `BOARD_KEYS` — it is currently doing two different jobs
 
+**`BOARD_LAYOUT_KEYS` already exists** — t1243_2 introduced the split. This child
+only appends to `BOARD_KEYS`:
+
 ```python
 # lib/task_yaml.py
-BOARD_LAYOUT_KEYS = ("boardcol", "boardidx")            # per-checkout layout
+BOARD_LAYOUT_KEYS = ("boardcol", "boardidx")            # per-checkout layout (already there)
 BOARD_KEYS        = BOARD_LAYOUT_KEYS + ("boardgroup",) # all board-owned keys
 ```
 
@@ -67,7 +70,18 @@ BOARD_KEYS        = BOARD_LAYOUT_KEYS + ("boardgroup",) # all board-owned keys
 | `serialize_frontmatter` key ordering | `BOARD_KEYS` | `boardgroup` serialises last with the others |
 | "empty metadata" probe (`lib/work_report_gather.py`, `lib/trail_gather.py`) | `BOARD_KEYS` | a task carrying only board keys still reads as empty |
 | `_KEEP_LOCAL_FIELDS` in `aitask_merge.py` | **`BOARD_LAYOUT_KEYS`** (narrowed) | layout stays local-wins; membership must not |
-| t1243_2's save-path snapshot loop | `BOARD_KEYS` | every board key survives the reload |
+| t1243_2's save-path seam | **the caller's named `fields`** (validated against `BOARD_KEYS`) | a call persists exactly what it mutated |
+
+**Do NOT hand the save path the whole `BOARD_KEYS` set.** t1243_2's
+`reload_and_save_board_fields(fields)` takes a **required** field set, and every
+layout call site names only the layout key it mutated. Widening it would
+reinstate `_KEEP_LOCAL_FIELDS` local-wins one layer *below* the merge tool: a
+stale board object performing an ordinary layout move would re-apply its stale
+`boardgroup` over another checkout's change, timestamp-neutrally, so neither
+`_newer_side` nor the base-aware resolution below could ever see it. Appending
+`"boardgroup"` to `BOARD_KEYS` alone is correct and sufficient — it makes the
+key *nameable*, not automatically written.
+`tests/test_board_persistence_seam.py` guards both directions.
 
 ### 2. Merge semantics — the hard part
 
@@ -137,10 +151,17 @@ timestamp weakness. Record it in Final Implementation Notes; do not expand scope
 
 ### 3. Timestamp discipline
 
-Every `boardgroup` mutation advances `updated_at`: the in-process bulk path via
-t1243_2's `reload_and_save_board_fields(semantic=True)`, and the
-`aitask_update.sh --boardgroup` path (which advances it itself). Layout-only
-moves stay timestamp-neutral.
+Every `boardgroup` mutation records a modification: the in-process bulk path via
+t1243_2's `reload_and_save_board_fields(fields=("boardgroup",))` — naming a key
+outside `BOARD_LAYOUT_KEYS` *is* what makes it a semantic write, there is no
+`semantic=True` bool — and the `aitask_update.sh --boardgroup` path (which
+advances it itself). Layout-only moves stay timestamp-neutral.
+
+Note the seam's contract is **"sets `updated_at` to the current minute"**, not
+"advances it" (`_update_timestamp` is `%Y-%m-%d %H:%M`, so same-minute writes
+tie — pinned by a test in `tests/test_board_persistence_seam.py`). That is
+consistent with §2: `boardgroup` is resolved by base-aware change detection
+precisely because the timestamp cannot order field-level causality.
 
 ### 4. `lib/board_groups.py` — the INV-R derivation
 
@@ -203,4 +224,7 @@ and surface any layer this task does not cover as a note for t1243_13 (docs).
 - **Guard test:** every driver invocation site in `aitask_sync.sh` passes
   `--base-file`.
 - `aitask_update.sh --boardgroup` round-trip advances `updated_at`; `""` clears.
-- A `boardgroup` set in memory survives t1243_2's save seam.
+- A `boardgroup` set in memory survives a **named-field** save through t1243_2's
+  seam (`fields=("boardgroup",)`), and is **not** written back by a plain layout
+  move — extend `tests/test_board_persistence_seam.py`, whose synthetic `SEM`
+  key becomes the real one here.
