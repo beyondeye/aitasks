@@ -15,7 +15,7 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-07-29 07:49
-updated_at: 2026-07-29 10:27
+updated_at: 2026-07-29 12:09
 ---
 
 ## Problem
