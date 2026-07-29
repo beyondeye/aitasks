@@ -411,10 +411,10 @@ every non-empty channel and its paths are disclosed. Then repeat with
   Truth" redirects, and newly pulls `aitask-shadow` into
   `aitask_skill_verify.sh`, `test_opencode_skill_legacy_pointers.sh`,
   `test_opencode_setup.sh` and golden coverage. A mistake breaks shadow launch
-  from minimonitor for every agent · severity: high · → mitigation: templated_skill_dispatch_smoke
+  from minimonitor for every agent · severity: high · → mitigation: t1317 (templated_skill_dispatch_smoke)
 - Nine sub-procedures start being rendered into the Codex and OpenCode trees for
   the first time; they have never been executed there and the goldens only prove
-  they render, not that they run · severity: medium · → mitigation: templated_skill_dispatch_smoke
+  they render, not that they run · severity: medium · → mitigation: t1317 (templated_skill_dispatch_smoke)
 - **No drift guard exists** between `PROFILE_SCHEMA` and
   `task-workflow/profiles.md` / the website key tables — six keys are already
   documented in only one place, so a new key can silently land half-registered ·
@@ -445,7 +445,7 @@ every non-empty channel and its paths are disclosed. Then repeat with
   ceiling here
 
 ### Planned mitigations
-- timing: before | name: templated_skill_dispatch_smoke | type: test | priority: high | effort: medium | addresses: code-health — stub conversion of a live minimonitor-spawned skill; sub-procedures newly rendered into Codex/OpenCode | desc: Generic dispatch-contract smoke over every templated skill (discovered by SKILL.md.j2) × every agent surface — render the variant and assert the stub's Step-3 target path exists and carries its closure files. Written against the already-templated skills so it lands BEFORE the shadow conversion, and picks up aitask-shadow automatically once converted.
+- timing: before | name: templated_skill_dispatch_smoke | created: t1317 | type: test | priority: high | effort: medium | addresses: code-health — stub conversion of a live minimonitor-spawned skill; sub-procedures newly rendered into Codex/OpenCode | desc: Generic dispatch-contract smoke over every templated skill (discovered by SKILL.md.j2) × every agent surface — render the variant and assert the stub's Step-3 target path exists and carries its closure files. Written against the already-templated skills so it lands BEFORE the shadow conversion, and picks up aitask-shadow automatically once converted.
 - timing: after | name: profile_key_doc_drift_guard | type: test | priority: medium | effort: medium | addresses: code-health — no drift guard between PROFILE_SCHEMA and the doc key tables | desc: Add a drift test deriving both sides from live source (modeled on test_gates_reference_drift.sh) asserting every PROFILE_SCHEMA key is documented in task-workflow/profiles.md and the website key table, and vice versa.
 - timing: after | name: warn_on_orphaned_profile_skill_key | type: enhancement | priority: medium | effort: low | addresses: goal-achievement — shipped tier key is inert unless default_profiles.shadow is set | desc: Surface a warning (settings TUI profile tab and/or the profile resolver) when a profile sets a per-skill key such as shadow_impl_review_tier while default_profiles.<skill> is unset or names a different profile.
 
