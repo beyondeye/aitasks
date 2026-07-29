@@ -253,7 +253,7 @@ tracked file.
   config, so a broken resolver could still satisfy it · severity: medium ·
   → mitigation: in-plan (injected sentinel + the permanent `nocfg` / `nolearn`
   fixture cases + the `AIT_CODEAGENT_FIXTURE_OMIT_OPS` control), reinforced by
-  `document_derived_assertion_idiom`
+  `document_derived_assertion_idiom` (**t1339**)
 - New shared helper `tests/lib/codeagent_defaults.sh` adds a file under
   `tests/lib/` that three tests source; a bug there fails three suites at once ·
   severity: low · → mitigation: in-plan (shellcheck + the three suites are the
@@ -262,22 +262,22 @@ tracked file.
   `tests/test_shadow_spawn_config.sh` passes an explicit `--agent-string` on
   every invocation, so it stopped exercising the real `defaults.shadow` when
   that moved to `codex/gpt5_6_terra` · severity: low ·
-  → mitigation: `close_shadow_default_coverage_gap`
+  → mitigation: `close_shadow_default_coverage_gap` (**t1340**)
 
 ### Goal-achievement risk: low
 - The promotion checklist is only **partially** refreshed: registering these
   three files in a doc whose other `opus4_*` line references are stale leaves
   the next promoter with a partly-untrustworthy checklist · severity: low ·
-  → mitigation: `refresh_model_reference_locations_doc`
+  → mitigation: `refresh_model_reference_locations_doc` (**t1341**)
 - Otherwise the goal is directly verifiable by running the three scripts, and
   every seam the approach depends on (`METADATA_DIR` override,
   `DEFAULT_AGENT_STRING` override, the `models_*.json` requirement, the
   three-fixture matrix, cross-agent sentinels) was probed live during planning.
 
 ### Planned mitigations
-- timing: after | name: document_derived_assertion_idiom | type: documentation | priority: medium | effort: low | addresses: derived assertions drifting into vacuity (code-health) | desc: Record the derive-from-fixture + injected-sentinel pattern in aidocs/framework/testing_conventions.md so future default-sensitive tests are promotion-proof by construction
-- timing: after | name: close_shadow_default_coverage_gap | type: test | priority: medium | effort: low | addresses: silent coverage loss at sites this task does not touch (code-health) | desc: tests/test_shadow_spawn_config.sh passes an explicit --agent-string everywhere and no longer exercises the real defaults.shadow (now codex/gpt5_6_terra) — add a case that resolves the configured shadow default
-- timing: after | name: refresh_model_reference_locations_doc | type: documentation | priority: low | effort: low | addresses: partly-untrustworthy promotion checklist (goal-achievement) | desc: Refresh the remaining stale opus4_6/4_7/4_8 line-number references throughout aidocs/framework/model_reference_locations.md, beyond the three test files t1318 registers
+- timing: after | task: t1339 | name: document_derived_assertion_idiom | type: documentation | priority: medium | effort: low | addresses: derived assertions drifting into vacuity (code-health) | desc: Record the derive-from-fixture + injected-sentinel pattern in aidocs/framework/testing_conventions.md so future default-sensitive tests are promotion-proof by construction
+- timing: after | task: t1340 | name: close_shadow_default_coverage_gap | type: test | priority: medium | effort: low | addresses: silent coverage loss at sites this task does not touch (code-health) | desc: tests/test_shadow_spawn_config.sh passes an explicit --agent-string everywhere and no longer exercises the real defaults.shadow (now codex/gpt5_6_terra) — add a case that resolves the configured shadow default
+- timing: after | task: t1341 | name: refresh_model_reference_locations_doc | type: documentation | priority: low | effort: low | addresses: partly-untrustworthy promotion checklist (goal-achievement) | desc: Refresh the remaining stale opus4_6/4_7/4_8 line-number references throughout aidocs/framework/model_reference_locations.md, beyond the three test files t1318 registers
 
 ## Post-implementation
 
