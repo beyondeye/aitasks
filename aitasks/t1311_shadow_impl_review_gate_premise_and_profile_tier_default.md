@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [shadow, execution_profiles]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-29 07:49
-updated_at: 2026-07-29 07:49
+updated_at: 2026-07-29 07:56
 ---
 
 Two defects in the shadow skill's implementation-review sub-procedure
