@@ -25,10 +25,11 @@ it rather than working around it.
 
 ## Step 1 — the key split
 
-`BOARD_LAYOUT_KEYS = ("boardcol","boardidx")`;
-`BOARD_KEYS = BOARD_LAYOUT_KEYS + ("boardgroup",)`. Repoint each consumer per the
-table in the task file — in particular narrow `_KEEP_LOCAL_FIELDS` to
-`BOARD_LAYOUT_KEYS`, so membership is not silently local-won.
+`BOARD_LAYOUT_KEYS = ("boardcol","boardidx")` **already exists**, and
+`_KEEP_LOCAL_FIELDS` is **already** derived from it — both landed in t1243_2, so
+membership cannot be silently local-won. This step is therefore just
+`BOARD_KEYS = BOARD_LAYOUT_KEYS + ("boardgroup",)`; then re-check each consumer
+against the table in the task file.
 
 ## Step 2 — supply the merge base
 

@@ -54,7 +54,7 @@ boardgroup: perf_work
 
 ## Implementation plan
 
-### 1. Split `BOARD_KEYS` — it is currently doing two different jobs
+### 1. Append to `BOARD_KEYS` — the split itself already exists
 
 **`BOARD_LAYOUT_KEYS` already exists** — t1243_2 introduced the split. This child
 only appends to `BOARD_KEYS`:
@@ -69,7 +69,7 @@ BOARD_KEYS        = BOARD_LAYOUT_KEYS + ("boardgroup",) # all board-owned keys
 |---|---|---|
 | `serialize_frontmatter` key ordering | `BOARD_KEYS` | `boardgroup` serialises last with the others |
 | "empty metadata" probe (`lib/work_report_gather.py`, `lib/trail_gather.py`) | `BOARD_KEYS` | a task carrying only board keys still reads as empty |
-| `_KEEP_LOCAL_FIELDS` in `aitask_merge.py` | **`BOARD_LAYOUT_KEYS`** (narrowed) | layout stays local-wins; membership must not |
+| `_KEEP_LOCAL_FIELDS` in `aitask_merge.py` | **`BOARD_LAYOUT_KEYS`** — **already narrowed by t1243_2**, no change needed here | layout stays local-wins; membership must not |
 | t1243_2's save-path seam | **the caller's named `fields`** (validated against `BOARD_KEYS`) | a call persists exactly what it mutated |
 
 **Do NOT hand the save path the whole `BOARD_KEYS` set.** t1243_2's

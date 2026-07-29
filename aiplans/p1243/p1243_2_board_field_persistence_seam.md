@@ -79,6 +79,7 @@ t1216_2 SHADOW-zone commit). Line numbers moved; every symbol is intact:
   **str**, byte-identically (verified in-memory — the YAML timestamp resolver
   does not claim the seconds-less form).
 - `aitask_merge._KEEP_LOCAL_FIELDS = frozenset(BOARD_KEYS)` (`aitask_merge.py:132`)
+  — *as found; re-derived from `BOARD_LAYOUT_KEYS` by Change Request 1 below*
   — board keys are local-wins **on cross-checkout sync conflicts**. That is a
   merge policy between two checkouts; it says nothing about a stale in-memory
   value racing a newer write inside one checkout.
@@ -173,7 +174,9 @@ discriminator; `_BOARD_KEYS` is the validation vocabulary. The dead assignment i
 retired by *reading* it, per the task file's "delete it or have the loop read it
 — leave no unread duplicate". Patching either on the class is a test seam that
 cannot leak into `_is_phantom_stub`, `serialize_frontmatter` or
-`_KEEP_LOCAL_FIELDS`, all of which read the module-level `BOARD_KEYS`.
+`_KEEP_LOCAL_FIELDS`, all of which read module-level constants rather than the
+class attributes (`BOARD_KEYS` for the first three; `BOARD_LAYOUT_KEYS` for
+`_KEEP_LOCAL_FIELDS` after Change Request 1 below).
 
 **5. `if v is not None`** preserves an empty-string tombstone (t1243_8 writes
 `boardgroup: ""` for "removed from group") while never inventing a key that was
@@ -571,3 +574,206 @@ Step 9 (Post-Implementation) then runs the merge / gate / archival flow as usual
   → mitigation: both are stated in the docstring, pinned by 4A cases 2 and 10,
   written into the task file by Step 5, and recorded in Final Implementation
   Notes — t1243_8 already assumes the weaker timestamp.
+
+---
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-29 13:44) — merge-side field ownership
+
+- **Requested by user:** `aidocs/framework/aitasks_extension_points.md` was
+  edited to say `_KEEP_LOCAL_FIELDS` follows `BOARD_LAYOUT_KEYS`, but
+  `aitask_merge.py:132` still built it from `BOARD_KEYS`. True only while the two
+  are equal — the moment t1243_8 appends `boardgroup`, membership would become
+  silently local-wins, contradicting the new guidance and re-creating hazard A at
+  the merge layer. Either derive it from `BOARD_LAYOUT_KEYS` now, or state the
+  remaining dependency.
+- **Changes made:** Derived it now — the same zero-behaviour-change-today,
+  structural fix used for the save path. `aitask_merge.py` imports
+  `BOARD_LAYOUT_KEYS` instead of `BOARD_KEYS` and `_KEEP_LOCAL_FIELDS =
+  frozenset(BOARD_LAYOUT_KEYS)`, with a comment stating that a shared key must
+  opt in to its own merge rule rather than inherit silent local-wins. Added
+  `MergeFieldOwnershipTests`: one test pinning the exact set, and one —
+  `test_no_shared_board_key_is_ever_local_wins` — that keeps meaning as
+  `BOARD_KEYS` grows and is what fails if anyone re-points the derivation.
+  Verified the guard discriminates: the post-t1243_8 *wrong* derivation leaks
+  `boardgroup` into the local-wins set, the current one does not.
+  `tests/test_aitask_merge.sh` 43/43. Downstream artifacts updated so t1243_8 no
+  longer claims to own this narrowing (`t1243_8` task file §1 + consumer table,
+  `p1243_8` Step 1, parent plan `:514` and the child-8 decomposition row).
+- **Files affected:** `.aitask-scripts/board/aitask_merge.py`,
+  `tests/test_board_persistence_seam.py`,
+  `aitasks/t1243/t1243_8_boardgroup_field_and_model.md`,
+  `aiplans/p1243/p1243_8_boardgroup_field_and_model.md`,
+  `aiplans/p1243_board_task_groups_and_fast_reordering.md`.
+
+### Change Request 2 (2026-07-29 13:44) — task-data commit entanglement
+
+- **Requested by user:** commit `d164c6b3d` ("ait: Start work on t1312") contains
+  the contract edits to `t1243_2`, `t1243_8`, `t1243_11` and `t1243_12`. A
+  concurrent session's broad `./ait git add aitasks/` swept this task's in-flight
+  edits into its own commit. Reverting or rewriting t1312 would therefore delete
+  t1243 specifications, and the changes are not attributable to t1243_2.
+- **Record (durable, archives with this task):** the affected paths are
+  `aitasks/t1243/t1243_{2,8,11,12}*.md`; the content in `d164c6b3d` is
+  byte-identical to the working tree (verified with `./ait git diff -- aitasks/t1243/`,
+  empty). **If `d164c6b3d` / t1312 is ever reverted or rewritten, these four
+  files must be re-checked against this plan — their contract edits belong to
+  t1243_2, not t1312.**
+- **Why it was not repaired by rewriting history:** `d164c6b3d` is no longer the
+  tip; three further commits from the concurrent session sit on top of it
+  (`b7920941f` at the time of review), and that session is actively committing to
+  the shared `aitask-data` branch. Splitting `d164c6b3d` means rewriting all
+  four commits, which would orphan any commit the other session makes during the
+  rebase. A revert-then-reapply "forward repair" was also considered and
+  **rejected as ineffective**: a later `git revert d164c6b3d` would still strip
+  the content cleanly, so it would add two noisy commits while fixing nothing.
+- **Disposition:** escalated to the user as an explicit decision rather than
+  performed unilaterally, since rewriting shared history is destructive and
+  affects another session's work.
+
+### Change Request 3 (2026-07-29 13:57) — ownership documentation
+
+- **Requested by user:** the merge implementation was correct but its
+  documentation was internally contradictory. Three defects: (i)
+  `task_yaml.py:52-55` and (ii) the parent plan's current-state row `:55` both
+  still said `BOARD_KEYS` drives `_KEEP_LOCAL_FIELDS`, which CR1 had just made
+  false; and (iii) the extension guide's new 4b claimed a shared key placed in
+  `BOARD_LAYOUT_KEYS` "would be written back by every layout move" — **wrong**,
+  because the required exact caller tuples prevent that. The real hazards of
+  misplacing a shared key are silent local-wins merging and no `updated_at`.
+- **Changes made:**
+  - `task_yaml.py` — rewrote both comments. `BOARD_LAYOUT_KEYS` is now documented
+    as defining **two policies** (silent local-wins merge; layout writes record no
+    timestamp), and `BOARD_KEYS` as key ordering + empty-metadata probe + the
+    save path's validation vocabulary. Explicitly notes a key is not at risk of
+    being written back by unrelated layout moves either way.
+  - `aidocs/.../aitasks_extension_points.md` 4b — replaced the false rationale
+    with the two real policies, and stated up front that no key is written back by
+    a move that did not name it, **whichever set it is in**. 4 now says
+    `_KEEP_LOCAL_FIELDS` is *derived from* `BOARD_LAYOUT_KEYS`.
+  - Parent plan — added a header to "Verified current state" marking it a
+    point-in-time record, and annotated the two rows t1243_2 superseded
+    (`reload_and_save_board_fields` and `lib/task_yaml.py BOARD_KEYS`) with both
+    the original text and the current behaviour, rather than rewriting history.
+  - This plan — corrected two of its own now-imprecise statements (the anchor
+    entry for `_KEEP_LOCAL_FIELDS`, and the test-seam note in design decision 4).
+- **Note on the error's origin:** the false claim in 4b was a leftover rationale
+  from an earlier revision of this plan, where the seam still took a defaulted
+  field set. Making `fields` required removed that hazard but the justification
+  was not re-swept — the same class of stale-rationale defect this task's Step 5
+  exists to prevent.
+- **Files affected:** `.aitask-scripts/lib/task_yaml.py`,
+  `aidocs/framework/aitasks_extension_points.md`,
+  `aiplans/p1243_board_task_groups_and_fast_reordering.md`,
+  `aiplans/p1243/p1243_2_board_field_persistence_seam.md`.
+- **Verification:** 35/35 seam, 43/43 merge, 12/12 movement (`FLIP_TABLE` still
+  unedited).
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** the seam now takes a **required, validated** `fields`
+  set and persists exactly what a caller names.
+  - `lib/task_yaml.py` — `BOARD_LAYOUT_KEYS` / `BOARD_KEYS` split (equal in value
+    until t1243_8 appends `boardgroup`).
+  - `board/aitask_board.py` — `reload_and_save_board_fields(fields)`: raises on an
+    empty or non-board `fields`, derives `semantic` from
+    `any(k not in _BOARD_LAYOUT_KEYS)`, keeps the `is not None` tombstone guard
+    and the never-recreate-a-deleted-file behaviour. Both class attributes
+    (`_BOARD_LAYOUT_KEYS`, `_BOARD_KEYS`) are now read, retiring the dead
+    assignment. **All seven call sites audited** to their actual mutation — five
+    narrowed to a single key.
+  - `board/aitask_merge.py` — `_KEEP_LOCAL_FIELDS` derived from
+    `BOARD_LAYOUT_KEYS` (CR1).
+  - `tests/test_board_persistence_seam.py` — **new**, 35 tests: seam contract,
+    timestamp discipline under a frozen clock, four negative controls, the
+    call-site mapping (runtime spy through five real `TaskManager` callers + a
+    fail-closed AST guard with its own discrimination self-tests), and merge
+    field ownership.
+  - `aidocs/framework/aitasks_extension_points.md` — layer 4 corrected, new
+    layer 4b for the save path.
+
+- **Deviations from plan:**
+  1. **Three defects, not two.** Planning found a *live* third bug (hazard C):
+     five of seven call sites mutate one layout key and write back both, so
+     `normalize_indices` could yank a card out of a column another writer had just
+     moved it to. Fixing it widened the change from one method to all seven call
+     sites and raised code-health risk low → medium.
+  2. **`semantic: bool` became a required `fields` set.** Three review rounds
+     drove this: a bool could timestamp a pure layout move; a `LAYOUT ∪ fields`
+     union still let a membership write clobber a newer `boardidx`; and an
+     unvalidated tuple let a typo (`boardgruop`) timestamp a write whose value was
+     silently dropped. The final shape makes each of those unrepresentable.
+  3. **Step 5 covered six artifacts, not four.** The plan enumerated t1243_2, the
+     parent design and t1243_8; the verification grep found **t1243_11** and
+     **t1243_12** also prescribing `semantic=True`, plus
+     `aidocs/framework/aitasks_extension_points.md` naming the wrong constant and
+     omitting the save path entirely. Running the plan's own greps is what caught
+     them.
+  4. **No subprocess isolation** (t1243_1 uses one). `Task` needs no directory
+     constant, and `TaskManager` needs only `mock.patch.object` on `B.TASKS_DIR` /
+     `B.METADATA_FILE` — the module *attribute* is a different seam from the
+     `TASK_DIR` *env var* whose in-process override t1243_1 proved inert.
+  5. **Added two AST-guard self-tests and one merge-ownership pair** beyond the
+     plan, because the guard's fail-closed branch and the merge invariant were
+     otherwise unexercised.
+
+- **Issues encountered:**
+  - The full suite reports **1 failure**, `test_board_work_report`
+    `WorkReportFullColumnUnderSearchTests.test_hidden_cards_still_listed`
+    (`133 != 134`). **Not caused by this task** — see Upstream defects. It is a
+    live-tree data condition introduced by a concurrent session at 09:55, before
+    any code edit here; `_parse_filename`, `get_column_tasks` and the work-report
+    path are untouched by this diff.
+  - **A concurrent session swept this task's task-file edits into its own
+    commit** — see Change Request 2. Content intact, attribution wrong; the user
+    chose to keep a documented record rather than rewrite shared history.
+  - The plan's own verification grep (`semantic=True|semantic: bool`) over-matched
+    its own corrective prose; it needs the "there is no …" exclusions applied when
+    re-run.
+
+- **Key decisions:**
+  - `fields` is **required**. A default is always plausible and never stated —
+    which is precisely how hazard C survived unnoticed.
+  - Persistence *and* timestamp both derive from the named set. Ownership, not a
+    second flag, so no combination can be individually wrong.
+  - The split constants landed here rather than in t1243_8, so t1243_8's one-line
+    `BOARD_KEYS` append cannot silently change either the save path or the merge
+    rule.
+  - Contract claims narrowed to what the code does: the reload→save window is
+    **not** atomic, and a semantic write **sets the current minute** rather than
+    advancing. Both pinned by tests instead of prose.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_create.sh:1809 — filename="t${task_num}_${task_name}.md"
+    has no guard that task_num is non-empty, so an empty id silently produces a
+    numberless task file (t_<slug>.md). One exists in the live tree
+    (aitasks/t_refresh_codeagent_suite_default_model_expectations.md, committed
+    2026-07-29 09:55 in 9e7f18326) and it breaks test_board_work_report.`
+  - `.aitask-scripts/board/aitask_board.py:7258-7262 — the work-report entries
+    loop silently "continue"s past a task whose filename TaskCard._parse_filename
+    cannot parse, so the selection screen under-reports versus get_column_tasks;
+    test_board_work_report asserts the two are equal, so one unparseable file in
+    the tree fails the suite with no indication of which file or why.`
+
+- **Notes for sibling tasks:**
+  - **t1243_8 is now smaller.** `BOARD_LAYOUT_KEYS` and the `_KEEP_LOCAL_FIELDS`
+    narrowing already exist; it only appends `"boardgroup"` to `BOARD_KEYS`. Its
+    task file and plan were updated accordingly. Its membership writes use
+    `reload_and_save_board_fields(fields=("boardgroup",))` — **there is no
+    `semantic=True` bool**.
+  - **Never widen the save path to iterate `BOARD_KEYS`.** Three hazards (A/B/C)
+    and four negative controls in `tests/test_board_persistence_seam.py` exist
+    specifically to stop that; each control pins one rejected design.
+  - **t1243_11 must name `("boardgroup",)` only** on formation/removal. Naming
+    `boardidx` too would discard a concurrent move.
+  - **`EXPECTED_CALL_SITES` is frozen like `FLIP_TABLE`.** Any task adding a call
+    site (t1243_11 especially) must consciously edit it; a silent pass after a
+    rewrite is a bug in the table.
+  - `updated_at` is minute-resolution and **not monotonic**. Do not build
+    field-level causality on it — t1243_8's base-aware detection is the reason.
+  - Anyone testing board internals: `TaskManager` is constructible in-process by
+    patching `B.TASKS_DIR` / `B.METADATA_FILE`; a subprocess is only needed when
+    the *env var* or a Textual app is involved.

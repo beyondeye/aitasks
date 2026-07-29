@@ -26,9 +26,12 @@ it rather than working around it.
 ## Step 1 — formation and removal write only `boardgroup`
 
 K writes to join, 1 write (the `""` tombstone) to leave, all via
-`reload_and_save_board_fields(semantic=True)`. **No `boardidx` is touched and
-non-members are never rewritten.** Neither operation has a gap or compaction
-case — do not write those tests for them.
+`reload_and_save_board_fields(fields=("boardgroup",))` — `fields` is required and
+naming a non-layout key is what makes the write semantic; there is no
+`semantic=True` bool. **No `boardidx` is touched and non-members are never
+rewritten** — naming `boardgroup` alone is also what keeps a stale in-memory
+index from overwriting a concurrent move. Neither operation has a gap or
+compaction case — do not write those tests for them.
 
 ## Step 2 — generalise `_card_block`
 

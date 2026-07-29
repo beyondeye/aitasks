@@ -37,6 +37,11 @@ in-column task groups, (D) add bulk move / group-membership commands.
 
 ### Verified current state
 
+> **Point-in-time record, verified when t1243 was planned.** Rows marked
+> **[superseded by t1243_2]** describe behaviour that has since changed; the
+> original text is kept because the design decisions below were made against it.
+> For current behaviour read the source, or the "Key split" section further down.
+
 | Symbol (`.aitask-scripts/board/aitask_board.py` unless noted) | Behaviour |
 |---|---|
 | `TaskManager.normalize_indices(col)` | Renumbers a whole column to `(i+1)*10`, one `reload_and_save_board_fields()` per changed task. |
@@ -45,14 +50,14 @@ in-column task groups, (D) add bulk move / group-membership commands.
 | `TaskManager.get_column_tasks()` | Sorts by `(normalize_board_idx(board_idx), filename)`. **Readers only sort.** |
 | `TaskManager.delete_column()` | Sets **every** task in the column to `board_idx = 0` (mass ties) and prunes `collapsed_columns` — but nothing else. |
 | `Task.save()` / `save_with_timestamp()` | `save()` is timestamp-neutral; `save_with_timestamp()` calls `_update_timestamp()` first and is documented "Use for semantic metadata changes." |
-| `Task.reload_and_save_board_fields()` | Snapshots `boardcol`/`boardidx` **by name, hardcoded**, reloads, re-applies, then calls the **timestamp-neutral** `save()`. `Task._BOARD_KEYS = BOARD_KEYS` exists but is **never read anywhere** — a dead assignment. |
+| `Task.reload_and_save_board_fields()` | **[superseded by t1243_2]** Snapshotted `boardcol`/`boardidx` **by name, hardcoded**, reloaded, re-applied, then called the **timestamp-neutral** `save()`. `Task._BOARD_KEYS = BOARD_KEYS` existed but was **never read anywhere** — a dead assignment. *Now:* takes a **required** `fields` set, persists only what the caller names, and derives the timestamp from whether a non-`BOARD_LAYOUT_KEYS` key was named. Both class attributes are read. |
 | `_move_task_lateral` | `move_task_col` + `normalize_indices` on **both** columns + `refresh_git_status()` + `refresh_columns({src,dst})`. |
 | `_move_task_vertical` | `swap_tasks` + `normalize_indices` + `refresh_git_status()` + in-place `move_child` + synchronous `apply_filter()`. |
 | `_move_task_to_extreme` | Raw `±10` arithmetic + 1 write + `normalize_indices` + `refresh_column`. |
 | All four movement actions | Early-return on `focused.is_child`; `check_action` hides them for child cards. |
 | `apply_filter()` | `self.query(TaskCard)` over the **whole screen**; assigns `card.styles.display` on every card unconditionally; rebuilds the search haystack per card; second full query over `EmptyColumnPlaceholder`. No column scoping. |
 | `TaskManager.refresh_git_status()` | Spawns `git status --porcelain -- aitasks/` **once per movement keypress**. |
-| `lib/task_yaml.py` `BOARD_KEYS` | `("boardcol", "boardidx")`. Drives frontmatter key ordering, the "empty metadata" probe in `work_report_gather` / `trail_gather`, and `_KEEP_LOCAL_FIELDS`. **Does not** drive the board's save path. |
+| `lib/task_yaml.py` `BOARD_KEYS` | **[superseded by t1243_2]** Was the single constant `("boardcol", "boardidx")`, driving frontmatter key ordering, the "empty metadata" probe in `work_report_gather` / `trail_gather`, and `_KEEP_LOCAL_FIELDS`; it did **not** drive the board's save path. *Now:* split into `BOARD_LAYOUT_KEYS` (per-checkout layout — **`_KEEP_LOCAL_FIELDS` is derived from this**, and it is also the save path's semantic-write discriminator) and `BOARD_KEYS` (all board-owned keys — key ordering, the empty-metadata probe, and the vocabulary the save path validates `fields` against). Equal in value until t1243_8 appends `boardgroup`. |
 | `board/aitask_merge.py` `merge_frontmatter` | One-sided presence is resolved **first and unconditionally** (`in_local and not in_remote → local`, `in_remote and not in_local → remote`), *before* any field rule. Divergent values then hit `_KEEP_LOCAL_FIELDS` (local wins, silent) or `anchor` (newer-wins). **Precedent for overriding this:** `_ACTIVE_TUPLE_FIELDS` is resolved in a pre-loop block precisely because "the generic one-side-only rule below would resurrect the older side's obsolete snapshot." Signature is **two-way** (`local_meta, remote_meta`) and `main()` reads only the file's text. `updated_at` is minute-resolution (`%Y-%m-%d %H:%M`). |
 | `_swap_adjacent_cards` | Defines a **block** = `TaskCard` + trailing `.child-wrapper` Horizontals, moved via same-parent `move_child`. |
 | `TaskCard` | No `id`, no `DEFAULT_CSS`; identity is `task_data.filename` + `column_id`. `column_id` is read in **12 places** — `apply_filter`, `_column_widget`, `_visible_column_cards`, `_get_focused_col_id`, `_refocus_column`, `check_action`. `on_focus`/`on_blur` set the border **imperatively**. |
@@ -511,8 +516,8 @@ BOARD_KEYS        = BOARD_LAYOUT_KEYS + ("boardgroup",) # all board-owned keys
 |---|---|---|
 | `serialize_frontmatter` key ordering | `BOARD_KEYS` | `boardgroup` serialises last with the others |
 | "empty metadata" probe (`work_report_gather`, `trail_gather`) | `BOARD_KEYS` | a task carrying only board keys still reads as empty |
-| `_KEEP_LOCAL_FIELDS` (merge) | **`BOARD_LAYOUT_KEYS`** ← narrowed | layout stays local-wins; `boardgroup` does not |
-| save-path snapshot loop | `BOARD_KEYS` | every board key survives the reload |
+| `_KEEP_LOCAL_FIELDS` (merge) | **`BOARD_LAYOUT_KEYS`** ← **already narrowed by t1243_2** | layout stays local-wins; `boardgroup` does not |
+| save-path snapshot loop | **the caller's named `fields`**, validated against `BOARD_KEYS` | a call persists exactly what it mutated (t1243_2) |
 
 ### Three seams `BOARD_KEYS` does **not** give us for free
 
@@ -521,11 +526,14 @@ BOARD_KEYS        = BOARD_LAYOUT_KEYS + ("boardgroup",) # all board-owned keys
 calls `save()` (no timestamp). A group command that sets
 `metadata["boardgroup"]` and calls it would have the change **silently reloaded
 away**; and even once preserved, a newer-wins merge rule is meaningless if the
-write never advances `updated_at`. Fix (t1243_2, ahead of all group work):
+write records no modification. Fix (t1243_2, ahead of all group work):
 
 ```python
-def reload_and_save_board_fields(self, semantic: bool = False):
-    snapshot = {k: self.metadata.get(k) for k in BOARD_KEYS}
+def reload_and_save_board_fields(self, fields):          # `fields` is REQUIRED
+    keys = tuple(fields)                                  # exactly what this call mutated
+    <raise ValueError if empty, or if any key is outside _BOARD_KEYS>
+    semantic = any(k not in self._BOARD_LAYOUT_KEYS for k in keys)
+    snapshot = {k: self.metadata.get(k) for k in keys}
     if not self.load():
         return                                   # file gone — do NOT recreate
     for k, v in snapshot.items():
@@ -536,13 +544,38 @@ def reload_and_save_board_fields(self, semantic: bool = False):
     self.save()
 ```
 
-Layout-only moves keep calling it with `semantic=False` and stay
-timestamp-neutral (correct — layout is per-checkout and merges local-wins).
-**Every** `boardgroup` mutation — the bulk in-process path *and* the
+**Iterating the whole `BOARD_KEYS` set here would be a data-loss path**, which is
+why the seam takes a named set instead. A stale board object re-applying a key
+it never mutated silently reverts another writer's change to that key —
+timestamp-neutral, so neither `_newer_side` nor base-aware resolution can see
+it. Three directions, all closed by the same rule:
+
+- a **layout move** re-applying a stale `boardgroup` overwrites another
+  checkout's membership change (this is `_KEEP_LOCAL_FIELDS` local-wins
+  reinstated one layer below the merge tool);
+- a **membership write** re-applying a stale `boardidx` discards a newer local
+  move;
+- a **single-key layout op** re-applying the other layout key — live before
+  t1243_2, e.g. `normalize_indices` yanking a card back out of the column
+  another writer just moved it to.
+
+So all seven existing call sites were audited and now name their actual
+mutation: `("boardcol","boardidx")` for `move_task_col` / `delete_column`,
+`("boardcol",)` for `update_column`, `("boardidx",)` for `swap_tasks` (×2),
+`normalize_indices` and `_move_task_to_extreme`. All stay timestamp-neutral
+(correct — layout is per-checkout and merges local-wins). **Every** `boardgroup`
+mutation — the bulk in-process path via `fields=("boardgroup",)` *and* the
 `BoardGroupField` detail-screen path that shells out to `aitask_update.sh
---boardgroup` (which advances `updated_at` itself) — advances the timestamp.
-The dead `Task._BOARD_KEYS` assignment is retired by making the loop the real
-consumer. This is a latent bug today: *any* future board key is dropped.
+--boardgroup` (which advances `updated_at` itself) — is a semantic write.
+
+Note the timestamp contract is **"sets `updated_at` to the current minute"**,
+not "advances it": `_update_timestamp` is `%Y-%m-%d %H:%M`, so two semantic
+writes in one minute tie. That is why `boardgroup` is resolved by base-aware
+change detection rather than newer-wins (see below), and it is pinned by a test.
+
+The dead `Task._BOARD_KEYS` assignment is retired by making the validation read
+it; `_BOARD_LAYOUT_KEYS` joins it as the semantic discriminator. This was a
+latent bug today: *any* future board key was dropped.
 
 **2. Keep-local is the wrong merge rule for grouping.** Which column a card sits
 in is per-checkout layout, so local-wins is right for it. Group membership is
@@ -941,13 +974,13 @@ Each child owns its tests and opens with an anchor re-verification step.
 | # | Child | Scope | Verification |
 |---|---|---|---|
 | 1 | `movement_baseline_and_harness` | `tests/test_board_movement.py`: **real task files** in a temp tree, driven from an **isolated subprocess**. `TASKS_DIR` is a module-load constant, and `bash tests/run_all_python_tests.sh` runs every `test_*.py` in **one** pytest process where 16 board tests already import `aitask_board` in `setUpClass` — so setting `TASK_DIR` in-process is a no-op against a cached module and the harness would silently exercise the **real** `aitasks/` tree. The parent test therefore spawns a child interpreter with `TASK_DIR` set, which imports the board fresh and writes results to a **JSON path passed as an argument** (not stdout, which carries Textual/pytest noise). Includes a `reload_and_save_board_fields` call-count spy and a **byte/path differ**. Plus the **pre-registered** profile method, premise rule and target rule above, run to produce the baseline. Characterizes today's four move ops in a self-enforcing flip table. Ends with the **decision checkpoint**: if the premise is refuted, revise/replace/postpone t1243_4 and t1243_5 and record it here. | Suite exits 1 when a guarded behaviour is reverted. **Run and assert identical results both standalone (`pytest tests/test_board_movement.py`) and via the full `run_all_python_tests.sh` suite**, plus a negative control proving the in-process variant would have read the real tree. Baseline table and checkpoint decision are deliverables. |
-| 2 | `board_field_persistence_seam` | `reload_and_save_board_fields(semantic=False)` iterating `BOARD_KEYS`; `semantic=True` advances `updated_at`; retire the dead `Task._BOARD_KEYS`. Prerequisite for every group write and a latent-bug fix today. | External-concurrent-edit test: mutate a board field in memory, rewrite `status` on disk between mutation and save → both survive. `semantic=True` advances `updated_at`, `False` leaves it byte-identical. Missing file still not recreated. A synthetic third board key round-trips. |
+| 2 | `board_field_persistence_seam` | `reload_and_save_board_fields(fields)` with `fields` **required** — a call persists exactly the keys it names, validated against `BOARD_KEYS`; naming any key outside `BOARD_LAYOUT_KEYS` derives a semantic write (sets `updated_at` to the current minute). Introduce the `BOARD_LAYOUT_KEYS` / `BOARD_KEYS` split; audit all seven call sites to their actual mutation; retire the dead `Task._BOARD_KEYS` by reading it. Prerequisite for every group write, and fixes a **live** bug: five call sites mutate one layout key and write back both. | External-concurrent-edit test (edit before the reload survives; the reload→save window is documented and pinned as lost). A named shared key round-trips; an `""` tombstone survives; an absent key is never invented; unknown/empty `fields` raise before any write; `fields` has no default. Timestamp assertions under a frozen clock, including same-minute non-advancement. Missing file still not recreated. **Call-site mapping pinned two ways** — a runtime spy asserting the exact `(file, fields)` records through the five real `TaskManager` callers plus two end-to-end no-revert assertions, and a fail-closed AST guard covering all seven sites. Four negative controls, one per rejected design. t1243_1's `FLIP_TABLE` must pass **unedited**. |
 | 3 | `gap_indexing` | `lib/board_ordering.py` + the manager API; rewire the four movement actions; retire `swap_tasks`; rename `normalize_indices` → `respace_column`; route every index read through `normalize_board_idx`. Flips the t1243_1 table. Carries the reverse pointer to t1210_5. | Pure-module unit tests; **exactly 1** write with an exact changed-path set on a healthy column; at-bound → still no compaction; over-bound → **exactly one** `respace_column` then success, all writes confined to that column; multi-hop transit dirties nothing outside the moved task; a legacy `10`-spaced column self-heals once. |
 | 4 | `render_filter_scoping` | Scoped `apply_filter(cols=…)`, cached haystack, no-op display skip, targeted `modified_files` update replacing per-keypress `refresh_git_status()`. The match predicate is factored into a **data-level helper** and the visible-content accumulator is **widget-kind-agnostic**, so t1243_10 can generalise the pass to units without a rewrite. **Scope REVISED at t1243_1's checkpoint (user-confirmed): no latency target** — its levers measured 0.4 % removable vs a 30 % target, so it is retained for the t1243_10 prerequisite and the git-churn removal only. | Spy proving a move queries only touched columns and spawns no subprocess; render-level assertions; the predicate helper is unit-tested against `Task` data with no widget mounted. **Structural checks are the pass condition**, plus a latency **no-regression** guard versus the t1243_1 baseline. |
 | 5 | `lateral_dom_transplant` | **Spike first**, then `_card_block()` + `_transplant_block()` with `column_id` identity handled and async dispatch. **Now the dominant win — t1243_1 measured recompose at 93.6 % of lateral keypress latency, and the ≥ 30 % target moved here.** The fallback to `refresh_columns` forfeits ~94 % of the available gain and is a finding to **escalate**, not a quiet default. | Real-Pilot: focus, `.child-wrapper` travel, post-move filter correctness, scroll sanity, `_get_focused_col_id` reports the destination. **Must meet the ≥ 30 % median-latency target on the lateral axis** versus the t1243_1 baseline (2173.2 ms); latency delta recorded either way. |
 | 6 | `multiselect_marking` | `MarkedSelection`, `space` binding, `☑`/`☐` glyph, footer + `check_action` gating, clear-on-view-change, `:focus:hover` accent-shade rules (the board has none), child-card refusal with notify. | Render assertions for both glyph states; marks survive a filter pass, cleared on view switch; `space` inert while a modal is open; child card refused with a reason. |
 | 7 | `move_to_column_command` | `KanbanCommandProvider` de-duplication **first**, then `m` + task-select subdialog + `ColumnSelectScreen` chain + `move_tasks_to_column`. Injects the synthetic `unordered` entry; excludes child rows. Carries the reverse pointer to t1210_5. | Modal-chain construction spies; K marked → exactly K writes in input order with an exact changed-path set; `None` (Esc) vs `[]` distinguished; a child id fails closed with a which-items report. |
-| 8 | `boardgroup_field_and_model` | The `BOARD_LAYOUT_KEYS` / `BOARD_KEYS` split; narrow `_KEEP_LOCAL_FIELDS`; **supply the merge base from git's conflicted index** — `aitask_sync.sh` extracts `task_git show :1:<path>` and passes `--base-file`, `merge_frontmatter` takes it as a third side (the diff3 marker path is production-dead: no `merge.conflictStyle` is configured anywhere) — and resolve `boardgroup` by **base-aware change detection, failing closed to unresolved/PARTIAL** when both sides changed or no base exists; the `""` tombstone contract; `--boardgroup` in `aitask_update.sh` (update-only, mirroring `--boardidx`); slug validation; `lib/board_groups.py` providing the **INV-R derivation** (unit bucketing + sort keys) and the shared match predicate; fold no-op note in `aitask_fold_mark.sh`; full extension-points sweep. **No contiguity requirement — grouping never writes an index.** | Pure unit tests for the INV-R derivation (scattered indices, ties, an interleaved non-member) and the **two post-sync fixtures** (remote add, remote remove) rendering identically and stably; merge unit tests for local-only, remote-only, both-same, both-different (PARTIAL), deletion from each side, no base (PARTIAL), identical, absent-both; a **temporary-repository integration test** producing a real unrelated-edit-vs-`boardgroup` conflict through the actual rebase path under the default conflict style and asserting the correct side wins, with a withheld-base negative control; a guard test that every `aitask_sync.sh` driver invocation passes `--base-file`; `aitask_update.sh` round-trip advances `updated_at`; a group field survives the t1243_2 save seam. |
+| 8 | `boardgroup_field_and_model` | Append `"boardgroup"` to `BOARD_KEYS` (the `BOARD_LAYOUT_KEYS` split and the `_KEEP_LOCAL_FIELDS` narrowing already landed in t1243_2); **supply the merge base from git's conflicted index** — `aitask_sync.sh` extracts `task_git show :1:<path>` and passes `--base-file`, `merge_frontmatter` takes it as a third side (the diff3 marker path is production-dead: no `merge.conflictStyle` is configured anywhere) — and resolve `boardgroup` by **base-aware change detection, failing closed to unresolved/PARTIAL** when both sides changed or no base exists; the `""` tombstone contract; `--boardgroup` in `aitask_update.sh` (update-only, mirroring `--boardidx`); slug validation; `lib/board_groups.py` providing the **INV-R derivation** (unit bucketing + sort keys) and the shared match predicate; fold no-op note in `aitask_fold_mark.sh`; full extension-points sweep. **No contiguity requirement — grouping never writes an index.** | Pure unit tests for the INV-R derivation (scattered indices, ties, an interleaved non-member) and the **two post-sync fixtures** (remote add, remote remove) rendering identically and stably; merge unit tests for local-only, remote-only, both-same, both-different (PARTIAL), deletion from each side, no base (PARTIAL), identical, absent-both; a **temporary-repository integration test** producing a real unrelated-edit-vs-`boardgroup` conflict through the actual rebase path under the default conflict style and asserting the correct side wins, with a withheld-base negative control; a guard test that every `aitask_sync.sh` driver invocation passes `--base-file`; `aitask_update.sh` round-trip advances `updated_at`; a group field survives a **named-field** save through the t1243_2 seam (`fields=("boardgroup",)`) and is **not** written back by a plain layout move. |
 | 9 | `group_focus_and_rendering` | `GroupHeader` (with `column_id`), flat composition, singleton renders as a plain card, `x` extended to headers. The **focus-unit abstraction**: `_focused_unit`, `_get_column_units` / `_visible_column_units`, unit-aware `_column_focus_target` and `_get_focused_col_id`, the restated one-anchor invariant, `↑`/`↓`/`←`/`→` over units, and movement dispatch (header → whole block, member → that member only, with the lateral-move-leaves-the-group notify). | Real Pilot: focus and nav through a column of **only collapsed groups**; enter/exit an expanded group with `↓`/`↑`; `←`/`→` preserve positional index across columns; movement from a header moves the block, from a member moves the member, from a child is refused; refocus lands correctly after collapse, after a block move and after a member move; and a dedicated **integration case for a grouped parent with visible children** pinning the header→member→children→next-member→next-unit sequence, lateral positional preservation across it, collapse refocus, and child adjacency after a block move. |
 | 10 | `group_collapse_and_filtering` | `settings.collapsed_groups` in the **user** layer, the five lifecycle owners above, the coalesce key-combination rule, the prune-on-load sweep, and the **unit-level `apply_filter`** per the section above: header visibility from member *data*, collapsed match-count badge, headers counted as column content, focus rescue off headers, scoped-`cols` coverage. | The full filtering matrix — expanded + search, collapsed + search, **collapsed group matched only via a member's child**, base filter, add-on filter, partial match, no match, empty-placeholder interaction, focus rescue off a hidden header, and the scoped-`cols` variant of each; **restart-and-assert after each of the five transitions**; stale keys pruned; no project-layer write ever issued. |
 | 11 | `group_formation_and_block_moves` | Formation and removal write **only** `boardgroup` (K writes / 1 write, no index rewrites); generalise `_card_block()` to group blocks; lateral / vertical / to-edge block moves with opportunistic contiguity; coalesce-on-move; the `delete_column` `board_idx = 0` tidy-up. | Exact changed-path sets: formation touches only the K grouped files and no index; removal touches only the ungrouped file — **neither has a gap or compaction case, because neither assigns a rank**; lateral (N) and vertical (N) with the neighbouring unit provably untouched, each with at-gap / exhausted-gap / retry plus the K = 1023/1024/1025 stride boundary; reload round-trip after every operation. |
