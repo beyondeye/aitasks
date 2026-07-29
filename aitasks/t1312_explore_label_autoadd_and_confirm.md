@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/fable5
 created_at: 2026-07-29 09:15
-updated_at: 2026-07-29 09:30
+updated_at: 2026-07-29 10:39
 ---
 
 Extend `/aitask-explore` so the labels it puts on newly created tasks are
@@ -188,3 +189,8 @@ their vocabulary leak for free; only their *prose* rules would need aligning.
   reading local + cross-repo `labels.txt` for the `/aitask-create` skill and
   proposes an `aitask_query_files.sh labels` subcommand. If that subcommand
   lands first, reuse it here instead of re-reading the file directly.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-29T07:39:57Z status=pass attempt=1 type=human
