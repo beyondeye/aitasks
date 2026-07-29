@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [shadow, skills, robustness]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-07-28 18:30
-updated_at: 2026-07-29 00:19
+updated_at: 2026-07-29 11:17
+completed_at: 2026-07-29 11:17
 ---
 
 Harden the `aitask-shadow` skill against model-side truncation of the
@@ -89,3 +90,14 @@ single-digit example pane id, which anchors the model toward short ids:
 > **✅ gate:plan_approved** run=2026-07-28T21:19:39Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-29T08:00:17Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-29T08:17:07Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:898d28228505f39c
+
+> **✅ gate:risk_evaluated** run=2026-07-29T08:17:07Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1307/risk_evaluated_2026-07-29T08:17:07Z-risk_evaluated-a1.log`
