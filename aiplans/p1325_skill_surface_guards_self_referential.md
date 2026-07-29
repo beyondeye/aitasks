@@ -187,21 +187,26 @@ Tests 2 and 4-8.
   `.claude/skills/aitask-alpha-fast-/SKILL.md` and
   `.opencode/skills/aitask-alpha-fast-/SKILL.md`.
 
-  Each case asserts the **exact structured line** (`assert_contains`, fixed
-  string) *and* the exit status, via `parity --strict <root>` for the status
-  (exit **2** = findings, distinct from `die`'s 1) and `parity <root>` for the
-  lines. After each case the mutation is undone by recreating just that file —
-  never `git checkout` — and the fixture is re-asserted clean.
+  Each control removes exactly one file, so the complete expected output is a
+  single line. Cases assert **full-output equality** (`assert_eq`), not substring
+  containment, *and* the exit status — via `parity --strict <root>` for the
+  status (exit **2** = findings, distinct from `die`'s 1) and `parity <root>` for
+  the lines. Exact matching is load-bearing: a regression that emitted the
+  expected line *plus* spurious gaps for the other trees would satisfy
+  `assert_contains` while producing exactly the misleading pre-commit diagnostics
+  these controls exist to prevent. After each case the mutation is undone by
+  rebuilding the fixture — never `git checkout` — and it is re-asserted clean.
 
-  | # | Mutation | Must emit | `--strict` rc |
+  | # | Mutation | Complete expected output | `--strict` rc |
   |---|---|---|---|
-  | NC-0 | none (positive control) | *(no output)* | 0 |
+  | NC-0 | none (positive control) | *(empty)* | 0 |
   | NC-1 | `rm .agents/skills/aitask-beta/SKILL.md` | `PARITY_GAP:agents:aitask-beta` | 2 |
   | NC-2 | `rm .opencode/skills/aitask-beta/SKILL.md` | `PARITY_GAP:opencode-skill:aitask-beta` | 2 |
   | NC-3 | `rm .opencode/commands/aitask-beta.md` | `PARITY_GAP:opencode-command:aitask-beta` | 2 |
-  | NC-4 | `rm .claude/skills/aitask-beta/SKILL.md` | `ORPHAN:aitask-beta` **and no** `PARITY_GAP:*:aitask-beta` | 2 |
-  | NC-5 | `rm -r .agents/skills` (whole root) | *(no output — tree not installed)* | 0 |
-  | NC-6 | restore all | *(no output)* | 0 |
+  | NC-4 | `rm .claude/skills/aitask-beta/SKILL.md` | `ORPHAN:aitask-beta` (no `PARITY_GAP` alongside) | 2 |
+  | NC-5 | `rm -r .agents/skills` (whole root) | *(empty — tree not installed)* | 0 |
+  | NC-5b | NC-5 + drop `.opencode/commands` + orphan beta | `ORPHAN:aitask-beta` (no `PARITY_GAP` with one tree) | — |
+  | NC-6 | rebuild fixture | *(empty)* | 0 |
 
   NC-1..NC-3 make each tree mapping load-bearing; NC-4 pins `ORPHAN` as a
   *distinct* branch (all three wrappers still present, so it must not also report
@@ -333,3 +338,112 @@ Current-branch mode — no worktree/branch cleanup. Merge target `main` (= base)
 - The parity guard covers all 28 ported skills, where the pre-existing guards
   covered only the 12 templated ones, so the delivered scope is strictly wider
   than the reported defect. · severity: low · → mitigation: TBD
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-29 16:45)
+- **Requested by user:** The NC-1..NC-3 negative controls used substring
+  assertions, so a regression that reported the expected missing-tree
+  `PARITY_GAP` *plus* spurious gaps for the other trees would still pass —
+  producing misleading pre-commit diagnostics while evading the new branch tests.
+  Assert the complete expected output, or explicitly reject additional
+  `PARITY_GAP:` / `ORPHAN:` lines.
+- **Verified:** Confirmed. Each control removes exactly one file, so the complete
+  expected output is a single line; `assert_contains` did not pin that.
+- **Changes made:** Converted NC-1, NC-2, NC-3, NC-4 and NC-5b from
+  `assert_contains` / `assert_not_contains` to full-output `assert_eq`. NC-4's
+  separate "not also a parity gap" assertion and NC-5b's "no `PARITY_GAP:`"
+  assertion are now subsumed by exact equality, so they were removed rather than
+  left as weaker duplicates. Added a comment above the block explaining why exact
+  matching (not containment) is the right assertion here. Mirrored the change in
+  the plan's negative-control section and table above.
+- **Proof the tightening is load-bearing (Probe C):** patched `cmd_parity` to
+  emit a gap for *every* present tree whenever any one wrapper was missing — an
+  over-reporting regression the old substring assertions accepted. NC-1/NC-2/NC-3
+  now fail (`57 passed` → `54 passed, 3 failed`); helper restored, back to
+  `57 passed, 0 failed`.
+- **Files affected:** `tests/test_opencode_setup.sh`,
+  `aiplans/p1325_skill_surface_guards_self_referential.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** All five planned changes landed as designed.
+  1. `aitask_audit_wrappers.sh` gained `_is_rendered_variant()`, `tree_root()`,
+     `list_wrapper_skills()` and `cmd_parity [--strict] [<root>]`, plus dispatcher
+     and `usage()` wiring; `list_source_skills()` now skips rendered variants.
+  2. `aitask_skill_verify.sh` switched from an agent-keyed to a surface-keyed stub
+     loop (`surfaces=(claude codex opencode-cmd opencode-skill)` + `_surface_agent`),
+     derives the expected Read path from `agent_skill_dir` instead of restating
+     §3g, and runs the parity check in a `set -e`-safe condition context that
+     classifies unrecognized output as a failure.
+  3. `tests/test_skill_verify.sh` `_write_canonical_stubs()` now writes the 4th
+     surface, Test 3 asserts the 4th missing-stub message, and a new Test 4b
+     removes only the opencode-skill stub and requires a named non-zero failure.
+  4. `tests/test_opencode_setup.sh` gained Test 0 (parity against the real repo)
+     and Test 0b (7 negative controls on a synthetic fixture); the packaging
+     counts were renamed `expected_packaged_count` with a comment scoping them to
+     packaging/staging drift.
+  5. Doc sweep: `.gitignore`, `aitask_setup.sh`, `skill_authoring_conventions.md`,
+     `stub-skill-pattern.md` §3f, `adding_a_new_codeagent.md` §12.
+
+- **Deviations from plan:** None in substance. Two refinements during
+  implementation: the plan's negative-control set grew an NC-5b case (ORPHAN must
+  still fire when fewer than two trees are present), and the NC assertions were
+  tightened from substring to full-output equality after review (see Post-Review
+  Changes). Assertion counts: `test_opencode_setup.sh` 31 → 57,
+  `test_skill_verify.sh` 25 → 29.
+
+- **Issues encountered:**
+  - `main` advanced mid-session (HEAD moved from `2012a4575` to `b34c85c5a`), and
+    `aitask-shadow` gained a `SKILL.md.j2`, so the templated-skill count went 12 →
+    13 partway through. Nothing needed changing — every check discovers subjects
+    at runtime — but every "12 skills" figure from planning reads 13 in the final
+    output. A concurrent session also holds unrelated edits to
+    `.aitask-scripts/board/aitask_board.py` and an untracked
+    `tests/test_board_dialog_subprocess_degrade.py`; both were kept out of this
+    commit by staging paths explicitly.
+  - `aitask_audit_wrappers.sh` was already whitelisted at all five helper
+    touchpoints, so the new `parity` subcommand needed no permission changes.
+
+- **Key decisions:**
+  - **Ground truth is cross-tree parity, not the task's suggested
+    "templated-discovery + user-invocable list".** That premise does not hold:
+    `user-invocable` appears on 9 of ~80 `.claude/skills/` dirs and is `true` for
+    `aitask-explorechat`, which is deliberately unwrapped. Confirmed with the user
+    before planning finished.
+  - **The task's third premise was false.** `test_opencode_skill_legacy_pointers.sh`
+    already covered `aitask-trail`; it simply never ran. That is why the parity
+    guard also went into `aitask_skill_verify.sh`, the script CLAUDE.md mandates
+    before committing a skill change — placement, not absence, was the root cause.
+  - **`parity` exits 0 with findings by default** (matching `discover` and the
+    script's documented contract) and offers `--strict` → exit **2**, chosen over
+    1 so it stays distinguishable from `die()`.
+  - **Absent tree root = "agent not installed"**, dropped from the comparison, so
+    a Claude-only consumer project does not see every skill reported as a gap.
+  - **The set logic lives in one place.** `aitask_skill_verify.sh` and
+    `test_opencode_setup.sh` both call the helper rather than reimplementing it.
+
+- **Verification evidence (guards proven to discriminate, each mutation undone by
+  reversing only the mutation — never `git checkout`):**
+  - Removing `.opencode/skills/aitask-trail/SKILL.md` → verifier emits both
+    `STUB_FAIL: … missing stub for opencode-skill` and
+    `WRAPPER_FAIL: PARITY_GAP:opencode-skill:aitask-trail`, prints its
+    `2 failure(s)` summary, exits 1.
+  - Removing `.opencode/skills/aitask-stats/SKILL.md` (non-templated) leaves
+    `test_opencode_skill_legacy_pointers.sh` at rc 0 — the pre-existing blind spot
+    — while Test 0 names it.
+  - Probe A (disable `PARITY_GAP` emission) → NC-1/2/3 fail. Probe B (disable the
+    rendered-variant filter) → 8 failures incl. the decoy assertion. Probe C
+    (over-report a gap for every tree) → NC-1/2/3 fail, proving the exact-match
+    tightening is load-bearing.
+  - Final suites: `aitask_skill_verify.sh` OK (13 templates × 4 surfaces, parity
+    clean); `test_skill_verify.sh` 29/29; `test_opencode_setup.sh` 57/57;
+    `test_opencode_skill_legacy_pointers.sh` 117/117;
+    `test_skill_dispatch_contract.sh` 65/65; shellcheck clean at ≥warning on the
+    changed scripts (the two `aitask_setup.sh` warnings are pre-existing and
+    unrelated to the one-line comment edit).
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_audit_wrappers.sh:36 — list_source_skills() reports the 4 deliberately-unwrapped skills (aitask-explorechat, aitask-run-gates, aitask-gate-docs-updated, aitask-gate-template) as GAP: lines, so /aitask-audit-wrappers offers to create wrappers that must not exist. Nothing in the repo encodes that exclusion; it needs an explicit exemption marker on those skills. Its "user-invokable" comment is aspirational — the function never reads user-invocable frontmatter.`
+  - `tests/test_opencode_skill_legacy_pointers.sh:34 — the guard is correct but has no runner, so it sat able-to-fail (aitask-trail, 3386e1f43..2012a4575) without anyone noticing. CLAUDE.md deliberately keeps bash tests run-individually, so the fix is a CI touchpoint for the bash guard tests, not a local runner.`
+  - `.claude/skills/aitask-explorechat/SKILL.md:4 — declares user-invocable: true while its own description says "Not a user task command", making the field unusable as a ground truth for which skills are user-facing.`
