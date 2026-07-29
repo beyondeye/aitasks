@@ -141,7 +141,7 @@ out were considered:
   - `default_profiles: {shadow: fast}` added to the local, gitignored
     `aitasks/metadata/userconfig.yaml` so the feature is live in this checkout.
 
-  The `warn_on_orphaned_profile_skill_key` mitigation later turns this
+  The `warn_on_orphaned_profile_skill_key` mitigation (t1333) later turns this
   documented condition into a detected one; until it lands, the docs above carry
   it.
 
@@ -418,7 +418,7 @@ every non-empty channel and its paths are disclosed. Then repeat with
 - **No drift guard exists** between `PROFILE_SCHEMA` and
   `task-workflow/profiles.md` / the website key tables — six keys are already
   documented in only one place, so a new key can silently land half-registered ·
-  severity: medium · → mitigation: profile_key_doc_drift_guard
+  severity: medium · → mitigation: t1332 (profile_key_doc_drift_guard)
 - `impl-challenge.md` / `impl-review-angles.md` are guarded by prose-shaped
   tests (exact heading anchors, four literal phrases, a ±160-char disposition
   sweep) that prose edits can trip in non-obvious ways · severity: low ·
@@ -428,7 +428,7 @@ every non-empty channel and its paths are disclosed. Then repeat with
 - **The shipped `fast.yaml` value is inert unless `default_profiles.shadow` is
   set** — the resolver returns `default` when unset, so a user who sets only the
   tier key sees no change and concludes the feature is broken · severity:
-  medium · → mitigation: warn_on_orphaned_profile_skill_key
+  medium · → mitigation: t1333 (warn_on_orphaned_profile_skill_key)
 - The conversion is a large mechanical change wrapped around two small
   behavioral ones; if it runs long, the actual reported defects could end up
   under-verified · severity: medium · → mitigation: none — the live-acceptance
@@ -446,8 +446,8 @@ every non-empty channel and its paths are disclosed. Then repeat with
 
 ### Planned mitigations
 - timing: before | name: templated_skill_dispatch_smoke | created: t1317 | type: test | priority: high | effort: medium | addresses: code-health — stub conversion of a live minimonitor-spawned skill; sub-procedures newly rendered into Codex/OpenCode | desc: Generic dispatch-contract smoke over every templated skill (discovered by SKILL.md.j2) × every agent surface — render the variant and assert the stub's Step-3 target path exists and carries its closure files. Written against the already-templated skills so it lands BEFORE the shadow conversion, and picks up aitask-shadow automatically once converted.
-- timing: after | name: profile_key_doc_drift_guard | type: test | priority: medium | effort: medium | addresses: code-health — no drift guard between PROFILE_SCHEMA and the doc key tables | desc: Add a drift test deriving both sides from live source (modeled on test_gates_reference_drift.sh) asserting every PROFILE_SCHEMA key is documented in task-workflow/profiles.md and the website key table, and vice versa.
-- timing: after | name: warn_on_orphaned_profile_skill_key | type: enhancement | priority: medium | effort: low | addresses: goal-achievement — shipped tier key is inert unless default_profiles.shadow is set | desc: Surface a warning (settings TUI profile tab and/or the profile resolver) when a profile sets a per-skill key such as shadow_impl_review_tier while default_profiles.<skill> is unset or names a different profile.
+- timing: after | name: profile_key_doc_drift_guard | created: t1332 | type: test | priority: medium | effort: medium | addresses: code-health — no drift guard between PROFILE_SCHEMA and the doc key tables | desc: Add a drift test deriving both sides from live source (modeled on test_gates_reference_drift.sh) asserting every PROFILE_SCHEMA key is documented in task-workflow/profiles.md and the website key table, and vice versa.
+- timing: after | name: warn_on_orphaned_profile_skill_key | created: t1333 | type: enhancement | priority: medium | effort: low | addresses: goal-achievement — shipped tier key is inert unless default_profiles.shadow is set | desc: Surface a warning (settings TUI profile tab and/or the profile resolver) when a profile sets a per-skill key such as shadow_impl_review_tier while default_profiles.<skill> is unset or names a different profile.
 
 > **Sequencing consequence:** because mitigation 1 is a **before** mitigation,
 > Step 7 creates it as an independent task that t1311 depends on, reverts t1311
