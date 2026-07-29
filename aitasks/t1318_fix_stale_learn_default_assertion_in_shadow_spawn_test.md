@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1307
+implemented_with: claudecode/opus5
 created_at: 2026-07-29 10:16
-updated_at: 2026-07-29 11:06
+updated_at: 2026-07-29 18:58
 ---
 
 `tests/test_shadow_spawn_learner.sh` asserts a `defaults.learn` value that the
@@ -79,3 +80,8 @@ different registered model and check the test goes red.
 Surfaced during **t1307** (harden aitask-shadow against pane-id truncation),
 which edited this test's pane-id fixtures and hit the pre-existing failure.
 Pre-dates t1307; not caused by it.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-29T15:58:26Z status=pass attempt=1 type=human
