@@ -150,6 +150,21 @@ entries are purged automatically.
 - One `Binding` + `action_toggle_mark` in each of `minimonitor_app.py` and
   `monitor_app.py`.
 
+## Coordination with t1343
+
+`t1343_parallel_agent_file_conflict_advisory` adds a **second**, independent mark
+to the same agent row: a derived, advisory conflict-safety indicator. The two are
+deliberately separate features — this task's marks are *user intent*, per-user,
+cross-repo, durable; t1343's are *derived*, repo-local, ephemeral — but they
+share the same render seam (`_agent_card_text`, `minimonitor_app.py:607`), the
+same glyph vocabulary (`monitor_shared.py`), and the same "first persisted state
+for the monitor TUIs" plumbing.
+
+Whichever lands first should choose its glyph and its shortcut key so the other
+still has a distinguishable one, and should shape the store/render plumbing so
+the second mark reuses it rather than forking it. Free-in-both keys are listed
+under **Keybinding** above.
+
 ## Acceptance criteria
 
 - [ ] A single-key shortcut toggles the prioritized mark on the selected agent in

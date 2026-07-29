@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [1275]
 issue_type: feature
 status: Ready
 labels: [task_workflow, aitask_monitormini, bash_scripts, git]
@@ -173,9 +173,10 @@ allowlist of *this* repository's top-level directories, so in any consumer
 project the intersection is always empty and the helper silently degrades to a
 no-op. That extractor is about to gain a second caller; fix it before sharing it.
 
-## Follow-up (separate task)
+## Follow-up (separate task): t1344
 
-Worktree/branch-aware safety semantics and line-range granularity: agents working
+`t1344_worktree_aware_conflict_semantics_line_ranges` (`depends: [1343]`) covers
+worktree/branch-aware safety semantics and line-range granularity: agents working
 in **separate worktrees on separate branches** do not clobber each other at edit
 time — overlap becomes a *merge* risk, and non-overlapping hunks in the same file
 may be perfectly safe. That needs line-range information, whose cost and
