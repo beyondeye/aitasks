@@ -217,3 +217,73 @@ Then Step 9 (Post-Implementation): merge, `ait gates run 1302`, archival.
 FileNotFoundError)` tuple. They are user-triggered dialog actions rather than
 refresh-path calls, and the task scopes this fix to `refresh_git_status` — so
 they are left alone here and surfaced as upstream defects instead.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan, no scope change.
+  1. `.aitask-scripts/board/aitask_board.py:1044` — `except` widened to
+     `(subprocess.TimeoutExpired, FileNotFoundError, OSError)`, textually
+     identical to `refresh_lock_map`'s tuple at `:1067`. `refresh_lock_map` was
+     not touched.
+  2. `.aitask-scripts/lib/task_yaml.py:152-172` — `serialize_frontmatter` now
+     skips board keys in the original-order loop and re-appends them last
+     preserving their existing relative order; board keys absent from
+     `original_key_order` append after those in canonical `BOARD_KEYS` order.
+     Docstring extended with the order-preservation clause.
+  3. `tests/test_task_yaml_key_order.py` (new, 7 tests) and
+     `tests/test_board_refresh_degrade.py` (new, 2 tests × 4 injected failures
+     across both refreshers).
+
+- **Deviations from plan:** None in substance. One correction to a plan figure:
+  the plan's corpus survey said "168 task files under `aitasks/` carry board
+  keys" (from a board-key-filtered glob). The implementation-time check was run
+  over **all 601 parseable task files** instead, which is strictly broader and
+  is the number quoted below.
+
+- **Issues encountered:** The first byte-stability check reported 24 task files
+  whose re-serialization differs from their on-disk bytes, which initially
+  looked like a regression from this change. It is not: re-running the corpus
+  against the *pre-t1302 implementation* (reconstructed verbatim in a throwaway
+  probe) produced the **same 24 files and byte-identical output for all 601** —
+  `files where OLD and NEW disagree: 0`. Those 24 are pre-existing PyYAML
+  re-formatting unrelated to key order. Comparing against the old implementation
+  rather than against the new code's own output was what made the result
+  conclusive.
+
+- **Key decisions:**
+  - *Order-preserving tail loop over canonical `BOARD_KEYS` order.* A naive
+    `for key in BOARD_KEYS` tail loop honours the contract but imposes
+    `boardcol, boardidx`, which would rewrite the **36 live task files that end
+    `boardidx, boardcol`** on their next save. The order-preserving formulation
+    satisfies the contract with zero corpus churn. This is pinned by
+    `test_reverse_order_board_keys_are_byte_stable`.
+  - *Rejected the "factor out a shared subprocess helper" alternative* the task
+    offered: `aitask_board.py` has 30+ `subprocess.run` sites with differing
+    degrade semantics, so that is a module-wide refactor, not this bug fix.
+  - *Tests seed sentinel state before injecting the failure.* A fresh
+    `TaskManager` starts with `modified_files`/`lock_map` empty, so asserting
+    "still empty" would only prove the exception was swallowed — not that a
+    failed refresh degrades **stale** state to "no git status". Both refreshers
+    run the same parametrized exception set so the pair cannot re-diverge.
+  - *Boundary includes bare `OSError`*, not only `PermissionError`, so the base
+    class is pinned rather than two subclasses that happened to be listed.
+
+- **Verification performed:**
+  - Targeted (direct module invocation): `Ran 7 tests OK`, `Ran 2 tests OK`.
+    **The plan's warning held** — the framework interpreter has no pytest, so
+    `run_all_python_tests.sh -k "A or B"` runs zero tests and exits 0.
+  - Negative controls, all three discriminate: original buggy serializer → 2
+    failures; naive canonical-order tail loop → reverse-order round-trip fails
+    (`reverse-order board keys were rewritten`); narrow `except` → the
+    `permission_error` and `base_oserror` subtests error while
+    `file_not_found`/`timeout` still pass.
+  - Corpus: 601 task files, old vs new serializer byte-identical for every one.
+  - Regression: `tests/test_board_movement.py` `Ran 12 tests OK (skipped=1)`;
+    `tests/test_update_multiline_yaml.sh` `23/23 passed`.
+  - Full suite: `Ran 2563 tests in 727s` → `PYTHON SUITE: PASSED
+    (runner=unittest, exit=0)`.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:4529 — revert_task catches only (subprocess.TimeoutExpired, FileNotFoundError); a PermissionError or other OSError from the git-checkout subprocess propagates out of the dialog handler instead of surfacing as a "Revert failed" notification`
+  - `.aitask-scripts/board/aitask_board.py:4712 — _do_lock has the same too-narrow except in a @work(thread=True) worker; an OSError escapes the worker thread with the LoadingOverlay left un-popped`
+  - `.aitask-scripts/board/aitask_board.py:4779 — _do_unlock has the same too-narrow except, same un-popped LoadingOverlay consequence`
