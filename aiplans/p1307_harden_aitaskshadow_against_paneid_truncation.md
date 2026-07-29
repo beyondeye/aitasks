@@ -177,15 +177,34 @@ can — but the fixture may as well be realistic.)
   for t in "${targets[@]}"; do
     [ -e "$t" ] || { echo "MISSING VERIFICATION TARGET: $t" >&2; exit 1; }
   done
-  grep -rnE '%[0-9]\b' "${targets[@]}"; rc=$?
+  raw=$(grep -rnE '%[0-9]\b' "${targets[@]}"); rc=$?
   case $rc in
-    1) echo "OK: no single-digit pane-id examples" ;;
-    0) echo "FAIL: single-digit pane-id example remains" >&2; exit 1 ;;
+    0|1) ;;
     *) echo "FAIL: grep error (rc=$rc)" >&2; exit 1 ;;
   esac
+  # AMENDED AT IMPLEMENTATION TIME (Change Requests 1 and 2 below). The new docs
+  # deliberately spell out the anti-example `%237` → `%7`, so an unqualified
+  # `%[0-9]\b` scan flags the very text this task exists to add. The exception is
+  # TOKEN-level, not line-level: strip only the exact documented anti-example
+  # token, then re-scan the remainder. A line-level `grep -v '%237'` was tried
+  # first and rejected — it silently passes a mixed line such as
+  # `Example: %237 is valid; %9 is also shown` (reproduced; negative control C).
+  bad=$(printf '%s' "$raw" | sed 's/`%237` → `%7`//g' | grep -E '%[0-9]\b' || true)
+  if [ -n "$bad" ]; then
+    printf '%s\n' "$bad"
+    echo "FAIL: single-digit pane-id anchor remains" >&2
+    exit 1
+  fi
+  echo "OK: no single-digit pane-id anchors (documented anti-example token excluded)"
 )
 # expect: "OK: ..." and status 0. Run it BEFORE the edits too — it must report
-# 11 hits and status 1 today, which proves the check can actually fail.
+# 11 hits and status 1 today, which proves the check can actually fail. THREE
+# negative controls are required, each restored by undoing ONLY the mutation
+# (never `git checkout`, which would wipe the task's uncommitted edits):
+#   A. append a bare `%9` example to a target file      → must exit 1
+#   B. point one target at a non-existent path          → must exit 1 before grep
+#   C. append `Example: %237 is valid; %9 is also shown` → must exit 1
+#      (C is the case the rejected line-level exception passed.)
 
 # 2. Behavior of the touched helpers is unchanged.
 bash tests/test_shadow_capture.sh
@@ -225,12 +244,130 @@ sed -n '20,40p;60,100p' .claude/skills/aitask-shadow/SKILL.md
   transcription, and the recovery only fires *after* a capture already failed. A
   truncated id that collides with a live pane succeeds, so it never reaches the
   recovery at all; nothing in a doc-only change guards that case · severity:
-  medium · → mitigation: TBD
+  medium · → mitigation: **t1319** (wrong-pane collision warning)
 - The structural elimination (capture helper falling back to its own
   `@aitask_shadow_target` binding when no id is passed, so the id never crosses
   the model's token stream) was considered and deliberately excluded by the
   confirmed scope — it needs a script change, which this task's AC forbids ·
-  severity: medium · → mitigation: TBD
+  severity: medium · → mitigation: **t1319** (binding-based self-resolution)
+
+**Deferred-risk tracking (added at review):** both goal-achievement risks were
+accepted at planning time with no mitigation task, which left the residual
+wrong-pane hazard untracked and free to recur. They are now carried by
+**t1319 — shadow pane id structural binding resolution**, which specifies both
+candidate mitigations, the stamp-race constraint on the no-argument path, and
+the four-case test matrix.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-07-29 00:05)
+
+- **Requested by user:** Two CONFIRMED review concerns, both dispositioned
+  *follow-up*: (1) `tests/test_shadow_spawn_learner.sh:67` still asserts the
+  pre-t1241 default `claudecode/opus4_8`, so the test this task edits cannot
+  give a clean regression signal (17/18); (2) the documented recovery cannot
+  detect a mangled pane id that resolves to a live *wrong* pane, and no task
+  recorded that deferred structural work.
+- **Changes made:** No source edits. Created two follow-up tasks and wired the
+  plan to them:
+  - **t1318** — fix the stale `defaults.learn` assertion (and its stale comment
+    on line 36), decide deliberately whether to pin a literal or read the
+    configured default, and sweep the test tree for the same t1241/t1242
+    staleness elsewhere.
+  - **t1319** — close the residual wrong-pane hazard via binding-based
+    self-resolution and/or a wrong-pane collision warning in
+    `aitask_shadow_capture.sh`; records the `_spawn_shadow` stamp race that
+    forces the explicit-argument path to remain the fallback.
+  - The `## Risk` goal-achievement bullets now name t1319 instead of `TBD`, with
+    a note on why the risks were left untracked.
+  - The verification block was amended (documented inline at the check) to
+    exempt lines carrying the correct multi-digit id: the unamended check
+    flagged the two deliberate `%237 → %7` anti-example lines, i.e. the very
+    text this task adds.
+- **Files affected:** `aiplans/p1307_*.md` only; plus the two new task files
+  `aitasks/t1318_*.md`, `aitasks/t1319_*.md` (committed by `aitask_create.sh`).
+
+### Change Request 2 (2026-07-29 00:20)
+
+- **Requested by user:** CONFIRMED — the Change-Request-1 anchor check excluded
+  every *line* containing `%237`, not only the intended `%237` → `%7`
+  anti-examples, so a mixed line like `Example: %237 is valid; %9 is also shown`
+  falsely passed (the user reproduced it). Narrow the exception to the documented
+  anti-example pattern and add the mixed-line case as a negative control.
+- **Changes made:** Reproduced the false negative, then replaced the line-level
+  exclusion with a **token-level** one: strip the exact `` `%237` → `%7` ``
+  token, then re-scan the remainder for `%[0-9]\b`. Re-ran all three negative
+  controls against the narrowed check — A (bare `%9`), B (missing target), and
+  the new C (mixed line) all exit 1; the restored tree exits 0. Documented the
+  rejected line-level variant inline at the check so it is not re-attempted.
+- **Disposition note (deliberate deviation):** the concern was dispositioned
+  *follow-up*, but the defect lives in **this plan's own verification command** —
+  a task to fix a grep inside an archived plan would carry no value once the plan
+  is written correctly, and shipping a knowingly-weak check would be worse. It is
+  fixed and re-verified in-task instead. No follow-up task was created.
+- **Files affected:** `aiplans/p1307_*.md` only. No source files changed; the
+  nine implementation paths are byte-identical to the Change-Request-1 state.
+
+## Final Implementation Notes
+
+- **Actual work done:** All five planned edit groups landed, across nine files.
+  (A) `.claude/skills/aitask-shadow/SKILL.md` — `%5` → `%237` plus an explicit
+  "use it exactly as given" clause in **Arguments**; the verbatim contract moved
+  *inside* the Step-1 capture fence as shell comments so it travels with the
+  copied command; a new three-step recovery (own-pane `@aitask_shadow_target`
+  binding → exact-match pane list → ask the user) with an honest note on what
+  the exact-match rule cannot catch. (B) `spawn-learn-skill.md` — verbatim clause
+  in **Inputs** + in-block comment on the spawn command. (C) `aitask-learn-skill`
+  — four `%5` → `%237` in the Claude tree (`SKILL.md` ×3, `generate.md` ×1), one
+  each in the `.agents/` and `.opencode/` wrappers, plus a verbatim comment in
+  the Step 2A capture fence. (D) `aitask_shadow_capture.sh` and
+  `aitask_shadow_spawn_learner.py` — header/usage text only. (E)
+  `tests/test_shadow_spawn_learner.sh` — every pane-id fixture made multi-digit
+  (`%237`/`%314`/`%142`), so the pass-through assertions can now detect
+  digit-dropping; a single-digit fixture could not.
+
+- **Deviations from plan:** Two, both in the *verification command*, neither in
+  the shipped edits. (1) The plan's `%[0-9]\b` scan flagged the two deliberate
+  `%237` → `%7` anti-example lines — the very text this task adds — so an
+  exception was added. (2) The first exception was line-level (`grep -v '%237'`)
+  and was rejected: it silently passed a mixed line carrying both the
+  anti-example and a bare short id. The shipped check strips the exact
+  `` `%237` → `%7` `` **token** and re-scans the remainder. See Change Requests
+  1 and 2. One further deviation of process: CR2 was dispositioned *follow-up*
+  but fixed in-task, because the defect was in this plan's own check.
+
+- **Issues encountered:** `tests/test_shadow_spawn_learner.sh` fails 17/18 on a
+  clean tree for a reason predating this task (see Upstream defects). Confirmed
+  unrelated: the failing assertion (line 67) was never touched here — only the
+  pane-id fixture on the same command was. Ordering was also adjusted in the
+  shadow SKILL: the recovery block initially sat between the capture fence and
+  "This is your primary input", which read as a non-sequitur; the failure-path
+  text now follows the primary-input paragraph while the in-fence comments —
+  the actual primary defense — stay adjacent to the command.
+
+- **Key decisions:** (1) The verbatim contract lives *inside* the fenced command,
+  not in surrounding prose, because agents copy the command and not the prose.
+  (2) The recovery prefers the launcher's `@aitask_shadow_target` binding over a
+  `tmux list-panes` search: the binding resolves the *right* pane, a pane list
+  only the *plausible* one. It is step 1 rather than the only step because
+  `minimonitor_app.py::_spawn_shadow` stamps the option just **after** launch, so
+  a very early capture can race it. (3) Never fuzzy-match a pane id — asking the
+  user is the deliberate terminal fallback, since a truncation cannot be
+  inverted. (4) Raw `tmux` in agent-executed skill prose is acceptable:
+  `tests/test_no_raw_tmux.sh` governs framework code under `.aitask-scripts/`
+  (verified still passing, 5/5), and `task-workflow/auto-verification.md` sets
+  the precedent. (5) Scope was widened past the task's literal edit surface to
+  the `aitask-learn-skill` tree, confirmed with the user before implementing:
+  the shadow hands that skill the *same* pane id, so leaving the `%5` anchor
+  there would have defeated the change at the receiving end.
+
+- **Upstream defects identified:**
+  `tests/test_shadow_spawn_learner.sh:67 — asserts AGENT_STRING:claudecode/opus4_8 but codeagent_config.json defaults.learn is now claudecode/opus5 (promoted by t1241), so the suite fails 17/18 on a clean tree; the stale comment on line 36 repeats the same value` — tracked as **t1318**.
+
+- **Deferred structural work:** the residual wrong-pane hazard (a mangled id that
+  happens to name a live pane captures the wrong agent with no error, so the
+  recovery never fires) is tracked as **t1319**, covering binding-based
+  self-resolution and/or a wrong-pane collision warning in the capture helper.
 
 ## Step 9 (Post-Implementation)
 
