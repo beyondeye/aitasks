@@ -160,8 +160,12 @@ mid-session.
 - Do **not** try to detect completion from `aitask_archive.sh`'s structured
   stdout (`ARCHIVED_TASK:` / `COMMITTED:` etc., documented at `:60-79`) — those
   lines go to the invoking skill only and are not persisted.
-- Follow-up: per-gate emoji on the agent card (created alongside this task;
-  depends on the freshness and card-rendering work here).
+- Follow-up: **t1323** (`monitor_per_gate_gate_emoji_row`) shows *which* gates
+  passed as emoji at the start of the agent card's second line. It `depends: [1322]`
+  because it extends the same two card builders
+  (`monitor_app._format_agent_card_text`, `minimonitor_app._agent_card_text`),
+  reuses the `TaskInfo` freshness fixed here, and builds on the render-level
+  test harness and in-TUI legend introduced by this task. Land t1322 first.
 
 Read `aidocs/framework/tui_conventions.md` and
 `aidocs/framework/monitor_idle_and_prompt_detection.md` before implementing.
