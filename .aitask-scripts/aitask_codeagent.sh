@@ -418,19 +418,23 @@ build_invoke_command() {
         die "explore-relay is not yet supported for $PARSED_AGENT (Claude Code only; port tracked as a follow-up task)"
     fi
 
-    # work-report and trail pass identity fields (column IDs, task IDs,
-    # artifact handles, topic csv) through a whitespace-joined slash-command
-    # string; an arg containing whitespace would split undetectably, so
-    # refuse it outright. Checked before per-agent dispatch and under
-    # --dry-run so refusals are unit-testable.
-    if [[ "$operation" == "work-report" || "$operation" == "trail" ]]; then
-        local wr_arg
-        for wr_arg in "${args[@]}"; do
-            if [[ "$wr_arg" =~ [[:space:]] ]]; then
-                die "$operation argument contains whitespace — slash-command text cannot preserve argument boundaries: '$wr_arg'"
-            fi
-        done
-    fi
+    # Argument-bearing skill launches flatten argv into one slash-command
+    # string. Empty elements disappear and whitespace-bearing elements split
+    # undetectably, so reject both before per-agent dispatch (including under
+    # --dry-run). Passthrough operations preserve argv and are excluded.
+    case "$operation" in
+        pick|explain|qa|shadow|learn|work-report|trail)
+            local skill_arg
+            for skill_arg in "${args[@]}"; do
+                if [[ -z "$skill_arg" ]]; then
+                    die "$operation argument is empty — slash-command text cannot preserve argument boundaries"
+                fi
+                if [[ "$skill_arg" =~ [[:space:]] ]]; then
+                    die "$operation argument contains whitespace — slash-command text cannot preserve argument boundaries: '$skill_arg'"
+                fi
+            done
+            ;;
+    esac
 
     local binary cli_id model_flag
     binary=$(get_cli_binary "$PARSED_AGENT")
@@ -539,6 +543,7 @@ build_invoke_command() {
                         learn)   prompt=$(build_skill_prompt "\$aitask-learn-skill" "${args[@]}") ;;
                         work-report) prompt=$(build_skill_prompt "\$aitask-work-report" "${args[@]}") ;;
                         trail)   prompt=$(build_skill_prompt "\$aitask-trail" "${args[@]}") ;;
+                        *) die "operation not wired into the codex composer: $operation" ;;
                     esac
                     CMD=("$binary" "$model_flag" "$cli_id" "$prompt")
                     ;;

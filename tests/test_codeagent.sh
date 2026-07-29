@@ -206,6 +206,65 @@ assert_not_contains_ci "codex batch-review bypasses plan helper" "aitask_codex_p
 assert_contains_ci "codex batch-review stays direct" "codex" "$output"
 assert_contains_ci "codex batch-review keeps argument" "review-me" "$output"
 
+# Test 11d2: text-composed skill launches reject argv elements that cannot be
+# represented after flattening. Passthrough operations continue to preserve
+# whitespace-bearing and empty argv elements.
+echo "--- Test 11d2: skill composer argument validation ---"
+skill_operations=(pick explain qa shadow learn work-report trail)
+for operation in "${skill_operations[@]}"; do
+    assert_exit_nonzero "$operation rejects whitespace-bearing argv" \
+        bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' --dry-run invoke '$operation' 'two words'"
+    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke "$operation" "two words" 2>&1 || true)
+    assert_contains_ci "$operation whitespace refusal names cause" "argument contains whitespace" "$output"
+    assert_not_contains_ci "$operation whitespace refusal emits no dry-run" "DRY_RUN:" "$output"
+
+    assert_exit_nonzero "$operation rejects empty argv" \
+        bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' --dry-run invoke '$operation' ''"
+    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke "$operation" "" 2>&1 || true)
+    assert_contains_ci "$operation empty refusal names cause" "argument is empty" "$output"
+    assert_not_contains_ci "$operation empty refusal emits no dry-run" "DRY_RUN:" "$output"
+done
+
+assert_exit_zero "whitespace-free skill argv still composes" \
+    bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' --dry-run invoke pick 42"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke raw "two words" "" 2>&1)
+assert_contains_ci "raw preserves whitespace-bearing argv" 'two\ words' "$output"
+assert_contains_ci "raw preserves empty argv" "''" "$output"
+
+# Test 11d3: every existing Codex skill-composer arm emits its expected prompt.
+echo "--- Test 11d3: Codex skill composer matrix ---"
+codex_operations=(pick explain qa shadow learn work-report trail)
+codex_skills=(aitask-pick aitask-explain aitask-qa aitask-shadow aitask-learn-skill aitask-work-report aitask-trail)
+for index in "${!codex_operations[@]}"; do
+    operation="${codex_operations[$index]}"
+    expected_skill="${codex_skills[$index]}"
+    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke "$operation" probe 2>&1)
+    assert_contains_ci "codex $operation emits expected skill prompt" "\$$expected_skill" "$output"
+    assert_contains_ci "codex $operation keeps representative argv" "probe" "$output"
+done
+
+# Test 11d4: a supported operation missing from the nested Codex composer case
+# fails closed. Mutate only a separately copied fixture, validate that the
+# symbol-anchored transform matched exactly once, then remove the probe copy.
+echo "--- Test 11d4: Codex unwired operation fails closed ---"
+CODEAGENT_UNWIRED="$TMPDIR_TEST/.aitask-scripts/aitask_codeagent_unwired.sh"
+awk '
+    /^SUPPORTED_OPERATIONS=\(/ {
+        sub(/\(/, "(codex-unwired-probe ")
+        matches++
+    }
+    { print }
+    END { if (matches != 1) exit 1 }
+' "$CODEAGENT" > "$CODEAGENT_UNWIRED"
+chmod +x "$CODEAGENT_UNWIRED"
+assert_exit_nonzero "codex refuses supported but unwired operation" \
+    bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT_UNWIRED' --agent-string codex/gpt5_4 --dry-run invoke codex-unwired-probe"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT_UNWIRED" --agent-string codex/gpt5_4 --dry-run invoke codex-unwired-probe 2>&1 || true)
+assert_contains_ci "codex unwired refusal names operation" \
+    "operation not wired into the codex composer: codex-unwired-probe" "$output"
+assert_not_contains_ci "codex unwired refusal emits no dry-run" "DRY_RUN:" "$output"
+rm -f "$CODEAGENT_UNWIRED"
+
 # Test 11e: claudecode batch-review is interactive by default; --headless opts
 # into headless --print (Claude Code bills print mode at a higher rate).
 echo "--- Test 11e: claudecode batch-review --headless gating ---"
