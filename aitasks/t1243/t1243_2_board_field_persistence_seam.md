@@ -159,3 +159,5 @@ New tests, over **real files** in a temp tree (reuse the t1243_1 harness):
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-29T09:12:59Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-29T10:59:15Z status=pass attempt=1 type=human
