@@ -31,7 +31,7 @@ When an AI agent runs `/aitask-create` (or the equivalent skill in another agent
 - `.claude/skills/aitask-create/SKILL.md` — currently non-templated `SKILL.md`. Add Step 1b (cross-repo question + project picker) between Step 1 (parent selection) and Step 2 (draft creation); thread cross-repo through Steps 3c (deps), and add a new labels step.
 - `.agents/skills/aitask-create/SKILL.md` (Codex equivalent — apply same changes).
 - `.opencode/commands/aitask-create.md` (OpenCode equivalent — apply same changes).
-- `.aitask-scripts/aitask_query_files.sh` — add a `labels` subcommand emitting `LABEL:<name>` per non-blank, non-comment line of `aitasks/metadata/labels.txt`. Reuses the existing `--project` re-exec path for cross-repo.
+- `.aitask-scripts/aitask_labels.sh` — **already exists** (landed with t1312): `aitask_labels.sh list` emits `LABEL:<name>` per vocabulary entry, and `classify <csv>` splits proposed labels into `EXISTING:` / `NEAR:` / `NEW:` / `INVALID:`. Reuse it for the local half instead of adding a parallel `aitask_query_files.sh labels` emitter. Only the **cross-repo** half is still missing: either give `aitask_labels.sh` a `--project <name>` re-exec (mirroring `aitask_query_files.sh`) or read the counterpart's `labels.txt` through the resolved project root.
 
 ## Reference Files for Patterns
 
@@ -64,17 +64,17 @@ When an AI agent runs `/aitask-create` (or the equivalent skill in another agent
 
 ## Helper additions
 
-- `aitask_query_files.sh labels` subcommand — emit `LABEL:<name>` per non-blank, non-comment line of `aitasks/metadata/labels.txt`. Works with `--project` re-exec.
+- ~~`aitask_query_files.sh labels` subcommand~~ — **superseded by t1312's `aitask_labels.sh list`** (already whitelisted for skill use across all 5 touchpoints). Add cross-repo (`--project`) support to that helper rather than writing a second emitter.
 - Whitelist `aitask_project_resolve.sh` for skill use (5 touchpoints via `aitask_audit_wrappers.sh apply-helper-whitelist`). t832_10 did NOT whitelist because no skill called the helper at that time; this task changes that.
 
 ## Tests
 
-- `tests/test_query_files_labels.sh` (new): assert `labels` subcommand output for local and `--project <name>` cases.
+- `tests/test_aitask_labels_xrepo.sh` (new): assert `aitask_labels.sh list` output for the `--project <name>` case. The local case is already covered by `tests/test_label_vocabulary_lib.sh` (t1312).
 - Existing `tests/test_aitask_create_xdeprepo_alone.sh` and `tests/test_xdeps_validation.sh` already cover the batch surface and validator semantics from t832_10 — no changes needed.
 
 ## Verification
 
-- `bash tests/test_query_files_labels.sh` passes.
+- `bash tests/test_aitask_labels_xrepo.sh` passes.
 - `./.aitask-scripts/aitask_skill_verify.sh` passes (skill changes).
 - `./.aitask-scripts/aitask_audit_wrappers.sh audit-helper-whitelist aitask_project_resolve.sh` returns no MISSING lines after the apply step.
 - Manual smoke: AI-driven `/aitask-create` interactively walks through the cross-repo question, picks a project, gathers cross-repo deps, and produces a draft with the expected frontmatter.

@@ -94,14 +94,25 @@ Related gaps found while exploring (in scope, see AC):
       present to `aitasks/metadata/labels.txt`, before the `task_git add
       "$LABELS_FILE"` at `:2048` / `:2080`, so the new labels land **in the
       task-creation commit** (parent *and* child paths).
-- [ ] Labels rejected by sanitization (empty after stripping) do not silently
-      end up in frontmatter — decide and document: either drop with a warning
-      or fail loudly. Whichever is chosen, frontmatter and `labels.txt` agree.
-- [ ] Batch mode records `set_last_used_labels` consistently with the
-      interactive path (`:2309`), or the deviation is documented in the AC.
-- [ ] Draft mode (`aitasks/new/`, no `--commit`) behaviour is stated explicitly:
-      no vocabulary write until the draft is committed, or write-through —
-      pick one and test it.
+- [x] Labels rejected by sanitization (empty after stripping) do not silently
+      end up in frontmatter — **decided: warn and drop** (exit 0, stderr
+      warning, label absent). Frontmatter and `labels.txt` agree.
+- [x] **Added at review:** control characters (newline / CR / tab) are folded to
+      `_` by `sanitize_label` before the line-oriented stages, folded across the
+      whole CSV before `normalize_labels_csv` splits, and refused outright at the
+      `add_label_to_file` write site. Without this, `--add-label $'alpha\nbeta'`
+      emitted a two-physical-line `labels: [...]` inline list (YAML-folded to the
+      space-bearing label `alpha beta`) while registering only `alpha`.
+- [x] **Documented deviation:** batch mode does **not** call
+      `set_last_used_labels`. That helper backs the human ">> Use labels from
+      previous task" fzf affordance; agent-driven batch creates must not
+      clobber it, and it would add a Python subprocess to every batch create.
+- [x] Draft mode (`aitasks/new/`, no `--commit`): **no vocabulary write until
+      finalize.** Drafts are gitignored, so writing at draft time would leak an
+      abandoned draft's labels into the worktree permanently. `--labels` is
+      still normalized at draft time so the draft's frontmatter is canonical;
+      `_register_task_labels` runs in both `finalize_draft` branches. Tested in
+      `tests/test_label_autoadd.sh`.
 
 ### C. Profile-gated label confirmation in `/aitask-explore`
 - [ ] New execution-profile key (proposed name `explore_label_confirm`) added to
@@ -141,9 +152,11 @@ Related gaps found while exploring (in scope, see AC):
       longer leaves the worktree dirty. Use `task_git` (labels.txt is tracked on
       the data branch — confirmed via `ait git ls-files
       aitasks/metadata/labels.txt`).
-- [ ] Decide and document whether `--labels` (replace-all,
-      `aitask_update.sh:323`) should also auto-add, matching the new create-side
-      behaviour. If it should not, say why in the help text.
+- [x] **Decided:** `--labels` (replace-all) *does* auto-add, matching
+      `--add-label` and the create side — both ways of naming a label grow the
+      vocabulary identically. Recorded in `--help`. `--remove-label` never
+      unregisters (also in `--help`), and its arguments stay unsanitized so
+      legacy raw labels remain removable.
 
 ### E. Docs + tests
 - [ ] Website docs updated: `website/content/docs/concepts/execution-profiles.md`,

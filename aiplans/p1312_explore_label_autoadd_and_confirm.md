@@ -39,6 +39,7 @@ lands in the same commit as the task — on both the create and update paths.
 | `remote` (headless) value | `existing_only` |
 | Matcher location | New helper `aitask_labels.sh` (deterministic, unit-testable) |
 | `sanitize_label` semantics | **Replace invalid chars with `_`** (`"UI Stuff"`→`ui_stuff`), unifying with the import mapper (`aitask_pr_import.sh:141`); collapse `__`, trim edge `_` |
+| Control characters in a label (review finding) | **Canonicalize, not reject** — fold `[:cntrl:]` (newline/CR/tab) to `_` *before* the line-oriented stages, plus a write-site refusal in `add_label_to_file`. Rationale below. |
 | Collation | **Pin `LC_ALL=C sort`** in all writers + commit the one-time ~20-line reorder of `labels.txt` in this task |
 | All-invalid CSV (`--labels ",,!!!"`) | **Warn + drop**: exit 0, stderr warning, `labels: []`, `labels.txt` untouched |
 | `set_last_used_labels` in batch | **Not called — documented deviation** (agent-driven creates must not clobber the human fzf affordance; avoids a Python subprocess per batch create). Task AC updated to record this. |
@@ -86,6 +87,35 @@ AIT_LABELS_DROPPED=()      # tokens that sanitized to nothing
 Guard every expansion with `(( ${#arr[@]} > 0 ))` (bash 4.2/4.3 errors on empty
 `${arr[*]}` under `set -u`). **Never call these helpers via `$( )`** — state it
 in the function comment; that is the one way to misuse the API.
+
+**Control-character handling (added after review — CONFIRMED defect).** `sed`
+is line-oriented, so an embedded newline survived the whole sanitize pipeline.
+Reproduced end-to-end: `aitask_update.sh --batch N --add-label $'alpha\nbeta'`
+emitted a **two-physical-line** `labels: [preexisting, alpha` / `beta]` inline
+list — YAML folds that to the space-bearing label `alpha beta` — while
+`add_labels_csv_to_file` (whose `read -ra` consumes one line) registered only
+`alpha`. Frontmatter and vocabulary silently disagreed, breaking AC §B's
+"frontmatter and `labels.txt` agree" and the chatlink fixed-point property.
+`--labels $'a\nb,c'` was likewise truncated to `a`, dropping `b` and `c`
+without a `DROPPED:` warning.
+
+Three-layer fix (each with its own negative control):
+
+1. `sanitize_label` folds `[:cntrl:]` → `_` **first**, before `tr`/`sed`, and
+   uses `printf '%s'` rather than `echo`. Folding (not deleting) keeps the two
+   halves distinguishable: `alpha_beta`, never `alphabeta`.
+2. `normalize_labels_csv` folds control characters across the **whole CSV**
+   before `IFS=',' read -ra`, so no token can be truncated away.
+3. `add_label_to_file` **refuses** (warn + no-op) any label still containing a
+   control character — the write-site guard for a line-delimited file, where an
+   injected newline is indistinguishable from a real entry on read. Matched
+   in-shell (`[[ $label == *[[:cntrl:]]* ]]`): `grep` is line-oriented and can
+   never see the newline it is meant to catch.
+
+Canonicalize rather than reject, because that is what `sanitize_label` already
+does for every other invalid character (`"UI Stuff"` → `ui_stuff`). The
+gateway's own detect-and-reject policy is unchanged — it guards a different
+boundary with a byte-identity contract.
 
 **Functions:**
 
@@ -423,6 +453,11 @@ task).
   and concurrent writers can last-writer-wins a label away (atomic `mv` fixes
   torn reads, not lost updates; a registry lock would drop labels instead —
   worse) · severity: medium · → mitigation: `labels_txt_concurrent_append`
+  (**confirmed at review**: each `add_label_to_file` rebuilds from its own
+  snapshot and `mv`s, so the later writer discards the earlier one's new label.
+  The mitigation task is created at task-workflow **Step 8d**, in this same
+  session, immediately after the Step 8 commit — creating it earlier would
+  double-create when 8d runs.)
 
 ### Goal-achievement risk: medium
 
@@ -450,9 +485,9 @@ task).
 shellcheck .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_update.sh \
            .aitask-scripts/aitask_labels.sh .aitask-scripts/lib/task_utils.sh
 
-bash tests/test_label_vocabulary_lib.sh
-bash tests/test_label_autoadd.sh
-bash tests/test_update_label_staging.sh
+bash tests/test_label_vocabulary_lib.sh    # incl. control-char folding + write-site guard
+bash tests/test_label_autoadd.sh          # incl. --labels with an embedded newline
+bash tests/test_update_label_staging.sh   # incl. --add-label with an embedded newline
 bash tests/test_draft_finalize.sh
 bash tests/test_create_manual_verification_gates.sh
 bash tests/test_anchor_create.sh
@@ -473,3 +508,97 @@ carries the classification in the question text, and
 `git show --name-only HEAD` on the creation commit contains both the task file
 and `aitasks/metadata/labels.txt`. Re-run with `--profile remote`: no label
 prompt. Then Step 9 (Post-Implementation) per task-workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** All six parts landed as designed.
+  - **A** — `sanitize_label` / `ensure_labels_file` / `get_existing_labels` /
+    `add_label_to_file` moved into `lib/task_utils.sh`, joined by the new
+    `labels_file_path`, `normalize_labels_csv` and `add_labels_csv_to_file`.
+    All four shadowing copies deleted (`aitask_create.sh`, `aitask_update.sh`,
+    `aitask_pr_import.sh`, `aitask_issue_import.sh`) plus the three byte-copied
+    inline "add new label" blocks. The post-check grep returns zero hits.
+  - **B** — `run_batch_mode` normalizes `--labels` before any write (B1) and
+    registers the vocabulary inside the `--commit` branch above the
+    parent/child split (B2), so the pre-existing `task_git add "$LABELS_FILE"`
+    carries `labels.txt` in the task-creation commit. Drafts defer the write to
+    `_register_task_labels`, called in both `finalize_draft` branches.
+  - **C** — `explore_label_confirm` (`ask` | `auto` | `existing_only`)
+    registered in all three `profile_editor.py` structures and written into all
+    six profile files (`existing_only` for headless `remote`).
+  - **D** — new `aitask_labels.sh` (`list`, `classify`) whitelisted across the
+    five permission files; new profile-gated Step 3a in the explore `.j2`.
+  - **E** — `process_label_operations` is now pure; registration and staging
+    moved to the non-subshell callers on both the batch and interactive paths.
+  - **F** — 5 doc sites, 3 regenerated goldens, 3 new test files, the extended
+    render test, and the flipped t1321 characterization test.
+
+- **Deviations from plan:**
+  - `set_last_used_labels` remains interactive-only, as decided. Recorded as an
+    explicit AC deviation in the task file.
+  - The one-time `LC_ALL=C` reorder of `labels.txt` was performed as planned,
+    but a concurrent session's `./ait git` commit swept the staged file into
+    `ait: Add task t1331: guard risk mitigation reentry`. The content is
+    correct and canonical (pinned by `test_label_vocabulary_lib.sh`); only the
+    commit message attribution differs from the plan.
+  - `aitask_pr_import.sh` / `aitask_issue_import.sh` keep their `LABELS_FILE=`
+    assignment purely as an override for `labels_file_path`; since no local
+    reference remains, each needed a justified `# shellcheck disable=SC2034`.
+
+- **Issues encountered:**
+  - **Embedded control characters (found in review, CONFIRMED, blocking).**
+    `sed` is line-oriented, so a newline survived the sanitize pipeline:
+    `--add-label $'alpha\nbeta'` emitted a two-physical-line `labels: [...]`
+    inline list (YAML-folds to the space-bearing label `alpha beta`) while
+    `normalize_labels_csv`'s `read -ra` registered only `alpha` — frontmatter
+    and vocabulary silently disagreed. `--labels $'a\nb,c'` was truncated to
+    `a`. Fixed in three layers: fold `[:cntrl:]` in `sanitize_label` before the
+    line-oriented stages; fold across the whole CSV before the split; refuse
+    control-bearing labels at the `add_label_to_file` write site. The first
+    write-site guard used `grep`, which is line-oriented and can never match
+    the newline it targets — its negative control caught that.
+  - **Two negative controls initially passed** (i.e. did not discriminate).
+    (1) The staging guard is invisible when `labels.txt` is clean, because
+    `git add` on an unchanged file stages nothing; a case seeding an unrelated
+    pending edit was added, which is the real blast radius. (2) The collation
+    case built one vocabulary under the ambient locale — already
+    `en_US.UTF-8` — making it vacuous; both builds now run in explicit-locale
+    subshells with tokens (`ait-c`/`ait_b`/`aitaa`) whose C and UTF-8 orderings
+    genuinely differ.
+  - **`local IFS=','` scoping.** Bash scopes `local` to the whole function, not
+    the enclosing block, so three joins would have leaked a comma IFS into
+    later statements. All replaced with subshell joins.
+
+- **Key decisions:**
+  - Control characters are **canonicalized, not rejected** — consistent with
+    `sanitize_label`'s treatment of every other invalid character. The chatlink
+    gateway's detect-and-reject policy is untouched; it guards a different
+    boundary with a byte-identity contract.
+  - The vocabulary write on the update path registers only the **supplied**
+    labels, never the whole resulting list, so a bare `--status Done` (every
+    gate transition and board move) can never drag a task's pre-existing labels
+    into `labels.txt`.
+  - `--remove-label` arguments stay unsanitized so legacy raw labels remain
+    removable, and never unregister from the vocabulary.
+  - The chatlink trust-boundary analysis is documented at
+    `aidocs/chat/label_vocabulary_and_allowlist.md`, cross-referenced from the
+    `payload_guard.py` docstring whose auto-add claim this task makes true.
+
+- **Build verification:** `bash tests/run_all_python_tests.sh` →
+  **2719/2720 passed**, 1 failure, run twice with identical results.
+  The failure is `test_board_work_report.WorkReportFullColumnUnderSearchTests.
+  test_hidden_cards_still_listed` (137 != 138) and is **unrelated to this
+  task** — diagnosed with a live probe: `aitasks/t_refresh_codeagent_suite_
+  default_model_expectations.md` (created by another session) carries **no
+  numeric task id**, so `action_work_report` skips it via
+  `if not task_num: continue` while `get_column_tasks` still counts it. Not
+  fixed here. All 12 shell tests in the Verification block pass;
+  `aitask_skill_verify.sh` OK; `shellcheck -S warning` shows only the
+  pre-existing `CONTRIBUTE_*` / `ORIGINAL_ARGS` findings.
+
+- **Upstream defects identified:** None.
+  Two framework defects were hit live during this session — the risk-mitigation
+  Part 2 "before" creation has no idempotency guard on re-pick, and Step 6.0a's
+  force-reverify is inert under `plan_preference: use_current` — but both were
+  independently filed by a concurrent session as **t1331** before this task
+  reached Step 8b. No new follow-up is warranted.

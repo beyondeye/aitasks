@@ -11,6 +11,7 @@ post_plan_action: ask
 post_plan_action_for_child: ask
 enableFeedbackQuestions: true
 explore_auto_continue: false
+explore_label_confirm: ask
 qa_mode: ask
 manual_verification_followup_mode: ask
 record_gates: true
