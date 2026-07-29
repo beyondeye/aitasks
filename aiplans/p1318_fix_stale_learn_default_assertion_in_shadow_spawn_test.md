@@ -285,3 +285,69 @@ Follow `task-workflow` **Step 8** (review before commit; `test:` commit type per
 the task's `issue_type`) and **Step 9** (merge approval, `ait gates run 1318`
 for the `risk_evaluated` gate, archival). Working on the current branch —
 `Output branch: main`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, plus two corrections found while
+  executing (below). Added `tests/lib/codeagent_defaults.sh` (135 lines, 4
+  helpers) and converted the default-resolution assertions in
+  `tests/test_shadow_spawn_learner.sh`, `tests/test_codeagent_trail.sh` and
+  `tests/test_codeagent_work_report.sh` from pinned literals to derived
+  expectations checked against an injected sentinel `DEFAULT_AGENT_STRING`.
+  Registered the three files in `aidocs/framework/model_reference_locations.md`
+  §7 with a note recommending the idiom for new default-sensitive tests.
+  Final counts: learner **22/22**, trail **27/27**, work-report **28/28**; the
+  negative control exits 1 with 3 red assertions.
+
+- **Deviations from plan:**
+  1. **The sweep undercounted: 10 stale assertions, not 8.** Two more were
+     pinned in the **cli_id spelling** — `tests/test_codeagent_trail.sh:88`
+     (`claude-opus-4-8`) and `tests/test_codeagent_work_report.sh:80`
+     (`claude-sonnet-4-6`). The planning sweep searched for the agent-string
+     form (`opus4_8`) and could not see the dashed cli_id form. Both were
+     rewritten as a `resolve`↔`invoke` cross-check: the composed dry-run command
+     line must carry the same `CLI_ID` the resolver reports for that operation.
+     That is a stronger contract than the literal expressed, and it is
+     promotion-proof. *Lesson for the follow-up doc task: a model-reference
+     sweep must cover BOTH spellings — `<agent>/<model_name>` and the
+     `cli_id` (`claude-opus-4-8`) form.*
+  2. **Newline anchoring was attempted and reverted.** The plan's assertions
+     used `assert_contains "AGENT_STRING:$expected"`, which degrades into the
+     always-true `"AGENT_STRING:"` when `$expected` is empty — the negative
+     control exposed this (the "returns the configured default" assertion stayed
+     green when it should have gone red). Anchoring the expectation on a
+     trailing `\n` does **not** work: `assert_contains` / `assert_not_contains`
+     use `grep -qF`, and `grep -F` treats an embedded newline as a **second,
+     empty pattern that matches every line**, making `assert_not_contains`
+     unpassable. Replaced with exact field extraction
+     (`codeagent_resolve_field` + `assert_eq`), which is non-vacuous on an empty
+     expectation and also stops a prefix (`opus5`) matching a longer registered
+     name (`opus5_1m`). `codeagent_hardcoded_default` was never written — with
+     the sentinel injected, no test needs to know the shipped constant.
+
+- **Issues encountered:** A concurrent session was editing
+  `.aitask-scripts/board/aitask_board.py` and `tests/test_board_dialog_subprocess_degrade.py`
+  in the same checkout throughout. Only this task's five paths were staged
+  explicitly; the other session's files were never added.
+
+- **Key decisions:**
+  - *Derive + discriminate* over pinning a refreshed literal (user-selected).
+    A refreshed literal would have rotted on the next promotion — this is the
+    third occurrence — and, worse, would have been **vacuous**: `defaults.learn`
+    and `DEFAULT_AGENT_STRING` are both `claudecode/opus5` today, so a swapped
+    literal passes whether or not the config is ever read.
+  - *Hermetic fixture* for the learner test. `resolve_agent_string()` gives
+    `codeagent_config.local.json` precedence, so resolving against live
+    `aitasks/metadata/` made the assertion machine-dependent. The fixture copies
+    the real project config but never the local override, so the completeness
+    check still guards the shipped file.
+  - *Sentinel derived agent-agnostically* from the fixture's `models_*.json`
+    (`<agent>/<name>`), not from a hard-coded claudecode model — `defaults.shadow`
+    is `codex/gpt5_6_terra`, so an agent-family assumption would be brittle.
+  - *`AIT_CODEAGENT_FIXTURE_OMIT_OPS` as the negative-control seam*, replacing
+    the task's stated control ("point `defaults.learn` at a different model").
+    Under a derived assertion, surviving a default change is the point, so the
+    original control no longer discriminates. The env knob mutates only the
+    copied fixture in a temp dir — no tracked file is touched.
+
+- **Upstream defects identified:** None.
