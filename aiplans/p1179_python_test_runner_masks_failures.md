@@ -267,3 +267,63 @@ before committing.
 
 Step 9: no branch was created (profile `fast` works on the current branch), so
 merge is a no-op; run the gate orchestrator, then archive t1179.
+
+## Final Implementation Notes
+
+- **Actual work done:** All three planned changes landed as designed.
+  1. `tests/run_all_python_tests.sh` — `SCRIPT_DIR`/`TEST_DIR` split with a
+     first-arg-only `--test-dir <dir>` (rejects a missing value with exit 2),
+     `export PYTHONUNBUFFERED=1`, backend selected into a `cmd=(…)` array, and
+     one shared `set +e; "${cmd[@]}"; rc=$?; set -e` → banner → `exit "$rc"`
+     tail outside the branch. `unset PYTHONPATH` untouched.
+  2. `tests/test_python_runner_exit_status.sh` — new, 333 lines, 24 assertions.
+  3. `CLAUDE.md` Testing section — the runner, the verdict-reading rule, the
+     pipefail caveat.
+- **Deviations from plan:** One, and it strengthened the design. The plan drove
+  the **pytest** branch with a cwd-resolved stub but left the **unittest**
+  branch dependent on whatever the machine had installed. The same cwd
+  mechanism turned out to force the unittest branch too: a `pytest/__init__.py`
+  that raises `ImportError` makes the runner's probe fail even where real
+  pytest is installed. So both branches are now deterministic everywhere, and
+  the planned "run under whichever backend is live" hedge was dropped along
+  with the machine-probe comparison in case 6 — the shim dirs *are* the
+  expectation. Cases 1/2/5/7 run under the blocking shim; the pytest cases run
+  under the recording stub.
+- **Issues encountered:**
+  - *The runner changed underneath the plan mid-session.* t1236's
+    `unset PYTHONPATH` (recovered by t1306 as `a39a2611c`) landed while
+    planning was in progress, invalidating the first design's
+    stub-via-`PYTHONPATH` injection — `tests/test_runner_python_isolation.sh`
+    fails on any `PYTHONPATH=` in this file. The cwd mechanism replaced it with
+    no contact with `PYTHONPATH` at all. Both isolation guards re-run green
+    (9/9 and 10/10 across 157 swept files).
+  - *One assertion did not cover what its comment claimed.* Negative control C
+    (`shift 2` → `shift 1`) was caught only by the pytest-stub argv comparison,
+    not by the unittest `-p` pair as written: `unittest discover` takes the
+    leaked value as its `start` positional, and that value IS the directory
+    `-s` already named, so behaviour is unchanged. The comment was corrected to
+    record which assertion covers which direction, measured rather than assumed.
+- **Key decisions:**
+  - *Banner on stderr.* It is the stream unittest already uses for `OK`/`FAILED`,
+    so the verdict lands adjacent to the framework's own and survives
+    `>/dev/null` on stdout.
+  - *Verdict/exit lifted out of the if/else.* Makes "backend-independent" a
+    structural property rather than a promise — the branches only build a
+    command vector.
+  - *The AC was restated in the task file before implementing*, not in the plan
+    alone, because the filed defect (1) mechanism does not exist in the source
+    and defect (2) was already fixed by t1211. The reframing is reviewable in
+    git rather than implicit in a diff.
+  - *Verified, not eyeballed.* Four negative controls each turned the suite red
+    (`exit 0` hardwire → 3 failures; no `PYTHONUNBUFFERED` → tally line 18 vs
+    verdict line 17; `shift 1` → argv leak; `shift 3` → 19 failures), and the
+    full-suite check asserts `tail -n1` against the banner regex plus
+    `exit=$rc` agreement instead of printing three lines for a human to squint
+    at.
+- **Upstream defects identified:** None.
+- **Verification results:** new test 24/24 · `test_runner_python_isolation.sh`
+  9/9 · `test_python_bootstrap_isolation.sh` 10/10 · full suite
+  `Ran 2554 tests in 684.623s`, `OK (skipped=1)`, exit 0, `FINAL_LINE_OK`,
+  `VERDICT_AGREES`. The single skip is the opt-in board benchmark
+  (`AITASK_BOARD_BENCH=1`), unrelated to this task. `shellcheck` reports only
+  SC1091 info on both files — identical to the existing baseline.
