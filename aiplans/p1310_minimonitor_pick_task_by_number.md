@@ -535,3 +535,130 @@ ait minimonitor      # in a window beside a running agent
   (it keeps the *last* name match) · severity: low · → mitigation: a
   session-scoped "already running in this session, window N" warning in dialog 2
   so the user chooses knowingly; not blocked.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, in plan order. `p` →
+  `action_pick_task_by_number` → `TaskNumberInputModal` → validation →
+  `TaskPickConfirmDialog` → shared `_launch_pick`. `_launch_pick` was extracted
+  from `_launch_pick_for_own` behind a 19-test characterization suite written
+  first; all 19 pass unchanged after the extraction. `monitor_core` gained
+  `TaskInfo.depends` (defaulted) and `TaskInfoCache.blocking_dependencies`.
+  Docs: added `p` to the minimonitor how-to plus a "How to Pick a Task by
+  Number" section, and fixed the pre-existing key-table drift.
+
+- **Deviations from plan:**
+  - **Confirm row is docked, not flow-laid.** The plan sized the dialog with
+    `height: 90%` and let the confirm row sit in normal flow. A live check at
+    40x20 showed the buttons rendering *below* the dialog and off-screen
+    entirely — the minimonitor pane is only as tall as the tmux window. Fixed
+    structurally: `#pick-confirm-row` and the footer are `dock: bottom`, so the
+    body scroll is what gives up space (`min-height: 1`). Also dropped the
+    `tall` borders on the checkbox and buttons in narrow mode (two rows each in
+    a pane with none to spare). Verified at 40x50, 40x20 and 40x16.
+  - **Region-fit assertions now check both axes.** The planned test copied
+    `test_agent_command_dialog_narrow.py`, which asserts x only — that is
+    exactly why the vertical overflow above got through. `_assert_controls_inside`
+    checks x *and* y; a second negative control (removing `dock: bottom`) proves
+    it discriminates.
+  - **Added a text restatement of the kill checkbox state.** Textual's
+    `Checkbox` draws the same `X` slider glyph ticked or not — only the colour
+    differs. For a control that closes down a running agent in a ~40-column
+    pane that is too weak, so `#pick-kill-detail` now reads
+    `keeps t<id> · …` / `KILLS t<id> · …` and updates on toggle.
+  - **Validation framing corrected.** The plan called strict id validation a
+    guard against a shell sink. It is not: `aitask_codeagent.sh` emits its
+    dry-run command with `printf ' %q'` (`:601-605`), so every argv element
+    reaching `tmux new-window` is already shell-quoted. The real defect it
+    prevents is a *correctness* one — `TaskInfoCache._resolve` interpolates the
+    id into `Path.glob`, so `12*` would display one task while
+    `/aitask-pick 12*` launched on the literal string. Comment and tests say so.
+
+- **Issues encountered:**
+  - The characterization suite initially failed on `TmuxLaunchConfig` requiring
+    `new_session`; fixed in the test.
+  - The `.narrow`-removal negative control first raised a Textual `TokenError`
+    (dropping only the lines containing `narrow` orphans the declaration
+    bodies) — which would have satisfied `assertRaises` without proving
+    anything. Replaced with a block-aware `_drop_narrow_rules` helper, and the
+    control now fails on a real overflow (`Cancel` right edge 39 > 38).
+  - Screen-text assertions had to become wrap- and chrome-tolerant: at 40
+    columns a phrase wraps and the dialog border lands mid-phrase.
+  - The "n and p share one implementation" test was first written as an
+    `inspect.getsource` string scan. It passed standalone but failed inside the
+    aggregate run, because `getsource` uses the line numbers recorded at import
+    time and the file had been edited since — it silently asserted against the
+    wrong slice. Replaced with a behavioural check: drive both keys at the same
+    target and compare the resulting `AgentCommandScreen` construction, plus a
+    second test pinning what that construction is so two identically-wrong
+    paths cannot satisfy the equality. Verified sensitive (different target ids
+    compare unequal).
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_core.py:2806-2812` — `_resolve`'s title
+    extraction takes the first line starting with `# ` **without skipping
+    fenced code blocks**, so a Python comment inside a ``` fence becomes the
+    task title. Observed live: t1310 renders as `t1310: on confirm:` because
+    its description contains `# on confirm:` inside a code fence. Affects every
+    consumer of `TaskInfo.title` (monitor and minimonitor `i`/`I`, the new
+    confirm dialog), not just this task.
+  - `.aitask-scripts/monitor/monitor_shared.py:227` — `TaskDetailDialog.action_toggle_plan`
+    writes its view indicator as `… [/] [{label}]`, unescaped, so Rich parses
+    `[Plan]` / `[Task]` as a markup tag and it never reaches the screen.
+    Pressing `p` in the task-detail dialog silently gives no visual confirmation
+    of which view is showing. Pre-existing; `_showing_plan` does flip.
+  - Risk-mitigation "before" task creation can emit a task file with **no
+    number** in its name: `aitasks/t_refresh_codeagent_suite_default_model_expectations.md`
+    was committed at 10:15 today by a concurrent session
+    (`9e7f18326 ait: Revert t1311 to Ready (risk mitigation pending)`). The
+    board lists it but nothing can address it by id, and it breaks
+    `test_board_work_report.test_hidden_cards_still_listed` (the board counts
+    it, the work-report screen's `t(\d+(?:_\d+)?)` extraction drops it).
+    Belongs to another session's in-flight t1311 work, so left untouched here.
+
+- **Key decisions:**
+  - `TaskPickConfirmDialog` subclasses `TaskDetailDialog` rather than adding
+    flags to it, so "`i`/`I` unchanged" holds by construction — both existing
+    call sites are untouched, and the base keeps one dismissal type.
+    `_detail_widgets()` is the shared seam, which lets `action_toggle_plan` be
+    inherited verbatim.
+  - `blocking_dependencies` takes a resolved `TaskInfo` and refreshes each
+    dependency itself (`refresh=True`), because `TaskInfoCache` is
+    process-lifetime in the minimonitor. `refresh=False` exists solely as the
+    negative control for the staleness test.
+  - The **followed agent's** status is refreshed on the same grounds before it
+    is shown in the kill-checkbox label. It is not a dependency, but it is what
+    the user reads before arming the kill, and a stale `Done` would actively
+    encourage closing down an agent that is still working. Not in the original
+    plan; added for consistency with the dependency-freshness rule.
+  - The already-running scan is session-scoped; one tmux session maps to one
+    project root, so session scope is project scope.
+  - `p` still permits launching a non-`Ready` or blocked task — the user asked
+    to pick *by number* — but relabels OK to `Launch anyway` so it is never
+    silent.
+
+- **Build verification / test suite:** `bash tests/run_all_python_tests.sh` —
+  2622 tests, **one failure, pre-existing and unrelated to this task**:
+  `test_board_work_report.WorkReportFullColumnUnderSearchTests.test_hidden_cards_still_listed`
+  (`AssertionError: 131 != 132`). Proven independent by re-running it with all
+  three t1310 source files stashed out — it fails identically. Root cause: a
+  stray **un-numbered** task file,
+  `aitasks/t_refresh_codeagent_suite_default_model_expectations.md`, committed
+  by a concurrent session at 10:15 (`9e7f18326 ait: Revert t1311 to Ready (risk
+  mitigation pending)`). `TaskManager.get_column_tasks` counts it, while the
+  work-report screen's `t(\d+(?:_\d+)?)` id extraction drops it, so the two
+  counts differ by exactly one. No `verify_build` is configured for this
+  project, so this is reported rather than gate-enforced. Every suite that
+  imports the changed modules was additionally re-run directly against the
+  final code and passes.
+
+- **Live verification (tmux, isolated socket `-L t1310check`):** confirmed in a
+  real 40-column pane that the `p:pick task` hint renders, the number dialog
+  accepts input, and the confirm dialog shows the task detail, the
+  `⚠ t1310 is Implementing — not Ready to pick` warning and the `Launch anyway`
+  button, all within the pane. The kill-checkbox branch could **not** be
+  exercised live: `ait minimonitor` talks to the default tmux server, so it
+  never saw the isolated test session's agent and reported no followed agent.
+  That branch is covered by unit tests only.
