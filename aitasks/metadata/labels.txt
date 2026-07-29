@@ -46,6 +46,7 @@ crash_recovery
 custom_shortcuts
 development
 differ
+docs
 execution_profiles
 framework
 gates
