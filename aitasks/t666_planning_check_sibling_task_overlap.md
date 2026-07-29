@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Folded
 labels: [task_workflow, aitask_pick, claudeskills]
+folded_into: 1343
 created_at: 2026-04-27 11:41
-updated_at: 2026-04-27 11:41
+updated_at: 2026-07-29 22:01
 boardidx: 620
 ---
 

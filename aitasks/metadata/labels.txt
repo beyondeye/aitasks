@@ -51,6 +51,7 @@ execution_profiles
 framework
 gates
 geminicli
+git
 git-integration
 gitremote
 html_plans
