@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [aitask_explore, aitask-create, execution_profiles, bash_scripts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-29 09:15
-updated_at: 2026-07-29 09:15
+updated_at: 2026-07-29 09:30
 ---
 
 Extend `/aitask-explore` so the labels it puts on newly created tasks are
