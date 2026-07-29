@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [aitask-create, bash_scripts, testing]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1312
 created_at: 2026-07-29 10:40
-updated_at: 2026-07-29 10:40
+updated_at: 2026-07-29 10:42
 ---
 
 ## Origin
