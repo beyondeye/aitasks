@@ -411,8 +411,8 @@ task).
 ### Code-health risk: medium
 
 - Rewriting `BATCH_LABELS`/update inputs changes emitted frontmatter for
-  non-canonical input · severity: medium · → mitigation:
-  `characterize_batch_label_frontmatter`
+  non-canonical input · severity: medium · → mitigation: t1321
+  (`characterize_batch_label_frontmatter`)
 - Lib seam must preserve lazy `TASK_DIR` resolution and the `$LABELS_FILE`
   staging-by-variable contract, else labels.txt silently stops committing ·
   severity: medium · → mitigation: none (pinned by the lib unit test +
@@ -434,7 +434,7 @@ task).
   specified to report drops; render test pins the arm)
 
 ### Planned mitigations
-- timing: before | name: characterize_batch_label_frontmatter | type: test | priority: medium | effort: low | addresses: code-health — rewriting BATCH_LABELS changes emitted frontmatter | desc: Characterization test pinning the current `--batch --labels` frontmatter output across the parent, child and draft creation paths, so the sanitize-and-rewrite change lands against a known baseline.
+- timing: before | name: characterize_batch_label_frontmatter | created: t1321 | type: test | priority: medium | effort: low | addresses: code-health — rewriting BATCH_LABELS changes emitted frontmatter | desc: Characterization test pinning the current `--batch --labels` frontmatter output across the parent, child and draft creation paths, so the sanitize-and-rewrite change lands against a known baseline.
 - timing: after | name: label_fuzzy_match_typos | type: enhancement | priority: medium | effort: low | addresses: goal-achievement — normalization misses the typo class | desc: Add edit-distance near-matching to `aitask_labels.sh classify` so typo variants (brainstom_modules, skill_optiomizations, sanboxing) are suggested against existing labels, not just separator/case variants.
 - timing: after | name: labels_txt_concurrent_append | type: enhancement | priority: low | effort: low | addresses: code-health — whole-file `sort -u` rewrite on the data branch | desc: Make `labels.txt` appends conflict-tolerant (append-only write with dedupe at read time, or a git merge driver) instead of rewriting the whole file on every new label.
 
