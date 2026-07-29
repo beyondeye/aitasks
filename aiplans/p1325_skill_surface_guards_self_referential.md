@@ -447,3 +447,6 @@ Current-branch mode — no worktree/branch cleanup. Merge target `main` (= base)
   - `.aitask-scripts/aitask_audit_wrappers.sh:36 — list_source_skills() reports the 4 deliberately-unwrapped skills (aitask-explorechat, aitask-run-gates, aitask-gate-docs-updated, aitask-gate-template) as GAP: lines, so /aitask-audit-wrappers offers to create wrappers that must not exist. Nothing in the repo encodes that exclusion; it needs an explicit exemption marker on those skills. Its "user-invokable" comment is aspirational — the function never reads user-invocable frontmatter.`
   - `tests/test_opencode_skill_legacy_pointers.sh:34 — the guard is correct but has no runner, so it sat able-to-fail (aitask-trail, 3386e1f43..2012a4575) without anyone noticing. CLAUDE.md deliberately keeps bash tests run-individually, so the fix is a CI touchpoint for the bash guard tests, not a local runner.`
   - `.claude/skills/aitask-explorechat/SKILL.md:4 — declares user-invocable: true while its own description says "Not a user task command", making the field unusable as a ground truth for which skills are user-facing.`
+
+- **Upstream follow-up created:** `t1345_encode_wrapper_port_exemptions` (Step 8b)
+  carries all three defect bullets above.
