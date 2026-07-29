@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus5
 created_at: 2026-07-27 22:22
-updated_at: 2026-07-28 19:18
+updated_at: 2026-07-29 22:09
 ---
 
 ## Pick-time safety guard — SAFE from your normal working tmux
@@ -189,3 +190,8 @@ bash tests/run_all_python_tests.sh
 bash tests/test_tui_clipboard_seam.sh
 bash tests/test_no_raw_tmux.sh
 ```
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-29T19:09:49Z status=pass attempt=1 type=human
