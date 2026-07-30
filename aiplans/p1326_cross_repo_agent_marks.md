@@ -487,6 +487,246 @@ settled — coordination links should be bidirectional.
 - timing: after | name: monitor_modal_binding_guard_audit | type: test | priority: medium | effort: low | addresses: code-health — bare single-key App bindings fire under a pushed modal | desc: Generalize the guard beyond `space` — audit every bare single-key App binding in both monitor TUIs for modal leakage and pin the ones that are unguarded
 - timing: after | name: minimonitor_row_width_audit | type: chore | priority: low | effort: low | addresses: code-health — minimonitor row width regression | desc: Audit the minimonitor agent row at 40 columns across every glyph combination and shed context until it reads
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-30)
+
+- **Requested by user:** use white, not yellow, for the filled `★` when an agent
+  is marked.
+- **Changes made:** `format_mark_glyph` now returns `[bold white]★[/]`. This is a
+  deliberate departure from the repo-wide marked=bold-yellow convention
+  (`brainstorm/widgets.py`, `_ConcernRow.render`), and the better call: those
+  marks live in pickers where nothing else on the row is state-coloured, whereas
+  this one sits two columns from the agent's `●`, which `_state_color` paints
+  **yellow for IDLE**. A yellow ★ beside a yellow ● read as one state cluster
+  and invited "is that agent idle, or flagged?". White belongs to no rung of the
+  state ladder (magenta / dodger_blue1 / yellow / green), which is what makes it
+  legible as *user intent* rather than status. The docstring now records that
+  reasoning so the divergence does not look accidental.
+- **Files affected:** `.aitask-scripts/monitor/monitor_shared.py`,
+  `tests/test_monitor_agent_marks.py` (assertion + test renamed
+  `test_marked_is_bold_white_star`).
+
+### Change Request 2 (2026-07-30) — review concerns
+
+All six verified against the source; all six valid; all six fixed (the two
+"follow-up" dispositions were cheap enough to land here rather than defer).
+
+1. **[high, CONFIRMED] Liveness derived from `_snapshots` could delete a live
+   mark.** `commit_snapshots` drops any pane whose *content capture* failed
+   (`monitor_core.py:2101`, `if result is None: continue`), so `_snapshots` is
+   "panes we successfully read", not "panes that exist". A transient capture
+   failure on one agent, while a sibling kept its root sweepable, would purge
+   the failed agent's live mark. My earlier reasoning ("a tmux session always
+   has ≥1 pane") conflated *discovery* with *capture* — the plan's original
+   design was right and I was wrong to drop it.
+   **Fix:** `TmuxMonitor` now records `(enumerated_sessions, discovered_agents)`
+   at **discovery** time, keyed by capture generation
+   (`_record_discovery_facts`), and `commit_snapshots` promotes them
+   (`_publish_discovery_facts`) only past its generation guard — atomically with
+   the snapshots. Keying by `gen` rather than assigning a bare attribute is what
+   makes a superseded older discovery inert. Exposed as
+   `last_enumerated_sessions()` / `last_discovered_agents()`;
+   `_collect_marks_observation` reads those and never `_snapshots`. A monitor
+   that cannot report them fails closed (nothing sweepable).
+   Pinned by `tests/test_agent_marks_generation.py` (8 tests, incl. an
+   older-finishes-after-newer interleaving case) and
+   `test_agent_whose_capture_failed_is_still_observed`.
+
+2. **[medium, CONFIRMED] `MarksView` staleness.** Reproduced: an equal-length
+   `os.replace` within one coarse timestamp left `(st_mtime_ns, st_size)`
+   unchanged, so another repo's final state stayed invisible indefinitely.
+   **Fix:** the stamp is now `(st_mtime_ns, st_size, st_ino)`. Every
+   `os.replace` yields a new inode, making the stamp replacement-sensitive by
+   construction. `GateSummaryCache`'s pair is fine for in-place rewrites; this
+   store is only ever atomically replaced, which is the difference.
+
+3. **[medium, CONFIRMED] Seam had no timeout and no normalised failure.** A
+   missing wrapper raised `OSError` out of `action_toggle_mark` on a keypress,
+   and a child that never exits would hang `communicate()` so
+   `_maybe_purge_marks`'s `finally` never cleared `_marks_purge_inflight` —
+   directly contradicting that method's documented guarantee.
+   **Fix:** `_run_marks_cmd` is now total — `asyncio.wait_for` with
+   `_MARKS_CMD_TIMEOUT = 20s` (above the wrapper's own 2s/10s lock timeouts so a
+   contended-but-healthy writer reports `LOCK_BUSY` itself), kill-and-reap on
+   timeout, and `OSError` normalised to `ERROR:…`.
+
+4. **[low, CONFIRMED] Version 0 was accepted and silently upgraded.** The guard
+   was `version > SCHEMA_VERSION`. **Fix:** exact equality — rewriting an older
+   version *is* a migration and none exists.
+
+5. **[low, CONFIRMED] `md5sum` is absent on stock macOS.** **Fix:** the
+   concurrency test now uses `cmp -s` against a saved copy.
+
+6. **[low, CONFIRMED] `AITASKS_AGENT_MARKS_FILE` undocumented.** **Fix:** both
+   how-to pages now name it beside the default path.
+
+Negative controls for the two blocking fixes, both shown to fail on exactly the
+intended tests: reverting the stamp to `(mtime, size)` breaks the staleness
+test; deriving the agent set from `_snapshots` breaks
+`test_agent_whose_capture_failed_is_still_observed`.
+
+### Change Request 3 (2026-07-30) — enumeration must not be pane-derived
+
+**[medium, CONFIRMED, blocking]** After Change Request 2, `enumerated_sessions`
+was still *inferred* from the post-filter `panes + shadows`. `_parse_list_panes`
+drops a companion pane sitting in an agent-named window (`category == AGENT and
+_is_companion_process(pid)`), so the moment an agent exits and only its
+minimonitor split remains, that session parses to **zero panes** — and was
+therefore published as *unenumerated*, leaving it un-sweepable and stranding the
+departed agent's mark until TTL expiry. That is precisely the case the prompt
+purge exists for.
+
+I had spotted this residue during Change Request 2 and waved it through as
+"benign fail-closed". That was the wrong call: it is fail-closed against
+*deleting* a mark, but it silently defeats the feature's main purpose.
+
+**Fix:** the successful `rc == 0` session set is now tracked inside discovery
+itself — `_discover_panes_multi{,_async}` return
+`(panes, shadows, enumerated_sessions)`, and the single-session branch reports
+`{self.session}` on `rc == 0` — entirely independently of what survives parsing
+and filtering. It reaches the caller through a **caller-owned sink**
+(`discover_panes_with_shadows_async(*, enum_sink=...)`) rather than the return
+value or an instance attribute:
+
+- the 2-tuple return is a widely-stubbed seam (13 test doubles patch it), so its
+  shape stays untouched;
+- binding the value to *this* call is what stops an overlapping discovery from
+  handing its answer to the wrong capture generation — an instance attribute
+  would reintroduce exactly the pairing hazard Change Request 2 closed.
+
+`_record_discovery_facts` takes the set explicitly and falls back to the
+pane-derived approximation only when a caller cannot supply it (stubbed
+discovery in tests).
+
+Tested through the **real** discovery path, as the concern asked:
+`RealDiscoveryEnumerationTests` drives `_parse_list_panes` with a list-panes
+payload containing only an excluded companion pane and asserts the session is
+still enumerated — plus the end-to-end case through the generation-guarded
+commit. Negative control: forcing the pane-derived inference makes
+`test_companion_only_session_reaches_the_published_facts` fail.
+
+### Change Request 4 (2026-07-30) — seam doubles broken by the sink
+
+**[medium, CONFIRMED, blocking]** Change Request 3 preserved the discovery
+seam's 2-tuple *return* but changed its *invocation*:
+`capture_all_classified_async` now always passes `enum_sink=`, while ten test
+doubles across five files replaced it with zero-argument coroutines. Those
+raised `TypeError: unexpected keyword argument 'enum_sink'` inside the capture
+task — and because several of the affected suites are event-driven, the crash
+did not surface as a clean failure but **hung** them
+(`test_monitor_finalize_offload` had to be killed at a 2-minute timeout).
+
+Two process failures of mine, worth recording:
+1. I identified this exact risk when choosing the sink design ("doubles would
+   break on the unexpected kwarg") and then did not update them.
+2. I had launched the affected suites in the background and reported progress
+   without noticing the log was empty **because the run was hung**. An empty log
+   is a signal, not a neutral "still running".
+
+**Fix:** every double now takes `*, enum_sink=None` and populates it from the
+panes it returns, mirroring the real seam. Explicit keyword rather than
+`**kwargs` on purpose — `**kwargs` would silently swallow a future rename of the
+parameter, recreating this failure in a form no test would catch.
+
+Doubles updated: `test_monitor_shadow_status.py` (2),
+`test_monitor_shadow_zone.py` (1 + three `_no_shadows`),
+`test_monitor_finalize_offload.py` (1), `test_shadow_seam.py` (1 +
+`slow_discovery` + the `_discovery` factory), `test_monitor_concern_action.py`
+(1). A grep for zero-argument discovery doubles now returns none.
+
+**Lesson applied to verification:** a targeted suite selection is what let this
+through, so the full Python suite — not a curated subset — is the gate before
+this task is reported as verified.
+
+## Final Implementation Notes
+
+- **Actual work done:** New `.aitask-scripts/lib/agent_marks.py` (lock-free store
+  + policy + CLI) and `.aitask-scripts/aitask_agent_marks.sh` (the only writer,
+  holding `registry_lock.sh`). `format_mark_glyph` plus a shared
+  `AgentMarksMixin` in `monitor_shared.py`, mixed into both apps; `space`
+  binding, async `action_toggle_mark`, per-tick read and a scheduled purge.
+  Six new test files, four existing suites updated, three doc files.
+
+- **Deviations from plan:**
+  1. **[SUPERSEDED by Change Request 2 — this reasoning was wrong.]**
+     **No `monitor_core.py` change; `last_enumerated_sessions()` never built.**
+     The plan threaded a new enumerated-session set through the two-phase
+     capture protocol to avoid a generation-pairing hazard. That turned out to
+     be unnecessary: `_parse_list_panes` returns panes of *every* category and a
+     tmux session always has ≥1 pane, so
+     `{snap.pane.session_name for snap in _snapshots.values()}` **is** the
+     successfully-enumerated set — a failed `list-panes` contributes nothing.
+     Since `_snapshots` is what `commit_snapshots` publishes under the
+     generation guard, enumeration and snapshots are the same object and cannot
+     be mismatched. **This was wrong**: `_snapshots` omits panes whose content
+     capture failed, so it is not the discovered-pane set. Review concern 1
+     caught it; the plan's original design was reinstated, and
+     `tests/test_agent_marks_generation.py` now exists after all. Recorded here
+     rather than deleted so the mistake is visible: "a tmux session always has
+     ≥1 pane" was a fact about tmux, not about the capture pipeline.
+  2. **`AgentMarksMixin` instead of parallel edits.** ~180 lines shared by both
+     apps rather than duplicated.
+  3. **No allow-list entries and no `ait` dispatcher case.** Per
+     `aidocs/framework/aitasks_extension_points.md`, the 7-touchpoint whitelist
+     applies only to helpers invoked from a SKILL.md; this one is called solely
+     by the Python TUIs (the `aitask_skill_invalidate.sh` precedent).
+  4. **Modal-safety rationale corrected.** The plan (and my first
+     implementation comment) claimed the live-focus guard is what stops `space`
+     leaking through a pushed modal. A negative control disproved it: Textual
+     does not dispatch App-level `BINDINGS` while a `ModalScreen` is active, so
+     the modal tests stay green with the guard removed. The comment and test
+     docstring now attribute the protection correctly, the modal tests are
+     documented as a regression pin on Textual's behaviour, and
+     `test_space_with_focus_off_the_card_does_not_toggle` was added — that one
+     *does* fail under the mutation and is the guard's real justification.
+  5. **Negative-control target corrected.** The plan named the single-root
+     "session not enumerated" case as the over-deletion control. It does not
+     discriminate: with an empty `sweepable_roots` the early return fires first,
+     so it passes under the broken implementation too. The mixed-root tests are
+     the real control; the module docstring says so explicitly.
+  6. **Width is column-neutral, not a net cost.** Verified by real tmux capture
+     at 40 columns: the mark adds 2 columns and the name cap 22→20 removes 2, so
+     the worst-case row wraps exactly as much as it did before.
+
+- **Issues encountered:**
+  - **A real defect the tests caught:** `_strict_root_for_snap` originally
+    called the **sync** `get_session_to_project_mapping()` — once per row, per
+    tick — putting a potential blocking tmux round-trip on the full monitor's
+    refresh path. `tests/test_monitor_refresh_no_sync_tmux.py` exists precisely
+    to trip that and did. Fixed by publishing the mapping once per tick via
+    `_set_session_root_map`, fed from the value each app already fetches (the
+    **async** variant in the full monitor). This also removed an O(rows) lookup.
+  - A test bug that a positive control caught: `calls.extend(inner_list)` copied
+    an empty list, so the modal dispatch test was passing vacuously. Fixed by
+    passing the recording list by identity.
+
+- **Upstream defects identified:**
+  - `tests/test_multi_session_minimonitor.sh:188,272,332 — three `__new__`-built
+    app stubs omit `_completed_pane_ids`, which `_agent_card_text` /
+    `_rebuild_session_bar` have read since t1322; every `_rebuild_pane_list`
+    case in the file raised AttributeError before its assertions ran. The suite
+    was already red at HEAD (verified against `git show HEAD:` — the stub cannot
+    satisfy HEAD's code either). Repaired here since the file had to be touched
+    anyway; not a separate task.
+  - `website/content/docs/tuis/monitor/reference.md:45 — documents `a` for
+    auto-switch while `monitor_app.py` binds `A` (uppercase). Pre-existing doc
+    drift, untouched.
+  - `tests/test_board_work_report.py:483 — `test_hidden_cards_still_listed`
+    fails deterministically (`147 != 148`): `WorkReportTaskSelectScreen`'s
+    SelectionList shows one fewer option than `get_column_tasks()` returns for
+    the same column, so exactly one task in a 148-task column is silently
+    unselectable in the work report. Not caused by t1326 — the board imports
+    nothing this task touched (verified by grep) and the assertion is a pure
+    task-data count. Reproduced twice with identical numbers, so it is a stable
+    defect rather than a flake. Worth its own bug task.
+
+- **Key decisions:** identity is `(realpath(project_root), window_name)` — never
+  the session name, which is not unique across repos; the store is JSON so the
+  reader needs no PyYAML; read fails safe / write fails loud; the liveness sweep
+  is gated on *successful enumeration* so an enumerated-but-empty session purges
+  promptly while an unobservable one never does.
+
 ## Post-implementation
 
 Step 9 of the shared workflow handles cleanup, merge, and archival.

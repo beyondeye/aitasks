@@ -219,13 +219,28 @@ hunks are reliable but only observational, after the edit). Tracked separately.
 2. What does an **ungated** task show, given `inflight` only covers gated tasks?
 3. Should the optional early (pre-`ExitPlanMode`) claim be a profile key, and
    default on or off?
-4. Glyph and key choice in minimonitor — must not collide with t1326, which is
-   introducing its own mark glyph and shortcut on the same render seam. Confirm
-   sequencing with t1326 (`aitasks/t1326_cross_repo_agent_marks.md`): different
-   data (user intent, per-user, cross-repo) but the same `_agent_card_text` seam
-   and the same "first persisted state for the monitor TUIs" plumbing.
-5. Does the same mark belong in `ait monitor` (`monitor_app.py:1273`) as well, or
-   is minimonitor enough for v1?
+4. Glyph and key choice in minimonitor — must not collide with t1326.
+   **RESOLVED by t1326, which landed first.** What it took and what it left:
+   - **Key:** `space` is taken (both TUIs). Still free in both: `x`, `f`, `g`,
+     `b`, `v`, `w`, `y`.
+   - **Glyphs:** `★`/`☆` are taken (`MARK_GLYPH` / `MARK_EMPTY_GLYPH` in
+     `monitor_shared.py`), alongside the pre-existing `●` (state), `◆`/`◆!`
+     (shadow) and `≈`/`=` (compare mode). `☑`/`☐` are also spoken for — they
+     mean "selected for this action" in `ConcernPickerModal`.
+   - **Reusable plumbing:** `format_*_glyph(bool) -> str` returning Rich markup;
+     the leftmost-glyph row layout; the `AgentMarksMixin` shape (guarded
+     `action_*`, an injectable `_run_marks_cmd` subprocess seam, and
+     `call_later(self._refresh_data)` to repaint). Reuse the shape, not the file.
+   - **NOT reusable:** the store. t1326's is per-user and cross-repo
+     (`~/.config/aitasks/agent_marks.json`); t1343's claims are repo-local and
+     ephemeral. Deliberately kept as separate files — do not generalize
+     `agent_marks.py` into a multi-kind container.
+   - **Width:** the minimonitor row is at its budget. t1326 already cut the
+     window-name cap 22 → 20 to pay for two columns; a third always-on glyph
+     needs its own budget decision, not another silent cut.
+5. Does the same mark belong in `ait monitor` (`_format_agent_card_text`,
+   `monitor_app.py`) as well, or is minimonitor enough for v1? (t1326 chose
+   both, so the seam is already wired in each app.)
 6. Should the on-demand LLM adjudication path be in v1 at all, or deferred?
 
 ## Merged from t666: planning check sibling task overlap
