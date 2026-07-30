@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-07-29 11:58
-updated_at: 2026-07-29 22:06
+updated_at: 2026-07-30 07:56
 ---
 
 ## Problem
@@ -203,3 +204,8 @@ under **Keybinding** above.
    is enough — confirm no reordering is in scope.
 5. Purge trigger: startup sweep, per-refresh, an explicit action, or a helper
    script — and whether the 2-day window is user-configurable.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-30T04:56:43Z status=pass attempt=1 type=human
