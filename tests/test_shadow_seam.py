@@ -121,7 +121,11 @@ def _make_monitor(panes, shadows, content):
     for p in panes:
         mon._pane_cache[p.pane_id] = p
 
-    async def discover_with_shadows():
+    async def discover_with_shadows(*, enum_sink=None):
+        # Accepts the real seam's enumeration sink (t1326).
+        if enum_sink is not None:
+            enum_sink.append(frozenset(
+                p.session_name for p in list(panes) + list(shadows) if p.session_name))
         return list(panes), list(shadows)
 
     async def cap_content(pane_id, capture_lines=None, pane=None):
@@ -663,7 +667,7 @@ class ShadowRefreshOrderingTests(unittest.IsolatedAsyncioTestCase):
         gate = asyncio.Event()
         released = asyncio.Event()
 
-        async def slow_discovery():
+        async def slow_discovery(*, enum_sink=None):
             released.set()
             await gate.wait()          # suspend INSIDE the discovery await
             return [agent], [shadow]
@@ -986,7 +990,11 @@ async def _failing_capture(pane_id, capture_lines=None, pane=None):
 
 
 def _discovery(panes, shadows):
-    async def _coro():
+    async def _coro(*, enum_sink=None):
+        if enum_sink is not None:
+            enum_sink.append(frozenset(
+                p.session_name for p in list(panes) + list(shadows)
+                if p.session_name))
         return list(panes), list(shadows)
     return _coro
 

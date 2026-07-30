@@ -76,9 +76,13 @@ def _make_monitor(panes, content, *, patterns=None):
     async def discover(*, include_registered: bool = False):
         return list(panes)
 
-    async def discover_with_shadows():
+    async def discover_with_shadows(*, enum_sink=None):
         # No shadow panes in these fixtures (shadow coverage lives in
         # test_monitor_shadow_status.py, t1133).
+        # Accepts the real seam's enumeration sink (t1326).
+        if enum_sink is not None:
+            enum_sink.append(frozenset(
+                p.session_name for p in list(panes) if p.session_name))
         return list(panes), []
 
     async def cap_content(pane_id, capture_lines=None, pane=None):

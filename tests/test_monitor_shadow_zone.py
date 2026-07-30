@@ -104,7 +104,12 @@ def _make_monitor(panes, shadows, content):
     for p in panes:
         mon._pane_cache[p.pane_id] = p
 
-    async def discover_with_shadows():
+    async def discover_with_shadows(*, enum_sink=None):
+        # Accepts the real seam's enumeration sink (t1326).
+        if enum_sink is not None:
+            enum_sink.append(frozenset(
+                p.session_name for p in list(panes) + list(shadows)
+                if p.session_name))
         return list(panes), list(shadows)
 
     async def cap_content(pane_id, capture_lines=None, pane=None):
@@ -745,7 +750,11 @@ class MountedShadowColumnTests(unittest.TestCase):
             app.query_one("#shadow-preview").focus()
             await pilot.pause()
 
-            async def _no_shadows():
+            async def _no_shadows(*, enum_sink=None):
+                if enum_sink is not None:
+                    enum_sink.append(frozenset(
+                        p.session_name for p in mon._pane_cache.values()
+                        if p.session_name))
                 return list(mon._pane_cache.values()), []
 
             mon.discover_panes_with_shadows_async = _no_shadows
@@ -781,7 +790,11 @@ class MountedShadowColumnTests(unittest.TestCase):
             app.query_one("#shadow-preview").focus()
             await pilot.pause()
 
-            async def _no_shadows():
+            async def _no_shadows(*, enum_sink=None):
+                if enum_sink is not None:
+                    enum_sink.append(frozenset(
+                        p.session_name for p in mon._pane_cache.values()
+                        if p.session_name))
                 return list(mon._pane_cache.values()), []
 
             mon.discover_panes_with_shadows_async = _no_shadows
@@ -857,7 +870,11 @@ class MountedShadowColumnTests(unittest.TestCase):
             app._restore_focus = spy
 
             # Shadow disappears from discovery entirely.
-            async def _no_shadows():
+            async def _no_shadows(*, enum_sink=None):
+                if enum_sink is not None:
+                    enum_sink.append(frozenset(
+                        p.session_name for p in mon._pane_cache.values()
+                        if p.session_name))
                 return list(mon._pane_cache.values()), []
 
             mon.discover_panes_with_shadows_async = _no_shadows

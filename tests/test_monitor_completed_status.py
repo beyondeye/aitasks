@@ -88,6 +88,11 @@ class _FakeMonitor:
     def get_shadow_snapshot(self, followed_pane_id):
         return self._shadow.get(followed_pane_id)
 
+    def get_session_to_project_mapping(self):
+        # Empty: these tests assert on the completed/idle badge, so every row
+        # resolves no project root and renders the unmarked ☆ (t1326).
+        return {}
+
     def control_state(self):
         from monitor.monitor_core import TmuxControlState
         return TmuxControlState.CONNECTED

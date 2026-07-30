@@ -95,7 +95,12 @@ def _make_monitor(panes, shadows, content, *, patterns=None, idle_threshold=5.0)
     for p in panes:
         mon._pane_cache[p.pane_id] = p
 
-    async def discover_with_shadows():
+    async def discover_with_shadows(*, enum_sink=None):
+        # Accepts the real seam's enumeration sink (t1326).
+        if enum_sink is not None:
+            enum_sink.append(frozenset(
+                p.session_name for p in list(panes) + list(shadows)
+                if p.session_name))
         return list(panes), list(shadows)
 
     async def cap_content(pane_id, capture_lines=None, pane=None):
@@ -278,7 +283,11 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         mon = _make_monitor([agent], shadows, content)
 
         # Scripted discover reads the mutable `shadows` list each cycle.
-        async def discover_with_shadows():
+        async def discover_with_shadows(*, enum_sink=None):
+            if enum_sink is not None:
+                enum_sink.append(frozenset(
+                    p.session_name for p in [agent] + list(shadows)
+                    if p.session_name))
             return [agent], list(shadows)
 
         mon.discover_panes_with_shadows_async = discover_with_shadows
@@ -391,6 +400,11 @@ class _FakeShadowLookupMonitor:
 
     def get_shadow_snapshot(self, followed_pane_id: str):
         return self._shadow_by_followed.get(followed_pane_id)
+
+    def get_session_to_project_mapping(self) -> dict:
+        # Empty: these tests assert on the shadow/state glyphs, so every row
+        # resolves no project root and renders the unmarked ☆ (t1326).
+        return {}
 
 
 class FormatterTests(unittest.TestCase):

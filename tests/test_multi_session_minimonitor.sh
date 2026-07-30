@@ -200,7 +200,18 @@ app._monitor = SimpleNamespace(
     multi_session=True,
     get_compare_mode=lambda pid: "stripped",
     is_compare_mode_overridden=lambda pid: False,
+    # t1133 shadow glyph and t1326 mark lookup both read the monitor from
+    # _agent_card_text; without them the stub cannot render a row at all.
+    get_shadow_snapshot=lambda pid: None,
+    get_session_to_project_mapping=lambda: {},
 )
+# Per-tick sets read by _agent_card_text. `_completed_pane_ids` (t1322) was
+# missing from this stub, which made every _rebuild_pane_list case here raise
+# AttributeError before the assertions ran — a pre-existing breakage repaired
+# in t1326 while adding the mark coverage below.
+app._completed_pane_ids = frozenset()
+app._gate_cache = SimpleNamespace(summary_for=lambda info: None, clear=lambda: None)
+app._init_agent_marks()
 
 def mk_snap(sess, wi, pi, pid, name):
     pane = SimpleNamespace(
@@ -266,6 +277,9 @@ app._monitor = SimpleNamespace(
     multi_session=True,
     control_state=lambda: TmuxControlState.STOPPED,
 )
+# Pre-existing stub gap repaired in t1326: _rebuild_session_bar has read the
+# per-tick completed set since t1322.
+app._completed_pane_ids = frozenset()
 
 def mk_snap(sess, idle=False):
     pane = SimpleNamespace(
@@ -330,7 +344,17 @@ def make_app(containers):
         multi_session=False,
         get_compare_mode=lambda pid: "stripped",
         is_compare_mode_overridden=lambda pid: False,
+        # t1133 shadow glyph and t1326 mark lookup, both read per row.
+        get_shadow_snapshot=lambda pid: None,
+        get_session_to_project_mapping=lambda: {},
     )
+    # Pre-existing stub gap repaired in t1326: _agent_card_text has read the
+    # per-tick completed set since t1322 and the gate summary since t1181.
+    app._completed_pane_ids = frozenset()
+    app._gate_cache = SimpleNamespace(
+        summary_for=lambda info: None, clear=lambda: None
+    )
+    app._init_agent_marks()
     # Own agent in window 1 (session sA); another agent in window 2.
     app._snapshots = {
         "%1": mk_snap("sA", "1", "0", "%1", "agent-own"),
@@ -437,6 +461,79 @@ PY
 )
 assert_contains "switcher defaults to the followed agent's session" "DEFAULT_FOLLOWED:True" "$out"
 assert_contains "no followed agent → switcher default is None"      "DEFAULT_NONE:True"     "$out"
+
+# --- Tier 1g: cross-repo mark isolation (t1326) ---
+# Two sessions mapping to two DIFFERENT project roots, each running a window
+# with the SAME name. This is the real collision: an unconfigured repo's tmux
+# session falls back to the literal name "aitasks", so window names like
+# `agent-pick-42` repeat across repos. A mark set in one repo must never render
+# in the other, which is why the store is keyed by (realpath(root), window)
+# rather than by session or window name alone.
+
+MARKS_TMP="$(mktemp -d "${TMPDIR:-/tmp}/ait_mm_marks_XXXXXX")"
+mkdir -p "$MARKS_TMP/repoA" "$MARKS_TMP/repoB"
+out=$(AITASKS_AGENT_MARKS_FILE="$MARKS_TMP/marks.json" \
+      MARKS_ROOT_A="$MARKS_TMP/repoA" MARKS_ROOT_B="$MARKS_TMP/repoB" \
+      PYTHONPATH="$PYPATH" "$AITASK_PYTHON" <<'PY'
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from rich.text import Text
+from monitor import minimonitor_app as mm
+from monitor.monitor_shared import MARK_GLYPH, MARK_EMPTY_GLYPH
+import agent_marks
+
+ROOT_A = os.environ["MARKS_ROOT_A"]
+ROOT_B = os.environ["MARKS_ROOT_B"]
+STORE = os.environ["AITASKS_AGENT_MARKS_FILE"]
+
+# Mark `agent-pick-42` in repo A ONLY.
+mf = agent_marks.load(STORE)
+agent_marks.toggle(mf, ROOT_A, "agent-pick-42")
+agent_marks.dump(mf, STORE)
+
+def mk_snap(sess, name):
+    pane = SimpleNamespace(
+        category=mm.PaneCategory.AGENT, session_name=sess,
+        window_index="1", pane_index="0", pane_id="%" + sess,
+        window_name=name,
+    )
+    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0)
+
+app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
+app._task_cache = SimpleNamespace(
+    get_task_id_for_pane=lambda p: None, get_task_info=lambda t, s=None: None
+)
+app._monitor = SimpleNamespace(
+    multi_session=True,
+    get_compare_mode=lambda pid: "stripped",
+    is_compare_mode_overridden=lambda pid: False,
+    get_shadow_snapshot=lambda pid: None,
+    get_session_to_project_mapping=lambda: {"sA": Path(ROOT_A), "sB": Path(ROOT_B)},
+)
+app._completed_pane_ids = frozenset()
+app._gate_cache = SimpleNamespace(summary_for=lambda i: None, clear=lambda: None)
+app._init_agent_marks()
+app._set_session_root_map(app._monitor.get_session_to_project_mapping())
+app._refresh_marks()
+
+a = Text.from_markup(app._agent_card_text(mk_snap("sA", "agent-pick-42"))).plain
+b = Text.from_markup(app._agent_card_text(mk_snap("sB", "agent-pick-42"))).plain
+print("A_MARKED:" + str(MARK_GLYPH in a))
+print("B_MARKED:" + str(MARK_GLYPH in b))
+print("B_SHOWS_EMPTY:" + str(MARK_EMPTY_GLYPH in b))
+
+# An unmapped session cannot resolve a root, so it renders unmarked rather than
+# inheriting this repo's marks via a fallback.
+c = Text.from_markup(app._agent_card_text(mk_snap("sZ", "agent-pick-42"))).plain
+print("UNMAPPED_MARKED:" + str(MARK_GLYPH in c))
+PY
+)
+rm -rf "$MARKS_TMP"
+assert_contains "mark renders in the repo it was set in"        "A_MARKED:True"        "$out"
+assert_contains "same window name in another repo is NOT marked" "B_MARKED:False"      "$out"
+assert_contains "unmarked row still shows the hollow glyph"      "B_SHOWS_EMPTY:True"  "$out"
+assert_contains "unmapped session never inherits a mark"         "UNMAPPED_MARKED:False" "$out"
 
 echo
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"

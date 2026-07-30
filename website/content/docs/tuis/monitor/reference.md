@@ -33,6 +33,7 @@ depth: [advanced]
 | `R` | Restart the task running in the focused agent pane | Pane list zone |
 | `L` | Open the log for the focused pane in a separate viewer | Pane list zone |
 | `c` | Pick the shadow's concerns for the focused agent and copy the selected ones to the clipboard | Pane list zone |
+| `Space` | Toggle the prioritized mark (`★`) on the focused agent — stored per user and shared across all your projects | Pane list zone |
 
 #### Monitor Controls
 

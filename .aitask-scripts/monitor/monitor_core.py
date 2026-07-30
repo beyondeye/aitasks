@@ -1143,6 +1143,11 @@ class TmuxMonitor:
         # beside the state it guards, so every caller (monitor, minimonitor,
         # pusher, applink router) is protected uniformly.
         self._capture_generation: int = 0
+        # Discovery-derived liveness facts (t1326), keyed by capture generation
+        # until that generation's commit wins. See _record_discovery_facts.
+        self._discovery_facts: dict[int, tuple[frozenset, frozenset]] = {}
+        self._enumerated_sessions: frozenset[str] = frozenset()
+        self._discovered_agents: frozenset = frozenset()
         self._pane_cache: dict[str, TmuxPaneInfo] = {}
         # Shadow-status map (t1133): followed pane id → the bound shadow pane's
         # latest PaneSnapshot. Rebuilt wholesale by every `commit_snapshots`
@@ -1213,6 +1218,69 @@ class TmuxMonitor:
         """Reserve and return the next capture generation (see `__init__`)."""
         self._capture_generation += 1
         return self._capture_generation
+
+    # -- discovery-derived liveness facts (t1326) ------------------------------
+    #
+    # Published for the prioritized-agent mark purge, which must distinguish
+    # "this session was enumerated and the agent is gone" from "we could not see
+    # this session". Both answers come from DISCOVERY, never from the committed
+    # snapshots: a pane whose content capture failed is dropped by
+    # `commit_snapshots`, and treating that as a departed agent would delete a
+    # live mark.
+
+    def _record_discovery_facts(
+        self, gen: int, panes, shadows, enumerated=None
+    ) -> None:
+        """Stash this generation's discovery facts until its commit wins.
+
+        ``enumerated`` is the set of sessions whose ``list-panes`` returned
+        ``rc == 0``, reported by discovery independently of what survives
+        parsing and filtering. That independence is the point: a session whose
+        last agent has exited may retain only the excluded companion pane, so it
+        parses to ZERO panes while being perfectly observable. Inferring the set
+        from the surviving panes would call it unenumerated, leave it
+        un-sweepable, and strand the departed agent's mark until TTL expiry.
+
+        ``None`` means the caller could not supply it (a stubbed discovery in
+        tests); the pane-derived set is then the best available approximation.
+        """
+        if enumerated is None:
+            enumerated = frozenset(
+                p.session_name
+                for p in list(panes) + list(shadows)
+                if p.session_name
+            )
+        sessions = frozenset(enumerated)
+        agents = frozenset(
+            (p.session_name, p.window_name)
+            for p in panes
+            if p.category == PaneCategory.AGENT and p.session_name
+        )
+        self._discovery_facts[gen] = (sessions, agents)
+        # Prune anything older than the live reservation; those batches can no
+        # longer commit, so their facts are unreachable.
+        for stale in [g for g in self._discovery_facts if g < gen]:
+            del self._discovery_facts[stale]
+
+    def _publish_discovery_facts(self, gen: int) -> None:
+        """Promote a winning generation's facts. Called only past the guard."""
+        facts = self._discovery_facts.pop(gen, None)
+        if facts is not None:
+            self._enumerated_sessions, self._discovered_agents = facts
+
+    def last_enumerated_sessions(self) -> frozenset[str]:
+        """Sessions whose panes were listed in the last *committed* discovery.
+
+        A session absent here was not observed at all — not running, its
+        `list-panes` failed, or it lives on another tmux socket — and is
+        therefore never a valid basis for concluding an agent departed.
+        """
+        return self._enumerated_sessions
+
+    def last_discovered_agents(self) -> frozenset:
+        """``(session_name, window_name)`` for every agent window discovered in
+        the last committed cycle, including ones whose content capture failed."""
+        return self._discovered_agents
 
     @property
     def capture_generation(self) -> int:
@@ -1470,9 +1538,13 @@ class TmuxMonitor:
         lambda p: (p.session_name, p.window_index, p.pane_index)
     )
 
-    def _discover_panes_multi(self) -> tuple[list[TmuxPaneInfo], list[TmuxPaneInfo]]:
+    def _discover_panes_multi(
+        self,
+    ) -> tuple[list[TmuxPaneInfo], list[TmuxPaneInfo], frozenset[str]]:
+        """``(panes, shadows, successfully_enumerated_sessions)``."""
         panes: list[TmuxPaneInfo] = []
         shadows: list[TmuxPaneInfo] = []
+        ok_sessions: set[str] = set()   # see the async sibling (t1326)
         for sess in self._target_sessions():
             rc, stdout = self.tmux_run([
                 "list-panes", "-s", "-t", tmux_session_target(sess),
@@ -1480,19 +1552,21 @@ class TmuxMonitor:
             ])
             if rc != 0:
                 continue
+            ok_sessions.add(sess)
             sess_panes, sess_shadows = self._parse_list_panes(stdout, sess)
             panes.extend(sess_panes)
             shadows.extend(sess_shadows)
         panes.sort(key=self._PANE_SORT_KEY)
         shadows.sort(key=self._PANE_SORT_KEY)
-        return panes, shadows
+        return panes, shadows, frozenset(ok_sessions)
 
     async def _discover_panes_multi_async(
         self,
-    ) -> tuple[list[TmuxPaneInfo], list[TmuxPaneInfo]]:
+    ) -> tuple[list[TmuxPaneInfo], list[TmuxPaneInfo], frozenset[str]]:
+        """``(panes, shadows, successfully_enumerated_sessions)``."""
         sessions = await self._target_sessions_async()
         if not sessions:
-            return [], []
+            return [], [], frozenset()
         results = await asyncio.gather(*[
             self._tmux_async([
                 "list-panes", "-s", "-t", tmux_session_target(sess),
@@ -1502,15 +1576,22 @@ class TmuxMonitor:
         ])
         panes: list[TmuxPaneInfo] = []
         shadows: list[TmuxPaneInfo] = []
+        # Sessions whose `list-panes` SUCCEEDED, recorded independently of what
+        # survives parsing/filtering (t1326). A session can enumerate cleanly and
+        # still yield zero panes — e.g. its last agent exited and only the
+        # excluded companion pane remains — and that is a very different fact
+        # from "we could not see this session".
+        ok_sessions: set[str] = set()
         for sess, (rc, stdout) in zip(sessions, results):
             if rc != 0:
                 continue
+            ok_sessions.add(sess)
             sess_panes, sess_shadows = self._parse_list_panes(stdout, sess)
             panes.extend(sess_panes)
             shadows.extend(sess_shadows)
         panes.sort(key=self._PANE_SORT_KEY)
         shadows.sort(key=self._PANE_SORT_KEY)
-        return panes, shadows
+        return panes, shadows, frozenset(ok_sessions)
 
     def discover_panes(self) -> list[TmuxPaneInfo]:
         """Agent-facing panes only (shadow companions excluded) — the public
@@ -1530,20 +1611,31 @@ class TmuxMonitor:
         return (await self.discover_panes_with_shadows_async())[0]
 
     async def discover_panes_with_shadows_async(
-        self,
+        self, *, enum_sink: list | None = None,
     ) -> tuple[list[TmuxPaneInfo], list[TmuxPaneInfo]]:
         """Discovery for the live capture pipeline (t1133): returns
         ``(agent_facing_panes, shadow_panes)`` from the SAME ``list-panes``
         output — shadow discovery costs zero extra tmux round-trips."""
         if self.multi_session:
-            return await self._discover_panes_multi_async()
-        rc, stdout = await self._tmux_async(
-            ["list-panes", "-s", "-t", tmux_session_target(self.session),
-             "-F", self._LIST_PANES_FORMAT],
-        )
-        if rc != 0:
-            return [], []
-        return self._parse_list_panes(stdout, self.session)
+            panes, shadows, ok_sessions = await self._discover_panes_multi_async()
+        else:
+            rc, stdout = await self._tmux_async(
+                ["list-panes", "-s", "-t", tmux_session_target(self.session),
+                 "-F", self._LIST_PANES_FORMAT],
+            )
+            if rc != 0:
+                panes, shadows, ok_sessions = [], [], frozenset()
+            else:
+                panes, shadows = self._parse_list_panes(stdout, self.session)
+                ok_sessions = frozenset({self.session})
+        # The successfully-enumerated session set is reported through a
+        # caller-owned sink rather than the return value (t1326): the 2-tuple
+        # return is a widely-stubbed seam, and binding the value to THIS call
+        # — instead of an instance attribute — is what stops an overlapping
+        # discovery from handing its answer to the wrong capture generation.
+        if enum_sink is not None:
+            enum_sink.append(ok_sessions)
+        return panes, shadows
 
     def discover_window_panes(self, window_id: str) -> list[TmuxPaneInfo]:
         """Discover panes in a specific window (not session-wide).
@@ -1984,7 +2076,27 @@ class TmuxMonitor:
         the comment at that site (t1216_1).
         """
         gen = self._next_generation()
-        panes, shadows = await self.discover_panes_with_shadows_async()
+        # Caller-owned sink: the enumerated-session set belongs to THIS call, so
+        # an overlapping discovery cannot hand its answer to our generation.
+        enum_sink: list = []
+        panes, shadows = await self.discover_panes_with_shadows_async(
+            enum_sink=enum_sink
+        )
+
+        # Discovery-derived liveness facts, stamped with THIS generation
+        # (t1326). Recorded here — from discovery — and never from the committed
+        # snapshots, because `commit_snapshots` drops any pane whose content
+        # capture failed (`if result is None: continue`). Deriving "which agents
+        # exist" from snapshots would make a transient capture failure look like
+        # a departed agent, and the mark purge would delete a live agent's mark.
+        #
+        # Keyed by `gen` rather than assigned to a bare attribute so an older
+        # overlapping capture can never overwrite a newer one's facts: the
+        # winning commit pops its own key, and losing generations are pruned.
+        self._record_discovery_facts(
+            gen, panes, shadows,
+            enum_sink[0] if enum_sink else None,
+        )
 
         # Raw captures concurrently (non-finalizing); tolerate per-pane faults.
         # Shadow panes (t1133) join the SAME gather (invariant E — one cycle,
@@ -2066,6 +2178,11 @@ class TmuxMonitor:
         """
         if gen != self._capture_generation:
             return None
+        # Past the guard: this generation won, so promote the discovery facts it
+        # recorded (t1326). Doing it here — atomically with the snapshots — is
+        # what guarantees the mark purge can never pair one tick's snapshots
+        # with another tick's view of which sessions and agents exist.
+        self._publish_discovery_facts(gen)
         self._clean_stale({pane.pane_id for pane, _, _ in classified})
         # Cache-boundary enforcement (t1133): a shadow pane discovered BEFORE
         # its `@aitask_shadow_target` option was stamped (the spawner sets it

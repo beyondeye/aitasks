@@ -37,9 +37,10 @@ from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
     TaskDetailDialog, KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
-    ConcernPickerModal,
-    format_compare_mode_glyph, format_pane_status, format_shadow_glyph,
-    format_state_dot, is_task_completed, unparsed_concerns_msg,
+    AgentMarksMixin, ConcernPickerModal,
+    format_compare_mode_glyph, format_mark_glyph, format_pane_status,
+    format_shadow_glyph, format_state_dot, is_task_completed,
+    unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
     _SENTINEL_SAFE_COLS, block_head_truncated, build_clipboard_payload,
@@ -354,7 +355,7 @@ class RestartConfirmDialog(ModalScreen):
 
 # -- Main app -----------------------------------------------------------------
 
-class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
+class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
     """Textual app for monitoring tmux panes running code agents."""
 
     _shortcuts_scope = "monitor"
@@ -486,6 +487,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("L", "open_log", "Log"),
         Binding("d", "cycle_compare_mode", "Detect"),
         Binding("c", "pick_concerns", "Concerns"),
+        Binding("space", "toggle_mark", "Mark"),
     ]
 
     def __init__(
@@ -612,6 +614,8 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # action_toggle_auto_switch) reuse the last tick's set rather than
         # triggering an N-stat fan-out on a keystroke.
         self._completed_pane_ids: frozenset[str] = frozenset()
+        # Prioritized-agent marks (t1326): cached reader + purge scheduling.
+        self._init_agent_marks()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -934,9 +938,15 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Refresh the per-session project-root mapping so cross-session task
         # data resolves from the right project. Cheap — piggybacks on the
         # TmuxMonitor sessions cache TTL.
-        self._task_cache.update_session_mapping(
-            await self._monitor.get_session_to_project_mapping_async()
-        )
+        session_roots = await self._monitor.get_session_to_project_mapping_async()
+        self._task_cache.update_session_mapping(session_roots)
+        # Prioritized marks (t1326): publish the SAME mapping to the mark code
+        # (the async value — the render path must never make a sync tmux call;
+        # see test_monitor_refresh_no_sync_tmux.py), then re-read the store.
+        # The re-read is mtime-gated, so it is one os.stat when nothing changed,
+        # and it is what makes a mark set in another repo appear within a tick.
+        self._set_session_root_map(session_roots)
+        self._refresh_marks()
         # Completed-pane set for THIS tick (t1322). Must run after
         # update_session_mapping (which may clear the task cache) and before
         # _maybe_auto_switch below, which filters on it.
@@ -1019,6 +1029,10 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.run_worker(
             self._offer_concerns(), group="concerns", exit_on_error=False
         )
+
+        # Materialize mark expiry / the liveness sweep at most every 10 min
+        # (t1326). Last, so a slow writer can never delay the visible refresh.
+        await self._maybe_purge_marks()
 
     async def _offer_concerns(self) -> None:
         """Toast the SELECTED agent once per verified block.
@@ -1513,8 +1527,13 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             shadow_snap, has_concerns=self._has_fresh_concerns(snap.pane.pane_id)
         )
         shadow_part = f" {shadow}" if shadow else ""
+        # Leftmost: the prioritized mark (t1326) is a durable user annotation,
+        # deliberately outside the live state cluster. Always-on ★/☆ pair, so
+        # rows never shift when one is toggled.
+        mark = format_mark_glyph(self._is_marked(snap))
         text = (
-            f" {dot}{shadow_part} {glyph} {snap.pane.window_index}:{snap.pane.window_name} "
+            f" {mark} {dot}{shadow_part} {glyph} "
+            f"{snap.pane.window_index}:{snap.pane.window_name} "
             f"({snap.pane.pane_index})  {status}"
         )
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)

@@ -38,8 +38,9 @@ Minimonitor shows a single scrollable list of **agent panes** (windows whose nam
 
 Each card in the list shows:
 
+- A prioritized mark: **★** when you have marked the agent, dim **☆** when you have not (see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized))
 - A status dot: **green** when the agent has produced recent output, **yellow** when it is idle
-- The agent window name (truncated to 22 characters on narrow layouts)
+- The agent window name (truncated to 20 characters on narrow layouts)
 - An `IDLE <n>s` label when the pane has been quiet longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds)
 - For agents whose window name carries a task ID, a second dimmed line showing the task's title
 
@@ -152,6 +153,23 @@ If no shadow is running, pressing **c** tells you to launch one with **e**; if t
 > - **Placement** — `tmux.shadow_same_window` (Tmux tab): `true` (default) splits the shadow into the followed agent's window; `false` opens it in its own window.
 > - **Agent and model** — the `shadow` row on the Agent Defaults tab selects which coding agent and model the shadow runs as.
 
+### How to Mark an Agent as Prioritized
+
+When you are following many agents, some matter more than others. Press **Space** to toggle a **prioritized mark** on the selected agent. Marked agents show a bright **★**; unmarked agents show a dim **☆**, so the column is always present and rows never shift when you toggle one.
+
+The marks are stored **per user, outside every repository**, in `~/.config/aitasks/agent_marks.json` (override the path with `AITASKS_AGENT_MARKS_FILE`). That means a mark you set here is visible from every other project's `minimonitor` and `monitor` — usually within one refresh cycle (about 3 seconds). Marks survive restarting the TUI.
+
+Each mark is keyed by the pair *(project root, tmux window name)*, so two projects that happen to run identically-named agent windows never share a mark.
+
+Marks are purely visual: they do not reorder the list or change any counter.
+
+**Automatic cleanup.** You never have to unmark stale entries by hand:
+
+- **Age** — a mark older than about 2 days is dropped automatically. Set `AITASKS_AGENT_MARK_TTL_DAYS` to change the window (a missing or invalid value falls back to the default, so a typo cannot wipe your marks).
+- **Departed agents** — when a project's tmux session is visible and the marked window is gone, its mark is dropped. This check is deliberately conservative: if a project's session cannot be seen at all — it is not running, or lives on a different tmux server — its marks are always left alone. A project you simply have not opened today never loses its marks.
+
+> **Note:** the followed agent pinned at the top of the pane is not markable; marks apply to the agents in the scrollable list. Prioritizing the agent you are already watching would not tell you anything.
+
 ### How to Jump to Another TUI
 
 Press **j** to open the TUI switcher overlay. The overlay lists the TUIs integrated with the tmux workflow:
@@ -228,6 +246,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
 | `E` | Launch a shadow agent, choosing the code agent and model first |
 | `c` | Pick the shadow's concerns and copy the selected ones to the clipboard |
+| `Space` | Toggle the prioritized mark (`★`) on the selected agent — shared across all your projects |
 | `d` | Cycle the idle-detection compare mode (`≈` ANSI-stripped, `=` strict) |
 | `j` | Open the TUI switcher |
 | `m` | Switch to the full [monitor]({{< relref "/docs/tuis/monitor" >}}) with this agent focused |

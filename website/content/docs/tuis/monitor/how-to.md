@@ -41,6 +41,7 @@ Each card shows:
 - An **idle indicator** when the pane has not produced new output for longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds)
 - For agent panes carrying a task ID in the window name, the associated task number
 - A **shadow marker** `◆` when a shadow agent is bound to that pane, colored by the shadow's own state. It gains a `!` (`◆!`) when the shadow has raised concerns you have not picked yet — see [How to Pick Shadow Concerns](#how-to-pick-shadow-concerns). Panes with no shadow show nothing at all here.
+- A **prioritized mark** at the far left: `★` when you have marked the agent, dim `☆` when you have not — see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized).
 
 Classification rules are config-driven — you can change the agent prefixes and the TUI list by editing `aitasks/metadata/project_config.yaml` directly or via [`ait settings`]({{< relref "/docs/tuis/settings" >}}) → Tmux tab. See the [Reference](reference/#pane-classification) for details.
 
@@ -155,6 +156,21 @@ If the selected agent has no shadow bound, monitor tells you so and does nothing
 > **Badge and auto-offer:** every agent whose shadow has an un-picked block is marked with `◆!` on its card, so nothing is missed across many agents at once. A toast — `Shadow raised 2 concern(s) — press 'c' to pick` — fires only for the **currently selected** agent, so there is at most one popup no matter how many agents are running. The count is of concerns needing attention; any informational ones are noted separately in the same toast, and `(⚠ STALE — agent moved on)` is appended when the agent has produced output since the shadow last analyzed it. A block whose markers cannot be parsed still raises the badge but deliberately does not toast — pressing **c** then tells you exactly what went wrong.
 
 > **Where shadows come from:** launch one from [minimonitor]({{< relref "/docs/tuis/minimonitor/how-to" >}}) with **e**. Monitor reads and picks concerns but does not spawn shadows itself.
+
+### How to Mark an Agent as Prioritized
+
+With the pane list focused, press **Space** to toggle a **prioritized mark** on the focused agent. Marked agents show a bright **★**; unmarked agents show a dim **☆**, so the column is always present and rows never shift when you toggle one.
+
+Marks are stored **per user, outside every repository**, in `~/.config/aitasks/agent_marks.json` (override the path with `AITASKS_AGENT_MARKS_FILE`). A mark you set here is therefore visible from every other project's `monitor` and [`minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}), usually within one refresh cycle, and survives restarting the TUI. Each mark is keyed by the pair *(project root, tmux window name)*, so two projects running identically-named agent windows never share a mark.
+
+Marks are purely visual — they do not reorder the list or change the session-bar counters.
+
+**Automatic cleanup** keeps the list honest without any manual unmarking:
+
+- **Age** — a mark older than about 2 days is dropped. Override the window with `AITASKS_AGENT_MARK_TTL_DAYS`; a missing or invalid value falls back to the default, so a typo cannot wipe your marks.
+- **Departed agents** — when a project's tmux session is visible and the marked window is gone, its mark is dropped. The check is deliberately conservative: a project whose session cannot be seen at all — not running, or on a different tmux server — never loses its marks.
+
+Outside the pane list zone, `Space` behaves as it always has: it is forwarded to the focused tmux pane along with every other unhandled key.
 
 ### How to Cycle the Preview Size
 

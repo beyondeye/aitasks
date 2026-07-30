@@ -45,10 +45,11 @@ from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
+    AgentMarksMixin,
     ConcernPickerModal, TaskNumberInputModal, TaskPickConfirmDialog,
-    format_compare_mode_glyph, format_pane_status, format_shadow_glyph,
-    format_stale_duration, format_state_dot, is_task_completed,
-    unparsed_concerns_msg,
+    format_compare_mode_glyph, format_mark_glyph, format_pane_status,
+    format_shadow_glyph, format_stale_duration, format_state_dot,
+    is_task_completed, unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
     block_head_truncated, build_clipboard_payload, has_concern_block,
@@ -111,7 +112,7 @@ _unparsed_msg = unparsed_concerns_msg
 
 # -- Main app -----------------------------------------------------------------
 
-class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
+class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
     """Compact Textual app for monitoring tmux agent panes."""
 
     _shortcuts_scope = "minimonitor"
@@ -204,6 +205,7 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("m", "switch_to_monitor", "Full Monitor", show=False),
         Binding("M", "toggle_multi_session", "Multi", show=False),
         Binding("d", "cycle_compare_mode", "Detect", show=False),
+        Binding("space", "toggle_mark", "Mark", show=False),
     ]
 
     def __init__(
@@ -269,6 +271,8 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # runs every tick. Odd counter ⇒ checks on the first tick a shadow is
         # present (responsive) then every second one.
         self._shadow_freshness_tick: int = 0
+        # Prioritized-agent marks (t1326): cached reader + purge scheduling.
+        self._init_agent_marks()
 
     def compose(self) -> ComposeResult:
         yield Static(id="mini-session-bar")
@@ -283,7 +287,8 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
             "d:detect (\u2248 strip, = raw)\n"
             "j:tui switcher  m:full monitor\n"
             "k:kill  n:next  e/E:shadow\n"
-            "c:concerns  p:pick task",
+            "c:concerns  p:pick task\n"
+            "space:mark (★ prioritized)",
             id="mini-key-hints",
         )
 
@@ -439,12 +444,18 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Refresh per-session project-root mapping so cross-session task data
         # resolves from the right project (free — uses TmuxMonitor's cached
         # session list).
-        self._task_cache.update_session_mapping(
-            self._monitor.get_session_to_project_mapping()
-        )
+        session_roots = self._monitor.get_session_to_project_mapping()
+        self._task_cache.update_session_mapping(session_roots)
+        # Prioritized marks (t1326) reuse this tick's mapping rather than
+        # re-querying per row — see AgentMarksMixin._set_session_root_map.
+        self._set_session_root_map(session_roots)
         # Drop last cycle's gate summaries so a live-growing ledger re-derives
         # this refresh (mirrors the board's per-refresh gate cache).
         self._gate_cache.clear()
+        # Prioritized marks (t1326): mtime-gated, so this is one os.stat when
+        # nothing changed. Must run before the pane list renders, and is what
+        # makes a mark set in another repo appear here within one tick.
+        self._refresh_marks()
         # Completed-pane set for THIS tick (t1322) — after the session
         # mapping refresh (which may clear the task cache), before the bar
         # and the pane list read it.
@@ -472,6 +483,10 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # concern block on the followed agent's shadow pane. Best-effort and
         # event-loop safe — any failure silently skips this tick.
         await self._maybe_offer_concerns()
+
+        # Materialize mark expiry / the liveness sweep at most every 10 min
+        # (t1326). Last, so a slow writer can never delay the visible refresh.
+        await self._maybe_purge_marks()
 
     def _check_auto_close(self) -> None:
         """Exit if no other panes remain in our window (besides ourselves)."""
@@ -666,14 +681,22 @@ class MiniMonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self._monitor.get_shadow_snapshot(snap.pane.pane_id)
             )
 
-        # Truncate long window names for narrow display
+        # Truncate long window names for narrow display. 20, not 22: the
+        # prioritized-mark pair (t1326) is always-on and costs two columns on
+        # every row, and this pane lays out at ~38 usable columns — already
+        # short of the worst-case row (● ◆! ≈ <name>  PROMPT 123s). The name's
+        # tail is context; the mark is signal, so the tail is what gives way.
         name = snap.pane.window_name
-        max_name = 22
+        max_name = 20
         if len(name) > max_name:
             name = name[:max_name - 1] + "…"
 
+        # Leftmost: a durable user annotation, deliberately outside the live
+        # state cluster (dot / shadow / compare-mode), and first to survive
+        # truncation.
+        mark = format_mark_glyph(self._is_marked(snap))
         shadow_part = f" {shadow}" if shadow else ""
-        line1 = f"{dot}{shadow_part} {glyph} {name}  {status}"
+        line1 = f"{mark} {dot}{shadow_part} {glyph} {name}  {status}"
 
         # Optional task title line
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)

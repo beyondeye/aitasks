@@ -1113,7 +1113,11 @@ def _make_monitor(panes, shadows, content):
     for p in panes:
         mon._pane_cache[p.pane_id] = p
 
-    async def discover_with_shadows():
+    async def discover_with_shadows(*, enum_sink=None):
+        # Accepts the real seam's enumeration sink (t1326).
+        if enum_sink is not None:
+            enum_sink.append(frozenset(
+                p.session_name for p in list(panes) + list(shadows) if p.session_name))
         return list(panes), list(shadows)
 
     async def cap_content(pane_id, capture_lines=None, pane=None):
