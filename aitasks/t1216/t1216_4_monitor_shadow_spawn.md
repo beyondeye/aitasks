@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t1216_3]
 issue_type: feature
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/claude-opus-5[1m]
 created_at: 2026-07-27 22:22
-updated_at: 2026-07-30 15:47
+updated_at: 2026-07-31 01:07
 ---
 
 ## Pick-time safety guard — DO NOT pick from inside your working tmux
