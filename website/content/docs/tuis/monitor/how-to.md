@@ -40,6 +40,7 @@ Each card shows:
 - Window name and category badge
 - An **idle indicator** when the pane has not produced new output for longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds)
 - For agent panes carrying a task ID in the window name, the associated task number
+- A **shadow marker** `◆` when a shadow agent is bound to that pane, colored by the shadow's own state. It gains a `!` (`◆!`) when the shadow has raised concerns you have not picked yet — see [How to Pick Shadow Concerns](#how-to-pick-shadow-concerns). Panes with no shadow show nothing at all here.
 
 Classification rules are config-driven — you can change the agent prefixes and the TUI list by editing `aitasks/metadata/project_config.yaml` directly or via [`ait settings`]({{< relref "/docs/tuis/settings" >}}) → Tmux tab. See the [Reference](reference/#pane-classification) for details.
 
@@ -137,6 +138,23 @@ When an agent pane finishes a child task, you can have monitor suggest and launc
 3. A dialog appears showing the current task and the suggested next sibling (or child) — confirm to launch it
 
 Monitor resolves the next ready sibling via the task cache and starts a new agent window for the chosen target using the standard pick workflow.
+
+### How to Pick Shadow Concerns
+
+A shadow agent that reviews a plan emits a structured **concern block** alongside its prose. Monitor reads that block so you can forward a subset of the concerns to the agent without retyping them.
+
+1. Select the agent whose shadow you want to read
+2. Press **c**
+
+Monitor reads the bound shadow pane, parses the block, and opens a checklist modal. Each concern is tagged with a priority (`high` / `medium` / `low`) and the plan region it refers to. Tick the ones you want, confirm, and monitor copies them with a short preamble to your clipboard. Nothing is written to the clipboard until you confirm, and monitor never types into the agent itself: you stay the driver.
+
+The list is split into **Needs addressing** and **Informational**. Informational findings are dimmed; **a** selects or clears only the actionable ones, while **A** takes everything. Neither header appears when there are no informational findings. If some marker lines in the block could not be parsed, the modal says how many, and if *none* of them parsed you get a message saying so rather than a misleading "no concerns".
+
+If the selected agent has no shadow bound, monitor tells you so and does nothing. If the shadow has not emitted a block yet, it says that instead.
+
+> **Badge and auto-offer:** every agent whose shadow has an un-picked block is marked with `◆!` on its card, so nothing is missed across many agents at once. A toast — `Shadow raised 2 concern(s) — press 'c' to pick` — fires only for the **currently selected** agent, so there is at most one popup no matter how many agents are running. The count is of concerns needing attention; any informational ones are noted separately in the same toast, and `(⚠ STALE — agent moved on)` is appended when the agent has produced output since the shadow last analyzed it. A block whose markers cannot be parsed still raises the badge but deliberately does not toast — pressing **c** then tells you exactly what went wrong.
+
+> **Where shadows come from:** launch one from [minimonitor]({{< relref "/docs/tuis/minimonitor/how-to" >}}) with **e**. Monitor reads and picks concerns but does not spawn shadows itself.
 
 ### How to Cycle the Preview Size
 

@@ -32,6 +32,7 @@ depth: [advanced]
 | `n` | Pick the next ready sibling task for the focused agent pane | Pane list zone |
 | `R` | Restart the task running in the focused agent pane | Pane list zone |
 | `L` | Open the log for the focused pane in a separate viewer | Pane list zone |
+| `c` | Pick the shadow's concerns for the focused agent and copy the selected ones to the clipboard | Pane list zone |
 
 #### Monitor Controls
 

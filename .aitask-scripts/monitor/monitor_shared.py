@@ -116,20 +116,47 @@ def format_state_dot(snap: PaneSnapshot, completed: bool = False) -> str:
 # Shadow-status glyph (t1133): a deliberately different shape from the agent's
 # own ● so the pair "agent state + its shadow's state" reads at a glance.
 SHADOW_GLYPH = "◆"  # ◆
+SHADOW_CONCERN_GLYPH = "!"  # appended to ◆ when the shadow has fresh concerns
 
 
-def format_shadow_glyph(shadow_snap: PaneSnapshot | None) -> str:
+def format_shadow_glyph(
+    shadow_snap: PaneSnapshot | None, *, has_concerns: bool = False
+) -> str:
     """Colored ``◆`` for a bound shadow's state, or ``""`` when the agent has
     no live shadow — callers render nothing (no placeholder), keeping
     non-shadowed rows byte-identical to the pre-t1133 output.
 
-    Deliberately single-argument: a shadow is an advisory companion with no
-    task of its own, so it can never be COMPLETED and must never be rendered
-    in the completed colour (t1322). Pinned by a test.
+    No ``completed`` parameter: a shadow is an advisory companion with no task
+    of its own, so it can never be COMPLETED and must never be rendered in the
+    completed colour (t1322). Pinned by a test.
+
+    ``has_concerns`` (t1216_3) appends :data:`SHADOW_CONCERN_GLYPH` for an agent
+    whose shadow has emitted a concern block the user has not been offered yet.
+    Keyword-only and defaulting to ``False`` so every existing call site is
+    unchanged, and applied INSIDE the ``None`` guard so a non-shadowed row stays
+    byte-identical whatever the flag says. It shares the state colour rather
+    than adding a span: one marker, one style run.
     """
     if shadow_snap is None:
         return ""
-    return f"[{_state_color(shadow_snap)}]{SHADOW_GLYPH}[/]"
+    body = SHADOW_GLYPH + (SHADOW_CONCERN_GLYPH if has_concerns else "")
+    return f"[{_state_color(shadow_snap)}]{body}[/]"
+
+
+def unparsed_concerns_msg(count: int) -> str:
+    """Warning for a block whose marker lines yielded no concern (t1274).
+
+    Its own message rather than the bland "no concerns": the shadow *did* emit a
+    block, so silence (or a false all-clear) is the failure being fixed.
+
+    Shared (t1216_3) so minimonitor and the full monitor report an unparseable
+    block identically; it is also what makes that outcome *definitive* enough
+    for the monitor to clear its concern badge.
+    """
+    return (
+        f"Shadow emitted a concern block but {count} line(s) could not be "
+        "parsed — none are forwardable"
+    )
 
 
 def format_stale_duration(seconds: float) -> str:

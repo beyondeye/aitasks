@@ -28,18 +28,29 @@ from monitor.tmux_monitor import (  # noqa: E402
     PaneSnapshot,
     TmuxMonitor,
     load_monitor_config,
+    capture_shadow_text,
+    compute_shadow_staleness,
+    _SHADOW_DEEP_RETRY_LINES,
+    _SHADOW_TRUNCATED_MSG,
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
     TaskDetailDialog, KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
+    ConcernPickerModal,
     format_compare_mode_glyph, format_pane_status, format_shadow_glyph,
-    format_state_dot, is_task_completed,
+    format_state_dot, is_task_completed, unparsed_concerns_msg,
+)
+from monitor.concern_parser import (  # noqa: E402
+    _SENTINEL_SAFE_COLS, block_head_truncated, build_clipboard_payload,
+    concern_block_signature, needs_addressing, parse_concerns,
+    unrecovered_markers,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from rich.text import Text  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
+from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
 import subprocess  # noqa: E402
 from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, tmux_session_target  # noqa: E402
@@ -474,6 +485,7 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("M", "toggle_multi_session", "Multi", show=False),
         Binding("L", "open_log", "Log"),
         Binding("d", "cycle_compare_mode", "Detect"),
+        Binding("c", "pick_concerns", "Concerns"),
     ]
 
     def __init__(
@@ -553,6 +565,35 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # a preview zone is focused — so this tracks the LAST-focused preview
         # column rather than the active zone.
         self._active_preview_zone: Zone = Zone.PREVIEW
+        # -- Shadow concern state (t1216_3). Keyed by the FOLLOWED agent's pane
+        # id, not the shadow's: the monitor's identity for a row is the agent,
+        # and a marker must survive a shadow respawn so an identical block is
+        # not re-offered.
+        #
+        # Every agent's shadow snapshot resolved on the current full tick, so
+        # the concern scan reuses the one lookup _reconcile_shadow_state already
+        # does instead of re-walking get_shadow_snapshot.
+        self._tick_shadow_snaps: dict[str, PaneSnapshot] = {}
+        # This tick's raw-capture signature per agent. Absent => no complete
+        # block => no badge. Rebuilt every tick (see _scan_concern_signatures).
+        self._concern_sig_latest: dict[str, str] = {}
+        # Signatures already offered (the picker was pushed, or the block was
+        # authoritatively shown to hold nothing forwardable) and signatures
+        # already checked with a -J capture. Each value is a frozenset holding
+        # BOTH the raw trigger digest and the -J captured one — the two capture
+        # paths hash the same block differently whenever it wraps mid-word, so a
+        # single stored string would never match again.
+        self._concern_sig_offered: dict[str, frozenset[str]] = {}
+        self._concern_sig_examined: dict[str, frozenset[str]] = {}
+        # Throttle for the sub-_SENTINEL_SAFE_COLS probe (every other tick).
+        self._concern_tick: int = 0
+        # One offer pass at a time. A busy latch rather than an exclusive worker:
+        # cancelling would orphan capture_shadow_text's subprocess, which is
+        # killed only on its own timeout.
+        self._offer_busy: bool = False
+        # Held from the `c` keypress until the picker is dismissed, so a second
+        # `c` over the open modal cannot stack another one.
+        self._concern_pick_busy: bool = False
         self._pane_cards: dict[str, PaneCard] = {}
         self._selected_card_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
@@ -952,6 +993,11 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # restore would re-focus the shadow column and undo the fallback that
         # just fired (t1216_2).
         saved_zone = self._reconcile_shadow_state()
+        # Cheap, synchronous and I/O-free: must run BEFORE the rebuild below so
+        # the badge each card renders reflects this tick (t1216_3). The costly
+        # half (authoritative capture + toast) is dispatched as a worker at the
+        # end of this method instead, off the refresh cadence.
+        self._scan_concern_signatures()
 
         pane_list_rebuilt = self._rebuild_pane_list()
         self._update_content_preview()
@@ -963,6 +1009,114 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.call_after_refresh(
             self._restore_focus, saved_pane_id, saved_zone, pane_list_rebuilt
         )
+
+        # Concern verification + toast (t1216_3). A worker, so a stalled capture
+        # cannot stretch the refresh interval — Textual awaits the timer callback
+        # before scheduling the next one. Deliberately NOT exclusive=True:
+        # cancelling would orphan capture_shadow_text's subprocess, which is
+        # killed only on its own timeout. Re-entrancy is handled by _offer_busy,
+        # so a slow pass is not restarted rather than killed mid-flight.
+        self.run_worker(
+            self._offer_concerns(), group="concerns", exit_on_error=False
+        )
+
+    async def _offer_concerns(self) -> None:
+        """Toast the SELECTED agent once per verified block.
+
+        Cost: at most ONE ``-J`` capture per (selected agent, newly-seen
+        signature), plus the narrow-pane probe every other tick when a
+        sub-sentinel-width shadow shows nothing. Never per tick in the steady
+        state, and never scaling with N — the badge, which does scale, is free.
+
+        The block is verified before toasting because ``concern_block_signature``
+        requires a complete *fence* but not a parsed concern: an all-malformed
+        block (the case t1274 exists for) would otherwise announce "Shadow raised
+        concerns" and then report nothing forwardable on `c`.
+        """
+        if self._monitor is None or self._offer_busy:
+            return
+        self._offer_busy = True
+        try:
+            self._concern_tick += 1
+            pane_id = self._focused_pane_id
+            shadow_snap = (
+                self._tick_shadow_snaps.get(pane_id) if pane_id else None
+            )
+            if shadow_snap is None:
+                return
+            seen = self._seen_concern_sigs(pane_id)
+            sig = self._concern_sig_latest.get(pane_id)  # the TRIGGER — snapshot
+            if sig is None:
+                # Nothing detected. Only a sub-sentinel-width pane can HIDE a
+                # block from the cheap detector (_SENTINEL_SAFE_COLS = 24: the
+                # fences are 21 and 18 chars), so anything wider genuinely has
+                # none and needs no subprocess.
+                if shadow_snap.pane.width >= _SENTINEL_SAFE_COLS:
+                    return
+                if self._concern_tick % 2 == 0:
+                    return  # probe every other tick
+            elif sig in seen:
+                return  # already picked, or already checked
+
+            shadow_pane = shadow_snap.pane.pane_id
+            text = await capture_shadow_text(shadow_pane)
+            if text is None:
+                return  # learned nothing; retry next tick
+            captured_sig = concern_block_signature(text)
+            if captured_sig is None:
+                return  # no complete block in the -J window
+            if sig is None:
+                # Narrow-pane path: the probe is where the badge's signature
+                # comes from, since the raw capture cannot see the fences.
+                self._concern_sig_latest[pane_id] = captured_sig
+            # Re-read AFTER the await: a concurrent `c` (its guard is independent
+            # of _offer_busy) may have offered this block while we were suspended.
+            if captured_sig in self._seen_concern_sigs(pane_id):
+                return
+            # Trigger passed EXPLICITLY from the snapshot above — re-reading it
+            # here could store a NEWER block's signature and lose it.
+            self._mark_concern_sig(
+                self._concern_sig_examined, pane_id, sig, captured_sig
+            )
+            verified = frozenset(
+                s for s in (sig, captured_sig) if s is not None
+            )
+            concerns = parse_concerns(text)
+            if not concerns:
+                # Malformed or empty block: no misleading toast. The badge
+                # stands, and `c` gives the user the precise reason.
+                return
+            eps = max(2.0, float(getattr(self, "_refresh_seconds", 3)))
+            stale, _ = await compute_shadow_staleness(
+                self._monitor, shadow_pane, pane_id, eps
+            )
+            # Re-check AFTER the awaits: the toast is an unsolicited interruption
+            # and must describe what is on screen NOW. The signature stays marked
+            # examined (the check really did run) and the badge is untouched, so
+            # nothing is lost when the popup is skipped.
+            if self._focused_pane_id != pane_id:
+                return
+            still = self._monitor.get_shadow_snapshot(pane_id)
+            if still is None or still.pane.pane_id != shadow_pane:
+                return  # shadow died or was rebound while we captured
+            # ...and the SAME pane may have moved on to a different block while
+            # we were suspended. Identity is not freshness: toasting "raised N
+            # concern(s)" for the block we verified would then disagree with both
+            # the badge (which tracks the newer one) and the picker a keypress
+            # later. Skip it — the newer block is not in `_examined`, so the next
+            # pass verifies and announces it on its own terms.
+            if self._concern_sig_latest.get(pane_id) not in verified:
+                return
+            actionable = sum(1 for c in concerns if needs_addressing(c))
+            info = len(concerns) - actionable
+            info_suffix = f" (+{info} informational)" if info else ""
+            stale_suffix = " (⚠ STALE — agent moved on)" if stale else ""
+            self.notify(
+                f"Shadow raised {actionable} concern(s){info_suffix} — "
+                f"press 'c' to pick" + stale_suffix
+            )
+        finally:
+            self._offer_busy = False
 
     async def _fast_preview_refresh(self) -> None:
         """Lightweight refresh — only re-capture the focused pane for preview.
@@ -1350,7 +1504,14 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Shadow-status glyph (t1133): second colored glyph right after the
         # agent's own dot when a shadow agent is bound to this pane; empty
         # string (no placeholder) keeps non-shadowed rows unchanged.
-        shadow = format_shadow_glyph(shadow_snap)
+        #
+        # The concern marker (t1216_3) rides on the same glyph. It is derived
+        # here for EVERY agent — that is what makes the N-agent case work: each
+        # shadow with an un-offered block is marked at zero tmux cost, while the
+        # toast fires only for the selected one.
+        shadow = format_shadow_glyph(
+            shadow_snap, has_concerns=self._has_fresh_concerns(snap.pane.pane_id)
+        )
         shadow_part = f" {shadow}" if shadow else ""
         text = (
             f" {dot}{shadow_part} {glyph} {snap.pane.window_index}:{snap.pane.window_name} "
@@ -1782,6 +1943,93 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     # -- Zone navigation -------------------------------------------------------
 
+    # -- Shadow concern helpers (t1216_3) --------------------------------------
+
+    @staticmethod
+    def _mark_concern_sig(
+        store: dict[str, frozenset[str]],
+        pane_id: str,
+        trigger_sig: str | None,
+        captured_sig: str,
+    ) -> None:
+        """Record BOTH the raw trigger signature and the -J captured one.
+
+        They are digests of the same block taken through different capture paths
+        (the tick's ``-p -e`` vs the picker's ``-J``), and
+        ``concern_block_signature``'s documented mid-word-wrap residual makes
+        them differ systematically whenever the block wraps mid-word. Storing
+        only one leaves the next tick's raw signature unmatched — which
+        re-captures every tick for ``_concern_sig_examined``, and never clears
+        the badge for ``_concern_sig_offered``. Bounded at two entries: a new
+        block replaces the pair.
+
+        ``trigger_sig`` is a PARAMETER, never read from ``_concern_sig_latest``
+        here: callers snapshot it BEFORE their capture await, and the 3s tick can
+        replace it with a NEWER block's signature meanwhile. Reading it at write
+        time would mark that newer block as already examined/offered and lose it
+        silently. Static for the same reason — there is no instance state to
+        reach for.
+        """
+        store[pane_id] = frozenset(
+            s for s in (trigger_sig, captured_sig) if s is not None
+        )
+
+    def _seen_concern_sigs(self, followed_pane_id: str) -> frozenset[str]:
+        """Signatures already picked OR already authoritatively checked."""
+        return self._concern_sig_offered.get(
+            followed_pane_id, frozenset()
+        ) | self._concern_sig_examined.get(followed_pane_id, frozenset())
+
+    def _scan_concern_signatures(self) -> None:
+        """Refresh the per-agent concern signatures from data the tick already has.
+
+        Zero tmux traffic: ``shadow_snap.content`` came from the same async
+        gather that captured the agents. This is a TRIGGER, never a parse — the
+        picker re-captures with ``-J`` (concern_parser's third strictness tier).
+        """
+        prev = self._concern_sig_latest
+        latest: dict[str, str] = {}
+        for followed, snap in self._tick_shadow_snaps.items():
+            sig = concern_block_signature(snap.content)
+            if sig is None and snap.pane.width < _SENTINEL_SAFE_COLS:
+                # Below _SENTINEL_SAFE_COLS the fences themselves can wrap, so
+                # "no signature" is uninformative, not evidence of absence. Carry
+                # forward whatever the Step-5 probe last established — rebuilding
+                # wholesale here would clear the probe's value every tick and
+                # make a narrow-pane badge flicker on and off. For a WIDE pane
+                # absence IS evidence, so it drops (the "scrolls out" case).
+                sig = prev.get(followed)
+            if sig is not None:
+                latest[followed] = sig
+        self._concern_sig_latest = latest
+        # Evict ONLY when the agent itself is gone: a shadow that died and one
+        # whose capture blipped are indistinguishable here, and evicting on that
+        # would re-offer an identical block when the shadow respawns.
+        #
+        # Iterate the UNION of both maps: an agent whose block verified to
+        # nothing forwardable has an `_examined` entry and NO `_offered` one
+        # (the offer pass returns before marking it offered), so a loop over
+        # `_concern_sig_offered` alone would never visit it and its entry would
+        # outlive the agent for the rest of the session.
+        for pid in set(self._concern_sig_offered) | set(self._concern_sig_examined):
+            if pid not in self._snapshots:
+                self._concern_sig_offered.pop(pid, None)
+                self._concern_sig_examined.pop(pid, None)
+
+    def _has_fresh_concerns(self, followed_pane_id: str) -> bool:
+        """True when this agent's shadow has a block the user has not been
+        offered — the card badge. Derived every render, never a latched flag."""
+        sig = self._concern_sig_latest.get(followed_pane_id)
+        if sig is None:
+            return False
+        # Membership, not equality: the on-screen digest and the stored -J one
+        # are the same block through different capture paths (see
+        # _mark_concern_sig), so `!=` would leave the badge stuck on forever
+        # after a successful pick.
+        return sig not in self._concern_sig_offered.get(
+            followed_pane_id, frozenset()
+        )
+
     # -- Shadow column helpers (t1216_2) ---------------------------------------
 
     def _current_shadow_pane_id(self) -> str | None:
@@ -1911,13 +2159,19 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # cannot disagree about the hold case.
         self._schedule_shadow_fit_check()
 
-        # Drop scroll state for shadow panes that no longer exist.
+        # Drop scroll state for shadow panes that no longer exist. The same walk
+        # publishes _tick_shadow_snaps: this is the ONE place per tick that
+        # resolves every agent's shadow, and the concern scan consumes it rather
+        # than repeating the lookup (t1216_3).
         live_shadow_ids = set()
+        tick_shadows: dict[str, PaneSnapshot] = {}
         if self._monitor is not None:
             for followed in list(self._snapshots):
                 s = self._monitor.get_shadow_snapshot(followed)
                 if s is not None:
                     live_shadow_ids.add(s.pane.pane_id)
+                    tick_shadows[followed] = s
+        self._tick_shadow_snaps = tick_shadows
         for pid in [p for p in self._shadow_scroll_state if p not in live_shadow_ids]:
             del self._shadow_scroll_state[pid]
         if (
@@ -2379,6 +2633,120 @@ class MonitorApp(TuiSwitcherMixin, ShortcutsMixin, App):
         suffix = " (default)" if is_default else " (override)"
         self.notify(f"Idle detect mode: {new_mode}{suffix}", timeout=3)
         self.call_later(self._refresh_data)
+
+    async def action_pick_concerns(self) -> None:
+        """Forward the selected agent's shadow concerns via the clipboard (t1216_3).
+
+        Captures the bound shadow pane, parses its concern block, opens the
+        shared picker modal, and on confirm copies the selected concerns (with a
+        preamble) to the clipboard. The hotkey path uses the forgiving
+        ``parse_concerns`` — the user deliberately asked to look now; the refresh
+        tick uses the cheap ``concern_block_signature`` trigger instead.
+
+        ``check_action`` disables every non-``switch_zone`` binding while a
+        preview zone is focused, so this is only ever reachable from PANE_LIST —
+        in PREVIEW / SHADOW the keystroke is forwarded to tmux, which is correct.
+        """
+        if self._concern_pick_busy:
+            return
+        pane_id = self._focused_pane_id
+        if not pane_id or pane_id not in self._snapshots:
+            self.notify("Focus an agent pane first", severity="warning")
+            return
+        shadow_pane = self._current_shadow_pane_id()
+        if not shadow_pane:
+            # No "press 'e' to launch one" yet: the monitor has no shadow-spawn
+            # binding until t1216_4 lands, and naming a key that does nothing is
+            # worse than saying less.
+            self.notify("No shadow agent bound to this agent", severity="warning")
+            return
+        self._concern_pick_busy = True
+        modal_owns_guard = False
+        # Snapshot the trigger BEFORE any await: the 3s tick can replace it with
+        # a newer block's signature while we capture, and marking THAT signature
+        # offered would clear its badge without ever presenting it.
+        trigger_sig = self._concern_sig_latest.get(pane_id)
+        try:
+            text = await capture_shadow_text(shadow_pane)
+            if text is None:
+                self.notify("Could not read the shadow pane", severity="warning")
+                return  # indeterminate — leave the marker untouched
+            concerns = parse_concerns(text)
+            if not concerns and block_head_truncated(text):
+                # The block is there but the window started inside it. This is
+                # the explicit user action, so pay for ONE much deeper re-capture
+                # rather than reporting a false "no concerns" (t1187).
+                deeper = await capture_shadow_text(
+                    shadow_pane, lines=_SHADOW_DEEP_RETRY_LINES
+                )
+                if deeper is not None:
+                    text = deeper
+                    concerns = parse_concerns(text)
+                if not concerns:
+                    self.notify(_SHADOW_TRUNCATED_MSG, severity="warning")
+                    return  # indeterminate — marker untouched
+            if not concerns:
+                lost = len(unrecovered_markers(text))
+                if lost:
+                    self.notify(unparsed_concerns_msg(lost), severity="warning")
+                else:
+                    self.notify("No concerns detected on the shadow pane")
+                # Definitive ONLY when the capture does contain a complete block:
+                # the user has just been told precisely what is in it and it will
+                # never become parseable, so clear the badge. With no complete
+                # block here we learned nothing about the badged one — leave it.
+                done_sig = concern_block_signature(text)
+                if done_sig is not None:
+                    self._mark_concern_sig(
+                        self._concern_sig_offered, pane_id, trigger_sig, done_sig
+                    )
+                return
+            eps = max(2.0, float(getattr(self, "_refresh_seconds", 3)))
+            stale, _ = await compute_shadow_staleness(
+                self._monitor, shadow_pane, pane_id, eps
+            )
+            # pane_id stays PINNED across these awaits, unlike the toast path: `c`
+            # is an explicit action against the agent selected when it was
+            # pressed, so its modal and marker belong to that agent even if the
+            # selection drifts mid-capture.
+            self._mark_concern_sig(
+                self._concern_sig_offered, pane_id, trigger_sig,
+                concern_block_signature(text),
+            )
+            self.push_screen(
+                ConcernPickerModal(
+                    concerns,
+                    narrow=False,  # the monitor is full-width, unlike minimonitor
+                    stale=bool(stale),
+                    unrecovered=len(unrecovered_markers(text)),
+                ),
+                callback=self._on_concerns_picked,
+            )
+            modal_owns_guard = True  # released by the callback, not here
+        finally:
+            if not modal_owns_guard:
+                self._concern_pick_busy = False
+
+    def _on_concerns_picked(self, selected: list | None) -> None:
+        """Modal callback: copy the selected concerns to the clipboard.
+
+        Also releases the pick guard. Textual invokes this on every dismissal
+        (including ``None`` on Esc), and holding the guard until then is what
+        stops a second `c` over the open picker stacking another one — app
+        bindings resolve up the focus chain and the modal does not bind `c`.
+
+        ``selected`` is the chosen ``list[Concern]`` on confirm (or the full list
+        on copy-all), or ``None``/empty on cancel — in which case nothing is
+        written (no side effect before an explicit confirm).
+        """
+        self._concern_pick_busy = False
+        if not selected:
+            return
+        # copy_to_system_clipboard, never app.copy_to_clipboard: a bare OSC 52
+        # from a non-visible tmux window never reaches the system clipboard.
+        # tests/test_tui_clipboard_seam.sh enforces this.
+        copy_to_system_clipboard(self, build_clipboard_payload(selected))
+        self.notify("Concerns copied to clipboard.")
 
     def action_show_task_info(self) -> None:
         """Show task detail dialog for the focused agent pane."""

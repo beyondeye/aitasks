@@ -48,6 +48,7 @@ from monitor.monitor_shared import (  # noqa: E402
     ConcernPickerModal, TaskNumberInputModal, TaskPickConfirmDialog,
     format_compare_mode_glyph, format_pane_status, format_shadow_glyph,
     format_stale_duration, format_state_dot, is_task_completed,
+    unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
     block_head_truncated, build_clipboard_payload, has_concern_block,
@@ -101,16 +102,11 @@ class MiniPaneCard(Static, can_focus=True):
 _PICK_TASK_ID_RE = re.compile(r"\d+(?:_\d+)?")
 
 
-def _unparsed_msg(count: int) -> str:
-    """Warning for a block whose marker lines yielded no concern (t1274).
-
-    Its own message rather than the bland "no concerns": the shadow *did* emit a
-    block, so silence (or a false all-clear) is the failure being fixed.
-    """
-    return (
-        f"Shadow emitted a concern block but {count} line(s) could not be "
-        "parsed — none are forwardable"
-    )
+# Delegating seam → :func:`monitor_shared.unparsed_concerns_msg`. The body moved
+# to the shared module when the full monitor grew the same message (t1216_3);
+# the private name stays so this file's call sites and the shadow test suite
+# bind unchanged. Removed by the shadow_seam_wrapper_removal follow-up (t1289).
+_unparsed_msg = unparsed_concerns_msg
 
 
 # -- Main app -----------------------------------------------------------------
