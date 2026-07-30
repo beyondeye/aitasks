@@ -459,10 +459,10 @@ settled — coordination links should be bidirectional.
   toggle a mark invisibly behind the dialog. The live-focus guard addresses it,
   and a real-event-dispatch test now pins it **in this task**; the follow-up
   generalizes the audit to the other bare single-key bindings, which this task
-  does not touch. · severity: medium · → mitigation: monitor_modal_binding_guard_audit
+  does not touch. · severity: medium · → mitigation: t1350 (monitor_modal_binding_guard_audit)
 - The minimonitor row already reaches ~42 columns in its worst case against ~38
   usable; adding 2 columns and shrinking the name budget 22→20 is a visible,
-  bounded UX regression that only a real narrow-terminal capture can falsify. · severity: low · → mitigation: minimonitor_row_width_audit
+  bounded UX regression that only a real narrow-terminal capture can falsify. · severity: low · → mitigation: t1351 (minimonitor_row_width_audit)
 - The liveness rule forces a change to `monitor_core.py`'s **two-phase capture
   generation protocol** (threading the enumerated-session set through to the
   guarded commit) — the concurrency core of both TUIs, and the widest-reaching
@@ -478,14 +478,14 @@ settled — coordination links should be bidirectional.
   subtly wrong: it interacts with single- vs multi-session mode, the
   `_root_for_snap` fallback, and socket scoping. The design tightens it, but its
   real behaviour is only observable with several genuine repos and tmux sessions —
-  which no existing test harness sets up. · severity: medium · → mitigation: agent_marks_multirepo_tmux_test
+  which no existing test harness sets up. · severity: medium · → mitigation: t1349 (agent_marks_multirepo_tmux_test)
 - Cross-repo visibility itself is low-risk: it follows by construction from a
   per-user path plus an mtime-gated per-tick re-read. · severity: low · → mitigation: none needed
 
 ### Planned mitigations
-- timing: after | name: agent_marks_multirepo_tmux_test | type: test | priority: medium | effort: medium | addresses: goal-achievement — fail-closed liveness rule | desc: Tier-2 real-tmux harness with two fake repos and two sessions on an isolated socket, asserting cross-repo mark visibility and that killing a session never drops its marks
-- timing: after | name: monitor_modal_binding_guard_audit | type: test | priority: medium | effort: low | addresses: code-health — bare single-key App bindings fire under a pushed modal | desc: Generalize the guard beyond `space` — audit every bare single-key App binding in both monitor TUIs for modal leakage and pin the ones that are unguarded
-- timing: after | name: minimonitor_row_width_audit | type: chore | priority: low | effort: low | addresses: code-health — minimonitor row width regression | desc: Audit the minimonitor agent row at 40 columns across every glyph combination and shed context until it reads
+- timing: after | name: agent_marks_multirepo_tmux_test | created: t1349 | type: test | priority: medium | effort: medium | addresses: goal-achievement — fail-closed liveness rule | desc: Tier-2 real-tmux harness with two fake repos and two sessions on an isolated socket, asserting cross-repo mark visibility and that killing a session never drops its marks
+- timing: after | name: monitor_modal_binding_guard_audit | created: t1350 | type: test | priority: medium | effort: low | addresses: code-health — bare single-key App bindings fire under a pushed modal | desc: Generalize the guard beyond `space` — audit every bare single-key App binding in both monitor TUIs for modal leakage and pin the ones that are unguarded
+- timing: after | name: minimonitor_row_width_audit | created: t1351 | type: chore | priority: low | effort: low | addresses: code-health — minimonitor row width regression | desc: Audit the minimonitor agent row at 40 columns across every glyph combination and shed context until it reads
 
 ## Post-Review Changes
 
