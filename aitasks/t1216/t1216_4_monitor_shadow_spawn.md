@@ -225,3 +225,10 @@ Manual (from a shell **outside** the main aitasks tmux session — see
 `aidocs/framework/tui_conventions.md`): press `e` in `ait monitor` on a selected
 agent, confirm the shadow splits beside that agent, then kill the agent and
 confirm the shadow dies **and the monitor survives**.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-30T12:33:39Z status=pass attempt=1 type=human
+>
+> Note: deferred
