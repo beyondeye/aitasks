@@ -52,7 +52,42 @@ advanced). Corrections 15, 18 and 19 are therefore one family, and the standing
 control is the rule in "Notes for sibling tasks": **snapshot before the await,
 pass it explicitly, re-check identity after**.
 
-### Anchor re-map (`monitor_app.py`)
+### Anchor refresh at implementation time (HEAD moved to `1fb008967`)
+
+`main` advanced **eight commits during this session**, touching every file this
+plan modifies (`monitor_shared.py` +328, `monitor_core.py` +220,
+`monitor_app.py` +105, `minimonitor_app.py` +285). Re-verified before writing any
+code — **no correction changed**, only line numbers:
+
+| Symbol | Verified at | Now |
+|---|---|---|
+| `monitor_app._refresh_data` | 866 | **873** |
+| `monitor_app._format_agent_card_text` | 1255 | **1331** |
+| `monitor_app._current_shadow_pane_id` | 1710 | **1787** |
+| `monitor_app._reconcile_shadow_state` | 1785 | **1862** (prune loop **1915-1921**) |
+| `monitor_app.check_action` | 1984 | **2061** |
+| `monitor_app.on_key` | 2040 | **2117** |
+| `monitor_shared.SHADOW_GLYPH` / `format_shadow_glyph` | 88 / 91 | **118** / **121** |
+| `monitor_shared.ConcernPickerModal.__init__` | 731 | **1011** |
+| `minimonitor_app._unparsed_msg` | 96 | **104** |
+
+Design assumptions re-confirmed against the new HEAD: `c` is still free in
+`MonitorApp.BINDINGS` (460-476); `monitor_app.py` still has **zero** concern /
+clipboard references; `ConcernPickerModal.__init__` still takes
+`(concerns, narrow, stale, unrecovered)`; `capture_shadow_text`
+(`monitor_core.py:400`) still catches **only** `asyncio.TimeoutError` at :445,
+so correction 14 stands; the `_reconcile_shadow_state` prune loop still resolves
+every agent's shadow, so correction 7 applies unchanged.
+
+One t1322 interaction worth naming: `format_shadow_glyph` is now documented as
+*"deliberately single-argument"* because a shadow has no task and must never
+render in the COMPLETED colour. Adding a keyword-only `has_concerns` does not
+weaken that — it is orthogonal to `completed`, which stays un-passable — and all
+four existing call sites in `test_monitor_shadow_status.py` /
+`test_monitor_completed_status.py` pass one positional argument, so they remain
+valid.
+
+### Anchor re-map (`monitor_app.py`) — as verified at `a39a2611c`
 
 | Symbol | Plan said | Actually |
 |---|---|---|
@@ -954,6 +989,49 @@ Stage **explicit paths** and verify staged *content* (`git diff --cached`) befor
 committing; never `git add -A`. If the file's foreign hunks cannot be separated,
 fall back to the hunk-extraction procedure recorded in `p1216_1`.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-07-30 00:20)
+
+- **Requested by user:** Review of the implementation raised two defects.
+  1. *(blocking)* `_scan_concern_signatures` swept only `_concern_sig_offered`
+     when evicting a departed agent, so an `_examined`-only entry was never
+     reclaimed — violating the stated agent-exit contract.
+  2. *(follow-up)* `_offer_concerns` re-checked focus and shadow-pane identity
+     after its awaits but **not signature freshness**, so the same pane
+     advancing from the verified block A to a newer B still toasted A's count —
+     disagreeing with the badge (tracking B) and with the picker moments later.
+
+- **Verified:** both CONFIRMED against the source.
+  1. The offer pass returns *before* marking a block offered when it yields
+     nothing forwardable, so a malformed-only block populates `_examined`
+     **only**; a loop over `_offered` cannot see it. The pre-existing eviction
+     test hid this because it reaches the agent through `c`, which populates
+     both maps.
+  2. Identity is not freshness: nothing between the staleness await and the
+     `notify` compared the live signature against the one just verified.
+
+- **Changes made:**
+  1. The eviction sweep now iterates `set(_concern_sig_offered) |
+     set(_concern_sig_examined)` and pops from both.
+  2. `_offer_concerns` builds the verified `(trigger, captured)` pair locally
+     and, as its last post-await guard, returns unless
+     `_concern_sig_latest[pane_id]` is still in it. The newer block is
+     deliberately left un-examined so the next pass announces it on its own
+     terms.
+
+- **Tests added:** `test_agent_exit_evicts_an_examined_only_entry` (asserts the
+  `_offered`-empty precondition explicitly, so it cannot pass for the same
+  reason the old test did) and
+  `test_same_pane_advancing_to_a_new_block_suppresses_the_toast` (advances the
+  signature from inside the scripted staleness call, with the pane and focus
+  held constant so only freshness can decide). Both paired with mutation
+  controls: restoring the offered-only sweep and stubbing out the freshness
+  check each make the suite exit non-zero.
+
+- **Files affected:** `.aitask-scripts/monitor/monitor_app.py`,
+  `tests/test_monitor_concern_action.py`.
+
 ## Notes for sibling tasks
 
 - `_concern_sig_offered` is keyed by **followed** pane id (minimonitor keys
@@ -1091,3 +1169,105 @@ fall back to the hunk-extraction procedure recorded in `p1216_1`.
 
 ### Planned mitigations
 - timing: after | name: concern_signature_reflow_soak | type: test | priority: medium | effort: medium | addresses: goal-achievement (the monitor is the first production consumer of `concern_block_signature`; a reflow failure hides badges silently) | desc: Soak/property verification that `concern_block_signature` stays stable and discriminating for a real concern block re-rendered across many LIVE tmux pane widths, and that the monitor's badge actually fires — the automated counterpart to t1216_1's in-process sampled widths and to t1216_5's human walkthrough. Should depend on t1216_3.
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven plan steps landed. Step 0 amended the task's
+  PINNED badge-lifecycle table (the eviction rule and the definitive-negative
+  split) so the task and the code agree. `monitor_shared.py` gained
+  `SHADOW_CONCERN_GLYPH`, a keyword-only `has_concerns` on
+  `format_shadow_glyph`, and the lifted `unparsed_concerns_msg`;
+  `minimonitor_app.py` keeps `_unparsed_msg` as a one-line alias (two lines
+  total). `monitor_app.py` gained the imports, seven `__init__` fields,
+  `_mark_concern_sig` / `_seen_concern_sigs` / `_scan_concern_signatures` /
+  `_has_fresh_concerns`, the card badge, the `_offer_concerns` worker,
+  `action_pick_concerns` / `_on_concerns_picked`, and the `c` binding;
+  `_reconcile_shadow_state` now publishes `_tick_shadow_snaps` from the walk it
+  already did. Docs: a `c` row in `reference.md`, a shadow/concern-marker bullet
+  and a new "How to Pick Shadow Concerns" section in `how-to.md`. New
+  `tests/test_monitor_concern_action.py` (61 tests).
+
+- **Deviations from plan:** none in design — the nineteen corrections were all
+  settled during verification, before any code was written. Two mechanical
+  notes:
+  1. `main` advanced **eight commits mid-session**, touching every file this
+     plan modifies. Re-verified before implementing; only line numbers moved
+     (recorded in "Anchor refresh at implementation time"). No correction
+     changed, and the t1322 `format_shadow_glyph` docstring ("deliberately
+     single-argument") was checked to be about `completed`, which stays
+     un-passable — orthogonal to `has_concerns`.
+  2. Two defects found in review and fixed under Post-Review Changes 1 (the
+     `_examined`-only eviction leak and the missing signature-freshness
+     re-check).
+
+- **Issues encountered:**
+  - **Two test-harness bugs of my own.** Reading a `@staticmethod` off the class
+    yields the plain function, so restoring it after a monkeypatch rebound it as
+    an instance method and corrupted 16 later tests — the cleanup must re-wrap
+    with `staticmethod(...)`. And the disposition trailer is prose
+    (`Disposition: informational.`), not a bracketed tag.
+  - **Mutation testing found two real coverage holes.** Ten inverted guards, of
+    which eight failed the suite immediately. The two that *passed* were genuine
+    gaps: the `_SENTINEL_SAFE_COLS` **carry-forward** boundary in
+    `_scan_concern_signatures` (a different site from the probe bound I had
+    tested in `_offer_concerns`), and any render-level assertion that a shadowed
+    row *without* fresh concerns lacks the marker. Both closed; all ten now fail.
+  - **A passing test that proved nothing.** The original agent-exit eviction test
+    reached the agent through `c`, which populates both marker maps, so it could
+    never see the `_examined`-only leak review found. Its replacement asserts the
+    `_offered`-empty precondition explicitly.
+  - The runner has no pytest here, so it falls back to unittest; `-p <file>.py`
+    discovery is the way to run one file (a `-k` filter silently runs nothing).
+
+- **Key decisions:**
+  - **Verify before toasting.** `concern_block_signature` requires a complete
+    fence but *not* a parsed concern, so the cheap trigger alone would announce
+    "Shadow raised concerns" for an all-malformed block. One authoritative `-J`
+    capture per *newly-seen* signature for the *selected* agent buys both honesty
+    and minimonitor's real counts, bounded by `_concern_sig_examined` to once per
+    signature and by `_offer_busy` to one in flight. The badge — the part that
+    scales with N — stays free.
+  - **Marker maps store a `frozenset` pair, not a string.** The trigger digests
+    the raw `-p -e` capture and every marker is written from `-J`; the documented
+    mid-word-wrap residual makes those differ *systematically*, which would both
+    re-capture every tick and leave the badge stuck on after a successful pick.
+  - **Snapshot before the await, pass it explicitly.** `_mark_concern_sig` is a
+    `@staticmethod` taking `trigger_sig` so it cannot reach for
+    `_concern_sig_latest`, which the 3s tick may have advanced to a newer block —
+    marking that seen would lose a concern block silently.
+  - **Four independent post-await re-checks** guard the toast: focus, shadow-pane
+    identity, shadow liveness, and signature freshness. Identity is not
+    freshness — the same pane can advance to a different block.
+  - **A busy latch, never `exclusive=True`.** `capture_shadow_text` kills its
+    child only on its own timeout, so a cancelled worker orphans the subprocess.
+  - **The pick guard is handed to the modal callback**, because Textual resolves
+    app bindings up the focus chain and `ConcernPickerModal` does not bind `c`.
+
+- **Upstream defects identified:**
+  - `tests/test_board_work_report.py:483 — WorkReportFullColumnUnderSearchTests::test_hidden_cards_still_listed asserts sl.option_count == len(col_tasks) against the LIVE aitasks/ tree, so any concurrent task-file change during the ~12-minute suite makes it fail (observed 145 != 146). Nondeterministic by construction; unrelated to this task (importing aitask_board loads none of the modules changed here).`
+
+- **Build verification:** the full Python suite ran **2788 tests with this one
+  failure**, established as independent of this change rather than assumed: the
+  board imports none of `monitor_app` / `monitor_shared` / `minimonitor_app`, and
+  the failing assertion compares a live-tree snapshot against a list rebuilt
+  later while this very workflow was committing task-status and gate-ledger
+  changes. Proceeded per the workflow's unrelated-failure rule.
+
+- **Notes for sibling tasks:**
+  - `_tick_shadow_snaps` is the single per-tick shadow resolution; consume it
+    rather than re-walking `get_shadow_snapshot`.
+  - Never compare a raw-capture signature against a stored `-J` one by equality;
+    write markers through `_mark_concern_sig` and read them with `in`.
+  - Never dispatch shadow-capture work with `exclusive=True`.
+  - Anything unsolicited shown after an await must re-check identity **and**
+    freshness; only an explicit user action may keep a pinned target.
+  - **t1216_4** should restore the "press 'e' to launch one" wording in
+    `action_pick_concerns` when it adds the `e` binding, and reuse
+    `_current_shadow_pane_id()` / the sync `find_shadow_pane` for its duplicate
+    guard.
+  - `unparsed_concerns_msg` now lives in `monitor_shared`; the
+    `minimonitor_app._unparsed_msg` alias is transitional and belongs in
+    **t1289** (`shadow_seam_wrapper_removal`).
+  - The live tmux walkthrough (two agents, shadow on the non-selected one, badge
+    without toast → select → toast → `c` → paste) was **not** performed in-task;
+    it needs an interactive terminal and belongs to **t1216_5**.
