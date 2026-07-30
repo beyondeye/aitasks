@@ -1,201 +1,572 @@
 ---
 Task: t1216_4_monitor_shadow_spawn.md
 Parent Task: aitasks/t1216_monitor_shadow_pane_view_and_concern_picker.md
-Sibling Tasks: aitasks/t1216/t1216_1_shared_shadow_seam.md, aitasks/t1216/t1216_2_monitor_shadow_zone.md, aitasks/t1216/t1216_3_monitor_concern_picker.md
+Sibling Tasks: aitasks/t1216/t1216_5_manual_verification_monitor_shadow_pane_view_and_concern_pic.md
+Archived Sibling Plans: aiplans/archived/p1216/p1216_1_shared_shadow_seam.md, aiplans/archived/p1216/p1216_2_monitor_shadow_zone.md, aiplans/archived/p1216/p1216_3_monitor_concern_picker.md
 Base branch: main
 Output branch: main
+plan_verified:
+  - claudecode/opus5 @ 2026-07-30 15:32
 ---
 
 # p1216_4 — Port shadow spawn (`e` / `E`) to the full monitor
 
-Depends on **t1216_1** (the shared seam, incl. the **sync** `find_shadow_pane`
-the duplicate guard needs).
+> **THIS IS A PLAN-ONLY DELIVERABLE. Approving it does NOT authorise
+> implementation in this session.** Step 0's preflight fails here (measured), so
+> the actions that follow approval are exactly: externalise the plan → commit it
+> → release the task lock → revert `t1216_4` to `Ready` → end. Implementation is
+> re-picked later from a verified isolated tmux server. (S1)
 
-## Goal
+> **Re-verified 2026-07-30** against `main` @ `1b9ed49d7`, after t1216_1/_2/_3
+> landed. Nine review concerns were raised across two rounds; **all nine were
+> verified valid** and are addressed below (C1–C6, S1–S3, tagged inline).
 
-Bring `e` (launch shadow) and `E` (launch shadow, pick agent) to `ait monitor`,
-acting on the **selected** agent. Without this the monitor still cannot create a
-shadow and the user keeps bouncing to minimonitor — the friction t1216 exists to
-remove.
+## Context
 
-## Step 1 — dedupe `_load_project_tmux_config`
+`ait monitor` is the TUI for switching between sessions and agents. t1216_1
+lifted the shadow seam into `monitor_core`, t1216_2 gave the monitor a live
+shadow preview column, t1216_3 gave it the concern badge / toast / picker. What
+is still missing is the ability to **create** a shadow: `e` / `E` exist only in
+`ait minimonitor`, so the user still bounces to minimonitor for the one action
+that starts the whole flow — the friction t1216 exists to remove.
+`monitor_app.py:2677-2679` names this task in a source comment as the one that
+closes the gap.
 
-The identical function exists twice: `minimonitor_app.py:1695-1706` and
-`monitor_app.py:1993`. Both read `aitasks/metadata/project_config.yaml` and
-return `data.get("tmux", {})`. Move one copy to the shared module (alongside the
-t1216_1 lifts) and delete both. This is on the parent's "must not grow the known
-duplication set" list.
+This child lifts minimonitor's `_spawn_shadow` into the shared headless module,
+adds `e` / `E` to `MonitorApp` acting on the **selected** agent, and hardens four
+lifecycle contracts the lift exposes.
 
-## Step 2 — lift `_spawn_shadow`
+---
 
-Move `minimonitor_app._spawn_shadow` (L1191-1271) to the shared module:
+## Step 0 — Execution safety gate (C1) — **BLOCKS implementation**
+
+The task file's own pick-time guard requires that implementation and verification
+run from a shell whose tmux server carries no code agents worth keeping
+(`aidocs/framework/tui_conventions.md:491-516`, "Tmux-stress tasks"). This is not
+advisory here: Step 6 exists precisely because a missed mock retarget makes the
+suite call the real `launch_in_tmux`, and `attach_shadow_cleanup_hook` installs
+**persistent** `remain-on-exit` + `pane-died` state on whatever pane it is given.
+
+**Preflight (run before any test invocation):**
+
+```bash
+tmux -L ait list-panes -a -F '#{pane_id} #{window_name} #{pane_current_command} [#{@aitask_shadow_target}]'
+```
+
+Pass criterion: no pane other than the implementing agent's own is an agent, a
+shadow, or a framework TUI. **If it fails, do not implement** — per
+`tui_conventions.md:512-514` the prescribed action is "abort + revert to Ready,
+keep the plan".
+
+**Current state — the preflight FAILS (measured, not assumed):**
+
+| pane | what | note |
+|---|---|---|
+| `%0` | `ait monitor` | the TUI this task modifies |
+| `%1` | `ait board` | |
+| `%2` | this implementing agent | **armed**: `pane-died → aitask_companion_cleanup.sh %2 %3` |
+| `%3` | minimonitor companion | the `companion` in `%2`'s hook |
+| `%4` | a shadow, `@aitask_shadow_target=%2` | bound to this agent |
+
+So this session **writes and commits the plan and does not implement it** (S1):
+after approval, release the lock and revert `t1216_4` to `Ready`, then re-pick it
+from a shell outside this tmux server.
+
+**Structural containment for whoever does implement (S2).** The first draft
+proposed setting `AITASKS_TMUX_SOCKET` / `TMUX_TMPDIR` at test-module import.
+**That does not work, and the repository already documents why.**
+`TmuxClient.__init__` caches `tmux_socket_args()` **once** — *"Cached once —
+never recomputed per call"* (`lib/tmux_exec.py:148-152`) — and four modules build
+a client at **import time**: `agent_launch_utils.py:34`, `monitor_app.py:65`,
+`lib/tui_switcher.py:74`, `lib/tui_clipboard.py:29`. Under full-suite discovery
+any earlier module can import `agent_launch_utils` first, leaving its `_TMUX`
+pinned to `-L ait` no matter what a later module writes to the environment. The
+proposed "call the real `launch_in_tmux` and see that it fails" control is also
+wrong: it can only discover the leak *by performing the mutation*.
+
+Use the repository's existing integration-test pattern instead — spelled out at
+`tests/test_launch_in_tmux_pane_pid.py:276-279` (*"`agent_launch_utils._TMUX`
+caches its socket args at import, so the module-level singleton is rebuilt inside
+the patched env and restored in tearDown — mirroring
+`test_tmux_exec.py::TestGatewayIntegration`"*), i.e. per-fixture:
+
+```python
+def setUp(self):
+    self._tmpdir = tempfile.mkdtemp(prefix="ait_t1216_4_tmux_")
+    self._env = patch.dict(os.environ, {
+        "TMUX_TMPDIR": self._tmpdir,
+        "AITASKS_TMUX_SOCKET": self.SOCK,   # throwaway, per-process
+        "AIT_NO_SYSTEMD_RUN": "1",
+    }, clear=False)
+    self._env.start()
+    os.environ.pop("TMUX", None)
+    os.environ.pop("TMUX_PANE", None)       # synthetic %1/%2 collision guard
+    self._saved = {m: m._TMUX for m in (agent_launch_utils, monitor_app)}
+    for m in self._saved:
+        m._TMUX = agent_launch_utils.TmuxClient()
+
+def tearDown(self):
+    for m, c in self._saved.items():
+        m._TMUX = c
+    self._env.stop()
+    shutil.rmtree(self._tmpdir, ignore_errors=True)
+```
+
+**Containment is asserted statically, never by attempting a launch:** in the
+fixture, assert `agent_launch_utils._TMUX.socket_args == ["-L", self.SOCK]`
+(`socket_args` is the public read-only property at `lib/tmux_exec.py:154-157`).
+That proves the singleton was rebuilt under isolation without issuing a single
+mutating tmux call. The mocks remain the primary protection; this is the belt.
+
+---
+
+## Verification pass — what changed since the plan was written
+
+| Original plan said | Current reality |
+|---|---|
+| `_spawn_shadow` at `minimonitor_app.py:1191-1271` | **1382-1462** |
+| `action_launch_shadow` L1085 / `..._pick` L1127 | **1276-1316 / 1318-1380** |
+| `_load_project_tmux_config` at `monitor_app.py:1993` | **3111-3123** (+ `minimonitor_app.py:1849-1860`) |
+| monitor `BINDINGS` L391-410 | **470-491** — `e` / `E` confirmed free |
+| `_get_focused_pane_id` L1529 | **2494-2499** |
+| "duplicate guard uses the sync shadow lookup" | Right, but the lookup **fails open** and runs only pre-dialog — see C3 |
+| *(absent)* | Two minimonitor test files must be retargeted (Step 6) |
+| *(absent)* | The monitor needs a `PaneCategory.AGENT` guard minimonitor does not (Step 4) |
+| *(absent)* | `launch_in_tmux` steals window focus on **both** placement branches (C2) |
+| *(absent)* | The live walkthrough is already owned by **t1216_5** (five `[t1216_4]` items) |
+
+## Decisions
+
+**D1 — the duplicate guard uses live tmux state, not `_current_shadow_pane_id()`.**
+`_shadow_snapshots` has two writers, and the fast one
+(`refresh_shadow_snapshot`, `monitor_core.py:1822`) opens with
+`prev = self._shadow_snapshots.get(...); if prev is None: return None` — it can
+never *create* a key; only the ~3 s `commit_snapshots` can. `monitor_core.py:2196-2204`
+documents a further race where a shadow pane is discovered before
+`@aitask_shadow_target` is stamped, so the real double-spawn window is **3–6 s**.
+Record the division of labour as a docstring line on `_current_shadow_pane_id`:
+it answers *"is there a shadow to **read**"* (preview, key-forwarding, picker —
+lagging a tick is the intended cheapness); the live lookup answers *"may I
+**create** one"*.
+
+A sync tmux round-trip in a user action is fine:
+`tests/test_monitor_refresh_no_sync_tmux.py` constrains the **refresh** path only,
+and monitor_app already makes blocking calls from actions (`kill_agent_pane_smart`,
+`launch_in_tmux` at 2985). *Rejected:* async actions using
+`find_shadow_pane_async` — the spawn blocks far longer than the guard's
+`list-panes`, so it buys nothing while forking the two apps' guard mechanism.
+
+**D2 — the lift lands in `monitor_core.py`, re-exported through the
+`tmux_monitor.py` shim.** It already imports `agent_launch_utils`, already hosts
+every other lifted shadow helper over a duck-typed `monitor`, and already does
+mutating tmux (`send_keys` 2287, `kill-pane` 2374, `kill_agent_pane_smart` 2392).
+No circular import. `monitor_shared` is rejected: Textual-aware, and splitting the
+shadow family across two modules is how the seam rots.
+`load_project_tmux_config` joins it beside `load_monitor_config`.
+
+**D3 — `companion_pane` is keyword-only, `str | None`, no default.** The helper
+**must never read `TMUX_PANE`**; `None` means "bind to the newly created shadow
+pane". Verified against `aitask_companion_cleanup.sh`: job 1 (L38-43) kills every
+pane in the *session* whose `@aitask_shadow_target` matches the dying agent; job 2
+(L49-58) counts real-agent siblings in the agent's *window* and, finding none,
+runs `kill-pane -t "$companion"` with **no marker check**. The monitor's pane is
+never in that window, so it can never be *counted* — only ever be the *target*.
+Body uses `companion_pane or shadow_pane` so it also normalises the `""` that
+`os.environ.get("TMUX_PANE", "")` can produce.
+
+*Rejected: a sentinel type.* It does not stop a caller passing
+`os.environ["TMUX_PANE"]`. What does is a source-level test plus a runtime
+negative control (Step 7).
+
+**D4 — `schedule_refresh` is a parameter**, so "no refresh on launch error" is
+preserved verbatim, and both apps stop owning the notify strings.
+
+**D5 — `_spawn_shadow` is kept in *both* apps as a per-app policy adapter.**
+Deleting it would replicate the safety-critical `companion_pane` and
+`select_window` decisions at four call sites instead of two. Its docstring must
+say it is **not** a t1289 pass-through seam.
+
+---
+
+## Step 1 — `monitor_core.py`
+
+Extend the `agent_launch_utils` import (L42-49) with `TmuxLaunchConfig`,
+`attach_shadow_cleanup_hook`, `launch_in_tmux`, `resolve_pane_id_by_pid`; add
+`Callable` to the `collections.abc` import.
+
+**1a. `load_project_tmux_config(project_root) -> dict`** — body verbatim from
+`minimonitor_app.py:1850-1860`; companion to `load_monitor_config`.
+
+**1b. Fail-closed shadow lookup (C3b).** `find_shadow_pane` currently returns
+`None` both when `rc != 0` and when there is no match, so a failed `list-panes`
+reads as "no shadow" and the guard **fails open**. Add the discriminating
+primitive and re-express the existing one on top of it (derive, don't duplicate —
+the six existing readers are untouched):
+
+```python
+def find_shadow_pane_status(monitor, followed_pane_id: str) -> tuple[bool, str | None]:
+    """(ok, pane). ``ok`` is False when the query itself failed."""
+
+def find_shadow_pane(monitor, followed_pane_id: str) -> str | None:
+    ok, pane = find_shadow_pane_status(monitor, followed_pane_id)
+    return pane if ok else None
+```
+
+**1c. `spawn_shadow`**
 
 ```python
 def spawn_shadow(
-    monitor, *, full_cmd: str, followed_pane: str, task_id: str | None,
-    target_root: Path, snap: PaneSnapshot, session: str, companion_pane: str,
-    notify,
+    monitor, *,
+    full_cmd: str, followed_pane: str, followed_window: str, session: str,
+    task_id: str | None, target_root: Path,
+    companion_pane: str | None,      # D3 — no default, per-app policy
+    select_window: bool,             # C2 — no default, per-app policy
+    notify: Callable[..., None],
+    schedule_refresh: Callable[[], None],
 ) -> str | None:
 ```
 
-Preserve verbatim:
+Taking `followed_window` + `session` rather than a `PaneSnapshot` keeps the helper
+duck-typed. Lifted verbatim from `minimonitor_app._spawn_shadow` (1382-1462) —
+`same_window` / `shadow_pane_width` (60 fallback on `TypeError`/`ValueError`) /
+`default_split`, the split-targets-the-**agent**-pane geometry, the
+`agent-shadow-{task_id or 'x'}` window name, the `"Shadow launch failed: …"` error
+(returning `None` **without** `schedule_refresh`, per D4), the
+`"Launched shadow agent"` and `"…could not be classified…"` notifies — with these
+**deliberate, non-verbatim hardenings**:
 
-- `tmux_cfg = load_project_tmux_config(target_root)`;
-  `same_window = bool(tmux_cfg.get("shadow_same_window", True))`;
-  `shadow_width = int(tmux_cfg.get("shadow_pane_width", 60))` with
-  `TypeError` / `ValueError` → 60.
-- **Same-window branch:** `TmuxLaunchConfig(session=session,
-  window=snap.pane.window_name, new_session=False, new_window=False,
-  split_direction=str(tmux_cfg.get("default_split", "horizontal")),
-  split_size=shadow_width, split_target_pane=followed_pane,
-  cwd=str(target_root))`. The split targets the **agent pane** — not the
-  window's active pane, which in minimonitor's case is the narrow sidebar.
-- **Separate-window branch:** `new_window=True`,
-  `window=f"agent-shadow-{task_id or 'x'}"`.
-- `pane_pid, err = launch_in_tmux(full_cmd, cfg)` → notify and return on error.
-- `shadow_pane = resolve_pane_id_by_pid(session, pane_pid) if pane_pid else None`.
-- Stamp: `monitor.tmux_run(["set-option", "-p", "-t", shadow_pane,
-  SHADOW_TARGET_OPTION, followed_pane])`.
-- `attach_shadow_cleanup_hook(followed_pane, companion_pane)`.
-- The `"Shadow launched, but its pane could not be classified — it may appear in
-  the agent list"` warning when the pane id cannot be resolved.
+- **Re-check immediately before spawning (C3a).** The pre-dialog guard cannot
+  cover the seconds an `AgentCommandScreen` is open, nor two queued dialogs. Call
+  `find_shadow_pane_status(monitor, followed_pane)` as the last thing before
+  `launch_in_tmux`; refuse on a found shadow, and refuse **on `ok is False`**
+  too — an unverifiable state must not spawn. Fixing it here, at the shared sink,
+  closes the same latent gap in minimonitor. This is an intentional behaviour
+  change to minimonitor, called out because everything else is verbatim.
+- **Verify the classifier stamp (C4).** `monitor.tmux_run(["set-option", …])`
+  returns `(rc, out)`; the current code discards it, then installs the cleanup
+  hook and reports success. An unstamped shadow is indistinguishable from an
+  agent *forever*: it appears in agent lists, is targeted by `k` / `n`, counts as
+  a real sibling, evades the duplicate guard, and — because job 1 matches on the
+  marker — is **not** cleaned up when its agent dies. So: check `rc`, retry once,
+  and on persistent failure **kill the pane we just created** (we own it, it is
+  milliseconds old, and leaving it is strictly worse), do **not** install the
+  cleanup hook, `notify(..., severity="error")` naming the pane, and return
+  `None`.
 
-## Step 3 — PINNED: the `TMUX_PANE` companion-pane coupling
+Docstring carries as contract: the duck-typed-gateway clause; **"This function
+never reads `TMUX_PANE`"** and what passing a pane outside the followed agent's
+window does; that `schedule_refresh` is not called on launch failure; and the
+stamp-failure recovery.
 
-The single sharp edge of this child. Minimonitor currently ends with (L1262):
+## Step 2 — `tmux_monitor.py` shim
 
-```python
-companion_pane = os.environ.get("TMUX_PANE", "") or shadow_pane
-attach_shadow_cleanup_hook(followed_pane, companion_pane)
-```
+Re-export `load_project_tmux_config`, `find_shadow_pane_status`, `spawn_shadow`
+in the existing "Shared shadow seam" group with a `(t1216_4)` note.
 
-`TMUX_PANE` there means *"minimonitor's own pane"* — the companion that should
-be despawned once no real agent sibling remains in the followed agent's window.
+## Step 3 — `agent_launch_utils.py` — focus and hook contracts
 
-**The lifted helper takes `companion_pane` as an explicit parameter and must
-never read `TMUX_PANE` itself.** If the monitor passed its own `TMUX_PANE`,
-`aitask_companion_cleanup.sh` job 2 would **kill the monitor's own pane**
-whenever the agent's window runs out of real agents.
-
-- **minimonitor** keeps passing `os.environ.get("TMUX_PANE", "") or shadow_pane`
-  at its call site — behaviour unchanged.
-- **monitor** passes `companion_pane = shadow_pane`.
-
-Verified safe against `.aitask-scripts/aitask_companion_cleanup.sh`:
-
-- **Job 1** (L36-44) lists panes across the **session** and kills every pane
-  whose `@aitask_shadow_target` equals the dying primary — so the bound shadow
-  dies with its agent regardless of `companion`, including under separate-window
-  placement.
-- **Job 2** (L46-58) counts real-agent siblings **in the primary's window**,
-  excluding the primary, the companion, and any pane carrying
-  `@aitask_shadow_target`; if zero it runs `tmux kill-pane -t "$companion"`,
-  which on the already-dead shadow pane is a `2>/dev/null || true` no-op.
-
-## Step 4 — the monitor actions
+**3a. Focus preservation (C2).** Verified: the split branch ends with
+`_TMUX.spawn(["select-window", "-t", window_target])` (L1283-1284), **and** the
+`new_window` branch runs `new-window` **without `-d`** (L1257-1265), which creates
+*and selects*. So **both** placements yank the client out of `ait monitor` — the
+precise window-bouncing t1216 exists to remove. Add to `TmuxLaunchConfig`
+(L64-93):
 
 ```python
-def action_launch_shadow(self) -> None:        # e
-def action_launch_shadow_pick(self) -> None:   # E
+select_window: bool = True   # default preserves every existing caller
 ```
 
-Both sync (matching minimonitor), and both resolve the agent from
-`self._focused_pane_id` → `self._snapshots` — **not** `_get_focused_pane_id()`
-(`monitor_app.py:1529-1535`), which returns `None` whenever focus is off a
-`PaneCard`.
+- split branch: skip the `select-window` spawn when `False`;
+- `new_window` branch: append `-d` to the `new-window` argv when `False`.
 
-Shared prologue:
+`spawn_shadow` threads it through; **minimonitor passes `True`** (its client is
+already on that window — behaviour unchanged) and **the monitor passes `False`**.
 
-1. `self._monitor is None` → return.
-2. No selected agent snapshot → notify `"Focus an agent pane first"`.
-3. Empty `pane_id` → notify.
-4. **Duplicate guard, before anything else user-visible:**
-   `if self._monitor.find_shadow_pane(followed_pane): notify("A shadow is
-   already running for this agent"); return`. Use the **sync** lookup so the
-   guard runs before a dialog opens with no await trap — minimonitor does the
-   same at L1112 / L1155 and `test_minimonitor_shadow_pick.py::DuplicateGuardTests`
-   asserts it.
-5. `task_id = self._task_cache.get_task_id_for_pane(snap.pane)`;
-   `target_root = self._root_for_snap(snap)`;
-   `args = [followed_pane] + ([task_id] if task_id else [])`;
-   `full_cmd = resolve_dry_run_command(target_root, "shadow", *args)`.
+**3b. Hook idempotence (C5).** Confirmed live on this very session's agent pane:
+`pane-died[0] run-shell ".../aitask_companion_cleanup.sh %2 %3"` with
+`remain-on-exit on`, where `%3` is the minimonitor companion. `set-hook -p`
+**overwrites** the pane's single `pane-died` hook, so a monitor-side spawn onto
+that agent replaces `companion=%3` with `companion=<shadow>`. On agent exit job 1
+kills the shadow, then job 2's `kill-pane -t <shadow>` is a no-op — and the
+**minimonitor is orphaned**. That is a lifecycle-contract regression, not lost
+tidiness.
 
-`e` → `spawn_shadow(...)` directly.
+Fix inside `attach_shadow_cleanup_hook` (both callers benefit). The first draft
+said "install only if no `aitask_companion_cleanup.sh` hook exists", which left
+two holes (S3): a transient probe failure fell through to the overwrite, and an
+**unrelated** `pane-died` hook was still silently destroyed. Corrected
+procedure — note that a bare `set-hook -p … pane-died` writes index **`[0]`** and
+therefore replaces whatever sits there:
 
-`E` → `push_screen(AgentCommandScreen("Shadow (pick agent)", full_cmd,
-"/aitask-shadow " + " ".join(args), project_root=target_root,
-operation="shadow", operation_args=args,
-default_agent_string=resolve_agent_string(target_root, "shadow")))` with
-`narrow=False` (the monitor is full-width). The callback consumes
-**`screen.full_command`** (post-override — not the `full_cmd` captured before
-the dialog) and **deliberately discards** the dialog's `TmuxLaunchConfig`
-placement: placement stays handler-controlled, exactly as minimonitor documents
-at L1137-1141. `callback(None)` and a non-config truthy value launch nothing.
+1. Always `set-option -p -t <agent> remain-on-exit on` (idempotent).
+2. Probe `show-hooks -p -t <agent>`. **On `rc != 0`, fail closed:** install
+   nothing and return `"unverified"`. We cannot distinguish "no hook" from
+   "someone else's hook", and the two failure modes are not symmetric —
+   overwriting is silent and persistent, whereas skipping merely leaves the
+   shadow to be closed by hand, which is bounded and visible. `spawn_shadow`
+   surfaces it as a warning ("shadow launched; auto-cleanup on agent exit could
+   not be wired").
+3. If any `pane-died[N]` already references `aitask_companion_cleanup.sh` →
+   no-op, return `"existing"`. Correct and complete because job 1 is
+   **marker-driven**: it kills every pane whose `@aitask_shadow_target` matches
+   the dying agent, regardless of who armed the hook or what `companion` it
+   names. The prior companion contract survives untouched.
+4. Otherwise **append at the first free index** —
+   `set-hook -p -t <agent> 'pane-died[<max+1>]' "run-shell '…'"` (or `[0]` when
+   there are no `pane-died` hooks at all) — return `"installed"`. Verified on a
+   throwaway socket that this preserves an unrelated hook:
+   ```
+   pane-died[0] display-message custom-user-hook          # survives
+   pane-died[1] run-shell ".../aitask_companion_cleanup.sh %1 %2"
+   ```
 
-Both end with `self.call_later(self._refresh_data)`.
+Return a status (`"installed"` / `"existing"` / `"unverified"`) rather than
+`None`, so the caller can report the fail-closed case; the only current caller
+ignores the return, so the change is safe.
+(`lib/tui_switcher.py:1383-1388` wires its own git-pane hook inline and does not
+call this function; untouched.)
 
-Bindings: `e` and `E` are free in `monitor_app.BINDINGS` (L391-410) and match
-minimonitor's keys, so muscle memory carries over. `ShortcutsMixin.__init__`
-rewrites `self.BINDINGS` via `register_app_bindings("monitor", …)`, so the new
-keys are user-rebindable automatically; `monitor_app` is already in
-`KNOWN_BINDING_SOURCES`, so no `lib/shortcut_scopes.py` change is needed.
+## Step 4 — `minimonitor_app.py`
 
-Per `aidocs/framework/tui_conventions.md` ("TUI footer must surface every
-operation"), declare both with `show=True` and short labels.
+- `tmux_monitor` import: drop `SHADOW_TARGET_OPTION` (sole use was L1450 —
+  removing it makes a missed test retarget fail loudly); add
+  `load_project_tmux_config`, `spawn_shadow`.
+- `agent_launch_utils` import: drop `resolve_pane_id_by_pid` and
+  `attach_shadow_cleanup_hook` (sole uses 1446 / 1454). **Keep** `launch_in_tmux`
+  (still used at L1138 by the pick path) and `TmuxLaunchConfig`.
+- Replace `_spawn_shadow`'s body (1382-1462) with the policy adapter, keeping the
+  `if self._monitor is None: return` head guard:
 
-## Step 5 — docs
+```python
+    return spawn_shadow(
+        self._monitor,
+        full_cmd=full_cmd, followed_pane=followed_pane,
+        followed_window=snap.pane.window_name,
+        session=snap.pane.session_name or self._session,
+        task_id=task_id, target_root=target_root,
+        # This minimonitor IS the followed agent's companion and shares its
+        # window, so the cleanup hook must despawn US, not the shadow.
+        companion_pane=os.environ.get("TMUX_PANE") or None,
+        select_window=True,          # already on that window; unchanged
+        notify=self.notify,
+        schedule_refresh=lambda: self.call_later(self._refresh_data),
+    )
+```
 
-- `website/content/docs/tuis/monitor/reference.md` — `e` / `E` rows.
-- `website/content/docs/tuis/monitor/how-to.md` — a "Launch a shadow agent"
-  section mirroring `website/content/docs/tuis/minimonitor/how-to.md:109-135`.
-- `website/content/docs/workflows/shadow-agent.md` and
-  `aidocs/framework/shadow_agent.md` ("Spawn path and binding", which says *"The
-  shadow is launched from **minimonitor** with the `e` key"*) — the monitor is
-  now a second spawn surface. Per
-  `aidocs/framework/documentation_conventions.md`, describe the current state;
-  do not narrate the change.
+- Delete `_load_project_tmux_config` (1849-1860); point `main()` (1871) at the
+  imported name.
+
+## Step 5 — `monitor_app.py`
+
+- Imports: add `find_shadow_pane_status`, `spawn_shadow`,
+  `load_project_tmux_config`. `PaneCategory` is already imported;
+  `SHADOW_TARGET_OPTION` is not needed (the stamp lives in `spawn_shadow`).
+- `BINDINGS` (470-491), after the `c` binding per the uppercase-sibling ordering
+  convention:
+  ```python
+  Binding("e", "launch_shadow", "Shadow"),
+  Binding("E", "launch_shadow_pick", "Shadow (pick)"),
+  ```
+  Picked up automatically by `register_app_bindings("monitor", …)`;
+  `monitor_app` is already in `KNOWN_BINDING_SOURCES` (`lib/shortcut_scopes.py:54`).
+- **Footer audit** (`tui_conventions.md:387-407`): flip `M`
+  (`toggle_multi_session`, L486) to `show=True` — a distinct operation surfaced
+  nowhere else, and `tests/test_multi_session_monitor.sh:362` asserts only key
+  presence. Keep `f5` (L475) hidden **with an inline justification comment**: it
+  is an alias of `r`, already footer-visible with the same label and action, so
+  showing both duplicates an entry rather than surfacing an operation. minimonitor
+  needs no change (its own `#mini-key-hints` line already advertises `e/E`).
+- Two new **sync** actions plus a `_spawn_shadow` adapter, next to
+  `action_pick_concerns` (~2656). Shared prologue:
+  1. `if self._monitor is None: return`
+  2. `pane_id = self._focused_pane_id`; if falsy or not in `self._snapshots` →
+     `notify("Focus an agent pane first", severity="warning")`. Use
+     `_focused_pane_id`, **never** `_get_focused_pane_id()` (2494).
+  3. **`if snap.pane.category != PaneCategory.AGENT` →
+     `notify("Shadow only applies to agent panes", severity="warning")`.**
+     Monitor-only: `_rebuild_pane_list` (1562-1570, 1611) renders
+     `PaneCategory.OTHER` panes as focusable `PaneCard`s, so `_focused_pane_id`
+     can be a shell or lazygit pane. minimonitor never needed this because
+     `_find_own_agent_snapshot` filters on category (1536).
+  4. `followed_pane = snap.pane.pane_id`; if empty → warn.
+  5. **Duplicate guard (D1 + C3b), fail-closed:**
+     `ok, existing = find_shadow_pane_status(self._monitor, followed_pane)`;
+     if `not ok` → `notify("Could not verify whether a shadow is already running",
+     severity="warning"); return`; if `existing` → `notify("A shadow is already
+     running for this agent", severity="warning"); return`.
+  6. `task_id` / `target_root` / `args` / `full_cmd` exactly as minimonitor
+     (1309-1315).
+- `e` → `self._spawn_shadow(...)`. `E` pushes
+  `AgentCommandScreen("Shadow (pick agent)", full_cmd, "/aitask-shadow " +
+  " ".join(args), project_root=target_root, operation="shadow",
+  operation_args=args, default_agent_string=resolve_agent_string(target_root,
+  "shadow"))` — **no `narrow=`** (the monitor is full-width; both existing call
+  sites at 2973/3053 omit it). The callback launches only
+  `if isinstance(result, TmuxLaunchConfig)`, consumes **`screen.full_command`**,
+  and discards the dialog's own placement.
+- `_spawn_shadow` adapter: as minimonitor's but `companion_pane=None` and
+  `select_window=False`, commented *"the monitor is not the agent's companion and
+  normally lives in another window — passing our own `TMUX_PANE` here would make
+  `aitask_companion_cleanup.sh` kill the monitor; stealing focus would defeat the
+  shadow column."*
+- `action_pick_concerns` (2675-2680): replace the placeholder comment and message
+  with `notify("No shadow agent bound to this agent — press 'e' to launch one",
+  severity="warning")`.
+- Delete `_load_project_tmux_config` (3111-3123); point `main()` (3151) at the
+  imported name.
+
+**Not fixed, deliberately:** pressing `E` twice stacks two dialogs. The C3a
+re-check now makes the *second* confirm refuse instead of spawning a duplicate,
+so the remaining behaviour is a redundant dialog, not a correctness bug. Adding a
+latch to only one app would break parity.
+
+## Step 6 — retarget the minimonitor tests (hazard)
+
+Once the body lives in `monitor_core`, patches on the `minimonitor_app` namespace
+intercept **nothing** and the tests call the real `launch_in_tmux`. Both files
+need `from monitor import monitor_core as mc`, plus the Step 0 socket containment:
+
+- `tests/test_minimonitor_shadow_pick.py` — `ConfirmPathTests` (173-178):
+  `patch.object(mm, …)` → `patch.object(mc, …)` for `launch_in_tmux`,
+  `resolve_pane_id_by_pid`, `attach_shadow_cleanup_hook`; and
+  `mm._load_project_tmux_config` → `mc.load_project_tmux_config`. L190
+  `mm.SHADOW_TARGET_OPTION` → `mc.SHADOW_TARGET_OPTION`. L204 → `mc.launch_in_tmux`.
+- `tests/test_minimonitor_concern_action.py` —
+  `LaunchShadowGuardTests.test_refuses_duplicate_shadow_via_sync_reader` (322-327)
+  rebinds `mm.launch_in_tmux` by attribute assignment; retarget to
+  `mc.launch_in_tmux`, keeping the `try/finally` restore.
+
+**C6 — add a minimonitor policy test.** The existing confirm test asserts only
+`mock_hook.call_args.args[0]`, so it would pass if the refactor silently switched
+minimonitor to self-binding. Add, mirroring the monitor's negative control: with
+`patch.dict(os.environ, {"TMUX_PANE": "%77"})`, assert the **complete** call
+`mock_hook.assert_called_once_with("%1", "%77")` — the minimonitor keeps its
+`TMUX_PANE`-derived companion. Also assert `select_window is True` on its
+`TmuxLaunchConfig`.
+
+Everything these tests already assert stays byte-identical — only patch targets
+move. That is the regression net proving the lift is behaviour-preserving.
+
+## Step 7 — new `tests/test_monitor_shadow_pick.py`
+
+Model on `tests/test_monitor_concern_action.py:174 _mk_app`
+(`MonitorApp.__new__`, `spy_notify` / `spy_pushed`), extended with `_session`,
+`_task_cache`, `_root_for_snap` and a `call_later` spy; take the
+`sync_calls`-recording `tmux_run` from `tests/test_minimonitor_shadow_pick.py:48`.
+Patch `monitor_app.resolve_dry_run_command` / `resolve_agent_string` and
+`monitor_core.launch_in_tmux` / `resolve_pane_id_by_pid` /
+`attach_shadow_cleanup_hook` / `load_project_tmux_config`, restoring in `finally`.
+Socket containment per Step 0 — rebuild the cached `_TMUX` singletons in `setUp`,
+restore in `tearDown`, and assert `socket_args` statically (never by attempting a
+launch).
+
+*Bindings / footer* — exactly one `e`→`launch_shadow` and one
+`E`→`launch_shadow_pick`, both `show is True`; `M` is now `show is True`; `f5`
+stays `show is False` **and** its action equals `r`'s (encoding the
+justification); negative control: `c`→`pick_concerns` untouched.
+
+*Selection guards* — no focused pane, and focused pane absent from `_snapshots`,
+both refuse; **a `PaneCategory.OTHER` focused pane refuses**;
+`check_action("launch_shadow", ())` is falsy for `Zone.PREVIEW` / `Zone.SHADOW`
+and truthy for `Zone.PANE_LIST` (same for `launch_shadow_pick`).
+
+*Duplicate guard* — `sync_list="%5\t%1"` refuses and never calls
+`launch_in_tmux`; `E` refuses **before** pushing (`spy_pushed == []`);
+**cache-is-not-the-guard control:** a monitor whose `get_shadow_snapshot` returns
+`None` while `tmux_run` reports a live shadow **still refuses** (this fails if
+someone swaps in `_current_shadow_pane_id()`); **fail-closed control (C3b):**
+`tmux_run` returning `rc != 0` refuses and launches nothing; **confirm-time
+re-check (C3a):** a monitor that reports no shadow at guard time but a live one
+by spawn time launches nothing.
+
+*Focus preservation (C2)* — the monitor's `TmuxLaunchConfig` has
+`select_window is False` on both the split and the `new_window` branch; and, at
+the `agent_launch_utils` level, `select_window=False` emits no `select-window`
+argv and adds `-d` to `new-window`, while the default `True` keeps today's argv
+byte-for-byte (negative control for existing callers).
+
+*Spawn / lifecycle* — `launch_in_tmux` called once with `full_cmd`; config has
+`new_window is False`, `split_target_pane == "%1"`, `split_size == 60`,
+`cwd == "/p1"`; `{"shadow_same_window": False}` → `new_window is True`,
+`window == "agent-shadow-42"`; `{"shadow_pane_width": "wide"}` → 60; exactly one
+`set-option` stamp targeting `"%9"` with value `"%1"`.
+
+*Stamp verification (C4)* — a monitor whose `set-option` returns `rc != 0`
+retries once, then kills the new pane, notifies at `severity="error"`, installs
+**no** cleanup hook, and returns `None`; the success path installs the hook
+exactly once.
+
+*Hook idempotence (C5 + S3)* — four cases, using the live-verified output shape
+`pane-died[0] run-shell "…/aitask_companion_cleanup.sh %2 %3"`:
+(a) an existing `aitask_companion_cleanup.sh` hook → **no** `set-hook`, prior
+companion survives, returns `"existing"`, `remain-on-exit` still ensured;
+(b) no `pane-died` hook → installs at `[0]`, returns `"installed"`;
+(c) an **unrelated** `pane-died[0]` hook → installs at `[1]` and the unrelated
+hook is still present afterwards, returns `"installed"`;
+(d) `show-hooks` returning `rc != 0` → **no** `set-hook` at all, returns
+`"unverified"`, and `spawn_shadow` emits the auto-cleanup warning.
+Negative control for (c): asserting only "our hook is present" passes even when
+the unrelated one was destroyed, so the test must assert **both** entries.
+
+*PINNED companion contract (D3)* — with `patch.dict(os.environ, {"TMUX_PANE":
+"%77"})`, `attach_shadow_cleanup_hook` is called once with `("%1", "%9")` and
+`"%77"` appears in **no** argument; plus the structural control
+`assertNotIn("TMUX_PANE", inspect.getsource(mc.spawn_shadow))`.
+
+*D4* — `launch_in_tmux` returning `(None, "boom")` notifies at `severity="error"`
+and never fires `schedule_refresh`; the success and unclassifiable paths each fire
+it exactly once, and the unclassifiable path warns while skipping stamp and hook.
+
+*`E` dialog contract* — `operation == "shadow"`, `operation_args == ["%1", "42"]`
+(and `["%1"]` with no task id), prompt `"/aitask-shadow %1 42"`, and
+**`screen._narrow` falsy** (assert it, or a copy-paste of `narrow=True` goes
+unnoticed); confirm launches `screen.full_command`; `callback(None)` and
+`callback("run")` launch nothing.
+
+## Step 8 — docs
+
+- `website/content/docs/tuis/monitor/reference.md` — `e` / `E` rows; `M` joins
+  the shown set.
+- `website/content/docs/tuis/monitor/how-to.md` — a "How to Launch a Shadow
+  Agent" section mirroring `minimonitor/how-to.md:126-134`; line 154 names `e`;
+  **line 158 replaced** ("…Monitor reads and picks concerns but does not spawn
+  shadows itself"), now false. State that spawning keeps focus in the monitor.
+- `website/content/docs/workflows/shadow-agent.md` — lines 15/17/19: the monitor
+  is a second spawn surface. Lines 91/93 still describe concern-picking as
+  minimonitor-only, which t1216_3 already made false; fixed in the same pass.
+- `aidocs/framework/shadow_agent.md` — rewrite "Spawn path and binding"
+  (135-141); add the `companion_pane` contract and the hook-idempotence rule as
+  called-out rules; cross-reference `tui_conventions.md`'s companion-pane section.
+
+Per `documentation_conventions.md`, describe current state; do not narrate the
+change.
 
 ## Verification
 
-New `tests/test_monitor_shadow_pick.py`, mirroring
-`tests/test_minimonitor_shadow_pick.py`: `MonitorApp.__new__` + spy-lambda
-harness, `with patch.object(mod, "resolve_dry_run_command", return_value=...),
-patch.object(mod, "resolve_agent_string", return_value=...)`, and a recorder
-swapped in for `launch_in_tmux` / `resolve_pane_id_by_pid` /
-`attach_shadow_cleanup_hook` / `load_project_tmux_config`, restored in
-`finally`.
-
-- **Binding registration** — exactly one `e` → `launch_shadow` and one `E` →
-  `launch_shadow_pick` in `MonitorApp.BINDINGS`, both `show=True`.
-- **Duplicate guard** fires *before* the dialog opens (`spy_pushed == []`), with
-  the "already running" notify, and used the **sync** reader (assert on the fake
-  monitor's `sync_calls`, not `async_calls`).
-- **Dialog contract** — pushed screen is an `AgentCommandScreen` with
-  `operation == "shadow"`, `operation_args == ["%1", "42"]` (and `["%1"]`
-  without a task id), prompt `"/aitask-shadow %1 42"`.
-- **Confirm path** — launches `screen.full_command` (post-override, not the
-  pre-dialog capture); stamps `SHADOW_TARGET_OPTION` exactly once, targeting the
-  resolved shadow pane with the followed pane's id as the value;
-  `callback(None)` and `callback("run")` launch nothing.
-- **New assertion —** `attach_shadow_cleanup_hook` is called with the **shadow**
-  pane as `companion_pane`, plus a **negative control**: set `TMUX_PANE` to a
-  distinctive sentinel in the test environment and assert that value never
-  appears in the call. Without the negative control a test would pass even if
-  the helper still read `TMUX_PANE` and the environment happened to be unset.
-- A test that minimonitor's own call site still passes its `TMUX_PANE`-derived
-  companion (the lift must not change minimonitor's behaviour) — this is also
-  covered by `test_minimonitor_shadow_pick.py::ConfirmPathTests` passing
-  unmodified.
-
 ```bash
-bash tests/run_all_python_tests.sh
+bash tests/run_all_python_tests.sh      # read ONLY the last line for the verdict
 bash tests/test_no_raw_tmux.sh
+bash tests/test_multi_session_monitor.sh
 ```
 
-Manual, **from a shell outside the main aitasks tmux session** (see the
-"Tmux-stress tasks" section of `aidocs/framework/tui_conventions.md` — this
-child kills panes): press `e` in `ait monitor` on a selected agent, confirm the
-shadow splits beside **that agent** (not beside the monitor), press `e` again
-and confirm the duplicate refusal, then kill the agent and confirm the shadow
-dies **and the monitor survives**. Repeat with
-`tmux.shadow_same_window: false` for the separate-window placement.
+Targeted: `python3 tests/test_monitor_shadow_pick.py`,
+`python3 tests/test_minimonitor_shadow_pick.py`,
+`python3 tests/test_minimonitor_concern_action.py`. The runner has no pytest and
+falls back to unittest discovery, so a `-k` filter silently runs nothing.
+
+All of the above are mocked and, per Step 0, socket-contained. **The live tmux
+walkthrough is owned by t1216_5** (five `[t1216_4]` items) and is not run here.
+
+## Risk
+
+### Code-health risk: medium
+- The fixes for C2 and C5 change `agent_launch_utils` — a public dataclass field and the hook-install contract — which every agent launch in the framework goes through, not just the shadow path. Defaults preserve existing behaviour, but the blast radius is now framework-wide rather than monitor-local · severity: medium · → mitigation: monitor_shadow_spawn_live_smoke
+- The monitor gains its first synchronous `self._monitor.tmux_run` call. Correct here (user action, off the refresh path), but it weakens the file's uniform async-only-gateway property and the existing guard test does not cover action paths · severity: medium · → mitigation: none
+- Retargeting patch sites in two minimonitor test files moves the characterization net that was t1216_1's proof the lift changed no behaviour; a missed `launch_in_tmux` retarget fails **silently** · severity: medium · → mitigation: monitor_shadow_spawn_live_smoke
+- `spawn_shadow` takes two callables to keep `monitor_core` Textual-free — an unusual shape that moves control flow out of the caller's sight · severity: low · → mitigation: none
+
+### Goal-achievement risk: low
+- Behaviour is specified by a working implementation and every acceptance item has a mocked unit test; the parts not provable in-task (live pane placement, real hook firing, focus retention) are covered manually by t1216_5 rather than automatically · severity: low · → mitigation: monitor_shadow_spawn_live_smoke
+
+### Planned mitigations
+- timing: after | name: monitor_shadow_spawn_live_smoke | type: test | priority: medium | effort: medium | addresses: mocked-only coverage of the spawn path, its cleanup-hook companion argument, hook idempotence and focus retention | desc: Isolated-tmux smoke test (require_isolated_tmux from tests/lib/tmux_isolation.sh) that really spawns a shadow from the monitor and asserts the pane-died hook's companion argument, that a pre-existing companion hook is not overwritten, and that the client's active window does not change — making the PINNED contract repeatable rather than human-checked.
