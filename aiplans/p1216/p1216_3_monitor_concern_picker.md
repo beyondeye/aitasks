@@ -1139,7 +1139,7 @@ fall back to the hunk-extraction procedure recorded in `p1216_1`.
   `concern_block_signature`. Its reflow stability is a property claim over
   arbitrary tmux wrapping that t1216_1's tests could only sample; if real-world
   wrapping defeats it, badges silently never appear — an invisible failure ·
-  severity: medium · → mitigation: concern_signature_reflow_soak (plus, in-task,
+  severity: medium · → mitigation: t1347 (concern_signature_reflow_soak) (plus, in-task,
   the explicit throttled `-J` probe for the sub-24-column blind spot rather than
   silent absence)
 - The badge is one extra column on a card row already carrying a state dot, the
@@ -1168,7 +1168,7 @@ fall back to the hunk-extraction procedure recorded in `p1216_1`.
   → mitigation: none needed
 
 ### Planned mitigations
-- timing: after | name: concern_signature_reflow_soak | type: test | priority: medium | effort: medium | addresses: goal-achievement (the monitor is the first production consumer of `concern_block_signature`; a reflow failure hides badges silently) | desc: Soak/property verification that `concern_block_signature` stays stable and discriminating for a real concern block re-rendered across many LIVE tmux pane widths, and that the monitor's badge actually fires — the automated counterpart to t1216_1's in-process sampled widths and to t1216_5's human walkthrough. Should depend on t1216_3.
+- timing: after | created: t1347 | name: concern_signature_reflow_soak | type: test | priority: medium | effort: medium | addresses: goal-achievement (the monitor is the first production consumer of `concern_block_signature`; a reflow failure hides badges silently) | desc: Soak/property verification that `concern_block_signature` stays stable and discriminating for a real concern block re-rendered across many LIVE tmux pane widths, and that the monitor's badge actually fires — the automated counterpart to t1216_1's in-process sampled widths and to t1216_5's human walkthrough. Should depend on t1216_3.
 
 ## Final Implementation Notes
 
