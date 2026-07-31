@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus5
 created_at: 2026-07-31 07:56
-updated_at: 2026-07-31 12:13
+updated_at: 2026-07-31 13:39
 ---
 
 ## Context
@@ -59,3 +60,8 @@ headers in `aitasks/t1354_speed_up_python_test_suite.md`).
 - Per-file before/after wall times recorded in the plan (expect ~10x on bytrail).
 - Negative check: temporarily rename the fixture's populated column and confirm the migrated work-report test FAILS (proves it's no longer vacuously skipping).
 - Full suite green (or failures demonstrably pre-existing).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-31T10:39:20Z status=pass attempt=1 type=human
