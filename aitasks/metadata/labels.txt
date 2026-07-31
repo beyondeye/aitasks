@@ -83,6 +83,7 @@ sanboxing
 script-performance
 shadow
 skill_optiomizations
+skills
 statistics
 stats_ui
 task-archive
