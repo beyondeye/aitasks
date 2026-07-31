@@ -107,12 +107,24 @@ idiom); the harness absorbs them.
    `_trail_versions`; `CODEAGENT_SCRIPT` (`:74`), `CREATE_SCRIPT` (`:75`),
    `BRAINSTORM_TUI_SCRIPT` (`:76`); `agent_command_screen.py:999`
    (`aitask_skill_rerender.sh`); `sync_action_runner.py:76` (`_SYNC_SCRIPT`).
-   Instrumented boot + a synthetic By-Trail entry under cwd=tree spawns exactly
-   **one**: `['git','status','--porcelain','--','aitasks/']`. The rest are
-   reachable only on refresh/launch branches — and every one of them is wrapped
-   in `except (…FileNotFoundError, OSError)`, so an absent script **degrades
-   silently** and a test can pass through the fallback instead of the branch it
-   names. Addressed in step 4a.
+   Every one is wrapped in `except (…FileNotFoundError, OSError)`, so an absent
+   script **degrades silently** and a test can pass through the fallback instead
+   of the branch it names. Addressed in step 5a.
+
+   **Corrected during implementation (review concern 6).** The planning probe
+   reported "exactly one spawn: `git status`" because it cleared its spy after
+   the first `pilot.pause()` — by which point `on_mount` →
+   `refresh_board(refresh_locks=True)` had already run. Measured **per phase**,
+   the real inventory is two:
+
+   | phase | spawns |
+   |---|---|
+   | boot | `git -C .aitask-data status --porcelain -- aitasks/` (works) **+ `./.aitask-scripts/aitask_lock.sh --list` (ABSENT → degrades)** |
+   | By-Trail entry + local refresh | `git -C .aitask-data status --porcelain -- aitasks/` |
+
+   So every board boot on this harness runs with an empty `lock_map`. That is
+   the accepted trade — staging the helper back costs the ~0.43s that cwd=tree
+   buys — but it is now **asserted per phase**, not assumed.
 
 3. **`TASK_DIR` must be the relative literal (medium).** `load_board_module`
    exports whatever string it is handed. Measured with a dirtied file in a
@@ -232,7 +244,14 @@ idiom); the harness absorbs them.
    `trail_schema.load_schema()` resolves `DEFAULT_SCHEMA_PATH` from `__file__`,
    so it is chdir-safe.
 
-   **5a. Per-test cwd-dependency discipline (concern 2).** For every migrated
+   **5a. Per-test cwd-dependency discipline (concerns 2 + 6).** Pinned by
+   `FixtureCwdDependencyTests`, which asserts the boot spawn set **before** it
+   resets its spy — clearing first would leave the boot path (the one every test
+   in the file runs) entirely unguarded — then asserts the By-Trail phase
+   separately. It also pins the *consequence* of the absent lock helper
+   (`manager.lock_map == {}`); negative control: staging a working
+   `aitask_lock.sh` into the fixture makes that assertion fail, proving it is
+   not vacuous and that the helper is genuinely consulted at boot. For every migrated
    test, name the cwd-relative helper it reaches (inventory above) and either
    (a) stub it explicitly — most already do, via `patch.object(ab, …)` at
    `:766-771`, `:1883-1895` or `patch("subprocess.run")` at `:855/889/906/966/992`
@@ -325,6 +344,109 @@ idiom); the harness absorbs them.
 - Individual bytrail tests may depend on live-tree properties not yet
   enumerated; each is fixable by shaping the fixture · severity: low ·
   → mitigation: per-assertion coverage check (in-plan, Verification)
+
+## Measured results
+
+Per-file wall time, same machine, `python -m unittest discover -s tests -p <file>`:
+
+| file | before | after | ratio |
+|---|---|---|---|
+| `test_board_bytrail_view.py` | **227.2s** (73 tests, OK) | **29.3s** (76 tests, OK) | **7.8x** |
+| `test_board_work_report.py` | **29.2s** (23 tests, **FAILED**) | **4.7s** (23 tests, OK) | **6.2x** |
+| `test_board_movement.py` | 12.0s | 12.0s | — (unchanged, re-pointed only) |
+| `test_board_persistence_seam.py` | 0.57s | 0.57s | — (unchanged, re-pointed only) |
+| `test_board_fixture_harness.py` | — | 0.56s (15 tests, new) | — |
+
+Combined, the five files run in **46.0s in one interpreter** (161 tests, no cwd
+or `TASK_DIR` leakage between modules) against a ~269s before. The bytrail
+baseline came in at 227.2s rather than the task's recorded 165.6s — the live
+tree grew between the two measurements, which is precisely the growth curve
+this task exists to break.
+
+The realized ratio beat the plan's 3-5x projection because the fixture also
+cuts `pilot.pause()` (55.3ms → 22.9ms) across the file's many awaits, not just
+the 57 boots.
+
+**Full suite:** `PYTHON SUITE: PASSED (runner=unittest, exit=0)` — 2969 tests in
+**577.9s**, against the ~746s the task recorded. Every negative control was run
+and observed to fail (see Verification); the four permanent ones ship as
+passing tests that assert the broken behaviour, and the two one-off ones were
+demonstrated by subclassing the real test with a reshaped fixture rather than
+mutating any file.
+
+## Final Implementation Notes
+
+- **Actual work done:** Built `tests/lib/board_fixture.py` (declarative
+  `FixtureTask` topology, `build_fixture_tree`, `load_board_module`,
+  `enter_fixture_tree`, `FixtureBoardTestBase`, plus the `build_tree`/`snapshot`/
+  `diff_snapshots` vocabulary promoted verbatim from `test_board_movement.py`).
+  Added `tests/test_board_fixture_harness.py` (16 self-tests incl. the structural
+  regression guard). Migrated `test_board_bytrail_view.py` and
+  `test_board_work_report.py` onto the harness; re-pointed
+  `test_board_movement.py` and `test_board_persistence_seam.py` at the promoted
+  helpers with no behavior change. All six `skipTest`-on-live-tree sites became
+  unconditional assertions. Fixed t1346 + t1352.
+
+- **Deviations from plan:** Three, all recorded above in place.
+  1. The plan's cwd-dependency inventory said a boot + By-Trail entry spawns
+     "exactly one" subprocess. Wrong — the planning probe cleared its spy after
+     the first `pilot.pause()`, hiding everything `on_mount` had already done.
+     The real boot also runs `./.aitask-scripts/aitask_lock.sh --list`, which is
+     absent under the fixture and degrades silently. The guard now asserts the
+     boot set **before** resetting, and pins `lock_map == {}`.
+  2. `build_tree` gained `project_name=None` rather than unconditionally writing
+     `project_config.yaml`, so `test_board_movement`'s byte differ sees exactly
+     the file set it always saw. The declarative `build_fixture_tree` defaults it
+     to `"aitasks"` instead.
+  3. Speedup exceeded the plan's 3-5x projection (7.8x on bytrail) because the
+     fixture also halves `pilot.pause()` (55.3ms → 22.9ms), not just boots.
+
+- **Issues encountered:** The first cwd guard asserted `argv[:2] == ["git",
+  "status"]` and failed — branch mode routes through `git -C .aitask-data`,
+  which is exactly the production topology the fixture reproduces. Relaxed to
+  assert `status` + `--porcelain` are present.
+
+- **Key decisions:**
+  - **cwd=fixture tree, `TASK_DIR="aitasks"` relative.** Measured 0.190s/boot vs
+    0.620s for the cwd=REPO_ROOT idiom and 2.437s live. Deliberately did NOT
+    symlink `.aitask-scripts` into the tree; the resulting empty `lock_map` is
+    asserted rather than left implicit.
+  - **Guard is structural (AST), never a timing ceiling** — a wall-clock
+    assertion would be flaky under load and would not say why it regressed.
+  - **Every negative control was executed and observed to fail**, not assumed:
+    absolute `TASK_DIR` loses the modified marker; a missing
+    `project_config.yaml` turns both trail refs into ghosts; a reintroduced
+    `chdir`/canonical import trips the AST guard (and a mention in a string does
+    not); emptying `c0` breaks the work-report flow; removing the numberless file
+    trips `1 == 1 : the fixture must keep an unparseable filename in this
+    column`; staging a working `aitask_lock.sh` breaks the `lock_map == {}` pin.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t1354_2** (migrate the remaining ~9 live-tree board modules) is now mostly
+    mechanical: subclass `bf.FixtureBoardTestBase`, delete the
+    `chdir(REPO_ROOT)` + canonical `import aitask_board`, and add the module's
+    name to `MIGRATED_MODULES` in `tests/test_board_fixture_harness.py` so the
+    structural guard covers it. Reshape the tree per class via `FIXTURE_TASKS`;
+    use `enter_fixture_tree(self.addCleanup, ...)` for tests that MUTATE task
+    files (a class-level tree is shared).
+  - **Read the `board_fixture` module docstring first.** Two traps are only
+    documented there: `project_config.yaml` is mandatory for any trail test (its
+    absence turns every `aitasks#<id>` into a silent ghost, and nothing raises),
+    and every fixture task needs ≥1 non-board metadata key or
+    `_is_phantom_stub` drops it and the whole class passes vacuously.
+  - **Discoverability question left open for t1354_2:** the harness is currently
+    documented only in its own docstring. If t1354_2 finds that insufficient
+    while migrating 9 modules, a pointer in `aidocs/framework/tui_conventions.md`
+    would be the natural home — deliberately not added here, as it was outside
+    this task's approved scope.
+  - **t1354_3** (parallel lane): the harness is xdist-safe per file (each class
+    gets its own tmpdir), but it **chdirs the process**, so `--dist loadfile` is
+    mandatory — splitting one file's classes across workers is fine (separate
+    processes), but never run these classes in threads within one process.
+  - Suite is now 577.9s; `test_syncer_rows.py` (124s) is the next-largest single
+    file and has no live-tree coupling, so it needs its own analysis.
 
 ## Step 9 (Post-Implementation)
 
