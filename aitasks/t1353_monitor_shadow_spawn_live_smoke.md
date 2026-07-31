@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus5
 created_at: 2026-07-31 06:43
-updated_at: 2026-07-31 07:36
+updated_at: 2026-07-31 07:52
 ---
 
 ## Origin
@@ -79,3 +80,8 @@ It must assert, against a live throwaway tmux server:
   tests) and `tests/lib/tmux_socket_containment.py`; this task adds the live leg
   those deliberately cannot provide, and is the automated counterpart to the
   human walkthrough owned by t1216_5.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-31T04:53:01Z status=pass attempt=1 type=human
