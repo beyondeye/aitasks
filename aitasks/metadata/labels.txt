@@ -29,6 +29,7 @@ applink_dataplane
 applink_security
 archiveformat
 auto-update
+backend
 bash_scripts
 board
 brainstom_modules
