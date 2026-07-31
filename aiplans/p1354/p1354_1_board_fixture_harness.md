@@ -423,6 +423,14 @@ mutating any file.
 
 - **Upstream defects identified:** None.
 
+- **Follow-up created (Step 8b):** **t1364**
+  (`aitasks/t1364_warn_on_unparseable_task_filenames.md`) — t1352's open product
+  question: should the board / `ait ls` warn visibly about unparseable task
+  filenames instead of silently dropping them? Deliberately kept out of this
+  perf change, as the parent plan recommended. Note that
+  `test_board_work_report.py` now *pins* the current drop behaviour, so t1364
+  must update that test intentionally rather than incidentally.
+
 - **Notes for sibling tasks:**
   - **t1354_2** (migrate the remaining ~9 live-tree board modules) is now mostly
     mechanical: subclass `bf.FixtureBoardTestBase`, delete the
