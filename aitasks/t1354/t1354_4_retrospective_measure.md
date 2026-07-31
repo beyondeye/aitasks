@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t1354_1, t1354_2, t1354_3]
 issue_type: performance
 status: Ready
 labels: [test]
 gates: [risk_evaluated]
 anchor: 1111
 created_at: 2026-07-31 07:56
-updated_at: 2026-07-31 07:56
+updated_at: 2026-07-31 07:57
 ---
 
 ## Context
