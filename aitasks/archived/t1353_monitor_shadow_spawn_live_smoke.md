@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: test
-status: Implementing
+status: Done
 labels: [aitask_monitor, shadow, tui, tmux_destructive]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 implemented_with: claudecode/opus5
 created_at: 2026-07-31 06:43
-updated_at: 2026-07-31 07:53
+updated_at: 2026-07-31 10:04
+completed_at: 2026-07-31 10:04
 ---
 
 ## Origin
@@ -108,3 +109,14 @@ It must assert, against a live throwaway tmux server:
 > **✅ gate:plan_approved** run=2026-07-31T04:53:01Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-31T07:02:24Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-31T07:04:14Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:669728c1dcd3b373
+
+> **✅ gate:risk_evaluated** run=2026-07-31T07:04:14Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1353/risk_evaluated_2026-07-31T07:04:14Z-risk_evaluated-a1.log`
