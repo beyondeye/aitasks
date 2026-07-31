@@ -12,11 +12,12 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [1353]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 implemented_with: claudecode/opus5
 created_at: 2026-07-27 22:22
-updated_at: 2026-07-31 01:09
+updated_at: 2026-07-31 06:43
 ---
 
 ## Pick-time safety guard — DO NOT pick from inside your working tmux
