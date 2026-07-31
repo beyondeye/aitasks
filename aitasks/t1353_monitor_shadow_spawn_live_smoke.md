@@ -61,10 +61,21 @@ It must assert, against a live throwaway tmux server:
    t1216_4: `aitask_companion_cleanup.sh` job 2 runs `kill-pane -t "$companion"`
    with no marker check, so a monitor pane passed here would be killed on the
    agent's exit, arbitrarily later.
-2. **A pre-existing companion hook is not overwritten.** Arm an agent pane with a
-   cleanup hook naming companion A, then spawn a shadow from the monitor and
-   confirm the hook still names A and the new entry was appended at the next free
-   `pane-died[N]` index — with an unrelated `pane-died[0]` hook surviving too.
+   Assert it **behaviourally**, not only lexically: let the hook fire (kill the
+   agent's process), then confirm the shadow died and a monitor stand-in pane in
+   another window survived.
+2. **A pre-existing `pane-died` hook is not overwritten.** This splits into the
+   two distinct branches of `attach_shadow_cleanup_hook` — the original single
+   acceptance item merged them, but they are mutually exclusive in the shipped
+   code, which returns `"existing"` and appends **nothing** when a cleanup hook
+   is already present:
+   - **2a** — the pre-existing hook **is** a cleanup hook naming companion A:
+     after a monitor-side spawn it still names A, and **no second cleanup entry**
+     is appended (the shadow is still cleaned up because job 1 is marker-driven).
+   - **2b** — the pre-existing `pane-died[0]` hook is **unrelated**: it survives,
+     and the cleanup hook is appended at `pane-died[1]`. Both entries must be
+     asserted — checking only "our hook is present" passes even when the
+     unrelated one was destroyed.
 3. **The client's active window does not change** across both placement branches
    (same-window split and `shadow_same_window: false`), i.e. `select_window=False`
    really reaches tmux as "no `select-window`" / "`new-window -d`".
@@ -77,7 +88,15 @@ It must assert, against a live throwaway tmux server:
   `pane-died` state on whatever pane it is given, and
   `aitask_companion_cleanup.sh` deliberately runs raw `tmux` with **no socket
   flag**, so `AITASKS_TMUX_SOCKET` cannot sandbox the cleanup script itself.
-  Preflight with `tmux -L ait list-panes -a`.
+  The preflight is no longer manual: `require_clean_ait_server`
+  (`tests/lib/tmux_isolation.sh`) refuses with exit 2 when `$TMUX` is set or the
+  `-L ait` server is alive, overridable with `AIT_LIVE_TMUX_TEST_FORCE=1`. It
+  must be called **before** `require_isolated_tmux`, which unsets `$TMUX` and
+  repoints `$TMUX_TMPDIR`.
+- **Every positive assertion needs a paired control.** The suite spawns with
+  `select_window=True` (minimonitor's policy) to show the active window really
+  does move, and arms a deliberately wrong companion to show that pane really is
+  killed — otherwise items 1 and 3 could pass merely because nothing happened.
 - The mocked side is already covered by `tests/test_monitor_shadow_pick.py` (45
   tests) and `tests/lib/tmux_socket_containment.py`; this task adds the live leg
   those deliberately cannot provide, and is the automated counterpart to the

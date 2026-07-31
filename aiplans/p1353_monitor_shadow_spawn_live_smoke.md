@@ -296,3 +296,96 @@ restored after each.
 
 Post-implementation this plan is consolidated with Final Implementation Notes,
 then Step 9 (Post-Implementation) runs archival per the shared workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** `tests/test_monitor_shadow_spawn_live.sh` (598 lines,
+  new) plus `require_clean_ait_server` in `tests/lib/tmux_isolation.sh` (+107),
+  and the two doc cross-references. All seven live cases (containment, A–G) pass.
+  No production code changed — every contract the smoke asserts held on first
+  run, so the test is a characterization of shipped behaviour, not a bug hunt.
+
+- **Deviations from plan:**
+  - **The guard refuses on ANY pane on the `-L ait` server**, not on a
+    per-pane "is it an agent / shadow / TUI" classification as the plan said.
+    Classifying would mean re-deriving `monitor_core.DEFAULT_AGENT_PREFIXES` /
+    `DEFAULT_TUI_NAMES` in bash — a duplicate of canonical Python data that
+    would silently drift. Refusing on any pane needs no list, is the fail-closed
+    reading, and over-refusal costs only the documented
+    `AIT_LIVE_TMUX_TEST_FORCE=1` override. Recorded here because it is stricter
+    than the approved wording.
+  - **A `wait_hook_armed()` fixture barrier was added** (not in the plan) — see
+    "Issues encountered".
+  - `aidocs/framework/tui_conventions.md` enumerates no test list, so the
+    cross-reference went into its "How to apply" bullets instead.
+
+- **Issues encountered:**
+  - **Case F failed on the first run** ("the wrongly-named companion survived").
+    Not a contract violation: `attach_shadow_cleanup_hook` writes `set-option` /
+    `set-hook` through the gateway's fire-and-forget `_TMUX.spawn()`
+    (`lib/tmux_exec.py`: a bare `Popen` with no wait), so it returns
+    `"installed"` before the write is guaranteed to have landed. The test killed
+    the agent microseconds later and raced the install. Resolved by
+    `wait_hook_armed()`, which polls `show-hooks` + `remain-on-exit` before any
+    kill. A standalone tmux repro confirmed the hook mechanism itself is sound.
+  - **Case A initially had a substring hazard**: `'%1' in show_hooks_text`
+    false-positives against `%10`. All pane-id assertions are token-split
+    (`cleanup_hook_args`) or regex-extracted (`pane_ids_mentioned`).
+
+- **Key decisions:**
+  - The live leg starts at `action_launch_shadow()` on a `MonitorApp.__new__`
+    object rather than a Textual `run_test()` loop: binding→action wiring is
+    already pinned by the mocked suite, and a real event loop would add
+    `__init__`/`on_mount` discovery fragility without touching any tmux-side
+    contract.
+  - Exactly two seams are replaced — `ma.resolve_dry_run_command` (would launch
+    a real code agent) and `monitor.get_session_to_project_mapping` (pinned to
+    `{}` so `_root_for_snap` deterministically selects the test's project root).
+    Everything else is live.
+  - Case G re-uses the *same* shared sink (`mc.spawn_shadow`) with minimonitor's
+    `select_window=True` policy rather than a fabricated stub, so the control
+    exercises the production code path it is controlling for.
+
+- **Verification beyond the plan's list:**
+  - **Mutation discrimination (6/6).** Each broken in source, one at a time,
+    then restored and re-verified clean via `git diff --quiet`:
+    monitor companion → `"%0"` (A fails: hook args `['%1','%0']`);
+    monitor `select_window` → `True` (A fails); `new-window` `-d` dropped
+    (A passes, **B** fails — proving B discriminates independently of A);
+    `has_cleanup` early return disabled (C fails: second cleanup entry
+    appended); `slot` → `0` (D fails: unrelated hook destroyed); stamp skipped
+    (A fails: no stamped shadow).
+  - **Guard controls.** `TMUX=fake` → exit 2; a throwaway `-L ait` server
+    holding a shadow-stamped pane → exit 2 naming that pane;
+    `AIT_LIVE_TMUX_TEST_FORCE=1` → runs to PASS. Plus an **ordering
+    meta-control**: calling `require_isolated_tmux` first makes
+    `require_clean_ait_server` return 0 even with the `-L ait` server alive,
+    confirming the "ordering is load-bearing" comment states a real hazard
+    rather than a supposition.
+  - **Shared-helper regression.** `test_kill_agent_pane_smart.sh`,
+    `test_multi_session_primitives.sh`, `test_tmux_run_parity.sh` (all source
+    the modified `tmux_isolation.sh`) and `test_no_raw_tmux.sh` pass.
+
+- **Build verification:** `bash tests/run_all_python_tests.sh` →
+  `PYTHON SUITE: FAILED (runner=unittest, exit=1)` — **1 failure out of 2951**,
+  `test_board_work_report.WorkReportFullColumnUnderSearchTests.test_hidden_cards_still_listed`
+  (`154 != 155`). **Pre-existing and unrelated to this task**, which changes no
+  Python. Root cause: the `unordered` column contains
+  `aitasks/t_refresh_codeagent_suite_default_model_expectations.md`, whose
+  filename carries no numeric id, so `TaskCard._parse_filename` returns no
+  `task_num` and `action_work_report` skips it (`aitask_board.py:7271`) — the
+  dialog lists 154 while `get_column_tasks` returns 155. That file was committed
+  on 2026-07-29 (`9e7f18326`, a t1311 risk-mitigation revert), two days before
+  this session. Not fixed here.
+
+- **Upstream defects identified:**
+  - `aitasks/t_refresh_codeagent_suite_default_model_expectations.md — a
+    risk-mitigation task file was created with no numeric id in its filename, so
+    every `TaskCard._parse_filename` consumer silently drops it (proven by the
+    board work-report failure above); the creating flow should never emit an
+    id-less task filename`
+  - `.aitask-scripts/lib/agent_launch_utils.py:1425-1444 — attach_shadow_cleanup_hook
+    returns "installed"/"existing" based on a synchronous show-hooks read, but
+    issues its set-option/set-hook writes through the fire-and-forget
+    _TMUX.spawn() (lib/tmux_exec.py:230, bare Popen, never waited), so the
+    returned status can precede the write actually landing`
