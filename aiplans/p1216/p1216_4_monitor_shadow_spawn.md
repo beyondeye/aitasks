@@ -557,6 +557,57 @@ falls back to unittest discovery, so a `-k` filter silently runs nothing.
 All of the above are mocked and, per Step 0, socket-contained. **The live tmux
 walkthrough is owned by t1216_5** (five `[t1216_4]` items) and is not run here.
 
+## Implementation notes
+
+Implemented 2026-07-30 from a shell **outside** the `-L ait` tmux server, after
+the user cleared that server (`tmux -L ait kill-server`). Step 0's preflight was
+re-run and **passed** — `no server running on /tmp/tmux-1000/ait` — so the
+plan-only constraint recorded above no longer applied.
+
+All steps landed as written, with these deliberate deviations:
+
+- **Step 7's structural control was strengthened, not weakened.** The plan
+  specified `assertNotIn("TMUX_PANE", inspect.getsource(mc.spawn_shadow))`. That
+  assertion false-positives against the function's own docstring, which names
+  `TMUX_PANE` to document the contract ("This function never reads `TMUX_PANE`").
+  The test instead asserts on the **compiled code object** — no `"TMUX_PANE"`
+  string literal among `co_consts` (excluding the docstring) and no `environ` in
+  `co_names`. Strictly stronger: it proves no *executable* reference exists while
+  leaving the documentation intact. Verified to discriminate by mutation.
+- **Socket containment was factored into `tests/lib/tmux_socket_containment.py`**
+  rather than duplicated per-fixture across three test modules. Same mechanics the
+  plan specified (throwaway `AITASKS_TMUX_SOCKET` + `TMUX_TMPDIR`, `_TMUX`
+  singletons rebuilt inside the patched env, static `socket_args` assertion, never
+  a trial launch). Only `agent_launch_utils` needs rebuilding — `monitor_core`
+  holds no `_TMUX` of its own.
+- **`_spawn_shadow` returns `str | None`** in both apps (the plan's snippet wrote
+  `return spawn_shadow(...)` against a `-> None` annotation).
+- **One unplanned test update.** `test_monitor_concern_action.py`'s
+  `test_no_shadow_bound_warns_without_promising_a_key` asserted the monitor's "no
+  shadow bound" message must **not** name `e` — true when t1216_3 wrote it,
+  false once this task bound `e`. Inverted into a positive assertion that also
+  guards that the key named in the message actually exists in `BINDINGS`, so the
+  message can never drift back into offering a key that does nothing.
+
+Verification beyond the plan's list:
+
+- **Mutation discrimination.** Ten contracts were each broken in source, one at a
+  time, to prove the suite fails: the PINNED companion pane, focus preservation,
+  the fail-closed duplicate guard, hook append-vs-overwrite, hook fail-closed,
+  stamp verification, `schedule_refresh` on error, the `TMUX_PANE` structural
+  control, the `PaneCategory` guard, and `narrow`. All ten discriminated;
+  baseline restored and passing after each.
+- **Stale-patch negative control.** Reverting the Step 6 patch targets from `mc`
+  back to `mm` makes the minimonitor tests fail loudly — confirming the Step 4
+  import removals turn a missed retarget into an `AttributeError` rather than a
+  silent no-op, and the C6 policy test catches the one name (`launch_in_tmux`)
+  still present in both namespaces.
+- **Live tmux confirmation of the indexed-hook syntax** (isolated socket + private
+  `TMUX_TMPDIR`, torn down after): `set-hook -p -t <pane> 'pane-died[1]'` exits 0,
+  an unrelated `pane-died[0]` survives, and `show-hooks -p` emits exactly the
+  shape `_pane_died_hook_indices` parses. This is the one C5/S3 claim the mocked
+  tests cannot establish on their own.
+
 ## Risk
 
 ### Code-health risk: medium
@@ -570,3 +621,71 @@ walkthrough is owned by t1216_5** (five `[t1216_4]` items) and is not run here.
 
 ### Planned mitigations
 - timing: after | name: monitor_shadow_spawn_live_smoke | type: test | priority: medium | effort: medium | addresses: mocked-only coverage of the spawn path, its cleanup-hook companion argument, hook idempotence and focus retention | desc: Isolated-tmux smoke test (require_isolated_tmux from tests/lib/tmux_isolation.sh) that really spawns a shadow from the monitor and asserts the pane-died hook's companion argument, that a pre-existing companion hook is not overwritten, and that the client's active window does not change — making the PINNED contract repeatable rather than human-checked.
+
+## Final Implementation Notes
+
+- **Actual work done:** All eight plan steps landed as written — `spawn_shadow`,
+  `find_shadow_pane_status` and `load_project_tmux_config` lifted into
+  `monitor_core.py` and re-exported through the `tmux_monitor.py` shim;
+  `TmuxLaunchConfig.select_window` and the append-only / fail-closed
+  `attach_shadow_cleanup_hook` in `agent_launch_utils.py`; `e` / `E` bound in
+  `MonitorApp` over a shared `_resolve_shadow_target` prologue with the
+  `PaneCategory.AGENT` guard and the fail-closed live duplicate guard; both apps
+  reduced to per-app `_spawn_shadow` policy adapters; the two minimonitor test
+  files retargeted to the `monitor_core` namespace; new
+  `tests/test_monitor_shadow_pick.py` (45 tests) and the shared
+  `tests/lib/tmux_socket_containment.py`; docs updated in
+  `aidocs/framework/shadow_agent.md` and three website pages.
+
+- **Deviations from plan:** The four recorded in "Implementation notes" above
+  (code-object structural control instead of `inspect.getsource`; socket
+  containment factored into `tests/lib/tmux_socket_containment.py`;
+  `_spawn_shadow -> str | None`; the one unplanned
+  `test_monitor_concern_action.py` update). Plus one made while resuming: the
+  `select_window` field comment said "both placement branches", but
+  `launch_in_tmux` has three — `new_session` issues its own `switch-client` and
+  is deliberately **not** gated by the flag (suppressing it would leave a
+  brand-new session with no attached client, and no caller combines the two).
+  The comment now states that scope explicitly instead of implying the flag
+  covers every branch.
+
+- **Issues encountered:** The session implementing this task crashed before
+  committing; the work was recovered by re-picking t1216_4, which resumed from
+  the `plan_approved` ledger checkpoint with the working tree intact. Step 0's
+  tmux preflight was re-run at resume and passed again (`no server running on
+  /tmp/tmux-1000/ait`, shell outside tmux), so implementation and verification
+  remained within the task's own safety gate.
+
+- **Key decisions:** Unchanged from the plan — D1 (live lookup gates creation,
+  cache gates reading), D2 (lift lands in `monitor_core`), D3 (`companion_pane`
+  keyword-only with no default; monitor passes `None`, minimonitor passes its
+  `TMUX_PANE`), D4 (`schedule_refresh` as a parameter), D5 (`_spawn_shadow` kept
+  in both apps as a policy adapter).
+
+- **Build verification:** `bash tests/run_all_python_tests.sh` → 2951 tests,
+  **1 failure**, `PYTHON SUITE: FAILED`. The failure is
+  `test_board_work_report.WorkReportFullColumnUnderSearchTests.test_hidden_cards_still_listed`
+  (`150 != 151`) and is **pre-existing and unrelated to this task** — it lives
+  entirely in `aitask_board.py`, which this task does not touch, and reproduces
+  from live task data alone (verified with a standalone probe of
+  `manager.get_column_tasks("unordered")` vs `TaskCard._parse_filename`). Cause
+  recorded under "Upstream defects identified". All task-relevant suites pass:
+  `test_monitor_shadow_pick.py` 45, `test_minimonitor_shadow_pick.py` 10,
+  `test_minimonitor_concern_action.py` 37, `test_monitor_concern_action.py` 61,
+  `tests/test_no_raw_tmux.sh` 5/5, `tests/test_multi_session_monitor.sh` 47/47.
+
+- **Upstream defects identified:**
+  - `tests/test_board_work_report.py:483 — test_hidden_cards_still_listed asserts sl.option_count == len(col_tasks) against the LIVE task tree, but action_work_report (aitask_board.py:7271) deliberately skips any task whose filename TaskCard._parse_filename cannot parse; a single malformed task file anywhere in the first populated column therefore fails the whole Python suite. Currently triggered by aitasks/t_refresh_codeagent_suite_default_model_expectations.md (created 2026-07-29), whose filename carries no task number.`
+
+- **Notes for sibling tasks:** The live tmux walkthrough of this change is owned
+  by **t1216_5** (five `[t1216_4]` checklist items) — pane placement, real hook
+  firing and focus retention are deliberately *not* asserted here, because every
+  test in this task is mocked and socket-contained. `tests/lib/tmux_socket_containment.py`
+  is reusable by any future mocked-tmux test: list the modules holding an
+  import-time `_TMUX` in `CONTAINED_MODULES` and call `assert_contained()`. Note
+  that only `agent_launch_utils` needs rebuilding — `monitor_core` holds no
+  `_TMUX` of its own. When patching anything on the shadow spawn path, patch the
+  **`monitor_core`** namespace, not `minimonitor_app`: the Step 4 import removals
+  turn a missed retarget into a loud `AttributeError`, except for
+  `launch_in_tmux`, which still exists in both namespaces and is covered by the
+  C6 policy test.
