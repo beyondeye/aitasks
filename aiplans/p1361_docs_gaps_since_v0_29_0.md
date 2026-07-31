@@ -425,3 +425,71 @@ written at Step 7), then `./.aitask-scripts/aitask_archive.sh 1361`.
   the By-Trail section carries an inline definition.
 - `ait gate pass` is dispatched at `ait:323` but missing from `ait --help`'s
   Gates block — a known one-line code defect, deliberately deferred by t635_34.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four documented gaps landed as planned, across the
+  12 files listed above — a new 237-line `website/content/docs/commands/gates.md`
+  plus +226/-20 across 11 existing pages. Gap 1: the new gates page (run / list /
+  status / unlocked / sync-registry / pass / fail / log, with `sync-registry`'s
+  report vocabulary, exit-code table, no-auto-commit contract and a symptom→fix
+  section), a `### Gates` group and four usage-example lines in
+  `commands/_index.md`, a new `## The risk_evaluated Gate` section plus a See
+  Also link in `risk-evaluation.md`, and the current-state rewrite in
+  `aitask-resume.md`. Gap 2: `z By-Trail` added to the selector render block,
+  base-filter table, Board Navigation and Task Operations key tables, and both
+  `_index.md` base-view lists; a new `#### By-Trail` reference subsection
+  (refresh-ladder table with costs, drift markers, per-view footer, hidden `C`);
+  a By-Trail how-to passage and a By-Trail sync-key note under "How to Sync with
+  Remote". Gap 3: the four-state badge table replacing the single "idle
+  indicator" bullet in the monitor how-to, the `CODE AGENTS` legend row, the
+  auto-switch rewrite, three-way counters in `monitor/reference.md` title-bar
+  examples, the minimonitor status-dot / badge / header-bar lines, and the
+  monitor `_index.md` session-bar and card-anatomy sentences. Gap 4: `convert`
+  added to the subcommand list, a new `### Recovering a Plain-Bullet Checklist`
+  section, and a pre-loop-check sentence in "Running a Manual-Verification Task".
+
+- **Deviations from plan:** None in substance. Two wordings were corrected
+  mid-implementation after checking the source: the plan's draft phrasing "press
+  `T` with a task focused to start one" was wrong inside the By-Trail view —
+  `check_action` hides `trail_task` when `base_filter` is `inflight` or `bytrail`
+  (`aitask_board.py:5847-5853`) — so both the reference and how-to now say to
+  create a trail from another view. The plan also anticipated adding `d`/`R`/`S`
+  rows only; `T` was added to Task Operations as well, because the By-Trail
+  section has to explain where a trail comes from.
+
+- **Issues encountered:** None blocking. The site build emits two pre-existing
+  Hugo deprecation warnings (`.Language.LanguageDirection`, `.Site.AllPages`)
+  unrelated to this change.
+
+- **Key decisions:** (1) Documented only the verbs the `ait` dispatcher exposes —
+  the workflow seams reachable solely through `aitask_gate.sh`
+  (`materialize-active`, `resume-point`, `should-self-record`, `archive-ready`,
+  `procedure-gates`, `begin-procedure`) are agent-facing and stayed out, with
+  `gate append` mentioned once as the verifier-facing writer. (2) Described
+  COMPLETED in user terms — a property of the pane's *task* — and deliberately
+  omitted the internal detection mechanism (identity-keyed cache, retry decay),
+  compressing it to one sentence about eventual consistency. (3) Carried a
+  one-sentence inline definition of an implementation trail rather than opening a
+  new concept page, since none exists to cross-link to. (4) Scope-corrected two
+  gaps that were wider than the task text (board key tables and `_index.md`
+  beyond View Filters; the monitor how-to having no status list at all) rather
+  than documenting a knowingly-wrong key list.
+
+- **Upstream defects identified:**
+  - `website/content/docs/tuis/board/how-to.md:225-243 — work-report section documents the key as uppercase W, but the default binding is lowercase w (aitask_board.py:5615); ~6 occurrences in that section, outside this task's four gaps`
+  - `ait:51-60 — the --help "Gates:" block omits `gate pass`, which is dispatched at ait:323 and listed in the inline `ait gate --help`; known and deliberately deferred by t635_34`
+
+- **Verification:** `cd website && hugo build --gc --minify` → exit 0, 231 pages,
+  no `REF_NOT_FOUND`. All anchors linked across pages confirmed present in the
+  built HTML (`ait-gates-run`, `ait-gates-list-status-unlocked`,
+  `ait-gates-sync-registry`, `ait-gate-pass`, `by-trail`,
+  `how-to-read-the-pane-list`, `recovering-a-plain-bullet-checklist`). Every
+  documented render string was diffed against its source: `ViewSelector.BASES`
+  (`aitask_board.py:1522-1529`), the pinned By-Trail footer labels
+  (`tests/test_board_bytrail_view.py:1120-1145`), the badge and legend constants
+  (`monitor_shared.py:526-536`, `monitor_app.py:1252-1255`), the counter
+  partition (`monitor_app.py:1433-1449`), the `sync-registry` report lines and
+  exit codes (`lib/gate_registry_sync.py:43-49,496-524`), the claim-time and
+  no-commit warnings (`aitask_gate.sh:696,941`), and `convert`'s CLI shape and
+  error strings (`aitask_verification_parse.py:317-339,381-385`).
