@@ -26,25 +26,27 @@ constructed fixture rather than a live autonomous run.
 ## Goal
 
 Autonomous manual-verification of the end-to-end async human-gate flow against a
-real task and the real headless lane:
-
-1. Construct a task that declares `gates: [review_approved]` (or add the gate to a
-   throwaway task), on a scratch branch.
-2. Drive the headless lane (`aitask-pickrem`) through implementation + auto-commit;
-   confirm Step 9.5 runs `ait gates run` and **stops cleanly at pending-human**
-   (review_approved pending), leaving the task in-flight with the code committed
-   and NO self-signalled signal.
-3. Run `ait gate pass <id> review_approved`; confirm the code-bound witness is
-   created under `.aitask-gates/` and the orchestrator records the ledger `pass`
-   with a `signed_digest:` note.
-4. Change a code file, hand-create/replay a witness stamped against the old
-   digest, run `ait gates run`; confirm the **stale signature** re-pends (not
-   pass).
-5. Re-sign the current state and confirm the task archives cleanly.
+real task and the real headless lane.
 
 Coordinate with t635_17 (autonomous-lane rigor) to avoid overlap — t635_17 owns
 the auto-completion policy; this MV only verifies the stop-clean + sign + record
 + stale-repend behavior t635_15 shipped.
+
+## Verification Checklist
+
+- [ ] Construct a task that declares `gates: [review_approved]` (or add the gate to a
+  throwaway task), on a scratch branch.
+- [ ] Drive the headless lane (`aitask-pickrem`) through implementation + auto-commit;
+  confirm Step 9.5 runs `ait gates run` and **stops cleanly at pending-human**
+  (review_approved pending), leaving the task in-flight with the code committed
+  and NO self-signalled signal.
+- [ ] Run `ait gate pass <id> review_approved`; confirm the code-bound witness is
+  created under `.aitask-gates/` and the orchestrator records the ledger `pass`
+  with a `signed_digest:` note.
+- [ ] Change a code file, hand-create/replay a witness stamped against the old
+  digest, run `ait gates run`; confirm the **stale signature** re-pends (not
+  pass).
+- [ ] Re-sign the current state and confirm the task archives cleanly.
 
 ## Premise refresh (2026-07-26 — t635_33 active-gates model) — READ BEFORE RUNNING
 
