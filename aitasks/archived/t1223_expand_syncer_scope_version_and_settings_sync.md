@@ -5,16 +5,16 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [tui, project_groups, ait_settings, auto-update]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1223_7]
 created_at: 2026-07-23 17:09
-updated_at: 2026-07-28 23:59
+updated_at: 2026-07-31 12:11
+completed_at: 2026-07-31 12:11
 ---
 
 ## Goal

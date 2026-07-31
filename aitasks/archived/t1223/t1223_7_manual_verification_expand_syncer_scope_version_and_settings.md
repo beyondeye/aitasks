@@ -3,7 +3,7 @@ priority: medium
 effort: medium
 depends: [t1223_6]
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [verification, manual]
 active_gates: []
 active_gates_filtered: []
@@ -13,7 +13,8 @@ verifies: [t1223_1, t1223_2, t1223_3, t1223_4, t1223_5, t1223_6]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1223
 created_at: 2026-07-23 18:42
-updated_at: 2026-07-31 12:10
+updated_at: 2026-07-31 12:11
+completed_at: 2026-07-31 12:11
 ---
 
 ## Manual Verification Task
