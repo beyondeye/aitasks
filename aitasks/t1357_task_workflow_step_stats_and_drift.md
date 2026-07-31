@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_workflow, reporting, verifiedstats, gates]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-31 10:44
-updated_at: 2026-07-31 10:44
+updated_at: 2026-07-31 10:45
 ---
 
 ## Goal
