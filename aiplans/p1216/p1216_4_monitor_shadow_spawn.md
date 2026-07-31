@@ -611,16 +611,16 @@ Verification beyond the plan's list:
 ## Risk
 
 ### Code-health risk: medium
-- The fixes for C2 and C5 change `agent_launch_utils` — a public dataclass field and the hook-install contract — which every agent launch in the framework goes through, not just the shadow path. Defaults preserve existing behaviour, but the blast radius is now framework-wide rather than monitor-local · severity: medium · → mitigation: monitor_shadow_spawn_live_smoke
+- The fixes for C2 and C5 change `agent_launch_utils` — a public dataclass field and the hook-install contract — which every agent launch in the framework goes through, not just the shadow path. Defaults preserve existing behaviour, but the blast radius is now framework-wide rather than monitor-local · severity: medium · → mitigation: t1353 (monitor_shadow_spawn_live_smoke)
 - The monitor gains its first synchronous `self._monitor.tmux_run` call. Correct here (user action, off the refresh path), but it weakens the file's uniform async-only-gateway property and the existing guard test does not cover action paths · severity: medium · → mitigation: none
-- Retargeting patch sites in two minimonitor test files moves the characterization net that was t1216_1's proof the lift changed no behaviour; a missed `launch_in_tmux` retarget fails **silently** · severity: medium · → mitigation: monitor_shadow_spawn_live_smoke
+- Retargeting patch sites in two minimonitor test files moves the characterization net that was t1216_1's proof the lift changed no behaviour; a missed `launch_in_tmux` retarget fails **silently** · severity: medium · → mitigation: t1353 (monitor_shadow_spawn_live_smoke)
 - `spawn_shadow` takes two callables to keep `monitor_core` Textual-free — an unusual shape that moves control flow out of the caller's sight · severity: low · → mitigation: none
 
 ### Goal-achievement risk: low
-- Behaviour is specified by a working implementation and every acceptance item has a mocked unit test; the parts not provable in-task (live pane placement, real hook firing, focus retention) are covered manually by t1216_5 rather than automatically · severity: low · → mitigation: monitor_shadow_spawn_live_smoke
+- Behaviour is specified by a working implementation and every acceptance item has a mocked unit test; the parts not provable in-task (live pane placement, real hook firing, focus retention) are covered manually by t1216_5 rather than automatically · severity: low · → mitigation: t1353 (monitor_shadow_spawn_live_smoke)
 
 ### Planned mitigations
-- timing: after | name: monitor_shadow_spawn_live_smoke | type: test | priority: medium | effort: medium | addresses: mocked-only coverage of the spawn path, its cleanup-hook companion argument, hook idempotence and focus retention | desc: Isolated-tmux smoke test (require_isolated_tmux from tests/lib/tmux_isolation.sh) that really spawns a shadow from the monitor and asserts the pane-died hook's companion argument, that a pre-existing companion hook is not overwritten, and that the client's active window does not change — making the PINNED contract repeatable rather than human-checked.
+- timing: after | name: t1353 monitor_shadow_spawn_live_smoke | type: test | priority: medium | effort: medium | addresses: mocked-only coverage of the spawn path, its cleanup-hook companion argument, hook idempotence and focus retention | desc: Isolated-tmux smoke test (require_isolated_tmux from tests/lib/tmux_isolation.sh) that really spawns a shadow from the monitor and asserts the pane-died hook's companion argument, that a pre-existing companion hook is not overwritten, and that the client's active window does not change — making the PINNED contract repeatable rather than human-checked.
 
 ## Final Implementation Notes
 
