@@ -80,3 +80,23 @@ checks were deferred for human observation.
 
 - No scratch repository, live tmux session, or temporary handoff directory was
   created by this auto-verification run.
+
+## Final Implementation Notes
+
+- **Actual work done:** Ran the automated portion of the 22-item manual
+  verification checklist. Seventeen checks passed from the syncer,
+  framework-version, cross-repo-settings, and config-utilities suites, plus a
+  successful Hugo build; five live-observation checks were deferred.
+- **Deviations from plan:** No live tmux upgrade, self-handoff, Ctrl-C cleanup,
+  or browser/dev-server session was started. Those checks are intentionally
+  transferred to the carry-over task rather than simulated.
+- **Issues encountered:** The initial distributed-lock fetch failed once; the
+  retry acquired ownership. Hugo issued two unrelated deprecation warnings but
+  built the site successfully.
+- **Key decisions:** Treat the existing headless regression coverage as
+  sufficient evidence for deterministic behavior, while preserving checks that
+  require visual or real tmux lifecycle observation for a human verifier.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** The carry-over task should focus only on live
+  tmux upgrade/handoff/cleanup and documentation rendering/behavior comparison;
+  the automated evidence is already recorded here.
