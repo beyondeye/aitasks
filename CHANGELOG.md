@@ -1,5 +1,70 @@
 # Changelog
 
+## v0.30.0
+
+### Features
+
+- **Monitor shadow zone** (t1216_2): The full monitor now shows the shadow agent side by side with the agent it follows, with its own live preview, key forwarding and a grace window so a brief capture blip doesn't make the panel vanish.
+- **Monitor concern picker** (t1216_3): Shadow concerns now surface in the full monitor with a per-agent badge, an automatic toast when new concerns appear, and a `c` picker for reviewing them.
+- **Monitor shadow spawn** (t1216_4): The `e` / `E` shadow-spawn keys work in the full monitor, not just the minimonitor, with a duplicate guard so you can't accidentally launch a second shadow for the same agent.
+- **Syncer version tab** (t1223_3): The syncer gained a Versions tab that shows the framework version installed in each linked repo and can upgrade them, including a clean self-handoff when the syncer upgrades the repo it is running from.
+- **Cross-repo settings seam** (t1223_4): Configuration can now be merged into another repo safely — writes are atomic, type conflicts are reported instead of silently overwriting, and a partial import tells you exactly what landed.
+- **Syncer settings tab** (t1223_5): A new Settings tab shows how each configuration value resolves across your linked repos and adds a four-step wizard for pushing one setting to other repos, with masking for sensitive values.
+- **Pick a task by number** (t1310): Press `p` in the minimonitor to launch a task by typing its number, with a confirmation dialog that warns you about unmet dependencies first.
+- **COMPLETED agent status** (t1322): The monitor and minimonitor now distinguish agents that finished their task from those that are merely idle, with a dedicated badge, counter and auto-switch filter.
+- **Cross-repo agent marks** (t1326): Press `space` in either monitor to mark an agent as prioritized; marks are shared across repos, so an agent you flag in one project stays flagged everywhere.
+- **Release docs-gap skill** (t1355): A new `aitask-docs-gap` skill reviews everything landed since the last release, classifies which changes are missing documentation, and files a single documentation task covering the gaps.
+
+### Bug Fixes
+
+- **Python suite verdict** (t1179): The Python test suite now ends with an unmissable pass/fail banner derived from the real exit status, so a failing run can no longer look like a passing one.
+- **Codex skill launch** (t1221): Launching a skill through Codex now validates its arguments across every operation and refuses malformed input instead of composing a broken command.
+- **Verified-parity baseline** (t1232): Fixed a test that compared shipped model scores against live project config, so local model customizations no longer break the suite.
+- **Board field persistence** (t1243_2): Saving a board change now writes only the fields the caller actually changed, instead of rewriting the whole set and clobbering concurrent edits.
+- **Board filter row width** (t1247): The board's filter row now measures its own width and reflows the search box vertically on narrow terminals instead of overflowing.
+- **Board scroll jump** (t1248): Navigating the board no longer jumps unexpectedly when the focused card is off-screen — movement is re-anchored to what you can actually see, and focus scrolls immediately.
+- **Plain-bullet verification checklists** (t1264): A verification checklist written with plain bullets is no longer unrecoverable — a new `convert` action turns them into proper checkbox items without losing text or indentation.
+- **Silent push failures** (t1265): `ait git push` now reports when a task-data push actually pushed nothing, instead of exiting successfully and leaving you to discover it later.
+- **By-Trail refresh** (t1268): The By-Trail board view gained a clear refresh ladder (local, freshness, agent), per-card drift markers and accurate per-view key/footer labels.
+- **Board header row** (t1278): The board's header row is drawn again, and the trail freshness marker survives resizing instead of being truncated away.
+- **Double-tapped refresh** (t1279): A double-tapped `R` on the By-Trail agent refresh no longer fires the dialog twice.
+- **Followed-agent task info** (t1282): A new `I` shortcut in the minimonitor opens task info for the agent you are following, even when a different card has focus.
+- **Board error handling** (t1302): The board now degrades gracefully on any filesystem error during refresh, and board keys keep a stable position in task frontmatter instead of shuffling on every save.
+- **Shadow review gate** (t1311): Fixed the shadow's implementation-review gate, which previously refused to review on a false "too early" premise, and added a configurable review depth per profile.
+- **Board dialog errors** (t1314): Board dialogs no longer crash on unexpected subprocess errors, and the loading overlay is always dismissed.
+- **Skill surface guards** (t1325): The skill verification guards no longer validate themselves against their own output, so a missing skill surface is actually caught.
+
+### Improvements
+
+- **Gate registry sync** (t635_34): A new `ait gates sync-registry` reconciles an installed project's gate registry with the framework reference — filling in missing fields, reporting conflicts and preserving your comments — plus a warning at pick time when an active gate has no verifier configured.
+- **Shared shadow seam** (t1216_1): The shadow capture and snapshot logic moved out of the minimonitor into shared code so both monitors behave identically, with proper ordering guarantees when a shadow is rebound.
+- **Configurable merge target** (t1233): A new `output_branch` profile key lets a task's final merge target be something other than your default branch, recorded in the plan header and drift-checked before the merge.
+- **Stats module promotion** (t1235): Statistics data loading moved to the shared library layer, removing a path hack that made the work-report tooling reach into the stats TUI.
+- **Syncer arrow navigation** (t1266): Arrow keys now move between the syncer's tab bar and its content, so you can navigate the whole TUI without reaching for other keys.
+- **Shared narrow-terminal breakpoint** (t1251): The narrow/normal/wide terminal breakpoints are now defined once and shared, so TUIs adapt consistently at the same widths.
+- **Structured concern dispositions** (t1274): Shadow concerns are now grouped by disposition in the picker, informational items are dimmed, untitled rows show a placeholder, and unrecovered markers are called out instead of silently dropped.
+- **Shadow pane-id hardening** (t1307): The shadow skill no longer breaks when a pane id is truncated, and it can recover the right target through its own binding or an exact-match lookup.
+- **Explore label handling** (t1312): Labels suggested during explore are now added to your project vocabulary and confirmed with you first, with a new profile key controlling whether that happens automatically, on request, or not at all.
+
+### Documentation
+
+- **Syncer documentation** (t1223_6): The syncer docs now cover all three tabs, the arrow-key navigation model, framework-version inspection and upgrades, and the cross-repo settings push wizard.
+- **Docs gaps since v0.29.0** (t1361): Added a full reference page for the `ait gates` command family and documented the By-Trail board view, the COMPLETED agent status and the verification-checklist convert action.
+
+### Performance
+
+- **Board test fixture harness** (t1354_1): A shared board test fixture replaces per-file setup in the slowest board test files, cutting suite runtime and removing tests that used to skip themselves.
+
+### Tests
+
+- **Isolated Python test lane** (t1236): The Python test runner no longer leaks its own import path into tests, and a new lane imports each test file in a clean interpreter to catch hidden bootstrap assumptions.
+- **Board movement baseline** (t1243_1): Added a characterization suite and performance baseline for board card movement, pinning current behaviour before reordering work begins.
+- **Restored isolation lane** (t1306): Recovered the Python isolation lane and supporting files that a history rewrite had dropped.
+- **Skill dispatch smoke test** (t1317): A new test checks every templated skill against all four agent surfaces, and the missing OpenCode stub it found was added.
+- **Derived agent defaults** (t1318): Tests now derive expected code-agent defaults instead of pinning model names, so adding a model no longer breaks unrelated suites.
+- **Label frontmatter characterization** (t1321): Pinned how `--batch --labels` normalizes, dedupes and sanitizes labels across all three task-creation paths.
+- **Live shadow spawn smoke** (t1353): A live isolated-tmux smoke test now exercises monitor shadow spawn end to end against a real tmux server.
+
 ## v0.29.0
 
 ### Features
