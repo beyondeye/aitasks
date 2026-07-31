@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1216_4]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual, tmux_destructive]
 verifies: [t1216_1, t1216_2, t1216_3, t1216_4]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-27 22:27
-updated_at: 2026-07-28 18:27
+updated_at: 2026-07-31 10:28
 ---
 
 ## Pick-time safety guard — DO NOT pick from inside your working tmux
