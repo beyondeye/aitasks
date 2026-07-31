@@ -13,7 +13,7 @@ verifies: [t1223_1, t1223_2, t1223_3, t1223_4, t1223_5, t1223_6]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1223
 created_at: 2026-07-23 18:42
-updated_at: 2026-07-31 11:45
+updated_at: 2026-07-31 12:10
 ---
 
 ## Manual Verification Task
@@ -33,7 +33,7 @@ archived; Defer is allowed but creates a carry-over task.
 - [x] [t1223_2] Automated-only child — confirm `python3 tests/test_framework_version.py` passes on the verifier's machine (no manual surface of its own). — PASS 2026-07-31 11:45 auto: python3 tests/test_framework_version.py passed (42 tests)
 - [x] [t1223_3] The Versions tab shows every discovered repo with its real `.aitask-scripts/VERSION` value; the Latest column matches `ait upgrade`'s own notion of latest. — PASS 2026-07-31 11:45 auto: version-row and latest-resolution tests passed
 - [x] [t1223_3] With fetch toggled off (`f`), the Versions tab makes no network call and marks Latest as stale rather than blanking or blocking the UI. — PASS 2026-07-31 11:45 auto: fetch-off network and stale-cell test passed
-- [defer] [t1223_3] Upgrade a scratch repo (no live session) to a pinned version: a shell spawns rooted in that repo, State reads `upgrading…` while the pane lives, then `re-check needed` once it exits. — DEFER 2026-07-31 11:45 auto: requires live tmux shell against a scratch repository
+- [defer] [t1223_3] Upgrade a scratch repo (no live session) to a pinned version: a shell spawns rooted in that repo, State reads `upgrading…` while the pane lives, then `re-check needed` once it exits. — DEFER 2026-07-31 12:10
 - [x] [t1223_3] The State column never claims success: the version cell keeps showing the OLD version with a stale marker until the re-check key is pressed, which then reports the new one. — PASS 2026-07-31 11:45 auto: lifecycle test confirms no unobserved success and stale re-check state
 - [x] [t1223_3] Open `ait board` (or any framework TUI) in the scratch repo and retry the upgrade: it is REFUSED, and the message names the offending window(s). Close the window, re-check, and the upgrade now proceeds. — PASS 2026-07-31 11:45 auto: active-target refusal and no-spawn tests passed
 - [defer] [t1223_3] Attempt to upgrade the repo the syncer is running from: the TUI EXITS FIRST, then the upgrade runs in the vacated window. Confirm nothing under `.aitask-scripts/` changed while the TUI was still alive. — DEFER 2026-07-31 11:45 auto: requires live self-upgrade handoff and process-lifecycle observation
