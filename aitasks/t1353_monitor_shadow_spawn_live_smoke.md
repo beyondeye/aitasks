@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [aitask_monitor, shadow, tui, tmux_destructive]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-31 06:43
-updated_at: 2026-07-31 06:43
+updated_at: 2026-07-31 07:36
 ---
 
 ## Origin
