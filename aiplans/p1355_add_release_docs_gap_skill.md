@@ -231,3 +231,42 @@ the same commit with `aitask_skill_verify.sh` as the guard.)
 None identified. (All AC bullets are addressed; the one AC deviation — wrapper
 stubs now instead of porting follow-ups — is forced by the parity guard and
 made explicit, with the task AC updated in-task.)
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Created the static
+  skill `.claude/skills/aitask-docs-gap/SKILL.md` (7-step workflow: remote-sync
+  preflight → `aitask_changelog.sh --gather` reuse → `doc_update.guide`
+  resolution → per-task changed-file surface via `git show --name-only
+  --format=` over the section's own `COMMITS:` hashes → documented/gap/not-
+  doc-relevant classification → findings confirmation with the summary inside
+  the AskUserQuestion text → single-task creation via `aitask_create.sh --batch
+  --commit --type documentation` with `## Gap:` sections → satisfaction
+  feedback with `skill_name="docs-gap"`). Generated the three cross-agent
+  wrapper stubs with `aitask_audit_wrappers.sh apply-wrapper` (agents,
+  opencode-skill, opencode-command). Added `aitask-docs-gap` to the
+  satisfaction-feedback caller list and regenerated the three profile goldens
+  plus the tracked rendered variants (`aitask_skill_rerender.sh` per profile).
+  Website: new `docs/skills/aitask-docs-gap.md` page (maturity experimental,
+  weight 61), rows in `skills/_index.md` ("Configuration & Reporting"),
+  `development/skills/_index.md`, `docs/README.md`, and an optional
+  docs-coverage step in the `workflows/releases.md` pipeline list (renumbered
+  the duplicate "3." that already existed there).
+- **Deviations from plan:** One, pre-declared in the plan: the task AC's
+  "suggest separate porting follow-up tasks" was amended in the task file —
+  wrapper stubs ship in the same commit because the wrapper-parity guard in
+  `aitask_skill_verify.sh` fails otherwise, and for a static skill the pointer
+  stubs are the ports.
+- **Issues encountered:** None. `releases.md` had a pre-existing duplicated
+  "3." numbering in its pipeline list; fixed in passing while inserting the new
+  step.
+- **Key decisions:** Skill kept fully static (no profile variants) per the AC;
+  no hardcoded change-kind map (guide is single source of truth); the skill
+  parses gather sections by `KEY:` prefix because the script's real emission
+  order (NOTES before COMMITS) differs from its stale help text; effort of the
+  created task scales with confirmed gap count (1–2 low, 3–5 medium, >5 high);
+  label vocabulary goes through `aitask_labels.sh classify` before creation.
+- **Upstream defects identified:** `.aitask-scripts/aitask_changelog.sh:184-192 — show_help's --gather format block lists COMMITS before NOTES, but gather() emits NOTES before COMMITS (stale help text)`
+- **Build verification:** `aitask_skill_verify.sh` OK (wrapper parity clean);
+  `tests/test_skill_render_task_workflow.sh` 170/170 passed; `hugo build --gc
+  --minify` succeeded; gather + resolver smoke-tested on live repo data.
