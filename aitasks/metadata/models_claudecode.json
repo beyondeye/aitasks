@@ -1014,7 +1014,8 @@
       "verified": {
         "explore": 100,
         "pick": 100,
-        "changelog": 100
+        "changelog": 100,
+        "docs-gap": 100
       },
       "verifiedstats": {
         "explore": {
@@ -1076,6 +1077,27 @@
           },
           "week": {
             "period": "2026-W30",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "docs-gap": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W31",
             "runs": 1,
             "score_sum": 100
           }
