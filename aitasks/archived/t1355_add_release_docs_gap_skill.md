@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_changelog, claudeskills, web_site, docs]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5
 created_at: 2026-07-31 07:54
-updated_at: 2026-07-31 11:05
+updated_at: 2026-07-31 11:13
+completed_at: 2026-07-31 11:13
 ---
 
 ## Goal
@@ -103,3 +104,14 @@ and `aitask-explore` (exploration → single-task creation ending).
 > **✅ gate:plan_approved** run=2026-07-31T08:05:26Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-07-31T08:10:55Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-31T08:13:04Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1b5c6cd4a0fd9bd4
+
+> **✅ gate:risk_evaluated** run=2026-07-31T08:13:04Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1355/risk_evaluated_2026-07-31T08:13:04Z-risk_evaluated-a1.log`
