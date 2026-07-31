@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [1357]
 issue_type: feature
 status: Ready
 labels: [reporting, tui]
