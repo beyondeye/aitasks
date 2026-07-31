@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.30.0: The shadow companion,  in the full monitor, Manage every linked repo from the syncer, and Triage that keeps up with you](blog/v0300-the-shadow-companion-in-the-full-monitor-manage-every-linked-repo-from-the/)** -- Jul 31, 2026
 - **[v0.29.0: Implementation trails, Work reports, and A real setup wizard for chat intake](blog/v0290-implementation-trails-work-reports-a-real-setup-wizard-for-chat-intake/)** -- Jul 26, 2026
 - **[v0.28.0: Report a bug from Discord,  get back a ready-to-work task, Store and share artifacts with your team, Slack, and  not just Discord](blog/v0280-report-a-bug-from-discord-get-back-a-ready-to-work-task-store-and-share-ar/)** -- Jul 10, 2026
-- **[v0.27.1: Better cross-repo task creation, A tidier board, and The shadow reviews your finished work](blog/v0271-better-cross-repo-task-creation-a-tidier-board-the-shadow-reviews-your-fin/)** -- Jul 5, 2026
 
 [All releases &rarr;](blog/)
 
