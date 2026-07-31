@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_changelog, claudeskills, web_site, docs]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-31 07:54
-updated_at: 2026-07-31 07:54
+updated_at: 2026-07-31 10:54
 ---
 
 ## Goal
