@@ -67,6 +67,7 @@ model_selection
 modelvrapper
 opencode
 openshell
+performance
 positioning
 project_groups
 pypy
