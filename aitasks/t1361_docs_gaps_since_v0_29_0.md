@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-07-31 12:07
-updated_at: 2026-07-31 12:10
+updated_at: 2026-07-31 12:44
 ---
 
 Documentation gaps found by /aitask-docs-gap for the release window v0.29.0..HEAD.
@@ -111,3 +112,8 @@ doc-relevant (tests, internal refactors, design-doc-only changes), 4 gaps below.
   `.aitask-scripts/aitask_verification_parse.py`.
 - **Sources:** `aiplans/archived/p1264_manualverification_checklist_with_plain_bullets_is_unrecover.md`;
   commits: 2679e5261
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-07-31T09:44:30Z status=pass attempt=1 type=human
