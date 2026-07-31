@@ -3,13 +3,14 @@ priority: medium
 effort: high
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [test, tui, board, performance]
 gates: [risk_evaluated]
 folded_tasks: [1346, 1352]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-31 07:41
-updated_at: 2026-07-31 07:41
+updated_at: 2026-07-31 07:45
 ---
 
 ## Problem
