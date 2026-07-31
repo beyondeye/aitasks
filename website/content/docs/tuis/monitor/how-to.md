@@ -38,10 +38,37 @@ The pane list zone groups the tmux session's windows into three categories:
 Each card shows:
 
 - Window name and category badge
-- An **idle indicator** when the pane has not produced new output for longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds)
+- A **status badge** and a matching colored dot, showing which of four states the pane is in:
+
+  | Badge | Color | Means |
+  |-------|-------|-------|
+  | `Active` | green | The pane is producing output |
+  | `PROMPT <n>s` | magenta | The agent is waiting for your input |
+  | `DONE <n>s` | blue | The pane's task is finished |
+  | `IDLE <n>s` | yellow | Quiet for longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds) |
+
+  A pane that is waiting on you always reads `PROMPT`, even when its task is
+  already done — that prompt is the thing you can act on now. **DONE** is a
+  property of the *task*, not the terminal: the task's status reads `Done`, or
+  its file has moved into `aitasks/archived/`. So an agent still printing output
+  after its task was archived reads `DONE`, while a stuck agent whose task is
+  still open reads `IDLE`. Only agent panes that carry a task ID can ever read
+  `DONE` — exploration and raw panes have no task to finish.
+
+  The badge follows the task, so it settles on its own: a task archived while
+  monitor is open flips to `DONE` on a later refresh, and a slow or interrupted
+  archive still resolves without restarting the TUI.
 - For agent panes carrying a task ID in the window name, the associated task number
 - A **shadow marker** `◆` when a shadow agent is bound to that pane, colored by the shadow's own state. It gains a `!` (`◆!`) when the shadow has raised concerns you have not picked yet — see [How to Pick Shadow Concerns](#how-to-pick-shadow-concerns). Panes with no shadow show nothing at all here.
 - A **prioritized mark** at the far left: `★` when you have marked the agent, dim `☆` when you have not — see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized).
+
+The **`CODE AGENTS (N)`** header above the agent cards repeats the same four
+states as a color legend, so you can read a card's dot without memorizing the
+colors:
+
+```
+CODE AGENTS (5)  ⟳ AUTO  (● active ● prompt ● idle ● done)
+```
 
 Classification rules are config-driven — you can change the agent prefixes and the TUI list by editing `aitasks/metadata/project_config.yaml` directly or via [`ait settings`]({{< relref "/docs/tuis/settings" >}}) → Tmux tab. See the [Reference](reference/#pane-classification) for details.
 
@@ -197,7 +224,13 @@ Press **r** (or **F5**) to force an immediate refresh of the pane list and previ
 
 ### How to Toggle Auto-Switch Mode
 
-Press **a** to toggle auto-switch mode. When auto-switch is **on**, monitor automatically focuses idle agent panes that appear to be waiting for attention, so you don't have to scan the pane list manually. Press **a** again to turn it off. The session bar shows the current state.
+Press **a** to toggle auto-switch mode. When auto-switch is **on**, monitor automatically focuses agent panes that need attention, so you don't have to scan the pane list manually. Press **a** again to turn it off. The session bar shows `[AUTO]` and the agents header shows `⟳ AUTO` while it is on.
+
+Auto-switch prefers a pane that is **waiting for your input** over one that is
+merely idle — a prompt is blocked on you right now, while an idle pane may just
+be thinking. Agents whose task is already **done** are skipped entirely: a
+finished agent stays idle forever and would otherwise capture focus permanently,
+hiding a live agent that actually needs you.
 
 ### How to Quit
 

@@ -90,6 +90,8 @@ The View Selector at the top-left combines one base view with optional add-on fi
 2. Press **l** for Locked tasks: tasks currently implementing or locked, with parent/sibling context for busy child tasks.
 3. Press **f** for Free tasks: tasks not currently implementing or locked.
 4. Press **i** for In-Flight tasks grouped by next action.
+5. Press **y** for By-Topic swimlanes, one lane per topic.
+6. Press **z** for By-Trail: the members of one implementation trail, laid out as waves.
 
 **Add-on filters:**
 
@@ -105,6 +107,27 @@ Shows tasks with `status: Implementing` in action groups:
 - **Blocked** — tasks still blocked by unresolved dependencies.
 
 With an In-Flight row focused, **p** launches the normal pick/resume flow, **g** launches direct resume, and **s** / **f** sign off or fail a pending human gate. If more than one human gate is pending, the board asks which gate to update.
+
+**By-Trail view (`z`):**
+
+Shows the members of a single [implementation trail](reference/#by-trail) — a
+stored, wave-structured plan for the order a group of tasks should be done in.
+Each wave is a column; each card carries its classification, confidence, and
+status.
+
+1. Press **z** to enter the view, then **s** to pick which trail to show. If you
+   have no trails yet, create one first: from any other view, focus a task and
+   press **T**.
+2. Press **Enter** on a card to read the full reasoning for that member.
+3. Keep it current with the refresh keys, cheapest first: **r** redraws from the
+   task files on disk (instant), **d** re-checks the trail against live task
+   state, **S** runs a remote sync first, and **R** hands the trail to an agent
+   to be re-authored.
+
+An amber `⚠` line on a card means that member has **drifted** — its live state no
+longer matches what the trail recorded (its status changed, it was archived, its
+dependencies moved). Drift does not break the view; it tells you the sequencing
+advice may be stale, which **R** fixes.
 
 **Combining with text search:**
 
@@ -235,7 +258,7 @@ A work report summarizes what you are working on for someone who does not read t
 
 The task picker always lists the full contents of each selected column, even when a search or view filter is currently narrowing the board — so a report never silently omits work just because it is filtered out of view. Ordering follows each column's board order and is preserved in the report.
 
-The **W** key is column-scoped: it appears in the persistent kanban views whenever a focused card or column placeholder identifies a column, and is hidden in the In-Flight and By-Topic views, which show derived lanes rather than columns. If you confirm a selection with no columns or no tasks in it, the board shows a notification instead of launching.
+The **W** key is column-scoped: it appears in the persistent kanban views whenever a focused card or column placeholder identifies a column, and is hidden in the In-Flight, By-Topic and By-Trail views, which show derived lanes rather than columns. If you confirm a selection with no columns or no tasks in it, the board shows a notification instead of launching.
 
 **Choosing the agent:** the `work-report` operation resolves through the [code agent wrapper]({{< relref "/docs/commands/codeagent" >}}). Change its default by editing `defaults."work-report"` in `aitasks/metadata/codeagent_config.json` (shared with the project) or `codeagent_config.local.json` (your personal override, which takes precedence), or from the Agent Defaults tab in `ait settings`. The launch dialog also lets you override the agent and model for a single run.
 
@@ -312,6 +335,10 @@ When working across multiple machines, task files can get out of sync. The board
 
 1. Press **s** from the board, or open the command palette (**Ctrl+Backslash**) and select "Sync with Remote"
 2. A notification appears showing the result: "Synced (pushed N, pulled M)", "Pushed N commits", "Pulled M commits", "Already up-to-date", or an error message
+
+> **In the By-Trail view, sync is on **S** instead.** That view uses **s** to
+> choose which trail to show, so the sync key is shifted — see
+> [By-Trail](reference/#by-trail).
 
 **Enabling auto-sync:**
 

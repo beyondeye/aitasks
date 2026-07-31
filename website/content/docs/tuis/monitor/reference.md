@@ -46,7 +46,7 @@ depth: [advanced]
 | `F5` | Refresh the pane list and preview immediately (alias for `r`, hidden in footer) | Global |
 | `z` | Cycle the preview size through S / M / L presets | Global |
 | `t` | Scroll the last-focused preview column (agent or shadow) to its tail (newest output) | Global |
-| `a` | Toggle auto-switch mode (automatically focus idle agents needing attention) | Global |
+| `a` | Toggle auto-switch mode (focus agents needing attention; prompts first, completed agents skipped) | Global |
 | `M` | Toggle the multi-session view ON/OFF (see [Multi-session view](#multi-session-view)) | Global |
 
 > **Note:** In the preview zone, every keystroke that is not handled by a global binding is forwarded to the tmux pane via `tmux send-keys`. Special keys (Enter, Escape, Backspace, arrows, Space, Delete, Home, End, PageUp/Down) and Ctrl-combinations are translated; regular characters are sent literally.
@@ -97,8 +97,15 @@ Press `M` inside either TUI to toggle the multi-session view ON/OFF for that TUI
 
 **How each TUI renders the unified list:**
 
-- **`ait monitor`** — groups agents belonging to the same session under a thin `── <session_name> ──` divider row, and prefixes each agent row with a short magenta `[project]` tag derived from the project-root basename. Title bar example: `tmux Monitor — 2 sessions · 5 panes · multi (attached: aitasks)`. Single-session title: `tmux Monitor — session: aitasks (5 panes)`.
-- **`ait minimonitor`** — groups agents belonging to the same session under a `── <session_name> ──` divider row; rows themselves stay in default color with no inline tag prefix (the narrow sidebar layout favors vertical scanning of window names). Title bar example: `multi: 2s · 5a  1 idle`. Single-session title: `aitasks  5 agents  1 idle`.
+- **`ait monitor`** — groups agents belonging to the same session under a thin `── <session_name> ──` divider row, and prefixes each agent row with a short magenta `[project]` tag derived from the project-root basename. Title bar example: `tmux Monitor — 2 sessions · 5 panes · multi (attached: aitasks)  1 awaiting  2 done  1 idle`. Single-session title: `tmux Monitor — session: aitasks (5 panes)  1 idle`.
+- **`ait minimonitor`** — groups agents belonging to the same session under a `── <session_name> ──` divider row; rows themselves stay in default color with no inline tag prefix (the narrow sidebar layout favors vertical scanning of window names). Title bar example: `multi: 2s · 5a 1 awaiting 2d 1 idle`. Single-session title: `aitasks  5 agents 2d 1 idle`.
+
+**Status counters.** Both title bars carry up to three counters — `awaiting`,
+`done` (compressed to `Nd` in minimonitor's narrow bar), and `idle`. Each is
+omitted entirely when it is zero. The three partition the agents on the same
+precedence the card badges use — waiting for input, then done, then idle — so
+every agent is counted exactly once. An agent whose task is finished but which is
+sitting on a prompt counts as `awaiting`, matching its `PROMPT` badge.
 
 **Cross-session focus from the main monitor:** pressing `Enter` on a pane that belongs to another session teleports the attached tmux client to that pane via `switch-client` + `select-window` + `select-pane`.
 

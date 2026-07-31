@@ -39,12 +39,12 @@ Minimonitor shows a single scrollable list of **agent panes** (windows whose nam
 Each card in the list shows:
 
 - A prioritized mark: **★** when you have marked the agent, dim **☆** when you have not (see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized))
-- A status dot: **green** when the agent has produced recent output, **yellow** when it is idle
+- A status dot: **green** when the agent has produced recent output, **magenta** when it is waiting for your input, **blue** when its task is finished, **yellow** when it is idle
 - The agent window name (truncated to 20 characters on narrow layouts)
-- An `IDLE <n>s` label when the pane has been quiet longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds)
+- A matching label: `PROMPT <n>s` when the agent is waiting for you, `DONE <n>s` when its task is finished, or `IDLE <n>s` when the pane has been quiet longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds). `DONE` reflects the pane's *task* — its status reads `Done`, or it has been archived — so an agent still printing output after its task landed reads `DONE`, while an agent waiting on you reads `PROMPT` even when its task is done
 - For agents whose window name carries a task ID, a second dimmed line showing the task's title
 
-The header bar at the top of the pane shows either `multi: Ns · Ma  N idle` when the multi-session view is active, or `<session>  N agents  N idle` when the view is restricted to the attached session. See [How to Toggle the Multi-Session View](#how-to-toggle-the-multi-session-view) below.
+The header bar at the top of the pane shows either `multi: 2s · 5a 1 awaiting 2d 1 idle` when the multi-session view is active, or `<session>  5 agents 2d 1 idle` when the view is restricted to the attached session. The three counters — waiting for input, done (shown compactly as `Nd`), and idle — each disappear when zero, and every agent falls into exactly one of them. See [How to Toggle the Multi-Session View](#how-to-toggle-the-multi-session-view) below.
 
 ### Mouse Support
 
@@ -108,6 +108,11 @@ For agent panes whose window name carries a task ID (e.g., `agent-t42-claudecode
 The task cache is refreshed and the task detail dialog appears with the task's metadata and content. If the focused card has no task ID in its window name, a warning notification is shown instead.
 
 The agent minimonitor **follows** — the one pinned at the top under `── this agent ──` — is never selectable, so **i** cannot reach it. Press **I** (Shift+i) instead: it always opens the task detail dialog for the followed agent, whichever card happens to be highlighted. If this window has no agent to follow, a warning notification is shown instead.
+
+> **Note:** the pinned card is a static identity line — it shows the window name
+> and task title, but never a live status badge, so it does not turn `DONE` when
+> the followed agent's task lands. Use the scrollable list, or
+> [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), to see that.
 
 ### How to Pick a Task by Number
 

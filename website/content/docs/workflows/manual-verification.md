@@ -32,7 +32,42 @@ Each item is stateful. The parser rewrites item lines in place as the picker mar
 | skip | `- [skip] text — SKIP YYYY-MM-DD HH:MM <reason>` |
 | defer | `- [defer] text — DEFER YYYY-MM-DD HH:MM` |
 
-Annotations live after ` — ` (em dash + spaces); the parser strips and rewrites the suffix on each state change, so repeated marks do not accumulate trailing text. Inspect `.aitask-scripts/aitask_verification_parse.sh --help` for the full subcommand surface (`parse`, `set`, `summary`, `terminal_only`, `seed`).
+Annotations live after ` — ` (em dash + spaces); the parser strips and rewrites the suffix on each state change, so repeated marks do not accumulate trailing text. Inspect `.aitask-scripts/aitask_verification_parse.sh --help` for the full subcommand surface (`parse`, `set`, `summary`, `terminal_only`, `seed`, `convert`).
+
+### Recovering a Plain-Bullet Checklist
+
+The `[ ]` box is what makes an item trackable. A checklist whose items were
+written as plain bullets —
+
+```markdown
+## Verification Checklist
+
+- Open the brainstorm TUI and confirm the left pane renders
+- Ctrl+N in the monitor creates a new task
+```
+
+— carries no state, so the runner sees a checklist with **zero** items and
+cannot mark anything.
+
+This is recoverable. When the runner finds a task with no trackable items, it
+offers three ways forward before the marking loop starts: **seed from the plan**,
+**convert the existing bullets**, or **abort**. Converting rewrites each plain
+bullet in the checklist section into a pending `- [ ]` item, keeping the original
+text and indentation, and leaves items that already have a checkbox untouched —
+so a half-converted checklist is safe to run through.
+
+You can also do it directly:
+
+```bash
+./.aitask-scripts/aitask_verification_parse.sh convert <task_file>
+```
+
+If there is nothing to convert — no checklist section, or a section whose items
+are already checkboxes — the command reports the reason on stderr, exits
+non-zero, and **leaves the file untouched**. `seed` and `convert` are
+complements: `seed` refuses when a checklist section already exists, `convert`
+refuses when one does not, so between them both shapes of empty checklist have a
+route back.
 
 ## Where Checklists Come From — Two Generation Paths
 
@@ -76,6 +111,8 @@ Set `manual_verification_followup_mode: never` in an active profile to skip Step
 When [`/aitask-pick`](../../skills/aitask-pick/) picks a task whose `issue_type` is `manual_verification`, Step 3 Check 3 dispatches to the Manual Verification Procedure — replacing Steps 6 (plan), 7 (implement), and 8 (review). Steps 4 (ownership lock) and 5 (worktree) still run first: manual verification is owned work that should be locked against concurrent pickers.
 
 Because the plan/review steps never run, a manual-verification task never carries the gates recorded there (`risk_evaluated`, `plan_approved`, `review_approved`, `docs_updated`) — such a gate could never be satisfied and would block archival forever. `aitask_create.sh` strips them at creation, including any injected by an execution profile's `default_gates`, so the task's archival is gated only by its own checklist. The post-verification machine gates (`build_verified`, `tests_pass`, `lint`) remain declarable as usual.
+
+The picker first checks that the task actually has trackable checklist items. If it has none, it offers to seed them from the plan or to convert plain bullets already in the section — see [Recovering a Plain-Bullet Checklist](#recovering-a-plain-bullet-checklist).
 
 Before the interactive loop begins, the picker offers to hand the checklist to an AI agent that runs it — fully or partially — on your behalf. See [Autonomous verification](#autonomous-verification).
 

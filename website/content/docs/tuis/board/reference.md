@@ -29,7 +29,13 @@ depth: [advanced]
 | `f` | Switch base filter to Free (tasks ready to pick) | Board |
 | `i` | Switch base filter to In-Flight (action-grouped active work) | Board |
 | `y` | Switch base filter to By-Topic (per-anchor swimlanes) | Board |
+| `z` | Switch base filter to By-Trail (implementation-trail waves) | Board |
 | `o` | Choose the By-Topic lane sort order (opens a picker) | By-Topic view |
+| `s` | Choose which trail the view shows | By-Trail view |
+| `r` | Re-read task files from disk and redraw the trail | By-Trail view |
+| `d` | Re-check the trail's freshness against live task state | By-Trail view (trail selected) |
+| `R` | Launch an agent to re-author the trail | By-Trail view (trail selected) |
+| `S` | Sync task data with remote, then redraw the trail | By-Trail view |
 | `g` | Toggle Git add-on (intersect with git-linked tasks) | Board |
 | `t` | Toggle Type add-on (intersect with selected issue types — opens picker dialog) | Board |
 
@@ -46,9 +52,10 @@ depth: [advanced]
 | `n` | Create a new task | Board |
 | `x` | Toggle expand/collapse child tasks | Board (parent or child card) |
 | `c` | Commit focused modified task | Board (shown when task is modified) |
-| `C` | Commit all modified tasks | Board (shown when any task is modified) |
+| `C` | Commit all modified tasks | Board (shown when any task is modified; hidden in By-Trail view) |
 | `p` | Pick the focused task (start implementation) | Board (context-dependent — shown when task is pickable) |
-| `w` | Draft a work report from selected columns | Board (context-dependent — column-scoped; hidden in In-Flight and By-Topic views) |
+| `T` | Create an implementation trail from the focused task | Board (hidden in In-Flight and By-Trail views) |
+| `w` | Draft a work report from selected columns | Board (context-dependent — column-scoped; hidden in In-Flight, By-Topic and By-Trail views) |
 | `b` | Launch brainstorm for the focused task | Board (context-dependent — shown when task is brainstormable) |
 | `g` | Resume the focused In-Flight task directly | In-Flight row |
 | `s` | Sign off a pending human gate | In-Flight row with pending human gate |
@@ -131,7 +138,7 @@ GitLab uses "MR" (Merge Request) terminology, which the indicator reflects.
 The View Selector widget at the top-left of the filter area renders as:
 
 ```
-[a All | l Locked | f Free | i In-Flight | y By-Topic]   g Git   t Type
+[a All | l Locked | f Free | i In-Flight | y By-Topic | z By-Trail]   g Git   t Type
 ```
 
 It splits filtering into a **base radio** (mutually exclusive — exactly one is always active) and two **independent add-on toggles**. The active base and any active toggle are highlighted in bold cyan; inactive segments are dimmed. All filters compose with text search using AND logic.
@@ -145,6 +152,7 @@ It splits filtering into a **base radio** (mutually exclusive — exactly one is
 | Free | `f` | `f Free` | Tasks that are ready to pick: neither `Implementing` nor locked. Parents are hidden when any of their children is busy. |
 | In-Flight | `i` | `i In-Flight` | Active `Implementing` tasks grouped by next required action: Needs your action, Agent can continue, and Blocked. |
 | By-Topic | `y` | `y By-Topic` | Tasks clustered into per-anchor swimlanes by their [topic key]({{< relref "/docs/concepts/topic-anchoring" >}}) (`anchor`, else a child's parent topic, else own id). A topic with two or more tasks gets its own lane (labelled by the root task); lone tasks collapse into one **Ungrouped** lane. |
+| By-Trail | `z` | `z By-Trail` | The members of one **implementation trail**, laid out as wave columns (`W1 · …`). Each card carries its classification, confidence, and any drift marker; `Enter` opens the full narrative. Press `s` to choose which trail is shown. |
 
 Pressing the key for the currently active base is a no-op. Locked and Free are leaf-level inverses (`Locked ∪ Free = All`, `Locked ∩ Free = ∅`) — the Locked view additionally includes parent/sibling cards as context.
 
@@ -168,6 +176,67 @@ sort mode:
 The **Ungrouped** lane stays pinned last in every mode. The choice persists
 per-user (in your local board settings), so it survives restarts without
 affecting teammates.
+
+#### By-Trail
+
+An **implementation trail** is a durable, wave-structured record of how a group
+of tasks should be sequenced, with the evidence behind that ordering. Trails are
+created and re-authored by the `/aitask-trail` skill — on the board, focus a task
+in any other view and press `T` to start one. The By-Trail view is a **read-only
+projection** of a stored trail: it never writes the trail itself.
+
+Press `z` to enter the view and `s` to choose which trail it shows. Each wave
+becomes a column headed `W1 · <title>`, and each card shows the member's
+classification glyph, its confidence, its task status, and any drift marker.
+`Enter` opens the full narrative for that member. Members that are not live
+tasks in this repository — cross-repo members, archived tasks, and tasks that
+have gone missing — appear as read-only ghost cards.
+
+**Keeping the view current.** Four keys refresh different things, at very
+different costs:
+
+| Key | Refreshes | Cost |
+|-----|-----------|------|
+| `r` | Re-reads task files from disk and redraws the stored trail | Instant — no subprocess |
+| `d` | Re-checks the stored trail against live task state (freshness) | About half a second |
+| `S` | Runs `ait sync`, then redraws | A full remote sync |
+| `R` | Launches an agent to re-author the trail itself | Minutes |
+
+Reach for `r` when a task's status changed on this machine — it is free. Reach
+for `S` when the change was made elsewhere: task data lives on the `aitask-data`
+branch, so a status set by another machine or a remote agent only arrives in this
+checkout through a sync. Use `d` to re-check drift without re-authoring anything;
+it never modifies the stored trail. `R` is the heavyweight option — it hands the
+trail to an agent, which rewrites it. After a refresh is launched, the view
+watches for the new version and reloads on its own when it lands, giving up after
+about half an hour.
+
+**Drift markers.** A trail records what it knew when it was written. When a
+member's live state no longer matches that snapshot, the card shows an amber
+marker:
+
+```
+⚠ status_changed: status 'Ready' -> 'Implementing'
+```
+
+Up to two reasons are shown per card, with `(+N more)` when there are others; the
+complete list is in the detail screen. Common reasons are `status_changed`,
+`task_completed`, `task_archived`, `task_folded`, `task_deleted`,
+`dependency_changed`, `gate_state_changed`, and `plan_changed`. Drift is a signal
+that the trail's sequencing advice may be out of date — `R` re-authors it.
+
+**Keys that behave differently here.** The footer relabels itself per view, so it
+always shows what the keys actually do. In By-Trail it reads:
+
+```
+r Refresh   R Agent Refresh   d Freshness   s Select Trail   S Sync
+```
+
+`C` (commit all modified tasks) is **hidden** in this view. A trail is a reading
+projection rather than a set of tasks you own, while "commit all" acts on every
+modified task in the repository — so the key is withheld rather than silently
+doing something wider than the view suggests. `T`, `w`, and the card-move keys
+are hidden for the same reason.
 
 #### Add-on filters (toggle)
 

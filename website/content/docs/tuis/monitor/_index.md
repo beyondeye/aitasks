@@ -40,7 +40,7 @@ If the current tmux session's name does not match the configured `tmux.default_s
 The monitor window has five stacked areas from top to bottom:
 
 1. **Header** — application title bar
-2. **Session bar** — shows the tmux session name monitor is watching and the current auto-switch state
+2. **Session bar** — shows the tmux session name monitor is watching, how many agents are awaiting input / done / idle, and the current auto-switch state
 3. **Pane list zone** — scrollable list of tmux panes grouped by category (agents, TUIs, others)
 4. **Preview area** — live rendering of the focused pane plus a content-header label; forwards keystrokes directly to tmux when focused. When the selected agent has a shadow companion, this area splits into two side-by-side columns: the **preview zone** on the left and the **shadow zone** on the right
 5. **Footer** — dynamic keybinding help
@@ -53,7 +53,7 @@ The **pane list** classifies each tmux window in the session:
 - **TUIs** — windows whose names are in the configured TUI list (board, codebrowser, settings, monitor, minimonitor, brainstorm, stats, syncer) or start with `brainstorm-`.
 - **Others** — shells, logs, and any other tmux window.
 
-Each card in the pane list shows the window name, category badge, an idle indicator (when the pane has been quiet longer than `idle_threshold_seconds`), and, for agent panes carrying a task ID in the window name, the task number.
+Each card in the pane list shows the window name, a category badge, a status badge with a matching colored dot (`Active`, `PROMPT`, `DONE`, or `IDLE` — see [How to Read the Pane List](how-to/#how-to-read-the-pane-list)), and, for agent panes carrying a task ID in the window name, the task number.
 
 The **preview zone** shows the content of the focused pane in real time. When you focus it, every keystroke you type is forwarded directly to the underlying tmux pane, so you can interactively control whatever is running there — answer an agent's question, run a shell command, scroll a log — without switching tmux windows.
 

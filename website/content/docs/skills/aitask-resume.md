@@ -55,9 +55,9 @@ to *Plan*, so profiles that record nothing are unchanged.
 ## The `--gate` argument
 
 `--gate <name>` reports the current recorded state of a single gate from the
-ledger. Automated per-gate verifier execution is handled by the gate
-orchestrator; until that ships, `--gate` reports state only and runs no verifier.
-To record a human-gate sign-off, use `ait gate pass <task-id> <name>`.
+ledger; it runs no verifier. To actually run a task's gates, use
+[`ait gates run`](../../commands/gates/#ait-gates-run). To record a human-gate
+sign-off, use [`ait gate pass <task-id> <name>`](../../commands/gates/#ait-gate-pass).
 
 ## Execution Profiles
 

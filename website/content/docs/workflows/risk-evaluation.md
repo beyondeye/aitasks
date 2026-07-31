@@ -63,9 +63,24 @@ risk_evaluation: true
 
 With the key omitted or `false`, none of the above runs and planning behaves exactly as before. See [Execution Profiles](../../skills/aitask-pick/execution-profiles/) for the full key reference.
 
+## The `risk_evaluated` Gate
+
+A task can also *require* that this step happened, by declaring the
+`risk_evaluated` [gate](../../commands/gates/). The gate is verified by
+[`ait gates run`](../../commands/gates/#ait-gates-run), which checks that the
+plan carries a `## Risk` section and that the task's two risk levels are set —
+so a risk-gated task cannot archive with the evaluation skipped.
+
+If the gate reports `blocked: no verifier configured (deferred)`, or picking the
+task warns that `risk_evaluated` has no verifier, the project's gate registry is
+missing the entry that tells the framework how to check it. Run
+[`ait gates sync-registry`](../../commands/gates/#ait-gates-sync-registry) to
+reconcile it.
+
 ## See Also
 
 - [Follow-Up Tasks](../follow-up-tasks/) — the hub for all automatic follow-up flows
+- [Gates](../../commands/gates/) — the `risk_evaluated` gate that verifies this step's output
 - [Plans](../../concepts/plans/) — where the `## Risk` section lives
 - [Execution Profiles](../../skills/aitask-pick/execution-profiles/) — the `risk_evaluation` toggle
 - [Task File Format](../../development/task-format/) — the `risk_code_health` / `risk_goal_achievement` / `risk_mitigation_tasks` fields

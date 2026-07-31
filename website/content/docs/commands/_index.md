@@ -52,6 +52,15 @@ description: "Complete CLI reference for all ait subcommands"
 |---------|-------------|
 | [`ait crew`](crew/) | Initialize and run multi-agent crews — `init`, `addwork`, `setmode`, `status`, `command`, `runner`, `report`, `cleanup`, `dashboard`, `logview` (see [Agentcrews](../concepts/agentcrews/)) |
 
+### Gates
+
+| Command | Description |
+|---------|-------------|
+| [`ait gates run`](gates/#ait-gates-run) | Run a task's verification gates and record each result |
+| [`ait gates status`](gates/#ait-gates-list-status-unlocked) | Show the recorded state of each of a task's gates (also `list`, `unlocked`) |
+| [`ait gates sync-registry`](gates/#ait-gates-sync-registry) | Reconcile `aitasks/metadata/gates.yaml` with the framework's gate reference |
+| [`ait gate pass`](gates/#ait-gate-pass) | Sign off a human gate (also `fail`, `log`) |
+
 ### Reporting
 
 | Command | Description |
@@ -93,6 +102,10 @@ ait monitor                             # Dashboard of all agent/TUI panes
 ait projects list                       # List registered linked projects
 ait skillrun pick --profile fast 42     # Launch a code agent on task 42
 ait crew init --id sprint1 --batch      # Initialize a multi-agent crew
+ait gates run 42                        # Run task 42's verification gates
+ait gates status 42                     # Show each gate's recorded state
+ait gates sync-registry --dry-run       # Preview a gate-registry reconcile
+ait gate pass 42 review_approved        # Sign off a human gate
 ait git-health                          # Diagnose the .aitask-data worktree
 ait issue-import                        # Import issues from issue tracker
 ait lock 42                             # Pre-lock a task before Claude Web
