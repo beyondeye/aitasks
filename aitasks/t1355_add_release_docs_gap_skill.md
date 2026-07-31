@@ -82,8 +82,12 @@ and `aitask-explore` (exploration → single-task creation ending).
   `website/content/docs/skills/` (and any workflow page bullet added by hand
   to the relevant `_index.md` body list if a workflows page is added — known
   hand-curated-list footgun).
-- Suggest (as separate follow-up tasks, per CLAUDE.md) porting the skill to
-  Codex CLI and OpenCode after the Claude Code version lands.
+- Codex CLI and OpenCode surfaces ship in the same commit as auto-generated
+  pointer-stub wrappers (`aitask_audit_wrappers.sh apply-wrapper`) — the
+  wrapper-parity guard in `aitask_skill_verify.sh` fails otherwise, and for a
+  static skill the stubs are the ports (canonical body stays in `.claude/`).
+  No separate porting follow-up tasks are needed. (Amended at plan time from
+  "suggest separate porting follow-ups".)
 
 ## Non-goals
 
@@ -97,3 +101,5 @@ and `aitask-explore` (exploration → single-task creation ending).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-07-31T08:05:26Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-07-31T08:10:55Z status=pass attempt=1 type=human
