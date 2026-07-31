@@ -99,6 +99,7 @@ tmux_destructive
 tmux_disruptive
 tui
 tui_switcher
+ui
 upstream_defect_followup
 verification
 verifiedstats
