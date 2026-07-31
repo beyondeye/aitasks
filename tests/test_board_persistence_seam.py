@@ -52,6 +52,7 @@ from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parent.parent
 _TESTS = Path(__file__).resolve().parent
 for _p in (str(_TESTS),
+           str(REPO_ROOT / "tests" / "lib"),
            str(REPO_ROOT / ".aitask-scripts" / "board"),
            str(REPO_ROOT / ".aitask-scripts" / "lib")):
     if _p not in sys.path:
@@ -60,10 +61,10 @@ for _p in (str(_TESTS),
 from task_yaml import (  # noqa: E402
     BOARD_KEYS, BOARD_LAYOUT_KEYS, parse_frontmatter, serialize_frontmatter,
 )
-# Reuse t1243_1's fixture + differ rather than building a second one. `tests/` is
-# on sys.path under `unittest discover`, under pytest, and standalone; the insert
-# above additionally covers `python -m unittest tests.<module>` from the root.
-from test_board_movement import (  # noqa: E402
+# Reuse the shared fixture + differ rather than building a second one. These
+# lived in test_board_movement until t1354_1 promoted them to tests/lib/ so the
+# migrated board modules build identical trees.
+from board_fixture import (  # noqa: E402
     build_tree, diff_snapshots, fixture_name, snapshot,
 )
 import aitask_board as B  # noqa: E402

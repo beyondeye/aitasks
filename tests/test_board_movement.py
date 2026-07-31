@@ -34,7 +34,6 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 import shutil
@@ -52,149 +51,36 @@ from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parent.parent
 _BOARD = REPO_ROOT / ".aitask-scripts" / "board"
 _LIB = REPO_ROOT / ".aitask-scripts" / "lib"
-for _p in (str(_BOARD), str(_LIB)):
+_TESTS_LIB = REPO_ROOT / "tests" / "lib"
+# _TESTS_LIB must be inserted at module level, not inside a test: this file
+# re-execs itself as the child interpreter (`--child`, see __main__ below), and
+# the child needs the same import path.
+for _p in (str(_BOARD), str(_LIB), str(_TESTS_LIB)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from task_yaml import BOARD_KEYS, normalize_board_idx, parse_frontmatter, serialize_frontmatter  # noqa: E402
+from task_yaml import BOARD_KEYS, normalize_board_idx, parse_frontmatter  # noqa: E402
 
-# --- Fixture vocabulary ------------------------------------------------------
-
-COLUMNS = [
-    {"id": "c0", "title": "Col 0", "color": "#FF5555"},
-    {"id": "c1", "title": "Col 1", "color": "#50FA7B"},
-    {"id": "c2", "title": "Col 2", "color": "#BD93F9"},
-    {"id": "c3", "title": "Col 3", "color": "#8BE9FD"},
-    {"id": "c4", "title": "Col 4", "color": "#FFB86C"},
-]
-COLUMN_ORDER = [c["id"] for c in COLUMNS]
-
-# Non-board frontmatter keys. At least one is REQUIRED: TaskManager._is_phantom_stub
-# drops any task whose keys are a subset of BOARD_KEYS, so a fixture carrying only
-# boardcol/boardidx would load ZERO tasks and every scenario would pass vacuously.
-_META_ORDER = ["priority", "effort", "issue_type", "status"]
-_META_BASE = {
-    "priority": "medium",
-    "effort": "low",
-    "issue_type": "chore",
-    "status": "Ready",
-}
-
-
-def fixture_name(i: int) -> str:
-    return f"t{9000 + i}_fixture.md"
-
-
-def _fixture_body(i: int) -> str:
-    return f"\n## Context\n\nSynthetic fixture task {i}.\n\n## Notes\n\nBody line {i}.\n"
-
-
-def _fixture_text(i: int, col: str, idx: int) -> str:
-    """Build a task file through the canonical serializer.
-
-    Hand-written YAML would be re-normalized by `Task.save()` on the very first
-    write, so the byte differ would report a change caused by formatting rather
-    than by the move. Board keys are emitted last here, which is also where
-    `serialize_frontmatter` puts them on re-save, making an unchanged-value write
-    byte-identical.
-    """
-    meta = dict(_META_BASE)
-    meta["boardcol"] = col
-    meta["boardidx"] = idx
-    return serialize_frontmatter(meta, _fixture_body(i), list(_META_ORDER))
-
-
-def expected_nonboard(i: int) -> tuple[dict, str]:
-    return dict(_META_BASE), _fixture_body(i)
-
-
-# --- Temp tree ---------------------------------------------------------------
-
-_GIT_ENV = {
-    "GIT_AUTHOR_NAME": "aitask test",
-    "GIT_AUTHOR_EMAIL": "test@example.invalid",
-    "GIT_COMMITTER_NAME": "aitask test",
-    "GIT_COMMITTER_EMAIL": "test@example.invalid",
-}
-
-
-def build_tree(root: Path, cards, *, branch_mode: bool = True, settings=None) -> Path:
-    """Materialise a synthetic TASK_DIR and return the tree root (the child's cwd).
-
-    `cards` is a list of (index, col_id, board_idx). `branch_mode=True` reproduces
-    production: real files under `.aitask-data/aitasks`, a git repo there, and an
-    `aitasks` symlink at the tree root, so `_task_git_cmd()` yields
-    `git -C .aitask-data`. `branch_mode=False` is the legacy topology used only by
-    the git-cost comparison.
-    """
-    tree = root / "tree"
-    if branch_mode:
-        data = tree / ".aitask-data"
-        tasks = data / "aitasks"
-        git_root = data
-    else:
-        data = None
-        tasks = tree / "aitasks"
-        git_root = tree
-    (tasks / "metadata").mkdir(parents=True)
-
-    for i, col, idx in cards:
-        (tasks / fixture_name(i)).write_text(_fixture_text(i, col, idx), encoding="utf-8")
-
-    (tasks / "metadata" / "board_config.json").write_text(
-        json.dumps({"columns": COLUMNS, "column_order": COLUMN_ORDER}, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    local = {
-        "settings": {
-            # The auto-refresh timer must never fire mid-benchmark, and a collapsed
-            # column would make lateral ping-pong skip past its neighbour.
-            "auto_refresh_minutes": 0,
-            "collapsed_columns": [],
-            "sync_on_refresh": False,
-            **(settings or {}),
-        }
-    }
-    (tasks / "metadata" / "board_config.local.json").write_text(
-        json.dumps(local, indent=2) + "\n", encoding="utf-8"
-    )
-
-    if branch_mode:
-        (tree / "aitasks").symlink_to(Path(".aitask-data") / "aitasks")
-
-    env = {**os.environ, **_GIT_ENV}
-    subprocess.run(["git", "init", "-q", "-b", "main", "."], cwd=git_root, env=env, check=True)
-    subprocess.run(["git", "add", "-A", "."], cwd=git_root, env=env, check=True)
-    subprocess.run(
-        ["git", "commit", "-q", "--no-verify", "-m", "fixture"],
-        cwd=git_root, env=env, check=True,
-    )
-    return tree
-
-
-# --- The differ: an explicit allowlist, never the whole tree -----------------
-#
-# Snapshotting the tree root would pick up `.git/index` (git status refreshes its
-# stat cache) and any IPC file, making the exact changed-path set noisy and
-# platform-dependent. IPC lives outside the tree by construction; this allowlist
-# covers only the logical task and board-config files.
-
-def snapshot(tree: Path) -> dict[str, str]:
-    base = tree / "aitasks"  # traverses the symlink in branch mode
-    out: dict[str, str] = {}
-    paths = list(base.rglob("*.md")) + list((base / "metadata").glob("board_config*.json"))
-    for p in sorted(paths):
-        rel = p.relative_to(tree).as_posix()
-        out[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
-    return out
-
-
-def diff_snapshots(before: dict, after: dict) -> dict[str, set]:
-    return {
-        "changed": {k for k in before.keys() & after.keys() if before[k] != after[k]},
-        "added": set(after) - set(before),
-        "removed": set(before) - set(after),
-    }
+# The fixture vocabulary, the temp-tree builder and the byte differ live in the
+# shared harness (t1354_1) so the migrated board modules and this
+# characterization harness build identical trees. `build_tree` keeps its exact
+# pre-t1354_1 behaviour here — in particular `project_name=None`, so no
+# `project_config.yaml` is written and the snapshot allowlist below sees the
+# same file set it always saw.
+from board_fixture import (  # noqa: E402,F401
+    COLUMNS,
+    COLUMN_ORDER,
+    _GIT_ENV,
+    _META_BASE,
+    _META_ORDER,
+    _fixture_body,
+    _fixture_text,
+    build_tree,
+    diff_snapshots,
+    expected_nonboard,
+    fixture_name,
+    snapshot,
+)
 
 
 def read_board_fields(tree: Path) -> dict[str, dict]:

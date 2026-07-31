@@ -7,8 +7,9 @@ behavior under search, empty-selection notifications), and the launch surface
 (``_launch_work_report`` construction-spy incl. the direct-run "run" result
 and the dry-run-resolution-failure fallback).
 
-Harness notes: footer/Pilot tests run the real ``KanbanApp`` against the live
-repo tree (the ``test_board_footer_visibility.py`` pattern); flow-closure and
+Harness notes: footer/Pilot tests run the real ``KanbanApp`` against a **fixture**
+task tree via ``tests/lib/board_fixture.py`` (t1354_1 — they used to run against
+the live repo tree, which made them slow and nondeterministic); flow-closure and
 launch tests use the ``MagicMock``-app construction-spy pattern from
 ``test_tui_switcher_agent_launch.py`` so no board state is mutated.
 """
@@ -16,7 +17,6 @@ launch tests use the ``MagicMock``-app construction-spy pattern from
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -24,8 +24,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
+
+import board_fixture as bf  # noqa: E402
 
 
 def _fake_manager(unordered_tasks=()):
@@ -43,18 +46,19 @@ def _fake_manager(unordered_tasks=()):
     )
 
 
-class WorkReportTestBase(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        import aitask_board as ab  # noqa: E402
+class WorkReportTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
+    """Boots the real KanbanApp against a fixture task tree (t1354_1).
 
-        cls.ab = ab
+    Before t1354_1 the Pilot tests here ran against the **live** repo tree,
+    which is what made `test_hidden_cards_still_listed` fail whenever a task
+    file changed mid-suite (t1346) or an unparseable filename appeared in the
+    first populated column (t1352). The fixture is deterministic and — by
+    design — includes one numberless file in `c0` so the production filename
+    filter is exercised rather than avoided.
+    """
 
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+    #: The column the fixture populates and these tests focus.
+    COL = "c0"
 
     def _mock_app(self, manager):
         ab = self.ab
@@ -385,8 +389,7 @@ class WorkReportFooterVisibilityTests(WorkReportTestBase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 cards = list(app.query(ab.TaskCard))
-                if not cards:
-                    self.skipTest("live tree rendered no task cards")
+                self.assertTrue(cards, "fixture tree rendered no task cards")
                 cards[0].focus()
                 await pilot.pause()
                 self.assertTrue(app.check_action("work_report", None))
@@ -402,9 +405,8 @@ class WorkReportFooterVisibilityTests(WorkReportTestBase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 cols = list(app.query(ab.KanbanColumn))
-                if not cols:
-                    self.skipTest("live tree rendered no columns")
-                # In-memory collapse only — never persist to the live config.
+                self.assertTrue(cols, "fixture tree rendered no columns")
+                # In-memory collapse only — never persist to the fixture config.
                 app.manager.settings["collapsed_columns"] = [cols[0].col_id]
                 app.refresh_board()
                 await pilot.pause()
@@ -429,8 +431,7 @@ class WorkReportFooterVisibilityTests(WorkReportTestBase):
                 await pilot.pause()
                 shown = [p for p in app.query(ab.EmptyColumnPlaceholder)
                          if p.styles.display != "none"]
-                if not shown:
-                    self.skipTest("no empty-column placeholder surfaced")
+                self.assertTrue(shown, "no empty-column placeholder surfaced")
                 shown[0].focus()
                 await pilot.pause()
                 self.assertTrue(app.check_action("work_report", None))
@@ -440,7 +441,23 @@ class WorkReportFooterVisibilityTests(WorkReportTestBase):
 
 
 class WorkReportFullColumnUnderSearchTests(WorkReportTestBase):
-    """The task screen lists the FULL column even when search hides cards."""
+    """The task screen lists the FULL column even when search hides cards.
+
+    t1346 / t1352 (both folded into t1354): this used to assert
+    ``sl.option_count == len(col_tasks)`` against the **live** tree, so it broke
+    whenever another session changed a task file mid-suite (145 != 146) or an
+    unparseable filename appeared in the first populated column (150 != 151).
+    The second case was never a board bug: ``action_work_report``
+    (aitask_board.py:7271) deliberately drops any task whose filename
+    ``TaskCard._parse_filename`` cannot parse, because a task with no id cannot
+    be passed as ``--tasks <id>``.
+
+    The fixture makes both deterministic AND keeps the drop under test: `c0`
+    holds a deliberately numberless ``t_unparseable.md``, so the expected count
+    is the *parseable* subset, and the inequality below proves the filter
+    actually fired instead of being incidentally satisfied by a column that
+    happens to be clean.
+    """
 
     def _run(self, coro):
         return asyncio.run(coro)
@@ -452,14 +469,7 @@ class WorkReportFullColumnUnderSearchTests(WorkReportTestBase):
             app = ab.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
-                candidates = [
-                    (col_id, app.manager.get_column_tasks(col_id))
-                    for col_id, _ in app._work_report_columns()
-                ]
-                candidates = [(c, t) for c, t in candidates if t]
-                if not candidates:
-                    self.skipTest("live tree has no populated board column")
-                col_id, col_tasks = candidates[0]
+                col_id = self.COL
 
                 app.search_filter = "zz_no_such_task_zz"
                 app.apply_filter()
@@ -479,8 +489,22 @@ class WorkReportFullColumnUnderSearchTests(WorkReportTestBase):
                     app.screen, ab.WorkReportTaskSelectScreen)
                 from textual.widgets import SelectionList
                 sl = app.screen.query_one(SelectionList)
-                self.assertGreater(len(col_tasks), 0)
-                self.assertEqual(sl.option_count, len(col_tasks))
+
+                # Both sides are read from the SAME fixture moment — this is the
+                # t1346 fix. Nothing can change the tree underneath the run.
+                col_tasks = app.manager.get_column_tasks(col_id)
+                parseable = [t for t in col_tasks
+                             if ab.TaskCard._parse_filename(t.filename)[0]]
+                self.assertGreater(len(parseable), 0)
+                # t1352: the listed set is the parseable subset, not the column.
+                self.assertEqual(sl.option_count, len(parseable))
+                # ... and the drop genuinely fired. Without this the equality
+                # above is satisfied vacuously by a column with no unparseable
+                # file, and the production filter would go untested.
+                self.assertNotEqual(
+                    sl.option_count, len(col_tasks),
+                    "the fixture must keep an unparseable filename in this "
+                    "column so the action_work_report filter is exercised")
                 await pilot.press("escape")
 
         self._run(go())

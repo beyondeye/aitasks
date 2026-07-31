@@ -2,20 +2,28 @@
 
 Covers the pure trail-projection model (build_trail_lanes, overlaps,
 fold-aware discovery dedup, glyph pin against the schema enum), render-level
-card assertions, live-tree Pilot behavior (view switch, footer gating, ghost
+card assertions, Pilot behavior (view switch, footer gating, ghost
 navigation, subtitle restore), the keyboard-vs-timer refresh split, the
 worker supersession guard, launch-argument construction spies, and the
 read-only negative control (only drift/get/versions verbs are ever spawned).
 
-Fixture docs under aidocs/implementation_trail_examples/ are never mutated —
-tests operate on deep copies.
+Trail example docs under aidocs/implementation_trail_examples/ are never
+mutated — tests operate on deep copies.
+
+Harness: every app boot runs against a **fixture** task tree via
+``tests/lib/board_fixture.py`` (t1354_1). These tests used to boot against the
+live ``aitasks/`` tree at 2.44s per boot; the fixture costs 0.19s, which took
+this file from 227s to under 30s. Two consequences worth knowing before adding
+a test here: the fixture deliberately carries no ``artifacts:`` frontmatter (so
+``discover_trails`` returns [] by construction) and it DOES carry a
+``project_config.yaml``, without which every ``aitasks#<id>`` trail ref would
+silently render as a cross-repo ghost — see ``TrailRefResolutionTests``.
 """
 from __future__ import annotations
 
 import asyncio
 import copy
 import json
-import os
 import subprocess
 import sys
 import threading
@@ -24,10 +32,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
 import agent_command_screen as acs  # noqa: E402
+import board_fixture as bf  # noqa: E402
 
 FIXTURE_PATH = (REPO_ROOT / "aidocs" / "implementation_trail_examples"
                 / "gate_framework.json")
@@ -68,17 +78,20 @@ def _ghost_doc() -> dict:
                           "recommendation_summary": "rs"}}
 
 
-class ByTrailTestBase(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        import aitask_board as ab
-        cls.ab = ab
+class ByTrailTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
+    """Boots the real KanbanApp against a fixture task tree (t1354_1).
 
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+    Before t1354_1 this chdir'd to REPO_ROOT and imported `aitask_board`
+    canonically, so all ~57 app boots in this file loaded the **live** aitasks/
+    tree — 2.44s per boot against 0.19s on the fixture. The harness owns the
+    tree, the chdir and its restore; see tests/lib/board_fixture.py.
+
+    The fixture carries no `artifacts:` frontmatter, so `discover_trails`
+    returns [] by construction — the live repo's incidental emptiness used to be
+    the implicit "no-trails fixture", and it is now explicit. It DOES carry a
+    `project_config.yaml` naming the project `aitasks`, without which every
+    `aitasks#<id>` trail ref would silently resolve as a cross-repo ghost.
+    """
 
     def _run(self, coro):
         return asyncio.run(coro)
@@ -583,8 +596,7 @@ class ByTrailPilotTests(ByTrailTestBase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 cards = list(app.query(ab.TaskCard))
-                if not cards:
-                    self.skipTest("live tree rendered no task cards")
+                self.assertTrue(cards, "fixture tree rendered no task cards")
                 cards[0].focus()
                 await pilot.pause()
                 self.assertTrue(app.check_action("trail_task", None))
@@ -780,8 +792,7 @@ class TrailLaunchConstructionTests(ByTrailTestBase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 cards = list(app.query(ab.TaskCard))
-                if not cards:
-                    self.skipTest("live tree rendered no task cards")
+                self.assertTrue(cards, "fixture tree rendered no task cards")
                 cards[0].focus()
                 await pilot.pause()
                 task_num, _ = ab.TaskCard._parse_filename(
@@ -1011,19 +1022,15 @@ class OnDiskRefreshTests(unittest.TestCase):
     tests/test_board_archived_relation_lookup.py.
     """
 
-    def setUp(self):
-        import tempfile
-        self.tmp = tempfile.TemporaryDirectory()
-        self.task_dir = Path(self.tmp.name) / "aitasks"
-        (self.task_dir / "metadata").mkdir(parents=True)
-        (self.task_dir / "metadata" / "project_config.yaml").write_text(
-            "project:\n  name: aitasks\n", encoding="utf-8")
-        self._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
+    #: Its own single-task tree: this test MUTATES the task file mid-run, so it
+    #: cannot share the class-level fixture other classes reuse.
+    TASKS = (bf.FixtureTask(task_id="42", col="c0", idx=10, slug="demo",
+                            extra={"issue_type": "bug"}),)
 
-    def tearDown(self):
-        os.chdir(self._orig_cwd)
-        self.tmp.cleanup()
+    def setUp(self):
+        self.tree, self._board = bf.enter_fixture_tree(
+            self.addCleanup, tasks_spec=self.TASKS, tag="ondisk")
+        self.task_dir = self.tree / "aitasks"
 
     def _write_task(self, status: str):
         (self.task_dir / "t42_demo.md").write_text(
@@ -1032,23 +1039,7 @@ class OnDiskRefreshTests(unittest.TestCase):
             encoding="utf-8")
 
     def _load_board(self):
-        import importlib.util
-        module_name = f"aitask_board_t1268_{id(self.task_dir)}"
-        previous = os.environ.get("TASK_DIR")
-        os.environ["TASK_DIR"] = str(self.task_dir)
-        try:
-            spec = importlib.util.spec_from_file_location(
-                module_name,
-                REPO_ROOT / ".aitask-scripts" / "board" / "aitask_board.py")
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
-            return module
-        finally:
-            if previous is None:
-                os.environ.pop("TASK_DIR", None)
-            else:
-                os.environ["TASK_DIR"] = previous
+        return self._board
 
     def _doc(self):
         return {
@@ -2461,6 +2452,154 @@ class RefreshDoubleTapTests(ByTrailTestBase):
                         ctx.stop()
 
         self._run(go())
+
+
+class TrailRefResolutionTests(ByTrailTestBase):
+    """t1354_1: fixture trail refs must resolve to REAL cards, not ghosts.
+
+    `load_local_project_name` returns "" when the fixture has no
+    `project_config.yaml`, `trail_ref_to_local_id` then returns None, and every
+    `aitasks#<id>` member renders as an unresolvable cross-repo ghost. Nothing
+    raises — the whole By-Trail suite would simply assert against ghosts and
+    pass vacuously. This pins the resolution for a parent AND a child ref, and
+    the negative control below proves the assertion discriminates.
+    """
+
+    @staticmethod
+    def _resolving_doc():
+        refs = ["aitasks#9000", "aitasks#9000_1"]   # parent + child
+        return {
+            "title": "Resolving trail", "trail_id": "trail-resolve",
+            "narrative": {"problem_statement": "p",
+                          "recommendation_summary": "r"},
+            "waves": [{
+                "wave_id": "w1", "ordinal": 1, "title": "Wave 1", "purpose": "p",
+                "entries": [{
+                    "entry_id": f"e{i}", "task": ref, "topic": ref,
+                    "position": i + 1, "classification": "core",
+                    "confidence": "high", "rationale": "r",
+                    "snapshot": {"status": "Ready"},
+                } for i, ref in enumerate(refs)],
+            }],
+        }
+
+    async def _counts(self, ab, pilot, app):
+        await self._enter_synthetic_bytrail(app, pilot, self._resolving_doc(),
+                                            handle="art:trail-resolve")
+        return (len(app.query(ab.TrailTaskCard)),
+                len(app.query(ab.TrailGhostCard)))
+
+    def test_parent_and_child_refs_render_as_real_cards(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                self.assertEqual(ab.load_local_project_name(), "aitasks")
+                real, ghosts = await self._counts(ab, pilot, app)
+                self.assertEqual((real, ghosts), (2, 0),
+                                 "both the parent and the child trail ref must "
+                                 "resolve to live TrailTaskCards")
+
+        self._run(go())
+
+    def test_without_project_config_the_same_refs_become_ghosts(self):
+        """Negative control: proves the assertion above is not vacuous."""
+        _tree, ab = bf.enter_fixture_tree(
+            self.addCleanup, tag="noproject", project_name=None)
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                self.assertEqual(ab.load_local_project_name(), "")
+                real, ghosts = await self._counts(ab, pilot, app)
+                self.assertEqual((real, ghosts), (0, 2),
+                                 "without project_config.yaml every ref must "
+                                 "degrade to a cross-repo ghost")
+
+        self._run(go())
+
+
+class FixtureCwdDependencyTests(ByTrailTestBase):
+    """t1354_1: pin which cwd-relative helpers a By-Trail boot actually spawns.
+
+    Under `cwd=<fixture tree>` every `./.aitask-scripts/...` helper is absent,
+    and each call site swallows `FileNotFoundError`. That silence is the hazard:
+    a future change that routes this path through a new helper would degrade
+    invisibly and a test could pass through the fallback instead of the branch
+    it names. Pinning the spawn set turns that into a visible failure here.
+    """
+
+    @staticmethod
+    def _names(spawns) -> set[str]:
+        return {Path(argv[0]).name for argv in spawns}
+
+    def _assert_git_probe_only(self, spawns, phase: str):
+        for argv in spawns:
+            if Path(argv[0]).name != "git":
+                continue
+            # Branch mode routes through `git -C .aitask-data`, which is exactly
+            # the production topology the fixture reproduces.
+            self.assertIn("status", argv, f"unexpected git use in {phase}: {argv}")
+            self.assertIn("--porcelain", argv, f"unexpected git use in {phase}: {argv}")
+
+    def test_boot_and_bytrail_phases_spawn_only_expected_helpers(self):
+        """Both phases are pinned, and the boot set is asserted before it is reset.
+
+        `KanbanApp.on_mount` calls `refresh_board(refresh_locks=True)` during the
+        very first `pilot.pause()`, so anything the boot shells out to is already
+        spent by the time the By-Trail phase starts. Clearing the spy before
+        asserting would leave the boot path — the one every test in this file
+        runs — completely unguarded.
+        """
+        ab = self.ab
+        boot: list[list[str]] = []
+        later: list[list[str]] = []
+        phase = {"sink": boot}
+        real_run = subprocess.run
+
+        def spy(argv, **kwargs):
+            try:
+                phase["sink"].append([str(a) for a in argv])
+            except TypeError:                      # shell=True string form
+                phase["sink"].append([str(argv)])
+            return real_run(argv, **kwargs)
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+
+                # --- boot phase, asserted BEFORE the sink is switched ---
+                self.assertEqual(
+                    self._names(boot), {"git", "aitask_lock.sh"},
+                    f"unexpected cwd-relative helper spawned during boot: {boot}")
+                self._assert_git_probe_only(boot, "boot")
+                # `./.aitask-scripts/aitask_lock.sh` does NOT exist under the
+                # fixture cwd. It is *meant* to degrade here — the harness
+                # deliberately does not symlink .aitask-scripts into the tree,
+                # because re-enabling that subprocess costs ~0.43s per boot. Pin
+                # the consequence, so a test that ever needs real lock state
+                # fails loudly instead of quietly asserting against an empty map.
+                self.assertEqual(app.manager.lock_map, {},
+                                 "the absent lock helper must degrade to an "
+                                 "empty lock map, not raise or half-populate")
+
+                phase["sink"] = later
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app.action_trail_refresh_local()
+                await pilot.pause()
+
+        with patch("subprocess.run", side_effect=spy):
+            self._run(go())
+
+        # --- By-Trail entry + local refresh: the git probe and nothing else ---
+        self.assertEqual(
+            self._names(later), {"git"},
+            f"unexpected cwd-relative helper spawned after boot: {later}")
+        self._assert_git_probe_only(later, "bytrail+local-refresh")
 
 
 if __name__ == "__main__":
