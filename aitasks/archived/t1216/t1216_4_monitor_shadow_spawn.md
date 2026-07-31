@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1216_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [aitask_monitor, shadow, tui, tmux_destructive]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 implemented_with: claudecode/opus5
 created_at: 2026-07-27 22:22
-updated_at: 2026-07-31 06:43
+updated_at: 2026-07-31 06:44
+completed_at: 2026-07-31 06:44
 ---
 
 ## Pick-time safety guard — DO NOT pick from inside your working tmux
@@ -238,3 +239,14 @@ confirm the shadow dies **and the monitor survives**.
 > Note: deferred
 
 > **✅ gate:review_approved** run=2026-07-31T03:42:08Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-07-31T03:44:14Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:6915eecc838cd187
+
+> **✅ gate:risk_evaluated** run=2026-07-31T03:44:14Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1216_4/risk_evaluated_2026-07-31T03:44:14Z-risk_evaluated-a1.log`
