@@ -514,3 +514,12 @@ How to apply:
   implementation.
 - If only a subset of test cases need a sandboxed tmux, split them into a
   separate runner script the user invokes from a clean shell.
+- Most tmux tests only need `require_isolated_tmux` (isolate, never refuse). A
+  test that runs framework code reaching tmux **outside** the gateway — the
+  shadow cleanup hook is the case in point, since
+  `aitask_companion_cleanup.sh` is raw-`tmux`-by-design — should additionally
+  call `require_clean_ait_server`, which turns this preflight into an exit-2
+  refusal instead of a human checklist item. Both live in
+  `tests/lib/tmux_isolation.sh`; the refusal guard must be called **first**,
+  because `require_isolated_tmux` unsets `$TMUX` and repoints `$TMUX_TMPDIR`.
+  `tests/test_monitor_shadow_spawn_live.sh` is the reference caller.

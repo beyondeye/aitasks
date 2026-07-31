@@ -19,9 +19,20 @@
 # safely alongside a live user session — and even a stray tmux call that forgets
 # its own per-fixture override can no longer touch the user's server.
 #
+# This file therefore holds TWO deliberately different policies, and the
+# difference is the point:
+#
+#   require_isolated_tmux   — isolate, NEVER refuse. The default for tests whose
+#                             every tmux call is gateway- or fixture-routed.
+#   require_clean_ait_server — refuse (exit 2) when it is unsafe. For the small
+#                             set of tests that run framework code which reaches
+#                             tmux OUTSIDE the gateway, where isolation alone is
+#                             not a sufficient guarantee.
+#
 # Usage:
 #   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   . "$SCRIPT_DIR/lib/tmux_isolation.sh"
+#   require_clean_ait_server     # only for the "refuse" class; MUST come first
 #   require_isolated_tmux
 
 if [[ -z "${_AIT_TMUX_ISOLATION_LOADED:-}" ]]; then
@@ -72,5 +83,101 @@ if [[ -z "${_AIT_TMUX_ISOLATION_LOADED:-}" ]]; then
         #    This also shields the suite from a custom AITASKS_TMUX_SOCKET
         #    value inherited from the developer's shell.
         export AITASKS_TMUX_SOCKET=""
+    }
+
+    # Pre-flight REFUSAL guard for the narrow class of live tests that execute
+    # framework code reaching tmux **outside** the gateway — where
+    # `require_isolated_tmux` is not a sufficient guarantee.
+    #
+    # The motivating case is the shadow cleanup hook: `attach_shadow_cleanup_hook`
+    # arms a persistent `remain-on-exit` + `pane-died` hook that later runs
+    # `aitask_companion_cleanup.sh`, and that script issues raw `tmux` with no
+    # socket flag BY DESIGN (it relies on `$TMUX` from the firing server's job
+    # environment). `AITASKS_TMUX_SOCKET` therefore cannot sandbox it, so a test
+    # that really fires such a hook wants a positively empty playing field, not
+    # only a redirected one.
+    #
+    # Policy (mirrors the pick-time preflight in
+    # `aidocs/framework/tui_conventions.md`, "Tmux-stress tasks"):
+    #   1. Launched from inside tmux ($TMUX set)   -> refuse, exit 2.
+    #   2. The dedicated `-L ait` server is alive  -> refuse, exit 2, listing its
+    #      panes. Any pane there is framework work (agents, shadows, TUIs) that
+    #      the caller told us not to gamble with. Deliberately NOT classified
+    #      per-pane: the agent/TUI-name lists are canonical Python data
+    #      (`monitor_core.DEFAULT_AGENT_PREFIXES` / `DEFAULT_TUI_NAMES`) and
+    #      re-deriving them in bash would be a duplicate that silently drifts.
+    #      Refusing on any pane is the fail-closed reading and needs no list.
+    #   3. Any other reachable server (the user's personal default socket) ->
+    #      WARN and continue. Refusing there is the over-strictness t936 removed,
+    #      and these tests never address that socket.
+    #   4. AIT_LIVE_TMUX_TEST_FORCE=1 overrides 1 and 2 (dedicated CI box).
+    #
+    # ORDERING IS LOAD-BEARING: call this BEFORE `require_isolated_tmux`. That
+    # function unsets $TMUX and repoints $TMUX_TMPDIR, after which this guard
+    # could neither see rule 1 nor resolve `-L ait` to the user's real socket
+    # (/tmp/tmux-<uid>/ait) — it would probe the empty isolated dir and pass
+    # vacuously.
+    require_clean_ait_server() {
+        local script_name
+        script_name="$(basename "${0:-this test}")"
+
+        if [[ -n "${AIT_LIVE_TMUX_TEST_FORCE:-}" ]]; then
+            echo "WARNING: AIT_LIVE_TMUX_TEST_FORCE is set — skipping the clean-server pre-flight." >&2
+            return 0
+        fi
+
+        if [[ -n "${TMUX:-}" ]]; then
+            cat >&2 <<EOF
+ERROR: ${script_name} cannot run from inside a tmux session.
+
+This test arms real \`pane-died\` cleanup hooks. \`aitask_companion_cleanup.sh\`
+runs raw \`tmux\` with no socket flag by design, so no environment override can
+sandbox it once it fires.
+
+Open a fresh terminal that is NOT inside tmux, then re-run:
+    bash tests/${script_name}
+
+To override (dedicated CI box only):
+    AIT_LIVE_TMUX_TEST_FORCE=1 bash tests/${script_name}
+EOF
+            exit 2
+        fi
+
+        command -v tmux >/dev/null 2>&1 || return 0
+
+        local ait_panes
+        ait_panes="$(tmux -L ait list-panes -a \
+            -F '  #{pane_id} #{window_name} #{pane_current_command} [#{@aitask_shadow_target}]' \
+            2>/dev/null || true)"
+        if [[ -n "$ait_panes" ]]; then
+            cat >&2 <<EOF
+ERROR: ${script_name} refuses to run while the dedicated \`-L ait\` tmux server
+is alive.
+
+Panes currently on that server:
+${ait_panes}
+
+That server carries this framework's coding agents, shadows and TUIs. This test
+arms real \`pane-died\` cleanup hooks, and \`aitask_companion_cleanup.sh\` reaches
+tmux with raw, un-flagged calls — so the safe pre-condition is an empty field,
+not a redirected one.
+
+Save your work, then from a terminal that is NOT inside tmux:
+    tmux -L ait kill-server
+    bash tests/${script_name}
+
+To override (dedicated CI box only):
+    AIT_LIVE_TMUX_TEST_FORCE=1 bash tests/${script_name}
+EOF
+            exit 2
+        fi
+
+        local other
+        other="$(tmux list-sessions -F '#{session_name}' 2>/dev/null | paste -sd, - || true)"
+        if [[ -n "$other" ]]; then
+            echo "NOTE: personal tmux sessions are alive on the default socket (${other})." >&2
+            echo "      They are not touched — this test runs on its own throwaway server." >&2
+        fi
+        return 0
     }
 fi

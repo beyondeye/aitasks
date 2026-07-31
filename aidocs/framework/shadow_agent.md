@@ -201,6 +201,21 @@ returns which of three things happened:
 `remain-on-exit on` is set in every case (idempotent, and the pane should still
 fire `pane-died` for a hook someone else armed).
 
+### Where these two rules are proven
+
+`tests/test_monitor_shadow_pick.py` pins them through mocks — it can show which
+arguments the monitor passes, not what they do. The executable proof of the
+*effect* is `tests/test_monitor_shadow_spawn_live.sh`: it spawns a shadow from
+the real `MonitorApp` action against a throwaway tmux server, lets the
+`pane-died` hook fire, and watches the shadow die while a monitor stand-in pane
+in another window survives — plus the `"existing"` / append-at-`[1]` branches and
+the focus-retention contract on both placements.
+
+That test is **tmux-destructive** and calls `require_clean_ait_server`
+(`tests/lib/tmux_isolation.sh`) *before* `require_isolated_tmux`: isolation alone
+cannot contain `aitask_companion_cleanup.sh`, which reaches tmux with raw,
+un-flagged calls by design.
+
 ### Rule: creating a shadow uses a live lookup, not the snapshot cache
 
 `find_shadow_pane` (and `_current_shadow_pane_id` in the monitor) answer *"is
