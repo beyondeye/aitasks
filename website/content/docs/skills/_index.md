@@ -82,6 +82,7 @@ Settings, statistics, and model management.
 | [`/aitask-refresh-code-models`](aitask-refresh-code-models/) | Research latest AI code agent models and update model configuration files |
 | [`/aitask-stats`](aitask-stats/) | View completion statistics |
 | [`/aitask-changelog`](aitask-changelog/) | Generate changelog entries from commits and plans |
+| [`/aitask-docs-gap`](aitask-docs-gap/) | Find website docs gaps for a release and create one documentation task |
 | [`/aitask-work-report`](aitask-work-report/) | Draft a manager-facing work report from selected board columns |
 | [Verified Scores](verified-scores/) | How skill satisfaction ratings accumulate into verified model scores |
 

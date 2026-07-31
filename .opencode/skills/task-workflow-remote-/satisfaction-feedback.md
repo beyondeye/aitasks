@@ -1,7 +1,7 @@
 # Satisfaction Feedback Procedure
 
 This procedure collects a quick user rating after a skill completes and updates
-rolling verified scores for the current code agent/model. It is referenced from Step 9b (task-workflow) and standalone skills (aitask-explore, aitask-explain, aitask-changelog, aitask-wrap, aitask-refresh-code-models, aitask-reviewguide-classify, aitask-reviewguide-merge, aitask-reviewguide-import, aitask-web-merge).
+rolling verified scores for the current code agent/model. It is referenced from Step 9b (task-workflow) and standalone skills (aitask-explore, aitask-explain, aitask-changelog, aitask-docs-gap, aitask-wrap, aitask-refresh-code-models, aitask-reviewguide-classify, aitask-reviewguide-merge, aitask-reviewguide-import, aitask-web-merge).
 
 **Input:**
 - `skill_name` (string, required) — for example `pick`, `explore`, `explain`

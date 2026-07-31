@@ -13,9 +13,10 @@ Documenting what changed in a new release is one of the most tedious tasks in so
 ## The Release Pipeline
 
 1. **Generate changelog** — Run [`/aitask-changelog`](../../skills/aitask-changelog/) in your code agent session to gather commit and plan data, then generate a categorized changelog entry
-2. **Create release** — Run `./create_new_release.sh` to bump the version, create a git tag, and push
-3. **Publish** — GitHub Actions automatically builds a release tarball and publishes release notes extracted from the changelog
-4. **Blog post** — Run `./website/new_release_post.sh` to scaffold a blog post, then write an informal summary of the release highlights
+2. **Check docs coverage (optional)** — Run [`/aitask-docs-gap`](../../skills/aitask-docs-gap/) to find shipped changes missing website documentation; it creates one documentation task capturing any gaps
+3. **Create release** — Run `./create_new_release.sh` to bump the version, create a git tag, and push
+4. **Publish** — GitHub Actions automatically builds a release tarball and publishes release notes extracted from the changelog
+5. **Blog post** — Run `./website/new_release_post.sh` to scaffold a blog post, then write an informal summary of the release highlights
 
 ## Walkthrough: Releasing v0.4.0
 

@@ -26,6 +26,7 @@ These skills live under [Skills]({{< relref "/docs/skills" >}}) (their canonical
 | [`/aitask-add-model`]({{< relref "/docs/skills/aitask-add-model" >}}) | Register a known code-agent model in `models_<agent>.json` and optionally promote it to default |
 | [`/aitask-refresh-code-models`]({{< relref "/docs/skills/aitask-refresh-code-models" >}}) | Research latest AI code agent models and update model configuration files |
 | [`/aitask-changelog`]({{< relref "/docs/skills/aitask-changelog" >}}) | Generate changelog entries from commits and archived plans |
+| [`/aitask-docs-gap`]({{< relref "/docs/skills/aitask-docs-gap" >}}) | Find website docs gaps for a release and create one documentation task |
 
 ## See also
 
