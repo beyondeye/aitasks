@@ -134,20 +134,94 @@ free-form ask once it is running decides which capability applies:
 
 ## Spawn path and binding
 
-The shadow is launched from **minimonitor** with the `e` key
-(`action_launch_shadow` in `monitor/minimonitor_app.py`): it resolves the
-followed agent's pane id and task id, builds the command via the `shadow`
-codeagent operation (`aitask_codeagent.sh`), and launches the companion — by
-default a split in the **same window**, configurable to a separate window.
+The shadow is launched with the `e` key (`E` to pick the code agent / model
+first) from **two** surfaces: **minimonitor** (`action_launch_shadow` in
+`monitor/minimonitor_app.py`, acting on the followed agent) and **`ait monitor`**
+(`monitor/monitor_app.py`, acting on the *selected* agent). Each resolves the
+agent's pane id and task id, builds the command via the `shadow` codeagent
+operation (`aitask_codeagent.sh`), and delegates the mechanics to the shared
+`spawn_shadow` in `monitor/monitor_core.py` — by default a split in the **same
+window**, configurable to a separate window.
+
+Each app keeps a thin `_spawn_shadow` method. These are **policy adapters, not
+pass-through seams**: the two decisions below differ per app, and inlining them
+at both call sites in each app would replicate them four times instead of twice.
 
 The spawn glue sets the pane-scoped tmux user option
 `@aitask_shadow_target = <followed_pane_id>` (constant `SHADOW_TARGET_OPTION` in
 `monitor/monitor_core.py`) on the new shadow pane. That option is the
 **authoritative** classifier *and* lifecycle binding: it drives exclusion from
 agent lists, the `kill_agent_pane_smart` real-agent count, and the
-`aitask_companion_cleanup.sh` auto-kill when the followed agent dies. See
-`tui_conventions.md` (companion-pane section) and `tmux_gateway.md` (multi-agent
-per window).
+`aitask_companion_cleanup.sh` auto-kill when the followed agent dies. Because an
+unstamped shadow is indistinguishable from a real agent *forever* — it lists as
+an agent, is targeted by `k` / `n`, counts as a real sibling, evades the
+duplicate guard, and is never cleaned up (job 1 matches on the marker) — a stamp
+failure is retried once and then the just-created pane is **killed**; no cleanup
+hook is installed and the caller reports an error. See `tui_conventions.md`
+(companion-pane section) and `tmux_gateway.md` (multi-agent per window).
+
+### Rule: `companion_pane` is per-app policy, never `TMUX_PANE`
+
+`spawn_shadow` takes `companion_pane` as an explicit keyword parameter and
+**never reads `TMUX_PANE` itself**. The value is the pane
+`aitask_companion_cleanup.sh` despawns once the followed agent's window holds no
+real agent besides the dying one — and that script's job-2 `kill-pane` has **no
+marker check and no confirmation**.
+
+- **minimonitor passes its own `TMUX_PANE`.** It *is* the followed agent's
+  companion and shares its window, so it should be despawned with the agent.
+- **monitor passes `None`** (meaning "bind to the newly created shadow pane").
+  The monitor is not the agent's companion and normally lives in another window;
+  passing its own pane would make the agent's exit **kill the monitor**, on an
+  arbitrary delay, after the session that armed the hook has ended.
+
+The shadow itself is cleaned up either way: job 1 kills every pane in the session
+whose `@aitask_shadow_target` matches the dying agent, regardless of what
+`companion` names.
+
+### Rule: the cleanup hook is append-only, never an overwrite
+
+A bare `set-hook -p … pane-died` writes index `[0]` and therefore *replaces*
+whatever sits there. Two panes can each be a companion of the same agent (a
+minimonitor arms it, then a monitor-side spawn arms it again), so
+`attach_shadow_cleanup_hook` (`lib/agent_launch_utils.py`) never overwrites. It
+returns which of three things happened:
+
+- `"existing"` — a `pane-died` hook already invokes
+  `aitask_companion_cleanup.sh`; nothing is installed. Complete because job 1 is
+  marker-driven, so the new shadow is still cleaned up and the prior companion
+  contract survives.
+- `"unverified"` — the `show-hooks` probe failed, so "no hook" cannot be
+  distinguished from "someone else's hook". **Fails closed**: installs nothing.
+  Overwriting is silent and persistent; skipping merely leaves a shadow to close
+  by hand, which is bounded and visible. Callers surface this as a warning.
+- `"installed"` — appended at the first free `pane-died` index, so an unrelated
+  `pane-died` hook is preserved rather than destroyed.
+
+`remain-on-exit on` is set in every case (idempotent, and the pane should still
+fire `pane-died` for a hook someone else armed).
+
+### Rule: creating a shadow uses a live lookup, not the snapshot cache
+
+`find_shadow_pane` (and `_current_shadow_pane_id` in the monitor) answer *"is
+there a shadow to **read**"* — the preview, key forwarding and the concern
+picker, where lagging a refresh tick is the intended cheapness. They cannot
+answer *"may I **create** one"*: the cache can only report a shadow it has
+already observed, leaving a multi-second double-spawn window. The launch guards
+therefore use `find_shadow_pane_status`, which discriminates a failed query from
+a verified absence, and **refuse on both** a found shadow and an unverifiable
+one. `spawn_shadow` re-checks immediately before launching, so the seconds an
+`E` picker dialog stays open are covered too.
+
+### Rule: monitor-side spawns must not steal window focus
+
+Both `launch_in_tmux` placement branches select the new pane's window by default
+(`select-window` after the split; `new-window` without `-d` creates *and*
+selects). `TmuxLaunchConfig.select_window` (default `True`, preserving every
+pre-existing caller) turns that off: **minimonitor passes `True`** (its client is
+already on that window, so the argv is unchanged) and **monitor passes `False`**,
+because being yanked to the shadow's window would defeat the shadow preview
+column the monitor exists to show.
 
 ## Feedback freshness (staleness detection)
 

@@ -12,11 +12,18 @@ The shadow is **read-only and advisory by design**. It explains and suggests; it
 
 ## Launching a shadow
 
-You launch a shadow from the [minimonitor](../../tuis/minimonitor/) sidebar that sits next to each running agent: focus the agent's card and press **e**. By default the shadow opens as a new pane in the **same tmux window** as the followed agent, so the two sit side by side. (You can configure it to open in a separate window instead — see [Configuration](#configuration).)
+You launch a shadow with **e** from either of two surfaces:
 
-The shadow is a companion pane, like minimonitor itself: it never appears in the agent list, and it closes automatically when the agent it shadows exits.
+- the [minimonitor](../../tuis/minimonitor/) sidebar that sits next to each running agent — focus the agent's card and press **e**;
+- [`ait monitor`](../../tuis/monitor/) — select the agent in the pane list and press **e**. Launching from monitor keeps your focus in monitor, so the shadow preview column shows the new shadow instead of pulling you away to its window.
 
-See [How to Launch a Shadow Agent](../../tuis/minimonitor/how-to/#how-to-launch-a-shadow-agent) for the minimonitor keybinding details.
+On both surfaces **E** opens a picker first so you can choose the code agent and model before the shadow starts.
+
+By default the shadow opens as a new pane in the **same tmux window** as the followed agent, so the two sit side by side. (You can configure it to open in a separate window instead — see [Configuration](#configuration).)
+
+The shadow is a companion pane, like minimonitor itself: it never appears in the agent list, and it closes automatically when the agent it shadows exits. Only one shadow runs per followed agent.
+
+See [How to Launch a Shadow Agent](../../tuis/minimonitor/how-to/#how-to-launch-a-shadow-agent) (minimonitor) or [How to Launch a Shadow Agent](../../tuis/monitor/how-to/#how-to-launch-a-shadow-agent) (monitor) for the per-TUI keybinding details.
 
 ## What happens once it is running
 
@@ -88,9 +95,9 @@ The learner captures the followed pane read-only, walks you through selecting wh
 
 ### Forward concerns to the followed agent
 
-When the shadow interrogates a plan, reviews an implementation, or diagnoses genuine skill/helper errors, alongside its human-readable findings it can emit a structured, machine-parseable **concern block** — a fenced list (`===AITASK-CONCERNS===` … `===END-CONCERNS===`) of `- [priority | region] body` items, where `priority` is `high`, `medium`, or `low` and `region` names the plan area, skill, or helper the concern targets. Implementation-review concerns are ordered blocking-first and end their body with the finding's disposition (and, in the Advanced and Deep tiers, the verification verdict). Minimonitor reads that trailer to group the picker, and forwards it to the agent unchanged. The block is additive: the shadow still prints its normal prose; the block is an extra copy meant for pick-and-forward.
+When the shadow interrogates a plan, reviews an implementation, or diagnoses genuine skill/helper errors, alongside its human-readable findings it can emit a structured, machine-parseable **concern block** — a fenced list (`===AITASK-CONCERNS===` … `===END-CONCERNS===`) of `- [priority | region] body` items, where `priority` is `high`, `medium`, or `low` and `region` names the plan area, skill, or helper the concern targets. Implementation-review concerns are ordered blocking-first and end their body with the finding's disposition (and, in the Advanced and Deep tiers, the verification verdict). The picker reads that trailer to group the concerns, and forwards it to the agent unchanged. The block is additive: the shadow still prints its normal prose; the block is an extra copy meant for pick-and-forward.
 
-From [minimonitor](../../tuis/minimonitor/) you can then **selectively forward** these concerns to the followed agent without retyping them. Press **c** to open a checklist of the shadow's concerns, tick the ones you want, and minimonitor copies them — with a short preamble — to your clipboard for you to paste into the agent. Concerns the shadow marked `informational` — real, but not a request for action — are grouped in their own dimmed section and left out of the select-all key, so what actually needs attention is what you see first. When a fresh concern block appears, minimonitor also proactively hints that the shadow raised concerns. This keeps the advisory-only contract intact: the concerns land on *your* clipboard, and you decide what to paste. See [How to pick shadow concerns](../../tuis/minimonitor/how-to/#how-to-pick-shadow-concerns).
+From either [minimonitor](../../tuis/minimonitor/) or [`ait monitor`](../../tuis/monitor/) you can then **selectively forward** these concerns to the followed agent without retyping them. Press **c** to open a checklist of the shadow's concerns, tick the ones you want, and the TUI copies them — with a short preamble — to your clipboard for you to paste into the agent. Concerns the shadow marked `informational` — real, but not a request for action — are grouped in their own dimmed section and left out of the select-all key, so what actually needs attention is what you see first. When a fresh concern block appears, both TUIs also proactively hint that the shadow raised concerns. This keeps the advisory-only contract intact: the concerns land on *your* clipboard, and you decide what to paste. See [How to pick shadow concerns](../../tuis/minimonitor/how-to/#how-to-pick-shadow-concerns) (minimonitor) or [How to Pick Shadow Concerns](../../tuis/monitor/how-to/#how-to-pick-shadow-concerns) (monitor).
 
 ## Advisory only
 

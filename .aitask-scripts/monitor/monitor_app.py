@@ -28,8 +28,11 @@ from monitor.tmux_monitor import (  # noqa: E402
     PaneSnapshot,
     TmuxMonitor,
     load_monitor_config,
+    load_project_tmux_config,
     capture_shadow_text,
     compute_shadow_staleness,
+    find_shadow_pane_status,
+    spawn_shadow,
     _SHADOW_DEEP_RETRY_LINES,
     _SHADOW_TRUNCATED_MSG,
 )
@@ -475,6 +478,9 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("s", "switch_to", "Switch"),
         Binding("i", "show_task_info", "Task Info"),
         Binding("r", "refresh", "Refresh"),
+        # Hidden on purpose: an alias of `r`, which is already footer-visible with
+        # the same label and action. Showing both would duplicate a footer entry
+        # rather than surface an operation.
         Binding("f5", "refresh", "Refresh", show=False),
         Binding("z", "cycle_preview_size", "Zoom"),
         Binding("t", "scroll_preview_tail", "Tail"),
@@ -483,10 +489,12 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("R", "restart_task", "Restart"),
         Binding("enter", "send_enter", "Send ↵", show=True),
         Binding("A", "toggle_auto_switch", "Auto"),
-        Binding("M", "toggle_multi_session", "Multi", show=False),
+        Binding("M", "toggle_multi_session", "Multi"),
         Binding("L", "open_log", "Log"),
         Binding("d", "cycle_compare_mode", "Detect"),
         Binding("c", "pick_concerns", "Concerns"),
+        Binding("e", "launch_shadow", "Shadow"),
+        Binding("E", "launch_shadow_pick", "Shadow (pick)"),
         Binding("space", "toggle_mark", "Mark"),
     ]
 
@@ -2057,6 +2065,12 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         Resolves from ``self._focused_pane_id`` — never ``_get_focused_pane_id()``,
         which reads ``self.focused`` and returns None whenever focus is off a
         PaneCard, i.e. always while a preview zone is active.
+
+        Answers *"is there a shadow to **read**"* (preview, key forwarding,
+        concern picker) from the cached snapshots, where lagging a tick is the
+        intended cheapness. It does **not** answer *"may I **create** one"*: the
+        cache cannot report a shadow it has not observed yet, so the launch guards
+        use the live ``find_shadow_pane_status`` lookup instead (t1216_4).
         """
         if not self._focused_pane_id or self._monitor is None:
             return None
@@ -2653,6 +2667,166 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         self.notify(f"Idle detect mode: {new_mode}{suffix}", timeout=3)
         self.call_later(self._refresh_data)
 
+    # -- Shadow spawn (t1216_4) ------------------------------------------------
+
+    def _resolve_shadow_target(self) -> tuple[PaneSnapshot, str] | None:
+        """Validate the selected pane as a shadow target, or notify and return None.
+
+        Shared prologue of ``e`` / ``E``. Resolves from ``self._focused_pane_id``
+        — never ``_get_focused_pane_id()``, which reads ``self.focused`` and
+        returns None whenever focus is off a PaneCard.
+        """
+        pane_id = self._focused_pane_id
+        if not pane_id or pane_id not in self._snapshots:
+            self.notify("Focus an agent pane first", severity="warning")
+            return None
+        snap = self._snapshots[pane_id]
+        # Monitor-only guard: `_rebuild_pane_list` renders PaneCategory.OTHER
+        # panes as focusable PaneCards, so the selection can be a shell or a
+        # lazygit pane. minimonitor never needed this — it resolves its target
+        # via `_find_own_agent_snapshot`, which already filters on category.
+        if snap.pane.category != PaneCategory.AGENT:
+            self.notify("Shadow only applies to agent panes", severity="warning")
+            return None
+        followed_pane = snap.pane.pane_id
+        if not followed_pane:
+            self.notify("Agent pane id unavailable", severity="warning")
+            return None
+        # One shadow per followed agent (the @aitask_shadow_target option is the
+        # lifecycle binding). Live lookup, not the snapshot cache: the cache can
+        # only report a shadow it has already observed, so it cannot answer
+        # "may I create one". Fail closed — an unverifiable state must not spawn.
+        ok, existing = find_shadow_pane_status(self._monitor, followed_pane)
+        if not ok:
+            self.notify(
+                "Could not verify whether a shadow is already running",
+                severity="warning",
+            )
+            return None
+        if existing:
+            self.notify(
+                "A shadow is already running for this agent", severity="warning"
+            )
+            return None
+        return snap, followed_pane
+
+    def action_launch_shadow(self) -> None:
+        """Spawn the shadow companion agent for the SELECTED coding agent.
+
+        Builds ``/aitask-shadow <followed_pane_id> [<task_id>]`` and launches the
+        ``shadow`` codeagent — by default a new pane in the followed agent's
+        window, or a separate window when ``tmux.shadow_same_window`` is false.
+        The launcher passes only the pane id; the shadow skill captures the
+        followed pane on demand. After spawn it stamps ``@aitask_shadow_target``
+        on the new pane (the t986_1 classifier that keeps the shadow out of agent
+        lists and binds its lifecycle) and wires the followed agent's
+        ``pane-died`` cleanup hook so the shadow dies with its agent.
+
+        Sync by design: the duplicate guard's single ``list-panes`` round-trip is
+        far cheaper than the spawn that follows, and this is a user action, not
+        the refresh path that `test_monitor_refresh_no_sync_tmux` constrains.
+        """
+        if self._monitor is None:
+            return
+        target = self._resolve_shadow_target()
+        if target is None:
+            return
+        snap, followed_pane = target
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+        target_root = self._root_for_snap(snap)
+        args = [followed_pane] + ([task_id] if task_id else [])
+        full_cmd = resolve_dry_run_command(target_root, "shadow", *args)
+        if not full_cmd:
+            self.notify("Failed to resolve shadow command", severity="error")
+            return
+        self._spawn_shadow(full_cmd, followed_pane, task_id, target_root, snap)
+
+    def action_launch_shadow_pick(self) -> None:
+        """Open the agent/model picker, then spawn the shadow with the choice.
+
+        Same as ``action_launch_shadow`` (duplicate guard, specialized same-window
+        split placement, ``@aitask_shadow_target`` stamp + cleanup hook) but opens
+        the ``AgentCommandScreen`` first so the user can confirm / change the code
+        agent and model before the shadow starts. Cancelling launches nothing.
+
+        The dialog's own returned placement is intentionally discarded: the
+        shadow's split-target-the-followed-AGENT-pane geometry is richer than the
+        dialog's tmux tab can express, so placement stays handler-controlled in
+        ``_spawn_shadow`` and only the (possibly agent-overridden)
+        ``full_command`` is consumed.
+        """
+        if self._monitor is None:
+            return
+        target = self._resolve_shadow_target()
+        if target is None:
+            return
+        snap, followed_pane = target
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+        target_root = self._root_for_snap(snap)
+        args = [followed_pane] + ([task_id] if task_id else [])
+        full_cmd = resolve_dry_run_command(target_root, "shadow", *args)
+        if not full_cmd:
+            self.notify("Failed to resolve shadow command", severity="error")
+            return
+        screen = AgentCommandScreen(
+            "Shadow (pick agent)",
+            full_cmd,
+            "/aitask-shadow " + " ".join(args),
+            project_root=target_root,
+            operation="shadow",
+            operation_args=args,
+            default_agent_string=resolve_agent_string(target_root, "shadow"),
+        )
+
+        def on_shadow_result(result):
+            # Confirm returns a TmuxLaunchConfig; its placement is discarded (see
+            # docstring). Use screen.full_command (post-override), not the
+            # captured full_cmd. None (cancel) / "run" launch nothing.
+            if isinstance(result, TmuxLaunchConfig):
+                self._spawn_shadow(
+                    screen.full_command, followed_pane, task_id, target_root, snap
+                )
+
+        self.push_screen(screen, on_shadow_result)
+
+    def _spawn_shadow(
+        self,
+        full_cmd: str,
+        followed_pane: str,
+        task_id: str | None,
+        target_root: Path,
+        snap: PaneSnapshot,
+    ) -> str | None:
+        """Apply **this app's** shadow-spawn policy, then delegate the mechanics.
+
+        Kept as a per-app method deliberately — it is **not** a pass-through
+        seam. The two safety-critical decisions below differ between the monitor
+        and the minimonitor, and inlining them at both call sites in each app
+        would replicate them four times instead of twice (t1216_4).
+        """
+        if self._monitor is None:
+            return None
+        return spawn_shadow(
+            self._monitor,
+            full_cmd=full_cmd,
+            followed_pane=followed_pane,
+            followed_window=snap.pane.window_name,
+            session=snap.pane.session_name or self._session,
+            task_id=task_id,
+            target_root=target_root,
+            # The monitor is NOT the agent's companion and normally lives in
+            # another window — passing our own TMUX_PANE here would make
+            # aitask_companion_cleanup.sh kill the monitor when the agent's
+            # window runs out of real agents. None binds the hook to the new
+            # shadow pane instead.
+            companion_pane=None,
+            # Stealing the client's window would defeat the shadow preview column
+            # this monitor exists to show.
+            select_window=False,
+            notify=self.notify,
+            schedule_refresh=lambda: self.call_later(self._refresh_data),
+        )
+
     async def action_pick_concerns(self) -> None:
         """Forward the selected agent's shadow concerns via the clipboard (t1216_3).
 
@@ -2674,10 +2848,10 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             return
         shadow_pane = self._current_shadow_pane_id()
         if not shadow_pane:
-            # No "press 'e' to launch one" yet: the monitor has no shadow-spawn
-            # binding until t1216_4 lands, and naming a key that does nothing is
-            # worse than saying less.
-            self.notify("No shadow agent bound to this agent", severity="warning")
+            self.notify(
+                "No shadow agent bound to this agent — press 'e' to launch one",
+                severity="warning",
+            )
             return
         self._concern_pick_busy = True
         modal_owns_guard = False
@@ -3108,20 +3282,6 @@ def _detect_tmux_session() -> str | None:
     return None
 
 
-def _load_project_tmux_config(project_root: Path) -> dict:
-    """Load tmux section from project_config.yaml."""
-    try:
-        import yaml
-        pc = project_root / "aitasks" / "metadata" / "project_config.yaml"
-        if pc.is_file():
-            with open(pc) as f:
-                data = yaml.safe_load(f) or {}
-            return data.get("tmux", {})
-    except Exception:
-        pass
-    return {}
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="tmux pane monitor TUI")
     parser.add_argument("--session", "-s", default=None, help="tmux session name")
@@ -3148,7 +3308,7 @@ def main() -> None:
 
     project_root = Path(__file__).resolve().parents[2]
     config = load_monitor_config(project_root)
-    tmux_config = _load_project_tmux_config(project_root)
+    tmux_config = load_project_tmux_config(project_root)
 
     # The configured session name (used for mismatch check)
     configured_session = tmux_config.get("default_session", "aitasks")

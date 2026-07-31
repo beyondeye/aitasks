@@ -140,22 +140,37 @@ When an agent pane finishes a child task, you can have monitor suggest and launc
 
 Monitor resolves the next ready sibling via the task cache and starts a new agent window for the chosen target using the standard pick workflow.
 
+### How to Launch a Shadow Agent
+
+Press **e** with an agent selected in the pane list to launch a *shadow agent* beside it — an advisory companion that reads that agent's terminal output and helps you make sense of it. By default the shadow opens as a new pane in the **same tmux window** as the selected agent, so it sits right beside the work it is watching.
+
+The shadow is read-only and advisory: it can explain what the agent is doing, help you answer a prompt the agent is stuck on, critically interrogate a plan before you approve it, or review the code the agent actually wrote — but it never types into the selected agent's pane. You stay the driver.
+
+Launching from monitor **keeps your focus in monitor** — the new pane is created without switching your tmux client to it, so the shadow preview column keeps showing the shadow rather than pulling you away to another window.
+
+Press **E** instead to choose the code agent and model before the shadow starts; cancelling the dialog launches nothing.
+
+The shadow pane is a companion: it never appears in the agent list, and it closes automatically when the agent it shadows exits. Only one shadow runs per selected agent — if one is already running, a second **e** is refused with a notification. **e** and **E** apply to agent panes only; on any other kind of pane monitor says so and does nothing.
+
+For what the shadow can do and how to drive it once it is running, see the [Shadow Agent]({{< relref "/docs/workflows/shadow-agent" >}}) workflow guide.
+
 ### How to Pick Shadow Concerns
 
 A shadow agent that reviews a plan emits a structured **concern block** alongside its prose. Monitor reads that block so you can forward a subset of the concerns to the agent without retyping them.
 
-1. Select the agent whose shadow you want to read
-2. Press **c**
+1. Make sure a shadow is running for the agent (press **e** if not)
+2. Select the agent whose shadow you want to read
+3. Press **c**
 
 Monitor reads the bound shadow pane, parses the block, and opens a checklist modal. Each concern is tagged with a priority (`high` / `medium` / `low`) and the plan region it refers to. Tick the ones you want, confirm, and monitor copies them with a short preamble to your clipboard. Nothing is written to the clipboard until you confirm, and monitor never types into the agent itself: you stay the driver.
 
 The list is split into **Needs addressing** and **Informational**. Informational findings are dimmed; **a** selects or clears only the actionable ones, while **A** takes everything. Neither header appears when there are no informational findings. If some marker lines in the block could not be parsed, the modal says how many, and if *none* of them parsed you get a message saying so rather than a misleading "no concerns".
 
-If the selected agent has no shadow bound, monitor tells you so and does nothing. If the shadow has not emitted a block yet, it says that instead.
+If the selected agent has no shadow bound, monitor tells you so — and points you at **e** to launch one. If the shadow has not emitted a block yet, it says that instead.
 
 > **Badge and auto-offer:** every agent whose shadow has an un-picked block is marked with `◆!` on its card, so nothing is missed across many agents at once. A toast — `Shadow raised 2 concern(s) — press 'c' to pick` — fires only for the **currently selected** agent, so there is at most one popup no matter how many agents are running. The count is of concerns needing attention; any informational ones are noted separately in the same toast, and `(⚠ STALE — agent moved on)` is appended when the agent has produced output since the shadow last analyzed it. A block whose markers cannot be parsed still raises the badge but deliberately does not toast — pressing **c** then tells you exactly what went wrong.
 
-> **Where shadows come from:** launch one from [minimonitor]({{< relref "/docs/tuis/minimonitor/how-to" >}}) with **e**. Monitor reads and picks concerns but does not spawn shadows itself.
+> **Where shadows come from:** launch one right here with **e** (see [How to Launch a Shadow Agent](#how-to-launch-a-shadow-agent)), or from [minimonitor]({{< relref "/docs/tuis/minimonitor/how-to" >}}) with the same key.
 
 ### How to Mark an Agent as Prioritized
 

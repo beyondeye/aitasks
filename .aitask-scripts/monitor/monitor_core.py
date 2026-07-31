@@ -25,7 +25,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -41,8 +41,12 @@ from tui_registry import BRAINSTORM_PREFIX, TUI_NAMES  # noqa: E402
 from tmux_exec import TmuxClient, tmux_socket_args  # noqa: E402  (gateway: exec-strategy dispatch + socket flag)
 from agent_launch_utils import (  # noqa: E402
     AitasksSession,
+    TmuxLaunchConfig,
+    attach_shadow_cleanup_hook,
     discover_aitasks_sessions,
     discover_aitasks_sessions_async,
+    launch_in_tmux,
+    resolve_pane_id_by_pid,
     switch_to_pane_anywhere,
     tmux_session_target,
     tmux_window_target,
@@ -364,25 +368,47 @@ def shadow_query_args() -> list[str]:
             f"#{{pane_id}}\t#{{{SHADOW_TARGET_OPTION}}}"]
 
 
-def find_shadow_pane(monitor, followed_pane_id: str) -> str | None:
-    """Sync reverse lookup of the shadow pane bound to ``followed_pane_id``.
+def find_shadow_pane_status(
+    monitor, followed_pane_id: str
+) -> tuple[bool, str | None]:
+    """Sync reverse lookup that discriminates query failure from "no shadow".
+
+    Returns ``(ok, pane)``. ``ok`` is False when the query itself could not be
+    answered (no monitor, or ``list-panes`` returned non-zero) — distinct from
+    ``(True, None)``, which is a verified "this agent has no shadow".
+
+    :func:`find_shadow_pane` collapses both into ``None``, which is right for the
+    six *readers* (preview, key forwarding, concern picker) where a failed lookup
+    and an absent shadow are equally "nothing to show". It is wrong for a
+    **create** decision: an unverifiable state must not be read as permission to
+    spawn a second shadow, so the launch guards use this primitive and refuse on
+    ``ok is False`` (t1216_4).
 
     ``monitor`` is duck-typed on the **gateway surface only** (``tmux_run`` ->
     ``(rc, stdout)``), not on ``TmuxMonitor``: the sole thing needed is one
     ``list-panes`` round-trip, and keeping the contract that narrow lets both
     apps — and the test stubs — pass whatever they already hold (t1216_1).
-
-    For the sync duplicate-launch guard only — ``action_launch_shadow`` is a
-    sync action already issuing sync ``tmux_run`` calls. The picker action and
-    the refresh-tick auto-offer use :func:`find_shadow_pane_async` so they never
-    block the event loop.
     """
     if monitor is None:
-        return None
+        return False, None
     rc, out = monitor.tmux_run(shadow_query_args(), timeout=2)
     if rc != 0:
-        return None
-    return match_shadow_pane(out, followed_pane_id)
+        return False, None
+    return True, match_shadow_pane(out, followed_pane_id)
+
+
+def find_shadow_pane(monitor, followed_pane_id: str) -> str | None:
+    """Sync reverse lookup of the shadow pane bound to ``followed_pane_id``.
+
+    Fail-open view of :func:`find_shadow_pane_status` for readers: a failed query
+    and a verified absence both read as ``None``. Do **not** use it to gate a
+    spawn — see that function's note.
+
+    The picker action and the refresh-tick auto-offer use
+    :func:`find_shadow_pane_async` so they never block the event loop.
+    """
+    ok, pane = find_shadow_pane_status(monitor, followed_pane_id)
+    return pane if ok else None
 
 
 async def find_shadow_pane_async(monitor, followed_pane_id: str) -> str | None:
@@ -2497,6 +2523,173 @@ def load_monitor_config(project_root: Path) -> dict:
     except Exception:
         pass
     return defaults
+
+
+def load_project_tmux_config(project_root: Path) -> dict:
+    """Load the ``tmux`` section from project_config.yaml.
+
+    Companion to :func:`load_monitor_config` (which returns the nested
+    ``tmux.monitor`` subsection). Shared by both monitor apps so the shadow
+    placement keys (``shadow_same_window``, ``shadow_pane_width``,
+    ``default_split``) are read identically (t1216_4).
+    """
+    try:
+        import yaml
+        pc = project_root / "aitasks" / "metadata" / "project_config.yaml"
+        if pc.is_file():
+            with open(pc) as f:
+                data = yaml.safe_load(f) or {}
+            return data.get("tmux", {})
+    except Exception:
+        pass
+    return {}
+
+
+def spawn_shadow(
+    monitor,
+    *,
+    full_cmd: str,
+    followed_pane: str,
+    followed_window: str,
+    session: str,
+    task_id: str | None,
+    target_root: Path,
+    companion_pane: str | None,
+    select_window: bool,
+    notify: Callable[..., None],
+    schedule_refresh: Callable[[], None],
+) -> str | None:
+    """Place, launch, and lifecycle-wire a shadow companion pane.
+
+    Shared body behind both apps' ``e`` / ``E`` shortcuts (t1216_4). Placement is
+    ALWAYS handler-controlled — a same-window split to the RIGHT of the followed
+    AGENT pane sized to ``shadow_pane_width``, or a separate window when
+    ``tmux.shadow_same_window`` is false — never a picker dialog's own placement.
+    Returns the new shadow's pane id, or ``None`` when nothing usable was created.
+
+    ``monitor`` is duck-typed on the **gateway surface only** (``tmux_run`` ->
+    ``(rc, stdout)``), matching the rest of this module's shadow seam; the
+    ``notify`` / ``schedule_refresh`` callables keep it Textual-free.
+
+    **This function never reads ``TMUX_PANE``.** ``companion_pane`` is the pane
+    ``aitask_companion_cleanup.sh`` despawns once the followed agent's window
+    holds no real agent besides the dying one; ``None`` means "bind to the newly
+    created shadow pane", which is always safe. Pass a pane **outside** the
+    followed agent's window only if you want that pane killed on the agent's
+    death — the script's job-2 ``kill-pane`` has no marker check, so passing a
+    monitor's own pane makes the agent's exit close the monitor. Callers state
+    this as per-app policy; there is no default.
+
+    ``schedule_refresh`` is **not** called when the launch itself fails, so a
+    failed spawn does not trigger a redundant refresh.
+
+    If the ``@aitask_shadow_target`` stamp cannot be written the new pane is
+    killed rather than left behind: an unstamped shadow is indistinguishable from
+    a real agent forever (it lists as an agent, is targeted by kill/next-agent
+    actions, counts as a real sibling, evades the duplicate guard, and — because
+    the cleanup script matches on the marker — is never cleaned up).
+    """
+    if monitor is None:
+        return None
+    # Placement: same window (split) by default; separate window if the project
+    # config opts out.
+    tmux_cfg = load_project_tmux_config(target_root)
+    same_window = bool(tmux_cfg.get("shadow_same_window", True))
+    if same_window:
+        try:
+            shadow_width = int(tmux_cfg.get("shadow_pane_width", 60))
+        except (TypeError, ValueError):
+            shadow_width = 60
+        cfg = TmuxLaunchConfig(
+            session=session,
+            window=followed_window,
+            new_session=False,
+            new_window=False,
+            split_direction=str(tmux_cfg.get("default_split", "horizontal")),
+            # Insert the shadow to the RIGHT of the followed AGENT pane, sized to
+            # the configured width (t994). Target the agent pane (not the
+            # window's active pane, which may be a narrow minimonitor) so the
+            # width is sized against the wide agent pane; keep the agent anchored
+            # on the left (no split_before).
+            split_size=shadow_width,
+            split_target_pane=followed_pane,
+            cwd=str(target_root),
+            select_window=select_window,
+        )
+    else:
+        cfg = TmuxLaunchConfig(
+            session=session,
+            window=f"agent-shadow-{task_id or 'x'}",
+            new_session=False,
+            new_window=True,
+            cwd=str(target_root),
+            select_window=select_window,
+        )
+
+    # Last-moment duplicate re-check. The callers' pre-dialog guard cannot cover
+    # the seconds an agent-picker dialog is open, nor two queued dialogs. Refuse
+    # on a found shadow AND on an unverifiable query — spawning a second shadow
+    # breaks the one-shadow-per-agent lifecycle binding.
+    ok, existing = find_shadow_pane_status(monitor, followed_pane)
+    if not ok:
+        notify(
+            "Could not verify whether a shadow is already running — not launching",
+            severity="warning",
+        )
+        return None
+    if existing:
+        notify("A shadow is already running for this agent", severity="warning")
+        return None
+
+    pane_pid, err = launch_in_tmux(full_cmd, cfg)
+    if err:
+        notify(f"Shadow launch failed: {err}", severity="error")
+        return None
+
+    # Resolve the new shadow pane id from its pid and stamp the authoritative
+    # @aitask_shadow_target option. Without it a same-window shadow (sharing the
+    # agent's window name) would be listed as an agent and never auto-killed.
+    shadow_pane = resolve_pane_id_by_pid(session, pane_pid) if pane_pid else None
+    if not shadow_pane:
+        notify(
+            "Shadow launched, but its pane could not be classified "
+            "— it may appear in the agent list",
+            severity="warning",
+        )
+        schedule_refresh()
+        return None
+
+    stamp_args = ["set-option", "-p", "-t", shadow_pane,
+                  SHADOW_TARGET_OPTION, followed_pane]
+    rc, _ = monitor.tmux_run(stamp_args)
+    if rc != 0:
+        rc, _ = monitor.tmux_run(stamp_args)
+    if rc != 0:
+        # We own this pane and it is milliseconds old; leaving it unstamped is
+        # strictly worse than removing it.
+        monitor.tmux_run(["kill-pane", "-t", shadow_pane])
+        notify(
+            f"Shadow pane {shadow_pane} could not be classified — removed it. "
+            "No shadow is running.",
+            severity="error",
+        )
+        schedule_refresh()
+        return None
+
+    # Ensure the followed agent auto-kills its bound shadow on exit.
+    hook_status = attach_shadow_cleanup_hook(
+        followed_pane, companion_pane or shadow_pane
+    )
+    if hook_status == "unverified":
+        notify(
+            "Shadow launched; auto-cleanup on agent exit could not be wired "
+            "— close the shadow by hand when the agent exits",
+            severity="warning",
+        )
+    else:
+        notify("Launched shadow agent")
+    schedule_refresh()
+    return shadow_pane
 
 
 # -- Task context --------------------------------------------------------------

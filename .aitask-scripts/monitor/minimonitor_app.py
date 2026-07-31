@@ -27,9 +27,9 @@ sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
 from monitor.tmux_monitor import (  # noqa: E402
     PaneCategory,
     PaneSnapshot,
-    SHADOW_TARGET_OPTION,
     TmuxMonitor,
     load_monitor_config,
+    load_project_tmux_config,
     # Shared shadow seam (t1216_1). `match_shadow_pane` is re-bound into this
     # module's namespace on purpose — it was a module-level function here before
     # the lift and is referenced as `minimonitor_app.match_shadow_pane`.
@@ -38,6 +38,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     find_shadow_pane_async,
     capture_shadow_text,
     compute_shadow_staleness,
+    spawn_shadow,
     _SHADOW_DEEP_RETRY_LINES,
     _SHADOW_TRUNCATED_MSG,
 )
@@ -65,8 +66,6 @@ from agent_launch_utils import (  # noqa: E402
     TmuxLaunchConfig,
     launch_in_tmux,
     maybe_spawn_minimonitor,
-    resolve_pane_id_by_pid,
-    attach_shadow_cleanup_hook,
     tmux_session_target,
     tmux_window_target,
 )
@@ -1386,80 +1385,41 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         task_id: str | None,
         target_root: Path,
         snap: PaneSnapshot,
-    ) -> None:
-        """Place, launch, and lifecycle-wire the shadow companion.
+    ) -> str | None:
+        """Apply **this app's** shadow-spawn policy, then delegate the mechanics.
 
         Shared by the fire-and-forget ``e`` shortcut (``action_launch_shadow``)
         and the pick-agent ``E`` shortcut (``action_launch_shadow_pick``).
         ``full_cmd`` is the already-resolved shadow command (with any agent /
-        model override baked in). Placement is ALWAYS handler-controlled here —
-        a same-window split to the RIGHT of the followed AGENT pane sized to
-        ``shadow_pane_width``, or a separate window when ``tmux.shadow_same_window``
-        is false — never a picker dialog's own placement.
+        model override baked in).
+
+        Kept as a per-app method deliberately — it is **not** a pass-through
+        seam. The two safety-critical decisions below (which pane the cleanup
+        hook despawns, and whether the launch may steal the client's window)
+        differ between the two apps, and inlining them at the two call sites in
+        each app would replicate them four times instead of twice (t1216_4).
         """
         if self._monitor is None:
-            return
-        # Placement: same window (split) by default; separate window if the
-        # project config opts out.
-        tmux_cfg = _load_project_tmux_config(target_root)
-        same_window = bool(tmux_cfg.get("shadow_same_window", True))
-        sess = snap.pane.session_name or self._session
-        if same_window:
-            try:
-                shadow_width = int(tmux_cfg.get("shadow_pane_width", 60))
-            except (TypeError, ValueError):
-                shadow_width = 60
-            cfg = TmuxLaunchConfig(
-                session=sess,
-                window=snap.pane.window_name,
-                new_session=False,
-                new_window=False,
-                split_direction=str(tmux_cfg.get("default_split", "horizontal")),
-                # Insert the shadow to the RIGHT of the followed AGENT pane
-                # (between the agent and this minimonitor), sized to the
-                # configured width (t994). Target the agent pane (not the
-                # window's active pane, which is this narrow minimonitor) so the
-                # width is sized against the wide agent pane; keep the agent
-                # anchored on the left (no split_before).
-                split_size=shadow_width,
-                split_target_pane=followed_pane,
-                cwd=str(target_root),
-            )
-        else:
-            cfg = TmuxLaunchConfig(
-                session=sess,
-                window=f"agent-shadow-{task_id or 'x'}",
-                new_session=False,
-                new_window=True,
-                cwd=str(target_root),
-            )
-
-        pane_pid, err = launch_in_tmux(full_cmd, cfg)
-        if err:
-            self.notify(f"Shadow launch failed: {err}", severity="error")
-            return
-
-        # Resolve the new shadow pane id from its pid and stamp the
-        # authoritative @aitask_shadow_target option. Without it a same-window
-        # shadow (sharing the agent's window name) would be listed as an agent
-        # and never auto-killed.
-        shadow_pane = resolve_pane_id_by_pid(sess, pane_pid) if pane_pid else None
-        if shadow_pane:
-            self._monitor.tmux_run(
-                ["set-option", "-p", "-t", shadow_pane,
-                 SHADOW_TARGET_OPTION, followed_pane]
-            )
-            # Ensure the followed agent auto-kills its bound shadow on exit.
-            companion_pane = os.environ.get("TMUX_PANE", "") or shadow_pane
-            attach_shadow_cleanup_hook(followed_pane, companion_pane)
-            self.notify("Launched shadow agent")
-        else:
-            self.notify(
-                "Shadow launched, but its pane could not be classified "
-                "— it may appear in the agent list",
-                severity="warning",
-            )
-        self.call_later(self._refresh_data)
+            return None
+        return spawn_shadow(
+            self._monitor,
+            full_cmd=full_cmd,
+            followed_pane=followed_pane,
+            followed_window=snap.pane.window_name,
+            session=snap.pane.session_name or self._session,
+            task_id=task_id,
+            target_root=target_root,
+            # This minimonitor IS the followed agent's companion and shares its
+            # window, so the cleanup hook must despawn US once the agent's window
+            # holds no real agent — not the shadow, which job 1 already kills via
+            # its @aitask_shadow_target marker.
+            companion_pane=os.environ.get("TMUX_PANE") or None,
+            # This client is already on the followed agent's window, so selecting
+            # it is a no-op — keep the historical argv.
+            select_window=True,
+            notify=self.notify,
+            schedule_refresh=lambda: self.call_later(self._refresh_data),
+        )
 
     # -- Shadow concern picker (t1037_4) ---------------------------------------
 
@@ -1846,20 +1806,6 @@ def _detect_tmux_session() -> str | None:
     return None
 
 
-def _load_project_tmux_config(project_root: Path) -> dict:
-    """Load tmux section from project_config.yaml."""
-    try:
-        import yaml
-        pc = project_root / "aitasks" / "metadata" / "project_config.yaml"
-        if pc.is_file():
-            with open(pc) as f:
-                data = yaml.safe_load(f) or {}
-            return data.get("tmux", {})
-    except Exception:
-        pass
-    return {}
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compact tmux agent monitor TUI")
     parser.add_argument("--session", "-s", default=None, help="tmux session name")
@@ -1868,7 +1814,7 @@ def main() -> None:
 
     project_root = Path(__file__).resolve().parents[2]
     config = load_monitor_config(project_root)
-    tmux_config = _load_project_tmux_config(project_root)
+    tmux_config = load_project_tmux_config(project_root)
 
     # Resolve session: CLI > current tmux session > config > default
     configured_session = tmux_config.get("default_session", "aitasks")

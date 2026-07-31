@@ -22,6 +22,7 @@ Run: python3 tests/test_minimonitor_shadow_pick.py
 """
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -32,10 +33,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 
 from monitor import minimonitor_app as mm  # noqa: E402
+# The spawn body was lifted into monitor_core (t1216_4), so the launch mocks must
+# patch THAT namespace — patching `mm` would intercept nothing and call real tmux.
+from monitor import monitor_core as mc  # noqa: E402
+import agent_launch_utils  # noqa: E402
 from agent_command_screen import AgentCommandScreen  # noqa: E402
 from agent_launch_utils import TmuxLaunchConfig  # noqa: E402
+from tmux_socket_containment import TmuxSocketContainmentMixin  # noqa: E402
 
 
 class _FakeMon:
@@ -155,7 +162,16 @@ class DialogContractTests(unittest.TestCase):
         self.assertEqual(screen.operation_args, ["%1"])
 
 
-class ConfirmPathTests(unittest.TestCase):
+class ConfirmPathTests(TmuxSocketContainmentMixin, unittest.TestCase):
+    # monitor_core holds no `_TMUX` of its own — its launch/stamp/hook calls all
+    # route through agent_launch_utils' singleton, so that is the one to rebuild.
+    CONTAINED_MODULES = (agent_launch_utils,)
+
+    def test_socket_containment_active(self):
+        # Static proof the throwaway socket took effect — asserted via the
+        # read-only property, never by attempting a launch.
+        self.assert_contained()
+
     def _push_and_get_cb(self, app):
         with patch.object(mm, "resolve_dry_run_command",
                           return_value="claude /aitask-shadow %1 42"), \
@@ -170,12 +186,13 @@ class ConfirmPathTests(unittest.TestCase):
         app = _mk_app(mon)
         screen, callback = self._push_and_get_cb(app)
 
-        with patch.object(mm, "launch_in_tmux",
+        with patch.object(mc, "launch_in_tmux",
                           return_value=(999, None)) as mock_launch, \
-             patch.object(mm, "resolve_pane_id_by_pid",
+             patch.object(mc, "resolve_pane_id_by_pid",
                           return_value="%9") as mock_resolve, \
-             patch.object(mm, "attach_shadow_cleanup_hook") as mock_hook, \
-             patch.object(mm, "_load_project_tmux_config", return_value={}):
+             patch.object(mc, "attach_shadow_cleanup_hook",
+                          return_value="installed") as mock_hook, \
+             patch.object(mc, "load_project_tmux_config", return_value={}):
             callback(TmuxLaunchConfig("s1", "w", new_session=False, new_window=False))
 
         # Launched with the (post-override) dialog command, not a stale capture.
@@ -187,7 +204,7 @@ class ConfirmPathTests(unittest.TestCase):
         stamp_calls = [
             c for c in mon.sync_calls
             if len(c) >= 2 and c[0] == "set-option"
-            and mm.SHADOW_TARGET_OPTION in c
+            and mc.SHADOW_TARGET_OPTION in c
         ]
         self.assertEqual(len(stamp_calls), 1, "one @aitask_shadow_target stamp")
         stamp = stamp_calls[0]
@@ -198,10 +215,38 @@ class ConfirmPathTests(unittest.TestCase):
         mock_hook.assert_called_once()
         self.assertEqual(mock_hook.call_args.args[0], "%1")
 
+    def test_minimonitor_keeps_its_tmux_pane_companion_policy(self):
+        """The minimonitor binds the cleanup hook to ITSELF, not to the shadow.
+
+        Policy control (t1216_4 C6). The lift made `companion_pane` an explicit
+        parameter; asserting only `call_args.args[0]` (the agent pane) would pass
+        even if the refactor silently switched minimonitor to self-binding like the
+        monitor does. The minimonitor IS the followed agent's companion and shares
+        its window, so it must keep passing its own `TMUX_PANE`.
+        """
+        mon = _FakeMon(sync_list="")
+        app = _mk_app(mon)
+        _screen, callback = self._push_and_get_cb(app)
+
+        with patch.dict(os.environ, {"TMUX_PANE": "%77"}), \
+             patch.object(mc, "launch_in_tmux",
+                          return_value=(999, None)) as mock_launch, \
+             patch.object(mc, "resolve_pane_id_by_pid", return_value="%9"), \
+             patch.object(mc, "attach_shadow_cleanup_hook",
+                          return_value="installed") as mock_hook, \
+             patch.object(mc, "load_project_tmux_config", return_value={}):
+            callback(TmuxLaunchConfig("s1", "w", new_session=False, new_window=False))
+
+        # Complete call, not just args[0]: agent pane %1, companion = OUR pane %77.
+        mock_hook.assert_called_once_with("%1", "%77")
+        # And the minimonitor still selects the window (its client is already
+        # there, so this keeps the historical argv byte-for-byte).
+        self.assertIs(mock_launch.call_args.args[1].select_window, True)
+
     def test_cancel_and_run_launch_nothing(self):
         app = _mk_app(_FakeMon(sync_list=""))
         _screen, callback = self._push_and_get_cb(app)
-        with patch.object(mm, "launch_in_tmux") as mock_launch:
+        with patch.object(mc, "launch_in_tmux") as mock_launch:
             callback(None)   # dialog cancelled
             callback("run")  # "open in terminal" is not a shadow placement
         self.assertFalse(mock_launch.called)

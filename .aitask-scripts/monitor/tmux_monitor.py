@@ -50,6 +50,11 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     find_shadow_pane_async,
     capture_shadow_text,
     compute_shadow_staleness,
+    # Shadow spawn seam (t1216_4) — the monitor is a second spawn surface, so
+    # placement, the stamp and the cleanup-hook wiring live in one body.
+    find_shadow_pane_status,
+    spawn_shadow,
+    load_project_tmux_config,
     _SHADOW_CAPTURE_TIMEOUT,
     _SHADOW_DEEP_RETRY_LINES,
     _SHADOW_TRUNCATED_MSG,

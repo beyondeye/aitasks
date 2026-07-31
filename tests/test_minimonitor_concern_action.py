@@ -30,6 +30,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 
 from monitor import minimonitor_app as mm  # noqa: E402
+from monitor import monitor_core as mc  # noqa: E402
 from monitor.concern_parser import build_clipboard_payload  # noqa: E402
 
 
@@ -321,12 +322,14 @@ class LaunchShadowGuardTests(unittest.TestCase):
         app._find_own_agent_snapshot = lambda: _snap("%1")
 
         calls: list = []
-        orig = mm.launch_in_tmux
-        mm.launch_in_tmux = lambda *a, **k: (calls.append((a, k)), (None, None))[1]
+        # Rebind on monitor_core: the spawn body was lifted there (t1216_4), so a
+        # rebind on `mm` would intercept nothing and reach real tmux.
+        orig = mc.launch_in_tmux
+        mc.launch_in_tmux = lambda *a, **k: (calls.append((a, k)), (None, None))[1]
         try:
             app.action_launch_shadow()
         finally:
-            mm.launch_in_tmux = orig
+            mc.launch_in_tmux = orig
 
         self.assertEqual(calls, [])  # never spawned a shadow
         self.assertTrue(

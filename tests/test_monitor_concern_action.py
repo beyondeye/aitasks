@@ -288,15 +288,20 @@ class ActionPickConcernsTests(unittest.TestCase):
         self.assertIn("Focus an agent pane first", app.spy_notify[0][0])
         self.assertEqual(app.spy_pushed, [])
 
-    def test_no_shadow_bound_warns_without_promising_a_key(self):
+    def test_no_shadow_bound_warns_and_points_at_the_launch_key(self):
         app = _mk_app()
         app._snapshots = {"%1": _snap(_pane("%1"))}
         _run(app.action_pick_concerns())
         msg = app.spy_notify[0][0]
         self.assertIn("No shadow agent bound", msg)
-        # `e` is t1216_4 and is not bound in the monitor yet -- naming it here
-        # would promise a key that does nothing.
-        self.assertNotIn("'e'", msg)
+        # t1216_4 bound `e` in the monitor, so naming it is now actionable rather
+        # than a promise of a key that does nothing. Guard that the key named here
+        # actually exists, so the message can never drift back into a false offer.
+        self.assertIn("'e'", msg)
+        self.assertIn(
+            "e", [b.key for b in MonitorApp.BINDINGS
+                  if getattr(b, "action", None) == "launch_shadow"],
+        )
         self.assertEqual(app.spy_pushed, [])
 
     def test_capture_failure_warns_and_pushes_nothing(self):

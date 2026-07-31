@@ -93,6 +93,18 @@ class TmuxLaunchConfig:
     # caller's cwd (e.g., monitor in project A picking a sibling task in
     # project B's tmux session).
     cwd: str | None = None
+    # Whether the launch may move the attached client to the new pane's window.
+    # The two in-session placement branches select the window by default: the
+    # split branch ends with ``select-window``, and ``new-window`` without
+    # ``-d`` creates *and* selects. Set False to launch out-of-sight, keeping
+    # the client on whatever window it is on (``ait monitor`` spawning a shadow
+    # into another window — being yanked away would defeat its own shadow
+    # preview column). Defaults True so every pre-existing caller's behavior is
+    # unchanged. Honored on those two branches ONLY: ``new_session`` creates a
+    # whole session and still issues its own ``switch-client``, which this flag
+    # does not gate — no caller combines the two, and suppressing the switch
+    # there would leave a brand-new session with no attached client.
+    select_window: bool = True
 
 
 @dataclass(frozen=True)
@@ -1253,9 +1265,13 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
             )
         return pane_pid, None
     elif config.new_window:
+        # ``new-window`` creates *and selects* unless ``-d`` is passed, so the
+        # -d is what honors select_window=False on this branch.
+        detach_args = [] if config.select_window else ["-d"]
         rc, out = _TMUX.run([
             "new-window",
             "-P", "-F", "#{pane_pid}",
+            *detach_args,
             "-t", tmux_window_target(config.session, ""),
             "-n", config.window,
             *cwd_args,
@@ -1280,8 +1296,10 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
         rc, out = _TMUX.run(split_args)
         if rc != 0:
             return None, f"tmux split-window failed (rc={rc})"
-        # Switch to the target window so the user sees the new pane
-        _TMUX.spawn(["select-window", "-t", window_target])
+        # Switch to the target window so the user sees the new pane, unless the
+        # caller wants the launch to stay out of sight (select_window=False).
+        if config.select_window:
+            _TMUX.spawn(["select-window", "-t", window_target])
         return _parse_pane_pid(out), None
 
 
@@ -1345,7 +1363,31 @@ def unique_window_name(existing: set[str], base: str) -> str:
     return f"{base}-{n}"
 
 
-def attach_shadow_cleanup_hook(agent_pane: str, companion_pane: str) -> None:
+_PANE_DIED_RE = re.compile(r"^pane-died(?:\[(\d+)\])?\s")
+
+CLEANUP_SCRIPT_NAME = "aitask_companion_cleanup.sh"
+
+
+def _pane_died_hook_indices(hooks_out: str) -> tuple[list[int], bool]:
+    """Parse ``show-hooks -p`` output into ``(pane_died_indices, has_cleanup)``.
+
+    ``has_cleanup`` is True when any ``pane-died`` entry already invokes
+    :data:`CLEANUP_SCRIPT_NAME`. An unindexed ``pane-died`` line counts as
+    index 0, since a bare ``set-hook -p … pane-died`` writes ``[0]``. Pure.
+    """
+    indices: list[int] = []
+    has_cleanup = False
+    for line in hooks_out.splitlines():
+        match = _PANE_DIED_RE.match(line.strip())
+        if not match:
+            continue
+        indices.append(int(match.group(1)) if match.group(1) else 0)
+        if CLEANUP_SCRIPT_NAME in line:
+            has_cleanup = True
+    return indices, has_cleanup
+
+
+def attach_shadow_cleanup_hook(agent_pane: str, companion_pane: str) -> str:
     """Wire the ``pane-died`` companion-cleanup hook onto a primary agent pane.
 
     Sets ``remain-on-exit on`` (so the pane fires ``pane-died`` instead of
@@ -1356,19 +1398,50 @@ def attach_shadow_cleanup_hook(agent_pane: str, companion_pane: str) -> None:
     agent sibling remains. Used by the shadow spawn glue so a shadowed agent
     that was not launched with this hook still auto-kills its bound shadow on
     exit. Mirrors the git-TUI companion wiring in ``tui_switcher``. Gateway-only.
+
+    **Never overwrites an existing hook.** A bare ``set-hook -p … pane-died``
+    writes index ``[0]`` and so replaces whatever sits there. Two panes can each
+    be a companion of the same agent (a minimonitor already armed the agent, then
+    a monitor-side spawn arms it again), and blindly rewriting the hook would
+    swap the recorded ``companion`` and orphan the first companion. Returns which
+    of the three outcomes happened:
+
+    - ``"existing"`` — a ``pane-died`` hook already invokes the cleanup script;
+      nothing installed. Correct and complete because the script's shadow-kill
+      job is **marker-driven** (it kills every pane whose
+      ``@aitask_shadow_target`` matches the dying agent, whoever armed the hook),
+      so the new shadow is still cleaned up and the prior companion contract
+      survives untouched.
+    - ``"unverified"`` — ``show-hooks`` failed, so we cannot tell "no hook" from
+      "someone else's hook". Fails closed and installs nothing: overwriting is
+      silent and persistent, whereas skipping merely leaves a shadow to be closed
+      by hand, which is bounded and visible. Callers should surface this.
+    - ``"installed"`` — appended at the first free ``pane-died`` index, so an
+      unrelated ``pane-died`` hook is preserved rather than destroyed.
+
+    ``remain-on-exit`` is set in every case (it is idempotent, and the pane
+    should still fire ``pane-died`` for a hook someone else armed).
     """
     _TMUX.spawn(
         ["set-option", "-p", "-t", agent_pane, "remain-on-exit", "on"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
+    rc, out = _TMUX.run(["show-hooks", "-p", "-t", agent_pane])
+    if rc != 0:
+        return "unverified"
+    indices, has_cleanup = _pane_died_hook_indices(out)
+    if has_cleanup:
+        return "existing"
     script_path = str(
-        Path(__file__).resolve().parent.parent / "aitask_companion_cleanup.sh"
+        Path(__file__).resolve().parent.parent / CLEANUP_SCRIPT_NAME
     )
     hook_cmd = f"run-shell '{script_path} {agent_pane} {companion_pane}'"
+    slot = max(indices) + 1 if indices else 0
     _TMUX.spawn(
-        ["set-hook", "-p", "-t", agent_pane, "pane-died", hook_cmd],
+        ["set-hook", "-p", "-t", agent_pane, f"pane-died[{slot}]", hook_cmd],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
+    return "installed"
 
 
 def _lookup_window_name(session: str, window_index: str) -> str | None:
