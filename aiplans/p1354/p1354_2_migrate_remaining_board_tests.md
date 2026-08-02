@@ -454,7 +454,7 @@ costs regress, and only the suite number would show that.
   pin `DEFAULT_TOPOLOGY` byte-for-byte, and the contracts those files rely on
   exist only in one module docstring · severity: medium · → mitigation:
   additive-only topologies, `DEFAULT_TOPOLOGY` never modified (Step 1); all four
-  re-run green (Verification); + `board_fixture_harness_docs`
+  re-run green (Verification); + `board_fixture_harness_docs` (**t1367**)
 - The guard is deliberately **fail-closed** (any chdir is a finding), so a
   legitimate new tmpdir-chdir module turns the suite red until allowlisted, and a
   lazily-grown allowlist would quietly restore the original hole · severity: low ·
@@ -486,11 +486,11 @@ costs regress, and only the suite number would show that.
 - Scope grew 9 → 15 files during verification; further unlisted coupling would
   weaken the guard's completeness claim · severity: low · → mitigation: tier-1
   glob is exhaustive over `tests/test_board_*.py` by construction — a missed file
-  fails the sweep rather than passing silently; + `widen_live_tree_guard_sweep`
+  fails the sweep rather than passing silently; + `widen_live_tree_guard_sweep` (**t1368**)
 
 ### Planned mitigations
-- timing: after | name: board_fixture_harness_docs | type: documentation | priority: low | effort: low | addresses: code-health — shared-harness blast radius / implicit contracts | desc: Add a `tests/lib/board_fixture.py` pointer and trap summary to `aidocs/framework/tui_conventions.md` (the discoverability question t1354_1 deferred to t1354_2)
-- timing: after | name: widen_live_tree_guard_sweep | type: test | priority: low | effort: low | addresses: goal-achievement — guard completeness beyond board tests | desc: Widen the tier-1 live-tree sweep from `tests/test_board_*.py` to all `tests/test_*.py`, giving `DELIBERATELY_LIVE` its first provable entry (`test_shortcut_scopes.py:322`)
+- timing: after | name: board_fixture_harness_docs | created: t1367 | type: documentation | priority: low | effort: low | addresses: code-health — shared-harness blast radius / implicit contracts | desc: Add a `tests/lib/board_fixture.py` pointer and trap summary to `aidocs/framework/tui_conventions.md` (the discoverability question t1354_1 deferred to t1354_2)
+- timing: after | name: widen_live_tree_guard_sweep | created: t1368 | type: test | priority: low | effort: low | addresses: goal-achievement — guard completeness beyond board tests | desc: Widen the tier-1 live-tree sweep from `tests/test_board_*.py` to all `tests/test_*.py`, giving `DELIBERATELY_LIVE` its first provable entry (`test_shortcut_scopes.py:322`)
 
 ## Measured results
 
