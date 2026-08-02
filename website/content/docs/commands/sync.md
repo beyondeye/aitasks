@@ -146,12 +146,37 @@ in all cases):
 | `PUSHED` | Local commits reached the remote |
 | `NOTHING` | Already up to date, nothing to push |
 | `NO_REMOTE` | No git remote configured |
-| `FAILED:<reason>:<count>` | Push failed; `<reason>` is one of `dirty_worktree`, `rebase_conflict`, `remote_unreachable`, `diverged`, `unknown`, and `<count>` is the unpushed commit count (`unknown` when it cannot be determined) |
+| `FAILED:<reason>:<count>` | Push failed; `<reason>` is one of `dirty_worktree`, `rebase_conflict`, `no_upstream`, `remote_unreachable`, `diverged`, `unknown`, and `<count>` is the unpushed commit count (`unknown` when it cannot be determined) |
 
 The commit count is read *after* the push attempts finish, so it reports how
 many commits are unpushed **now** — on a shared checkout another session can
 move refs in between, so treat it as a current reading rather than a snapshot of
 the moment the push failed.
+
+### Task-data pull before task selection
+
+Picking a task pulls the task data first, so the local task list reflects what
+other machines have already claimed. That pull is best-effort in the same way,
+and reports itself with the same failure reasons and recovery hints as the push
+above — a warning on stderr naming what is left unreconciled, while the pick
+continues:
+
+```
+Warning: task data not reconciled with origin/aitask-data: 2 local unpushed,
+0 remote unpulled (remote side as of the last successful fetch — this sync may
+not have refreshed it) — data worktree has unstaged changes blocking rebase;
+reconcile with 'ait syncer'
+```
+
+The remote count is read from the local copy of the remote branch. A pull that
+failed before it could fetch never refreshed that copy, so the number describes
+the remote as of the last successful fetch, not as of now — the message says so
+rather than implying otherwise. The local count carries no such caveat.
+
+Two cases stay quiet here as well: no remote configured, or a failed pull with
+nothing unreconciled in either direction. A blocked local worktree (a dirty data
+worktree or a stopped rebase) always warns, because it keeps every later sync
+and push failing until it is cleared.
 
 The one case where `ait git push` does **not** exit 0 is a data worktree left
 stuck mid-rebase, merge, cherry-pick, revert, or bisect. That is a broken

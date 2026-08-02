@@ -188,16 +188,115 @@ task_git() {
     fi
 }
 
+# --- Task data sync (best-effort, but never silent) ---
+#
+# Outcome of the most recent task_sync call. task_sync always returns 0 (the
+# best-effort contract: a failed sync must never abort a pick), so read these
+# when the outcome matters.
+#
+# BOTH counts are sampled AFTER the pull cycle and are read against the LOCAL
+# upstream ref. TASK_SYNC_UNPUSHED is authoritative (HEAD is local).
+# TASK_SYNC_UNPULLED is NOT: `git pull --rebase` refuses before it fetches when
+# the worktree is dirty, and an unreachable remote never updates the ref either,
+# so on a failed sync it reports the remote side as of the LAST SUCCESSFUL FETCH
+# and can read 0 while the remote has in fact moved. Never present it as a
+# current reading of the remote.
+TASK_SYNC_STATUS=""     # synced | up-to-date | no-remote | failed
+TASK_SYNC_REASON=""     # classifier code when failed (see _task_push_classify)
+TASK_SYNC_UNPUSHED=""   # local commits not on upstream; "" when undeterminable
+TASK_SYNC_UNPULLED=""   # cached upstream commits not merged; "" when undeterminable
+
 # Sync task data from remote (independent of code sync in branch mode)
 # Uses --rebase instead of --ff-only so sync succeeds even when local has
 # unpushed commits (e.g. from a previous failed push cycle).
+#
+# Deliberately does NOT call assert_data_worktree_clean: task_sync runs at the
+# top of every pick from aitask_pick_own.sh, which runs `set -euo pipefail`, so
+# a die() here would abort the pick. A wedged worktree instead surfaces as
+# reason=rebase_conflict with its recovery hint — loud, but still non-fatal.
+# shellcheck disable=SC2034  # the TASK_SYNC_* globals ARE the return value; they are read by callers in other files (aitask_pick_own.sh)
 task_sync() {
-    _ait_detect_data_worktree
-    if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
-        git -C "$_AIT_DATA_WORKTREE" pull --rebase --quiet 2>/dev/null || true
-    else
-        git pull --rebase --quiet 2>/dev/null || true
+    TASK_SYNC_STATUS=""
+    TASK_SYNC_REASON=""
+    TASK_SYNC_UNPUSHED=""
+    TASK_SYNC_UNPULLED=""
+
+    # No remote at all (solo / offline-only repo): nothing to reconcile.
+    if ! _task_push_has_remote; then
+        TASK_SYNC_STATUS="no-remote"
+        return 0
     fi
+
+    local before_head after_head pull_err="" detail=""
+    before_head="$(_task_sync_head)"
+
+    if pull_err="$(_task_pull_rebase 2>&1)"; then
+        after_head="$(_task_sync_head)"
+        if [[ "$before_head" == "$after_head" ]]; then
+            TASK_SYNC_STATUS="up-to-date"
+        else
+            TASK_SYNC_STATUS="synced"
+        fi
+        TASK_SYNC_UNPUSHED="$(_task_push_unpushed_count)"
+        TASK_SYNC_UNPULLED="$(_task_sync_unpulled_count)"
+        return 0
+    fi
+
+    TASK_SYNC_STATUS="failed"
+    TASK_SYNC_REASON="$(_task_push_classify "" "$pull_err")"
+    TASK_SYNC_UNPUSHED="$(_task_push_unpushed_count)"
+    TASK_SYNC_UNPULLED="$(_task_sync_unpulled_count)"
+    if [[ "$TASK_SYNC_REASON" == "unknown" ]]; then
+        detail="$(_task_push_first_line "$pull_err")"
+        if [[ -n "$detail" ]]; then
+            detail=" (git: ${detail})"
+        fi
+    fi
+    _task_sync_warn "$detail"
+    return 0
+}
+
+# Internal: current HEAD commit; empty when undeterminable. Returns 0 (see the
+# task_push probe note below).
+_task_sync_head() {
+    _ait_data_git rev-parse HEAD 2>/dev/null || true
+}
+
+# Internal: commits the upstream has that HEAD does not. Prints nothing when
+# the branch has no upstream.
+_task_sync_unpulled_count() {
+    _ait_data_git rev-list --count 'HEAD..@{upstream}' 2>/dev/null || true
+}
+
+# Internal: emit the user-facing warning for a failed sync cycle. Mirrors
+# _task_push_warn's policy — warn only when something is actually at risk, so
+# an offline or single-machine user does not get a warning on every pick.
+_task_sync_warn() {
+    local detail="${1:-}" upstream hint
+    upstream="$(_task_push_upstream)"
+    if [[ -n "$upstream" ]]; then
+        upstream=" with ${upstream}"
+    fi
+    hint="$(_task_push_reason_hint "$TASK_SYNC_REASON" "./ait sync")"
+
+    if [[ -z "$TASK_SYNC_UNPUSHED" && -z "$TASK_SYNC_UNPULLED" ]]; then
+        warn "task data sync failed (unreconciled commit counts unavailable) — ${hint}${detail}"
+        return 0
+    fi
+    if [[ "${TASK_SYNC_UNPUSHED:-0}" != "0" || "${TASK_SYNC_UNPULLED:-0}" != "0" ]]; then
+        # The remote count comes from the local upstream ref, which a failed
+        # sync may never have refreshed — say so rather than implying it is a
+        # current reading of the remote.
+        warn "task data not reconciled${upstream}: ${TASK_SYNC_UNPUSHED:-0} local unpushed, ${TASK_SYNC_UNPULLED:-0} remote unpulled (remote side as of the last successful fetch — this sync may not have refreshed it) — ${hint}${detail}"
+        return 0
+    fi
+    # Nothing is pending, but a local-state blocker keeps every future sync AND
+    # push failing, so it is still worth reporting.
+    case "$TASK_SYNC_REASON" in
+        dirty_worktree|rebase_conflict)
+            warn "task data sync failed — ${hint}${detail}" ;;
+    esac
+    return 0
 }
 
 # --- Task data push (best-effort, but never silent) ---
@@ -350,6 +449,14 @@ _task_push_classify() {
         *CONFLICT*|*"could not apply"*|*"Resolve all conflicts"*|*"rebase-merge directory"*|*"rebase-apply"*)
             echo "rebase_conflict"; return 0 ;;
     esac
+    # A configured remote but no upstream for the current branch: `git push`
+    # says "has no upstream branch", `git pull` says "no tracking information".
+    # Neither substring overlaps another arm, so the position is not
+    # load-bearing.
+    case "$blob" in
+        *"no upstream branch"*|*"no tracking information"*)
+            echo "no_upstream"; return 0 ;;
+    esac
     case "$blob" in
         *"Could not read from remote repository"*|*"does not appear to be a git repository"*|\
         *"Could not resolve host"*|*"Connection refused"*|*"Authentication failed"*|\
@@ -364,14 +471,24 @@ _task_push_classify() {
 }
 
 # Internal: actionable recovery hint for a reason code.
+#   $1 = reason code
+#   $2 = command to suggest retrying (default './ait git push'); task_sync
+#        passes './ait sync' so a failed pull is not sent to the push recovery.
 _task_push_reason_hint() {
+    local retry_cmd="${2:-./ait git push}"
     case "$1" in
         dirty_worktree)
             echo "data worktree has unstaged changes blocking rebase; reconcile with 'ait syncer'" ;;
         rebase_conflict)
             echo "rebase stopped on conflicts; recover with './ait git rebase --abort' (or resolve and './ait git rebase --continue')" ;;
+        no_upstream)
+            # MUST be the './ait git' gateway form: in branch mode the branch
+            # needing an upstream is aitask-data inside .aitask-data, and a bare
+            # 'git branch' run at the repo root would retarget the CODE branch
+            # instead, leaving every later sync failing.
+            echo "task-data branch has no upstream; set one with './ait git branch --set-upstream-to=origin/<branch>' (or run 'ait setup' to repair the data branch)" ;;
         remote_unreachable)
-            echo "remote unreachable (network, auth, or no push destination); retry './ait git push' once connectivity is restored" ;;
+            echo "remote unreachable (network, auth, or no configured destination); retry '${retry_cmd}' once connectivity is restored" ;;
         diverged)
             echo "remote has diverged (non-fast-forward) and the rebase retries did not resolve it; reconcile with 'ait syncer'" ;;
         *)

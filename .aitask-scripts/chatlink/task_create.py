@@ -8,6 +8,10 @@ own ``task_git`` gateway, so aitask-data-branch semantics are respected.
 
 Blocking module (subprocess + parsing) — the flow runs it via
 ``asyncio.to_thread``. Script path and push argv are injectable test seams.
+
+The push outcome is read from ``ait git push --batch``'s structured stdout
+token, not from its return code: ``task_push`` exits 0 for every push outcome
+(t1265), so a stranded commit would otherwise be audited as a success.
 """
 from __future__ import annotations
 
@@ -32,6 +36,25 @@ _CREATED_RE = re.compile(r"^Created: (?P<path>\S+)", re.MULTILINE)
 
 _CREATE_TIMEOUT_S = 120
 _PUSH_TIMEOUT_S = 60
+
+#: ``ait git push --batch`` prints exactly one status token on stdout (the
+#: human warning goes to stderr) and exits 0 for every push *outcome*, so the
+#: return code alone cannot tell a stranded commit from a delivered one. These
+#: are the tokens that mean "nothing is at risk"; anything else is audited.
+_PUSH_OK_TOKENS = ("PUSHED", "NOTHING", "NO_REMOTE")
+
+
+def _push_status_line(stdout: str) -> str:
+    """Last non-blank, ANSI-stripped line of ``ait git push --batch`` stdout.
+
+    Empty when the push argv produced no output (e.g. an injected test seam
+    that is not batch-capable) — callers treat that as "no outcome reported".
+    """
+    for line in reversed(_ANSI_RE.sub("", stdout or "").splitlines()):
+        line = line.strip()
+        if line:
+            return line
+    return ""
 
 
 class TaskCreateError(Exception):
@@ -116,8 +139,11 @@ def create_task_from_payload(
                created.task_id, created.path, payload.session_id)
 
     # Best-effort push (audited, never fatal — the commit is durable).
+    # ``--batch`` is what makes the outcome observable: task_push() returns 0
+    # for every push outcome, so the return code only catches genuine process
+    # errors (the wedged-data-worktree die, a missing ``ait``, a timeout).
     argv_push = list(push_argv) if push_argv is not None else [
-        str(repo_root / "ait"), "git", "push"]
+        str(repo_root / "ait"), "git", "push", "--batch"]
     try:
         push = subprocess.run(
             argv_push, capture_output=True, text=True,
@@ -126,6 +152,16 @@ def create_task_from_payload(
         if push.returncode != 0:
             audit.warning("task push failed (rc=%s) — commit is local only",
                           push.returncode)
+        else:
+            status = _push_status_line(push.stdout)
+            if status.startswith("FAILED:"):
+                # FAILED:<reason>:<unpushed-count>
+                audit.warning("task push failed (%s) — commit is local only",
+                              status)
+            elif status and status not in _PUSH_OK_TOKENS:
+                audit.warning(
+                    "task push outcome unparseable: %r — commit may be "
+                    "local only", status[:200])
     except (OSError, subprocess.TimeoutExpired) as exc:
         audit.warning("task push failed: %s — commit is local only", exc)
     return created

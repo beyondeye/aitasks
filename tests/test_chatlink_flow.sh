@@ -126,6 +126,19 @@ def mk_spy_script(dirpath, *, rc=0, out=None):
     return script
 
 
+def mk_push_spy(dirpath, *, out="", rc=0):
+    """A push spy: records argv and prints one `ait git push --batch` token."""
+    dirpath.mkdir(parents=True, exist_ok=True)
+    script = dirpath / "push_spy.sh"
+    script.write_text(
+        "#!/usr/bin/env bash\n"
+        f"printf '%s\\n' \"$@\" > '{dirpath}/push_argv.txt'\n"
+        + (f"echo '{out}'\n" if out else "")
+        + f"exit {rc}\n")
+    script.chmod(0o755)
+    return script
+
+
 def spy_invocations(dirpath):
     try:
         return len((dirpath / "count.txt").read_text().splitlines())
@@ -337,6 +350,69 @@ async def main():
         pass
     check("task_create: nonzero rc / unparseable output → TaskCreateError",
           True)
+
+    # ---- push outcome: read from the `--batch` token, not the return code ----
+    # `ait git push` exits 0 for EVERY push outcome, so the rc branch alone
+    # could never see a stranded commit (t1269).
+    def push_case(label, token):
+        spy_d = tmp_base / f"push_{label}"
+        push_spy = mk_push_spy(spy_d, out=token)
+        aud = AuditSpy()
+        create_task_from_payload(
+            vp, repo_root=fixture, initiator_tag="U1", audit=aud,
+            create_script=mk_spy_script(tmp_base / f"push_c_{label}"),
+            push_argv=(str(push_spy),))
+        return aud
+
+    aud_failed = push_case("failed", "FAILED:dirty_worktree:3")
+    check("task_create: FAILED token is audited with reason and count",
+          aud_failed.has("warning", "FAILED:dirty_worktree:3"))
+
+    # All three success tokens must stay warning-free. NOTHING (no change to
+    # push) and NO_REMOTE (local-only repo) are the two most common real
+    # outcomes: a parser that mis-classified either would emit a false audit
+    # warning on the most frequent paths while every other case still passed.
+    for tok in ("PUSHED", "NOTHING", "NO_REMOTE"):
+        aud_ok = push_case(tok.lower(), tok)
+        check(f"task_create: {tok} token audits no push warning",
+              not aud_ok.has("warning", "push failed")
+              and not aud_ok.has("warning", "unparseable"))
+
+    aud_weird = push_case("weird", "weird output")
+    check("task_create: unrecognised token is audited as unparseable",
+          aud_weird.has("warning", "unparseable"))
+
+    # The injected non-batch seam prints nothing: no outcome reported, so no
+    # warning (this is what `push_argv=("true",)` relies on everywhere else).
+    aud_silent = AuditSpy()
+    create_task_from_payload(
+        vp, repo_root=fixture, initiator_tag="U1", audit=aud_silent,
+        create_script=mk_spy_script(tmp_base / "push_c_silent"),
+        push_argv=("true",))
+    check("task_create: empty push stdout audits nothing",
+          not aud_silent.has("warning", "push failed")
+          and not aud_silent.has("warning", "unparseable"))
+
+    # The DEFAULT push argv must carry --batch, otherwise the parser above can
+    # never see a token in production. Needs its own fixture: the shared one
+    # has no ./ait, which is what makes the OSError check further below pass.
+    batch_fx = tmp_base / "batch_fixture"
+    mk_fixture_repo(batch_fx)
+    (batch_fx / "ait").write_text(
+        "#!/usr/bin/env bash\n"
+        f"printf '%s\\n' \"$@\" > '{batch_fx}/ait_argv.txt'\n"
+        "echo NOTHING\n")
+    (batch_fx / "ait").chmod(0o755)
+    aud_batch = AuditSpy()
+    create_task_from_payload(
+        vp, repo_root=batch_fx, initiator_tag="U1", audit=aud_batch,
+        create_script=mk_spy_script(tmp_base / "push_c_batch"))
+    check("task_create: default push argv is `git push --batch`",
+          (batch_fx / "ait_argv.txt").read_text().splitlines()
+          == ["git", "push", "--batch"])
+    check("task_create: default push argv success audits nothing",
+          not aud_batch.has("warning", "push failed")
+          and not aud_batch.has("warning", "unparseable"))
 
     # ================= task_create (REAL script, fixture repo) ===========
     audit_real = AuditSpy()

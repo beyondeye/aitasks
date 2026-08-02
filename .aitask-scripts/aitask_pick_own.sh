@@ -19,7 +19,14 @@
 #   LOCK_INFRA_MISSING           Lock infrastructure not initialized (exit 1)
 #   LOCK_ERROR:<message>         Lock system error (exit 1)
 #   FORCE_UNLOCKED:<prev_owner>  Stale lock force-unlocked, then re-locked
-#   SYNCED                       Sync-only mode completed
+#   SYNCED                       Sync-only mode completed (pulled, already up to
+#                                date, or no remote configured)
+#   SYNC_FAILED:<reason>         Sync-only mode: the pull failed; <reason> is a
+#                                task_utils.sh classifier code (dirty_worktree,
+#                                rebase_conflict, no_upstream,
+#                                remote_unreachable, diverged, unknown).
+#                                Still exits 0 — sync is best-effort; details
+#                                and a recovery hint go to stderr.
 #
 # Called by:
 #   .claude/skills/task-workflow/SKILL.md (Step 4)
@@ -263,9 +270,14 @@ main() {
     # Step 1: Sync with remote (both modes)
     sync_remote
 
-    # Sync-only mode: done
+    # Sync-only mode: done. Report the real outcome — a failed sync used to be
+    # indistinguishable from a successful one here (always "SYNCED").
     if [[ "$SYNC_ONLY" == true ]]; then
-        echo "SYNCED"
+        if [[ "$TASK_SYNC_STATUS" == "failed" ]]; then
+            echo "SYNC_FAILED:${TASK_SYNC_REASON}"
+        else
+            echo "SYNCED"
+        fi
         return 0
     fi
 
