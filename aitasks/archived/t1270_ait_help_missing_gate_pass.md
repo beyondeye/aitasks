@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [gates, cli]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 635
 implemented_with: claudecode/opus5
 created_at: 2026-07-27 23:27
-updated_at: 2026-08-02 10:34
+updated_at: 2026-08-02 10:42
+completed_at: 2026-08-02 10:42
 boardidx: 220
 ---
 
@@ -55,3 +56,14 @@ already document `pass`; only the top-level usage omits it.
 > **✅ gate:plan_approved** run=2026-08-02T07:33:57Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-02T07:40:03Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-02T07:42:31Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:b7c9a372470fd53d
+
+> **✅ gate:risk_evaluated** run=2026-08-02T07:42:31Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1270/risk_evaluated_2026-08-02T07:42:31Z-risk_evaluated-a1.log`
