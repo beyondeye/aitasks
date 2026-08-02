@@ -21,49 +21,69 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 import sys
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
+
+import board_fixture as bf  # noqa: E402
 
 BOARD_SRC = REPO_ROOT / ".aitask-scripts" / "board" / "aitask_board.py"
 
 
-class NestedDetailActionTests(unittest.TestCase):
+class NestedDetailActionTests(bf.FixtureBoardTestBase, unittest.TestCase):
     """Drive the real KanbanApp via Pilot and assert that the pick action,
     triggered from a nested detail screen, routes to the *nested* task — and
-    that the multi-level Esc-pop screen history still works."""
+    that the multi-level Esc-pop screen history still works.
+
+    Boots against a fixture tree (t1354_2). Helper audit: `_resolve_pick_command`
+    is stubbed to a literal `"true"` by `_assert_pick_routes_to`, so the pick
+    path never shells out to the real codeagent resolver, and the assertion
+    checks `operation_args` — i.e. the intended branch — rather than merely that
+    nothing raised.
+    """
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        # Import after chdir so module-level Path("aitasks") resolves correctly.
-        from aitask_board import (  # noqa: E402
-            KanbanApp, TaskDetailScreen, AgentCommandScreen,
-            DependencyPickerScreen, DepPickerItem, TaskCard,
-        )
-        cls.KanbanApp = KanbanApp
-        cls.TaskDetailScreen = TaskDetailScreen
-        cls.AgentCommandScreen = AgentCommandScreen
-        cls.DependencyPickerScreen = DependencyPickerScreen
-        cls.DepPickerItem = DepPickerItem
-        cls.TaskCard = TaskCard
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.TaskDetailScreen = cls.ab.TaskDetailScreen
+        cls.AgentCommandScreen = cls.ab.AgentCommandScreen
+        cls.DependencyPickerScreen = cls.ab.DependencyPickerScreen
+        cls.DepPickerItem = cls.ab.DepPickerItem
+        cls.TaskCard = cls.ab.TaskCard
 
     def _run(self, coro):
         return asyncio.run(coro)
 
     def _parents(self, app):
-        return list(app.manager.task_datas.values())
+        """Loaded parent tasks with a parseable id.
+
+        The numberless fixture file is excluded: `_num()` returns "" for it, so
+        it can never be a dependency-picker target.
+        """
+        return [t for t in app.manager.task_datas.values()
+                if self.TaskCard._parse_filename(t.filename)[0]]
+
+    def test_fixture_facts(self):
+        """Preconditions (t1354_2 Step 2a). These were live-tree `skipTest`
+        guards; the fixture guarantees the shape, so a shortfall is a failure."""
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                parents = self._parents(app)
+                self.assertGreaterEqual(
+                    len(parents), 2,
+                    "fixture must load >=2 parseable parent tasks — the "
+                    "dependency-picker and nested-stack tests need two distinct "
+                    "tasks to model A depends on B")
+        self._run(go())
 
     def _num(self, task):
         task_num, _ = self.TaskCard._parse_filename(task.filename)
@@ -98,8 +118,6 @@ class NestedDetailActionTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 parents = self._parents(app)
-                if len(parents) < 1:
-                    self.skipTest("no parent tasks loaded on the board")
                 taskB = parents[0]
                 app.open_task_detail(taskB)
                 await pilot.pause()
@@ -116,8 +134,6 @@ class NestedDetailActionTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 parents = self._parents(app)
-                if len(parents) < 2:
-                    self.skipTest("need >= 2 parent tasks to model a dependency")
                 taskA, taskB = parents[0], parents[1]
                 items = [(self._num(taskB), taskB, f"{self._num(taskB)} B")]
                 if len(parents) >= 3:
@@ -147,8 +163,6 @@ class NestedDetailActionTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 parents = self._parents(app)
-                if len(parents) < 2:
-                    self.skipTest("need >= 2 parent tasks for a nested stack")
                 taskA, taskB = parents[0], parents[1]
                 app.open_task_detail(taskA)
                 await pilot.pause()

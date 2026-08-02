@@ -16,46 +16,60 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
+
+import board_fixture as bf  # noqa: E402
 
 NO_MATCH = "zzz_no_such_task_zzz"
 
 
-class BoardEmptyColumnFocusTests(unittest.TestCase):
+class BoardEmptyColumnFocusTests(bf.FixtureBoardTestBase, unittest.TestCase):
     """Drives the real KanbanApp via Pilot over a synthetic column layout."""
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
+        super().setUpClass()
         from textual.color import Color  # noqa: E402
 
-        from aitask_board import (  # noqa: E402
-            CollapsedColumnPlaceholder,
-            EmptyColumnPlaceholder,
-            KanbanApp,
-            TaskCard,
-        )
-
-        cls.KanbanApp = KanbanApp
-        cls.TaskCard = TaskCard
-        cls.EmptyColumnPlaceholder = EmptyColumnPlaceholder
-        cls.CollapsedColumnPlaceholder = CollapsedColumnPlaceholder
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.TaskCard = cls.ab.TaskCard
+        cls.EmptyColumnPlaceholder = cls.ab.EmptyColumnPlaceholder
+        cls.CollapsedColumnPlaceholder = cls.ab.CollapsedColumnPlaceholder
         cls.Color = Color
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
 
     def _run(self, coro):
         return asyncio.run(coro)
+
+    def test_fixture_facts(self):
+        """Preconditions (t1354_2 Step 2a) — the two live-tree `skipTest`
+        guards `_synthetic_board` used to carry, asserted once up front."""
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                mgr = app.manager
+                parents = list(mgr.task_datas.values())
+                self.assertGreaterEqual(
+                    len(parents), 4,
+                    "fixture must load >=4 parent tasks — _synthetic_board "
+                    "imposes a Left(2) | Empty(0) | Right(2) layout")
+                with_children = [
+                    p for p in parents
+                    if mgr.get_child_tasks_for_parent(
+                        self.TaskCard._parse_filename(p.filename)[0] or "")
+                ]
+                self.assertTrue(
+                    with_children,
+                    "fixture must contain a parent with children so the "
+                    "`with_children=True` layout composes .child-wrapper rows")
+        self._run(go())
 
     # --- fixture -----------------------------------------------------------
 
@@ -91,16 +105,17 @@ class BoardEmptyColumnFocusTests(unittest.TestCase):
                 return mgr.get_child_tasks_for_parent(num) if num else []
 
             parent = next((p for p in parents if _children(p)), None)
-            if parent is None:
-                self.skipTest("needs a parent task with children in aitasks/")
+            self.assertIsNotNone(
+                parent, "fixture must contain a parent task with children — "
+                        "the .child-wrapper rows depend on it")
             parents = [parent] + [p for p in parents if p is not parent]
             kept_children = {c.filename: c for c in _children(parent)}
 
         tasks = parents[:n_cards]
-        if len(tasks) < n_cards:
-            self.skipTest(
-                f"needs >= {n_cards} parent tasks in aitasks/; found {len(tasks)}"
-            )
+        self.assertGreaterEqual(
+            len(tasks), n_cards,
+            f"fixture must load >= {n_cards} parent tasks to impose the "
+            f"Left(2) | Empty(0) | Right(2) layout; found {len(tasks)}")
         mgr.task_datas = {t.filename: t for t in tasks}
         mgr.child_task_datas = kept_children
         for i, task in enumerate(tasks):

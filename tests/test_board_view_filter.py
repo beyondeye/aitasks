@@ -19,15 +19,17 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
+
+import board_fixture as bf  # noqa: E402
 
 
 def _visible(cards):
@@ -38,32 +40,57 @@ def _filenames(cards):
     return sorted(c.task_data.filename for c in cards)
 
 
-class BoardViewFilterTests(unittest.TestCase):
+class BoardViewFilterTests(bf.FixtureBoardTestBase, unittest.TestCase):
     """End-to-end Pilot tests covering the refresh_board → apply_filter race.
 
-    Runs against the live `aitasks/` directory because KanbanApp resolves its
-    paths from cwd at import time. The tests don't assert specific filenames —
-    only that the visible set equals what the corresponding *_visible_set()
-    helper returns. So they stay green regardless of which tasks happen to be
-    in the repo.
+    Runs against a fixture task tree (t1354_2). The tests don't assert specific
+    filenames — only that the visible set equals what the corresponding
+    *_visible_set() helper returns — but the fixture must still carry the
+    metadata those helpers select on, or the comparison is against an empty set.
+    `test_fixture_facts` pins that.
     """
+
+    #: `_git_visible_set` selects on `issue:` / `pull_request:` metadata, which
+    #: DEFAULT_TOPOLOGY does not carry — the git-filter test would then compare
+    #: against an empty expected set. RICH_TOPOLOGY supplies two issue-bearing
+    #: tasks plus an Implementing task for the locked/free split.
+    FIXTURE_TASKS = bf.RICH_TOPOLOGY
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        # Import after chdir so module-level Path("aitasks") resolves correctly.
-        from aitask_board import KanbanApp, TaskCard  # noqa: E402
-        cls.KanbanApp = KanbanApp
-        cls.TaskCard = TaskCard
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.TaskCard = cls.ab.TaskCard
 
     def _run(self, coro):
         return asyncio.get_event_loop().run_until_complete(coro) \
             if False else asyncio.run(coro)
+
+    def test_fixture_facts(self):
+        """Preconditions (t1354_2 Step 2a) for the view-mode filter sets.
+
+        Each `_*_visible_set()` selects on specific metadata; if the fixture
+        carries none of it the expected set is empty and the corresponding
+        assertion measures nothing. Busy-ness comes from `status: Implementing`
+        or from a `lock_map` entry the test injects itself — never from the
+        board's `aitask_lock.sh` helper, which is absent under the fixture cwd
+        and degrades to an empty map (see board_fixture's module docstring).
+        """
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                self.assertTrue(
+                    app._git_visible_set(),
+                    "fixture must carry >=1 task with issue:/pull_request: — "
+                    "otherwise the git-filter test compares against an empty set")
+                self.assertTrue(
+                    app._locked_visible_set(),
+                    "fixture must carry >=1 busy (Implementing) task")
+                self.assertTrue(
+                    app._free_visible_set(),
+                    "fixture must carry >=1 non-busy task")
+        self._run(go())
 
     async def _assert_visible_matches(self, app, keys, expected_set_attrs):
         """Press each key in `keys`, then assert visible cards equal the
@@ -237,11 +264,22 @@ class BoardViewFilterTests(unittest.TestCase):
         with free base must hold."""
         def prime(app):
             # Seed a non-empty type selection so the type helper has something
-            # to intersect with.
-            from aitask_board import _load_task_types
-            types = _load_task_types()
-            self.assertTrue(types, "test repo must define at least one task type")
-            app.manager.settings["filter_issue_types"] = [types[0]]
+            # to intersect with. Pick a type the tree ACTUALLY carries rather
+            # than `_load_task_types()[0]`: that returns the registry order
+            # (falling back to bug/feature/refactor), which need not intersect
+            # the loaded tasks at all — on a tree of `chore` tasks it would
+            # select nothing and the intersection below would be vacuous.
+            present = sorted({
+                t.metadata.get("issue_type", "feature")
+                for t in list(app.manager.task_datas.values())
+                       + list(app.manager.child_task_datas.values())
+            })
+            self.assertTrue(present, "tree must define at least one task type")
+            app.manager.settings["filter_issue_types"] = [present[0]]
+            self.assertTrue(
+                app._type_visible_set(),
+                f"type {present[0]!r} must select a non-empty set, else the "
+                "free ∩ type intersection below proves nothing")
             # Replace the dialog with a synchronous activator: turning the
             # type toggle ON in tests must not actually push a modal.
             def fake_open():
@@ -295,8 +333,9 @@ class BoardViewFilterTests(unittest.TestCase):
                 continue
             eligible = (fn, children)
             break
-        if eligible is None:
-            self.skipTest("no eligible parent-with-children in test repo")
+        self.assertIsNotNone(
+            eligible, "fixture must contain a non-busy parent whose children "
+                      "are all non-busy — the free-set cascade targets it")
         parent_fn, children = eligible
         self.assertIn(parent_fn, app._free_visible_set(),
                       "parent should start in free set")

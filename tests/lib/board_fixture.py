@@ -88,6 +88,15 @@ trail member renders as an unresolvable *cross-repo ghost*. Measured with a
 trail doc referencing `aitasks#9000` and `aitasks#9000_1`: without the file
 0 `TrailTaskCard` / 2 ghosts; with it 2 / 0.
 
+`metadata/gates.yaml` is staged from the shipped reference for the same reason
+(t1354_2). `GATES_REGISTRY_FILE` (aitask_board.py:77) derives from `TASKS_DIR`,
+and a tree without it does not merely lose gate cosmetics — it **reclassifies**.
+Measured: a task declaring `gates: [review_approved]` with a pending human run
+lands in the ``agent`` group instead of ``human``, its In-Flight card loses the
+``[s sign-off]`` op, and `unresolved_local_deps` fails closed and reports a
+gate-satisfied upstream as still blocking. Nothing raises. Pass
+`gates_registry=False` only to prove that dependence.
+
 Every fixture task carries at least one non-board metadata key. A task whose
 keys are a subset of `BOARD_KEYS` is dropped by `TaskManager._is_phantom_stub`
 (aitask_board.py:921), which would load zero tasks and pass every assertion
@@ -119,6 +128,18 @@ for _p in (str(_BOARD), str(_LIB)):
 from task_yaml import serialize_frontmatter  # noqa: E402
 
 BOARD_PATH = _BOARD / "aitask_board.py"
+
+#: Canonical shipped gate registry (t1147). Staged into every fixture tree as
+#: `metadata/gates.yaml`, because `GATES_REGISTRY_FILE` (aitask_board.py:77) is
+#: derived from `TASKS_DIR` and a tree without it does NOT merely lose gate
+#: cosmetics — it silently reclassifies. Measured on a tree without it: a task
+#: declaring `gates: [review_approved]` with a pending human run lands in the
+#: ``agent`` group instead of ``human``, its card loses the ``[s sign-off]`` op,
+#: and `unresolved_local_deps` fails closed and reports the upstream as
+#: unresolved. Same trap shape as the `project_config.yaml` one above: nothing
+#: raises, the assertions just quietly measure the degraded branch.
+#: Read by path (not cwd), so it resolves from inside the fixture tree.
+GATES_REFERENCE = REPO_ROOT / ".aitask-scripts" / "gates_reference.yaml"
 
 #: The only `TASK_DIR` value this harness accepts — see the module docstring.
 TASK_DIR_VALUE = "aitasks"
@@ -243,11 +264,90 @@ DEFAULT_TOPOLOGY = (
     FixtureTask(filename="t_unparseable.md", col="c0", idx=99),
 )
 
+#: Richer topology for modules whose assertions need metadata the default tree
+#: does not carry: a **second** topic lane, `issue:`-bearing tasks for the git
+#: view-set, and a `depends:` edge.
+#:
+#: `DEFAULT_TOPOLOGY` is deliberately NOT extended to cover these — it is pinned
+#: by two green files (`test_board_work_report` asserts exact `c0` counts, and
+#: `test_board_movement` byte-differs the file set it produces), so widening it
+#: would break both silently. Additive names only.
+#:
+#: Two lanes, because `_build_topic_lanes` only forms a lane at **>=2 members**
+#: sharing a `topic_key` (aitask_board.py:441):
+#:   * ``"9000"`` — the parent plus its two children. Children need no `anchor:`;
+#:     `topic_key` falls back to the parent id for them (topic_semantics.py:69).
+#:   * ``"9002"`` — an explicit `anchor:` group: two followups pointing at 9002.
+#: t9001 / t9004 / the numberless file stay singletons (ungrouped) on purpose,
+#: so "grouped" and "ungrouped" are both represented.
+RICH_TOPOLOGY = (
+    FixtureTask(task_id="9000", col="c0", idx=10, slug="parent",
+                extra={"issue": "https://example.invalid/issues/1"}),
+    FixtureTask(task_id="9000_1", col="c0", idx=20, slug="childone"),
+    FixtureTask(task_id="9000_2", col="c1", idx=20, slug="childtwo"),
+    FixtureTask(task_id="9002", col="c2", idx=10, status="Done", slug="beta"),
+    FixtureTask(task_id="9003", col="c3", idx=10, slug="gamma",
+                extra={"anchor": 9002,
+                       "issue": "https://example.invalid/issues/2"}),
+    FixtureTask(task_id="9005", col="c2", idx=20, slug="epsilon",
+                extra={"anchor": 9002}),
+    FixtureTask(task_id="9001", col="c1", idx=10, status="Implementing", slug="alpha"),
+    FixtureTask(task_id="9004", col="c4", idx=10, slug="delta",
+                extra={"depends": [9000]}),
+    FixtureTask(filename="t_unparseable.md", col="c0", idx=99),
+)
+
+
+#: A slug long enough that the rendered card title wraps to several rows even in
+#: a ~95-cell-wide column. Measured under the Tall|Side two-column layout at
+#: width 200: card height 13 rows, against viewports of 5 (term height 12) and
+#: 11 (term height 18) — comfortably taller than both, which is what
+#: "a card exceeds the viewport" and "no card is fully visible" need. 28 words
+#: keeps the filename at 194 bytes, well inside the 255-byte component limit
+#: (40 words overflows it and `write_text` raises ENAMETOOLONG).
+_TALL_SLUG = "_".join(f"word{i}" for i in range(28))
+
+
+def wide_topology(n_parents: int, *, with_children: bool = False,
+                  tall_titles: bool = False):
+    """``n_parents`` parent tasks spread round-robin across the fixture columns.
+
+    For tests whose property depends on card **volume** rather than on any
+    particular task — a column tall enough to scroll, a board with more cards
+    than fit on screen. Those tests used to `skipTest` when the live tree was
+    too sparse; on a fixture the tree must *reproduce* the volume instead, or
+    the assertion silently becomes vacuous (a skip at least stayed visible).
+
+    `with_children` adds two children under the first parent for the cases that
+    also need a parent/child relationship.
+
+    `tall_titles` additionally reproduces card **height**. Real task titles are
+    long and wrap; a default `wide0`-style slug renders a 5-row card, which is
+    shorter than a short viewport and quietly breaks the two scroll assertions
+    that require a card taller than the pane. Volume alone is not the whole
+    shape — see `_TALL_SLUG`.
+    """
+    slug_for = (lambda i: _TALL_SLUG) if tall_titles else (lambda i: f"wide{i}")
+    tasks = [
+        FixtureTask(task_id=str(9000 + i),
+                    col=COLUMN_ORDER[i % len(COLUMN_ORDER)],
+                    idx=(i + 1) * 10,
+                    slug=slug_for(i))
+        for i in range(n_parents)
+    ]
+    if with_children:
+        tasks += [
+            FixtureTask(task_id="9000_1", col=COLUMN_ORDER[0], idx=15, slug="childone"),
+            FixtureTask(task_id="9000_2", col=COLUMN_ORDER[0], idx=16, slug="childtwo"),
+        ]
+    return tuple(tasks)
+
 
 # --- Tree construction -------------------------------------------------------
 
 
-def _write_common(tasks: Path, *, settings=None, project_name: str | None) -> None:
+def _write_common(tasks: Path, *, settings=None, project_name: str | None,
+                  gates_registry: bool = False) -> None:
     (tasks / "metadata").mkdir(parents=True, exist_ok=True)
     (tasks / "metadata" / "board_config.json").write_text(
         json.dumps({"columns": COLUMNS, "column_order": COLUMN_ORDER}, indent=2) + "\n",
@@ -269,6 +369,10 @@ def _write_common(tasks: Path, *, settings=None, project_name: str | None) -> No
     if project_name is not None:
         (tasks / "metadata" / "project_config.yaml").write_text(
             f"project:\n  name: {project_name}\n", encoding="utf-8"
+        )
+    if gates_registry:
+        (tasks / "metadata" / "gates.yaml").write_text(
+            GATES_REFERENCE.read_text(encoding="utf-8"), encoding="utf-8"
         )
 
 
@@ -319,16 +423,22 @@ def build_tree(root: Path, cards, *, branch_mode: bool = True, settings=None,
 
 def build_fixture_tree(root: Path, tasks_spec=DEFAULT_TOPOLOGY, *,
                        branch_mode: bool = True, settings=None,
-                       project_name: str | None = "aitasks") -> Path:
+                       project_name: str | None = "aitasks",
+                       gates_registry: bool = True) -> Path:
     """Materialise a declarative fixture tree and return its root.
 
-    Unlike `build_tree` this writes `project_config.yaml` by default and
-    supports child tasks, because the board surfaces it feeds (By-Trail, work
-    report) resolve `aitasks#<id>` refs and glob `t*/t*_*.md`.
+    Unlike `build_tree` this writes `project_config.yaml` and the shipped
+    `gates.yaml` by default, and supports child tasks, because the board
+    surfaces it feeds (By-Trail, work report, In-Flight) resolve `aitasks#<id>`
+    refs, glob `t*/t*_*.md`, and classify gates by registry `type`.
+
+    `gates_registry=False` exists for the negative control that proves the
+    registry is load-bearing rather than decorative — see `GATES_REFERENCE`.
     """
     tree = root / "tree"
     tasks, git_root = _layout(tree, branch_mode)
-    _write_common(tasks, settings=settings, project_name=project_name)
+    _write_common(tasks, settings=settings, project_name=project_name,
+                  gates_registry=gates_registry)
 
     for spec in tasks_spec:
         path = spec.path_in(tasks)
@@ -392,7 +502,8 @@ def load_board_module(task_dir=TASK_DIR_VALUE, *, tag: str = "fixture",
 
 def enter_fixture_tree(add_cleanup, *, tasks_spec=DEFAULT_TOPOLOGY, tag: str = "fixture",
                        branch_mode: bool = True, settings=None,
-                       project_name: str | None = "aitasks", load_module: bool = True):
+                       project_name: str | None = "aitasks", load_module: bool = True,
+                       gates_registry: bool = True):
     """Build a fixture tree, chdir into it, and load a board module bound to it.
 
     `add_cleanup` is `cls.addClassCleanup` or `self.addCleanup`. **Registration
@@ -408,7 +519,8 @@ def enter_fixture_tree(add_cleanup, *, tasks_spec=DEFAULT_TOPOLOGY, tag: str = "
     tmp = tempfile.TemporaryDirectory(prefix="aitask_board_fixture_")
     add_cleanup(tmp.cleanup)                     # registered 1st -> runs LAST
     tree = build_fixture_tree(Path(tmp.name), tasks_spec, branch_mode=branch_mode,
-                              settings=settings, project_name=project_name)
+                              settings=settings, project_name=project_name,
+                              gates_registry=gates_registry)
     original_cwd = os.getcwd()
     os.chdir(tree)
     add_cleanup(os.chdir, original_cwd)          # registered 2nd -> runs FIRST
@@ -427,6 +539,7 @@ class FixtureBoardTestBase:
     FIXTURE_TASKS = DEFAULT_TOPOLOGY
     FIXTURE_SETTINGS = None
     FIXTURE_PROJECT_NAME = "aitasks"
+    FIXTURE_GATES_REGISTRY = True
 
     @classmethod
     def setUpClass(cls):
@@ -437,6 +550,7 @@ class FixtureBoardTestBase:
             tag=cls.__name__,
             settings=cls.FIXTURE_SETTINGS,
             project_name=cls.FIXTURE_PROJECT_NAME,
+            gates_registry=cls.FIXTURE_GATES_REGISTRY,
         )
 
     @property

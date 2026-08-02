@@ -24,42 +24,67 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
+import board_fixture as bf  # noqa: E402
 
-class DetailArrowNavTests(unittest.TestCase):
+
+class DetailArrowNavTests(bf.FixtureBoardTestBase, unittest.TestCase):
     """Drive the real KanbanApp via Pilot and assert up/down still drive
     App-level field navigation inside TaskDetailScreen, while the shortcut
-    editor's DataTable keeps owning up/down."""
+    editor's DataTable keeps owning up/down.
+
+    Boots against a fixture tree (t1354_2). Helper audit: the only external
+    reach is the board's own `aitask_lock.sh --list` at boot, absent under the
+    fixture and degrading to an empty `lock_map`; nothing here reads lock state.
+    """
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        # Import after chdir so module-level Path("aitasks") resolves correctly.
-        from aitask_board import KanbanApp, TaskDetailScreen  # noqa: E402
-
-        cls.KanbanApp = KanbanApp
-        cls.TaskDetailScreen = TaskDetailScreen
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.TaskDetailScreen = cls.ab.TaskDetailScreen
 
     def _run(self, coro):
         return asyncio.run(coro)
 
+    def _find_parent_task(self, app):
+        """First loaded parent task with a parseable id, or None.
+
+        Skips the deliberately numberless fixture file — `TaskDetailScreen` over
+        a task with no id is a different scenario than the one under test here.
+        """
+        for task in app.manager.task_datas.values():
+            num, _ = self.ab.TaskCard._parse_filename(task.filename)
+            if num:
+                return task
+        return None
+
     def _first_parent_task(self, app):
-        """Return any loaded parent task, or None if the board has none."""
-        tasks = list(app.manager.task_datas.values())
-        return tasks[0] if tasks else None
+        """Same lookup, asserted. Was a live-tree `skipTest`; the fixture
+        guarantees the shape, so an absence is a real failure now."""
+        task = self._find_parent_task(app)
+        self.assertIsNotNone(task, "fixture must load at least one parent task")
+        return task
+
+    def test_fixture_facts(self):
+        """Precondition (t1354_2 Step 2a): >=1 parent task with a parseable id."""
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                self.assertIsNotNone(
+                    self._find_parent_task(app),
+                    "fixture must load at least one parseable parent task — "
+                    "every test here opens a TaskDetailScreen over one")
+        self._run(go())
 
     def test_updown_active_for_detail_dialog(self):
         """check_action keeps nav_up/nav_down active for TaskDetailScreen so the
@@ -69,8 +94,6 @@ class DetailArrowNavTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
 
                 app.push_screen(self.TaskDetailScreen(task, app.manager))
                 await pilot.pause()
@@ -109,8 +132,6 @@ class DetailArrowNavTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
 
                 app.push_screen(self.TaskDetailScreen(task, app.manager))
                 await pilot.pause()

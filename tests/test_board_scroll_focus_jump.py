@@ -33,14 +33,16 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
+
+import board_fixture as bf  # noqa: E402
 
 TALL = "zz_tall"
 SIDE = "zz_side"
@@ -48,28 +50,71 @@ N_TALL = 30
 N_SIDE = 10
 
 
-class BoardScrollFocusJumpTests(unittest.TestCase):
+class BoardScrollFocusJumpTests(bf.FixtureBoardTestBase, unittest.TestCase):
     """Drives the real KanbanApp via Pilot over a synthetic two-column layout."""
+
+    #: This module's property is volume-dependent *and* height-dependent: it
+    #: imposes a Tall(30) | Side(10) layout, so the tree must hold N_TALL +
+    #: N_SIDE parents, AND two cases require a card taller than the viewport
+    #: ("oversized card must not trap the cursor", "no card fully visible in a
+    #: short pane"). Default short slugs render 5-row cards and silently break
+    #: both — `tall_titles` reproduces the wrapping real task titles produce.
+    FIXTURE_TASKS = bf.wide_topology(N_TALL + N_SIDE, tall_titles=True)
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
+        super().setUpClass()
         from textual import events  # noqa: E402
 
-        from aitask_board import KanbanApp, KanbanColumn, TaskCard  # noqa: E402
-
-        cls.KanbanApp = KanbanApp
-        cls.KanbanColumn = KanbanColumn
-        cls.TaskCard = TaskCard
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.KanbanColumn = cls.ab.KanbanColumn
+        cls.TaskCard = cls.ab.TaskCard
         cls.events = events
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
 
     def _run(self, coro):
         return asyncio.run(coro)
+
+    def test_fixture_facts(self):
+        """Precondition (t1354_2 Step 2a): the tree must hold >= N_TALL+N_SIDE
+        parents.
+
+        This is the one genuinely *volume*-dependent module in the migration —
+        the bug it guards only reproduces in a column tall enough to scroll, so
+        the fixture reproduces the shape rather than shrinking it away.
+        """
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                self.assertGreaterEqual(
+                    len(app.manager.task_datas), N_TALL + N_SIDE,
+                    f"fixture must load >= {N_TALL + N_SIDE} parent tasks")
+        self._run(go())
+
+    def test_fixture_cards_are_taller_than_a_short_viewport(self):
+        """Precondition (t1354_2 Step 2a): card **height**, not just count.
+
+        Two cases below need a card taller than the pane. Cards rendered from
+        short slugs are 5 rows and would silently satisfy neither, so this
+        pins the property directly rather than letting those cases fail
+        obscurely later.
+        """
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(200, 12)) as pilot:
+                await self._settle(pilot)
+                self._synthetic_board(app)
+                app.refresh_board()
+                await self._settle(pilot)
+                column = self._column(app, TALL)
+                cards = [c for c in self._cards(app, TALL) if c.region.area]
+                self.assertTrue(cards, "TALL column must render cards")
+                self.assertGreater(
+                    max(c.region.height for c in cards),
+                    column.scrollable_content_region.height,
+                    "fixture cards must exceed a short viewport — use "
+                    "wide_topology(..., tall_titles=True)")
+        self._run(go())
 
     # --- fixture -----------------------------------------------------------
 
@@ -93,11 +138,10 @@ class BoardScrollFocusJumpTests(unittest.TestCase):
 
         parents = sorted(mgr.task_datas.values(), key=lambda t: t.filename)
         tasks = parents[: N_TALL + N_SIDE]
-        if len(tasks) < N_TALL + N_SIDE:
-            self.skipTest(
-                f"needs >= {N_TALL + N_SIDE} parent tasks in aitasks/; "
-                f"found {len(tasks)}"
-            )
+        self.assertGreaterEqual(
+            len(tasks), N_TALL + N_SIDE,
+            f"fixture must load >= {N_TALL + N_SIDE} parent tasks to impose the "
+            f"Tall({N_TALL}) | Side({N_SIDE}) layout; found {len(tasks)}")
         mgr.task_datas = {t.filename: t for t in tasks}
         mgr.child_task_datas = {}
         for i, task in enumerate(tasks):

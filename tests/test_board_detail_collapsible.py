@@ -21,43 +21,53 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
+import board_fixture as bf  # noqa: E402
 
-class DetailCollapsibleTests(unittest.TestCase):
+
+class DetailCollapsibleTests(bf.FixtureBoardTestBase, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        from aitask_board import (  # noqa: E402
-            CrossRepoDepsField,
-            CrossRepoTaskScreen,
-            KanbanApp,
-            TaskDetailScreen,
-        )
-
-        cls.CrossRepoDepsField = CrossRepoDepsField
-        cls.CrossRepoTaskScreen = CrossRepoTaskScreen
-        cls.KanbanApp = KanbanApp
-        cls.TaskDetailScreen = TaskDetailScreen
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.CrossRepoDepsField = cls.ab.CrossRepoDepsField
+        cls.CrossRepoTaskScreen = cls.ab.CrossRepoTaskScreen
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.TaskDetailScreen = cls.ab.TaskDetailScreen
 
     def _run(self, coro):
         return asyncio.run(coro)
 
+    def _find_parent_task(self, app):
+        """First loaded parent task with a parseable id, or None."""
+        for task in app.manager.task_datas.values():
+            if self.ab.TaskCard._parse_filename(task.filename)[0]:
+                return task
+        return None
+
     def _first_parent_task(self, app):
-        tasks = list(app.manager.task_datas.values())
-        return tasks[0] if tasks else None
+        """Same lookup, asserted. Was a live-tree `skipTest` at every call site;
+        the fixture guarantees the shape, so an absence is a real failure."""
+        task = self._find_parent_task(app)
+        self.assertIsNotNone(task, "fixture must load at least one parent task")
+        return task
+
+    def test_fixture_facts(self):
+        """Precondition (t1354_2 Step 2a): >=1 parseable parent task — every
+        test in this module opens a TaskDetailScreen over one."""
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                self.assertIsNotNone(self._find_parent_task(app))
+        self._run(go())
 
     def test_sections_present_and_collapsed(self):
         """Every .meta-section Collapsible is collapsed on open; the lock & files
@@ -69,8 +79,6 @@ class DetailCollapsibleTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
 
                 app.push_screen(self.TaskDetailScreen(task, app.manager))
                 await pilot.pause()
@@ -100,8 +108,6 @@ class DetailCollapsibleTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
 
                 app.push_screen(self.TaskDetailScreen(task, app.manager))
                 await pilot.pause()
@@ -126,8 +132,6 @@ class DetailCollapsibleTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
 
                 app.push_screen(self.TaskDetailScreen(task, app.manager))
                 await pilot.pause()
@@ -148,8 +152,6 @@ class DetailCollapsibleTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
 
                 app.push_screen(self.TaskDetailScreen(task, app.manager))
                 await pilot.pause()
@@ -181,8 +183,6 @@ class DetailCollapsibleTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
                 # Per-instance mutation: a fresh manager is loaded each test.
                 task.metadata["risk_code_health"] = "high"
                 task.metadata["risk_goal_achievement"] = "medium"
@@ -213,8 +213,6 @@ class DetailCollapsibleTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
                 task.metadata.pop("risk_code_health", None)
                 task.metadata.pop("risk_goal_achievement", None)
 
@@ -236,14 +234,12 @@ class DetailCollapsibleTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
-                task.metadata["xdeprepo"] = "sister"
+                task.metadata["xdeprepo"] = "linked"
                 task.metadata["xdeps"] = [1, "t2_3", "99"]
                 statuses = {
-                    ("sister", "1"): "Done",
-                    ("sister", "2_3"): "Implementing",
-                    ("sister", "99"): "NOT_FOUND",
+                    ("linked", "1"): "Done",
+                    ("linked", "2_3"): "Implementing",
+                    ("linked", "99"): "NOT_FOUND",
                 }
                 app.manager.get_xdep_status = (
                     lambda repo, task_id: statuses.get((repo, task_id), "")
@@ -257,7 +253,7 @@ class DetailCollapsibleTests(unittest.TestCase):
                 self.assertEqual(
                     field.render(),
                     "  [b]Cross-repo deps:[/b] ↗ "
-                    "sister#1, sister#2_3 [Implementing], sister#99 (UNREACHABLE)",
+                    "linked#1, linked#2_3 [Implementing], linked#99 (UNREACHABLE)",
                 )
         self._run(go())
 
@@ -267,9 +263,7 @@ class DetailCollapsibleTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
-                task.metadata["xdeprepo"] = "sister"
+                task.metadata["xdeprepo"] = "linked"
                 task.metadata.pop("xdeps", None)
 
                 app.push_screen(self.TaskDetailScreen(task, app.manager))
@@ -287,9 +281,7 @@ class DetailCollapsibleTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
-                task.metadata["xdeprepo"] = "sister"
+                task.metadata["xdeprepo"] = "linked"
                 task.metadata["xdeps"] = ["t42"]
                 app.manager.get_xdep_status = lambda repo, task_id: "Ready"
                 opened = []
@@ -306,7 +298,7 @@ class DetailCollapsibleTests(unittest.TestCase):
                 await pilot.press("enter")
                 await pilot.pause()
 
-                self.assertEqual(opened, [("sister", "42")])
+                self.assertEqual(opened, [("linked", "42")])
                 self.assertIsInstance(app.screen, self.TaskDetailScreen)
         self._run(go())
 
@@ -323,7 +315,7 @@ labels: [voyager, build]
 
 Body text.
 """
-        screen = self.CrossRepoTaskScreen("↗ sister#15", content)
+        screen = self.CrossRepoTaskScreen("↗ linked#15", content)
 
         self.assertEqual(screen._body, "## Origin\n\nBody text.\n")
         self.assertEqual(screen._metadata["status"], "Ready")
@@ -339,8 +331,6 @@ Body text.
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
 
                 app.push_screen(self.TaskDetailScreen(task, app.manager))
                 await pilot.pause()
@@ -364,8 +354,6 @@ Body text.
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                if task is None:
-                    self.skipTest("no parent tasks loaded on the board")
 
                 app.push_screen(self.TaskDetailScreen(task, app.manager))
                 await pilot.pause()

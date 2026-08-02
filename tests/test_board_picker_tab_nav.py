@@ -19,41 +19,41 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
+from textual.widgets import Button, Input  # noqa: E402
 
-class PickerTabNavTests(unittest.TestCase):
+import board_fixture as bf  # noqa: E402
+
+
+class PickerTabNavTests(bf.FixtureBoardTestBase, unittest.TestCase):
     """Drive the real KanbanApp via Pilot and assert Tab stays inside the
-    cross-repo ref picker modal instead of escaping to the board search box."""
+    cross-repo ref picker modal instead of escaping to the board search box.
+
+    Boots against a fixture tree (t1354_2). No `test_fixture_facts` here on
+    purpose: the picker is fed explicit ref data by the tests themselves and the
+    assertions are about focus routing, not tree shape — the only structural
+    dependency is `#search_box`, which `query_one` already enforces by raising.
+    Declaring a topology fact no control could break would be an unexercised
+    claim (t1354_2 Step 4.6).
+    """
+
+    Button = Button
+    Input = Input
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        # Import after chdir so module-level Path("aitasks") resolves correctly.
-        from aitask_board import (  # noqa: E402
-            KanbanApp,
-            CrossRepoRefPickerScreen,
-            CrossRepoRefItem,
-        )
-        from textual.widgets import Button, Input  # noqa: E402
-
-        cls.KanbanApp = KanbanApp
-        cls.CrossRepoRefPickerScreen = CrossRepoRefPickerScreen
-        cls.CrossRepoRefItem = CrossRepoRefItem
-        cls.Button = Button
-        cls.Input = Input
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.CrossRepoRefPickerScreen = cls.ab.CrossRepoRefPickerScreen
+        cls.CrossRepoRefItem = cls.ab.CrossRepoRefItem
 
     def _run(self, coro):
         return asyncio.run(coro)

@@ -15,34 +15,29 @@ Run: bash tests/run_all_python_tests.sh
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
+import board_fixture as bf  # noqa: E402
+from task_yaml import _normalize_task_id, parse_frontmatter  # noqa: E402
 
-class TopicGroupingTests(unittest.TestCase):
+
+class TopicGroupingTests(bf.FixtureBoardTestBase, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        from aitask_board import (  # noqa: E402
-            Task, group_tasks_by_topic, topic_key, task_own_id, task_anchor_id,
-        )
-        cls.Task = Task
-        cls.group_tasks_by_topic = staticmethod(group_tasks_by_topic)
-        cls.topic_key = staticmethod(topic_key)
-        cls.task_own_id = staticmethod(task_own_id)
-        cls.task_anchor_id = staticmethod(task_anchor_id)
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.Task = cls.ab.Task
+        cls.group_tasks_by_topic = staticmethod(cls.ab.group_tasks_by_topic)
+        cls.topic_key = staticmethod(cls.ab.topic_key)
+        cls.task_own_id = staticmethod(cls.ab.task_own_id)
+        cls.task_anchor_id = staticmethod(cls.ab.task_anchor_id)
 
     def _mk(self, filename, anchor=None, updated=None):
         fm = "---\n"
@@ -171,7 +166,7 @@ class TopicGroupingTests(unittest.TestCase):
         self.assertEqual(self.topic_key(child, {}), "500")
 
 
-class TopicSortModeTests(unittest.TestCase):
+class TopicSortModeTests(bf.FixtureBoardTestBase, unittest.TestCase):
     """Selectable lane sort modes (t1035). One fixture, four distinct orderings,
     with 'Ungrouped' pinned last in every mode.
 
@@ -193,16 +188,10 @@ class TopicSortModeTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        from aitask_board import Task, group_tasks_by_topic, TOPIC_SORT_MODES  # noqa: E402
-        cls.Task = Task
-        cls.group_tasks_by_topic = staticmethod(group_tasks_by_topic)
-        cls.MODES = TOPIC_SORT_MODES
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.Task = cls.ab.Task
+        cls.group_tasks_by_topic = staticmethod(cls.ab.group_tasks_by_topic)
+        cls.MODES = cls.ab.TOPIC_SORT_MODES
 
     def _mk(self, filename, anchor=None, updated=None):
         fm = "---\n"
@@ -286,7 +275,7 @@ class TopicSortModeTests(unittest.TestCase):
                              f"Ungrouped must be last in mode {mode!r}")
 
 
-class TopicBuildCacheTests(unittest.TestCase):
+class TopicBuildCacheTests(bf.FixtureBoardTestBase, unittest.TestCase):
     """The TaskManager caches the sort-independent lane *build* and re-sorts it
     on mode change (t1035). Invalidated by an ordered (filename, anchor)
     signature and cleared at the three object-replacement reload seams.
@@ -298,15 +287,9 @@ class TopicBuildCacheTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        import aitask_board as b  # noqa: E402
-        cls.b = b
-        cls.Task = b.Task
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.b = cls.ab
+        cls.Task = cls.ab.Task
 
     def setUp(self):
         # Call-counting spy over the module-global build fn (restored in tearDown).
@@ -418,21 +401,15 @@ class TopicBuildCacheTests(unittest.TestCase):
         self.assertIsNone(mgr.topic_lane_cache)
 
 
-class TopicSortModeScreenLogicTests(unittest.TestCase):
+class TopicSortModeScreenLogicTests(bf.FixtureBoardTestBase, unittest.TestCase):
     """Selection/cursor math of the sort-order picker (t1035). Widget mounting
     is stubbed (_sync_selection) so the logic is exercised without a running
     app — the picker applies only on Confirm/Enter, never on a bare cursor move."""
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        import aitask_board as b  # noqa: E402
-        cls.Screen = b.TopicSortModeScreen
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.Screen = cls.ab.TopicSortModeScreen
 
     def _screen(self, current):
         s = self.Screen(current)
@@ -465,17 +442,10 @@ class TopicSortModeScreenLogicTests(unittest.TestCase):
 class ScalarAnchorNormalizationTests(unittest.TestCase):
     """parse_frontmatter normalizes the scalar `anchor` like the id lists."""
 
-    @classmethod
-    def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        from task_yaml import parse_frontmatter, _normalize_task_id  # noqa: E402
-        cls.parse_frontmatter = staticmethod(parse_frontmatter)
-        cls._normalize_task_id = staticmethod(_normalize_task_id)
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+    # No fixture tree and no board module: this class exercises `task_yaml`
+    # only, which is imported by path at module level and is cwd-independent.
+    parse_frontmatter = staticmethod(parse_frontmatter)
+    _normalize_task_id = staticmethod(_normalize_task_id)
 
     def _anchor(self, raw_anchor):
         meta, _body, _order = self.parse_frontmatter(

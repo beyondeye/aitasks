@@ -22,34 +22,61 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import unittest
 from unittest.mock import Mock, patch
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
+import board_fixture as bf  # noqa: E402
 
-class BoardToggleChildrenGateTests(unittest.TestCase):
-    """Drives the real KanbanApp via Pilot against the live `aitasks/` repo."""
+
+class BoardToggleChildrenGateTests(bf.FixtureBoardTestBase, unittest.TestCase):
+    """Drives the real KanbanApp via Pilot against a fixture task tree (t1354_2).
+
+    Helper audit: the only external reach is `aitask_lock.sh --list` at boot
+    (absent under the fixture, degrades to an empty `lock_map`); no assertion
+    here reads lock state.
+    """
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        from aitask_board import KanbanApp, TaskCard  # noqa: E402
-        cls.KanbanApp = KanbanApp
-        cls.TaskCard = TaskCard
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.TaskCard = cls.ab.TaskCard
 
     def _run(self, coro):
         return asyncio.run(coro)
+
+    def test_fixture_facts(self):
+        """Preconditions (t1354_2 Step 2a) — these were three live-tree
+        `skipTest` guards. The positive-control test needs a *real* collapsed
+        parent that actually has children (DEFAULT_TOPOLOGY's t9000), and the
+        cards must be fully on screen at the 220x60 test size to be clickable.
+        """
+        async def go():
+            app = self.KanbanApp()
+            async with app.run_test(size=(220, 60)) as pilot:
+                await pilot.pause()
+                clickable = self._clickable_parent_cards(app)
+                self.assertTrue(
+                    clickable,
+                    "fixture must render at least one fully on-screen parent "
+                    "card — Pilot clicks land by coordinate")
+                with_children = [
+                    c for c in clickable
+                    if app.manager.get_child_tasks_for_parent(
+                        self.TaskCard._parse_filename(c.task_data.filename)[0])
+                ]
+                self.assertTrue(
+                    with_children,
+                    "fixture must contain a clickable parent card that really "
+                    "has children — the expand positive control targets it")
+        self._run(go())
 
     async def _enter_bytopic(self, app, pilot):
         """Press 'y' and let the board re-render settle (see
@@ -85,8 +112,8 @@ class BoardToggleChildrenGateTests(unittest.TestCase):
                 self.assertEqual(app.base_filter, "bytopic")
 
                 cards = self._clickable_parent_cards(app)
-                if not cards:
-                    self.skipTest("no clickable parent card in the bytopic view")
+                self.assertTrue(
+                    cards, "bytopic must render a clickable parent card")
                 card = cards[0]
 
                 # Make the card look like a collapsed parent *with* children —
@@ -130,8 +157,9 @@ class BoardToggleChildrenGateTests(unittest.TestCase):
                         continue
                     card = candidate
                     break
-                if card is None:
-                    self.skipTest("no clickable collapsed parent with children")
+                self.assertIsNotNone(
+                    card, "fixture must offer a clickable, collapsed parent "
+                          "card that really has children")
 
                 filename = card.task_data.filename
                 await pilot.click(card, times=2)
@@ -154,8 +182,7 @@ class BoardToggleChildrenGateTests(unittest.TestCase):
                 self.assertEqual(app.base_filter, "bytopic")
 
                 cards = [c for c in app.query(self.TaskCard) if not c.is_child]
-                if not cards:
-                    self.skipTest("no parent card in the bytopic view")
+                self.assertTrue(cards, "bytopic must render a parent card")
                 card = cards[0]
                 card.focus()
                 await pilot.pause()

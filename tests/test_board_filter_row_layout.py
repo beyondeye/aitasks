@@ -18,7 +18,6 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -28,8 +27,11 @@ from rich.cells import cell_len
 from rich.text import Text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
+
+import board_fixture as bf  # noqa: E402
 
 # Comfortably wider than the filter row + search box, so the non-reflowed
 # layout is exercised.
@@ -41,20 +43,20 @@ NARROW = (100, 48)
 SELECTOR_PADDING = 2
 
 
-class BoardFilterRowLayoutTests(unittest.TestCase):
-    """Drives the real KanbanApp via Pilot against the live `aitasks/` repo."""
+class BoardFilterRowLayoutTests(bf.FixtureBoardTestBase, unittest.TestCase):
+    """Drives the real KanbanApp via Pilot against a fixture task tree (t1354_2).
+
+    No `test_fixture_facts` here on purpose: every assertion is about
+    `ViewSelector` geometry (content width, segment placement, reflow
+    threshold), which is independent of how many tasks the tree holds. A
+    declared topology fact would be an unexercised claim (Step 4.6).
+    """
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        from aitask_board import KanbanApp, ViewSelector  # noqa: E402
-        cls.KanbanApp = KanbanApp
-        cls.ViewSelector = ViewSelector
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.ViewSelector = cls.ab.ViewSelector
 
     def _run(self, coro):
         return asyncio.run(coro)

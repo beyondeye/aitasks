@@ -42,7 +42,6 @@ Run: python3 tests/test_board_dialog_subprocess_degrade.py -v
 from __future__ import annotations
 
 import errno
-import os
 import subprocess
 import sys
 import unittest
@@ -51,12 +50,15 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 for _p in (
+    REPO_ROOT / "tests" / "lib",
     REPO_ROOT / ".aitask-scripts",
     REPO_ROOT / ".aitask-scripts" / "board",
     REPO_ROOT / ".aitask-scripts" / "lib",
 ):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
+
+import board_fixture as bf  # noqa: E402
 
 # The full boundary all three handlers promise — identical to the set
 # test_board_refresh_degrade.py drives, so the dialog and refresh handlers stay
@@ -78,18 +80,20 @@ _READY = "---\nstatus: Ready\n---\nbody\n"
 _IMPLEMENTING = "---\nstatus: Implementing\nassigned_to: someone@example.invalid\n---\nbody\n"
 
 
-class DialogSubprocessTestBase(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        import aitask_board as ab  # noqa: E402
+class DialogSubprocessTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
+    """Board module comes from the fixture harness (t1354_2); `cls.ab` is set by
+    the mixin's setUpClass.
 
-        cls.ab = ab
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+    Helper audit (t1354_2 Step 2b) — this module's *subject* is the degrade
+    path, so a fixture-induced degrade would be indistinguishable from the one
+    under test. Verified that cannot happen: **every** path through
+    `_run_worker` / `revert_task` patches `self.ab.subprocess.run` explicitly,
+    either with an injected `side_effect` from `_FAILURES` or with a
+    `return_value` carrying an explicit returncode. There is no unpatched reach,
+    so the exception under assertion is always the injected one and never a
+    missing cwd-relative helper. The screens are built from `Task.from_text`
+    with a MagicMock app — no board boot, no disk I/O.
+    """
 
     def _screen(self, raw=_READY):
         """A real TaskDetailScreen over a real Task (no disk I/O, no app)."""

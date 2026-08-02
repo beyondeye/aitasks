@@ -24,7 +24,6 @@ Coverage split:
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -32,26 +31,27 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
+
+import board_fixture as bf  # noqa: E402
 
 TASK_FILE = "t42_alpha.md"
 # The string a user edit / agent override leaves in screen.full_command.
 OVERRIDE = "opencode run --model x '/aitask-pick 42'"
 
 
-class DialogRunTestBase(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        import aitask_board as ab  # noqa: E402
+class DialogRunTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
+    """Board module comes from the fixture harness (t1354_2); `cls.ab` is set by
+    the mixin's setUpClass.
 
-        cls.ab = ab
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+    Every external reach in this module is explicitly stubbed and asserted:
+    `ab.find_terminal` and `ab.subprocess.call`, with `assert_called_once_with`
+    pinning the exact argv. Nothing here can silently take a missing-helper
+    fallback under the fixture cwd — the app is a MagicMock, so no board boot
+    and no cwd-relative script is reachable.
+    """
 
     def _mock_app(self, pick_cmd="claude '/aitask-pick 42'",
                   resume_cmd="claude '/aitask-resume 42'"):

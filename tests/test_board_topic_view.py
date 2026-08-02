@@ -13,35 +13,59 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import unittest
 from unittest.mock import patch
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
+import board_fixture as bf  # noqa: E402
 
-class BoardTopicViewTests(unittest.TestCase):
-    """Drives the real KanbanApp via Pilot against the live `aitasks/` repo."""
+
+class BoardTopicViewTests(bf.FixtureBoardTestBase, unittest.TestCase):
+    """Drives the real KanbanApp via Pilot against a fixture task tree (t1354_2).
+
+    Helper audit: the only external reach is the board's own `aitask_lock.sh
+    --list` at boot (absent under the fixture, degrades to an empty `lock_map`);
+    nothing here reads lock state. By-topic builds from in-memory tasks, so no
+    disk reload or worker is involved.
+    """
+
+    #: Two real topic lanes are required (see test_fixture_facts); the default
+    #: topology forms only one.
+    FIXTURE_TASKS = bf.RICH_TOPOLOGY
 
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        from aitask_board import KanbanApp, TaskCard, TopicColumn  # noqa: E402
-        cls.KanbanApp = KanbanApp
-        cls.TaskCard = TaskCard
-        cls.TopicColumn = TopicColumn
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.TaskCard = cls.ab.TaskCard
+        cls.TopicColumn = cls.ab.TopicColumn
 
     def _run(self, coro):
         return asyncio.run(coro)
+
+    def test_fixture_facts(self):
+        """Preconditions (t1354_2 Step 2a).
+
+        `_build_topic_lanes` only forms a lane at >=2 members sharing a
+        `topic_key` (aitask_board.py:441), so a tree can render plenty of cards
+        and still produce zero lanes — which is exactly how the old live-tree
+        `skipTest`s used to fire. RICH_TOPOLOGY supplies two: the t9000
+        parent+children cluster, and an explicit `anchor: 9002` group.
+        """
+        mgr = self.ab.TaskManager()
+        mgr.load_tasks()
+        lanes = self.ab.group_tasks_by_topic(
+            list(mgr.task_datas.values()) + list(mgr.child_task_datas.values()))
+        real = [label for label, _ in lanes if label != "Ungrouped"]
+        self.assertGreaterEqual(
+            len(real), 2,
+            f"fixture must form >=2 real topic lanes for lateral nav; got {real}")
 
     async def _enter_bytopic(self, app, pilot):
         """Press 'y' and let the board re-render settle. By-topic builds from
@@ -61,8 +85,9 @@ class BoardTopicViewTests(unittest.TestCase):
                 await self._enter_bytopic(app, pilot)
                 self.assertEqual(app.base_filter, "bytopic")
                 columns = list(app.query(self.TopicColumn))
-                if not columns:
-                    self.skipTest("no topic lanes in the live repo")
+                self.assertTrue(
+                    columns, "bytopic must mount at least one TopicColumn "
+                             "swimlane for the fixture's topic lanes")
                 # Every card under bytopic must be visible (no base hiding).
                 hidden = [c for c in app.query(self.TaskCard)
                           if c.styles.display == "none"]
@@ -116,8 +141,9 @@ class BoardTopicViewTests(unittest.TestCase):
                     by_col.setdefault(c.column_id, []).append(c)
                 cols_with_cards = [cid for cid in app._get_visible_col_ids()
                                    if by_col.get(cid)]
-                if len(cols_with_cards) < 2:
-                    self.skipTest("need >=2 topic lanes with cards for nav")
+                self.assertGreaterEqual(
+                    len(cols_with_cards), 2,
+                    "lateral nav needs >=2 topic lanes holding cards")
 
                 by_col[cols_with_cards[0]][0].focus()
                 await pilot.pause()
@@ -151,8 +177,7 @@ class BoardTopicViewTests(unittest.TestCase):
                 await pilot.pause()
                 await self._enter_bytopic(app, pilot)
                 cards = list(app.query(self.TaskCard))
-                if not cards:
-                    self.skipTest("no cards in the live repo")
+                self.assertTrue(cards, "bytopic must render cards")
 
                 app.search_filter = "zzz_no_such_task_qqq"
                 app.apply_filter()

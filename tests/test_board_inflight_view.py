@@ -11,12 +11,21 @@ from pathlib import Path
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
+import board_fixture as bf  # noqa: E402
 
-def _manager():
-    from aitask_board import TaskManager
+
+def _manager(ab):
+    """Bare TaskManager built from the *fixture-bound* board module.
+
+    `ab` is threaded in rather than imported here: under the harness the board
+    is loaded under a synthetic module name, so a local `import aitask_board`
+    would reach a different module object than the one under test.
+    """
+    TaskManager = ab.TaskManager
 
     mgr = TaskManager.__new__(TaskManager)
     mgr.task_datas = {}
@@ -34,8 +43,8 @@ def _manager():
     return mgr
 
 
-def _task(tmp: Path, name: str, body: str):
-    from aitask_board import Task
+def _task(ab, tmp: Path, name: str, body: str):
+    Task = ab.Task
 
     path = tmp / name
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -68,11 +77,11 @@ LEDGER_REVIEW_PASS = """
 """
 
 
-class InFlightModelTests(unittest.TestCase):
+class InFlightModelTests(bf.FixtureBoardTestBase, unittest.TestCase):
     def test_implementing_without_ledger_is_included(self):
         with tempfile.TemporaryDirectory() as td:
-            mgr = _manager()
-            task = _task(Path(td), "t1_plain.md", _body("Implementing"))
+            mgr = _manager(self.ab)
+            task = _task(self.ab, Path(td), "t1_plain.md", _body("Implementing"))
             mgr.task_datas[task.filename] = task
 
             items = mgr.get_inflight_items()
@@ -84,8 +93,9 @@ class InFlightModelTests(unittest.TestCase):
 
     def test_ready_with_ledger_is_excluded(self):
         with tempfile.TemporaryDirectory() as td:
-            mgr = _manager()
+            mgr = _manager(self.ab)
             task = _task(
+                self.ab,
                 Path(td),
                 "t2_ready.md",
                 _body("Ready", "gates: [review_approved]\n", LEDGER_REVIEW_PASS),
@@ -96,8 +106,9 @@ class InFlightModelTests(unittest.TestCase):
 
     def test_pending_human_gate_needs_action(self):
         with tempfile.TemporaryDirectory() as td:
-            mgr = _manager()
+            mgr = _manager(self.ab)
             task = _task(
+                self.ab,
                 Path(td),
                 "t3_review.md",
                 _body("Implementing", "gates: [review_approved]\n", LEDGER_PENDING_HUMAN),
@@ -110,13 +121,15 @@ class InFlightModelTests(unittest.TestCase):
 
     def test_gate_satisfied_dependency_does_not_block(self):
         with tempfile.TemporaryDirectory() as td:
-            mgr = _manager()
+            mgr = _manager(self.ab)
             upstream = _task(
+                self.ab,
                 Path(td),
                 "t10_upstream.md",
                 _body("Implementing", "gates: [review_approved]\n", LEDGER_REVIEW_PASS),
             )
             dependent = _task(
+                self.ab,
                 Path(td),
                 "t11_dependent.md",
                 _body("Ready", "depends: [10]\n"),
@@ -128,8 +141,8 @@ class InFlightModelTests(unittest.TestCase):
 
     def test_gate_parse_failure_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
-            mgr = _manager()
-            task = _task(Path(td), "t12_missing.md", _body("Implementing"))
+            mgr = _manager(self.ab)
+            task = _task(self.ab, Path(td), "t12_missing.md", _body("Implementing"))
             task.filepath = Path(td) / "does_not_exist.md"
             mgr.task_datas[task.filename] = task
 
@@ -139,23 +152,31 @@ class InFlightModelTests(unittest.TestCase):
             self.assertTrue(item.state_error)
 
 
-class InFlightPilotTests(unittest.TestCase):
+class InFlightPilotTests(bf.FixtureBoardTestBase, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-        from aitask_board import InFlightColumn, KanbanApp, KanbanColumn
-
-        cls.InFlightColumn = InFlightColumn
-        cls.KanbanApp = KanbanApp
-        cls.KanbanColumn = KanbanColumn
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
+        super().setUpClass()
+        cls.InFlightColumn = cls.ab.InFlightColumn
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.KanbanColumn = cls.ab.KanbanColumn
 
     def _run(self, coro):
         return asyncio.run(coro)
+
+    def test_fixture_facts(self):
+        """Precondition (t1354_2 Step 2a): the tree must carry an in-flight
+        task, or the In-Flight view assertions below would pass against an
+        empty view."""
+        mgr = self.ab.TaskManager()
+        mgr.load_tasks()
+        implementing = [
+            f for f, t in list(mgr.task_datas.items()) + list(mgr.child_task_datas.items())
+            if t.metadata.get("status") == "Implementing"
+        ]
+        self.assertTrue(
+            implementing,
+            "fixture must contain at least one Implementing task for the "
+            "In-Flight view")
 
     def test_i_switches_to_inflight_columns_and_a_returns(self):
         async def go():
@@ -177,39 +198,36 @@ class InFlightPilotTests(unittest.TestCase):
         self._run(go())
 
     def test_existing_agent_window_guard_reuses_window(self):
+        # Targets are bound to `self.ab` (the fixture-loaded module), NOT the
+        # string "aitask_board". Under the harness the board is imported under a
+        # synthetic module name, so a string target would patch the *canonical*
+        # module — a different object from the one under test — and this test
+        # would silently shell out to the real tmux helpers (t1354_2 Step 2b).
         app = self.KanbanApp()
-        with patch("aitask_board._current_tmux_session", return_value="aitasks"), \
-                patch("aitask_board.find_window_by_name", return_value=("aitasks", "2")), \
-                patch("aitask_board.subprocess.Popen") as popen:
+        with patch.object(self.ab, "_current_tmux_session", return_value="aitasks"), \
+                patch.object(self.ab, "find_window_by_name",
+                             return_value=("aitasks", "2")), \
+                patch.object(self.ab.subprocess, "Popen") as popen:
             self.assertTrue(app._focus_existing_agent_window("42"))
             popen.assert_called_once()
 
 
-class InFlightCardRenderTests(unittest.TestCase):
+class InFlightCardRenderTests(bf.FixtureBoardTestBase, unittest.TestCase):
     """Render-level checks: mount a real InFlightTaskCard and read what the
     Labels actually display (post-markup), exercising compose() + Label rather
     than a helper string in isolation."""
 
-    @classmethod
-    def setUpClass(cls):
-        cls._orig_cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
-
-    @classmethod
-    def tearDownClass(cls):
-        os.chdir(cls._orig_cwd)
-
     def _render_card(self, body: str):
         """Build an InFlightItem from `body`, mount its card, and return
         {ops, action} -> rendered plain text."""
-        from aitask_board import InFlightTaskCard
+        InFlightTaskCard = self.ab.InFlightTaskCard
         from textual.app import App
         from textual.widgets import Label
 
         async def go():
             with tempfile.TemporaryDirectory() as td:
-                mgr = _manager()
-                task = _task(Path(td), "t1_card.md", body)
+                mgr = _manager(self.ab)
+                task = _task(self.ab, Path(td), "t1_card.md", body)
                 mgr.task_datas[task.filename] = task
                 item = mgr.get_inflight_items()[0]
 
