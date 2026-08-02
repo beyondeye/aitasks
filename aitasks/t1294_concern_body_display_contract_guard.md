@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1037
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 12:56
-updated_at: 2026-08-02 09:47
+updated_at: 2026-08-02 17:21
 boardidx: 410
 ---
 
@@ -73,3 +74,8 @@ the picker — that second consumer is exactly the scenario this guard exists fo
 - The guard **fails** when `_ConcernRow.render` is switched to `.body`, and when
   `build_clipboard_payload` is switched to `display_body()` — both demonstrated,
   not assumed.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-02T14:21:36Z status=pass attempt=1 type=human
