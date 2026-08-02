@@ -526,5 +526,8 @@ def build_clipboard_payload(
     """
     lines = [preamble, ""]
     for c in concerns:
+        # ``.body``, never ``display_body()`` — this is the forward path, and the
+        # trailer is metadata the receiving agent needs. Frozen with a FORWARD
+        # role in tests/test_concern_body_display_contract.py (t1294).
         lines.append(f"- [{c.priority} | {c.region}] {c.body}")
     return "\n".join(lines)

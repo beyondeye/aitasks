@@ -1290,6 +1290,8 @@ class _ConcernRow(Static):
         # display_body(), never .body — the Disposition:/Verified: trailer is
         # metadata for the receiving agent, not for this row. (The clipboard path
         # is the mirror rule: always .body, so the trailer is forwarded intact.)
+        # Frozen with a DISPLAY role in
+        # tests/test_concern_body_display_contract.py (t1294).
         body = escape(self._concern.display_body())
         if self._narrow:
             budget = max(6, (self.size.width or 28) - _NARROW_PREFIX_COLS)
