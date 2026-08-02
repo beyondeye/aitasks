@@ -28,6 +28,7 @@ applink_control
 applink_dataplane
 applink_security
 archiveformat
+artifacts
 auto-update
 backend
 bash_scripts
@@ -97,6 +98,7 @@ tests
 tmux
 tmux_destructive
 tmux_disruptive
+trails
 tui
 tui_switcher
 ui
