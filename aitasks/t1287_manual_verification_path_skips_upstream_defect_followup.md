@@ -9,6 +9,7 @@ gates: [risk_evaluated]
 anchor: 1142
 created_at: 2026-07-28 11:50
 updated_at: 2026-07-28 11:50
+boardidx: 340
 ---
 
 Manual-verification tasks never reach Step 8b (Upstream Defect Follow-up), so

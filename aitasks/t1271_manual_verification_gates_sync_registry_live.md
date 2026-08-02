@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [635_34]
+depends: [t635_34]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [635_34]
+verifies: ['635_34']
 created_at: 2026-07-27 23:28
 updated_at: 2026-07-27 23:28
+boardidx: 230
 ---
 
 ## Manual Verification Task

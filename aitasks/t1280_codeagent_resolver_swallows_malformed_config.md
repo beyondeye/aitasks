@@ -8,6 +8,7 @@ labels: [ait_settings]
 anchor: 1223
 created_at: 2026-07-28 01:19
 updated_at: 2026-07-28 01:19
+boardidx: 280
 ---
 
 ## Origin

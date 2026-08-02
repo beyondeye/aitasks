@@ -15,6 +15,7 @@ folded_tasks: [1346, 1352]
 anchor: 1111
 created_at: 2026-07-31 07:41
 updated_at: 2026-07-31 17:58
+boardidx: 870
 ---
 
 ## Problem

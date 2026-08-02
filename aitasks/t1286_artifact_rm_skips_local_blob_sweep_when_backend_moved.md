@@ -9,6 +9,7 @@ gates: [risk_evaluated]
 anchor: 1142
 created_at: 2026-07-28 11:50
 updated_at: 2026-07-28 11:50
+boardidx: 330
 ---
 
 `ait artifact rm` reports `0 orphan blob(s) swept` and leaves git-tracked local

@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [1076_3]
+depends: [t1076_3]
 issue_type: bug
 status: Ready
 labels: [verification, bug]
 anchor: 1065
 created_at: 2026-07-28 11:25
 updated_at: 2026-07-28 11:25
+boardidx: 310
 ---
 
 ## Failed verification item from t1076_3

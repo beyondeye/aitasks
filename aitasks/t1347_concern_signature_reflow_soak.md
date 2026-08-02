@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: [1216_3]
+depends: [t1216_3]
 issue_type: test
 status: Ready
 labels: [aitask_monitor, shadow, tui]
@@ -9,6 +9,7 @@ gates: [risk_evaluated]
 anchor: 1111
 created_at: 2026-07-30 08:12
 updated_at: 2026-07-30 08:12
+boardidx: 810
 ---
 
 ## Origin

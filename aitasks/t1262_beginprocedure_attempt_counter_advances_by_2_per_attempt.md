@@ -8,6 +8,7 @@ labels: [gates]
 anchor: 635
 created_at: 2026-07-27 09:15
 updated_at: 2026-07-27 09:15
+boardidx: 180
 ---
 
 ## Problem

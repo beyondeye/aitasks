@@ -9,6 +9,7 @@ gates: [risk_evaluated]
 anchor: 1307
 created_at: 2026-07-29 10:16
 updated_at: 2026-07-29 10:16
+boardidx: 570
 ---
 
 Close the residual wrong-pane hazard that **t1307** documented but, being

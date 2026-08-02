@@ -7,7 +7,7 @@ status: Ready
 labels: [aitask_monitormini, tmux, tui, tmux_disruptive]
 created_at: 2026-06-25 11:33
 updated_at: 2026-07-28 19:16
-boardidx: 430
+boardidx: 1380
 ---
 
 ## Pick-time care note — POTENTIALLY DISRUPTIVE (and the approach needs a re-look)

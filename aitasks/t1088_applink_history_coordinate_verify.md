@@ -13,7 +13,7 @@ anchor: 1057
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-28 10:57
 updated_at: 2026-07-24 15:08
-boardidx: 150
+boardidx: 1100
 ---
 
 ## Origin

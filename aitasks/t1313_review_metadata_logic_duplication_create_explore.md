@@ -9,6 +9,7 @@ gates: [risk_evaluated]
 anchor: 1312
 created_at: 2026-07-29 09:16
 updated_at: 2026-07-29 09:16
+boardidx: 540
 ---
 
 Review whether the duplicated task-metadata-gathering logic across the various

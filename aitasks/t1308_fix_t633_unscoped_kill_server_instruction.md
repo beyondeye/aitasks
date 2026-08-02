@@ -8,6 +8,7 @@ labels: [tmux, manual_verification]
 anchor: 633
 created_at: 2026-07-28 19:15
 updated_at: 2026-07-28 19:15
+boardidx: 520
 ---
 
 ## Problem

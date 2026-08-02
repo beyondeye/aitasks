@@ -7,6 +7,7 @@ status: Ready
 labels: [aitask_changelog]
 created_at: 2026-07-31 11:12
 updated_at: 2026-07-31 11:12
+boardidx: 920
 ---
 
 ## Origin
