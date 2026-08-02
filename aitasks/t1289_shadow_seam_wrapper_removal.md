@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [aitask_monitor, shadow, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-28 11:53
-updated_at: 2026-07-28 11:53
+updated_at: 2026-08-02 23:25
 boardidx: 360
 ---
 
