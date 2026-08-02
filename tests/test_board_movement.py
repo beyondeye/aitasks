@@ -178,6 +178,10 @@ class Probe:
         self.counts = {k: 0 for k in self.LEAVES}
         self.inclusive_refresh = 0.0
         self.writes: dict[str, int] = {}
+        # Compaction spy (t1243_3). "Exactly one respace" must be asserted
+        # directly, not inferred from a write total that also counts the
+        # placement write.
+        self.respaces: list[str] = []
         self.sync_end: float | None = None
         self.first_deferred_start: float | None = None
         self.filter_event: asyncio.Event | None = None
@@ -260,6 +264,16 @@ def _install_probe(B, probe: Probe, ablate=()):
         return wrapper
     B.Task.reload_and_save_board_fields = _save_wrapper(B.Task.reload_and_save_board_fields)
 
+    # Compaction spy (t1243_3). Not a timed leaf: it runs INSIDE
+    # `reposition_task`, whose writes are already counted by `save_fields`, so
+    # entering a span here would register a nesting violation.
+    def _respace_wrapper(orig):
+        def wrapper(self_, col_id, *a, **kw):
+            probe.respaces.append(col_id)
+            return orig(self_, col_id, *a, **kw)
+        return wrapper
+    B.TaskManager.respace_column = _respace_wrapper(B.TaskManager.respace_column)
+
     # Report-only: these CONTAIN _recompose_column, so they are excluded from
     # every formula and are never added to the leaf sum.
     for attr in ("refresh_column", "refresh_columns"):
@@ -306,11 +320,37 @@ def _install_probe(B, probe: Probe, ablate=()):
 
 
 def _apply_mutation(B, mutate: str | None):
-    """Injected defect used to prove the flip table discriminates."""
+    """Injected defect used to prove the flip table discriminates.
+
+    t1243_3 re-pointed these. The pre-gap-indexing mutation no-op'd
+    `TaskManager.normalize_indices`, a method that no longer exists — the
+    assignment would merely CREATE an unused attribute, leaving the mutation
+    inert and making `HarnessDiscriminationTests` fail for the wrong reason (the
+    control must fail because behaviour is pinned, not because the defect
+    missed). Both mutations below target live code.
+    """
     if not mutate:
         return
-    if mutate == "skip_normalize":
-        B.TaskManager.normalize_indices = lambda self_, col_id: None
+    if mutate == "respace_after_move":
+        # Reinstates exactly the write amplification gap indexing removed: a
+        # column move that also renumbers both columns to 10/20/30. Must break
+        # the frozen record for `lateral_gapped`.
+        orig = B.TaskManager.move_tasks_to_column
+
+        def wrapper(self_, task_names, new_col):
+            names = list(task_names)
+            sources = {self_.task_datas[n].board_col
+                       for n in names if n in self_.task_datas}
+            result = orig(self_, names, new_col)
+            for col in sources | {new_col}:
+                self_.respace_column(col, stride=10)
+            return result
+        B.TaskManager.move_tasks_to_column = wrapper
+    elif mutate == "skip_respace":
+        # Removes the compaction remedy. `reposition_task`'s retry then has no
+        # room and its in-code assertion must fire — proving the remedy is
+        # load-bearing on the real action path rather than merely present.
+        B.TaskManager.respace_column = lambda self_, col_id, stride=None: None
     else:  # pragma: no cover - guarded by the caller
         raise ValueError(f"unknown mutation: {mutate}")
 
@@ -369,15 +409,31 @@ async def _run_in_app(B, probe: Probe, params: dict) -> dict:
         probe.refocus_event = asyncio.Event()
 
         if params["mode"] == "scenario":
-            _focus(B, app, params["focus"])
+            # `steps` is a list of {focus, key}; the single-key form is one step.
+            # Multi-step exists because transit and gap exhaustion are
+            # *sequences* — a single keypress cannot drive an interval down to
+            # its bound, let alone past it (t1243_3). The probe is reset once,
+            # before the first step, so counts accumulate across the whole
+            # sequence.
+            steps = params.get("steps") or [
+                {"focus": params["focus"], "key": params["key"]}]
+            _focus(B, app, steps[0]["focus"])
             await _settle(pilot)
             probe.reset()
             probe.filter_event = asyncio.Event()
             probe.refocus_event = asyncio.Event()
-            await pilot.press(params["key"])
-            await _settle(pilot, 5)
+            for i, step in enumerate(steps):
+                if i:
+                    # Re-focus explicitly rather than relying on where the
+                    # previous move left focus: a step that moves a *different*
+                    # card must not silently act on the one still focused.
+                    _focus(B, app, step["focus"])
+                    await _settle(pilot)
+                await pilot.press(step["key"])
+                await _settle(pilot, 5)
             result["writes_by_file"] = dict(probe.writes)
             result["writes_total"] = sum(probe.writes.values())
+            result["respaces"] = list(probe.respaces)
             result["board_order"] = _board_order(app)
         else:
             result.update(await _bench(B, app, pilot, probe, params))
@@ -478,10 +534,13 @@ async def _bench(B, app, pilot, probe: Probe, params: dict) -> dict:
                 if problems:
                     raise RuntimeError(f"{axis} pair {n} key {key}: " + "; ".join(problems))
                 record.append(s)
-            # Ping-pong must be stationary: `move_task_col` appends at
-            # max_idx + 10, so right->left only restores the pre-state for a
-            # card starting at the BOTTOM of its column. Assert it every pair
-            # rather than letting the workload drift.
+            # Ping-pong must be stationary: `move_task_to_column` appends past
+            # the destination maximum, so right->left only restores the
+            # pre-state for a card starting at the BOTTOM of its column. The
+            # comparison is on ORDER, not on indices — under gap indexing each
+            # round trip lands the card on a fresh (larger) index while its
+            # slot is unchanged, which is exactly the invariant the workload
+            # needs. Assert it every pair rather than letting the workload drift.
             if _board_order(app) != start_state:
                 raise RuntimeError(f"{axis} pair {n}: pre-state not restored")
             if n >= warmup_pairs:
@@ -536,9 +595,32 @@ def summarise(samples: list[dict]) -> dict:
 # Canonical: c0 = 10/20/30, c1 = 10/20, c2 = 10.
 CANONICAL = [(1, "c0", 10), (2, "c0", 20), (3, "c0", 30),
              (4, "c1", 10), (5, "c1", 20), (6, "c2", 10)]
-# Non-canonical source column, so normalize_indices has real work to do.
+# Non-canonical source column. Before t1243_3 this was where normalize_indices
+# had real work to do; now it is the fixture that proves the source column is
+# NOT rewritten — it must still read 5/17/42 after the move.
 GAPPED = [(1, "c0", 5), (2, "c0", 17), (3, "c0", 42),
           (4, "c1", 10), (5, "c1", 20), (6, "c2", 10)]
+# t9004 carries the STRING "20": `build_tree` passes the value straight into
+# serialize_frontmatter, so the file reads `boardidx: '20'`. Before t1243_3 the
+# raw `max()` in move_task_col raised TypeError comparing str with int.
+QUOTED = [(1, "c0", 10), (2, "c0", 20), (3, "c0", 30),
+          (4, "c1", "20"), (5, "c1", 30), (6, "c2", 10)]
+# Tied indices are reachable in production: delete_column assigns board_idx = 0
+# to every evicted task. Rendered order falls back to the filename tie-break.
+TIED2 = [(1, "c0", 10), (2, "c0", 10), (3, "c0", 30),
+         (4, "c1", 10), (5, "c1", 20), (6, "c2", 10)]
+TIED3 = [(1, "c0", 10), (2, "c0", 10), (3, "c0", 10),
+         (4, "c1", 10), (5, "c1", 20), (6, "c2", 10)]
+
+# Drives c0's top gap down to width 1: 10/20/30 -> 10,15,20 -> 10,12,15 ->
+# 10,11,12. Each step moves whichever card currently sits LAST, so every insert
+# targets the same shrinking interval; a single card pressed repeatedly would
+# reach the top and prepend instead.
+_HALVING_STEPS = [
+    {"focus": fixture_name(3), "key": "shift+up"},
+    {"focus": fixture_name(2), "key": "shift+up"},
+    {"focus": fixture_name(3), "key": "shift+up"},
+]
 
 SCENARIOS = {
     "lateral_canonical": {"cards": CANONICAL, "focus": 3, "key": "shift+right"},
@@ -547,55 +629,169 @@ SCENARIOS = {
     "extreme_top":       {"cards": CANONICAL, "focus": 3, "key": "ctrl+up"},
     "extreme_bottom":    {"cards": CANONICAL, "focus": 1, "key": "ctrl+down"},
     "shift_column":      {"cards": CANONICAL, "focus": 1, "key": "ctrl+right"},
+    # --- gap indexing (t1243_3) ---
+    "transit_multi_hop": {"cards": CANONICAL, "steps": [
+        {"focus": fixture_name(3), "key": "shift+right"},
+        {"focus": fixture_name(3), "key": "shift+right"},
+    ]},
+    "vertical_at_bound":  {"cards": CANONICAL, "steps": list(_HALVING_STEPS)},
+    "vertical_exhaustion": {"cards": CANONICAL, "steps": _HALVING_STEPS + [
+        {"focus": fixture_name(2), "key": "shift+up"},
+    ]},
+    "quoted_boardidx":    {"cards": QUOTED, "focus": 3, "key": "shift+right"},
+    "tie_two_way_up":     {"cards": TIED2,  "focus": 2, "key": "shift+up"},
+    "tie_two_way_down":   {"cards": TIED2,  "focus": 1, "key": "shift+down"},
+    "tie_three_way_up_compacts": {"cards": TIED3, "focus": 3, "key": "shift+up"},
 }
 
 # --- THE FLIP TABLE ---------------------------------------------------------
 #
-# Today's behaviour, asserted EXACTLY (never assertGreater). t1243_3 rewrites the
-# indexing scheme and t1243_11 adds block moves; both MUST consciously edit this
-# table. **A silent pass after such a rewrite is a bug in the table, not a
-# passing test.** `writes` counts reload_and_save_board_fields calls (a file can
-# be written twice in one action); `changed` is the byte differ's exact set --
-# the two disagree by design, because Task.save() does not bump updated_at and an
-# unchanged-value write is byte-identical.
+# Behaviour asserted EXACTLY (never assertGreater). **A silent pass after a
+# movement rewrite is a bug in the table, not a passing test** — t1243_11 adds
+# block moves and MUST consciously edit it, as t1243_3 did here.
+#
+# `writes` counts reload_and_save_board_fields calls (a file can be written
+# twice in one action -- see `vertical_exhaustion`, where a respace and then the
+# placement both touch the moved card); `changed` is the byte differ's exact
+# set. The two disagree by design, because Task.save() does not bump updated_at
+# and an unchanged-value write is byte-identical. `respaces` lists the columns
+# compacted, so "exactly one compaction" is asserted directly.
+#
+# FLIPPED BY t1243_3 (gap indexing). The old values are quoted per row: canonical
+# renumbering rewrote every task in up to two columns on every move, so a
+# one-card move dirtied up to three files. Now each single move writes exactly
+# one file, and no file outside the move is ever touched -- which is what the
+# unchanged `(col, idx)` of every other card in each row asserts.
 FLIP_TABLE = {
     "lateral_canonical": {
+        # was: writes 1, same changed set. Index 30 (max+10) -> 1044 (max+STEP).
         "writes": 1,
         "changed": {"aitasks/t9003_fixture.md"},
-        "state": {1: ("c0", 10), 2: ("c0", 20), 3: ("c1", 30),
+        "respaces": [],
+        "state": {1: ("c0", 10), 2: ("c0", 20), 3: ("c1", 1044),
                   4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
     },
     "lateral_gapped": {
-        "writes": 3,
-        "changed": {"aitasks/t9001_fixture.md", "aitasks/t9002_fixture.md",
-                    "aitasks/t9003_fixture.md"},
-        "state": {1: ("c0", 10), 2: ("c0", 20), 3: ("c1", 30),
+        # THE HEADLINE FLIP. was: writes 3, changed all three c0 files, and c0
+        # renumbered 5/17/42 -> 10/20/30. The source column is now untouched.
+        "writes": 1,
+        "changed": {"aitasks/t9003_fixture.md"},
+        "respaces": [],
+        "state": {1: ("c0", 5), 2: ("c0", 17), 3: ("c1", 1044),
                   4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
     },
     "vertical_swap": {
-        "writes": 2,
-        "changed": {"aitasks/t9002_fixture.md", "aitasks/t9003_fixture.md"},
-        "state": {1: ("c0", 10), 2: ("c0", 30), 3: ("c0", 20),
+        # was: writes 2, changed 2 files (a swap wrote both cards). One insert
+        # past the column maximum replaces the swap.
+        "writes": 1,
+        "changed": {"aitasks/t9002_fixture.md"},
+        "respaces": [],
+        "state": {1: ("c0", 10), 2: ("c0", 1054), 3: ("c0", 30),
                   4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
     },
     "extreme_top": {
-        "writes": 4,
-        "changed": {"aitasks/t9001_fixture.md", "aitasks/t9002_fixture.md",
-                    "aitasks/t9003_fixture.md"},
-        "state": {1: ("c0", 20), 2: ("c0", 30), 3: ("c0", 10),
+        # was: writes 4, changed 3 files (write at min-10, then renumber).
+        # A NEGATIVE index is the point: it makes "move to top" a single write.
+        "writes": 1,
+        "changed": {"aitasks/t9003_fixture.md"},
+        "respaces": [],
+        "state": {1: ("c0", 10), 2: ("c0", 20), 3: ("c0", -1014),
                   4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
     },
     "extreme_bottom": {
-        "writes": 4,
-        "changed": {"aitasks/t9001_fixture.md", "aitasks/t9002_fixture.md",
-                    "aitasks/t9003_fixture.md"},
-        "state": {1: ("c0", 30), 2: ("c0", 10), 3: ("c0", 20),
+        # was: writes 4, changed 3 files.
+        "writes": 1,
+        "changed": {"aitasks/t9001_fixture.md"},
+        "respaces": [],
+        "state": {1: ("c0", 1054), 2: ("c0", 20), 3: ("c0", 30),
                   4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
     },
     "shift_column": {
+        # Unflipped: column reordering never touched task files and still doesn't.
         "writes": 0,
         "changed": {"aitasks/metadata/board_config.json"},
+        "respaces": [],
         "state": {1: ("c0", 10), 2: ("c0", 20), 3: ("c0", 30),
+                  4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
+    },
+
+    # --- new in t1243_3 ---------------------------------------------------
+    "transit_multi_hop": {
+        # THE TRANSIT GUARANTEE. c0 -> c1 -> c2 writes the moved card once per
+        # hop and NOTHING in c0 or c1. Before gap indexing this dirtied both
+        # transit columns. 20+STEP=1044, then 10+STEP=1034.
+        "writes": 2,
+        "changed": {"aitasks/t9003_fixture.md"},
+        "respaces": [],
+        "state": {1: ("c0", 10), 2: ("c0", 20), 3: ("c2", 1034),
+                  4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
+    },
+    "vertical_at_bound": {
+        # Three inserts into the same shrinking interval: (10,20)->15,
+        # (10,15)->12, (10,12)->11. The last gap is exactly 2 -- the tightest
+        # interval that still has an interior value -- so it must NOT compact.
+        # t9001 is never written.
+        "writes": 3,
+        "changed": {"aitasks/t9002_fixture.md", "aitasks/t9003_fixture.md"},
+        "respaces": [],
+        "state": {1: ("c0", 10), 2: ("c0", 12), 3: ("c0", 11),
+                  4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
+    },
+    "vertical_exhaustion": {
+        # The same three steps, then a fourth into the now-1-wide gap (10,11):
+        # index_between returns None -> ONE respace at stride_for(1)=1024
+        # (10,11,12 -> 1024,2048,3072, three writes) -> retry (1024,2048)->1536,
+        # one more write on the same card. A legacy 10-spaced column self-heals
+        # once and is STEP-spaced thereafter; there is never a second compaction.
+        "writes": 7,
+        "changed": {"aitasks/t9001_fixture.md", "aitasks/t9002_fixture.md",
+                    "aitasks/t9003_fixture.md"},
+        "respaces": ["c0"],
+        "state": {1: ("c0", 1024), 2: ("c0", 1536), 3: ("c0", 2048),
+                  4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
+    },
+    "quoted_boardidx": {
+        # c1 holds the string '20' next to the int 30. The old raw max() raised
+        # TypeError comparing str with int; every read now goes through
+        # normalize_board_idx, so this appends past max(20,30). t9004 keeps its
+        # STRING value -- the quoted file is neither rewritten nor coerced.
+        "writes": 1,
+        "changed": {"aitasks/t9003_fixture.md"},
+        "respaces": [],
+        "state": {1: ("c0", 10), 2: ("c0", 20), 3: ("c1", 1054),
+                  4: ("c1", "20"), 5: ("c1", 30), 6: ("c2", 10)},
+    },
+    "tie_two_way_up": {
+        # t9001 and t9002 both at 10, ordered by the filename tie-break. Moving
+        # t9002 up leaves no neighbour above the destination slot, so it
+        # prepends to min-STEP. THE EQUAL-INDEX NO-OP, FIXED: the old swap
+        # exchanged 10 for 10, both writes were byte-identical, and the card did
+        # not move at all.
+        "writes": 1,
+        "changed": {"aitasks/t9002_fixture.md"},
+        "respaces": [],
+        "state": {1: ("c0", 10), 2: ("c0", -1014), 3: ("c0", 30),
+                  4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
+    },
+    "tie_two_way_down": {
+        # The mirror: t9001 moves down past its tied neighbour into (10,30)->20.
+        # Also formerly a no-op.
+        "writes": 1,
+        "changed": {"aitasks/t9001_fixture.md"},
+        "respaces": [],
+        "state": {1: ("c0", 20), 2: ("c0", 10), 3: ("c0", 30),
+                  4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
+    },
+    "tie_three_way_up_compacts": {
+        # A tie is the densest possible interval, so it reaches the compaction
+        # branch in ONE keypress where vertical_exhaustion needs four -- the two
+        # therefore fail independently. (10,10) -> None -> respace to
+        # 1024/2048/3072 -> retry (1024,2048) -> 1536.
+        "writes": 4,
+        "changed": {"aitasks/t9001_fixture.md", "aitasks/t9002_fixture.md",
+                    "aitasks/t9003_fixture.md"},
+        "respaces": ["c0"],
+        "state": {1: ("c0", 1024), 2: ("c0", 2048), 3: ("c0", 1536),
                   4: ("c1", 10), 5: ("c1", 20), 6: ("c2", 10)},
     },
 }
@@ -617,13 +813,17 @@ class _ScenarioBase(_TreeMixin):
         spec = SCENARIOS[name]
         tree, ipc = self.make_tree(spec["cards"])
         before = snapshot(tree)
-        result = run_child(tree, ipc, {
+        params = {
             "mode": "scenario",
-            "focus": fixture_name(spec["focus"]),
-            "key": spec["key"],
             "mutate": mutate,
             "size": [200, 60],
-        }, tag=name)
+        }
+        if "steps" in spec:
+            params["steps"] = spec["steps"]
+        else:
+            params["focus"] = fixture_name(spec["focus"])
+            params["key"] = spec["key"]
+        result = run_child(tree, ipc, params, tag=name)
         after = snapshot(tree)
         return tree, spec, result, diff_snapshots(before, after)
 
@@ -633,6 +833,8 @@ class _ScenarioBase(_TreeMixin):
         # The fixture actually loaded — a phantom-stub drop would otherwise make
         # every assertion below pass vacuously.
         self.assertEqual(result["loaded"], sorted(fixture_name(i) for i, _, _ in spec["cards"]))
+        self.assertEqual(result["respaces"], expect["respaces"],
+                         "compaction must happen exactly where the table says")
         self.assertTrue(result["unordered_empty"], "no fixture card may land in 'unordered'")
         self.assertEqual(result["nesting_violations"], [], "instrumented spans must not nest")
         self.assertEqual(Path(result["tasks_dir_resolved"]),
@@ -681,21 +883,79 @@ class BoardMovementCharacterizationTests(_ScenarioBase):
         self._assert_frozen("shift_column", *self._run_scenario("shift_column"))
 
 
+class GapIndexingTests(_ScenarioBase):
+    """The single-write and single-respace guarantees, driven through real keys."""
+
+    def test_transit_dirties_nothing_outside_the_moved_task(self):
+        """A->B->C writes the moved card once per hop and nothing in A or B."""
+        self._assert_frozen("transit_multi_hop", *self._run_scenario("transit_multi_hop"))
+
+    def test_at_bound_interval_does_not_compact(self):
+        """Three inserts drive the gap to exactly 2 — still no respace."""
+        self._assert_frozen("vertical_at_bound", *self._run_scenario("vertical_at_bound"))
+
+    def test_exhausted_interval_compacts_exactly_once(self):
+        """A fourth insert exhausts the gap: one respace, then the retry
+        succeeds. A legacy 10-spaced column self-heals and stays STEP-spaced."""
+        self._assert_frozen("vertical_exhaustion", *self._run_scenario("vertical_exhaustion"))
+
+    def test_quoted_boardidx_no_longer_raises(self):
+        """The raw max() TypeError, and the quoted file is left untouched."""
+        self._assert_frozen("quoted_boardidx", *self._run_scenario("quoted_boardidx"))
+
+    def test_tied_indices_move_up(self):
+        """The equal-index no-op: the old swap exchanged 10 for 10 and the card
+        never moved."""
+        self._assert_frozen("tie_two_way_up", *self._run_scenario("tie_two_way_up"))
+
+    def test_tied_indices_move_down(self):
+        self._assert_frozen("tie_two_way_down", *self._run_scenario("tie_two_way_down"))
+
+    def test_three_way_tie_compacts_once(self):
+        self._assert_frozen("tie_three_way_up_compacts",
+                            *self._run_scenario("tie_three_way_up_compacts"))
+
+
 class HarnessDiscriminationTests(_ScenarioBase):
     """Prove the oracle can fail — a passing test pins nothing until it does."""
 
     def test_flip_table_rejects_a_mutated_board(self):
+        """Reinstating the old renumber-after-move must break the frozen record.
+
+        The pre-t1243_3 mutation no-op'd `normalize_indices`; after the rewrite
+        that method does not exist, so the assignment would create an unused
+        attribute and this control would fail because the DEFECT missed rather
+        than because behaviour is pinned.
+        """
         name = "lateral_gapped"
-        tree, spec, result, delta = self._run_scenario(name, mutate="skip_normalize")
+        tree, spec, result, delta = self._run_scenario(name, mutate="respace_after_move")
         expect = FLIP_TABLE[name]
         observed = (result["writes_total"], delta["changed"])
         self.assertNotEqual(
             observed, (expect["writes"], expect["changed"]),
-            "no-op'ing normalize_indices must break the frozen record; if this "
-            "passes, the flip table is not actually pinning behaviour",
+            "respacing both columns after a move must break the frozen record; "
+            "if this passes, the flip table is not actually pinning behaviour",
         )
         with self.assertRaises(AssertionError):
             self._assert_frozen(name, tree, spec, result, delta)
+
+    def test_compaction_is_load_bearing_on_the_real_action_path(self):
+        """Removing the respace remedy must make the exhausted move FAIL.
+
+        `reposition_task`'s post-respace retry cannot fail while `stride_for`
+        holds, so the in-code assertion guarding it is unreachable in normal
+        operation. Breaking the remedy is the only way to show it is not
+        vacuous — and it proves the compaction is reached through the real
+        keypress path, not merely present in the manager.
+        """
+        with self.assertRaises(AssertionError) as ctx:
+            self._run_scenario("vertical_exhaustion", mutate="skip_respace")
+        self.assertIn("retry after respace", str(ctx.exception))
+
+    def test_the_same_scenario_passes_unmutated(self):
+        """Negative control for the control above: the AssertionError came from
+        the removed remedy, not from the scenario being broken."""
+        self._assert_frozen("vertical_exhaustion", *self._run_scenario("vertical_exhaustion"))
 
 
 class IsolationNegativeControlTests(unittest.TestCase):
@@ -791,10 +1051,13 @@ def _bench_cards(n: int):
 def _bench_axes(cards):
     """Ping-pong anchors.
 
-    Lateral moves the BOTTOM card of c0: `move_task_col` appends at
-    max_idx + 10, so only a bottom-of-column card returns to its exact slot
-    after right-then-left. Vertical moves a mid-column card, where swap_tasks is
-    symmetric.
+    Lateral moves the BOTTOM card of c0: `move_task_to_column` appends past the
+    destination maximum, so only a bottom-of-column card returns to its exact
+    slot after right-then-left. Vertical moves a mid-column card, where the
+    down/up pair is symmetric under gap indexing: down appends past the column
+    maximum, up then lands back on the midpoint of the same interval, so the
+    index is periodic and no gap ever narrows (t1243_3 — a shrinking gap would
+    eventually trigger a compaction mid-benchmark and pollute the samples).
     """
     c0 = [i for i, col, _ in cards if col == "c0"]
     return {

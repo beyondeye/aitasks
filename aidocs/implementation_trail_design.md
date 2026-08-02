@@ -350,9 +350,10 @@ view (user decision):
 - `m` — move the focused entry's task to a chosen board column.
 - `M` — move the focused wave's tasks (in `position` order) to a chosen column.
 
-Both reuse the existing mutators (`TaskManager.move_task_col` appends at
-bottom with `board_idx = max+10`, then `normalize_indices`), so a wave moved
-into an empty column lands in wave order. This is an explicit, user-invoked
+Both reuse the existing mutators (`TaskManager.move_task_to_column` for a
+single task, `move_tasks_to_column` for a wave — both append past the
+destination column's maximum index, preserving input order in one pass with no
+follow-up renumber), so a wave moved into an empty column lands in wave order. This is an explicit, user-invoked
 board mutation with the same semantics as a hand move — the trail artifact is
 not consulted by anything downstream and records nothing about the move.
 Cross-repo/archived entries are excluded (ghost cards).
@@ -479,8 +480,8 @@ t1162_4 merges** (serialize, don't parallelize, shared-surface collisions).
   Render-level tests (assert `widget.render().plain`) + Pilot tests.
   *Depends: T3; land after t1162_4 (shared board surface).*
 - **T5 — Move-to-column commands** (`m`/`M` in By-Trail view) using
-  `move_task_col` + `normalize_indices`; wave moves preserve `position`
-  order; ghost cards excluded. Unit tests over the manager mutators plus a
+  `move_task_to_column` / `move_tasks_to_column`; wave moves preserve
+  `position` order; ghost cards excluded. Unit tests over the manager mutators plus a
   Pilot test. *Depends: T4.*
 - **T6 — Documentation.** Website workflow page (plus the hand-curated
   bullet in workflows `_index.md`), board docs update (document the new view
@@ -560,7 +561,7 @@ Refresh will re-evaluate waves 1 and 4 only. Proceed? [review diff / write v3 / 
   sweep behavior.
 - Board claims (§9) walked against `refresh_board()`'s per-`base_filter`
   branches, `TopicColumn`/`InFlightColumn` widget models, `check_action`
-  gating, `move_task_col`/`normalize_indices`, and the
+  gating, `move_task_to_column`/`move_tasks_to_column`, and the
   Pick/Work-Report launch patterns.
 - t1162 claims (§10) walked against its approved plan: gatherer protocol,
   exact-membership/ordering guarantee, ephemeral output, `w` binding and

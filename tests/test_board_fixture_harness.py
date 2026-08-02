@@ -286,15 +286,23 @@ CHDIR_ALLOWED = {
 #: `TASKS_DIR` resolves against the process cwd, which during a suite run is the
 #: repo root. (That is precisely how `test_board_inflight_view`'s model tests
 #: reached the live tree before t1354_2 — they had no chdir at all.) So tier 1
-#: flags it, and the two modules that import canonically *by design* pin their
+#: flags it, and the three modules that import canonically *by design* pin their
 #: exact import statements here:
 #:   * test_board_persistence_seam.py — patch mode. It never boots an app; it
 #:     patches `TASKS_DIR` on the canonical module on purpose.
+#:   * test_board_manager_moves.py — the same patch mode, for the gap-indexing
+#:     move API (t1243_3). It constructs `TaskManager` only inside
+#:     `mock.patch.object(B, "TASKS_DIR" / "METADATA_FILE")` over a
+#:     `build_fixture_tree` root, never boots `KanbanApp` and never chdirs; the
+#:     patches are `addCleanup`-scoped, so the canonical module is restored.
 #:   * test_board_movement.py — its IsolationNegativeControlTests asserts the
 #:     canonical module still has `TASKS_DIR == Path("aitasks")`, i.e. that the
 #:     harness did not contaminate it. Importing canonically IS the control.
 CANONICAL_IMPORT_ALLOWED = {
     "test_board_persistence_seam.py": frozenset({
+        "canonical import: import aitask_board as B",
+    }),
+    "test_board_manager_moves.py": frozenset({
         "canonical import: import aitask_board as B",
     }),
     "test_board_movement.py": frozenset({

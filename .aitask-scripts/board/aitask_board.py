@@ -352,6 +352,12 @@ from topic_semantics import (  # noqa: E402
     topic_key,
 )
 
+# Gap-indexing arithmetic lives in lib/board_ordering.py so it is testable
+# without Textual (t1243_3). The board stays the semantic owner — see that
+# module's docstring. Every value handed to it is already coerced through
+# normalize_board_idx.
+import board_ordering  # noqa: E402
+
 
 def _topic_lane_label(key, members, tasks_by_id):
     """Lane label: the root task's title when the root is present, else the
@@ -842,6 +848,28 @@ def run_trail_drift(handle: str):
                 parts.append("")
             reasons.append((parts[0], parts[1], parts[2]))
     return verdict, reasons
+
+
+@dataclass(frozen=True)
+class MoveResult:
+    """Outcome of a board move (t1243_3).
+
+    A bare bool cannot tell a caller WHICH items were refused, and the
+    move-to-column command (t1243_7) has to name them back to the user. So the
+    move methods report `moved` in input order, `refused` as `(name, reason)`
+    pairs, and whether a compaction ran.
+
+    `refused` non-empty always means NOTHING was written — the batch move
+    resolves every name before its first write.
+    """
+
+    moved: tuple[str, ...] = ()
+    refused: tuple[tuple[str, str], ...] = ()
+    compacted: bool = False
+
+    @property
+    def ok(self) -> bool:
+        return not self.refused
 
 
 class TaskManager:
@@ -1335,30 +1363,160 @@ class TaskManager:
                 modified.append(task)
         return modified
 
-    def move_task_col(self, task_name: str, new_col: str):
-        task = self.task_datas.get(task_name)
-        if task:
-            # Calculate new index before changing column to avoid counting self
-            existing = self.get_column_tasks(new_col)
-            max_idx = max((t.board_idx for t in existing), default=0)
+    # --- Gap indexing (t1243_3) ------------------------------------------
+    #
+    # A single move writes EXACTLY ONE task file and never a file outside the
+    # move; a multi-hop transit A->B->C writes the moved task once per hop and
+    # nothing in A or B. The one bounded exception is compaction, reachable
+    # from `reposition_task` alone (see its docstring).
+    #
+    # Every index is read through `normalize_board_idx`, so a hand-quoted
+    # `boardidx: "20"` sitting next to ints can never raise TypeError here.
+
+    def _column_indices(self, col_id: str, exclude: str = ""):
+        """Normalized indices of a column, excluding one task by filename.
+
+        The exclusion is what lets a card already holding the column extremum
+        still move strictly past it: an append that counted the mover would
+        return `self + STEP` and the card would not move at all.
+        """
+        return [normalize_board_idx(t.board_idx)
+                for t in self.get_column_tasks(col_id) if t.filename != exclude]
+
+    def _resolve_parents(self, task_names):
+        """Split names into (tasks, refusals), preserving input order.
+
+        Only parent tasks are resolvable: `task_datas` holds parents, and board
+        movement is a parent-level operation (every movement action early-returns
+        on a child card). A child id or an unknown filename is REFUSED with a
+        reason rather than skipped, so a caller can report which items failed.
+        Duplicates resolve once — a repeat must not consume two indices.
+        """
+        tasks, refused, seen = [], [], set()
+        for name in task_names:
+            task = self.task_datas.get(name)
+            if task is None:
+                refused.append((name, "not_a_parent_task"))
+            elif name not in seen:
+                seen.add(name)
+                tasks.append(task)
+        return tasks, refused
+
+    def move_task_to_column(self, task_name: str, new_col: str) -> MoveResult:
+        """Move one task to the bottom of `new_col`. One write, source untouched."""
+        return self.move_tasks_to_column([task_name], new_col)
+
+    def move_tasks_to_column(self, task_names, new_col: str) -> MoveResult:
+        """Move K tasks to the bottom of `new_col`, preserving input order.
+
+        **All-or-nothing:** if ANY name fails to resolve, nothing is written and
+        the returned report names every offender. Resolving the whole batch
+        before the first write is what makes that true — a loop that wrote as it
+        went would leave the batch half-applied on the first bad id.
+
+        Appends past the destination maximum, an unbounded region, so this can
+        never exhaust an interval and never compacts.
+        """
+        tasks, refused = self._resolve_parents(task_names)
+        if refused:
+            return MoveResult(refused=tuple(refused))
+        if not tasks:
+            return MoveResult()
+
+        indices = self._column_indices(new_col)
+        moved = []
+        for task in tasks:
             task.board_col = new_col
-            task.board_idx = max_idx + 10
+            task.board_idx = board_ordering.index_for_append(indices)
+            indices.append(task.board_idx)
             task.reload_and_save_board_fields(("boardcol", "boardidx"))
+            moved.append(task.filename)
+        return MoveResult(moved=tuple(moved))
 
-    def swap_tasks(self, task1_name: str, task2_name: str):
-        t1 = self.task_datas.get(task1_name)
-        t2 = self.task_datas.get(task2_name)
-        if t1 and t2:
-            t1.board_idx, t2.board_idx = t2.board_idx, t1.board_idx
-            t1.reload_and_save_board_fields(("boardidx",))
-            t2.reload_and_save_board_fields(("boardidx",))
+    def move_task_to_edge(self, task_name: str, col_id: str,
+                          to_top: bool) -> MoveResult:
+        """Move a task to the top or bottom of its column. One write.
 
-    def normalize_indices(self, col_id: str):
-        """Re-number tasks in a column to 10, 20, 30... to prevent index drift."""
+        Places past a column extremum, so like the column moves it can never
+        compact. "Top" produces a negative index once the column starts at or
+        below STEP — that is intended and legal.
+        """
+        tasks, refused = self._resolve_parents([task_name])
+        if refused:
+            return MoveResult(refused=tuple(refused))
+        task = tasks[0]
+        indices = self._column_indices(col_id, exclude=task.filename)
+        task.board_idx = (board_ordering.index_for_prepend(indices) if to_top
+                          else board_ordering.index_for_append(indices))
+        task.reload_and_save_board_fields(("boardidx",))
+        return MoveResult(moved=(task.filename,))
+
+    def reposition_task(self, task_name: str, before, after) -> MoveResult:
+        """Place a task between two neighbours in rendered order. One write.
+
+        `before` is the task that will sit immediately ABOVE it and `after` the
+        one immediately BELOW; `None` means "no neighbour on that side", i.e.
+        the task becomes first (prepend) or last (append). Callers must pass
+        `None` explicitly rather than relying on negative list indexing —
+        `tasks[i - 2]` at `i == 1` silently yields the LAST card.
+
+        This replaces the old index swap: one write instead of two, and it fixes
+        the equal-index no-op (two cards sharing an index are ordered by
+        filename, so exchanging their indices moved nothing).
+
+        **The only compaction site.** When the interval between the neighbours
+        is exhausted (`index_between` returns None — a gap of 1, a tie, or an
+        inversion), the column is respaced ONCE at `stride_for(1)` and the
+        placement retried. Post-respace every gap is `stride` wide, so the retry
+        cannot fail and there is never a second compaction.
+        """
+        tasks, refused = self._resolve_parents([task_name])
+        if refused:
+            return MoveResult(refused=tuple(refused))
+        task = tasks[0]
+        col_id = task.board_col
+
+        idx, compacted = self._index_for_slot(task, col_id, before, after), False
+        if idx is None:
+            self.respace_column(col_id, stride=board_ordering.stride_for(1))
+            compacted = True
+            idx = self._index_for_slot(task, col_id, before, after)
+            if idx is None:                     # unreachable: gaps are `stride` wide
+                raise AssertionError(
+                    f"board_ordering: retry after respace of {col_id!r} still has "
+                    f"no room between {getattr(before, 'board_idx', None)!r} and "
+                    f"{getattr(after, 'board_idx', None)!r} — stride_for(1)="
+                    f"{board_ordering.stride_for(1)}")
+
+        task.board_idx = idx
+        task.reload_and_save_board_fields(("boardidx",))
+        return MoveResult(moved=(task.filename,), compacted=compacted)
+
+    def _index_for_slot(self, task, col_id, before, after):
+        """Index for `task` between `before`/`after`, or None if exhausted.
+
+        Re-reads the neighbours' `board_idx` on every call, so it returns a
+        fresh answer after a respace has renumbered them in place.
+        """
+        if before is None:
+            return board_ordering.index_for_prepend(
+                self._column_indices(col_id, exclude=task.filename))
+        if after is None:
+            return board_ordering.index_for_append(
+                self._column_indices(col_id, exclude=task.filename))
+        return board_ordering.index_between(normalize_board_idx(before.board_idx),
+                                            normalize_board_idx(after.board_idx))
+
+    def respace_column(self, col_id: str, stride: int = board_ordering.STEP):
+        """Re-number a whole column to `stride`, 2*stride, ... — N writes.
+
+        THE EXHAUSTION REMEDY ONLY. Never call this from a movement path: doing
+        so reinstates exactly the write amplification t1243_3 removed (see the
+        `respace_after_move` negative control in tests/test_board_movement.py).
+        """
         tasks = self.get_column_tasks(col_id)
-        for i, task in enumerate(tasks):
-            new_idx = (i + 1) * 10
-            if task.board_idx != new_idx:
+        for task, new_idx in zip(tasks, board_ordering.respace_indices(len(tasks), stride)):
+            if normalize_board_idx(task.board_idx) != new_idx:
                 task.board_idx = new_idx
                 task.reload_and_save_board_fields(("boardidx",))
 
@@ -8208,9 +8366,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         if 0 <= new_idx < len(cols):
             new_col = cols[new_idx]
-            self.manager.move_task_col(filename, new_col)
-            self.manager.normalize_indices(current_col_id)
-            self.manager.normalize_indices(new_col)
+            # One write, in the destination only. The source column still needs
+            # a repaint below, but no longer a rewrite (t1243_3).
+            self.manager.move_task_to_column(filename, new_col)
             self.manager.refresh_git_status()
             self.refresh_columns({current_col_id, new_col}, refocus_filename=filename,
                                  refocus_col_id=new_col)
@@ -8264,8 +8422,18 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         swap_idx = current_idx + direction
         if 0 <= swap_idx < len(tasks):
             target_task = tasks[swap_idx]
-            self.manager.swap_tasks(filename, target_task.filename)
-            self.manager.normalize_indices(col_id)
+            # Insert between the neighbours of the destination slot — one write
+            # instead of a swap plus a column renumber (t1243_3). Bounds are
+            # explicit: `tasks[current_idx - 2]` at index 1 would silently yield
+            # the LAST card rather than "no neighbour".
+            if direction == 1:
+                before = target_task
+                after = (tasks[current_idx + 2]
+                         if current_idx + 2 < len(tasks) else None)
+            else:
+                before = tasks[current_idx - 2] if current_idx >= 2 else None
+                after = target_task
+            self.manager.reposition_task(filename, before, after)
             self.manager.refresh_git_status()
 
             # DOM swap: reorder widgets in-place instead of rebuilding column
@@ -8316,12 +8484,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         if direction == 1 and current_idx == len(tasks) - 1:
             return
-        if direction == -1:
-            focused.task_data.board_idx = tasks[0].board_idx - 10
-        else:
-            focused.task_data.board_idx = tasks[-1].board_idx + 10
-        focused.task_data.reload_and_save_board_fields(("boardidx",))
-        self.manager.normalize_indices(col_id)
+        # One write past the column extremum — the old raw `±10` arithmetic
+        # bypassed normalize_board_idx and raised TypeError on a quoted
+        # boardidx sitting next to ints (t1243_3).
+        self.manager.move_task_to_edge(filename, col_id, to_top=(direction == -1))
         self.manager.refresh_git_status()
         self.refresh_column(col_id, refocus_filename=filename, refocus_col_id=col_id)
 

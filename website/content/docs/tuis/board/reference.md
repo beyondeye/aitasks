@@ -328,7 +328,7 @@ The board reads and displays the following frontmatter fields from task files:
 Two metadata fields are managed internally by the board:
 
 - **`boardcol`** — The column ID where the task is placed (e.g., `"now"`, `"backlog"`, `"unordered"`). Tasks without this field appear in the "Unsorted / Inbox" column.
-- **`boardidx`** — The sort index within a column. Lower values appear higher. After any movement operation, indices are normalized to 10, 20, 30, etc.
+- **`boardidx`** — The sort index within a column. Lower values appear higher; ties are broken by filename. Values are widely spaced rather than consecutive, and may be negative — a movement writes only the moved task's file, placing it in the gap between its new neighbours rather than renumbering the column. Only the relative order is meaningful. When repeated moves into the same position exhaust a gap, that single column is re-spaced automatically.
 
 These fields are always written last in the frontmatter and are updated using a reload-and-save mechanism that prevents overwriting other metadata fields changed externally.
 

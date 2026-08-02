@@ -22,7 +22,7 @@ The task is appended to the end of the target column. Column order follows the c
 2. Press **Shift+Up** to swap it with the task above, or **Shift+Down** to swap it with the task below
 3. Press **Ctrl+Up** to jump the task to the top of the column, or **Ctrl+Down** to jump it to the bottom
 
-Task positions are stored in the `boardidx` field of each task file's frontmatter. After any move, indices are automatically normalized to 10, 20, 30, etc. to prevent drift.
+Task positions are stored in the `boardidx` field of each task file's frontmatter. Moving a task rewrites **only that task's file** — the board picks an index in the gap between its new neighbours instead of renumbering the column, so moving a card between columns leaves every other task untouched. Indices are therefore widely spaced rather than consecutive, and moving a task to the top of a column can give it a negative index. Only their order matters. If repeated moves into the same position exhaust the gap, the board re-spaces that one column automatically.
 
 > **Note:** Child tasks cannot be moved between columns or reordered — only parent tasks can be repositioned.
 

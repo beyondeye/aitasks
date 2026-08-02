@@ -13,8 +13,9 @@ Three write-back hazards are guarded, each with its own negative control:
      checkout's membership change;
   B  a semantic write re-applying a stale `boardidx`, discarding a newer move;
   C  a single-key layout op re-applying the *other* layout key — live before
-     this task, e.g. `normalize_indices` yanking a card back out of the column
-     another writer just moved it to.
+     this task, e.g. `respace_column` (`normalize_indices` before t1243_3
+     renamed it) yanking a card back out of the column another writer just
+     moved it to.
 
 Why no subprocess (unlike tests/test_board_movement.py)
 -------------------------------------------------------
@@ -484,14 +485,20 @@ class NegativeControlTests(_TreeCase):
 # FROZEN, like FLIP_TABLE: a new or changed call site must consciously edit the
 # table below. A silent pass after a rewrite is a bug in the table.
 
+# REWRITTEN BY t1243_3 (gap indexing), which is what "frozen" means here: the
+# table is edited deliberately, in the same commit as the call sites, and never
+# adjusted to match a surprise. Three methods were retired --
+# `move_task_col`/`swap_tasks`/`normalize_indices` -- and `_move_task_to_extreme`
+# LEFT the table entirely: the action now delegates to `move_task_to_edge`
+# instead of writing the seam itself, which is part of the deliverable.
+# `swap_tasks` contributed two rows; `reposition_task` replaces it with one.
 EXPECTED_CALL_SITES = [
-    ("move_task_col", ("boardcol", "boardidx")),
-    ("swap_tasks", ("boardidx",)),
-    ("swap_tasks", ("boardidx",)),
-    ("normalize_indices", ("boardidx",)),
+    ("move_tasks_to_column", ("boardcol", "boardidx")),
+    ("move_task_to_edge", ("boardidx",)),
+    ("reposition_task", ("boardidx",)),
+    ("respace_column", ("boardidx",)),
     ("update_column", ("boardcol",)),
     ("delete_column", ("boardcol", "boardidx")),
-    ("_move_task_to_extreme", ("boardidx",)),
 ]
 
 
@@ -555,20 +562,27 @@ class CallSiteMappingTests(_TreeCase):
         variant.write_text(src.replace(old, new, 1), encoding="utf-8")
         return _parse_call_sites(variant)
 
+    # t1243_3 re-anchored both variants: the old anchor was the `t1.` call
+    # inside `swap_tasks`, a method gap indexing removed. `_parse_variant`
+    # rewrites the FIRST occurrence, and the first `("boardidx",)` call site in
+    # source order is `move_task_to_edge` — asserted by name below, so a future
+    # reordering fails loudly instead of silently mutating a different site.
+    _IDX_ANCHOR = 'task.reload_and_save_board_fields(("boardidx",))'
+
     def test_ast_guard_rejects_an_extra_field(self):
         """The failure FLIP_TABLE cannot see: a caller naming a key it never
         mutated is byte-identical uncontended, but still carries hazard C."""
         got = self._parse_variant(
-            't1.reload_and_save_board_fields(("boardidx",))',
-            't1.reload_and_save_board_fields(("boardcol", "boardidx"))')
+            self._IDX_ANCHOR,
+            'task.reload_and_save_board_fields(("boardcol", "boardidx"))')
         self.assertNotEqual(got, EXPECTED_CALL_SITES)
-        self.assertIn(("swap_tasks", ("boardcol", "boardidx")), got)
+        self.assertIn(("move_task_to_edge", ("boardcol", "boardidx")), got)
 
     def test_ast_guard_fails_closed_on_a_non_literal_argument(self):
         """A computed tuple must be reported, never silently skipped."""
         got = self._parse_variant(
-            't1.reload_and_save_board_fields(("boardidx",))',
-            't1.reload_and_save_board_fields(tuple(some_keys))')
+            self._IDX_ANCHOR,
+            'task.reload_and_save_board_fields(tuple(some_keys))')
         self.assertNotEqual(got, EXPECTED_CALL_SITES)
         self.assertTrue(
             any(isinstance(fields, str) and fields.startswith("UNANALYSABLE")
@@ -599,26 +613,39 @@ class CallSiteMappingTests(_TreeCase):
         self.addCleanup(patcher.stop)
         return records
 
-    def test_move_task_col_names_both_layout_keys(self):
+    # t1243_3 retargeted these three: `move_task_col` / `swap_tasks` /
+    # `normalize_indices` were replaced by the gap-indexing API.
+
+    def test_move_task_to_column_names_both_layout_keys(self):
         tree = self.make_tree()
         manager = self._manager(tree)
         records = self._spy()
-        manager.move_task_col(fixture_name(1), "c1")
+        manager.move_task_to_column(fixture_name(1), "c1")
         self.assertEqual(records, [(fixture_name(1), ("boardcol", "boardidx"))])
 
-    def test_swap_tasks_names_the_index_only_twice(self):
+    def test_reposition_task_names_the_index_only_once(self):
+        """One record, where `swap_tasks` produced two — the halved write count
+        expressed at the seam layer rather than only in the flip table."""
         tree = self.make_tree()
         manager = self._manager(tree)
         records = self._spy()
-        manager.swap_tasks(fixture_name(1), fixture_name(2))
-        self.assertEqual(records, [(fixture_name(1), ("boardidx",)),
-                                   (fixture_name(2), ("boardidx",))])
+        manager.reposition_task(fixture_name(3),
+                                manager.task_datas[fixture_name(1)],
+                                manager.task_datas[fixture_name(2)])
+        self.assertEqual(records, [(fixture_name(3), ("boardidx",))])
 
-    def test_normalize_indices_names_the_index_only(self):
+    def test_move_task_to_edge_names_the_index_only(self):
+        tree = self.make_tree()
+        manager = self._manager(tree)
+        records = self._spy()
+        manager.move_task_to_edge(fixture_name(3), "c0", to_top=True)
+        self.assertEqual(records, [(fixture_name(3), ("boardidx",))])
+
+    def test_respace_column_names_the_index_only(self):
         tree = self.make_tree(GAPPED)   # 5/17/42 -> all three are renumbered
         manager = self._manager(tree)
         records = self._spy()
-        manager.normalize_indices("c0")
+        manager.respace_column("c0")
         self.assertEqual(records, [(fixture_name(i), ("boardidx",)) for i in (1, 2, 3)])
 
     def test_update_column_names_the_column_only(self):
@@ -637,12 +664,12 @@ class CallSiteMappingTests(_TreeCase):
 
     # --- hazard C end to end, through production code rather than the seam ---
 
-    def test_normalize_indices_does_not_revert_a_remote_column_move(self):
+    def test_respace_column_does_not_revert_a_remote_column_move(self):
         tree = self.make_tree(GAPPED)
         manager = self._manager(tree)            # loads all three into memory
         path = self.task_path(tree, 2)
         external_edit(path, boardcol="c1")       # another writer moves it out
-        manager.normalize_indices("c0")          # this board still believes c0
+        manager.respace_column("c0")             # this board still believes c0
         self.assertEqual(read_meta(path)["boardcol"], "c1")
 
     def test_update_column_does_not_revert_a_remote_index_move(self):
