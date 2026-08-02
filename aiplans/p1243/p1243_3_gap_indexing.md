@@ -725,6 +725,86 @@ bash tests/run_all_python_tests.sh          # read ONLY the last line for the ve
 - **Files affected:** `aitasks/t1369_board_batch_move_linear_index_arithmetic.md`
   (new), this plan.
 
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** gap indexing replaces canonical renumbering on the
+  board's movement path.
+  - `.aitask-scripts/lib/board_ordering.py` — **new**, 116 lines, stdlib-only
+    (`STEP = 1024`, `index_for_append` / `index_for_prepend` / `index_between` /
+    `indices_between` / `respace_indices` / `stride_for`).
+  - `.aitask-scripts/board/aitask_board.py` — `MoveResult` dataclass +
+    `move_task_to_column`, `move_tasks_to_column`, `move_task_to_edge`,
+    `reposition_task`, `respace_column`, with `_column_indices` /
+    `_resolve_parents` / `_index_for_slot` helpers. `move_task_col`,
+    `swap_tasks` and `normalize_indices` **removed** (not aliased). The three
+    movement actions rewired; all four `normalize_indices` calls gone.
+  - `tests/test_board_ordering.py` — **new**, 37 tests.
+  - `tests/test_board_manager_moves.py` — **new**, 42 tests.
+  - `tests/test_board_movement.py` — `FLIP_TABLE` flipped, 7 scenarios added
+    (13 total), multi-step runner, `respace_calls` reporting, mutation
+    re-pointed.
+  - `tests/test_board_persistence_seam.py` — `EXPECTED_CALL_SITES` rewritten,
+    5 drivers retargeted, AST-discrimination anchor re-pointed.
+  - `tests/test_board_fixture_harness.py` — canonical-import allowlist entry.
+  - Docs: both board website passages + 3 `implementation_trail_design.md`
+    passages.
+
+- **Measured effect.** `lateral_gapped`: 3 writes over 3 files → **1 write over
+  1 file**, source column keeps `5/17/42`. `extreme_top` / `extreme_bottom`:
+  4 writes / 3 files → **1 / 1**. A two-hop transit dirties nothing outside the
+  moved card. Full suite **PASSED**, 3085 tests.
+
+- **Deviations from plan:**
+  1. **An eighth file — `tests/test_board_fixture_harness.py`.** Its t1354_1
+     `LiveTreeSweepTests` guard failed the first full-suite run on the new
+     `test_board_manager_moves.py`: a canonical `import aitask_board` requires a
+     pinned exemption. That is the guard working as designed; the module is the
+     documented patch-mode case, so it was added to `CANONICAL_IMPORT_ALLOWED`
+     with its rationale rather than worked around. **The first full-suite run
+     was genuinely red.**
+  2. **The retry-assertion control landed in two places, not one.** The plan put
+     it only in `test_board_movement.py`. It is implemented there
+     (`skip_respace`, proving compaction is reached through the real keypress
+     path) *and* in `test_board_manager_moves.py` (`RetryAssertionTests`,
+     deterministic, no subprocess). Each has its own
+     negative-control-for-the-control.
+  3. **`indices_between` ships with no production caller** — recorded up front
+     in §1 and in the module docstring so it is not read as dead code. Its
+     consumer is t1243_11.
+
+- **Issues encountered:**
+  - One test expectation of mine was wrong on first run (`c2`'s maximum is the
+    parent's `10`, not `30` — `get_column_tasks` scans `task_datas`, so children
+    contribute no index). The code was right; the assertion was corrected and
+    the reason recorded inline.
+  - The plan's predicted `FLIP_TABLE` values matched the first run exactly, so
+    no value was ever "pasted over" a surprise.
+  - The benchmark's stationarity comments described the retired API. Rewritten,
+    and the new claim **verified empirically** rather than asserted: the
+    vertical down/up pair returns c0 to exactly `10/20/30` every cycle with zero
+    compactions, so a shrinking gap cannot pollute samples mid-run.
+
+- **Key decisions:**
+  - `MoveResult` over a bool — t1243_7 must name refused ids back to the user.
+  - The batch resolves **every** name before its first write; that, not the
+    report shape, is what makes all-or-nothing true.
+  - Compaction is reachable from `reposition_task` alone; the append family
+    places past an extremum and can never compact. Asserted, not assumed.
+  - The post-respace retry `raise`s rather than degrades — unreachable while
+    `stride_for` holds, and a silently wrong placement would be worse.
+  - Every index read goes through `normalize_board_idx`, which is what retires
+    the two live raw-value `TypeError`s.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:** see the `## Notes for sibling tasks` section
+  above — it names the replacement API for t1210_5, the fail-closed batch
+  contract for t1243_7, the block-move primitives for t1243_11, the two frozen
+  tables, the legality of negative indices, and the **t1369** linear-arithmetic
+  follow-up that t1243_7 / t1210_5 should land ahead of.
+
 ## Step 9 (Post-Implementation)
 
 Merge to `main`, run the declared `risk_evaluated` gate via the Step-9
