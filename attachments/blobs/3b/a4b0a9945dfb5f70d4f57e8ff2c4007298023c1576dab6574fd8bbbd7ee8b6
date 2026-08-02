@@ -1,0 +1,434 @@
+{
+  "schema_version": "1.0.0",
+  "trail_id": "trail-shadow-review-loop",
+  "title": "Shadow review-loop automation: landing order",
+  "owner": "aitasks#1159",
+  "scope": {
+    "kind": "ad_hoc",
+    "initiating_task": "aitasks#1159",
+    "topics": [
+      "aitasks#1159"
+    ],
+    "selection_note": "Invoked on t1159 and widened from topic aitasks#1159, whose topic group has exactly one member (confirmed by a topic-scope snapshot), so a topic trail would have been a single entry with no sequencing value. The user was offered four candidate sets and chose the 'injection-safety core': t1159 plus the five live tasks sitting on the surfaces t1159 rewrites (concern accessor contract, minimonitor shadow seams, shadow/followed pane binding, concern parse diagnostics, stale minimonitor code drift). Membership is therefore pinned by generation.inputs, not by anchor. The five added members keep their own canonical topic roots — aitasks#1037 (t1293, t1294), aitasks#1111 (t1289), aitasks#1307 (t1319) and its own root for t1116 — recorded per-entry in `topic`; this trail does not reassign them. Those borrowed roots are deliberately NOT listed in scope.topics: that field drives a topic-wide new-task scan, so listing them would report every unrelated task in three large topics as drift forever, drowning the signal. Listing only aitasks#1159 keeps the scan meaningful — a genuine new sibling of t1159, or any new task depending on a member, still surfaces."
+  },
+  "generation": {
+    "generated_at": "2026-08-02T04:56:02Z",
+    "generator": {
+      "agent_string": "claudecode/opus5",
+      "skill": "aitask-trail"
+    },
+    "project_revision": {
+      "aitasks": "84a305109"
+    },
+    "input_digest": "893963fe75d16697",
+    "inputs": [
+      { "ref": "aitasks#1116", "kind": "task_file" },
+      { "ref": "aitasks#1159", "kind": "task_file" },
+      { "ref": "aitasks#1289", "kind": "task_file" },
+      { "ref": "aitasks#1293", "kind": "task_file" },
+      { "ref": "aitasks#1294", "kind": "task_file" },
+      { "ref": "aitasks#1319", "kind": "task_file" }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-08-02T04:56:02Z",
+    "drift_reasons": [],
+    "refresh_recommended_because": "Refresh when any wave-1/2 member lands or is archived, when a plan file appears for one of them (none exists today, and every rationale here rests on task text alone), or when t1116 is un-postponed. A status flip on t1159 itself does not require a refresh unless the loop architecture chosen at planning time contradicts a wave rationale."
+  },
+  "narrative": {
+    "problem_statement": "t1159 is a high-effort feature that reworks how the shadow agent, the concern block, and minimonitor interact, and it is the first change that makes minimonitor send keys into another agent's pane rather than only observe it. Its own topic group contains a single task, so the useful question is not 'what order within the topic' but 'what should already be true about these surfaces before the loop is built on them'. Five live tasks sit directly on those surfaces. This trail answers which of them should land first, and why each one is cheaper or safer before t1159 than after.",
+    "recommendation_summary": "Land the two low-effort structural invariants first (t1294's accessor guard, t1289's seam removal) while each guarded surface still has a single consumer and while t1289's blocking condition has just been discharged. Then harden the two surfaces the loop will drive unattended: t1319 makes the shadow-to-followed pane binding authoritative and closes the spawn-stamp race an automated loop is far likelier to hit than a human is, and t1293 gives the picker a way to show what a malformed block lost, which is the diagnostic you need once the producer emits a new round-metadata field once per round without supervision. Then build t1159 on top of all four. Finally revisit t1116, whose value rises only after minimonitor becomes an actor: a minimonitor instance predating t1159 cannot run the loop at all, so stale code can mis-report but not mis-act until the loop exists.",
+    "method_note": "Membership, status, priority, effort, boardcol, labels, depends and pending gates come solely from `aitask_trail_gather.sh snapshot --scope task --owner 1159 1159 1319 1116 1289 1293 1294`; no board or task directory was free-read to build the member set. Rationale comes from reading the six member task files in full, plus a directory listing of `aitasks/archived/` to establish which referenced tasks have landed. NOT VERIFIED: no source file was opened. Every statement here about `minimonitor_app.py`, `monitor_core.py`, `concern_parser.py`, `monitor_shared.py`, `aitask_shadow_capture.sh` or `prompt_patterns.py` is quoted or paraphrased from the task descriptions and has not been confirmed against the code. No tests were run and no baseline health was checked. No plan files exist for any member, so no plan was reviewed. Wave 4's placement rests on an inference, not an observation: that a running minimonitor process which predates t1159 cannot contain t1159's loop keybinding.",
+    "caveats": [
+      "Every ordering edge in this trail is advisory. No member declares a `depends` edge on any other member, so nothing here is topologically forced; the trail records a preference and its reasoning, not a constraint.",
+      "This trail changes no task metadata. Wave positions are not board positions, and t1116's Postponed status is untouched — placing it in wave 4 is a recorded connection, not a scheduling decision.",
+      "Confidence is 'high' only where the task text itself states the coupling (t1294's 'second consumer' clause, t1289's explicit start gate). Where the coupling is my inference from named source files (t1319, t1293), confidence is 'medium'; where it rests on an unverified inference about running processes (t1116), it is 'low'.",
+      "The user explicitly scoped out the applink branch (t1118 and children), the two soaks (t1288, t1347) and t1350; those are recorded as exclusions rather than silently dropped, so a refresh does not re-litigate them."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1-contract-and-seam",
+      "ordinal": 1,
+      "title": "Lock the concern contract and the minimonitor seam",
+      "purpose": "Land the two low-effort structural cleanups while the surfaces they guard still have a single consumer. Both are invariant-only work with no user-visible change, and both become materially harder once t1159 adds a second forward surface and a large block of new minimonitor code. Completing this wave means the later waves modify surfaces whose rules are enforced structurally rather than remembered.",
+      "why_now": "t1289's own scope note says 'Do not start until t1216_2 and t1216_3 have landed'; both are archived under aitasks/archived/t1216/, so it is unblocked for the first time. t1294 says to prefer a guard that 'keeps working when t1216_3 lands the full monitor's copy of the picker — that second consumer is exactly the scenario this guard exists for'; t1159 introduces further consumers of the same split, so writing the guard before them is the intended sequence rather than a retrofit.",
+      "consequence_of_delay": "If t1159 lands first, its concern-forwarding path is written against a rule enforced only by prose, and its new minimonitor call sites bind to the transitional delegators — realizing exactly the risk t1289 was created to prevent ('structure debt that will quietly become permanent if nobody removes it') and enlarging t1289's migration to cover t1159's call sites as well.",
+      "entries": [
+        {
+          "entry_id": "e-1294",
+          "task": "aitasks#1294",
+          "topic": "aitasks#1037",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "t1159 introduces both a new forward surface (minimonitor pasting picked concerns directly into the followed pane) and a new display surface (concern rows carrying round and timestamp metadata). t1294's guard exists precisely so that a newly added surface cannot silently reach for the wrong accessor. The coupling is tighter for t1159 than it was for the original t1274 split: t1159's steerability requirement routes each concern to 'address in plan now' / 'spin off as a separate task' / 'dismiss', and that disposition travels in the same trailer that `Concern.body` preserves verbatim and `display_body()` strips.",
+          "expected_outcome": "A structural guard — source-level enumeration or behavioural drive of every surface — that fails when a display surface reads `.body` or a forward surface reads `display_body()`, so t1159's injection path is covered by construction rather than by reviewer attention.",
+          "why_order_matters": "Both failure modes are silent by design of the split. If t1159's forwarding path picks the wrong accessor before the guard exists, the `Disposition:` metadata is dropped from what the followed agent receives and no test fails — which is the exact loss t1274 avoided and t1294 was created to make impossible.",
+          "confidence": "high",
+          "evidence_refs": ["ev-t1294", "ev-t1159", "ev-snapshot"]
+        },
+        {
+          "entry_id": "e-1289",
+          "task": "aitasks#1289",
+          "topic": "aitasks#1111",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "t1159 will add substantial new code to minimonitor around the shadow helpers — pane capture, staleness reads, concern picking and forwarding. Removing the four transitional delegators now means that new code is written against the shared `monitor_core` / `monitor_shared` functions directly. Doing it afterwards means migrating t1159's fresh call sites too, on top of the five test classes across four test files that t1289 already has to move onto the shared seam.",
+          "expected_outcome": "No MiniMonitorApp method whose body is solely a call to a shared function, and the shadow test suite bound to the shared names — so t1159 has exactly one name per implementation to build against.",
+          "why_order_matters": "Order here is a cost preference rather than a correctness constraint: t1289 is a pure de-duplication that must not change behaviour, so nothing breaks if it runs later. What changes is scope — every t1159 call site written against a delegator is another site t1289 must migrate, and the more sites exist the likelier the seams simply stay.",
+          "confidence": "high",
+          "caveats": [
+            "Because it is behaviour-preserving, t1289 can run in parallel with wave 2 if scheduling demands — but not in parallel with t1159, which edits the same file.",
+            "t1289 names `tests/test_minimonitor_concern_smoke.py` as needing the most care because it deliberately drives the real capture path unstubbed; that test is also the closest existing harness to what t1159 will need."
+          ],
+          "evidence_refs": ["ev-t1289", "ev-archived-ls", "ev-snapshot"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-harden-driven-surfaces",
+      "ordinal": 2,
+      "title": "Harden what the loop will drive",
+      "purpose": "Make the shadow-to-followed pane binding authoritative and give the concern picker a way to show what a malformed block lost, before an automated loop starts producing concern blocks unattended and moving keystrokes between panes. This wave converts two surfaces from 'works when a human is watching' to 'diagnosable when nobody is'.",
+      "why_now": "Both members touch surfaces t1159 rewrites — the capture helper's pane resolution and `ConcernPickerModal` — so landing them first means t1159 builds on the hardened version instead of racing them in the same files. Both are also low effort and unblocked today.",
+      "consequence_of_delay": "These two close precisely the loop's worst failure modes: a mis-bound pane and an unreadable parse failure. Each is far harder to diagnose once it occurs inside an automated round, where the user sees a result rather than the sequence of actions that produced it.",
+      "entries": [
+        {
+          "entry_id": "e-1319",
+          "task": "aitasks#1319",
+          "topic": "aitasks#1307",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "t1319 records a concrete constraint that an automated loop meets far more often than a human-paced workflow does: `minimonitor_app.py::_spawn_shadow` stamps `@aitask_shadow_target` after `launch_in_tmux()` returns, so a very early capture races the stamp. A loop that issues its first challenge immediately after spawning the shadow sits directly on that race. Its second mitigation — warn or refuse when an explicit pane id conflicts with the pane's own binding — is also the only check that catches a truncated id which happens to name a live pane, because that path produces a successful capture and no error.",
+          "expected_outcome": "An argument-free capture path that resolves the followed pane from `@aitask_shadow_target` (so the id never crosses the model's token stream), a loud conflict warning on the explicit-argument path, and a clean degradation when the option is unset — with each guard proven able to fail, not merely proven not to regress.",
+          "why_order_matters": "In the manual workflow a wrong-pane capture surfaces immediately because the user is reading the shadow's output against the agent they are watching. Inside a loop the same mis-binding produces a plausible-looking review of another agent's work, and the recheck round then forwards that review's concerns into a pane, compounding the error before anyone reads it.",
+          "confidence": "medium",
+          "caveats": [
+            "Minimonitor resolves the followed pane from its own roster, not from a model-transcribed id, so t1319's truncation hazard binds the shadow's capture path more directly than minimonitor's injection path. The spawn-stamp race is the sharper link to t1159 — hence medium rather than high confidence.",
+            "t1319 itself instructs verifying the `_spawn_shadow` stamp ordering before designing; that verification was not performed here (no source was read)."
+          ],
+          "evidence_refs": ["ev-t1319", "ev-t1159", "ev-snapshot"]
+        },
+        {
+          "entry_id": "e-1293",
+          "task": "aitasks#1293",
+          "topic": "aitasks#1037",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "t1159 extends the concern block with round number and review timestamp — a parser-aware change to a format whose fence literals are exact. t1293 adds the affordance behind the 'N line(s) in this block could not be parsed' banner that shows the offending lines, which is the tool needed to tell an over-bound split from a producer typo when the producer has just started emitting a new field, once per round, without supervision. t1293 also settles the picker's contract below 40 columns, and the loop turns the picker into a recurring surface rather than an occasional one.",
+          "expected_outcome": "A raw-block inspection path reachable both beside the banner and in the all-malformed no-rows case, plus a decided and tested layout contract at 30 and 24 columns — so a round-metadata parse regression is visible and attributable rather than a silent row loss.",
+          "why_order_matters": "Today an unparsed line costs one manual re-read. Once rounds are automatic, the same defect repeats every round and the user sees only a count; without the inspection affordance there is no way to attribute it to the new metadata field rather than to the shadow's prose.",
+          "confidence": "medium",
+          "caveats": [
+            "t1293 and t1159 both modify the concern picker modal; running them concurrently invites direct conflict.",
+            "The link is a strong preference, not a blocker — t1159's round metadata can be implemented and reviewed without t1293's diagnostics, at the cost of harder triage later."
+          ],
+          "evidence_refs": ["ev-t1293", "ev-t1159", "ev-snapshot"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-the-loop",
+      "ordinal": 3,
+      "title": "The loop",
+      "purpose": "Build the review-loop automation itself on top of a guarded concern accessor contract, a de-duplicated minimonitor, an authoritative pane binding, and an inspectable parse surface. This is the wave that delivers the user-facing change; every earlier wave exists to remove one variable from its design.",
+      "why_now": "t1159 is the highest-priority and highest-effort member and asks its plan to brainstorm three candidate architectures (minimonitor-orchestrated, self-driving shadow, hybrid) and to author a pane-injection safety contract. Each of the four preceding tasks settles one question that would otherwise have to be decided inside that plan.",
+      "consequence_of_delay": "The manual loop — challenge, pick, focus the main pane, paste, type 'refetch and recheck', repeat — stays in place, and the concern block keeps no round metadata, so the auto-offer dedup continues to suppress a round-2 review whose concerns match round 1.",
+      "entries": [
+        {
+          "entry_id": "e-1159",
+          "task": "aitasks#1159",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "boardcol": "now",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The only member of this trail that delivers a user-facing change; the other five are here because t1159 lands on their surfaces. It is placed third rather than first not because anything blocks it, but because its plan must weigh three architectures and author an injection safety contract, and both decisions get cheaper once the accessor rule and the pane binding are structural rather than remembered.",
+          "expected_outcome": "Automated refetch-and-recheck rounds driven by the existing staleness stamp and awaiting-input detection; round number and review time carried in the concern block (which also lifts the auto-offer dedup suppression on a repeat round); picked concerns forwarded into the followed pane after explicit user confirmation; and per-concern triage routing so a plan does not absorb every secondary concern across rounds.",
+          "why_order_matters": "Taken first, t1159 would define the new forward and display surfaces before the guard that constrains them exists, write its call sites against seams that are scheduled for removal, and inherit an unresolved spawn-stamp race in the binding it depends on.",
+          "confidence": "high",
+          "caveats": [
+            "Its two coordination notes name t1158 (shadow impl-review modes and tiers) and t1311 (impl-review gate premise and profile tier default); both are archived, so those constraints are discharged — but the plan must re-read the landed behaviour of the review entry conditions and tier defaults rather than the task text, which describes work that has since changed.",
+            "The advisory-only guardrail binding the shadow is load-bearing and unchanged by this trail: any pane injection is performed by minimonitor upon explicit user confirmation, never by the shadow.",
+            "t1159 folds t1017, so its steerability requirement is a first-class acceptance criterion and not an optional extra — the triage routing is what keeps the loop from bloating plans."
+          ],
+          "evidence_refs": ["ev-t1159", "ev-archived-ls", "ev-snapshot"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-stale-instance-drift",
+      "ordinal": 4,
+      "title": "After the loop exists: stale-instance drift",
+      "purpose": "Revisit stale minimonitor code drift once minimonitor sends keys, at the point where an outdated running process stops being a display inconsistency and starts being a question about which code is authorized to act in a pane.",
+      "why_now": "Placed last deliberately. A minimonitor instance that predates t1159 cannot run the loop at all — the keybinding does not exist in its code — so before t1159 a stale instance can mis-report a pane as PROMPT but cannot act on that verdict. The task's value therefore rises when t1159 lands, not before.",
+      "consequence_of_delay": "Contradictory monitor state across panes in one tmux session persists after any monitor code update, and after t1159 the question 'which minimonitor is this pane's companion actually running' has no answer short of comparing captures by hand.",
+      "entries": [
+        {
+          "entry_id": "e-1116",
+          "task": "aitasks#1116",
+          "topic": "aitasks#1116",
+          "position": 1,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Postponed",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Included so the connection to t1159 is recorded rather than rediscovered. t1116 is not about the prompt-detection algorithm — its own evidence shows the checked-in code classifies the disputed pane correctly — but about already-running minimonitor processes continuing on older code until restarted. t1159 relies on awaiting-input detection to decide when the followed agent has settled enough to re-challenge, so the question of which code a given companion is running acquires consequences it does not have today.",
+          "expected_outcome": "A way to identify or recover a stale minimonitor without comparing captures across panes by hand — a version/revision mismatch surfaced in the TUI, a restart hint, or reuse/restart at companion launch.",
+          "why_order_matters": "Order here is mild. The argument for last is that stale code cannot contain a feature that postdates it; the argument for earlier would be that a stale companion misleads the user about loop readiness. Neither blocks the other.",
+          "confidence": "low",
+          "caveats": [
+            "t1116 is Postponed. This trail does not change that and must not be read as scheduling it — un-postponing is a separate user decision.",
+            "The placement rests on an unverified inference about running processes, not on an observation: no minimonitor process was inspected.",
+            "If t1159's chosen architecture puts loop state anywhere shared between instances, this ordering should be revisited — that would make instance drift a correctness concern at the same time as the loop, not after it."
+          ],
+          "evidence_refs": ["ev-t1116", "ev-t1159", "ev-snapshot"]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "from": "aitasks#1294",
+      "to": "aitasks#1159",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "The accessor guard should exist before t1159 adds a new forward surface and a new display surface, because both wrong-accessor mistakes are silent."
+    },
+    {
+      "from": "aitasks#1289",
+      "to": "aitasks#1159",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "Remove the transitional delegators before t1159 writes new minimonitor call sites against them."
+    },
+    {
+      "from": "aitasks#1319",
+      "to": "aitasks#1159",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "Make the shadow-to-followed binding authoritative and close the spawn-stamp race before an automated loop starts capturing immediately after spawn."
+    },
+    {
+      "from": "aitasks#1293",
+      "to": "aitasks#1159",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "Make malformed concern blocks inspectable before the producer starts emitting a new round-metadata field unattended."
+    },
+    {
+      "from": "aitasks#1159",
+      "to": "aitasks#1116",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "Stale-instance drift becomes a correctness question only once minimonitor acts on its own verdicts; a process predating the loop cannot run it."
+    },
+    {
+      "from": "aitasks#1293",
+      "to": "aitasks#1294",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "Both are Step 8d follow-ups of t1274 over the same picker and parser surfaces; whichever lands second should re-check the other's assumptions about row rendering and the canonical body."
+    },
+    {
+      "from": "aitasks#1319",
+      "to": "aitasks#1289",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "t1319 changes the capture helper's pane resolution while t1289 moves minimonitor's callers of the shadow helpers onto the shared seam; the two meet at the shadow capture call path."
+    }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-1289-gate-discharged",
+      "kind": "stale_premise",
+      "statement": "t1289's scope note blocks it on t1216_2 and t1216_3 ('Do not start until t1216_2 and t1216_3 have landed'). Both are archived under aitasks/archived/t1216/, so that premise is discharged and t1289 is startable for the first time. Its stated reason for the gate — that the seams should only come out once the shared functions have a second real consumer — is also satisfied, which is why it sits in wave 1 rather than being deferred.",
+      "affects": ["aitasks#1289"],
+      "evidence_refs": ["ev-t1289", "ev-archived-ls"]
+    },
+    {
+      "observation_id": "obs-coordination-discharged",
+      "kind": "stale_premise",
+      "statement": "t1159 carries two coordination notes instructing whichever task lands second to re-check the other's assumptions: t1158 (shadow impl-review modes and tiers from /code-review prompts) and t1311 (impl-review gate premise plus a profile tier default). Both are already archived, so t1159 is unambiguously the second to land and the coordination obligation falls entirely on it. Because both have shipped, the planner must re-read the landed behaviour of the review entry conditions and the default tier rather than the descriptions in those task files.",
+      "affects": ["aitasks#1159"],
+      "evidence_refs": ["ev-t1159", "ev-archived-ls"]
+    },
+    {
+      "observation_id": "obs-shared-surface",
+      "kind": "shared_surface_collision",
+      "statement": "Four of the six members converge on two files. t1293, t1294 and t1159 all touch the concern picker modal and the concern parser / shared row rendering; t1289 and t1159 both restructure minimonitor's shadow call sites in the same module. The wave boundaries are therefore also concurrency boundaries: running any wave-1 or wave-2 member in parallel with t1159 invites direct conflict in the same files, and t1293 with t1294 both edit the picker.",
+      "affects": ["aitasks#1159", "aitasks#1289", "aitasks#1293", "aitasks#1294"],
+      "evidence_refs": ["ev-t1159", "ev-t1289", "ev-t1293", "ev-t1294"]
+    },
+    {
+      "observation_id": "obs-no-plan-files",
+      "kind": "other",
+      "statement": "The gatherer emitted no plan_file input records for any of the six members, so none of them has been planned yet. Every classification and ordering judgment in this trail rests on task descriptions and the source files they name, not on reviewed implementation plans. The first plan to be written — most likely t1159's, which explicitly asks for an architecture brainstorm — is the most likely event to invalidate a wave rationale here.",
+      "affects": ["aitasks#1116", "aitasks#1159", "aitasks#1289", "aitasks#1293", "aitasks#1294", "aitasks#1319"],
+      "evidence_refs": ["ev-snapshot"]
+    },
+    {
+      "observation_id": "obs-1116-postponed",
+      "kind": "other",
+      "statement": "t1116 is the only member not in Ready state — it is Postponed. It appears in wave 4 to record its connection to the loop, not to schedule it; acting on that wave requires an explicit decision to un-postpone, which this trail does not make and cannot make (it never mutates task metadata).",
+      "affects": ["aitasks#1116"],
+      "evidence_refs": ["ev-snapshot", "ev-t1116"]
+    },
+    {
+      "observation_id": "obs-single-member-topic",
+      "kind": "other",
+      "statement": "A topic-scope snapshot of aitasks#1159 returned exactly one member, confirming the topic group has no children and no other anchored tasks. That is why this trail is ad_hoc rather than topic-scoped: the five added members each belong to a different canonical topic (1037, 1111, 1307, and 1116's own root), and grouping them here is a projection for sequencing purposes only. Consequence for refresh: because scope.topics lists only aitasks#1159, a new task landing in topics 1037, 1111 or 1307 will NOT be reported as drift unless it depends on a member. That is a deliberate trade — those topics are large and unrelated to this trail — but it means a genuinely relevant new sibling of t1289, t1293, t1294 or t1319 must be noticed by a human, not by the staleness check.",
+      "affects": ["aitasks#1159"],
+      "evidence_refs": ["ev-topic-snapshot", "ev-snapshot"]
+    }
+  ],
+  "exclusions": [
+    {
+      "task": "aitasks#1118",
+      "reason_code": "deferred_by_user",
+      "reason": "Mobile shadow-agent driving over applink, with children t1118_1 through t1118_4. t1118_4 in particular adds the `shadow_concerns` RPC and a `send_keys` paste mode — a second consumer of concern forwarding over a different transport, genuinely coordinating with t1159's forwarding path. Offered as a scope expansion and declined; neither blocks the other, but whichever lands second should re-check the other's assumptions about how a concern payload reaches a pane."
+    },
+    {
+      "task": "aitasks#1347",
+      "reason_code": "deferred_by_user",
+      "reason": "Concern-signature reflow soak (its dependency t1216_3 is archived, so it is unblocked). It verifies existing concern-signature behaviour under reflow rather than gating t1159, though t1159's round metadata changes what a signature covers — worth reconsidering at t1159's planning time."
+    },
+    {
+      "task": "aitasks#1288",
+      "reason_code": "deferred_by_user",
+      "reason": "Shadow refresh concurrency soak (its dependency t1216_2 is archived, so it is unblocked). It exercises concurrent refresh behaviour, which an automated loop will exercise harder, but it verifies rather than blocks."
+    },
+    {
+      "task": "aitasks#1350",
+      "reason_code": "deferred_by_user",
+      "reason": "Monitor modal binding guard audit — adjacent to the picker modal bindings t1159 extends with round display and triage routing, but an audit of existing bindings rather than a prerequisite for new ones."
+    },
+    {
+      "task": "aitasks#1203",
+      "reason_code": "non_blocking",
+      "reason": "Shadow default-tier recall reassessment: it concerns the content and volume of a review's findings, not the mechanics of the review loop. t1159 explicitly draws the same line against t1158 ('t1158 reworks review content; this task reworks loop mechanics')."
+    },
+    {
+      "task": "aitasks#1158",
+      "reason_code": "already_landed",
+      "reason": "Named in t1159's first coordination note; archived, so the constraint is discharged. Retained here so a refresh does not re-open it as a candidate."
+    },
+    {
+      "task": "aitasks#1311",
+      "reason_code": "already_landed",
+      "reason": "Named in t1159's second coordination note (impl-review gate premise plus profile tier default); archived, so the constraint is discharged, but its landed behaviour is what t1159's plan must read."
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 1159 1159 1319 1116 1289 1293 1294",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Authoritative member snapshot for this trail: six MEMBER records and six INPUT:task_file records, OWNER aitasks#1159, topics aitasks#1037,1111,1116,1159,1307, DIGEST 893963fe75d16697. No member declares a depends edge; all six have risk_evaluated pending; no plan_file input records were emitted."
+    },
+    {
+      "evidence_id": "ev-topic-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic 1159",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Topic-scope snapshot of the invoking task returned a single MEMBER (aitasks#1159), establishing that the topic group has no children or other anchored tasks and motivating the ad_hoc widening."
+    },
+    {
+      "evidence_id": "ev-archived-ls",
+      "source_type": "command_output",
+      "ref": "ls aitasks/archived/ and ls aitasks/archived/t1216/",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Confirms t1158, t1311 and t1307 are archived at the top level and that t1216_1 through t1216_5 are archived under aitasks/archived/t1216/ — the basis for treating t1289's start gate and t1159's two coordination notes as discharged."
+    },
+    {
+      "evidence_id": "ev-t1159",
+      "source_type": "task_file",
+      "ref": "aitasks/t1159_shadow_review_loop_automation.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full: the manual five-step loop, the exploration findings on minimonitor's send_keys machinery and the t1104 staleness stamp plus awaiting_input detection, three candidate architectures, the requirement for a pane-injection safety contract, the steerability requirement folded in from t1017, the load-bearing contracts to preserve, and the two coordination notes naming t1158 and t1311."
+    },
+    {
+      "evidence_id": "ev-t1319",
+      "source_type": "task_file",
+      "ref": "aitasks/t1319_shadow_pane_id_structural_binding_resolution.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full: the silent wrong-pane case t1307 left open, the two candidate mitigations (binding self-resolution, conflict warning), and the stated constraint that _spawn_shadow stamps @aitask_shadow_target after launch_in_tmux() returns so an early capture can race the stamp."
+    },
+    {
+      "evidence_id": "ev-t1289",
+      "source_type": "task_file",
+      "ref": "aitasks/t1289_shadow_seam_wrapper_removal.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full: the four named delegators on MiniMonitorApp, the explicit 'do not start until t1216_2 and t1216_3 have landed' gate with its rationale, the four affected test files and five test classes, and the acceptance requiring behaviour to be unchanged."
+    },
+    {
+      "evidence_id": "ev-t1293",
+      "source_type": "task_file",
+      "ref": "aitasks/t1293_concern_block_parse_diagnostics.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full: the residual risk that over-bound split markers are reported but not recovered and that widths below 40 columns are unverified; the two goals (a raw-block inspection affordance reachable including the no-rows case, and rendered-viewport tests at 30 and 24 columns) with the _SENTINEL_SAFE_COLS width-floor precedent."
+    },
+    {
+      "evidence_id": "ev-t1294",
+      "source_type": "task_file",
+      "ref": "aitasks/t1294_concern_body_display_contract_guard.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full: the asymmetric canonical-body vs display-body rule enforced only by prose, both silent failure modes, the two candidate guard designs, the instruction to prefer a guard that survives a second consumer of the picker, and the verification demanding the guard be shown to fail when either surface is switched."
+    },
+    {
+      "evidence_id": "ev-t1116",
+      "source_type": "task_file",
+      "ref": "aitasks/t1116_detect_stale_minimonitor_prompt_detection.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full: live evidence that the checked-in code classifies the disputed pane IDLE while several older running minimonitor panes report PROMPT; the framing that the problem is stale running processes rather than the detection algorithm; and acceptance criteria about identifying or recovering a stale instance."
+    }
+  ],
+  "rendering_hints": {
+    "collapse_landed_waves": true
+  }
+}
