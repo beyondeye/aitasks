@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
+implemented_with: claudecode/opus5
 created_at: 2026-08-02 10:15
-updated_at: 2026-08-02 12:45
+updated_at: 2026-08-02 20:02
 ---
 
 ## Symptom
@@ -112,3 +113,8 @@ Options 1 and 2 are cheap and independent; 3 is the quality-of-life fix.
 - If the docs' description of `r` ("Re-reads task files from disk and redraws the
   trail", `website/content/docs/tuis/board/reference.md`) changes meaning, update
   that table and the By-Trail section in the same commit.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-02T17:02:18Z status=pass attempt=1 type=human
