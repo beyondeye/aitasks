@@ -489,3 +489,121 @@ wording itself).
 Per **Step 9**: current-branch profile, merge target `main`, no worktree to clean
 up; then archive via `./.aitask-scripts/aitask_archive.sh 1269`. `risk_evaluated`
 is the only active gate.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-02 21:26)
+
+- **Requested by user:** The `no_upstream` hint told users to run
+  `git branch --set-upstream-to=origin/<branch>` directly. In branch mode task
+  data lives in `.aitask-data` and every task-data git command is routed through
+  `./ait git` / `task_git`; a bare `git branch` at the repo root acts on the
+  **code** worktree's current branch instead, so following the advertised
+  recovery would retarget the wrong branch and leave `task_sync` failing on
+  every pick. Use the gateway form, and strengthen the test beyond a bare
+  `set-upstream-to` substring check.
+- **Verified:** Confirmed. Every other hint in the table already uses the
+  gateway form (`./ait git rebase --abort`, `./ait git push`,
+  `./ait git-health`) — the new `no_upstream` arm was the only bare-`git` one.
+  `./ait git branch --set-upstream-to=…` is correct in **both** modes:
+  `_ait_git_subcmd_is_readonly` classifies `branch` as read-only unless
+  `-d/-D/-m/-M/--delete/--move`, so `assert_data_worktree_clean` passes it
+  through to `git -C .aitask-data`; in legacy mode `ait git` passes through to
+  plain git, which is already where task data lives. Dispatch confirmed live
+  (`./ait git branch --help` → rc 0).
+- **Changes made:**
+  1. `_task_push_reason_hint`'s `no_upstream` arm now emits
+     `'./ait git branch --set-upstream-to=origin/<branch>'`, with a comment
+     recording *why* the gateway form is mandatory.
+  2. The hint assertion was tightened from the `set-upstream-to` substring to
+     the full literal `./ait git branch --set-upstream-to=origin/<branch>`, and
+     a **discriminating guard** was added: strip `./ait git branch` from the
+     hint and fail if any bare `git branch` survives. A substring check alone
+     could never have caught the defect, since the bare form contains
+     `set-upstream-to` too.
+  3. Negative control run: reverting the hint to the bare form fails **both**
+     new assertions and exits 1 (`117 passed, 2 failed`); restored to
+     `119 passed, 0 failed`.
+- **Files affected:** `.aitask-scripts/lib/task_utils.sh`,
+  `tests/test_task_push.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, plus the post-review hint fix.
+  `task_utils.sh` gained the `TASK_SYNC_STATUS` / `TASK_SYNC_REASON` /
+  `TASK_SYNC_UNPUSHED` / `TASK_SYNC_UNPULLED` globals, a rewritten `task_sync`
+  (classify → report → warn, still always exit 0), the `_task_sync_head` /
+  `_task_sync_unpulled_count` probes, `_task_sync_warn`, a new `no_upstream`
+  arm in the shared `_task_push_classify` / `_task_push_reason_hint`, and an
+  optional `retry_cmd` parameter on the hint table so a failed *pull* is not
+  sent to the push recovery. `aitask_pick_own.sh --sync` now prints
+  `SYNC_FAILED:<reason>` instead of an unconditional `SYNCED`.
+  `chatlink/task_create.py` passes `--batch` by default and reads the outcome
+  from the structured token (`_push_status_line` + `_PUSH_OK_TOKENS`) instead of
+  the always-zero return code. Tests: `test_task_push.sh` 63 → **119**
+  assertions (8 new blocks), `test_chatlink_flow.sh` +9 assertions. Docs: the
+  `no_upstream` reason row plus a "Task-data pull before task selection"
+  section in `commands/sync.md`.
+- **Deviations from plan:** Two, both additive and both recorded above/below.
+  (1) The `no_upstream` classifier arm was not in the original task description —
+  it was added during planning because that state currently classifies as
+  `unknown` and hints "inspect the data worktree manually", the wrong recovery
+  for a one-command fix. (2) `_task_sync_warn` needed an explicit
+  `# shellcheck disable=SC2034` (following the `add_labels_csv_to_file`
+  precedent at `task_utils.sh:671`) because the `TASK_SYNC_*` globals are read
+  only from `aitask_pick_own.sh`; without it the file gained a 10th SC2034
+  finding over its 9-finding baseline.
+- **Issues encountered:**
+  - The developer's **global** git config sets `push.autoSetupRemote=true`
+    (`~/.config/git/config`), which silently creates the upstream on the first
+    push. That made the live push-side `no upstream branch` message
+    unreproducible here, so the push side of the `no_upstream` arm is pinned by
+    a pure-unit assertion on the literal message while the pull side
+    (`There is no tracking information for the current branch.`) is pinned by a
+    live fixture. Test 22 deliberately never pushes, so its fixture is
+    deterministic regardless of that setting.
+  - The flagship dirty-worktree scenario revealed that `git pull --rebase`
+    refuses **before** it fetches, so `TASK_SYNC_UNPULLED` reads `0` from a
+    stale upstream while the remote is actually one commit ahead. Rather than
+    hide this, the warning text states the caveat and Test 18 asserts the `0`.
+  - Post-review: the first `no_upstream` hint used a bare `git branch
+    --set-upstream-to`, which in branch mode would retarget the code worktree's
+    branch. Fixed to the `./ait git` gateway form (see Change Request 1).
+- **Key decisions:**
+  - **Silence policy is the load-bearing choice.** `task_sync` runs on every
+    pick, so a failed sync warns only when something is actually unreconciled,
+    or when the blocker is local state (`dirty_worktree` / `rebase_conflict`)
+    that will keep failing forever. Offline/solo users stay silent; pinned by
+    two empty-stderr negative controls (Tests 17 and 21).
+  - **`assert_data_worktree_clean` is deliberately NOT called by `task_sync`.**
+    Adding it would `die` inside `aitask_pick_own.sh` (`set -euo pipefail`) and
+    abort every pick on a wedged worktree. The wedge instead surfaces as
+    `rebase_conflict` with its recovery hint — loud but non-fatal.
+  - **The remote count is never presented as current.** It is read from the
+    local upstream ref, so the warning says "as of the last successful fetch".
+  - **`aitask_pick_own.sh --sync` keeps `SYNCED` for every non-failure
+    outcome** (`synced` / `up-to-date` / `no-remote`), byte-identical to before,
+    so the six skills calling it as a non-blocking step are unaffected.
+  - **Recovery hints must use the `./ait git` gateway**, never bare `git` —
+    task data lives on a different branch in a different worktree.
+- **Verification performed:** `test_task_push.sh` 119/119,
+  `test_chatlink_flow.sh` 66/66, `test_task_git.sh` 17/17,
+  `test_crash_recovery_pid_anchor.sh` 18/18, `test_lock_reclaim.sh` 20/20,
+  `test_lock_force.sh` 16/16, `test_gate_record.sh` 16/16,
+  `test_claim_id.sh` 54/54, `test_sync.sh` 42/42, `test_archive_folded.sh` 8/8,
+  `test_archive_verification_gate.sh` 34/34,
+  `test_gate_frontmatter_roundtrip.sh` 14/14. `shellcheck` on both shell files
+  is back to its pre-change baseline (9 SC2034 + pre-existing SC1091/SC2001).
+  Three negative controls were run and reverted: stubbing `_task_sync_warn` to
+  a no-op fails 10 assertions across Tests 18/19/20/22/23 (exit 1); disabling
+  the chatlink token parse fails on exactly
+  `task_create: FAILED token is audited with reason and count` (exit 1);
+  reverting the `no_upstream` hint to the bare `git branch` form fails both
+  gateway assertions (exit 1). Live on this repo, with no mutation of the real
+  data worktree: `./.aitask-scripts/aitask_pick_own.sh --sync` printed
+  `SYNC_FAILED:dirty_worktree` with the recovery warning — the exact situation
+  that previously printed `SYNCED` and nothing else. The success path
+  (`up-to-date`, silent) was verified in a disposable clone under the
+  scratchpad, which was then deleted; `git -C .aitask-data status --porcelain`
+  and `./ait git-health` confirmed the live worktree was untouched.
+- **Upstream defects identified:** None.
