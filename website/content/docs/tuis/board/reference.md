@@ -31,7 +31,7 @@ depth: [advanced]
 | `y` | Switch base filter to By-Topic (per-anchor swimlanes) | Board |
 | `z` | Switch base filter to By-Trail (implementation-trail waves) | Board |
 | `o` | Choose the By-Topic lane sort order (opens a picker) | By-Topic view |
-| `s` | Choose which trail the view shows | By-Trail view |
+| `s` | Choose which trail the view shows — re-scans, so a trail created since the board started is listed | By-Trail view |
 | `r` | Re-read task files from disk and redraw the trail | By-Trail view |
 | `d` | Re-check the trail's freshness against live task state | By-Trail view (trail selected) |
 | `R` | Launch an agent to re-author the trail | By-Trail view (trail selected) |
@@ -192,17 +192,21 @@ classification glyph, its confidence, its task status, and any drift marker.
 tasks in this repository — cross-repo members, archived tasks, and tasks that
 have gone missing — appear as read-only ghost cards.
 
-**Keeping the view current.** Four keys refresh different things, at very
+**Keeping the view current.** Five keys refresh different things, at very
 different costs:
 
 | Key | Refreshes | Cost |
 |-----|-----------|------|
 | `r` | Re-reads task files from disk and redraws the stored trail | Instant — no subprocess |
+| `s` | Re-scans task files for trails, including any created since the board started | A second or two — one artifact read per trail |
 | `d` | Re-checks the stored trail against live task state (freshness) | About half a second |
 | `S` | Runs `ait sync`, then redraws | A full remote sync |
 | `R` | Launches an agent to re-author the trail itself | Minutes |
 
 Reach for `r` when a task's status changed on this machine — it is free. Reach
+for `s` when a **new trail** was created since the board started: the scan reads
+task files from disk, so the new trail is listed without restarting the board
+(leaving and re-entering the view with `z` re-scans too). Reach
 for `S` when the change was made elsewhere: task data lives on the `aitask-data`
 branch, so a status set by another machine or a remote agent only arrives in this
 checkout through a sync. Use `d` to re-check drift without re-authoring anything;
@@ -210,6 +214,10 @@ it never modifies the stored trail. `R` is the heavyweight option — it hands t
 trail to an agent, which rewrites it. After a refresh is launched, the view
 watches for the new version and reloads on its own when it lands, giving up after
 about half an hour.
+
+If the scan cannot read one of your task files — a task being rewritten at that
+exact moment, or a malformed one — the view says so and leaves the trail list
+alone rather than reporting that there are no trails. Press `s` again.
 
 **Drift markers.** A trail records what it knew when it was written. When a
 member's live state no longer matches that snapshot, the card shows an amber

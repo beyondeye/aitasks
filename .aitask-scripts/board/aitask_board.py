@@ -715,26 +715,74 @@ def dedupe_trail_records(records):
     return [best[h] for h in order]
 
 
-def _iter_trail_frontmatter_records(manager):
+def _iter_active_task_frontmatter(unreadable=None):
+    """Yield ``(filename, metadata)`` for every live task file, read from disk.
+
+    The two glob patterns mirror ``TaskManager.load_tasks`` /
+    ``load_child_tasks``, but the files are re-read rather than taken from the
+    manager on purpose: its dicts are a board-STARTUP snapshot, so a trail whose
+    owning task gained its ``artifacts:`` frontmatter after launch stayed
+    invisible until a restart (t1365).
+
+    Any file that does not yield a frontmatter mapping is skipped, and — when it
+    is **task-named** — its name is appended to ``unreadable`` (if a list is
+    supplied). Skipping is mandatory rather than defensive: the only consumer is
+    a ``@work(thread=True)`` worker and Textual's ``exit_on_error=True`` default
+    turns an escaped exception into board exit, yet ``parse_frontmatter`` RAISES
+    on malformed YAML. Reporting is what stops a torn read from masquerading as
+    "there are no trails".
+
+    Both failure shapes matter, and they do not look alike.
+    ``frontmatter_patch`` rewrites task files in place with a plain
+    ``open(path, "w")``, which truncates to zero BEFORE writing, so a scan
+    racing ``ait artifact new`` sees either a file cut mid-YAML (raises) or an
+    empty / delimiter-truncated one — and for the second ``parse_frontmatter``
+    returns ``None`` rather than raising. Treating only the raise as a failure
+    would leave the *more likely* window silent.
+
+    The task-named qualifier is what keeps that honest without crying wolf: a
+    ``.md`` file under the task dir whose name is not ``t<N>_…`` is a document,
+    not a task, and reporting it would warn on every scan forever."""
+    for pattern in ("*.md", "t*/t*_*.md"):
+        for path in sorted(TASKS_DIR.glob(pattern)):
+            try:
+                parsed = parse_frontmatter(
+                    path.read_text(encoding="utf-8", errors="replace"))
+                meta = parsed[0] if parsed else None
+            except Exception:
+                meta = None
+            if isinstance(meta, dict):
+                yield path.name, meta
+            elif unreadable is not None and parse_task_filename(path.name)[0]:
+                unreadable.append(path.name)
+
+
+def _iter_trail_frontmatter_records(unreadable=None):
     """Yield raw ``TrailInfo`` records from active + archived task frontmatter
     (`artifacts:` entries with kind == implementation_trail). Discovery is
-    frontmatter-driven — the artifact manifest stores no kind (RFC §5)."""
-    active = (list(manager.task_datas.values())
-              + list(manager.child_task_datas.values()))
-    for task in active:
-        meta = task.metadata
+    frontmatter-driven — the artifact manifest stores no kind (RFC §5) — and
+    BOTH halves are read from disk, never from the manager's startup snapshot
+    (t1365).
+
+    ``unreadable`` collects skipped **active** task files only: the archived
+    half goes through ``iter_archived_frontmatter``, which swallows read and
+    parse failures internally."""
+    def _records(filename, meta, archived):
+        task_num, _name = parse_task_filename(filename)
+        folded = bool(meta.get("folded_into")) or meta.get("status") == "Folded"
         for rec in meta.get("artifacts") or []:
             if (isinstance(rec, dict) and rec.get("handle")
                     and rec.get("kind") == TRAIL_ARTIFACT_KIND):
-                folded = bool(meta.get("folded_into")) or \
-                    meta.get("status") == "Folded"
                 yield TrailInfo(
                     handle=str(rec["handle"]),
-                    owner_id=task_own_id(task) or "",
-                    owner_archived=False,
+                    owner_id=(task_num or "").lstrip("t"),
+                    owner_archived=archived,
                     owner_folded=folded,
                     name=str(rec.get("name") or ""),
                 )
+
+    for filename, meta in _iter_active_task_frontmatter(unreadable):
+        yield from _records(filename, meta, False)
 
     def _parse_meta(text):
         result = parse_frontmatter(text)
@@ -742,21 +790,8 @@ def _iter_trail_frontmatter_records(manager):
 
     for filename, meta in iter_archived_frontmatter(
             TASKS_DIR / "archived", _parse_meta):
-        if not isinstance(meta, dict):
-            continue
-        for rec in meta.get("artifacts") or []:
-            if (isinstance(rec, dict) and rec.get("handle")
-                    and rec.get("kind") == TRAIL_ARTIFACT_KIND):
-                task_num, _name = parse_task_filename(filename)
-                folded = bool(meta.get("folded_into")) or \
-                    meta.get("status") == "Folded"
-                yield TrailInfo(
-                    handle=str(rec["handle"]),
-                    owner_id=(task_num or "").lstrip("t"),
-                    owner_archived=True,
-                    owner_folded=folded,
-                    name=str(rec.get("name") or ""),
-                )
+        if isinstance(meta, dict):
+            yield from _records(filename, meta, True)
 
 
 def _trail_versions(handle: str) -> list:
@@ -811,14 +846,20 @@ def load_trail_blob(handle: str):
     return doc, error, versions
 
 
-def discover_trails(manager):
+def discover_trails():
     """Frontmatter-driven trail discovery, deduped by handle, blobs loaded and
     validated (fail-closed into ``load_error``). Subprocess-heavy — call from
-    a thread worker, never the UI thread."""
-    infos = dedupe_trail_records(_iter_trail_frontmatter_records(manager))
+    a thread worker, never the UI thread.
+
+    Returns ``(infos, unreadable)``. ``unreadable`` names the active task files
+    the scan could not read, so a caller can tell "there are no trails" apart
+    from "part of the scan failed" — the two must not look alike, because the
+    second is a retryable race (t1365)."""
+    unreadable = []
+    infos = dedupe_trail_records(_iter_trail_frontmatter_records(unreadable))
     for info in infos:
         info.doc, info.load_error, info.versions = load_trail_blob(info.handle)
-    return infos
+    return infos, unreadable
 
 
 def run_trail_drift(handle: str):
@@ -6743,6 +6784,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # Leaving the view: nothing left to reload into (t1268).
             self._stop_trail_watch()
         if name == "bytrail":
+            # Entering the view invalidates the discovery cache. The auto-open
+            # below passes rescan=False, so without this a user who opened the
+            # selector, pressed Esc, left and came back would be served the
+            # stale handle list — the t1365 symptom reached without ever
+            # pressing `s`. Costs a scan only when the selector actually opens.
+            self._trail_infos = None
             if self.active_trail_handle is None:
                 # Entering with no active trail opens the selection flow
                 # (RFC §9.1) once the empty-state board has rendered.
@@ -7570,10 +7617,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     @work(thread=True)
     def _trail_discovery_worker(self, gen: int, overlay):
         """Discovery + blob loads off the UI thread (subprocess-heavy)."""
-        infos = discover_trails(self.manager)
-        self.app.call_from_thread(self._on_trail_discovery, gen, infos, overlay)
+        infos, unreadable = discover_trails()
+        self.app.call_from_thread(self._on_trail_discovery, gen, infos,
+                                  unreadable, overlay)
 
-    def _on_trail_discovery(self, gen: int, infos: list, overlay):
+    def _on_trail_discovery(self, gen: int, infos: list, unreadable: list,
+                            overlay):
         # Pop OUR overlay first (even for superseded results — each scan owns
         # its own overlay instance, so a stale callback can never pop a newer
         # scan's overlay).
@@ -7581,6 +7630,29 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.pop_screen()
         # Supersession guard: discard when the view moved on mid-scan.
         if gen != self._trail_gen or self.base_filter != "bytrail":
+            return
+        if unreadable:
+            shown = ", ".join(unreadable[:3])
+            if len(unreadable) > 3:
+                shown += f" (+{len(unreadable) - 3} more)"
+            self.notify(
+                f"Trail scan skipped {len(unreadable)} unreadable active task "
+                f"file(s): {shown} — the list may be incomplete; press s to "
+                "retry.", severity="warning")
+        if not infos and unreadable:
+            # A torn read is a retryable snapshot race, not an answer. ASSIGN
+            # None rather than merely returning: _open_trail_select does not
+            # clear the cache before a rescan, so an earlier scan's handles
+            # would otherwise survive this one and stay live for
+            # _activate_trail's lookup. None also keeps the result
+            # non-authoritative — _render_bytrail's definitive "No
+            # implementation trails found" hint is gated on `is not None` (t1365).
+            self._trail_infos = None
+            if not self.active_trail_handle:
+                # Redraw so the definitive hint gives way to the neutral one.
+                # Only safe with no active trail: the view then holds just that
+                # hint, so there is no card focus or column scroll to lose.
+                self._rerender_trail()
             return
         self._trail_infos = infos
         self._open_trail_select_from_cache()
@@ -7605,6 +7677,17 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _activate_trail(self, handle: str):
         """Make ``handle`` the session's active trail and render it."""
         self._trail_gen += 1
+        # Discovery reads task files from disk, but the LANE PROJECTION still
+        # builds tasks_by_id from the manager. A freshly authored trail usually
+        # references tasks created after board start, so without this its
+        # members would render as missing ghosts until the user pressed `r`
+        # (t1365). Here rather than in the discovery callback: this is the one
+        # activation funnel, it is followed by a full refresh_board(), and the
+        # selector's Esc-cancel path is left untouched — replacing Task objects
+        # while the modal is open would strand the board's card references with
+        # no focused card to restore (_focused_card queries "TaskCard:focus",
+        # which is empty behind a modal).
+        self.manager.load_tasks()
         # A watch belongs to the trail it was installed for (t1268).
         self._stop_trail_watch()
         self.active_trail_handle = handle

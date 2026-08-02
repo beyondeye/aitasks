@@ -180,9 +180,13 @@ class FixtureContractTests(bf.FixtureBoardTestBase, unittest.TestCase):
         self.assertEqual(self.ab.load_local_project_name(), "aitasks")
 
     def test_no_trails_are_discoverable(self):
-        """No `artifacts:` frontmatter anywhere — the explicit no-trails fixture."""
-        manager = self.ab.TaskManager()
-        self.assertEqual(self.ab.discover_trails(manager), [])
+        """No `artifacts:` frontmatter anywhere — the explicit no-trails fixture.
+
+        Discovery reads the tree from disk (t1365), so this now asserts the
+        stronger property: no trail frontmatter on disk AND nothing skipped as
+        unreadable (an unreadable file would also produce an empty list).
+        """
+        self.assertEqual(self.ab.discover_trails(), ([], []))
 
     def test_board_module_resolves_under_the_fixture_not_the_repo(self):
         resolved = Path(self.ab.TASKS_DIR).resolve()

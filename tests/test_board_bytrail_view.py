@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -38,6 +39,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
 import agent_command_screen as acs  # noqa: E402
 import board_fixture as bf  # noqa: E402
+import task_yaml  # noqa: E402
 
 FIXTURE_PATH = (REPO_ROOT / "aidocs" / "implementation_trail_examples"
                 / "gate_framework.json")
@@ -517,7 +519,7 @@ class ByTrailPilotTests(ByTrailTestBase):
                 # The live repo has no artifacts: frontmatter — that IS the
                 # no-trails fixture. Stub discovery so the worker is instant.
                 with patch.object(ab, "discover_trails",
-                                  lambda manager: []):
+                                  lambda: ([], [])):
                     await pilot.press("z")
                     await pilot.pause()
                     await pilot.pause()
@@ -2600,6 +2602,529 @@ class FixtureCwdDependencyTests(ByTrailTestBase):
             self._names(later), {"git"},
             f"unexpected cwd-relative helper spawned after boot: {later}")
         self._assert_git_probe_only(later, "bytrail+local-refresh")
+
+
+class TrailDiscoveryFreshnessTests(unittest.TestCase):
+    """t1365: discovery reads task frontmatter from DISK.
+
+    The bug: `_iter_trail_frontmatter_records` took active tasks from
+    `TaskManager.task_datas`, a board-STARTUP snapshot, so a trail whose owning
+    task gained its `artifacts:` frontmatter while the board was running was
+    invisible until a restart. Archived owners were already read from disk;
+    only the active half was stale.
+
+    Its own per-test tree (not the class-level fixture): every case MUTATES
+    task files mid-run. It goes through `board_fixture` rather than patching
+    `TASKS_DIR` because `TaskManager.__init__` resolves `METADATA_FILE` at
+    import time — a bare `TASKS_DIR` patch would read and *write* the live
+    repo's `aitasks/metadata/board_config.json`.
+    """
+
+    TASKS = (
+        bf.FixtureTask(task_id="42", col="c0", idx=10, slug="alpha"),
+        bf.FixtureTask(task_id="43", col="c0", idx=20, slug="beta"),
+        bf.FixtureTask(task_id="42_1", col="c0", idx=30, slug="child"),
+    )
+
+    def setUp(self):
+        self.tree, self.ab = bf.enter_fixture_tree(
+            self.addCleanup, tasks_spec=self.TASKS, tag="trailfresh")
+        self.tasks_dir = self.tree / "aitasks"
+
+    # --- helpers ---------------------------------------------------------
+
+    @staticmethod
+    def _trail(handle: str, name: str = "Trail") -> dict:
+        return {"handle": handle, "kind": "implementation_trail", "name": name}
+
+    def _write_task(self, relpath: str, *, artifacts=None, status="Ready",
+                    root=None):
+        meta = {"priority": "medium", "effort": "low", "issue_type": "chore",
+                "status": status}
+        if artifacts is not None:
+            meta["artifacts"] = artifacts
+        meta["boardcol"] = "c0"
+        meta["boardidx"] = 10
+        path = (root or self.tasks_dir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            task_yaml.serialize_frontmatter(
+                meta, "\n## Context\n\nbody\n",
+                ["priority", "effort", "issue_type", "status"]),
+            encoding="utf-8")
+        return path
+
+    @staticmethod
+    def _owns(tasks, handle: str) -> list:
+        """Tasks whose in-memory metadata carries `handle` — the exact
+        expression the pre-fix discovery consumed, read off live objects."""
+        return [t for t in tasks
+                if any(isinstance(r, dict) and r.get("handle") == handle
+                       for r in (t.metadata.get("artifacts") or []))]
+
+    @staticmethod
+    def _snapshot(manager) -> list:
+        return (list(manager.task_datas.values())
+                + list(manager.child_task_datas.values()))
+
+    def _discover(self):
+        """Run real discovery with only the blob subprocess stubbed."""
+        with patch.object(self.ab, "load_trail_blob",
+                          lambda handle: ({"trail_id": handle}, "", [])):
+            return self.ab.discover_trails()
+
+    # --- the acceptance case ---------------------------------------------
+
+    def test_discovery_sees_frontmatter_written_after_the_manager_was_built(self):
+        """The reported symptom, at the discovery layer."""
+        ab = self.ab
+        # Built BEFORE the mutation: this real object IS the pre-fix source.
+        manager = ab.TaskManager()
+
+        self._write_task("t43_beta.md", artifacts=[self._trail("art:trail-x")])
+
+        infos, unreadable = self._discover()
+
+        self.assertEqual(unreadable, [])
+        found = [i for i in infos if i.handle == "art:trail-x"]
+        self.assertEqual(len(found), 1, [i.handle for i in infos])
+        # A missing ARTIFACT_SCRIPT would still yield a record carrying the
+        # handle, only with load_error set — that must not fake the pass.
+        self.assertEqual(found[0].load_error, "")
+        self.assertEqual(found[0].owner_id, "43")
+        self.assertFalse(found[0].owner_archived)
+
+        # Negative control: the manager snapshot still knows nothing about it,
+        # so the handle provably did not come from there.
+        self.assertEqual(self._owns(self._snapshot(manager), "art:trail-x"), [],
+                         "manager snapshot already carried the handle — this "
+                         "test cannot discriminate")
+
+        # Recovery control: kills the vacuous pass where the frontmatter was
+        # written wrong and NOBODY could have seen it.
+        manager.load_tasks()
+        self.assertTrue(self._owns(self._snapshot(manager), "art:trail-x"))
+
+    def test_child_and_archived_owners_are_discovered(self):
+        """The `t*/t*_*.md` glob, and the merged active/archived emit block."""
+        self._write_task("t42/t42_1_child.md",
+                         artifacts=[self._trail("art:trail-kid")])
+        self._write_task("t9100_old.md",
+                         artifacts=[self._trail("art:trail-old")],
+                         root=self.tasks_dir / "archived")
+
+        infos, unreadable = self._discover()
+
+        self.assertEqual(unreadable, [])
+        by_handle = {i.handle: i for i in infos}
+        self.assertIn("art:trail-kid", by_handle)
+        self.assertEqual(by_handle["art:trail-kid"].owner_id, "42_1")
+        self.assertFalse(by_handle["art:trail-kid"].owner_archived)
+        self.assertIn("art:trail-old", by_handle)
+        self.assertEqual(by_handle["art:trail-old"].owner_id, "9100")
+        self.assertTrue(by_handle["art:trail-old"].owner_archived)
+
+    # --- torn reads ------------------------------------------------------
+
+    def test_malformed_frontmatter_skips_only_that_file(self):
+        """`parse_frontmatter` RAISES on malformed YAML and the consumer is a
+        thread worker with exit_on_error=True — an escaped exception would kill
+        the board rather than lose one file."""
+        self._write_task("t42_alpha.md", artifacts=[self._trail("art:trail-a")])
+        self._write_task("t43_beta.md", artifacts=[self._trail("art:trail-b")])
+        (self.tasks_dir / "t44_broken.md").write_text(
+            "---\npriority: medium\nartifacts: [{handle: art:trail-torn\n"
+            "---\n\nbody\n", encoding="utf-8")
+
+        infos, unreadable = self._discover()   # must not raise
+
+        self.assertEqual(unreadable, ["t44_broken.md"])
+        self.assertEqual(sorted(i.handle for i in infos),
+                         ["art:trail-a", "art:trail-b"])
+
+    def test_truncated_rewrite_windows_are_reported_not_silently_dropped(self):
+        """`open(path, "w")` truncates BEFORE writing, so the likeliest instant
+        to catch a task file in is empty or cut at the delimiter — and
+        `parse_frontmatter` returns None for both rather than raising. Reported
+        as unreadable, or a torn read announces "no trails"."""
+        self._write_task("t42_alpha.md", artifacts=[self._trail("art:trail-a")])
+        # Truncated to zero bytes — the first instant of every rewrite.
+        (self.tasks_dir / "t45_empty.md").write_text("", encoding="utf-8")
+        # Opening delimiter written, closing one not yet.
+        (self.tasks_dir / "t46_partial.md").write_text(
+            "---\npriority: medium\nstatus: Ready\n", encoding="utf-8")
+
+        infos, unreadable = self._discover()
+
+        self.assertEqual(sorted(unreadable), ["t45_empty.md", "t46_partial.md"])
+        self.assertEqual([i.handle for i in infos], ["art:trail-a"])
+
+    def test_a_non_task_document_is_not_reported_as_unreadable(self):
+        """Discrimination for the case above: without the task-named qualifier
+        an ordinary document under the task dir would warn on every scan."""
+        self._write_task("t42_alpha.md", artifacts=[self._trail("art:trail-a")])
+        (self.tasks_dir / "README.md").write_text(
+            "# Notes\n\nNo frontmatter here.\n", encoding="utf-8")
+        (self.tasks_dir / "t_unparseable.md").write_text(
+            "# Not a task id\n", encoding="utf-8")
+
+        infos, unreadable = self._discover()
+
+        self.assertEqual(unreadable, [])
+        self.assertEqual([i.handle for i in infos], ["art:trail-a"])
+
+    def test_unreadable_file_skips_only_that_file(self):
+        if os.geteuid() == 0:
+            self.skipTest("root bypasses the permission bit")
+        self._write_task("t42_alpha.md", artifacts=[self._trail("art:trail-a")])
+        bad = self._write_task("t43_beta.md",
+                               artifacts=[self._trail("art:trail-b")])
+        bad.chmod(0o000)
+        self.addCleanup(bad.chmod, 0o644)
+
+        infos, unreadable = self._discover()
+
+        self.assertEqual(unreadable, ["t43_beta.md"])
+        self.assertEqual([i.handle for i in infos], ["art:trail-a"])
+
+
+class TrailDiscoveryErrorReportingTests(ByTrailTestBase):
+    """t1365: an unreadable file must not masquerade as "no trails"."""
+
+    @staticmethod
+    def _warnings(app, records):
+        original = app.notify
+
+        def spy(message, **kwargs):
+            records.append((message, kwargs.get("severity")))
+            return original(message, **kwargs)
+
+        return spy
+
+    def _info(self, handle="art:trail-stale"):
+        return self.ab.TrailInfo(handle=handle, owner_id="1", owner_archived=False,
+                                 owner_folded=False, name="Stale")
+
+    async def _settle(self, app, pilot, tries=20):
+        for _ in range(tries):
+            if app._trail_infos is not None:
+                return
+            await asyncio.sleep(0.05)
+            await pilot.pause()
+
+    def test_clean_empty_scan_stays_authoritative(self):
+        """Control for the two tests below: with nothing unreadable, an empty
+        result IS the answer and keeps its definitive hint."""
+        ab = self.ab
+        notes = []
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                app.notify = self._warnings(app, notes)
+                with patch.object(ab, "discover_trails", lambda: ([], [])):
+                    app._set_base_filter("bytrail")
+                    await pilot.pause()
+                    await self._settle(app, pilot)
+                self.assertEqual(app._trail_infos, [])
+                rows = "\n".join(self._screen_rows(app))
+                self.assertIn("No implementation trails found", rows)
+                self.assertFalse([m for m, sev in notes if sev == "warning"],
+                                 notes)
+
+        self._run(go())
+
+    def test_errored_empty_scan_is_not_authoritative(self):
+        ab = self.ab
+        notes = []
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                with patch.object(ab, "discover_trails", lambda: ([], [])):
+                    app._set_base_filter("bytrail")
+                    await pilot.pause()
+                    await self._settle(app, pilot)
+                app.notify = self._warnings(app, notes)
+
+                app._on_trail_discovery(app._trail_gen, [], ["t44_broken.md"],
+                                        None)
+                await pilot.pause()
+                await pilot.pause()
+
+                self.assertIsNone(app._trail_infos,
+                                  "an errored scan must leave the cache unset "
+                                  "so the next open re-scans")
+                warned = [m for m, sev in notes if sev == "warning"]
+                self.assertTrue(warned, notes)
+                self.assertIn("t44_broken.md", warned[0])
+                rows = "\n".join(self._screen_rows(app))
+                self.assertNotIn("No implementation trails found", rows)
+                self.assertIn("No trail selected", rows)
+
+        self._run(go())
+
+    def test_errored_empty_scan_drops_previously_cached_handles(self):
+        """The case that separates `_trail_infos = None` from a bare `return`:
+        `_open_trail_select` does not clear the cache before a rescan, so a
+        retryable read failure would otherwise leave stale handles live."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                with patch.object(ab, "discover_trails", lambda: ([], [])):
+                    app._set_base_filter("bytrail")
+                    await pilot.pause()
+                    await self._settle(app, pilot)
+
+                # A prior successful scan's result.
+                app._trail_infos = [self._info()]
+                app.notify = lambda *a, **k: None
+
+                app._on_trail_discovery(app._trail_gen, [], ["t44_broken.md"],
+                                        None)
+                await pilot.pause()
+
+                self.assertIsNone(app._trail_infos)
+
+        self._run(go())
+
+
+class TrailSelectorLifecycleTests(unittest.TestCase):
+    """t1365: view re-entry rescans; cancelling the selector disturbs nothing;
+    activating a trail refreshes the projection."""
+
+    TASKS = (
+        bf.FixtureTask(task_id="42", col="c0", idx=10, slug="alpha"),
+    )
+
+    def setUp(self):
+        self.tree, self.ab = bf.enter_fixture_tree(
+            self.addCleanup, tasks_spec=self.TASKS, tag="traillife")
+        self.tasks_dir = self.tree / "aitasks"
+
+    def _doc(self, task_ref="aitasks#42", trail_id="trail-life"):
+        return {
+            "title": "Life trail", "trail_id": trail_id,
+            "narrative": {"problem_statement": "p",
+                          "recommendation_summary": "r"},
+            "waves": [{
+                "wave_id": "w1", "ordinal": 1, "title": "Wave 1",
+                "purpose": "p", "entries": [{
+                    "entry_id": "e1", "task": task_ref, "topic": task_ref,
+                    "position": 1, "classification": "core",
+                    "confidence": "high", "rationale": "r",
+                    "snapshot": {"status": "Ready"},
+                }],
+            }],
+        }
+
+    def _info(self, handle, doc=None):
+        return self.ab.TrailInfo(handle=handle, owner_id="42",
+                                 owner_archived=False, owner_folded=False,
+                                 name="Life", doc=doc or self._doc())
+
+    def test_reentering_the_view_invalidates_the_discovery_cache(self):
+        """The t1365 symptom reached WITHOUT pressing `s`: open the selector,
+        cancel, leave and come back — the auto-open passes rescan=False."""
+        ab = self.ab
+        calls = []
+
+        def fake_discover():
+            calls.append(1)
+            return [self._info("art:trail-fresh")], []
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                app._start_trail_drift = lambda: None
+                with patch.object(ab, "discover_trails", fake_discover):
+                    app._set_base_filter("bytrail")
+                    await pilot.pause()
+                    await pilot.pause()
+                    for _ in range(20):
+                        if calls:
+                            break
+                        await asyncio.sleep(0.05)
+                        await pilot.pause()
+                    self.assertEqual(len(calls), 1)
+                    # Cancel the selector, then leave and re-enter.
+                    if isinstance(app.screen, ab.TrailSelectScreen):
+                        app.screen.dismiss(None)
+                        await pilot.pause()
+                    app._trail_infos = [self._info("art:trail-stale")]
+                    app._set_base_filter("all")
+                    await pilot.pause()
+                    app._set_base_filter("bytrail")
+                    await pilot.pause()
+                    await pilot.pause()
+                    for _ in range(20):
+                        if len(calls) > 1:
+                            break
+                        await asyncio.sleep(0.05)
+                        await pilot.pause()
+
+                self.assertEqual(len(calls), 2,
+                                 "re-entry served the stale cache instead of "
+                                 "re-scanning")
+                self.assertEqual([i.handle for i in (app._trail_infos or [])],
+                                 ["art:trail-fresh"])
+
+        asyncio.run(go())
+
+    def test_cancelling_the_selector_leaves_the_board_untouched(self):
+        """Pins why manager.load_tasks() lives in _activate_trail and NOT in
+        the discovery callback: replacing Task objects while the modal is open
+        would strand the rendered cards, and `_focused_card()` is empty behind
+        a modal so no refocus target could be recovered."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                app.active_trail_handle = "art:trail-life"
+                app._trail_doc = self._doc()
+                app._trail_error = ""
+                app._start_trail_drift = lambda: None
+                app._set_base_filter("bytrail")
+                await pilot.pause()
+                await pilot.pause()
+
+                card = next(iter(app.query(ab.TrailTaskCard)), None)
+                self.assertIsNotNone(card, "no trail member card rendered")
+                card.focus()
+                await pilot.pause()
+                before = app.manager.task_datas["t42_alpha.md"]
+
+                with patch.object(ab, "discover_trails",
+                                  lambda: ([self._info("art:trail-life")], [])):
+                    await pilot.press("s")
+                    await pilot.pause()
+                    for _ in range(20):
+                        if isinstance(app.screen, ab.TrailSelectScreen):
+                            break
+                        await asyncio.sleep(0.05)
+                        await pilot.pause()
+                    self.assertIsInstance(app.screen, ab.TrailSelectScreen)
+                    app.screen.dismiss(None)
+                    await pilot.pause()
+                    await pilot.pause()
+
+                self.assertIs(app.manager.task_datas["t42_alpha.md"], before,
+                              "cancelling a scan reloaded the manager and "
+                              "replaced the Task objects the cards hold")
+                self.assertIs(app.focused, card,
+                              "cancelling the selector dropped card focus")
+
+        asyncio.run(go())
+
+    def test_activating_a_trail_refreshes_the_projection(self):
+        """Listing the trail is not enough: its members are created after the
+        board started too, so without the reload they render as ghosts."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                app._start_trail_drift = lambda: None
+                with patch.object(ab, "discover_trails", lambda: ([], [])):
+                    app._set_base_filter("bytrail")
+                    await pilot.pause()
+                    await pilot.pause()
+
+                # A member that did not exist when the manager was built.
+                (self.tasks_dir / "t77_late.md").write_text(
+                    "---\npriority: medium\neffort: low\nissue_type: chore\n"
+                    "status: Ready\nboardcol: c0\nboardidx: 10\n---\n\nbody\n",
+                    encoding="utf-8")
+                self.assertNotIn("t77_late.md", app.manager.task_datas)
+
+                info = self._info("art:trail-late",
+                                  doc=self._doc(task_ref="aitasks#77"))
+                app._trail_infos = [info]
+                app._activate_trail("art:trail-late")
+                await pilot.pause()
+                await pilot.pause()
+
+                self.assertIn("t77_late.md", app.manager.task_datas)
+                self.assertEqual(len(list(app.query(ab.TrailTaskCard))), 1,
+                                 "member rendered as a ghost — the projection "
+                                 "still used the startup snapshot")
+                self.assertEqual(len(list(app.query(ab.TrailGhostCard))), 0)
+
+        asyncio.run(go())
+
+
+class TrailDiscoveryPilotTests(unittest.TestCase):
+    """t1365 AC1 is a RUNNING-board claim — drive the real key."""
+
+    TASKS = (
+        bf.FixtureTask(task_id="42", col="c0", idx=10, slug="alpha"),
+        bf.FixtureTask(task_id="43", col="c0", idx=20, slug="beta"),
+    )
+
+    def setUp(self):
+        self.tree, self.ab = bf.enter_fixture_tree(
+            self.addCleanup, tasks_spec=self.TASKS, tag="trailpilot")
+        self.tasks_dir = self.tree / "aitasks"
+
+    def test_s_lists_a_trail_created_while_the_board_was_running(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                app._start_trail_drift = lambda: None
+                # Enter the view with nothing to find — the state the user is
+                # in when the trail gets created elsewhere.
+                with patch.object(ab, "discover_trails", lambda: ([], [])):
+                    app._set_base_filter("bytrail")
+                    await pilot.pause()
+                    for _ in range(20):
+                        if app._trail_infos is not None:
+                            break
+                        await asyncio.sleep(0.05)
+                        await pilot.pause()
+                    self.assertEqual(app._trail_infos, [])
+
+                # /aitask-trail patches the owning task's frontmatter on disk.
+                (self.tasks_dir / "t43_beta.md").write_text(
+                    "---\npriority: medium\neffort: low\nissue_type: chore\n"
+                    "status: Ready\n"
+                    "artifacts: [{handle: 'art:trail-live', "
+                    "kind: implementation_trail, name: Live}]\n"
+                    "boardcol: c0\nboardidx: 20\n---\n\nbody\n",
+                    encoding="utf-8")
+
+                # Real discovery this time; only the blob subprocess is stubbed.
+                with patch.object(ab, "load_trail_blob",
+                                  lambda h: ({"trail_id": h}, "", [])):
+                    await pilot.press("s")
+                    await pilot.pause()
+                    for _ in range(40):
+                        if isinstance(app.screen, ab.TrailSelectScreen):
+                            break
+                        await asyncio.sleep(0.05)
+                        await pilot.pause()
+
+                    self.assertIsInstance(app.screen, ab.TrailSelectScreen)
+                    self.assertIn("art:trail-live",
+                                  [i.handle for i in app.screen.infos])
+                    # Control: the listing came from the disk read, not from
+                    # something having reloaded the manager behind our back.
+                    self.assertIsNone(
+                        app.manager.task_datas["t43_beta.md"]
+                        .metadata.get("artifacts"))
+
+        asyncio.run(go())
 
 
 if __name__ == "__main__":
