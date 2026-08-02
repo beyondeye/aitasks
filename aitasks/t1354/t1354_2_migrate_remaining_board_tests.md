@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus5
 created_at: 2026-07-31 07:56
-updated_at: 2026-08-02 06:24
+updated_at: 2026-08-02 09:59
 ---
 
 ## Context
@@ -66,3 +67,8 @@ Optional, only if cheap (read-only live-metadata readers, low cost):
 - All migrated files green; per-file before/after timings recorded in the plan.
 - Guard test: green on the real tree; negctrl asserts the expected violation id (a passing negctrl means the guard is wrong).
 - Full suite green; board-test cumulative time drop recorded (~200s → ~30-40s expected).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-02T06:59:28Z status=pass attempt=1 type=human
