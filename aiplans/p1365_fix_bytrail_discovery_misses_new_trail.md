@@ -324,6 +324,79 @@ wrong. The disk read makes it correct.
    hunks from a concurrent in-flight session (t1243_3, board gap-indexing).
    Verify staged *content*, not just paths, before committing.
 
+## Final Implementation Notes
+
+- **Actual work done:** All five planned changes landed as designed.
+  `_iter_active_task_frontmatter()` (new) reads live task frontmatter from disk;
+  `_iter_trail_frontmatter_records()` and `discover_trails()` dropped their
+  `manager` parameter and the duplicated active/archived emit blocks collapsed
+  into one; `discover_trails()` now returns `(infos, unreadable)`;
+  `_on_trail_discovery` warns on unreadable files and assigns
+  `_trail_infos = None` when the scan is empty *because* of them;
+  `_set_base_filter` invalidates the discovery cache on By-Trail entry;
+  `_activate_trail` reloads the manager so a new trail's members render as real
+  cards. Two test call sites updated, 13 new tests across four classes in
+  `tests/test_board_bytrail_view.py`, and the By-Trail docs gained an `s` row
+  plus the unreadable-file note.
+- **Deviations from plan:** one, in change 3's placement, decided during
+  planning after review: `manager.load_tasks()` went into `_activate_trail`
+  rather than `_on_trail_discovery`. Reloading in the discovery callback
+  replaces every `Task` object while the selector modal is opening, and the
+  Esc-cancel arm never re-renders; a cancel-path `_rerender_trail(...)` cannot
+  repair it because `_focused_card()` queries `TaskCard:focus`, which is empty
+  behind a modal, so a plain scan-then-cancel would drop keyboard focus and
+  reset column scroll. `_activate_trail` has exactly one caller and is followed
+  by a full `refresh_board()`, so it covers every activation while leaving the
+  cancel path untouched. `test_cancelling_the_selector_leaves_the_board_untouched`
+  pins this, and the `reload_in_callback` negative control shows the rejected
+  shape failing it.
+- **Issues encountered:**
+  - `parse_frontmatter` *raises* on malformed YAML while the sole consumer is a
+    `@work(thread=True)` worker whose Textual default is `exit_on_error=True` —
+    an unguarded scan would have turned a torn read into board exit rather than
+    a missing row. Guarded per file.
+  - The first guard only caught the *raise*. Review (Change Request 1) found the
+    likelier half of the same race unhandled: `open(path, "w")` truncates to zero
+    before writing, and `parse_frontmatter` returns `None` — not a raise — for an
+    empty or delimiter-truncated file. Every outcome now funnels through one
+    `isinstance(meta, dict)` test, with a task-named qualifier so ordinary
+    documents under the task dir are not reported forever.
+  - Planning also surfaced that `_open_trail_select` funnels the discovery
+    *worker*, not the *cache*: leaving and re-entering By-Trail after cancelling
+    the selector rebuilt it from the stale list, reproducing the reported symptom
+    without ever pressing `s`. Fixed by change 2.
+- **Key decisions:**
+  - Read the active half from **disk** rather than reloading the manager before
+    dispatch. This removes the module's only cross-thread read of manager state
+    (the worker previously iterated `task_datas` while the UI thread could
+    `clear()` it — fenced today only incidentally by `_modal_is_active()`
+    early-returns), and makes the fix testable as a pure function instead of only
+    through a Pilot test.
+  - `discover_trails()` returns `(infos, unreadable)` rather than a bare list, so
+    "there are no trails" and "part of the scan failed" cannot look alike — the
+    second is a retryable race and must not be reported as an answer.
+  - The unreadable diagnostic is scoped to **active** task files. Widening it to
+    archived owners would mean threading an out-param through three swallow
+    layers in `archive_iter.py`, a shared lib consumed by
+    `codebrowser/history_data.py` and pinned by
+    `tests/test_archive_iter_consolidated.py`. Recorded under "Known limitations".
+  - Options 2 (`r` clears the cache) and 3 (watch on the `T` create path) were
+    deliberately not implemented — see "Deliberately not done".
+- **Verification performed:** `tests/test_board_bytrail_view.py` 89 passed;
+  `tests/test_board_fixture_harness.py` 31 passed; full suite
+  `PYTHON SUITE: PASSED (runner=unittest, exit=0)`, 3116 tests. **Eight negative
+  controls** (one per behaviour introduced: `manager_source`, `parse_guard`,
+  `none_frontmatter`, `task_named_qualifier`, `cache_none`, `view_entry`,
+  `activate_reload`, `reload_in_callback`) each make their guarding test fail,
+  with failure messages matching the reverted behaviour rather than an
+  import/signature error. **Live acceptance:** `ait board` launched in tmux
+  against the real repo, By-Trail entered, an `artifacts:` entry injected into a
+  task file *while the board ran*, `s` pressed — the new handle appeared in the
+  selector with no restart (fail-closed "✗ unreadable" row, since no blob backs
+  the synthetic handle). The task file was restored byte-for-byte (md5 verified).
+- **Upstream defects identified:**
+  `.aitask-scripts/lib/frontmatter_patch.py:214,238 — cmd_add / cmd_remove rewrite the task file with a plain open(path, "w") (truncate-then-write) instead of a temp-file + atomic rename, so any concurrent reader can observe an empty or partially written task file. This task defends the board's reader against that window; the write site itself is still non-atomic and every other frontmatter reader remains exposed.`
+
 ## Post-Review Changes
 
 ### Change Request 1 (2026-08-02 21:26)
