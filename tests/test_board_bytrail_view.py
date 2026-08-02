@@ -112,6 +112,47 @@ class ByTrailTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
                 in app.screen._compositor.render_strips(app.screen.size)]
 
     @staticmethod
+    def _dialog_text(app, widget) -> str:
+        """Composited frame sliced to `widget`'s columns, chrome stripped.
+
+        Whole-screen flattening cannot be used for a *centred modal*: every
+        screen row also carries the board rendered to the left and right of the
+        dialog, so a phrase that wraps inside the dialog comes out with board
+        text spliced into the middle of it ("Enter open · t9000 parent Esc
+        cancel") and no assertion can match it. Slicing to the widget's own
+        column range first, then collapsing the block-drawing border glyphs, is
+        what makes a wrapped dialog phrase assertable (t1366)."""
+        region = widget.region
+        rows = [strip.text for strip
+                in app.screen._compositor.render_strips(app.screen.size)]
+        raw = " ".join(row[region.x:region.right]
+                       for row in rows[region.y:region.bottom])
+        return " ".join(
+            "".join(" " if "▀" <= ch <= "▟" else ch
+                    for ch in raw).split())
+
+    @staticmethod
+    async def _settle(pilot, times=5):
+        """Drain deferred work AND scheduled animations.
+
+        Scroll-into-view on focus is both deferred (`Screen.set_focus` ->
+        `call_later`) and animated, so a render assertion that runs too early
+        observes the pre-scroll frame."""
+        for _ in range(times):
+            await pilot.pause()
+        await pilot.wait_for_scheduled_animations()
+        await pilot.pause()
+
+    def _mk_trail_info(self, handle: str, title: str) -> object:
+        """A minimal discovered-trail row for the selection modal."""
+        return self.ab.TrailInfo(
+            handle=handle, owner_id="9000", owner_archived=False,
+            owner_folded=False, name=title,
+            doc={"title": title, "scope": {"kind": "repo"},
+                 "generation": {"generated_at": "2026-08-01"},
+                 "freshness": {"state": "current"}})
+
+    @staticmethod
     def _footer_actions(app) -> set[str]:
         return {
             active.binding.action
@@ -682,6 +723,169 @@ class ByTrailPilotTests(ByTrailTestBase):
                 await pilot.press("a")
                 await pilot.pause()
                 self.assertEqual(str(app.sub_title), str(baseline))
+
+        self._run(go())
+
+    # --- Trail-selection modal: focus visibility + overflow (t1366) ---------
+    #
+    # All four assert at RENDER level (the composited frame), never on
+    # `.classes` or `app.focused`. That distinction is the whole defect: before
+    # the fix, `down` moved focus AND applied `dep-item-focused` while the frame
+    # stayed byte-identical, so a property-level test passed against code the
+    # user experienced as completely dead.
+
+    def test_trail_select_focus_is_visible_in_frame(self):
+        """A `down` press must CHANGE the composited frame (t1366).
+
+        Also pins the multi-line half of the fix: the shared focus rule cannot
+        assume `height: 1`, so a row carrying "also references" sub-lines must
+        still render every line while focused.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                infos = [self._mk_trail_info(f"art:t{i}",
+                                             f"Trail number {i:02d} long title")
+                         for i in range(3)]
+                overlaps = {"art:t0": [("t42", "Another trail")]}
+                app.push_screen(ab.TrailSelectScreen(infos, overlaps))
+                await self._settle(pilot)
+                items = list(app.screen.query(ab.TrailSelectItem))
+                self.assertEqual(len(items), 3)
+
+                before = self._screen_rows(app)
+                await pilot.press("down")
+                await self._settle(pilot)
+
+                # Focus really moved — otherwise a frame change would prove
+                # nothing about the highlight.
+                self.assertTrue(items[1].has_focus)
+                self.assertNotEqual(
+                    before, self._screen_rows(app),
+                    "focus moved but the composited frame is unchanged: the "
+                    "highlight never reaches the terminal")
+
+                # Ground truth for "visibly distinct": the focused row's
+                # background differs from an unfocused sibling's, and blurring
+                # restores it.
+                idle = items[0].styles.background
+                self.assertNotEqual(
+                    items[1].styles.background, idle,
+                    "focused row shares the unfocused background")
+                items[0].focus()
+                await self._settle(pilot)
+                self.assertEqual(items[1].styles.background, idle,
+                                 "blurring must restore the idle background")
+
+                # Multi-line row renders fully (no `height: 1` assumption).
+                dialog = app.screen.query_one("#dep_picker_dialog")
+                self.assertIn("also references",
+                              self._dialog_text(app, dialog))
+
+        self._run(go())
+
+    def test_trail_select_dialog_scrolls_and_cancel_is_reachable(self):
+        """No focusable widget may sit outside the rendered region (t1366).
+
+        Pre-fix the dialog was a plain non-scrolling `Container`, so with enough
+        trails the tail of the list and the Cancel button were focusable but
+        unreachable — arrow keys wrapped through invisible rows.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(100, 30)) as pilot:
+                await pilot.pause()
+                infos = [self._mk_trail_info(f"art:t{i}",
+                                             f"Trail number {i:02d} long title")
+                         for i in range(10)]
+                app.push_screen(ab.TrailSelectScreen(infos, {}))
+                await self._settle(pilot)
+
+                dialog = app.screen.query_one("#dep_picker_dialog")
+                self.assertTrue(
+                    dialog.allow_vertical_scroll,
+                    "dialog content overflows but the container cannot scroll")
+
+                items = list(app.screen.query(ab.TrailSelectItem))
+                items[-1].focus()
+                await self._settle(pilot)
+                self.assertTrue(
+                    app.screen.can_view_entire(items[-1]),
+                    "focusing the last row did not scroll it into view")
+
+                cancel = app.screen.query_one("#btn_dep_cancel")
+                cancel.focus()
+                await self._settle(pilot)
+                self.assertTrue(app.screen.can_view_entire(cancel),
+                                "Cancel button is focusable but off-screen")
+                self.assertIn("Cancel", self._dialog_text(app, dialog))
+
+        self._run(go())
+
+    def test_trail_select_hint_fits_80_cols(self):
+        """The hint names the arrow keys and is not truncated at 80 cols.
+
+        `Label` defaults to `width: auto`, so the hint used to overflow the
+        dialog's 42-column content box and clip mid-word to "Esc to c" — while
+        never mentioning the keys that actually move the selection.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                infos = [self._mk_trail_info(f"art:t{i}", f"Trail {i:02d}")
+                         for i in range(10)]
+                app.push_screen(ab.TrailSelectScreen(infos, {}))
+                await self._settle(pilot)
+
+                dialog = app.screen.query_one("#dep_picker_dialog")
+                self.assertIn(
+                    "Select trail — ↑/↓ move · Enter open · Esc cancel",
+                    self._dialog_text(app, dialog),
+                    "hint is truncated or does not mention ↑/↓ at 80 columns")
+
+                # Still legible once the list has scrolled under it.
+                await pilot.press("down")
+                await pilot.press("down")
+                await self._settle(pilot)
+                self.assertIn("↑/↓ move", self._dialog_text(app, dialog),
+                              "hint scrolled out of view")
+
+        self._run(go())
+
+    def test_gate_choice_focus_is_visible_in_frame(self):
+        """The fix landed at the shared sink, not on the trail path (t1366).
+
+        `GateChoiceScreen` is a sibling picker built on the same
+        `#dep_picker_dialog` container and the same `dep-item-focused` class;
+        it was equally unstyled before the fix.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(100, 30)) as pilot:
+                await pilot.pause()
+                app.push_screen(ab.GateChoiceScreen(
+                    "t9001", ["plan_approved", "review_approved"], "sign off"))
+                await self._settle(pilot)
+                items = list(app.screen.query(ab.GateChoiceItem))
+                self.assertEqual(len(items), 2)
+
+                before = self._screen_rows(app)
+                await pilot.press("down")
+                await self._settle(pilot)
+                self.assertTrue(items[1].has_focus)
+                self.assertNotEqual(
+                    before, self._screen_rows(app),
+                    "sibling picker still has an invisible focus highlight")
 
         self._run(go())
 

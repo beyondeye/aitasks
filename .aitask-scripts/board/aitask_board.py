@@ -2327,6 +2327,10 @@ class TopicSortModeScreen(ModalScreen):
         self.selected = self._modes.index(current) if current in self._modes else 0
 
     def compose(self):
+        # No `picker-dialog` marker (t1366): TopicSortModeItem.can_focus is
+        # False and selection lives on the screen, so Textual's focus-driven
+        # scroll-into-view never fires here — the scroll would be inert. Only
+        # four modes exist, so the list cannot overflow today.
         with Container(id="dep_picker_dialog"):
             yield Label(
                 "Topic sort order — [dim]↑/↓ to move, Enter to apply, "
@@ -2374,14 +2378,26 @@ class TopicSortModeScreen(ModalScreen):
         self.dismiss(None)
 
 
-class GateChoiceItem(Static):
-    """Focusable row for selecting a human gate."""
+class PickerItem(Static):
+    """Focusable row inside a ``#dep_picker_dialog`` modal.
+
+    Owns the focus-visibility contract for every picker row, so a new row type
+    cannot ship without a highlight. Before t1366 each of the seven row classes
+    re-declared ``can_focus`` / ``on_focus`` / ``on_blur`` independently and the
+    App CSS styled only two of them: the other five added ``dep-item-focused``
+    against a class no rule matched, and arrow keys moved focus with **zero**
+    visible change. Subclasses keep their own ``__init__`` / ``render`` /
+    ``on_key`` / ``on_click`` — only the focus contract lives here, and a
+    subclass must NOT re-define ``on_focus`` / ``on_blur`` (Textual dispatches
+    handlers down the MRO, so both would fire).
+
+    ``CrossRepoRefItem`` is deliberately NOT a subclass: its styling lives in
+    ``CrossRepoRefPickerScreen.DEFAULT_CSS``, and App-level CSS outranks widget
+    ``DEFAULT_CSS``, so reparenting it would make the ``PickerItem`` rules
+    silently beat its own.
+    """
 
     can_focus = True
-
-    def __init__(self, gate_name: str):
-        super().__init__(gate_name)
-        self.gate_name = gate_name
 
     def on_focus(self):
         self.add_class("dep-item-focused")
@@ -2389,9 +2405,19 @@ class GateChoiceItem(Static):
     def on_blur(self):
         self.remove_class("dep-item-focused")
 
+
+class GateChoiceItem(PickerItem):
+    """Focusable row for selecting a human gate."""
+
+    def __init__(self, gate_name: str):
+        super().__init__(gate_name)
+        self.gate_name = gate_name
+
     def on_key(self, event):
         if event.key == "enter":
             self.screen.dismiss(self.gate_name)
+            event.prevent_default()
+            event.stop()
 
     def on_click(self, event):
         self.screen.dismiss(self.gate_name)
@@ -2411,7 +2437,7 @@ class GateChoiceScreen(ModalScreen):
         self.action_label = action_label
 
     def compose(self):
-        with Container(id="dep_picker_dialog"):
+        with Container(id="dep_picker_dialog", classes="picker-dialog"):
             yield Label(
                 f"Select human gate to {self.action_label} for {self.task_id}:",
                 id="dep_picker_title",
@@ -2456,11 +2482,9 @@ def _trail_stored_freshness(info: TrailInfo) -> str:
     return "? unknown"
 
 
-class TrailSelectItem(Static):
+class TrailSelectItem(PickerItem):
     """Focusable row for one discovered trail (title · owner · scope ·
     freshness · updated, with "also in" overlap sub-lines per §9.2)."""
-
-    can_focus = True
 
     def __init__(self, info: TrailInfo, overlap_notes: list):
         doc = info.doc or {}
@@ -2480,15 +2504,11 @@ class TrailSelectItem(Static):
         super().__init__(text)
         self.info = info
 
-    def on_focus(self):
-        self.add_class("dep-item-focused")
-
-    def on_blur(self):
-        self.remove_class("dep-item-focused")
-
     def on_key(self, event):
         if event.key == "enter":
             self.screen.dismiss(self.info.handle)
+            event.prevent_default()
+            event.stop()
 
     def on_click(self, event):
         self.screen.dismiss(self.info.handle)
@@ -2507,9 +2527,9 @@ class TrailSelectScreen(ModalScreen):
         self.overlaps = overlaps
 
     def compose(self):
-        with Container(id="dep_picker_dialog"):
+        with Container(id="dep_picker_dialog", classes="picker-dialog"):
             yield Label(
-                "Select trail — [dim]Enter to activate, Esc to cancel[/]",
+                "Select trail — [dim]↑/↓ move · Enter open · Esc cancel[/]",
                 id="dep_picker_title",
             )
             for info in self.infos:
@@ -3637,10 +3657,8 @@ class OrphanParentArchiveScreen(ModalScreen):
         self.dismiss(False)
 
 
-class DepPickerItem(Static):
+class DepPickerItem(PickerItem):
     """A selectable dependency item in the picker."""
-
-    can_focus = True
 
     def __init__(self, dep_num, task, display_name, manager, owner_task, **kwargs):
         super().__init__(**kwargs)
@@ -3674,12 +3692,6 @@ class DepPickerItem(Static):
             on_result,
         )
 
-    def on_focus(self):
-        self.add_class("dep-item-focused")
-
-    def on_blur(self):
-        self.remove_class("dep-item-focused")
-
 
 class DependencyPickerScreen(ModalScreen):
     """Popup to select which dependency to open."""
@@ -3695,7 +3707,7 @@ class DependencyPickerScreen(ModalScreen):
         self.owner_task = owner_task
 
     def compose(self):
-        with Container(id="dep_picker_dialog"):
+        with Container(id="dep_picker_dialog", classes="picker-dialog"):
             yield Label("Select dependency to open:", id="dep_picker_title")
             for dep_num, task, display_name in self.dep_items:
                 yield DepPickerItem(dep_num, task, display_name, self.manager, self.owner_task)
@@ -3936,10 +3948,8 @@ class CrossRepoTaskScreen(ModalScreen):
         self.dismiss()
 
 
-class ChildPickerItem(Static):
+class ChildPickerItem(PickerItem):
     """A selectable child task item in the picker."""
-
-    can_focus = True
 
     def __init__(self, child_id, task, display_name, manager, **kwargs):
         super().__init__(**kwargs)
@@ -3958,12 +3968,6 @@ class ChildPickerItem(Static):
             event.prevent_default()
             event.stop()
 
-    def on_focus(self):
-        self.add_class("dep-item-focused")
-
-    def on_blur(self):
-        self.remove_class("dep-item-focused")
-
 
 class ChildPickerScreen(ModalScreen):
     """Popup to select which child task to open."""
@@ -3978,7 +3982,7 @@ class ChildPickerScreen(ModalScreen):
         self.manager = manager
 
     def compose(self):
-        with Container(id="dep_picker_dialog"):
+        with Container(id="dep_picker_dialog", classes="picker-dialog"):
             yield Label("Select child task to open:", id="dep_picker_title")
             for child_id, task, display_name in self.child_items:
                 yield ChildPickerItem(child_id, task, display_name, self.manager)
@@ -3992,10 +3996,8 @@ class ChildPickerScreen(ModalScreen):
         self.dismiss()
 
 
-class FoldedTaskPickerItem(Static):
+class FoldedTaskPickerItem(PickerItem):
     """A selectable folded task item in the picker."""
-
-    can_focus = True
 
     def __init__(self, folded_id, task, display_name, manager, **kwargs):
         super().__init__(**kwargs)
@@ -4014,12 +4016,6 @@ class FoldedTaskPickerItem(Static):
             event.prevent_default()
             event.stop()
 
-    def on_focus(self):
-        self.add_class("dep-item-focused")
-
-    def on_blur(self):
-        self.remove_class("dep-item-focused")
-
 
 class FoldedTaskPickerScreen(ModalScreen):
     """Popup to select which folded task to open."""
@@ -4034,7 +4030,7 @@ class FoldedTaskPickerScreen(ModalScreen):
         self.manager = manager
 
     def compose(self):
-        with Container(id="dep_picker_dialog"):
+        with Container(id="dep_picker_dialog", classes="picker-dialog"):
             yield Label("Select folded task to open:", id="dep_picker_title")
             for folded_id, task, display_name in self.folded_items:
                 yield FoldedTaskPickerItem(folded_id, task, display_name,
@@ -4049,10 +4045,8 @@ class FoldedTaskPickerScreen(ModalScreen):
         self.dismiss()
 
 
-class FileReferenceItem(Static):
+class FileReferenceItem(PickerItem):
     """A selectable file-reference entry in the picker."""
-
-    can_focus = True
 
     def __init__(self, entry: str, **kwargs):
         super().__init__(**kwargs)
@@ -4067,12 +4061,6 @@ class FileReferenceItem(Static):
             event.prevent_default()
             event.stop()
 
-    def on_focus(self):
-        self.add_class("dep-item-focused")
-
-    def on_blur(self):
-        self.remove_class("dep-item-focused")
-
 
 class FileReferencePickerScreen(ModalScreen):
     """Popup to select which file_references entry to open."""
@@ -4086,7 +4074,7 @@ class FileReferencePickerScreen(ModalScreen):
         self.entries = list(entries)
 
     def compose(self):
-        with Container(id="dep_picker_dialog"):
+        with Container(id="dep_picker_dialog", classes="picker-dialog"):
             yield Label(
                 "Select file reference to open:", id="dep_picker_title")
             for entry in self.entries:
@@ -5411,10 +5399,8 @@ class LoadingOverlay(ModalScreen):
             yield LoadingIndicator()
 
 
-class ColumnSelectItem(Static):
+class ColumnSelectItem(PickerItem):
     """A selectable column item in the picker."""
-
-    can_focus = True
 
     def __init__(self, col_conf: dict):
         super().__init__()
@@ -5432,12 +5418,6 @@ class ColumnSelectItem(Static):
     def on_click(self):
         self.screen.dismiss(self.col_conf["id"])
 
-    def on_focus(self):
-        self.add_class("dep-item-focused")
-
-    def on_blur(self):
-        self.remove_class("dep-item-focused")
-
 
 class ColumnSelectScreen(ModalScreen):
     """Select a column from the list for editing/deleting/collapsing/expanding."""
@@ -5453,7 +5433,7 @@ class ColumnSelectScreen(ModalScreen):
         self.columns_list = columns if columns is not None else manager.columns
 
     def compose(self):
-        with Container(id="dep_picker_dialog"):
+        with Container(id="dep_picker_dialog", classes="picker-dialog"):
             yield Label(f"Select column to {self.action_label.lower()}:", id="dep_picker_title")
             for col in self.columns_list:
                 yield ColumnSelectItem(col)
@@ -5657,10 +5637,28 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         text-align: left;
         padding: 0 0 1 0;
     }
-    DepPickerItem { height: 1; width: 100%; padding: 0 1; }
-    DepPickerItem.dep-item-focused { background: $primary 20%; border-left: thick $accent; }
-    ChildPickerItem { height: 1; width: 100%; padding: 0 1; }
-    ChildPickerItem.dep-item-focused { background: $primary 20%; border-left: thick $accent; }
+    /* t1366 — the `picker-dialog` marker scopes scrolling + a pinned title to
+       the focus-driven pickers. #dep_picker_dialog is shared by 19 modals and
+       they do NOT all want this: applying `dock: top` globally collapses the
+       label-only confirm dialogs (their title is their only flow child, so
+       `height: auto` resolves to 0 and the body renders below the buttons),
+       and `overflow-y: auto` gives the SelectionList screens a nested double
+       scrollbar. Scroll-into-view on focus is then free — Textual's
+       Screen.set_focus scrolls the focused widget into view whenever the
+       container permits scrolling. */
+    #dep_picker_dialog.picker-dialog { overflow-y: auto; }
+    .picker-dialog #dep_picker_title { width: 100%; dock: top; }
+    /* One focus rule for all seven picker row types (they share the PickerItem
+       base). `outline-left`, NOT `border-left`: an outline paints over the
+       content area without resizing it, so a focused multi-line row does not
+       reflow or change height. `padding: 0 1` is load-bearing — it gives the
+       outline a blank column to land on instead of covering the first glyph.
+       The `height: 1` overrides below MUST stay after this rule: both are bare
+       type selectors of equal specificity, so source order decides. */
+    PickerItem { height: auto; width: 100%; padding: 0 1; }
+    PickerItem.dep-item-focused { background: $primary 20%; outline-left: thick $accent; }
+    DepPickerItem { height: 1; }
+    ChildPickerItem { height: 1; }
     #commit_dialog {
         width: 70%;
         height: auto;
