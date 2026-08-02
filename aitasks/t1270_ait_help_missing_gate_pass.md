@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/opus5
 created_at: 2026-07-27 23:27
-updated_at: 2026-08-02 10:00
+updated_at: 2026-08-02 10:33
 boardidx: 220
 ---
 
@@ -45,3 +46,8 @@ already document `pass`; only the top-level usage omits it.
 - `./ait --help` lists `gate pass` under "Gates:".
 - Column alignment matches the surrounding entries.
 - `bash tests/test_gate_cli_wiring.sh` still passes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-02T07:33:57Z status=pass attempt=1 type=human
