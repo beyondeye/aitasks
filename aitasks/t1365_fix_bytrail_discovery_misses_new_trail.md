@@ -120,3 +120,5 @@ Options 1 and 2 are cheap and independent; 3 is the quality-of-life fix.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-02T17:02:18Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-02T19:50:04Z status=pass attempt=1 type=human
