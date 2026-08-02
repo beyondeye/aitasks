@@ -482,6 +482,112 @@ Implementation Notes so they can be picked up separately.
   there, is not caught. Narrow, deliberate, and stated precisely in the module
   docstring rather than papered over · severity: low · → mitigation: none needed
 
+## Post-Review Changes
+
+### Change Request 1 (2026-08-02 18:05) — two review findings, both confirmed
+
+- **Requested by user:**
+  1. *(medium, blocking)* The dynamic-`getattr` branch recorded an
+     `UNANALYSABLE` access only when the receiver was already Concern-linked or
+     positively non-Concern. An expression receiver such as
+     `getattr(make_concern(), accessor)` is neither, so the access was silently
+     dropped — contradicting the documented fail-closed contract and letting a
+     new dynamic Concern surface evade the guard.
+  2. *(low, follow-up)* `SCOPED_EXEMPTIONS` was documented as the remedy for an
+     unclassified read, but no code consulted it and
+     `test_evidence_classification_is_unambiguous` required it to stay empty — a
+     maintainer following the failure message would still fail the guard.
+
+- **Verified before fixing (both confirmed):** adding a new method
+  `def leak(self, accessor): return getattr(make_concern(), accessor)` to
+  `monitor_shared.py` left `_accessor_map` **byte-identical**, so the guard
+  passed silently. `SCOPED_EXEMPTIONS` appeared only in its own definition, the
+  remediation message, and the assertion demanding it be empty.
+
+- **Changes made:**
+  1. The dynamic-`getattr` branch now records
+     `UNANALYSABLE: dynamic getattr on an expression` whenever the receiver
+     cannot be resolved to a dotted name, instead of dropping it. Measured
+     blast radius before applying: **0** existing sites in the monitor package
+     are newly flagged, and the real-tree map is still exactly the three frozen
+     rows. New negative control
+     `test_guard_fails_closed_on_a_dynamic_getattr_over_an_expression` pins it.
+  2. `SCOPED_EXEMPTIONS` removed entirely, along with its assertion. The
+     remediation text now names the two remedies that actually work — annotate
+     the receiver with its concrete type, or add that type to
+     `NON_CONCERN_TYPES`. A comment records *why* there is deliberately no
+     per-site suppression list: it would let a real misuse be waved through with
+     a plausible-looking justification, destroying the review signal the guard
+     exists to produce.
+
+- **Files affected:** `tests/test_concern_body_display_contract.py` only.
+
+- **Re-verified:** guard 18/18; concern suites 181 tests; meta-guards
+  (`test_no_zero_collection`, `test_python_bootstrap_isolation.sh`); full suite
+  **3103 tests PASSED (runner=unittest, exit=0)**.
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned. `tests/test_concern_body_display_contract.py`
+  (new, ~750 lines): the role-annotated `EXPECTED_ACCESSES` table (3 Concern
+  surfaces), the closed-world `NON_CONCERN_TYPES` evidence pass, an AST scanner
+  covering attribute reads, `getattr`, and constant-integer subscripts, three
+  contract assertions, one runtime precondition test, seven negative controls
+  and a temp-copy end-to-end acceptance test. Two comment-only lines added at
+  the guarded sites (`concern_parser.py` `build_clipboard_payload`,
+  `monitor_shared.py` `_ConcernRow.render`) pointing back at the table.
+
+- **Deviations from plan:** none in approach. Two additions came out of plan
+  review (see Post-Review Changes) and one from implementation (below).
+
+- **Issues encountered:**
+  - **A real scanner defect, caught by the tests during implementation.** The
+    `UNCLASSIFIED` branch in `_record` was unreachable for tracked attributes:
+    the condition `is_linked or (tracked_attr and accessor in TRACKED)` recorded
+    *any* `.body` read under a plain key, so an unresolved receiver looked like
+    an undeclared surface rather than an unclassified one — and the documented
+    "unresolved becomes UNCLASSIFIED, never dropped" contract was not what the
+    code did. Three `EvidencePassTests` failed on the first run and pinned it.
+    Fixed by recording a plain key only for Concern-*linked* receivers, and by
+    seeding `_concern_linked_names` at the **owning class scope** as well as the
+    function scope, so a sibling method reading a declared `self._concern` is a
+    new *surface* (undeclared key) rather than an unclassifiable one.
+  - **The two contract assertions divide labour and must both exist.** An
+    independent probe showed corrupting the registry alone fails only the
+    equality test, while swapping the source *and* editing the registry to match
+    silences equality but is still caught by the role rule. Neither assertion
+    subsumes the other.
+  - **Full-suite timing.** `run_all_python_tests.sh` runs under `unittest`
+    discovery (no pytest installed) and took >2h under load in one run before
+    completing in ~7 min (417 s) on a quiet machine. Final verdict: 3103 tests,
+    `PYTHON SUITE: PASSED (runner=unittest, exit=0)`.
+
+- **Key decisions:**
+  - **Scope is the whole `monitor/` package**, not a file whitelist and not a
+    whitelist of `concern_parser` importers — verified that all three current
+    importers read no body at all, so that trigger does not correlate with the
+    risk.
+  - **Unrelated reads are exempted by positive type evidence, never by receiver
+    spelling.** `NON_CONCERN_TYPES` is closed-world: `Any`, `object`, TypeVars,
+    Protocols and unresolved aliases all stay `UNCLASSIFIED`. All three
+    `TaskInfo.body` reads in the tree are covered by annotations already
+    present, so no hand-written exemption exists.
+  - **No per-site suppression list.** Deliberately removed during review — it
+    would let a real misuse be waved through with a plausible justification.
+  - **The two existing behavioural tests are cross-referenced, not duplicated;**
+    only the one precondition they cannot express (`display_body` reimplemented
+    as an alias of `body`) is re-tested here.
+
+- **Upstream defects identified:** None
+
+- **Adjacent staleness found but deliberately NOT fixed** (out of scope; asked
+  and answered at planning time — both are consequences of t1216_3 landing):
+  - `.aitask-scripts/monitor/monitor_shared.py:1336` — `ConcernPickerModal`'s
+    docstring still says "today minimonitor is the only caller"; `monitor_app.py`
+    is now a caller too.
+  - `.claude/skills/aitask-shadow/concern-format.md:227` — the consumer list
+    omits `monitor_app.py`.
+
 ## Step 9 (Post-Implementation)
 
 Current-branch workflow — no worktree to remove. Merge approval, then
