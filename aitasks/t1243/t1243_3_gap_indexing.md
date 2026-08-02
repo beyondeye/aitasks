@@ -52,6 +52,30 @@ instead of re-deriving a move path.
 - `tests/test_board_ordering.py` — **new**, pure-module tests.
 - `tests/test_board_movement.py` — the t1243_1 flip table (edit deliberately).
 
+**Scope widened at planning (recorded, not deviated to silently):**
+
+- `tests/test_board_persistence_seam.py` — **not in the original list, but
+  mandatory.** t1243_2 froze `EXPECTED_CALL_SITES` as an ordered, source-order
+  AST table naming `move_task_col`, `swap_tasks` (×2) and `normalize_indices`;
+  five runtime-spy tests drive those methods directly; and
+  `test_ast_guard_rejects_an_extra_field` anchors on source text **inside
+  `swap_tasks`**. Retiring the three methods breaks all three mechanisms, so
+  this second frozen table is edited deliberately here — the same rule t1243_2
+  wrote for the *addition* direction, applied to removal.
+- `tests/test_board_manager_moves.py` — **new.** Neither the pure-module tests
+  nor the TUI scenarios reach `move_tasks_to_column`, so an implementation that
+  wrote each resolved task as it went and refused on the first bad id would pass
+  every other test while leaving the batch half-applied. Manager-level tests
+  assert zero writes **and** a byte-identical tree on every refusal path.
+- The `skip_normalize` harness mutation in `tests/test_board_movement.py` had to
+  be re-pointed: it targets a method this task removes, so it would have gone
+  inert and made the negative control fail *for the wrong reason*.
+- Documentation whose stated contract this change falsifies:
+  `website/content/docs/tuis/board/how-to.md`,
+  `website/content/docs/tuis/board/reference.md` (both said indices are
+  "normalized to 10, 20, 30"), and three passages in
+  `aidocs/implementation_trail_design.md` naming the retired mutators.
+
 ## Reference files for patterns
 
 - `.aitask-scripts/lib/topic_semantics.py` — the precedent for extracting a pure,
