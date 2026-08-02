@@ -575,6 +575,14 @@ bash tests/run_all_python_tests.sh          # read ONLY the last line for the ve
   refuses the whole call and writes nothing, with every offending id named in
   `MoveResult.refused`. Distinguish that from the empty-selection case yourself;
   the manager treats `[]` as a successful no-op.
+- **t1369 is the linear-arithmetic follow-up, and t1243_7 / t1210_5 are exactly
+  why it exists.** `move_tasks_to_column` recomputes the append index *inside*
+  its loop, so it is O(K x (N + K)). That is invisible at today's only call site
+  (`move_task_to_column`, K = 1) but becomes real work the moment a marked set
+  or a whole By-Trail wave is moved. Land **t1369** before shipping either
+  command, or at minimum do not assume the batch path is linear. Raised and
+  confirmed at this task's Step-8 review; deferred by user disposition (see
+  Change Request 1).
 - **t1243_11** — `index_for_append`, `respace_column` and `stride_for` are the
   block-move primitives. Formation/removal write `boardgroup` only and must
   never touch an index, so they can never compact. For a K-wide insert use
@@ -683,6 +691,39 @@ bash tests/run_all_python_tests.sh          # read ONLY the last line for the ve
 > candidates were proposed and declined: a randomised move-sequence property
 > suite (the ten exact-set scenarios in §7b cover the same ground at fixed
 > points), and a `delete_column` index tidy-up (already owned by **t1243_11**).
+
+---
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-02 12:58) — superlinear index arithmetic in the batch move
+
+- **Requested by user:** `move_tasks_to_column`
+  (`.aitask-scripts/board/aitask_board.py:1426-1434`) calls
+  `board_ordering.index_for_append(indices)` **inside** the loop, re-scanning a
+  destination list that grows from N to N+K. `index_for_append` does
+  `list(indices)` then `max(values)`, so the loop is **O(K x (N + K))** even
+  though, after the first index `M = max(existing) + STEP`, every subsequent
+  value is deterministically `M + i * STEP`. Disposition: **follow-up**.
+- **Verified: CONFIRMED.** Read at the call site and in the helper. The
+  quadratic term is real, and the values genuinely are a fixed-stride run —
+  each appended index is by construction the new maximum, so nothing needs
+  re-scanning.
+- **Changes made:** none to the code, per the stated disposition. Filed
+  **t1369** (`board_batch_move_linear_index_arithmetic`, performance, low/low,
+  `--followup-of 1243_3`) carrying the confirmed diagnosis, the exact linear
+  rewrite, and a verification rule that
+  `tests/test_board_manager_moves.py` and `FLIP_TABLE` must pass **unedited**
+  (they already pin the exact resulting indices, ordering and write counts, so
+  an unedited pass is the proof the optimization is behaviour-preserving) plus
+  a call-count guard so the regression cannot return silently.
+- **Why deferring is safe today:** the only current caller is
+  `move_task_to_column`, i.e. **K = 1**, where the loop runs once and the cost
+  is identical to the linear form. The large-K consumers — **t1243_7** (`m`,
+  marked tasks) and **t1210_5** (`M`, a By-Trail wave) — have not landed, so
+  t1369 can land ahead of them and no user-visible path is ever slow.
+- **Files affected:** `aitasks/t1369_board_batch_move_linear_index_arithmetic.md`
+  (new), this plan.
 
 ## Step 9 (Post-Implementation)
 
