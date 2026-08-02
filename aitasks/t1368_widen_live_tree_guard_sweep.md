@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [test, tui, board]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-08-02 12:15
-updated_at: 2026-08-02 12:15
+updated_at: 2026-08-02 12:31
 ---
 
 ## Origin
