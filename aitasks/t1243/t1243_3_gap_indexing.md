@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:13
-updated_at: 2026-08-02 06:21
+updated_at: 2026-08-02 12:32
 ---
 
 ## Context
@@ -151,3 +152,8 @@ Through the t1243_1 harness, with **exact changed-path sets**, not just counts:
 
 The t1243_1 flip table is updated **deliberately** in this commit; a silent pass
 means the table was not discriminating.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-02T09:33:07Z status=pass attempt=1 type=human
