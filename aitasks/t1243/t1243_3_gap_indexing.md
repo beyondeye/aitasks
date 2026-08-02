@@ -6,10 +6,14 @@ issue_type: enhancement
 status: Implementing
 labels: [aitask_board, tui, python, script-performance]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-07-28 01:13
-updated_at: 2026-08-02 06:20
+updated_at: 2026-08-02 06:21
 ---
 
 ## Context
