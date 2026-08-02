@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t1243_2]
 issue_type: enhancement
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:13
-updated_at: 2026-08-02 12:32
+updated_at: 2026-08-02 12:33
 ---
 
 ## Context
