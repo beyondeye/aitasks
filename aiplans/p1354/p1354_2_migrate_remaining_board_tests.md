@@ -252,11 +252,24 @@ today, and `self.addCleanup(os.chdir, original)` is a *reference*, not an
 So the rule is **inverted to deny-by-default** rather than made cleverer. No
 argument analysis, nothing to evade:
 
-- **Rule:** in every globbed module, flag **any** chdir — matched by *suffix* on
-  the unparsed callee (`chdir` or `*.chdir`, so `_os.chdir` / `pathlib.os.chdir`
-  are caught), **plus** bare `os.chdir` **references** passed as values
-  (`addCleanup(os.chdir, …)`, `map(os.chdir, …)`), **plus** `from os import chdir`
-  imports — and flag any canonical `import aitask_board` / `from aitask_board import`.
+- **Rule:** in every globbed module, flag **any mention of a `chdir` reference in
+  executable position**, however spelled or routed:
+  - a call whose unparsed callee ends with `chdir` (`os.chdir`, `_os.chdir`,
+    `pathlib.os.chdir`, a bare `chdir`);
+  - a `chdir` reference used as a **value** — both `addCleanup(os.chdir, …)` and
+    the **alias route** `move = os.chdir` … `move(REPO_ROOT)`. The alias route is
+    a total bypass of any callee-name rule (the eventual callee is named `move`),
+    so the *construction* is rejected where the reference is taken, rather than
+    followed by dataflow analysis;
+  - `getattr(os, "chdir")(…)`, where the name is never an identifier at all;
+  - `from os import chdir`.
+
+  A reference is reported as its nearest enclosing **call** (so
+  `self.addCleanup(os.chdir, original)` stays pinnable as written) else its
+  nearest enclosing **statement** (so `move = os.chdir` is pinnable), and is not
+  double-reported when it is already the callee of a reported call.
+
+  Plus: flag any canonical `import aitask_board` / `from aitask_board import`.
 - A module that legitimately chdirs must have each such **expression** pinned in
   the allowlist with a reason (see below — the exemption is per-expression, never
   per-module). Unknown/novel forms therefore fail **loudly**, not silently.
@@ -328,10 +341,19 @@ revert/mutate a real test file on disk to demonstrate a guard.
    | e | `import os as _os` then `_os.chdir(REPO_ROOT)` |
    | f | `from os import chdir` then `chdir(REPO_ROOT)` |
    | g | `self.addCleanup(os.chdir, REPO_ROOT)` (reference, not a call) |
-   | h | `import aitask_board` / `from aitask_board import KanbanApp` |
+   | h | `move = os.chdir` … `move(REPO_ROOT)` (alias assignment) |
+   | i | `getattr(os, "chdir")(REPO_ROOT)` (name never an identifier) |
+   | j | `move = getattr(os, "chdir")` … `move(REPO_ROOT)` |
+   | k | `from os import chdir` … `move = chdir` … `move(REPO_ROOT)` |
+   | l | `OPS = {"go": os.chdir}` … `OPS["go"](REPO_ROOT)` (container dispatch) |
+   | m | `import aitask_board` / `from aitask_board import KanbanApp` |
 
-   Forms (b)–(g) are precisely the ones a literal-match rule would miss; (e) and
-   (g) evade the *current* scanner and are the regression proof for this step.
+   Forms (b)–(g) are the ones a literal-match rule would miss; (e) and (g) evade
+   the *pre-t1354_2* scanner. Forms **(h)–(l) evade any callee-name rule at all**
+   — the eventual callee is `move` / `OPS["go"]` — and were added after review
+   found (h) and (i) passing an earlier version of this guard. They are the
+   reason the rule rejects reference *construction* rather than trying to match
+   the call site.
 2. **Structural, not substring:** a module mentioning `os.chdir(REPO_ROOT)` only
    inside a docstring/comment/string constant must **not** be flagged (keeps
    t1354_1's existing case).
@@ -392,8 +414,8 @@ costs regress, and only the suite number would show that.
   assertion anywhere a tested path reaches a cwd-relative helper; zero remaining
   `patch("aitask_board…")` string targets across the 15.
 - `tests/test_board_fixture_harness.py` green: the fail-closed sweep passes on the
-  real tree with exactly the two justified `CHDIR_ALLOWED` entries; **all eight
-  equivalent-form controls (Step 4.1 a–h) observed flagging**, both allowlist
+  real tree with exactly the two justified `CHDIR_ALLOWED` entries; **all twelve
+  equivalent-form controls (Step 4.1 a–l) observed flagging**, both allowlist
   removals (Step 4.3) observed failing, and an injected `os.chdir(REPO_ROOT)` in
   **each** allowlisted module observed still flagged (Step 4.4) — so no exemption
   is module-wide. All observed before any of it is trusted.
@@ -469,6 +491,207 @@ costs regress, and only the suite number would show that.
 ### Planned mitigations
 - timing: after | name: board_fixture_harness_docs | type: documentation | priority: low | effort: low | addresses: code-health — shared-harness blast radius / implicit contracts | desc: Add a `tests/lib/board_fixture.py` pointer and trap summary to `aidocs/framework/tui_conventions.md` (the discoverability question t1354_1 deferred to t1354_2)
 - timing: after | name: widen_live_tree_guard_sweep | type: test | priority: low | effort: low | addresses: goal-achievement — guard completeness beyond board tests | desc: Widen the tier-1 live-tree sweep from `tests/test_board_*.py` to all `tests/test_*.py`, giving `DELIBERATELY_LIVE` its first provable entry (`test_shortcut_scopes.py:322`)
+
+## Measured results
+
+Same machine, `~/.aitask/venv` Python 3.14, no other load.
+
+### Suite wall clock — the primary number (Step 5)
+
+`time bash tests/run_all_python_tests.sh`, both ends measured in this session:
+
+| | before | after | delta |
+|---|---|---|---|
+| **real** | **643.5s** (10m43.5s) | **400.4s** (6m40.4s) | **−243.1s / 1.61x** |
+| user | 419.6s | 211.8s | −207.8s |
+| test time | 640.1s | 397.1s | −243.0s |
+| tests | 2969 | 2996 | +27 |
+| verdict | `PASSED (runner=unittest, exit=0)` | `PASSED (runner=unittest, exit=0)` | — |
+
+The +27 reconciles exactly: **+11** `test_fixture_facts`-style preconditions
+across the migrated modules, **+16** guard and negative-control tests.
+
+**Re-verified after the review fix** to the chdir scanner (alias routes, forms
+h–l): `PASSED`, 2996 tests, **real 397.3s** / 393.9s test time — same count
+(the new forms sit inside an existing `subTest` loop) and within noise of the
+400.4s above. The `after` figures in this table are from the first run; both
+runs are recorded rather than the more flattering one being kept.
+
+**The before number is NOT t1354_1's 577.9s.** Re-measured as the plan required:
+the tree had grown to 643.5s in the two days since.
+
+### Per-file (Step 5.3)
+
+| file | before | after | ratio |
+|---|---|---|---|
+| `test_board_filter_row_layout.py` | 38.8s (12) | **4.6s** (12) | 8.5x |
+| `test_board_view_filter.py` | 38.2s (12) | **5.8s** (13) | 6.6x |
+| `test_board_detail_collapsible.py` | 37.3s (12) | **6.0s** (13) | 6.2x |
+| `test_board_topic_view.py` | 30.7s (6) | **3.2s** (7) | 9.5x |
+| `test_board_scroll_focus_jump.py` | 22.6s (10) | **21.3s** (12) | **1.1x** |
+| `test_board_toggle_children_gate.py` | 19.0s (3) | **2.7s** (4) | 7.0x |
+| `test_board_empty_column_focus.py` | 15.2s (12) | **9.1s** (13) | 1.7x |
+| `test_board_detail_nested_actions.py` | 11.5s (4) | **3.1s** (5) | 3.7x |
+| `test_board_detail_arrow_nav.py` | 8.6s (3) | **1.9s** (4) | 4.5x |
+| `test_board_inflight_view.py` | 5.5s (9) | **0.9s** (10) | 5.9x |
+| `test_board_picker_tab_nav.py` | 5.4s (2) | **1.0s** (2) | 5.6x |
+| `test_board_footer_visibility.py` | 4.1s (2) | **0.7s** (3) | 5.9x |
+| `test_board_topic_group.py` | 0.18s (30) | 0.26s (30) | **0.7x** |
+| `test_board_dialog_subprocess_degrade.py` | 0.16s (9) | 0.19s (9) | **0.8x** |
+| `test_board_dialog_run_dispatch.py` | 0.13s (15) | 0.25s (15) | **0.5x** |
+| **total** | **237.4s** (141) | **61.1s** (152) | **3.9x** |
+
+Two honest regressions, both accepted:
+
+- **The three zero-boot modules got marginally slower** (0.47s → 0.70s combined).
+  They never booted an app, so they had nothing to save; they now pay one
+  fixture-tree build + module exec per class (~16ms). That is the price of
+  putting them under the guard, which was the point of migrating them.
+- **`scroll_focus_jump` barely moved (1.1x).** Its property is *height*-dependent
+  as well as volume-dependent: two cases need a card taller than the pane. Short
+  slugs render 5-row cards and satisfied neither, so the fixture reproduces real
+  title wrapping (`tall_titles=True`, measured 13 rows against viewports of 5 and
+  11). 40 tall cards are expensive to render, so the file trades ~1.3s of speed
+  for determinism and for two assertions that now actually hold. It is the
+  binding constraint of this set, at 35% of the remaining 61.1s.
+
+### Reconciling the suite delta (Step 5.4)
+
+Summed per-file saving: **176.3s**. Observed suite saving: **243.1s** — about
+**67s more** than the per-file total predicts. Per-file runs each pay their own
+interpreter and `textual` import startup, but that cost is present in both
+columns and cancels, so it does not explain the surplus.
+
+The most plausible remaining mechanism is shared-interpreter allocation
+pressure: each live-tree boot mounted ~3,200 widget nodes against 213 task
+cards, and ~66 such boots are now gone, which reduces GC work for *every* later
+module in the single-process suite rather than only for the migrated files.
+Recorded as a hypothesis, not asserted — isolating it was not in scope.
+**Caveat:** an unrelated session held an uncommitted edit to `ait` during the
+"before" run; it touches no Python path the suite imports, but the two suite
+runs were not byte-identical checkouts.
+
+Against the plan's projection (237.4s → ~35-60s for the 15 modules, ~180-200s of
+suite saving): the per-file total landed at **61.1s**, just outside the top of
+the projected band, entirely because of `scroll_focus_jump`; the suite saving of
+243.1s **exceeded** the projected 180-200s.
+
+## Final Implementation Notes
+
+- **Actual work done:** Migrated all **15** live-tree-coupled board modules onto
+  `tests/lib/board_fixture.py`. Added two additive harness names —
+  `RICH_TOPOLOGY` (two topic lanes, issue-bearing tasks, a `depends:` edge) and
+  `wide_topology(n, *, with_children, tall_titles)` — plus a staged
+  `metadata/gates.yaml`; `DEFAULT_TOPOLOGY` and `build_tree` were left untouched.
+  Converted ~20 live-tree `skipTest` guards into unconditional assertions and
+  added 11 executable `test_fixture_facts` preconditions. Replaced t1354_1's
+  2-entry guard with a fail-closed two-tier one (17-module strict set + a
+  25-module sweep) and 16 guard/control tests.
+
+- **Deviations from plan:** Four, all recorded in place above.
+  1. **A third fixture trap, found by failure not by inspection.** The plan
+     listed `project_config.yaml` and the phantom-stub rule; migrating
+     `inflight_view` turned 3 tests red because the fixture had no
+     `metadata/gates.yaml`. `GATES_REGISTRY_FILE` derives from `TASKS_DIR`, and
+     without it `review_approved` silently *reclassifies*: the task lands in the
+     `agent` group instead of `human`, its card loses `[s sign-off]`, and
+     `unresolved_local_deps` fails closed and reports a gate-satisfied upstream
+     as still blocking. Nothing raises. Fixed by staging the canonical
+     `.aitask-scripts/gates_reference.yaml`, documented next to the other traps,
+     and pinned by a control asserting the flip to `agent` without it.
+  2. **Tier 1 needed a second allowlist.** The plan said the sweep would flag
+     canonical `aitask_board` imports *and* that `test_board_movement.py` /
+     `test_board_persistence_seam.py` would "still be covered" — internally
+     inconsistent, since both import canonically by design (patch mode; the
+     isolation negative control). A canonical import without a chdir is still
+     live-tree coupling (`TASKS_DIR` resolves against the suite's cwd — exactly
+     how `inflight_view`'s model tests reached the live tree). So the rule
+     stands and `CANONICAL_IMPORT_ALLOWED` was added, expression-scoped and
+     controlled the same way as `CHDIR_ALLOWED`.
+  3. **The Step-2a fact matrix was corrected per module.** Three modules
+     (`filter_row_layout`, `picker_tab_nav`, and the two `dialog_*`) turned out
+     to have no real topology dependence — their assertions are widget geometry,
+     focus routing and subprocess dispatch. Per the plan's own rule ("a fact no
+     control can break is deleted"), they declare no facts and say why in their
+     docstrings, rather than carrying an unexercised claim.
+  4. **`scroll_focus_jump` needed card *height*, not just count.** The plan
+     treated it as purely volume-dependent (40 parents). Measured: 40 short-slug
+     cards render 5 rows and silently broke both "card exceeds the viewport" and
+     "no card fully visible" cases. Added `tall_titles`.
+
+- **Issues encountered:**
+  - The reworked guard immediately caught a miss of mine:
+    `test_board_view_filter.py:268` still did `from aitask_board import
+    _load_task_types` inside a test, reading **live** task types while the rest
+    of the module ran on the fixture. Fixing it exposed a second latent problem —
+    `_load_task_types()[0]` returns registry order (falling back to
+    `bug/feature/refactor`), which does not intersect a tree of `chore` tasks, so
+    the free ∩ type assertion would have been vacuous. The test now selects a
+    type the tree actually carries and asserts the resulting set is non-empty.
+  - The first `tall_titles` control measured card height under the harness's
+    default five narrow columns and disagreed with the real module, which imposes
+    two wide ones. Column *width* drives title wrapping, so the control now
+    reproduces the Tall|Side layout before measuring.
+  - A 40-word slug overflowed the 255-byte filename limit (`ENAMETOOLONG`); 28
+    words gives 13-row cards at 194 bytes.
+  - **Review found the first fail-closed scanner still had a bypass**, and it
+    was a real one: `move = os.chdir` … `move(REPO_ROOT)` and
+    `getattr(os, "chdir")(REPO_ROOT)` both returned `[]` from *both* tiers.
+    Confirmed empirically before fixing. The cause was that a `chdir` reference
+    was only recorded when passed **directly as a call argument**, so an alias
+    bound by assignment was invisible and the eventual callee (`move`) matched no
+    name rule — a future board test could have booted the live tree with the
+    guard green, which is exactly the "or equivalent" promise failing. Fixed by
+    reporting *any* `chdir` reference in executable position (rejecting the
+    construction rather than following the alias), plus a `getattr(os, "chdir")`
+    rule. Five new controls (h)–(l) cover assignment aliasing, `getattr`,
+    `getattr` + alias, `from os import` + alias, and container dispatch. This is
+    the second time this guard's rule needed widening after being believed
+    complete — the lesson is that a name-based rule is only ever as good as the
+    enumeration behind it, which is why the controls are now the contract.
+
+- **Key decisions:**
+  - **Guard rejects reference *construction*, not just call sites.** Neither an
+    argument-matching rule nor a callee-name rule can deliver the task's "or
+    equivalent" promise: the first misses `os.chdir(str(REPO_ROOT))`, and the
+    second misses `move = os.chdir; move(REPO_ROOT)` entirely. Verified the
+    *pre-existing* scanner was already evadable — `if func in ("os.chdir",
+    "chdir")` misses `_os.chdir(...)`, and `addCleanup(os.chdir, ...)` is not an
+    `ast.Call` at all — and verified (after review) that the first replacement
+    still missed the alias routes. The shipped rule flags any `chdir` reference
+    in executable position, wherever it is bound, plus `getattr(os, "chdir")`
+    and `from os import chdir`. **Twelve** equivalent forms are pinned as
+    controls; that enumeration, not the implementation, is the contract.
+  - **Exemptions are per-expression, never per-module** — a module-wide
+    exemption would wave through a future accidental `os.chdir(REPO_ROOT)` in the
+    exempt file. Both allowlists are proven load-bearing (removal breaks the
+    sweep) *and* proven not-module-wide (an injected `REPO_ROOT` chdir / a
+    different import form is still flagged).
+  - **`test_board_header_row_live.py` needs no entry** and that is stated as a
+    policy boundary in the guard, so its absence is not mistaken for coverage: it
+    reaches the real repo via tmux `-c str(REPO_ROOT)`, with no chdir and no
+    board import.
+  - **Structural guard, never a timing ceiling** — kept from t1354_1.
+  - Scrubbed `"sister"` repo terminology from `test_board_detail_collapsible.py`
+    while migrating it (project convention: cross-repo / linked repo).
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t1354_3 (parallel lane):** the harness chdirs the process, so
+    `--dist loadfile` remains mandatory — now for **19** modules, not 4. The
+    binding constraint inside this set is `test_board_scroll_focus_jump.py`
+    (21.3s, 35% of the migrated total); it is deliberately expensive and should
+    not be "optimised" by shrinking its fixture without re-reading Step 2a.
+  - **t1354_4 (retrospective):** suite is now **400.4s real / 397.1s test time**
+    (2996 tests). `test_syncer_rows.py` (~124s, no live-tree coupling) is now
+    comfortably the largest single file and the makespan floor candidate.
+  - **Adding a new `tests/test_board_*.py` file now requires a decision**, not
+    just a green run: the tier-1 sweep is fail-closed over the glob, so any chdir
+    or canonical board import must either go away or be pinned with a reason.
+  - **Read the `board_fixture` module docstring first** — it now records three
+    traps (relative `TASK_DIR`, phantom-stub, `project_config.yaml`) plus the
+    `gates.yaml` reclassification and the empty-`lock_map` degrade.
 
 ## Step 9 (Post-Implementation)
 
