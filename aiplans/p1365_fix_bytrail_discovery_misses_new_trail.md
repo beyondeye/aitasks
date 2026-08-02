@@ -324,6 +324,38 @@ wrong. The disk read makes it correct.
    hunks from a concurrent in-flight session (t1243_3, board gap-indexing).
    Verify staged *content*, not just paths, before committing.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-08-02 21:26)
+
+- **Requested by user:** `_iter_active_task_frontmatter` only reported a file as
+  `unreadable` when the read or the YAML parse *raised*. `parse_frontmatter`
+  returns `None` — it does not raise — for an empty file or an unterminated
+  frontmatter block, and `frontmatter_patch.py` rewrites task files with a plain
+  `open(path, "w")`, which **truncates to zero before writing**. A scan landing
+  in that window therefore returned `([], [])` and wrongly announced "No
+  implementation trails found". Treat a missing frontmatter result for
+  task-named files as retryable-unreadable, and cover both the empty-file and
+  the incomplete-delimiter case.
+- **Verified:** confirmed. The truncate-to-empty instant is in fact the *more
+  likely* half of the race, so the original guard covered the rarer shape only.
+  A scan of the live tree found zero task-named files legitimately lacking
+  frontmatter, and the fixture's `t_unparseable.md` is filename-unparseable
+  (not `t<N>_…`), so qualifying on task-named names raises no false warning.
+- **Changes made:** the read/parse block now funnels every outcome through one
+  `isinstance(meta, dict)` test; anything that is not a mapping is skipped, and
+  is appended to `unreadable` when `parse_task_filename(name)` yields a task id.
+  The docstring records both failure shapes and why the task-named qualifier is
+  what keeps the report from crying wolf on ordinary documents.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `tests/test_board_bytrail_view.py`.
+- **Tests added:** `test_truncated_rewrite_windows_are_reported_not_silently_dropped`
+  (empty file + delimiter-truncated file are both reported) and
+  `test_a_non_task_document_is_not_reported_as_unreadable` (the discrimination
+  control for the qualifier). Both carry negative controls — mutating the
+  `elif` to `False` fails the first, dropping the task-named qualifier fails
+  the second.
+
 ## Risk
 
 ### Code-health risk: medium
