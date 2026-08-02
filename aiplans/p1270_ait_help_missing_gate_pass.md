@@ -79,3 +79,29 @@ Current-branch mode (no worktree to remove). Merge target is `main` per the
 header above. After the Step 8 review + commit, run the gate orchestrator
 (`ait gates run 1270` — this task declares `risk_evaluated`), then archive with
 `./.aitask-scripts/aitask_archive.sh 1270`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned one-line insertion in `ait` — added
+  `  gate pass      Sign a human gate (writes the code-bound witness)` to the
+  `show_usage` "Gates:" block, between `gate append` and `gate fail`, mirroring
+  the dispatcher's `case` order at `ait:322-325`. Diff is `1 file changed,
+  1 insertion(+)`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. All three planned verifications passed on the
+  first run: `./ait --help` renders the new line with the description column
+  aligned to its neighbours (6 spaces after the 9-character `gate pass`);
+  `bash tests/test_gate_cli_wiring.sh` → 15/15 passed; `shellcheck ait` → clean
+  apart from the three pre-existing SC1091 "not following sourced file" info
+  notes.
+- **Key decisions:** Placed `pass` after `append` rather than alphabetically
+  last. The "Gates:" block already mirrors the dispatcher's `case` arm order for
+  the `gates` verbs (run / unlocked / list / status / sync-registry ==
+  `ait:309-313`), so following the `gate` dispatcher order (`append`, `pass`,
+  `fail`, `log` == `ait:322-325`) keeps the block's ordering rule consistent.
+  Kept the task-suggested description wording rather than the website's terser
+  "Sign off a human gate", because the surrounding entries (`gate append`) use
+  the same explanatory-parenthetical style and the witness detail is the
+  distinguishing fact about this verb.
+- **Upstream defects identified:** None
+
