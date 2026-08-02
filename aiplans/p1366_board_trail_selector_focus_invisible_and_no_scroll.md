@@ -267,10 +267,10 @@ archive with `./.aitask-scripts/aitask_archive.sh 1366`.
   `#delarch_label` keeps `width: auto`; both stay clipped at 80 cols, and the three
   label-only confirm dialogs remain keyboard-unreachable when their body overflows.
   Pre-existing, deliberately out of scope, but the sink is now half-fixed
-  · severity: low · → mitigation: confirm_dialog_body_label_split
+  · severity: low · → mitigation: t1373 (confirm_dialog_body_label_split)
 
 ### Planned mitigations
-- timing: after | name: confirm_dialog_body_label_split | type: enhancement | priority: low | effort: medium | addresses: half-fixed shared sink (confirm-dialog family) | desc: Move the body text of RemoveDepConfirmScreen / DeleteConfirmScreen / DeleteColumnConfirmScreen out of #dep_picker_title into a second Label so the dialogs stop collapsing under dock:top, then extend the width:100% + overflow-y:auto treatment to the confirm family including #delarch_label and the unstyled #orphan_parent_label.
+- timing: after | created: t1373 | name: confirm_dialog_body_label_split | type: enhancement | priority: low | effort: medium | addresses: half-fixed shared sink (confirm-dialog family) | desc: Move the body text of RemoveDepConfirmScreen / DeleteConfirmScreen / DeleteColumnConfirmScreen out of #dep_picker_title into a second Label so the dialogs stop collapsing under dock:top, then extend the width:100% + overflow-y:auto treatment to the confirm family including #delarch_label and the unstyled #orphan_parent_label.
 
 ### Goal-achievement risk: low
 - Every acceptance criterion was demonstrated end-to-end on the real `KanbanApp`
