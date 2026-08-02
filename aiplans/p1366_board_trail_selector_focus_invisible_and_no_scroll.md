@@ -278,3 +278,69 @@ archive with `./.aitask-scripts/aitask_archive.sh 1366`.
   AC3 scroll + reachable `Cancel`, AC4 untruncated pinned hint, AC6 sibling picker —
   and the assertion helper itself was proven to work. The failing baseline was then
   re-confirmed at HEAD `2c6e237bf` after t1365 landed. `None identified.`
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in the planned order.
+  1. Tests first, in `ByTrailPilotTests` (`tests/test_board_bytrail_view.py`), plus
+     three helpers on `ByTrailTestBase`: `_dialog_text` (composited frame sliced to a
+     widget's columns, block-drawing chrome collapsed), `_settle` (pauses +
+     `wait_for_scheduled_animations`), `_mk_trail_info`.
+  2. `PickerItem(Static)` added above `GateChoiceItem`; all seven row classes
+     (`GateChoiceItem`, `TrailSelectItem`, `DepPickerItem`, `ChildPickerItem`,
+     `FoldedTaskPickerItem`, `FileReferenceItem`, `ColumnSelectItem`) reparented and
+     their duplicated `can_focus`/`on_focus`/`on_blur` deleted — exactly one
+     `add_class("dep-item-focused")` site remains in the file.
+  3. CSS: two per-type focus rules → `PickerItem { height: auto; width: 100%;
+     padding: 0 1; }` + `PickerItem.dep-item-focused { background: $primary 20%;
+     outline-left: thick $accent; }`, with `DepPickerItem`/`ChildPickerItem
+     { height: 1; }` kept *after* them as sizing-only overrides.
+  4. `picker-dialog` marker class added to the seven focus-driven pickers, carrying
+     `overflow-y: auto` and `width: 100%; dock: top` on the title.
+  5. Trail hint → `Select trail — ↑/↓ move · Enter open · Esc cancel`;
+     `event.prevent_default()`/`event.stop()` added to `TrailSelectItem.on_key` and
+     `GateChoiceItem.on_key`.
+
+- **Deviations from plan:** None in the delivered code. The *design* deviated from
+  the answered planning question during planning itself (recorded in the plan body):
+  the user chose "pin the hint with `dock: top`", but applying it globally to all 19
+  `#dep_picker_dialog` modals was proven to collapse the three label-only confirm
+  dialogs to `content_height = 0` with the title drawn below the buttons. The hint is
+  still pinned — scoped to the picker family via the `picker-dialog` marker.
+
+- **Issues encountered:**
+  - `outline-left` vs `border-left` — `border-left` steals a content column
+    (measured 85 focused / 86 blurred), which reflows and changes the height of the
+    multi-line trail rows. `outline-left` paints over the content area without
+    resizing it (86 / 86). This is what makes AC2's "cannot assume `height: 1`" hold.
+  - **The first live-terminal verification produced a false negative.** `ait board`
+    boots with focus in the search `Input`, so the scripted `z`/`s` were typed as
+    text (the search box read `zs`), the modal never opened, and the two captured
+    frames were identical — which looks exactly like the unfixed defect. Fixed by
+    sending `Escape` first and adding a guard that asserts "Select trail" is on the
+    frame before the comparison is trusted. A capture-based check needs a
+    did-the-thing-open assertion or it silently reports harness failure as defect.
+  - `pytest` is not installed in `~/.aitask/venv`; used
+    `python -m unittest tests.<module>` throughout.
+
+- **Key decisions:**
+  - Shared **base class** rather than a bare `.dep-item-focused` CSS selector: the
+    padding that keeps the focus bar off the first glyph needs a shared selector
+    anyway, and the base makes a future picker row styled by construction.
+  - **Scoped** marker class rather than applying the new behaviour at the raw
+    `#dep_picker_dialog` id: 19 modals share that id and only ~7 want scrolling.
+    Keeps 12 dialogs bit-identical (verified: `vscroll=False`, `width: auto` titles).
+  - `TopicSortModeScreen` excluded with an inline comment — its items are
+    `can_focus = False`, so focus-driven scroll-into-view would never fire.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:3638 — OrphanParentArchiveScreen's body label uses id `orphan_parent_label`, which has no CSS rule anywhere in the file; it renders with bare `Label` defaults (`width: auto`) and is clipped horizontally at narrow widths.`
+  - `.aitask-scripts/board/aitask_board.py:5635 — `#delarch_label` (DeleteArchiveConfirmScreen's body) keeps `width: auto`, so a long ARCHIVED/DELETED listing is clipped mid-word at 80 columns rather than wrapping.`
+  - `.aitask-scripts/board/aitask_board.py:3432,3467,5310 — RemoveDepConfirmScreen / DeleteConfirmScreen / DeleteColumnConfirmScreen put their entire body text inside `#dep_picker_title`, whose only sibling is the docked button row. That shape makes the dialog's `height: auto` resolve to 0 under `dock: top`, and leaves overflowing bodies reachable by mouse wheel only. Covered by the planned mitigation `confirm_dialog_body_label_split`.`
+
+- **Verification:** 4 new tests fail against unmodified source and pass after the fix;
+  `ByTrailPilotTests` 11/11; `test_board_bytrail_view` 93/93; all 26 board test
+  modules 472 passed / 1 skipped; unscoped-dialog isolation probed directly; and a
+  real 80×24 tmux capture of `./ait board` → `z` → `s` shows the focus bar moving,
+  the hint pinned and unclipped, the scrollbar thumb moving, and the Cancel button
+  scrolling into view.
