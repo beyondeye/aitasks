@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-03 11:29
-updated_at: 2026-08-03 11:39
+updated_at: 2026-08-03 12:53
 ---
 
 Renaming a tmux agent window away from the `agent-` prefix degrades both
@@ -137,3 +138,8 @@ leaving the prefix coupling implicit.
   (a) minimonitor still lists it, (b) `ait monitor` shows exactly one OTHER
   card for it, (c) the minimonitor inside that window behaves per the decision
   taken on Fix C.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-03T09:53:44Z status=pass attempt=1 type=human
