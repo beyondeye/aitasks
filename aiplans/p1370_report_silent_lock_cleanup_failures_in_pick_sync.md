@@ -426,6 +426,103 @@ uncleaned, while `aitask_pick_own.sh` still exits 0") = tests E/F/G + Test 25 +
 the live failure check. AC2 ("a successful cleanup, and a cleanup with nothing
 to do, stay silent") = the empty-stderr negative controls A/B/C/D + Test 24.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-08-03 07:45)
+
+- **Requested by user:** The retry fetch mapped *every* failed `git fetch` to
+  exit 11, while the initial-fetch block treats `couldn't find remote ref` /
+  `not our ref` as the normal branch-absent case and returns 0. A branch deleted
+  after a rejected push but before the refresh would therefore emit a misleading
+  "unreadable branch" warning, contradicting the documented `0 = branch absent`
+  contract. Reuse the absent-branch case at the retry site and add a test that
+  deletes the branch during the retry cycle.
+
+- **Changes made:** Confirmed and fixed. Extracted the absent-branch test into
+  `_cleanup_branch_absent()` in `aitask_lock.sh` and branched **both** fetch
+  sites on it, so the two can no longer drift apart. The retry site now returns
+  0 silently when the branch is gone. This also closes a worse second-order
+  effect the concern implies: had the loop continued, the next attempt's
+  `git push <commit>:refs/heads/aitask-locks` would have **recreated the deleted
+  branch from our rebuilt tree, resurrecting every lock it held**. Added
+  Test 12h2, which rejects the push from a `pre-receive` hook that also deletes
+  the branch, and asserts exit 0, empty stderr, and that the branch stays
+  deleted. The hook must `unset GIT_QUARANTINE_PATH GIT_OBJECT_DIRECTORY
+  GIT_ALTERNATE_OBJECT_DIRECTORIES` first — git otherwise refuses with "ref
+  updates forbidden inside quarantine environment", and the fixture silently
+  fails to delete anything. Negative control: removing the branch-absent case
+  from the retry site alone reproduces the reported bug exactly (exit 11 plus a
+  "could not read the lock branch … reason unknown" warning).
+
+- **Files affected:** `.aitask-scripts/aitask_lock.sh`,
+  `tests/test_task_lock.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done:** As planned, plus two additions found during
+  implementation (below). `cleanup_locks()` in `.aitask-scripts/aitask_lock.sh`
+  gained a documented exit contract (0 / 11 / 12), two `set -euo pipefail`
+  aborts were removed (lock listing → `awk`; task-id extraction → parameter
+  expansion), both `git fetch` sites classify their stderr via the canonical
+  `_task_push_classify`, and the retry-loop fetch no longer misreports a read
+  failure as push exhaustion. `sync_remote()` in `aitask_pick_own.sh` was
+  replaced with `lock_cleanup()` + `_lock_cleanup_warn()`, which capture the
+  child's output, classify the exit code, forward its diagnosis, and add the
+  consequence — always returning 0. 9 new tests in `tests/test_task_lock.sh`
+  (63/63) and 2 in `tests/test_task_push.sh` (126/126). Docs updated in
+  `website/content/docs/commands/lock.md` (new "Stale Lock Cleanup" section) and
+  `website/content/docs/development/_index.md`.
+
+- **Deviations from plan:**
+  1. **The dispatcher calls `cleanup_locks` bare, not `cleanup_locks || rc=$?`.**
+     The planned guarded form was wrong: invoking a function on the left of `||`
+     puts it in a condition context, which **disables `set -e` for the entire
+     function body**. That silently re-introduced the failure class this task
+     exists to remove — an unexpected non-zero command mid-sweep would no longer
+     abort, and the function would carry on with bogus state. A bare call under
+     `set -e` propagates the exact return code (verified: `return 11` → script
+     exits 11) *and* keeps `set -e` live inside. This was caught only because
+     negative control (i) failed to discriminate.
+  2. **`_cleanup_branch_absent()` was extracted** (review round 2) so both fetch
+     sites share one absent-branch test — see Post-Review Changes.
+
+- **Issues encountered:**
+  - The first negative control passed when it should have failed, which is what
+    exposed deviation 1. A passing negative control means the test does not
+    discriminate; it was treated as a defect in the implementation, not the test.
+  - The Test 12h2 fixture initially deleted nothing: a `pre-receive` hook
+    inherits a quarantine environment in which git refuses ref updates ("ref
+    updates forbidden inside quarantine environment"). The hook must
+    `unset GIT_QUARANTINE_PATH GIT_OBJECT_DIRECTORY
+    GIT_ALTERNATE_OBJECT_DIRECTORIES` first. Without that the test would have
+    passed vacuously.
+  - `git` error text is locale-dependent and `task_utils.sh` pins `LC_ALL=C`
+    only inside `_ait_data_git`; both new fetches pin it explicitly.
+
+- **Key decisions:**
+  - Exit codes split on **read vs write** (11 = branch unreadable, 12 = removal
+    push rejected), because that is what makes the recovery hint correct — a
+    connectivity failure must not be sent to a push-retry hint.
+  - No `LOCK_CLEANUP_FAILED:` token was added to `--sync` stdout. No skill would
+    act on it, and it would force edits to SKILL.md + `.md.j2` + goldens across
+    3 agents × 4 profiles. A stderr warning meets the acceptance criteria.
+  - The child's stdout progress notices are dropped at the `aitask_pick_own.sh`
+    call site. They previously leaked into the structured stdout the pick skill
+    parses; the negative control confirmed `SYNCED` was being corrupted to
+    `Removing 1 stale lock(s)...\nSYNCED` whenever a sweep had work to do.
+  - Every quiet path is pinned with an **empty-stderr** negative control,
+    because this code runs on every pick and a spurious warning would be worse
+    than the silence it replaces.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_lock.sh:362` — `list_locks()` has the same
+    `set -euo pipefail` abort as the one fixed in `cleanup_locks()`:
+    `lock_files=$(git ls-tree "$current_tree_hash" | grep '_lock\.yaml' | awk …)`
+    exits 1 when the lock branch holds no lock files, so `ait lock --list`
+    aborts before printing its "No active locks" message. Left untouched as
+    out of scope; it is exactly the pattern the confirmed `after` mitigation
+    task audits for.
+
 ## Post-implementation
 
 Per **Step 9** of the task-workflow skill: current-branch mode (profile `fast`,
