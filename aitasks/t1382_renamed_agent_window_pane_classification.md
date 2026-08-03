@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_monitor, aitask_monitormini, tmux]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-03 11:29
-updated_at: 2026-08-03 11:29
+updated_at: 2026-08-03 11:39
 ---
 
 Renaming a tmux agent window away from the `agent-` prefix degrades both
