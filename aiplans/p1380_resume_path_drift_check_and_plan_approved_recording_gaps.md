@@ -479,6 +479,133 @@ script means **no permission-allowlist edits** in the four seed/settings files.
 **Follow-up tasks filed at Step 8b:** (1) Step 5's missing worktree-reuse rule;
 (2) wiring `merge-target-sync.md` into the non-resumed Step 9 path.
 
+## Final Implementation Notes
+
+- **Actual work done:** All four defects fixed as planned, plus the two
+  design corrections the user's pre-approval review forced.
+  - **Defect 1** — new shared `plan-approved-stop.md` (Approved-Plan Stop
+    Sequence). `planning.md`'s "Approve and stop here" and
+    `remote-drift-check.md`'s "Stop and re-verify plan" both reduce to a
+    reference; the drift-stop branch now records `plan_approved` (once, guarded
+    by the new `recorded-pass` verb). The shared file deliberately uses
+    **bullets, not a numbered list** — an unnumbered step above a numbered list
+    is precisely what the original partial copy dropped.
+  - **Defect 2** — new "Resolve the plan's branches" step in Re-entry Routing
+    (plan header only, two-rung, `check-ref-format`-validated, `UNSAFE_BRANCH`
+    fails closed); `IMPLEMENT` runs the Remote Drift Check with a stated
+    loop-termination argument; `POSTIMPL` runs the new `merge-target-sync.md`.
+  - **Defect 3** — resolved as a *correction*: the recording is an audit record,
+    not a routing signal; the two resume mechanisms (Check 5 for `Implementing`,
+    §6.0 plan preference for `Ready`) are documented and the relaxation of Check
+    5's status gate is recorded as a rejected alternative.
+  - **Defect 4** — `task-abort.md` re-opens a stale `plan_approved`, gated on
+    **ledger content** rather than `record_gates`, so a `fast`-recorded ledger
+    aborted under `default` is still demoted.
+  - New CLI: `aitask_gate.sh recorded-pass <task-id> <gate>` (pure bash + python
+    parity arm), plus the extracted `_derive_gate_status`-style
+    `_derive_gate_runs_table` shared with `status`.
+- **Deviations from plan:** Two, both from the user's pre-approval review and
+  both verified before acting.
+  1. The planned `POSTIMPL` **exemption was invalid**. It rested on "Step 9's
+     merge surfaces the divergence", but `grep -n "git fetch\|git pull"
+     .claude/skills/task-workflow/SKILL.md` returns **nothing**: Step 9's
+     pre-flight only checks local ref existence and worktree conflicts, and
+     `git merge` is purely local, so a stale merge target merges cleanly and
+     fails only at push. Replaced the exemption with a real pre-flight
+     (`merge-target-sync.md`) with fast-forward-only recovery.
+  2. Re-entry Routing had **no branch-name extraction at all** — the
+     plan-existence guard only said "read the plan". Added the explicit
+     header-only parse, since a resumed session carries no branch variables and
+     may run under a different profile than the one that planned the task.
+- **Issues encountered:**
+  - `_derive_gate_runs_table` first used TAB as the field separator. Tab is IFS
+    *whitespace*, so bash `read` collapses runs of it and the empty `attempt`
+    field of a `skip`/`pending` run vanished, shifting the run id into its
+    place — `status` stopped byte-matching the python backend. Switched to
+    `\037` (US, non-whitespace) and pinned the empty-attempt shape in
+    `test_gate_recorded_pass.sh`.
+  - Drift-check test 12c's `git merge --ff-only origin/dev` "succeeded" while
+    leaving `dev` stale, because the fixture leaves HEAD on the default branch —
+    it fast-forwarded the *wrong* branch. That is exactly the failure
+    `merge-target-sync.md`'s `checkout` + `symbolic-ref` assertion prevents; the
+    test now runs the documented sequence verbatim and carries a negative
+    control for the missing checkout.
+  - 12b's local merge leaves `dev` genuinely diverged, so 12c cannot reuse that
+    fixture (it would hit the refusal path). Each leg gets its own fixture,
+    mirroring the procedure's own ordering: sync *before* Step 9 merges.
+  - `set -e` aborts before `cmd; rc=$?` captures a deliberate failure; the new
+    drift-check legs use `if (...); then rc=0; else rc=1; fi`.
+- **Key decisions:**
+  - Extraction over inline-plus-guard. Inlining the recording in
+    `remote-drift-check.md` would have made that file profile-varying and broken
+    `test_skill_render_task_workflow.sh` Test 1b's invariance assertion; the
+    shared file localises the `record_gates` guard instead and satisfies the
+    AC's "cannot drift apart again by partial copy" structurally.
+  - A **verb** on the already-allowlisted `aitask_gate.sh`, not a new script: a
+    new script would need permission-allowlist edits in four files
+    (`.claude/settings.local.json`, `seed/claude_settings.local.json`,
+    `seed/codex_rules.default.rules`, `seed/opencode_config.seed.json`).
+  - Abort's demotion is ledger-conditional, never `record_gates`-guarded — the
+    same reasoning `aidocs/gates/ledger-driven-reentry.md` already used to reject
+    Jinja-gating the re-entry prose. A pure-`default` project never has a
+    `plan_approved` pass, so the step is provably inert there.
+  - `recorded-pass` degrades to exit 1 ("not recorded"): the stop sequence then
+    writes a harmless duplicate, and abort skips a demotion that cannot matter
+    because `resume-point` degrades to `PLAN` on the same failure.
+- **Upstream defects identified:** None. (`tests/test_gate_guarded_archival.sh`
+  fails in the live worktree, but that is a **concurrent in-flight session's**
+  t1379 atomic-write refactor of `aitask_update.sh`, not a pre-existing defect
+  and not this task's: the same test passes 31/31 against a pristine `HEAD`
+  export with only this task's `aitask_gate.sh` + `gate_ledger.py` applied.)
+- **Verification:** `test_gate_recorded_pass` 31/31, `test_gate_plan_approval_transitions`
+  38/38, `test_task_workflow_reentry_drift` 57/57 (13 negative controls; sources
+  restore byte-exactly), `test_remote_drift_check` 32/32, `test_gate_reentry`
+  21/21, `test_skill_render_task_workflow` 180/180, all 13
+  `test_skill_render_aitask_*`, `test_skill_verify` / `test_skill_rerender` /
+  `test_skill_template` / `test_skill_render_uniform` /
+  `test_skill_dispatch_contract` / `test_skill_parity_runtime_vs_rendered` /
+  `test_gate_ledger` / `test_gate_active_gates` / `test_gate_verifiers` /
+  `test_query_files_inflight` / `test_dependency_unblock` /
+  `test_parallel_cross_repo_planning_procedure` green;
+  `aitask_skill_verify.sh` OK; shellcheck unchanged from baseline (SC1091 only);
+  Python suite `PASSED (runner=pytest, exit=0)`.
+- **Follow-ups filed at Step 8b/8d:** (1) Step 5's missing worktree-reuse rule;
+  (2) wiring `merge-target-sync.md` into the non-resumed Step 9 path;
+  (3) `verify_reentry_drift_loop_terminates` (the confirmed risk mitigation).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-03 13:45)
+
+- **Requested by user:** `gate-recording.md` claimed every Gate Recording
+  Procedure call site "in `SKILL.md`, `planning.md` and `plan-approved-stop.md`"
+  is wrapped in the `record_gates` Jinja guard. After the extraction,
+  `planning.md` delegates to the shared stop sequence **unguarded** and has no
+  call site at all — so a maintainer could go looking for, or add, a guard that
+  must not exist there.
+- **Verified:** CONFIRMED. `grep -n "gate-recording.md\|record_gates"
+  .claude/skills/task-workflow/planning.md` returns nothing; the only two
+  call-site files are `SKILL.md` and `plan-approved-stop.md`.
+- **Changes made:** Rewrote the paragraph in `gate-recording.md` to enumerate
+  the two real call-site files and to state explicitly that `planning.md` and
+  `remote-drift-check.md` do **not** call the procedure and must not carry a
+  guard, with the reason (the shared sequence owns the guard once on their
+  behalf — that is the point of the extraction). Fixed in place rather than
+  deferred: it is a one-paragraph correction to text this task introduced.
+- **Guarded against recurrence:** added four structural guards to
+  `tests/test_task_workflow_reentry_drift.sh` —
+  `planning-delegation-is-unguarded`, `drift-delegation-is-unguarded`,
+  `gate-recording-names-stop-sequence-callsite`,
+  `gate-recording-says-delegators-are-unguarded` — plus two new negative
+  controls (one injects exactly the spurious `{% if profile.record_gates … %}`
+  wrap at `planning.md`'s delegation, the mistake the concern predicts).
+- **Files affected:** `.claude/skills/task-workflow/gate-recording.md`,
+  `tests/test_task_workflow_reentry_drift.sh`,
+  `tests/golden/procs/task-workflow/gate-recording-default.md`, and the three
+  tracked `task-workflow-remote-` prerender trees (re-rendered).
+- **Result:** `test_task_workflow_reentry_drift` 57/57 (13 negative controls),
+  `aitask_skill_verify.sh` clean, `test_skill_render_task_workflow` 180/180.
+
 ## Risk
 
 ### Code-health risk: medium
