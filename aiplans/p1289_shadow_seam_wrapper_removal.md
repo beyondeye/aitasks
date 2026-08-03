@@ -363,3 +363,83 @@ would otherwise fit — committing the AST scan as a permanent regression guard 
 was considered and explicitly declined in favour of a one-time verification, so
 it is not re-proposed here. No `### Planned mitigations` subsection is written,
 so Step 7 and Step 8d find nothing and no-op.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned. Deleted the four
+  `MiniMonitorApp` delegators (`_find_shadow_pane_for_sync`,
+  `_find_shadow_pane_for`, `_capture_shadow_text`, `_format_stale_duration`),
+  the module-level `_unparsed_msg` alias, and the unused `match_shadow_pane`
+  re-export from `minimonitor_app.py` (−59/+13). Rewrote 9 call sites to the
+  shared functions verbatim. Migrated
+  `tests/test_minimonitor_concern_action.py` (17 capture stubs → the new
+  module-level `_stub_capture` helper; `mm.match_shadow_pane` →
+  `mc.match_shadow_pane`; `_format_stale_duration` → `format_stale_duration`;
+  `CaptureArgvTests` now drives `mm.capture_shadow_text` directly) and
+  `tests/test_minimonitor_concern_smoke.py` (a `_patch` helper rebinds
+  `find_shadow_pane_async` and wraps the REAL `capture_shadow_text` with only
+  the scrollback depth pinned). Corrected one stale line in
+  `aiplans/p1118_mobile_shadow_agent_driving_over_applink.md` that attributed
+  `match_shadow_pane` to `minimonitor_app.py`. **No assertion was changed** —
+  every test change is a change of which name it calls, per the task's
+  acceptance rule.
+
+- **Deviations from plan:** None substantive. Two decisions the plan recorded
+  and the implementation kept: (a) the duplicate `MatchShadowPaneTests` /
+  `test_format_stale_duration` classes were **repointed at `monitor_core`
+  rather than deleted**, so they now literally duplicate coverage in
+  `tests/test_shadow_seam.py` — chosen deliberately to honour "change only
+  which name it calls"; (b) the AST acceptance scan was run as a **one-time
+  verification, not committed as a guard test**.
+
+- **Issues encountered:**
+  - The plan's original grep-based straggler check was self-contradictory — the
+    migrated code deliberately *names* the removed members in comments and
+    docstrings, so a text search fails on a correct migration. Replaced before
+    implementation with an AST scan that cannot see strings or comments.
+  - `_TASK_ID_RE` is flagged unused by pyflakes in `minimonitor_app.py`.
+    Verified **pre-existing** (present on `HEAD` before this change) and left
+    alone. This change reduced that file's pyflakes warnings from 2 to 1 by
+    removing the `match_shadow_pane` re-export.
+  - `main` advanced mid-session: t1354_3 (opt-in pytest-xdist parallel lane)
+    and t1366 landed during planning. t1354_3 rewrote
+    `test_minimonitor_concern_smoke.py`'s tmux fixture to a per-PID socket with
+    a private `TMUX_TMPDIR`; this task's edits sit cleanly on top of it.
+  - A concurrent session's syncer swept the `p1118` plan correction into its
+    own commit `c337b9aa7` ("ait: Auto-commit task changes before sync"). The
+    content is committed and correct, just under another session's message; not
+    rewritten, to avoid touching shared history.
+
+- **Key decisions:**
+  - **Import boundary kept at `monitor.tmux_monitor`.** That module is a
+    backwards-compatibility shim ("Add new code to `monitor_core.py`, not
+    here"), but it is the established boundary for *both* apps —
+    `monitor_app.py:26-38` imports the same seam through it. Repointing
+    minimonitor alone would make the two apps disagree; repointing both is a
+    separate repo-wide migration. The residual (a future shim rebind
+    reintroducing indirection behind a passing seam scan) is closed by a
+    runtime `mm.<fn> is mc.<fn>` identity assertion, run as verification 1c.
+  - **`match_shadow_pane` re-export removed** (the task asked for one
+    consistent choice): no production code in `minimonitor_app` called it, and
+    its only consumers were four test assertions now pointing at `monitor_core`.
+  - **Test stubs are module-global state**, which is only safe because the
+    runner's parallel lane is *process*-based (`xdist` with `--dist loadfile`,
+    which is also why ~39 chdir-ing modules need loadfile). Verified by running
+    the three shadow files under the real lane, not by assuming it. **If the
+    runner ever moves to in-process parallelism, `_stub_capture` / `_patch`
+    must become scoped patches.**
+
+- **Verification performed:** AST acceptance scan (no delegators) and executable
+  -reference scan both clean; import-boundary identity assertion `IMPORT
+  BOUNDARY OK`; **negative control** — reverting one `_stub_capture` call to the
+  old instance-attribute form made `test_happy_path_modal_then_clipboard` fail
+  with `AssertionError: 0 != 1` on `spy_pushed`, proving the module stub is
+  load-bearing (restored afterwards, `__pycache__` purged first); live-tmux
+  smoke ran for real (tmux 3.7b present) — 2 passed; parallel lane over the
+  three shadow files — 93 passed; `test_no_raw_tmux.sh` 5/5 and
+  `test_shortcuts_registry_coverage.sh` passed; full suite green on **both**
+  lanes (`PYTHON SUITE: PASSED (runner=pytest, exit=0)`; serial:
+  `3123 passed, 1 skipped`); `./ait minimonitor` booted in an isolated tmux pane
+  and rendered its `e/E:shadow` and `c:concerns` bindings with no traceback.
+
+- **Upstream defects identified:** None
